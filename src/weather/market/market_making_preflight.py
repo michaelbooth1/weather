@@ -298,7 +298,7 @@ REMEDIATION_RULES = {
     "clob_books": {
         "root_cause": "missing_clob_book_rows",
         "owner": "CLOB book loop",
-        "suggested_command": "python -m weather.market.market_microstructure status",
+        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --strict",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -313,7 +313,7 @@ REMEDIATION_RULES = {
         "root_cause": "stale_clob_book_tape",
         "owner": "CLOB book supervisor",
         "roadmap_owner_items": ["161"],
-        "suggested_command": "python -m weather.market.market_microstructure ensure",
+        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --strict",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -349,7 +349,7 @@ REMEDIATION_RULES = {
     "data_layer_live_gate": {
         "root_cause": "data_layer_live_gate_blocked",
         "owner": "data-layer audit / CLOB capture",
-        "suggested_command": "python -m weather.reporting.data_layer_audit --fleet --json",
+        "suggested_command": "python -m weather.reporting.data_quality.data_layer_audit --fleet --json",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },

@@ -7,6 +7,7 @@ and diagnostic feature derivation together so missing sensors stay explicit.
 from __future__ import annotations
 
 import hashlib
+import gzip
 from datetime import date, datetime, timezone
 
 import requests
@@ -16,9 +17,12 @@ from weather.units import c_to_native
 
 
 MARINE_CONTEXT_SCHEMA_VERSION = "marine_context_v0.1"
+MARINE_STATION_HISTORY_SCHEMA_VERSION = "marine_station_history_v0.1"
 SOURCE = "marine_context"
+HISTORY_SOURCE = "marine_station_history"
 COOPS_DATAGETTER_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
 NDBC_REALTIME_URL = "https://www.ndbc.noaa.gov/data/realtime2/{station}.txt"
+NDBC_HISTORICAL_URL = "https://www.ndbc.noaa.gov/data/historical/stdmet/{station}h{year}.txt.gz"
 DEFAULT_MAX_STALE_MINUTES = 90
 
 
@@ -237,6 +241,11 @@ def build_coops_params(station_id, product, target_date, units="metric"):
         "units": units,
         "format": "json",
     }
+
+
+def build_ndbc_historical_url(station_id, target_date):
+    day = parse_date(target_date)
+    return NDBC_HISTORICAL_URL.format(station=str(station_id).lower(), year=day.year)
 
 
 def parse_coops_local_time(value, spec):
@@ -570,6 +579,153 @@ def fetch_marine_context_for_market(
             for item in station_results
         ]),
     }
+
+
+def historical_station_result(station, rows, target_date, errors=None):
+    rows = list(rows or [])
+    missing = [
+        sensor for sensor in station.get("required_sensors") or ()
+        if not any(sensor_present(row, sensor) for row in rows)
+    ]
+    latest = latest_row(rows)
+    return {
+        "schema_version": MARINE_STATION_HISTORY_SCHEMA_VERSION,
+        "provider": station.get("provider"),
+        "station_id": station.get("station_id"),
+        "station_name": station.get("station_name"),
+        "water_body": station.get("water_body"),
+        "distance_km": station.get("distance_km"),
+        "bearing_degrees": station.get("bearing_degrees"),
+        "sensor_support": list(station.get("sensor_support") or ()),
+        "required_sensors": list(station.get("required_sensors") or ()),
+        "missing_sensors": missing,
+        "usable": bool(rows) and not missing,
+        "latest": latest,
+        "rows": rows,
+        "row_count": len(rows),
+        "local_date": parse_date(target_date).isoformat(),
+        "onshore_direction_min": station.get("onshore_direction_min"),
+        "onshore_direction_max": station.get("onshore_direction_max"),
+        "adoption_rationale": station.get("adoption_rationale"),
+        "errors": errors or [],
+        "reason": "" if rows and not missing else (
+            "missing required historical sensors: " + ", ".join(missing)
+            if rows else "no target-date historical marine rows"
+        ),
+    }
+
+
+def default_get_ndbc_history_text(url, timeout=20):
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    return gzip.decompress(response.content).decode("utf-8", errors="replace")
+
+
+def fetch_marine_station_history_for_market(
+    spec,
+    target_date,
+    get_json=None,
+    get_text=None,
+    timeout=20,
+):
+    stations = registry_for_market(spec.id)
+    target_iso = parse_date(target_date).isoformat()
+    if not stations:
+        return {
+            "schema_version": MARINE_STATION_HISTORY_SCHEMA_VERSION,
+            "source": HISTORY_SOURCE,
+            "market": spec.id,
+            "target_date": target_iso,
+            "available": False,
+            "reason": "no marine-context stations configured for market",
+            "stations": [],
+            "rows": [],
+        }
+    get_json = get_json or _default_get_json
+    get_text = get_text or (lambda url: default_get_ndbc_history_text(url, timeout=timeout))
+    station_results = []
+    all_rows = []
+    raw_payloads = []
+    for station in stations:
+        errors = []
+        rows = []
+        provider = station.get("provider")
+        if provider == "coops":
+            product_map = {
+                "wind": "wind",
+                "air_temperature": "air_temperature",
+                "water_temperature": "water_temperature",
+                "pressure": "air_pressure",
+                "humidity": "humidity",
+            }
+            for sensor in station.get("sensor_support") or ():
+                product = product_map.get(sensor)
+                if not product:
+                    continue
+                params = build_coops_params(station["station_id"], product, target_date)
+                try:
+                    payload = get_json(COOPS_DATAGETTER_URL, params)
+                    raw_payloads.append({
+                        "provider": "coops",
+                        "station_id": station["station_id"],
+                        "product": product,
+                        "params": params,
+                        "payload": payload,
+                    })
+                    rows.extend(normalize_coops_product(product, payload, spec, station, target_date))
+                except Exception as exc:  # noqa: BLE001 - source row diagnostics
+                    errors.append({"product": product, "error": str(exc)})
+            rows = merge_rows_by_time(rows)
+        elif provider == "ndbc":
+            url = build_ndbc_historical_url(station["station_id"], target_date)
+            try:
+                text = get_text(url)
+                raw_payloads.append({
+                    "provider": "ndbc",
+                    "station_id": station["station_id"],
+                    "url": url,
+                    "text": text,
+                })
+                rows = parse_ndbc_realtime_text(text, spec, station, target_date, source_url=url)
+            except Exception as exc:  # noqa: BLE001 - source row diagnostics
+                errors.append({"url": url, "error": str(exc)})
+        else:
+            errors.append({"provider": provider, "error": "unsupported marine provider"})
+        all_rows.extend(rows)
+        station_results.append(historical_station_result(station, rows, target_date, errors=errors))
+    usable = [row for row in station_results if row.get("usable")]
+    raw_payload = {
+        "schema_version": MARINE_STATION_HISTORY_SCHEMA_VERSION,
+        "source": HISTORY_SOURCE,
+        "market": spec.id,
+        "target_date": target_iso,
+        "payloads": raw_payloads,
+    }
+    return {
+        "schema_version": MARINE_STATION_HISTORY_SCHEMA_VERSION,
+        "source": HISTORY_SOURCE,
+        "market": spec.id,
+        "target_date": target_iso,
+        "available": bool(usable),
+        "reason": "" if usable else "no historical marine station with required sensors",
+        "stations": station_results,
+        "rows": sorted(all_rows, key=lambda row: row.get("valid_time_utc") or ""),
+        "row_count": len(all_rows),
+        "usable_station_count": len(usable),
+        "provenance": {
+            "registry_source": "MARINE_CONTEXT_REGISTRY",
+            "providers": sorted({station.get("provider") for station in stations if station.get("provider")}),
+            "history_basis": "CO-OPS datagetter daily products and NDBC historical stdmet text",
+        },
+        "payload_hash": payload_hash(raw_payload),
+        "raw_payload": raw_payload,
+    }
+
+
+def _default_get_json(url, params):
+    response = requests.get(url, params=params, timeout=20)
+    response.raise_for_status()
+    return response.json()
 
 
 def direction_in_sector(direction, start, end):

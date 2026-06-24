@@ -9,7 +9,7 @@ requirements, and disk-growth pressure.
 Run directly:
 
 ```powershell
-python -m weather.reporting.data_retention_inventory --root data --out data\backtest\data_retention_inventory.json --report data\backtest\data_retention_inventory_report.md
+python -m weather.reporting.data_quality.data_retention_inventory --root data --out data\backtest\data_retention_inventory.json --report data\backtest\data_retention_inventory_report.md
 ```
 
 The normal daily refresh also writes the same artifacts:

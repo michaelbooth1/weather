@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from weather.operations.storage_classes import ANALYSIS_PROJECTION, CANONICAL_EVIDENCE, OPERATOR_CACHE
-from weather.reporting.data_retention_inventory import build_payload, render_report
+from weather.reporting.data_quality.data_retention_inventory import build_payload, render_report
 
 
 class TestDataRetentionInventory(unittest.TestCase):

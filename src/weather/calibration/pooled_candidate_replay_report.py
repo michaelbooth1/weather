@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from weather.reporting.formatting import fmt_num, fmt_pct, fmt_signed, markdown_table
-from weather.reporting.artifact_disk_budget import ensure_artifact_disk_headroom
+from weather.reporting.data_quality.artifact_disk_budget import ensure_artifact_disk_headroom
 
 def _fmt_delta(value):
     return fmt_signed(value, 4)

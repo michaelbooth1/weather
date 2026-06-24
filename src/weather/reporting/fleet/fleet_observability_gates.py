@@ -1,6 +1,6 @@
-"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+"""Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
-from weather.reporting.fleet_observability_loops import *  # noqa: F403
+from weather.reporting.fleet.fleet_observability_loops import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -104,10 +104,16 @@ def _source_status_recovery(source_status):
                     f"{name} "
                     f"failed={row.get('failed_source_count', 0)} "
                     f"fallback={row.get('fallback_source_count', 0)} "
-                    f"rate_limited={row.get('rate_limited_source_count', 0)}"
+                    f"rate_limited={row.get('rate_limited_source_count', 0)} "
+                    f"settlement_auth={row.get('settlement_auth_failure_source_count', 0)}"
                 )
                 for name, row in affected
             ]
+            settlement_auth_sources = {
+                name: [source for source in row.get("settlement_auth_failure_sources") or [] if source]
+                for name, row in affected
+                if row.get("settlement_auth_failure_source_count")
+            }
             fallback_sources = {
                 name: [source for source in row.get("fallback_sources") or [] if source]
                 for name, row in affected
@@ -137,6 +143,21 @@ def _source_status_recovery(source_status):
                     for name, sources in sorted(rate_limited_sources.items())
                 ]
                 detail += "; " + "; ".join(source_bits)
+            if settlement_auth_sources:
+                source_bits = [
+                    f"{name} settlement_auth_sources={','.join(sources)}"
+                    for name, sources in sorted(settlement_auth_sources.items())
+                ]
+                detail += "; " + "; ".join(source_bits)
+                return {
+                    "detail": detail,
+                    "rule_override": {
+                        "root_cause": "settlement_source_auth_failure",
+                        "owner": "Weather.com/WU settlement-source key",
+                        "suggested_command": repair_command,
+                        "recoverable_same_day": False,
+                    },
+                }
             if any(name == "open_meteo" and row.get("fallback_source_count") for name, row in affected):
                 return {
                     "detail": detail,

@@ -153,8 +153,8 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger ensure --market all --interval-seconds 60
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger replay
 .\venv\Scripts\python.exe -m weather.collection.collection_health --fleet --live --strict --json
-.\venv\Scripts\python.exe -m weather.reporting.fleet_observability report --strict
-.\venv\Scripts\python.exe -m weather.reporting.data_layer_audit
+.\venv\Scripts\python.exe -m weather.reporting.fleet.fleet_observability report --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_layer_audit
 .\venv\Scripts\python.exe -m weather.reporting.source_redundancy report --start 2026-06-01 --end 2026-06-12
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market nyc backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
 .\venv\Scripts\python.exe -m weather.calibration.pooled_feature_model --objective band --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
@@ -171,8 +171,8 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m weather.backtesting.snapshot_analytics
 .\venv\Scripts\python.exe -m weather.collection.collection_health
 .\venv\Scripts\python.exe -m weather.sources.wu_history audit
-.\venv\Scripts\python.exe -m weather.reporting.data_auditor
-.\venv\Scripts\python.exe -m weather.reporting.data_auditor --fleet --json --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_auditor
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_auditor --fleet --json --strict
 .\venv\Scripts\python.exe -m weather.calibration.feature_model
 .\venv\Scripts\python.exe -m weather.calibration.intraday_calibration
 ```
@@ -214,13 +214,13 @@ ad-hoc live scripts that may hit the network.
   and the full fleet collection state next to the loop heartbeat. The running
   loop also writes a compact `fleet_collection` summary into
   `data/snapshots/loop_status.json`.
-- `weather.reporting.fleet_observability report --strict` writes
+- `weather.reporting.fleet.fleet_observability report --strict` writes
   `data/backtest/fleet_observability.json`,
   `data/backtest/fleet_observability_report.md`, and
   `data/backtest/artifact_provenance_manifest.json`. It combines fleet
   collection health, fleet historical audits, artifact provenance/schema
   status, and location-trust readiness into one red/yellow/green payload.
-- `weather.reporting.data_layer_audit` writes `data/backtest/data_layer_audit.json` and
+- `weather.reporting.data_quality.data_layer_audit` writes `data/backtest/data_layer_audit.json` and
   `data/backtest/data_layer_audit_report.md`. The 2026-06-12 audit found the
   weather/model loop healthy at a 10-minute cadence (`93` snapshot folders,
   `9,368` snapshots, `103,048` band rows) but identified the market data layer
@@ -241,7 +241,7 @@ ad-hoc live scripts that may hit the network.
   after large top-of-book midpoint moves.
   `weather.market.market_microstructure audit --strict` is the book-tape acceptance
   check: per-market active-day cadence (median/max gap, 120s threshold,
-  trailing freshness), non-zero exit on any gap. `weather.reporting.fleet_observability`
+  trailing freshness), non-zero exit on any gap. `weather.reporting.fleet.fleet_observability`
   includes the CLOB loop and book-gap state as fail-closed alerts, so a dead
   recorder or tape gap surfaces like a snapshot-collection failure.
 - `weather.operations.observation_trigger` is the item-42 fast recompute path. It polls only
@@ -327,7 +327,7 @@ skew is one of the easiest ways to create fake edge.
   snapshot loop now measures scheduled cadence separately from triggered
   recomputes, and collection health scopes gap criticals to the 12:00-18:00
   settlement-decisive window. A fresh 2026-06-14
-  `weather.reporting.fleet_observability report --strict` run is `WARN` with zero critical
+  `weather.reporting.fleet.fleet_observability report --strict` run is `WARN` with zero critical
   alerts.
 - The settlement ledger can drift stale if `weather.market.market_day_labels finalize` is
   not run after new days settle. The June 11/12 backlog materially changed
@@ -335,7 +335,7 @@ skew is one of the easiest ways to create fake edge.
   `weather.reporting.promotion_refresh`, `weather.reporting.progress_audit`,
   and `weather.reporting.disagreement_casebook`.
   `weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert`
-  now executes that chain plus `weather.reporting.fleet_observability`, fails
+  now executes that chain plus `weather.reporting.fleet.fleet_observability`, fails
   closed when variant-learning evidence is missing/stale/blocked, and writes
   `data/backtest/daily_refresh_status.json` /
   `data/backtest/daily_refresh_report.md`; `scripts/ops/register_daily_refresh.ps1`
@@ -365,7 +365,7 @@ skew is one of the easiest ways to create fake edge.
   serving because they select trained feature names.
 - `data_auditor.py` currently audits years 2000-2025 and follows the configured
   target month/day. It is registry-aware and unit-aware; use
-  `python -m weather.reporting.data_auditor --fleet --json --strict` for
+  `python -m weather.reporting.data_quality.data_auditor --fleet --json --strict` for
   automation. Adjust
   intentionally if the historical window changes.
 - Network source fetchers use last-good caching for live sources with a

@@ -28,6 +28,7 @@ from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
     SourceProviderRateLimited,
+    SourceSettlementAuthFailure,
     fetch_source_group as run_source_adapter_group,
     retry_after_seconds as response_retry_after_seconds,
 )
@@ -441,8 +442,14 @@ class SourceFetchMixin:
     def source_degradation_state(self, status, item):
         if status in {"expected_current_day_unavailable", "expected_unavailable"}:
             return status
-        if item.get("degradation_state") in {"expected_current_day_unavailable", "expected_unavailable"}:
+        if item.get("degradation_state") in {
+            "expected_current_day_unavailable",
+            "expected_unavailable",
+            "settlement_source_auth_failure",
+        }:
             return item.get("degradation_state")
+        if status == "settlement_source_auth_failure":
+            return status
         if status == "rate_limited_cache":
             return "rate_limited_fallback"
         if status == "stale_cache":
@@ -492,9 +499,11 @@ class SourceFetchMixin:
                     cache_age_minutes is not None
                     and cache_age_minutes <= ttl_minutes
                 )
-                if (
-                    failure_status in {"expected_current_day_unavailable", "expected_unavailable"}
-                ):
+                if failure_status in {
+                    "expected_current_day_unavailable",
+                    "expected_unavailable",
+                    "settlement_source_auth_failure",
+                }:
                     output = {
                         "ok": False,
                         "stale": False,
@@ -508,8 +517,11 @@ class SourceFetchMixin:
                     output.update(self.source_metadata_fields(item, name))
                     output["ttl_minutes"] = ttl_minutes
                     output["degradation_state"] = self.source_degradation_state(failure_status, item)
-                    output.setdefault("cache_status", "expected_unavailable")
-                    output.setdefault("fallback_source", item.get("fallback_source") or "current_live_sources")
+                    if failure_status in {"expected_current_day_unavailable", "expected_unavailable"}:
+                        output.setdefault("cache_status", "expected_unavailable")
+                        output.setdefault("fallback_source", item.get("fallback_source") or "current_live_sources")
+                    else:
+                        output.setdefault("cache_status", "auth_failure")
                     blended[name] = output
                     continue
                 if (
@@ -542,7 +554,11 @@ class SourceFetchMixin:
                             f" Last good cache is {cache_age_minutes:.0f} minutes old (TTL {ttl_minutes} min)."
                             if cache_age_minutes is not None else " Last good cache age is unknown."
                         )
-                    status = failure_status if failure_status == "rate_limited" else "failed"
+                    status = (
+                        failure_status
+                        if failure_status in {"rate_limited", "settlement_source_auth_failure"}
+                        else "failed"
+                    )
                     output = {
                         "ok": False,
                         "stale": False,
@@ -717,6 +733,11 @@ class SourceFetchMixin:
         except requests.HTTPError as exc:
             response = getattr(exc, "response", None)
             status_code = getattr(response, "status_code", None)
+            if status_code in {401, 403}:
+                raise SourceSettlementAuthFailure(
+                    "WU history settlement source authentication failed",
+                    http_status=status_code,
+                ) from exc
             today = datetime.now(self.spec.tz).date()
             if status_code == 400 and self.target_date == today:
                 raise SourceExpectedUnavailable(

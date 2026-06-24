@@ -144,7 +144,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
         def runner(command, **_kwargs):
             calls.append(command)
-            if "weather.reporting.daily_learning" in command:
+            if "weather.reporting.daily.daily_learning" in command:
                 out = command[command.index("--json-out") + 1]
                 Path(out).parent.mkdir(parents=True, exist_ok=True)
                 Path(out).write_text(
@@ -188,7 +188,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_nightly_report_surfaces_broad_live_forward_slo_recovery(self):
         def runner(command, **_kwargs):
-            if "weather.reporting.daily_learning" in command:
+            if "weather.reporting.daily.daily_learning" in command:
                 out = command[command.index("--json-out") + 1]
                 Path(out).parent.mkdir(parents=True, exist_ok=True)
                 Path(out).write_text(
@@ -209,7 +209,7 @@ class TestNightlyRetrain(unittest.TestCase):
                                     "gate": "clob_book_freshness",
                                     "owner": "CLOB book supervisor",
                                     "repair_command": "python -m weather.market.market_microstructure ensure",
-                                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                                    "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                                 },
                                 "recovery_checklist": [
                                     {
@@ -220,7 +220,7 @@ class TestNightlyRetrain(unittest.TestCase):
                                         "repair_command": "python -m weather.market.market_microstructure ensure",
                                     }
                                 ],
-                                "rerun_command": "python -m weather.reporting.fleet_observability report",
+                                "rerun_command": "python -m weather.reporting.fleet.fleet_observability report",
                             },
                         },
                         "learnings": [
@@ -254,7 +254,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_nightly_status_carries_variant_learning_gate_from_daily_learning(self):
         def runner(command, **_kwargs):
-            if "weather.reporting.daily_learning" in command:
+            if "weather.reporting.daily.daily_learning" in command:
                 out = command[command.index("--json-out") + 1]
                 Path(out).parent.mkdir(parents=True, exist_ok=True)
                 Path(out).write_text(

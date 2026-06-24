@@ -30,7 +30,7 @@ from weather.reporting.formatting import (
     fmt_signed,
     markdown_table,
 )
-from weather.reporting.artifact_disk_budget import (
+from weather.reporting.data_quality.artifact_disk_budget import (
     DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
     ensure_artifact_disk_headroom,
     ensure_row_export_disk_headroom,

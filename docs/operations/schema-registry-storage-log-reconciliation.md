@@ -25,12 +25,12 @@ non-schema identifiers reported in `excluded_versions`.
 | `clob_order_book_tiering_v0.1` | storage operation report | registered | `weather.operations.clob_order_book_tiering` | CLOB order-book gzip tiering plan/apply report. |
 | `cross_hub_quoteability_v0.1` | readiness report | registered | `weather.reporting.cross_hub_readiness` | Cross-hub quoteability evidence. |
 | `cross_hub_run_log_summary_v0.1` | log summary artifact | registered | `weather.reporting.cross_hub_research_audit` | Cross-hub run-log summary. |
-| `daily_progress_ledger_v0.1` | durable log artifact | registered | `weather.reporting.daily_progress_ledger` | Append-only daily progress ledger. |
+| `daily_progress_ledger_v0.1` | durable log artifact | registered | `weather.reporting.daily.daily_progress_ledger` | Append-only daily progress ledger. |
 | `daily_refresh_disk_preflight_v0.1` | preflight report | registered | `weather.operations.daily_refresh_locks` | Daily-refresh disk-headroom preflight payload. |
 | `daily_refresh_stale_lock_repair_v0.1` | repair report | registered | `weather.operations.daily_refresh_cli` | Stale lock repair payload. |
-| `daily_rollup_freshness_v0.1` | freshness report | registered | `weather.reporting.daily_rollup_freshness` | Compact rollup freshness status. |
-| `feature_quality_quarantine_folder_v0.1` | row artifact | registered | `weather.reporting.feature_quality_quarantine` | Per-folder quarantine row. |
-| `feature_quality_quarantine_summary_v0.1` | summary artifact | registered | `weather.reporting.feature_quality_quarantine` | Feature-quality quarantine summary. |
+| `daily_rollup_freshness_v0.1` | freshness report | registered | `weather.reporting.daily.daily_rollup_freshness` | Compact rollup freshness status. |
+| `feature_quality_quarantine_folder_v0.1` | row artifact | registered | `weather.reporting.data_quality.feature_quality_quarantine` | Per-folder quarantine row. |
+| `feature_quality_quarantine_summary_v0.1` | summary artifact | registered | `weather.reporting.data_quality.feature_quality_quarantine` | Feature-quality quarantine summary. |
 | `flat_notional_v1` | sizing policy identifier | excluded | `weather.market.taker_bot_sizing` | Not a serialized artifact schema. |
 | `forecast_error_model_v0.2` | model/report artifact | registered | `weather.calibration.forecast_error_model` | Forecast error model artifact. |
 | `forecast_radiation_calibration_v0.1` | calibration sidecar | registered | `weather.calibration.pooled_training` | Forecast radiation calibration sidecar. |
@@ -47,7 +47,7 @@ non-schema identifiers reported in `excluded_versions`.
 | `mm_useful_work_liveness_v0.1` | liveness report | registered | `weather.market.market_making_run` | Useful-work liveness status. |
 | `observation_payload_backfill_batch_v0.1` | batch repair report | registered | `weather.collection.snapshot_store` | Observation payload backfill batch. |
 | `observation_payload_backfill_v0.1` | repair report | registered | `weather.collection.snapshot_store` | Observation payload backfill. |
-| `optional_market_event_streams_v0.1` | observability report | registered | `weather.reporting.fleet_observability` | Optional market event stream status. |
+| `optional_market_event_streams_v0.1` | observability report | registered | `weather.reporting.fleet.fleet_observability` | Optional market event stream status. |
 | `polymarket_symmetric_price_v1` | fee/pricing model identifier | excluded | `weather.market.taker_bot_sizing` | Not a serialized artifact schema. |
 | `pooled_feature_band_hgb_forecast_radiation_v0.1` | model artifact | registered | `weather.calibration.pooled_training` | Pooled HGB forecast-radiation candidate. |
 | `predawn_candidate_ten_minute_performance_v0.1` | performance sidecar | registered | `weather.reporting.predawn_weak_slot_repair` | Predawn candidate ten-minute performance. |

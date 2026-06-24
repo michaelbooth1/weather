@@ -22,6 +22,29 @@ For a larger backfill, use a wider date range and keep the default chunking:
 The collector fetches historical observations in chunks, writes raw daily
 payloads, rebuilds normalized hourly partitions, and derives daily summaries.
 
+## Failure Classes And Recovery
+
+Weather.com/WU history uses the baked-in public Weather.com browser key in
+`weather.sources.wu_history`. Treat that key as a known single point of failure
+for canonical settlement history: `401`/`403` means auth failure, `429` means
+rate limit, and `5xx`/timeouts are transient provider failures.
+
+Backfill errors are written to `backfill_errors.jsonl` with `failure_class`.
+Only `permanent_no_data` rows (`400`/`404`) are allowed to populate
+`unavailable_dates()` and skip future `--skip-existing` backfills. Auth,
+rate-limit, and transient rows remain re-fetchable.
+
+If an older run poisoned `backfill_errors.jsonl` by treating recoverable rows as
+source-unavailable, repair it per market:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto recover-unavailable
+```
+
+Use `--dry-run` to preview recovered ranges. After repairing the key or provider
+outage, rerun the normal `backfill --skip-existing` command for the affected
+window.
+
 ## Local Layout
 
 ```text

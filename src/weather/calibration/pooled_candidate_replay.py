@@ -105,7 +105,7 @@ from weather.reporting.variant_registry import (
     load_registry as load_variant_registry,
     variant_contract_for_artifact,
 )
-from weather.reporting.artifact_disk_budget import ensure_artifact_disk_headroom
+from weather.reporting.data_quality.artifact_disk_budget import ensure_artifact_disk_headroom
 
 from weather.calibration.pooled_candidate_scoring import (
     CONSERVATIVE_BRIDGE_ALPHA_BY_MARKET,

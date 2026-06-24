@@ -24,7 +24,7 @@ The code-backed registry lives in
 - delete gate
 - whether the artifact family requires backup by class
 
-`weather.reporting.data_retention_inventory` uses the registry to summarize
+`weather.reporting.data_quality.data_retention_inventory` uses the registry to summarize
 bytes and recent growth by storage class. `weather.operations.tape_backup`
 uses the same registry to annotate backup manifests and status reports with
 storage class, artifact family, rebuild source, and delete gate metadata.

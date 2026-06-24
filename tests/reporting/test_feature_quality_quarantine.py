@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.feature_quality_quarantine import (
+from weather.reporting.data_quality.feature_quality_quarantine import (
     audit_folder_feature_quality,
     build_payload,
     write_outputs,

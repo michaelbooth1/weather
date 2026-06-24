@@ -1,4 +1,4 @@
-"""Compatibility wrapper for weather.reporting.fleet_observability."""
+"""Compatibility wrapper for weather.reporting.fleet.fleet_observability."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ _SRC_ROOT = _Path(__file__).resolve().parent
 if str(_SRC_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_SRC_ROOT))
 
-_TARGET = "weather.reporting.fleet_observability"
+_TARGET = "weather.reporting.fleet.fleet_observability"
 
 if __name__ == "__main__":
     _runpy.run_module(_TARGET, run_name="__main__")

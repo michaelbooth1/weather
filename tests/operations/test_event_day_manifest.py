@@ -13,7 +13,7 @@ from weather.operations.event_day_manifest import (
     validate_event_day_manifest,
     write_event_day_manifest,
 )
-from weather.reporting.data_retention_inventory import build_payload as build_retention_payload
+from weather.reporting.data_quality.data_retention_inventory import build_payload as build_retention_payload
 from weather.schema_registry import schema_version
 
 

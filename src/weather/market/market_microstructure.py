@@ -77,6 +77,7 @@ from weather.market.market_microstructure_capture import (  # noqa: E402
     MarketMicrostructureStore,
     capture_event_books,
     capture_fleet_books,
+    capture_fleet_books_parallel,
     capture_id_for_book,
     capture_market_books,
     chunked,
@@ -202,6 +203,8 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
     interval = to_number(status.get("interval_seconds")) or float(interval_seconds)
     heartbeat_age = _age_seconds(now, status.get("last_heartbeat"))
     capture_age = _age_seconds(now, status.get("last_books_captured_at"))
+    raw_capture_age = _age_seconds(now, status.get("last_raw_books_captured_at"))
+    derived_capture_age = _age_seconds(now, status.get("last_derived_features_captured_at"))
     errors = int(status.get("consecutive_errors") or 0)
     error_markets = status.get("error_markets") or []
     discovery_sanity = clob_discovery_sanity_from_status(status)
@@ -221,6 +224,10 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "pid": status.get("pid"),
         "heartbeat_age_seconds": round(heartbeat_age, 1) if heartbeat_age is not None else None,
         "last_books_age_seconds": round(capture_age, 1) if capture_age is not None else None,
+        "last_raw_books_age_seconds": round(raw_capture_age, 1) if raw_capture_age is not None else None,
+        "last_derived_features_age_seconds": (
+            round(derived_capture_age, 1) if derived_capture_age is not None else None
+        ),
         "consecutive_errors": errors,
         "error_markets": error_markets,
         "last_error": status.get("last_error"),
@@ -235,6 +242,26 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
         "last_market_results": status.get("last_market_results") or {},
+        "last_raw_books_captured_at": status.get("last_raw_books_captured_at"),
+        "last_raw_books_by_market": status.get("last_raw_books_by_market") or {},
+        "raw_book_market_ages_seconds": {
+            market: (round(age, 1) if age is not None else None)
+            for market, age in (
+                (market, _age_seconds(now, captured_at))
+                for market, captured_at in (status.get("last_raw_books_by_market") or {}).items()
+            )
+        },
+        "raw_book_useful_iterations": int(status.get("raw_book_useful_iterations") or 0),
+        "last_derived_features_captured_at": status.get("last_derived_features_captured_at"),
+        "last_derived_features_by_market": status.get("last_derived_features_by_market") or {},
+        "derived_feature_market_ages_seconds": {
+            market: (round(age, 1) if age is not None else None)
+            for market, age in (
+                (market, _age_seconds(now, captured_at))
+                for market, captured_at in (status.get("last_derived_features_by_market") or {}).items()
+            )
+        },
+        "derived_feature_error_markets": status.get("derived_feature_error_markets") or [],
         "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
         "max_iteration_elapsed_seconds": status.get("max_iteration_elapsed_seconds"),
         "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
@@ -605,6 +632,10 @@ def summarize_loop_results(results):
             continue
         summary[market_id] = {
             "books": value.get("books"),
+            "captured_at_utc": value.get("captured_at_utc"),
+            "raw_books_captured_at_utc": value.get("raw_books_captured_at_utc"),
+            "derived_features_captured_at_utc": value.get("derived_features_captured_at_utc"),
+            "include_clob_features": value.get("include_clob_features"),
             "captured_tokens": value.get("captured_tokens"),
             "levels": value.get("levels"),
             "price_history_rows": value.get("price_history_rows"),
@@ -624,6 +655,15 @@ def summarize_loop_results(results):
             "error": value.get("error"),
         }
     return summary
+
+
+def latest_iso_timestamp(values):
+    parsed = []
+    for value in values or []:
+        item = parse_utc_datetime(value)
+        if item is not None:
+            parsed.append(item)
+    return max(parsed).isoformat() if parsed else None
 
 
 def clob_ensure_decision(
@@ -839,6 +879,7 @@ def start_clob_loop_detached(
         "websocket_heartbeat_seconds": ws_heartbeat_seconds,
         "websocket_connect_timeout": ws_connect_timeout,
         "iterations": 0,
+        "raw_book_useful_iterations": 0,
         "consecutive_errors": 0,
         "error_markets": [],
         "last_error": None,
@@ -1071,6 +1112,36 @@ def run_book_loop(
                     status["last_error"] = "; ".join(f"{item}: {err}" for item, err in errors.items()) or None
                     status["last_market_results"] = summary
                     status["last_market_in_progress"] = None
+                    raw_by_market = {
+                        item: (
+                            value.get("raw_books_captured_at_utc")
+                            or (value.get("captured_at_utc") if (value.get("books") or 0) > 0 else None)
+                        )
+                        for item, value in summary.items()
+                        if isinstance(value, dict)
+                        and (
+                            value.get("raw_books_captured_at_utc")
+                            or ((value.get("books") or 0) > 0 and value.get("captured_at_utc"))
+                        )
+                    }
+                    derived_by_market = {
+                        item: value.get("derived_features_captured_at_utc")
+                        for item, value in summary.items()
+                        if isinstance(value, dict) and value.get("derived_features_captured_at_utc")
+                    }
+                    derived_errors = sorted(
+                        item
+                        for item, value in summary.items()
+                        if isinstance(value, dict) and value.get("clob_features_error")
+                    )
+                    if raw_by_market:
+                        status["last_raw_books_by_market"] = raw_by_market
+                        status["last_raw_books_captured_at"] = latest_iso_timestamp(raw_by_market.values())
+                        status["raw_book_useful_iterations"] = int(status.get("raw_book_useful_iterations") or 0) + 1
+                    if derived_by_market:
+                        status["last_derived_features_by_market"] = derived_by_market
+                        status["last_derived_features_captured_at"] = latest_iso_timestamp(derived_by_market.values())
+                    status["derived_feature_error_markets"] = derived_errors
                     status["last_mode"] = "fast" if fast else "baseline"
                     status["last_sleep_seconds"] = sleep_seconds
                     elapsed_rounded = round(elapsed_seconds, 1)
@@ -1205,6 +1276,22 @@ def main():
     capture.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     add_capture_enrichment_options(capture)
 
+    raw_refresh = subparsers.add_parser(
+        "raw-refresh",
+        help="Refresh raw CLOB books across markets in parallel without derived feature work.",
+    )
+    raw_refresh.add_argument("--market", choices=_market_choices(), default="all")
+    raw_refresh.add_argument("--outcomes", default="all", help="'all', 'yes', 'no', or comma-separated outcomes.")
+    raw_refresh.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    raw_refresh.add_argument("--max-workers", type=int, default=None)
+    raw_refresh.add_argument("--per-market-timeout-seconds", type=float, default=30.0)
+    raw_refresh.add_argument("--freshness-sla-seconds", type=float, default=120.0)
+    raw_refresh.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 2 when any market fails, times out, or exceeds the raw-refresh SLA.",
+    )
+
     loop = subparsers.add_parser("loop", help="Run a fast CLOB book capture loop.")
     add_loop_options(loop)
 
@@ -1284,6 +1371,22 @@ def main():
             include_clob_features=args.clob_features,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return
+    if command == "raw-refresh":
+        result = capture_fleet_books_parallel(
+            market_id=args.market,
+            outcomes=args.outcomes,
+            batch_size=args.batch_size,
+            max_workers=args.max_workers,
+            per_market_timeout_seconds=args.per_market_timeout_seconds,
+            freshness_sla_seconds=args.freshness_sla_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        if args.strict and (
+            not result.get("ok")
+            or (result.get("summary") or {}).get("slow_market_count")
+        ):
+            sys.exit(2)
         return
     if command == "loop":
         configure_json_console_logging()

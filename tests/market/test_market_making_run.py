@@ -1339,6 +1339,10 @@ class TestMarketMakingRun(unittest.TestCase):
             clob_incidents = [row for row in incidents if row.get("gate") == "clob_freshness"]
             self.assertTrue(clob_incidents)
             self.assertIn("161", clob_incidents[0]["roadmap_owner_items"])
+            self.assertEqual(
+                clob_incidents[0]["suggested_command"],
+                "python -m weather.market.market_microstructure raw-refresh --market all --strict",
+            )
             risk_events = [
                 json.loads(line)
                 for line in Path(payload["risk_events_path"]).read_text(encoding="utf-8").splitlines()
@@ -1397,7 +1401,7 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(closeout["command_results"][0]["action"], "skipped")
             self.assertIn("dry-run closeout", closeout["command_results"][0]["skip_reason"])
             self.assertIn(
-                "python -m weather.market.market_microstructure ensure",
+                "python -m weather.market.market_microstructure raw-refresh --market all --strict",
                 [row["suggested_command"] for row in closeout["command_results"]],
             )
             self.assertEqual(closeout["post_repair_run"]["preflight_status"], "PASS")

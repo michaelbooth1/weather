@@ -1,4 +1,4 @@
-# 281. Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [OPEN 2026-06-23 - AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL]
+# 281. Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [COMPLETE 2026-06-24 - FAILURE TYPING, RECOVERY, AND FLEET BLOCKERS LANDED]
 
 Goal: stop authentication and transient failures of the canonical
 Weather.com/Wunderground settlement source from being silently recorded as
@@ -71,19 +71,25 @@ errors or recovery of poisoned unavailable entries.
    and document the baked-in public key as a known single point of failure with
    the recovery command in the settlement runbook.
 
-- [ ] Add `failure_class` typing to `write_fetch_error` and gate
+- [x] Add `failure_class` typing to `write_fetch_error` and gate
   `treated_as_source_unavailable` on `permanent_no_data` only.
-- [ ] Limit `unavailable_dates()`/`missing_ranges`/`history_coverage` to
+- [x] Limit `unavailable_dates()`/`missing_ranges`/`history_coverage` to
   permanent-no-data days, with a safe legacy fallback for un-typed rows.
-- [ ] Add the `settlement_source_auth_failure` source state and a fail-closed
+- [x] Add the `settlement_source_auth_failure` source state and a fail-closed
   multi-market P0 settlement-source blocker in the data-layer/health audits.
-- [ ] Add a `recover-unavailable` rescan/repair command that clears
+- [x] Add a `recover-unavailable` rescan/repair command that clears
   non-permanent unavailable entries and reports recovered ranges.
-- [ ] Add fixtures covering `401`/`403` auth, `429` rate-limit, `5xx`/timeout
+- [x] Add fixtures covering `401`/`403` auth, `429` rate-limit, `5xx`/timeout
   transient, true `400` no-data, and a legacy-poisoned error log that the
   rescan recovers.
-- [ ] Document the baked-in Weather.com key single point of failure and the
+- [x] Document the baked-in Weather.com key single point of failure and the
   recovery command in the settlement-source operations doc.
+
+Completion note (2026-06-24): `weather.sources.wu_history` now writes
+`failure_class`, filters `unavailable_dates()` to permanent no-data rows, and
+provides `recover-unavailable`. Live WU auth failures surface as
+`settlement_source_auth_failure`; collection health, fleet observability, and
+data-layer audit payloads now expose multi-market settlement auth blockers.
 
 Acceptance: a `401`/`403`/`429`/`5xx`/timeout failure on the Weather.com/WU
 settlement source during backfill is typed by `failure_class`, is not added to

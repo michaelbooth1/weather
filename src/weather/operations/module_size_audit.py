@@ -33,7 +33,7 @@ OWNERSHIP_NOTES = {
         "boundary": "Compatibility facade for promotion readers, decisions, gap analysis, reports, orchestration, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
-    "src/weather/reporting/fleet_observability.py": {
+    "src/weather/reporting/fleet/fleet_observability.py": {
         "owner": "reporting",
         "boundary": "Compatibility facade for fleet inventory, loop health, SLO gates, payload, rendering, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",

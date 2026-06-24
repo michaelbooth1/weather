@@ -7,8 +7,10 @@ from weather.sources.marine_context import (  # noqa: E402
     COOPS_DATAGETTER_URL,
     active_marine_context_state,
     build_coops_params,
+    build_ndbc_historical_url,
     derive_marine_context_features,
     fetch_marine_context_for_market,
+    fetch_marine_station_history_for_market,
     marine_context_backtest,
     merge_rows_by_time,
     normalize_coops_product,
@@ -147,6 +149,61 @@ class TestMarineContext(unittest.TestCase):
         self.assertGreaterEqual(payload["usable_station_count"], 1)
         self.assertEqual(payload["schema_version"], "marine_context_v0.1")
         self.assertEqual(len(payload["payload_hash"]), 40)
+
+    def test_fetch_marine_station_history_collects_coops_rows_without_live_staleness(self):
+        spec = spec_for_id("nyc")
+
+        def fake_get_json(url, params):
+            self.assertEqual(url, COOPS_DATAGETTER_URL)
+            product = params["product"]
+            if product == "wind":
+                return {"data": [{"t": "2026-06-15 12:00", "s": "5.0", "g": "7.0", "d": "135"}]}
+            if product == "air_temperature":
+                return {"data": [{"t": "2026-06-15 12:00", "v": "21.0"}]}
+            if product == "water_temperature":
+                return {"data": [{"t": "2026-06-15 12:00", "v": "18.0"}]}
+            if product == "air_pressure":
+                return {"data": [{"t": "2026-06-15 12:00", "v": "1013.0"}]}
+            if product == "humidity":
+                return {"data": [{"t": "2026-06-15 12:00", "v": "82"}]}
+            return {"data": []}
+
+        payload = fetch_marine_station_history_for_market(
+            spec,
+            "2026-06-15",
+            get_json=fake_get_json,
+            get_text=lambda _url: NDBC_TEXT,
+        )
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["schema_version"], "marine_station_history_v0.1")
+        self.assertEqual(payload["source"], "marine_station_history")
+        self.assertEqual(payload["target_date"], "2026-06-15")
+        self.assertGreaterEqual(payload["usable_station_count"], 1)
+        self.assertEqual(payload["provenance"]["registry_source"], "MARINE_CONTEXT_REGISTRY")
+        self.assertIn("coops", payload["provenance"]["providers"])
+        self.assertEqual(payload["raw_payload"]["source"], "marine_station_history")
+
+    def test_marine_station_history_collects_ndbc_historical_text(self):
+        spec = spec_for_id("toronto")
+        seen_urls = []
+
+        def fake_get_text(url):
+            seen_urls.append(url)
+            return NDBC_TEXT
+
+        payload = fetch_marine_station_history_for_market(
+            spec,
+            "2026-06-15",
+            get_json=lambda _url, _params: {"data": []},
+            get_text=fake_get_text,
+        )
+
+        self.assertEqual(seen_urls, [build_ndbc_historical_url("45159", "2026-06-15")])
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["rows"][0]["provider"], "ndbc")
+        self.assertEqual(payload["rows"][0]["water_temp_native"], 15.0)
+        self.assertEqual(payload["stations"][0]["schema_version"], "marine_station_history_v0.1")
 
     def test_derive_marine_features_flags_onshore_cool_suppression(self):
         marine_context = {

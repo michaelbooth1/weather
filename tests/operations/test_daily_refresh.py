@@ -68,6 +68,7 @@ def _args(tmp, **overrides):
         "fail_on_variant_evidence_alert": True,
         "fail_on_daily_learning_blocker": False,
         "fail_on_daily_flow_analysis_blocker": False,
+        "fail_on_nightly_health_critical": False,
         "skip_shadow_ab_monitor": False,
         "ab_current_tol": 0.003,
         "ab_market_tol": 0.003,
@@ -167,6 +168,12 @@ def _args(tmp, **overrides):
         "overwrite_replay_status": False,
         "reconstruct_missing_replay_inputs": False,
         "include_active_replay_status": False,
+        "skip_nightly_health_checks": False,
+        "nightly_health_alert_root": str(root / "alerts"),
+        "nightly_health_timezone": "America/Toronto",
+        "nightly_health_date": "",
+        "nightly_health_max_bot_activity_age_seconds": 300.0,
+        "nightly_health_startup_grace_seconds": 180.0,
         "data_layer_historical_start": "2000-01-01",
         "data_layer_historical_end": "",
     }
@@ -481,6 +488,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("closed_day_parquet_incremental"))
+        self.assertLess(names.index("fleet_observability"), names.index("nightly_health_checks"))
+        self.assertLess(names.index("nightly_health_checks"), names.index("data_layer_audit"))
         self.assertLess(names.index("closed_day_parquet_incremental"), names.index("data_layer_audit"))
         self.assertLess(names.index("replay_status_backfill"), names.index("data_layer_audit"))
         self.assertLess(names.index("data_layer_audit"), names.index("snapshot_evaluation"))
@@ -1025,7 +1034,7 @@ class TestDailyRefresh(unittest.TestCase):
                             "category": "operational_slo",
                             "source": "fleet_observability",
                             "signal": "live-forward SLO blocked",
-                            "action": "python -m weather.reporting.fleet_observability",
+                            "action": "python -m weather.reporting.fleet.fleet_observability",
                             "blocker": True,
                         }
                     ],

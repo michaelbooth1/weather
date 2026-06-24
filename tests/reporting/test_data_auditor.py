@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.reporting.data_auditor import audit_historical_data, audit_summary, has_corruption
+from weather.reporting.data_quality.data_auditor import audit_historical_data, audit_summary, has_corruption
 
 
 class TestDataAuditor(unittest.TestCase):

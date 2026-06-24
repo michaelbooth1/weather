@@ -15,7 +15,7 @@ from weather.paths import data_path
 
 from weather.artifacts import sha256_file
 from weather.calibration.blocked_validation import blocked_validation_audit
-from weather.reporting.artifact_disk_budget import (
+from weather.reporting.data_quality.artifact_disk_budget import (
     DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
     DEFAULT_ROW_EXPORT_BYTES_PER_ROW,
     ensure_row_export_disk_headroom,

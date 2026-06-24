@@ -19,7 +19,7 @@ Live same-day investigations should start from maintained package reports:
 .\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.disagreement_casebook
-.\venv\Scripts\python.exe -m weather.reporting.fleet_observability
+.\venv\Scripts\python.exe -m weather.reporting.fleet.fleet_observability
 ```
 
 No-market extra-location transfer experiments should use the package harness

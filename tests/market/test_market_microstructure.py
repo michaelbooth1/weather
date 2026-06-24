@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import weather.market.market_microstructure as mm  # noqa: E402
 from weather.market.market_microstructure import (  # noqa: E402
@@ -14,6 +15,7 @@ from weather.market.market_microstructure import (  # noqa: E402
     clob_loop_health,
     clob_loop_command_matches,
     capture_event_books,
+    capture_fleet_books_parallel,
     fleet_book_audit,
     fleet_effective_book_gap_seconds,
     price_history_rows,
@@ -229,6 +231,8 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         self.assertEqual(result["captured_tokens"], 1)
         self.assertEqual(result["books"], 1)
+        self.assertEqual(result["raw_books_captured_at_utc"], "2026-06-12T15:00:00+00:00")
+        self.assertEqual(result["derived_features_captured_at_utc"], "2026-06-12T15:00:00+00:00")
         self.assertEqual(result["ws_messages"], mm.DEFAULT_WS_MESSAGE_LIMIT)
         self.assertEqual(result["ws_event_rows"], mm.DEFAULT_WS_MESSAGE_LIMIT * 2)
         self.assertEqual(result["clob_feature_rows"], 1)
@@ -244,6 +248,8 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(status_rows[0]["status"], "OK")
         self.assertEqual(status_rows[0]["captured_tokens"], 1)
         self.assertEqual(status_rows[0]["books"], 1)
+        self.assertEqual(status_rows[0]["raw_books_captured_at_utc"], "2026-06-12T15:00:00+00:00")
+        self.assertEqual(status_rows[0]["derived_features_captured_at_utc"], "2026-06-12T15:00:00+00:00")
         self.assertEqual(status_rows[0]["clob_feature_rows"], 1)
         self.assertEqual(status_rows[0]["price_history_new_points"], 1)
         self.assertEqual(status_rows[0]["price_history_duplicate_points"], 0)
@@ -308,6 +314,79 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(result["clob_feature_rows"], 0)
         self.assertFalse((root / "clob_features_long.csv").exists())
         self.assertFalse(status_rows[0]["include_clob_features"])
+
+    def test_derived_clob_feature_failure_does_not_drop_raw_book_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "snapshots_long.csv").write_text(
+                "snapshot_id,captured_at_utc,event_slug,range_label,bin_kind,bin_value_c,market_yes\n"
+                "snap1,2026-06-12T15:00:00+00:00,highest-temperature-in-toronto-on-june-12-2026,20 C or below,lte,20,0.12\n",
+                encoding="utf-8",
+            )
+            with patch(
+                "weather.market.market_microstructure_capture.write_clob_feature_rows",
+                side_effect=RuntimeError("feature builder failed"),
+            ):
+                result = capture_event_books(
+                    sample_event(),
+                    market_id="toronto",
+                    clob_client=FakeClobClient(),
+                    root=tmp,
+                    outcomes="yes",
+                    include_price_history=False,
+                    include_ws_events=False,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+            status_rows = [
+                json.loads(line)
+                for line in (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            raw_books_exist = (root / "order_books_summary.csv").exists()
+
+        self.assertEqual(result["books"], 1)
+        self.assertEqual(result["raw_books_captured_at_utc"], "2026-06-12T15:00:00+00:00")
+        self.assertIsNone(result["derived_features_captured_at_utc"])
+        self.assertIn("feature builder failed", result["clob_features_error"])
+        self.assertTrue(raw_books_exist)
+        self.assertEqual(status_rows[0]["status"], "OK")
+        self.assertIn("feature builder failed", status_rows[0]["clob_features_error"])
+
+    def test_parallel_raw_refresh_skips_derived_features_and_reports_failed_market_lag(self):
+        calls = []
+
+        def fake_capture(market_id, **kwargs):
+            calls.append((market_id, kwargs))
+            self.assertFalse(kwargs["include_price_history"])
+            self.assertFalse(kwargs["include_ws_events"])
+            self.assertFalse(kwargs["include_clob_features"])
+            if market_id == "nyc":
+                raise RuntimeError("book endpoint unavailable")
+            return {
+                "market_id": market_id,
+                "books": 2,
+                "captured_at_utc": "2026-06-12T15:00:00+00:00",
+                "raw_books_captured_at_utc": "2026-06-12T15:00:00+00:00",
+            }
+
+        with patch(
+            "weather.market.market_microstructure_capture.all_specs",
+            return_value=[SimpleNamespace(id="toronto"), SimpleNamespace(id="nyc")],
+        ):
+            payload = capture_fleet_books_parallel(
+                market_id="all",
+                capture_fn=fake_capture,
+                max_workers=2,
+                per_market_timeout_seconds=5,
+            )
+
+        by_market = {row["market_id"]: row for row in payload["markets"]}
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["summary"]["ok_market_count"], 1)
+        self.assertEqual(payload["summary"]["failed_markets"], ["nyc"])
+        self.assertTrue(by_market["toronto"]["raw_book_refresh_ok"])
+        self.assertIsNotNone(by_market["toronto"]["raw_book_age_seconds_at_finish"])
+        self.assertIn("book endpoint unavailable", by_market["nyc"]["error"])
+        self.assertEqual(sorted(market for market, _kwargs in calls), ["nyc", "toronto"])
 
     def test_websocket_failure_does_not_drop_rest_book_capture(self):
         def failing_websocket(_url, timeout=30):
@@ -586,6 +665,20 @@ class TestMarketMicrostructure(unittest.TestCase):
         }
 
         self.assertEqual(clob_loop_health(base, now=now)["state"], "RUNNING")
+        split = clob_loop_health({
+            **base,
+            "last_raw_books_captured_at": (now - timedelta(seconds=10)).isoformat(),
+            "last_raw_books_by_market": {"toronto": (now - timedelta(seconds=10)).isoformat()},
+            "raw_book_useful_iterations": 3,
+            "last_derived_features_captured_at": (now - timedelta(seconds=70)).isoformat(),
+            "last_derived_features_by_market": {"toronto": (now - timedelta(seconds=70)).isoformat()},
+            "derived_feature_error_markets": ["nyc"],
+        }, now=now)
+        self.assertEqual(split["last_raw_books_age_seconds"], 10.0)
+        self.assertEqual(split["raw_book_market_ages_seconds"]["toronto"], 10.0)
+        self.assertEqual(split["raw_book_useful_iterations"], 3)
+        self.assertEqual(split["last_derived_features_age_seconds"], 70.0)
+        self.assertEqual(split["derived_feature_error_markets"], ["nyc"])
         self.assertEqual(clob_loop_health({**base, "error_markets": ["nyc"]}, now=now)["state"], "DEGRADED")
         zero_capture = {
             **base,
@@ -654,6 +747,10 @@ class TestMarketMicrostructure(unittest.TestCase):
             return {
                 "toronto": {
                     "books": 2,
+                    "captured_at_utc": now.isoformat(),
+                    "raw_books_captured_at_utc": now.isoformat(),
+                    "derived_features_captured_at_utc": now.isoformat(),
+                    "include_clob_features": True,
                     "captured_tokens": 2,
                     "levels": 8,
                     "price_history_rows": 4,
@@ -687,6 +784,12 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertTrue(written["include_ws_events"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
+        self.assertEqual(written["last_raw_books_captured_at"], now.isoformat())
+        self.assertEqual(written["last_raw_books_by_market"], {"toronto": now.isoformat()})
+        self.assertEqual(written["raw_book_useful_iterations"], 1)
+        self.assertEqual(written["last_derived_features_captured_at"], now.isoformat())
+        self.assertEqual(written["last_derived_features_by_market"], {"toronto": now.isoformat()})
+        self.assertEqual(written["derived_feature_error_markets"], [])
         self.assertEqual(written["last_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["recent_iteration_elapsed_seconds"], [0.0])
         self.assertEqual(written["max_iteration_elapsed_seconds"], 0.0)

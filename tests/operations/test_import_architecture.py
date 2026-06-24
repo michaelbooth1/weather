@@ -72,14 +72,14 @@ TARGET_MODULES = [
     Path("src/weather/operations/ops_monitor.py"),
     Path("src/weather/operations/structure_inventory.py"),
     Path("src/weather/operations/tape_backup.py"),
-    Path("src/weather/reporting/data_auditor.py"),
-    Path("src/weather/reporting/daily_learning_render.py"),
-    Path("src/weather/reporting/data_layer_audit.py"),
-    Path("src/weather/reporting/data_layer_audit_collectors.py"),
-    Path("src/weather/reporting/data_layer_audit_remediation.py"),
-    Path("src/weather/reporting/data_layer_audit_report.py"),
+    Path("src/weather/reporting/data_quality/data_auditor.py"),
+    Path("src/weather/reporting/daily/daily_learning_render.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_collectors.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_report.py"),
     Path("src/weather/reporting/disagreement_casebook.py"),
-    Path("src/weather/reporting/fleet_observability.py"),
+    Path("src/weather/reporting/fleet/fleet_observability.py"),
     Path("src/weather/reporting/location_trust.py"),
     Path("src/weather/reporting/multi_variant_shadow.py"),
     Path("src/weather/reporting/overview_helpers.py"),
@@ -119,13 +119,40 @@ PROMOTION_REFRESH_IMPL_MODULES = sorted(
     path for path in Path("src/weather/reporting/promotion").glob("*.py")
     if path.name != "__init__.py"
 )
-FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("fleet_observability_*.py"))
+FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(
+    Path("src/weather/reporting/fleet").glob("fleet_observability_*.py")
+)
+REPORTING_SAFE_SLICE_MODULES = [
+    Path("src/weather/reporting/fleet/fleet_observability.py"),
+    *FLEET_OBSERVABILITY_SPLIT_MODULES,
+    Path("src/weather/reporting/data_quality/artifact_disk_budget.py"),
+    Path("src/weather/reporting/data_quality/clob_coverage_audit.py"),
+    Path("src/weather/reporting/data_quality/data_auditor.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_collectors.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"),
+    Path("src/weather/reporting/data_quality/data_layer_audit_report.py"),
+    Path("src/weather/reporting/data_quality/data_retention_inventory.py"),
+    Path("src/weather/reporting/data_quality/feature_quality_quarantine.py"),
+    Path("src/weather/reporting/data_quality/reanalysis_sidecar_coverage_audit.py"),
+    Path("src/weather/reporting/daily/daily_flow_analysis.py"),
+    Path("src/weather/reporting/daily/daily_learning.py"),
+    Path("src/weather/reporting/daily/daily_learning_render.py"),
+    Path("src/weather/reporting/daily/daily_progress_ledger.py"),
+    Path("src/weather/reporting/daily/daily_rollup_freshness.py"),
+]
+REPORTING_SAFE_SLICE_ROOT_NAMES = {
+    path.name
+    for path in REPORTING_SAFE_SLICE_MODULES
+    if path.name != "__init__.py"
+}
 HOURLY_MODEL_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("hourly_model_*.py"))
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
     + TAKER_BOT_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
+    + REPORTING_SAFE_SLICE_MODULES
     + HOURLY_MODEL_SPLIT_MODULES
     + PROMOTION_REFRESH_SPLIT_MODULES
     + PROMOTION_REFRESH_IMPL_MODULES
@@ -250,19 +277,19 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.market\.mm_paper\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/reporting/data_layer_audit_remediation.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.reporting\.data_layer_audit|\.data_layer_audit)\s+import\b|"
-        r"import\s+weather\.reporting\.data_layer_audit\b)",
+    Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.data_quality\.data_layer_audit|\.data_layer_audit)\s+import\b|"
+        r"import\s+weather\.reporting\.data_quality\.data_layer_audit\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/reporting/data_layer_audit_collectors.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.reporting\.data_layer_audit|\.data_layer_audit)\s+import\b|"
-        r"import\s+weather\.reporting\.data_layer_audit\b)",
+    Path("src/weather/reporting/data_quality/data_layer_audit_collectors.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.data_quality\.data_layer_audit|\.data_layer_audit)\s+import\b|"
+        r"import\s+weather\.reporting\.data_quality\.data_layer_audit\b)",
         re.MULTILINE,
     ),
-    Path("src/weather/reporting/daily_learning_render.py"): re.compile(
-        r"^\s*(?:from\s+(?:weather\.reporting\.daily_learning|\.daily_learning)\s+import\b|"
-        r"import\s+weather\.reporting\.daily_learning\b)",
+    Path("src/weather/reporting/daily/daily_learning_render.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.daily\.daily_learning|\.daily_learning)\s+import\b|"
+        r"import\s+weather\.reporting\.daily\.daily_learning\b)",
         re.MULTILINE,
     ),
 }
@@ -292,8 +319,8 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
 })
 EXTRACTED_MODULE_IMPORT_RULES.update({
     path: re.compile(
-        r"^\s*(?:from\s+(?:weather\.reporting\.fleet_observability|\.fleet_observability)\s+import\b|"
-        r"import\s+weather\.reporting\.fleet_observability\b)",
+        r"^\s*(?:from\s+(?:weather\.reporting\.fleet\.fleet_observability|\.fleet_observability)\s+import\b|"
+        r"import\s+weather\.reporting\.fleet\.fleet_observability\b)",
         re.MULTILINE,
     )
     for path in FLEET_OBSERVABILITY_SPLIT_MODULES
@@ -521,6 +548,22 @@ def test_migrated_modules_do_not_mutate_sys_path():
             offenders.append(str(path))
 
     assert offenders == []
+
+
+def test_reporting_safe_slice_modules_stay_in_subpackages():
+    missing = [
+        str(path)
+        for path in REPORTING_SAFE_SLICE_MODULES
+        if not path.exists()
+    ]
+    root_offenders = sorted(
+        path.name
+        for path in Path("src/weather/reporting").glob("*.py")
+        if path.name in REPORTING_SAFE_SLICE_ROOT_NAMES
+    )
+
+    assert missing == []
+    assert root_offenders == []
 
 
 def test_project_critical_files_are_tracked_or_ignored():

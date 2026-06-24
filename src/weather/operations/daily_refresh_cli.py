@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from weather.operations import nightly_health_checks
 from weather.schema_registry import schema_version
 
 
@@ -76,6 +77,7 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
+    parser.add_argument("--fail-on-nightly-health-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")
     parser.add_argument("--fail-on-data-layer-audit", action="store_true")
     parser.set_defaults(fail_on_hourly_performance_gate=True)
@@ -333,6 +335,24 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--skip-historical-audits", action="store_true")
     parser.add_argument("--tape-backup-root", default=str(fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT))
     parser.add_argument("--verify-tape-backup-checksums", action="store_true")
+    parser.add_argument("--skip-nightly-health-checks", action="store_true")
+    parser.add_argument("--nightly-health-alert-root", default=str(nightly_health_checks.DEFAULT_ALERT_ROOT))
+    parser.add_argument("--nightly-health-timezone", default=nightly_health_checks.DEFAULT_TIMEZONE)
+    parser.add_argument(
+        "--nightly-health-date",
+        default="",
+        help="Expected local bot target date for health checks; defaults to today's date in --nightly-health-timezone.",
+    )
+    parser.add_argument(
+        "--nightly-health-max-bot-activity-age-seconds",
+        type=float,
+        default=nightly_health_checks.DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
+    )
+    parser.add_argument(
+        "--nightly-health-startup-grace-seconds",
+        type=float,
+        default=nightly_health_checks.DEFAULT_STARTUP_GRACE_SECONDS,
+    )
     parser.add_argument("--skip-ingest-quality-gate", action="store_true")
     parser.add_argument("--ingest-quality-years", default="", help="Comma-separated years; default 2000-2025.")
     parser.add_argument("--skip-reanalysis-refresh", action="store_true")

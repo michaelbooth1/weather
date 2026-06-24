@@ -184,7 +184,7 @@ def daily_learning_command(args):
     return [
         sys.executable,
         "-m",
-        "weather.reporting.daily_learning",
+        "weather.reporting.daily.daily_learning",
         "--backtest-root",
         args.backtest_root,
         "--snapshots-root",

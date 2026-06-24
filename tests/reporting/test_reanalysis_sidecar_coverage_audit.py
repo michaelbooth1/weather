@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.reanalysis_sidecar_coverage_audit import (
+from weather.reporting.data_quality.reanalysis_sidecar_coverage_audit import (
     FEATURE_GROUPS,
     audit_sidecar,
     build_payload,

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.daily_progress_ledger import (
+from weather.reporting.daily.daily_progress_ledger import (
     build_progress_row,
     write_progress_outputs,
 )

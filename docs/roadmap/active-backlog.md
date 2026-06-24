@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T00:37:50.818423+00:00
+Generated: 2026-06-24T01:02:09.555041+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 291 |
-| Active items | 36 |
-| OPEN | 7 |
+| Active items | 35 |
+| OPEN | 6 |
 | PARTIAL | 29 |
-| COMPLETE | 255 |
+| COMPLETE | 256 |
 | ROADMAP rows | 291 |
 | ROADMAP primary rows | 291 |
 | Metadata manifest rows | 291 |
@@ -51,7 +51,7 @@ Status: `OK`
 | 191 | PARTIAL | 2026-06-22 | GATE REFRESHED, SST/BREEZE SLICE BLOCKED | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-23 | V1.15 EVIDENCE REFRESHED, LOCATION BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | PARTIAL | 2026-06-24 | BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
@@ -59,8 +59,6 @@ Status: `OK`
 | 246 | OPEN | 2026-06-22 | MIRROR BACKUP REMAINS LONG-TERM ARCHIVE | [Deduplicated Durable Tape Backup Repository](items/item-246-deduplicated-durable-tape-backup-repository.md) |
 | 247 | OPEN | 2026-06-22 | UNMANIFESTED MIRROR DUPLICATES BLOCK RECLAIM | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | OPEN | 2026-06-23 | 131 FLAT MODULES, NO INTRA-PACKAGE BOUNDARY | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 281 | OPEN | 2026-06-23 | AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
-| 282 | PARTIAL | 2026-06-23 | RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN | [Maker Parallel CLOB Raw-Book Refresh SLA](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
 
 ## Lint Issues
 

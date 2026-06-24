@@ -7,12 +7,16 @@ exceedance grids are tracked separately by roadmap item 190.
 from __future__ import annotations
 
 import hashlib
+import csv
+import json
 import re
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Iterable
 
 
 NBM_PROB_TMAX_SCHEMA_VERSION = "nbm_probabilistic_tmax_v0.1"
+NBM_STATION_ARCHIVE_SCHEMA_VERSION = "nbm_probabilistic_tmax_station_archive_v0.1"
 NBM_NBP_BASE_URL = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod"
 NBM_NBP_PERCENTILE_ROWS = {
     "TXNP1": 10,
@@ -38,6 +42,33 @@ NBM_PROB_TMAX_FEATURE_COLUMNS = [
     "nbm_prob_tmax_impossible_flag",
     "nbm_prob_tmax_floor_gap",
 ]
+NBM_STATION_ARCHIVE_COLUMNS = [
+    "schema_version",
+    "source",
+    "source_kind",
+    "station_id",
+    "target_date",
+    "available",
+    "reason",
+    "issued_at",
+    "forecast_hour",
+    "valid_time_utc",
+    "product_version",
+    "p10",
+    "p25",
+    "p50",
+    "p75",
+    "p90",
+    "mean_native",
+    "stddev_native",
+    "day_max_native",
+    "p10_p90_spread",
+    "iqr",
+    "source_url",
+    "payload_hash",
+    "fetched_at",
+    "raw_payload_path",
+]
 
 
 def nbp_text_url(run_time: datetime, base_url: str = NBM_NBP_BASE_URL) -> str:
@@ -55,6 +86,22 @@ def nbp_cycle_candidates(now_utc: datetime | None = None, hours_back: int = 24) 
 
 def _payload_hash(text: str) -> str:
     return hashlib.sha1(str(text or "").encode("utf-8", errors="replace")).hexdigest()
+
+
+def nbp_raw_payload(text: str, station_id: str, target_date: date | str, source_url: str | None = None, fetched_at: str | None = None) -> dict:
+    if isinstance(target_date, str):
+        target_date = date.fromisoformat(target_date)
+    return {
+        "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
+        "source": "nbm_probabilistic_tmax",
+        "source_kind": "nbp_station_text",
+        "station_id": str(station_id or "").upper().strip(),
+        "target_date": target_date.isoformat(),
+        "source_url": source_url,
+        "fetched_at": fetched_at,
+        "payload_hash": _payload_hash(text),
+        "text": str(text or ""),
+    }
 
 
 def _parse_issue_time(line: str) -> datetime | None:
@@ -141,8 +188,10 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
             "target_date": target_date.isoformat(),
             "reason": "station_not_found_in_nbp_text",
             "source_url": source_url,
+            "url": source_url,
             "payload_hash": _payload_hash(text),
             "fetched_at": fetched_at,
+            "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
         }
     issue_time = _parse_issue_time(block[0])
     if issue_time is None:
@@ -153,8 +202,10 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
             "target_date": target_date.isoformat(),
             "reason": "nbp_issue_time_not_found",
             "source_url": source_url,
+            "url": source_url,
             "payload_hash": _payload_hash(text),
             "fetched_at": fetched_at,
+            "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
         }
 
     rows = {_row_code(line): _parse_pair_row(line) for line in block if _row_code(line)}
@@ -169,8 +220,10 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
             "target_date": target_date.isoformat(),
             "reason": "target_date_not_in_nbp_max_temperature_window",
             "source_url": source_url,
+            "url": source_url,
             "payload_hash": _payload_hash(text),
             "fetched_at": fetched_at,
+            "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
         }
 
     percentiles = {}
@@ -207,6 +260,7 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
         "p10_p90_spread": p90 - p10 if p10 is not None and p90 is not None else None,
         "iqr": p75 - p25 if p25 is not None and p75 is not None else None,
         "source_url": source_url,
+        "url": source_url,
         "payload_hash": _payload_hash(text),
         "fetched_at": fetched_at,
         "historical_archive_available": False,
@@ -214,7 +268,107 @@ def parse_nbp_station_tmax(text: str, station_id: str, target_date: date | str, 
         "exceedance_status": "native_qmd_grid_or_band_edge_extraction_pending",
         "live_only_fields": list(NBM_PROB_TMAX_FEATURE_COLUMNS),
         "raw_station_block": "\n".join(block),
+        "raw_payload": nbp_raw_payload(text, station_id, target_date, source_url=source_url, fetched_at=fetched_at),
     }
+
+
+def nbp_station_archive_row(payload: dict, raw_payload_path: str | None = None) -> dict:
+    percentiles = (payload or {}).get("percentiles") or {}
+    available = bool((payload or {}).get("available"))
+    return {
+        "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+        "source": "nbm_probabilistic_tmax",
+        "source_kind": (payload or {}).get("source_kind") or "nbp_station_text",
+        "station_id": (payload or {}).get("station_id"),
+        "target_date": (payload or {}).get("target_date"),
+        "available": available,
+        "reason": (payload or {}).get("reason"),
+        "issued_at": (payload or {}).get("issued_at"),
+        "forecast_hour": (payload or {}).get("forecast_hour"),
+        "valid_time_utc": (payload or {}).get("valid_time_utc"),
+        "product_version": (payload or {}).get("product_version"),
+        "p10": percentiles.get("10"),
+        "p25": percentiles.get("25"),
+        "p50": percentiles.get("50"),
+        "p75": percentiles.get("75"),
+        "p90": percentiles.get("90"),
+        "mean_native": (payload or {}).get("mean_native"),
+        "stddev_native": (payload or {}).get("stddev_native"),
+        "day_max_native": (payload or {}).get("day_max_native"),
+        "p10_p90_spread": (payload or {}).get("p10_p90_spread"),
+        "iqr": (payload or {}).get("iqr"),
+        "source_url": (payload or {}).get("source_url") or (payload or {}).get("url"),
+        "payload_hash": (payload or {}).get("payload_hash"),
+        "fetched_at": (payload or {}).get("fetched_at"),
+        "raw_payload_path": raw_payload_path,
+    }
+
+
+def _append_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+
+
+class NBPStationArchiveStore:
+    def __init__(self, root):
+        self.root = Path(root)
+        self.payload_dir = self.root / "payloads"
+        self.rows_path = self.root / "nbp_station_tmax.csv"
+
+    def existing_keys(self) -> set[tuple[str | None, str | None, str | None, str | None]]:
+        if not self.rows_path.exists():
+            return set()
+        keys = set()
+        with self.rows_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                keys.add((
+                    row.get("station_id"),
+                    row.get("target_date"),
+                    row.get("issued_at"),
+                    row.get("payload_hash"),
+                ))
+        return keys
+
+    def write_payload(self, payload: dict) -> dict:
+        payload = dict(payload or {})
+        raw_payload = payload.get("raw_payload")
+        raw_path = None
+        if raw_payload is not None:
+            payload_hash_value = payload.get("payload_hash") or (raw_payload or {}).get("payload_hash") or _payload_hash(raw_payload)
+            station = str(payload.get("station_id") or "unknown").lower()
+            target_date = str(payload.get("target_date") or "unknown")
+            filename = f"{target_date}_{station}_{payload_hash_value[:12]}.json"
+            raw_path_obj = self.payload_dir / filename
+            raw_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            raw_path_obj.write_text(json.dumps(raw_payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+            raw_path = str(raw_path_obj)
+        row = nbp_station_archive_row(payload, raw_payload_path=raw_path)
+        key = (row.get("station_id"), row.get("target_date"), row.get("issued_at"), row.get("payload_hash"))
+        if key in self.existing_keys():
+            return {
+                "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+                "written_row_count": 0,
+                "skipped_existing_row_count": 1,
+                "rows_path": str(self.rows_path),
+                "raw_payload_path": raw_path,
+                "row": row,
+            }
+        _append_csv(self.rows_path, NBM_STATION_ARCHIVE_COLUMNS, [row])
+        return {
+            "schema_version": NBM_STATION_ARCHIVE_SCHEMA_VERSION,
+            "written_row_count": 1,
+            "skipped_existing_row_count": 0,
+            "rows_path": str(self.rows_path),
+            "raw_payload_path": raw_path,
+            "row": row,
+        }
 
 
 def cdf_probability_from_percentiles(percentiles: dict, threshold: float | None) -> float | None:

@@ -1,9 +1,9 @@
-"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+"""Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
 import json
 from pathlib import Path
 
-from weather.reporting.fleet_observability_gates import *  # noqa: F403
+from weather.reporting.fleet.fleet_observability_gates import *  # noqa: F403
 from weather.operations.closed_market_day_archive import DEFAULT_INCREMENTAL_JSON
 from weather.reporting.trading_evidence import (
     DEFAULT_MM_RUNS_ROOT,

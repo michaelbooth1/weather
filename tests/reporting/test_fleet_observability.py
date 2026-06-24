@@ -8,10 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-from weather.collection.collection_health import fleet_collection_health, source_family_degradation  # noqa: E402
+from weather.collection.collection_health import (  # noqa: E402
+    fleet_collection_health,
+    fleet_source_family_degradation_summary,
+    source_family_degradation,
+)
 from weather.market.market_registry import all_specs  # noqa: E402
 from weather.operations.supervisor import SupervisorSpec
-from weather.reporting.fleet_observability import (  # noqa: E402
+from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
     classify_loop_diagnostic_event,
@@ -158,6 +162,41 @@ class TestFleetObservability(unittest.TestCase):
                 "promotion_readiness": False,
             },
         )
+
+    def test_source_family_degradation_flags_multi_market_settlement_auth_outage(self):
+        markets = []
+        for market_id in ("atlanta", "nyc"):
+            with tempfile.TemporaryDirectory() as tmp:
+                folder = Path(tmp)
+                pd.DataFrame([
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                        "captured_at_local": "2026-06-19T18:00:00-04:00",
+                        "source": "wu_history",
+                        "ok": False,
+                        "stale": False,
+                        "status": "settlement_source_auth_failure",
+                        "cache_status": "auth_failure",
+                        "source_family": "wu_history",
+                        "degradation_state": "settlement_source_auth_failure",
+                        "http_status": "403",
+                    },
+                ]).to_csv(folder / "source_status_long.csv", index=False)
+                markets.append({
+                    "market_id": market_id,
+                    "source_family_degradation": source_family_degradation(folder),
+                })
+
+        first = markets[0]["source_family_degradation"]["families"]["wu_history"]
+        summary = fleet_source_family_degradation_summary(markets)
+
+        self.assertEqual(first["status"], "settlement_source_auth_failure")
+        self.assertTrue(first["trading_blocking"])
+        self.assertEqual(first["settlement_auth_failure_sources"], ["wu_history"])
+        self.assertEqual(summary["settlement_source_auth_failure_market_count"], 2)
+        self.assertTrue(summary["settlement_source_auth_failure_fleet_blocker"])
+        self.assertEqual(summary["settlement_auth_failure_source_count"], 2)
 
     def test_source_family_direct_rate_limit_is_nonblocking_with_fresh_family_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -826,7 +865,7 @@ class TestFleetObservability(unittest.TestCase):
                 "cadence_slo_status": "BLOCK",
                 "cadence_slo_reason": "clob_book_freshness blocks broad live-forward SLO for nyc",
                 "current_identity": {"git_branch": "master", "git_commit": "abc123", "source_fingerprint": "current"},
-                "verification_command": "python -m weather.reporting.fleet_observability report",
+                "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                 "summary": {
                     "diagnostic_class_counts": {"stale_code": 3, "duplicate_writer_blocked_benign": 2},
                     "restart_class_counts": {"stale_code": 3},
@@ -878,7 +917,7 @@ class TestFleetObservability(unittest.TestCase):
                         "owner": "CLOB book supervisor",
                         "before": "trailing_age_seconds=180.0",
                         "repair_command": "python -m weather.market.market_microstructure ensure",
-                        "verification_command": "python -m weather.reporting.fleet_observability report",
+                        "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                         "after": "rerun broad live-forward SLO",
                     }
                 ],
@@ -892,7 +931,7 @@ class TestFleetObservability(unittest.TestCase):
                     },
                     "status_command": "python -m weather.collection.snapshot_tracker --status",
                     "repair_command": "python -m weather.collection.snapshot_tracker --restart",
-                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                    "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                     "markets": [
                         {
                             "market_id": "nyc",
@@ -914,7 +953,7 @@ class TestFleetObservability(unittest.TestCase):
                         }
                     ],
                 },
-                "rerun_command": "python -m weather.reporting.fleet_observability report",
+                "rerun_command": "python -m weather.reporting.fleet.fleet_observability report",
             },
             "mm_paper_evidence": {
                 "exists": True,

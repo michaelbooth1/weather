@@ -1,8 +1,14 @@
 import unittest
+import csv
+import json
+import tempfile
 from datetime import date
+from pathlib import Path
 
 from weather.sources.nbm_probabilistic_tmax import (
+    NBPStationArchiveStore,
     exceedance_probability_from_percentiles,
+    nbp_station_archive_row,
     nbp_text_url,
     parse_nbp_station_tmax,
     station_nbp_block,
@@ -65,6 +71,37 @@ class TestNbmProbabilisticTmax(unittest.TestCase):
         self.assertFalse(payload["historical_archive_available"])
         self.assertEqual(payload["exceedance_status"], "native_qmd_grid_or_band_edge_extraction_pending")
         self.assertEqual(len(payload["payload_hash"]), 40)
+        self.assertEqual(payload["url"], "https://example.test/blend_nbptx.t00z")
+        self.assertEqual(payload["raw_payload"]["source_kind"], "nbp_station_text")
+        self.assertIn("KLGA", payload["raw_payload"]["text"])
+
+    def test_station_archive_row_and_store_preserve_payload_provenance(self):
+        payload = parse_nbp_station_tmax(
+            NBP_TEXT,
+            "KLGA",
+            date(2026, 5, 30),
+            source_url="https://example.test/blend_nbptx.t00z",
+            fetched_at="2026-05-30T01:00:00+00:00",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = NBPStationArchiveStore(tmp)
+            first = store.write_payload(payload)
+            second = store.write_payload(payload)
+            rows = list(csv.DictReader(Path(first["rows_path"]).open(encoding="utf-8", newline="")))
+            raw_payload = json.loads(Path(first["raw_payload_path"]).read_text(encoding="utf-8"))
+
+        archive_row = nbp_station_archive_row(payload, raw_payload_path="payload.json")
+        self.assertEqual(archive_row["schema_version"], "nbm_probabilistic_tmax_station_archive_v0.1")
+        self.assertEqual(archive_row["p90"], 86.0)
+        self.assertEqual(first["written_row_count"], 1)
+        self.assertEqual(second["written_row_count"], 0)
+        self.assertEqual(second["skipped_existing_row_count"], 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["station_id"], "KLGA")
+        self.assertEqual(rows[0]["source_url"], "https://example.test/blend_nbptx.t00z")
+        self.assertEqual(raw_payload["station_id"], "KLGA")
+        self.assertIn("TXNP9", raw_payload["text"])
 
     def test_missing_station_returns_unavailable_payload(self):
         payload = parse_nbp_station_tmax(NBP_TEXT, "KATL", "2026-05-30")

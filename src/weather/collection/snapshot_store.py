@@ -823,8 +823,14 @@ class SnapshotStore:
     def source_degradation_state(self, status, item):
         if status in {"expected_current_day_unavailable", "expected_unavailable"}:
             return status
-        if item.get("degradation_state") in {"expected_current_day_unavailable", "expected_unavailable"}:
+        if item.get("degradation_state") in {
+            "expected_current_day_unavailable",
+            "expected_unavailable",
+            "settlement_source_auth_failure",
+        }:
             return item.get("degradation_state")
+        if status == "settlement_source_auth_failure":
+            return status
         if status == "rate_limited_cache":
             return "rate_limited_fallback"
         if status == "stale_cache":
@@ -926,7 +932,7 @@ class SnapshotStore:
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),
-                "source_url": data.get("url"),
+                "source_url": data.get("url") or data.get("source_url"),
                 "raw_payload_path": str(payload_path),
             }
             rows.append(row)
@@ -990,7 +996,7 @@ class SnapshotStore:
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),
-                "source_url": data.get("url"),
+                "source_url": data.get("url") or data.get("source_url"),
                 "raw_payload_path": str(payload_path),
             }
             rows.append(row)

@@ -21,6 +21,7 @@ from weather.market.market_day_labels import discover_default_folders, parse_ove
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
+from weather.operations import nightly_health_checks
 from weather.operations import replay_status_backfill
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
@@ -33,16 +34,16 @@ from weather.operations.daily_refresh_locks import (
     write_json,
 )
 from weather.reporting import active_variant_shadow_refresh
-from weather.reporting import data_auditor
-from weather.reporting import data_layer_audit
-from weather.reporting import data_retention_inventory
-from weather.reporting import daily_flow_analysis
-from weather.reporting import daily_learning
-from weather.reporting import daily_progress_ledger
-from weather.reporting import daily_rollup_freshness
+from weather.reporting.data_quality import data_auditor
+from weather.reporting.data_quality import data_layer_audit
+from weather.reporting.data_quality import data_retention_inventory
+from weather.reporting.daily import daily_flow_analysis
+from weather.reporting.daily import daily_learning
+from weather.reporting.daily import daily_progress_ledger
+from weather.reporting.daily import daily_rollup_freshness
 from weather.reporting import disagreement_casebook
 from weather.reporting import distribution_stage_attribution
-from weather.reporting import fleet_observability
+from weather.reporting.fleet import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import market_beating_objective_scoreboard
@@ -87,6 +88,7 @@ STEP_ORDER = (
     "progress_audit",
     "disagreement_casebook",
     "fleet_observability",
+    "nightly_health_checks",
     "data_layer_audit",
     "snapshot_evaluation",
     "distribution_stage_attribution",
@@ -1221,6 +1223,7 @@ def run_fleet_observability_step(args):
         backtest_path(args, "artifact_provenance_manifest.json"),
         payload["artifact_provenance"],
     )
+    setattr(args, "_daily_refresh_fleet_observability_payload", payload)
     return {
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
@@ -1229,6 +1232,53 @@ def run_fleet_observability_step(args):
         "summary": payload.get("summary") or {},
         "tape_backup_status": ((payload.get("tape_backup") or {}).get("status")),
         "collection_states": ((payload.get("collection") or {}).get("summary") or {}).get("states") or {},
+    }
+
+
+def run_nightly_health_checks_step(args):
+    if getattr(args, "skip_nightly_health_checks", False):
+        return {"status": "SKIPPED", "reason": "skip_nightly_health_checks"}
+    fleet_payload = getattr(args, "_daily_refresh_fleet_observability_payload", None)
+    if not fleet_payload:
+        fleet_payload = nightly_health_checks.load_fleet_payload(
+            backtest_path(args, "fleet_observability.json")
+        )
+    payload = nightly_health_checks.build_payload(
+        fleet_payload=fleet_payload,
+        now=getattr(args, "as_of", None),
+        timezone_name=getattr(
+            args,
+            "nightly_health_timezone",
+            nightly_health_checks.DEFAULT_TIMEZONE,
+        ),
+        target_date=getattr(args, "nightly_health_date", "") or None,
+        max_bot_activity_age_seconds=getattr(
+            args,
+            "nightly_health_max_bot_activity_age_seconds",
+            nightly_health_checks.DEFAULT_MAX_BOT_ACTIVITY_AGE_SECONDS,
+        ),
+        startup_grace_seconds=getattr(
+            args,
+            "nightly_health_startup_grace_seconds",
+            nightly_health_checks.DEFAULT_STARTUP_GRACE_SECONDS,
+        ),
+    )
+    outputs = nightly_health_checks.write_outputs(
+        payload,
+        alert_root=getattr(args, "nightly_health_alert_root", nightly_health_checks.DEFAULT_ALERT_ROOT),
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "alert_root": outputs.get("alert_root"),
+        "json_out": outputs.get("json_out"),
+        "report_out": outputs.get("report_out"),
+        "latest_json_out": outputs.get("latest_json_out"),
+        "latest_report_out": outputs.get("latest_report_out"),
+        "alert_count": summary.get("alert_count"),
+        "critical_alerts": summary.get("critical_alerts"),
+        "warning_alerts": summary.get("warning_alerts"),
+        "first_alert": summary.get("first_alert") or {},
     }
 
 
@@ -1574,6 +1624,7 @@ DEFAULT_RUNNERS = (
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
     ("fleet_observability", run_fleet_observability_step),
+    ("nightly_health_checks", run_nightly_health_checks_step),
     ("data_layer_audit", run_data_layer_audit_step),
     ("snapshot_evaluation", run_snapshot_evaluation_step),
     ("distribution_stage_attribution", run_distribution_stage_attribution_step),
@@ -1636,6 +1687,7 @@ def pipeline_summary(steps):
     progress = ((by_name.get("progress_audit") or {}).get("result") or {})
     casebook = ((by_name.get("disagreement_casebook") or {}).get("result") or {})
     fleet = ((by_name.get("fleet_observability") or {}).get("result") or {})
+    nightly_health = ((by_name.get("nightly_health_checks") or {}).get("result") or {})
     audit = ((by_name.get("data_layer_audit") or {}).get("result") or {})
     evaluation = ((by_name.get("snapshot_evaluation") or {}).get("result") or {})
     stage_attribution = ((by_name.get("distribution_stage_attribution") or {}).get("result") or {})
@@ -1818,6 +1870,16 @@ def pipeline_summary(steps):
         "fleet": {
             "status": fleet.get("status"),
             "summary": fleet.get("summary") or {},
+        },
+        "nightly_health_checks": {
+            "status": nightly_health.get("status"),
+            "alert_count": nightly_health.get("alert_count"),
+            "critical_alerts": nightly_health.get("critical_alerts"),
+            "warning_alerts": nightly_health.get("warning_alerts"),
+            "first_alert": nightly_health.get("first_alert") or {},
+            "alert_root": nightly_health.get("alert_root"),
+            "report_out": nightly_health.get("report_out"),
+            "latest_report_out": nightly_health.get("latest_report_out"),
         },
         "data_layer_audit": {
             "gate_status": audit.get("gate_status"),

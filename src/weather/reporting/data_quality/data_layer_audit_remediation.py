@@ -61,7 +61,7 @@ def gate_owner(name):
 def gate_command(name):
     commands = {
         "snapshot_low_fill_fields": (
-            "python -m weather.reporting.data_layer_audit --out data\\backtest\\data_layer_audit.json "
+            "python -m weather.reporting.data_quality.data_layer_audit --out data\\backtest\\data_layer_audit.json "
             "--report data\\backtest\\data_layer_audit_report.md"
         ),
         "snapshot_artifact_replay_inputs": (
@@ -79,8 +79,8 @@ def gate_command(name):
         "snapshot_artifact_components": "python -m weather.operations.daily_refresh run",
         "forecast_payload_artifact_rate": "python -m weather.operations.daily_refresh run",
         "source_status_stale_or_failed_rate": "python -m weather.operations.daily_refresh run",
-        "reanalysis_raw_only_days": "python -m weather.reporting.data_layer_audit",
-        "quarantined_impossible_observations": "python -m weather.reporting.data_auditor",
+        "reanalysis_raw_only_days": "python -m weather.reporting.data_quality.data_layer_audit",
+        "quarantined_impossible_observations": "python -m weather.reporting.data_quality.data_auditor",
         "supplemental_station_validation": (
             "python -m weather.sources.supplemental_station_validation --markets toronto "
             "--start 2000-01-01 --end 2012-12-31 "
@@ -89,7 +89,7 @@ def gate_command(name):
         ),
         "canonical_history_provenance": "python -m weather.sources.canonical_history_guardrails",
     }
-    return commands.get(name, "python -m weather.reporting.data_layer_audit")
+    return commands.get(name, "python -m weather.reporting.data_quality.data_layer_audit")
 
 
 def expected_artifact(name, snapshot_optional_artifacts, forecast_payload_artifact):

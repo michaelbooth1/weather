@@ -8,7 +8,7 @@ Fresh audit command:
 
 The generated artifacts are local under `data/backtest/` because `data/` is
 ignored. The tracked implementation now recomputes the nearby-station evidence
-in `src.weather.reporting.data_layer_audit`.
+in `src.weather.reporting.data_quality.data_layer_audit`.
 
 ## Added During This Audit
 

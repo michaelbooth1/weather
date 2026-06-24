@@ -39,7 +39,7 @@ from weather.operations.observation_trigger import watcher_health
 from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo, data_path
-from weather.reporting.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
+from weather.reporting.data_quality.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
 from weather.reporting.location_trust import score_all_markets
 from weather.reporting.source_redundancy import (
     FALLBACK_ORDER,
@@ -487,6 +487,9 @@ def clob_alerts(clob):
         "state": state,
         "pid": loop.get("pid"),
         "heartbeat_age_seconds": loop.get("heartbeat_age_seconds"),
+        "last_raw_books_age_seconds": loop.get("last_raw_books_age_seconds"),
+        "last_derived_features_age_seconds": loop.get("last_derived_features_age_seconds"),
+        "derived_feature_error_markets": loop.get("derived_feature_error_markets"),
         "last_error": loop.get("last_error"),
         "discovery_sanity": loop.get("discovery_sanity"),
     }

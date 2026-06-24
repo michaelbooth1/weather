@@ -1,4 +1,4 @@
-# 282. Maker Parallel CLOB Raw-Book Refresh SLA [PARTIAL 2026-06-23 - RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN]
+# 282. Maker Parallel CLOB Raw-Book Refresh SLA [COMPLETE 2026-06-24 - PARALLEL RAW-REFRESH AND SPLIT FRESHNESS LANDED]
 
 Goal: make all-market CLOB raw-book freshness fast enough for maker evidence
 without manual per-market refreshes.
@@ -36,14 +36,21 @@ promotion gates more independent market-time slices per day.
 
 - [x] Add an operator-accessible capture flag that can skip derived CLOB feature
   refresh for fast raw-book collection.
-- [ ] Add a parallel all-market raw-book refresh command or CLOB supervisor mode
+- [x] Add a parallel all-market raw-book refresh command or CLOB supervisor mode
   with per-market timeout and failure accounting.
-- [ ] Separate raw-book freshness and derived-feature freshness in CLOB loop
+- [x] Separate raw-book freshness and derived-feature freshness in CLOB loop
   status artifacts.
-- [ ] Wire maker preflight remediation to use the fast raw-book refresh path for
+- [x] Wire maker preflight remediation to use the fast raw-book refresh path for
   stale-book-only failures.
-- [ ] Add tests proving all-market raw-book refresh stays independent from
+- [x] Add tests proving all-market raw-book refresh stays independent from
   derived feature generation failures and reports per-market lag.
+
+Completion note (2026-06-24): `weather.market.market_microstructure raw-refresh`
+now performs parallel raw CLOB book refresh with per-market timeout/failure
+accounting and skips derived feature work. CLOB loop health/status separates
+raw-book age/useful iterations from derived-feature lag/errors, and maker
+preflight remediation now points stale CLOB book blockers at the fast raw-refresh
+path.
 
 Acceptance: an unattended all-market CLOB supervisor or remediation command
 keeps all 12 active markets' raw CLOB books within the maker freshness SLA

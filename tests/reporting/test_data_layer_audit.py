@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from weather.reporting.data_layer_audit import (  # noqa: E402
+from weather.reporting.data_quality.data_layer_audit import (  # noqa: E402
     build_remediation_manifest,
     build_recommendations,
     build_gates,
@@ -235,7 +235,7 @@ class TestDataLayerAudit(unittest.TestCase):
                     "reason_for_adoption": "unit test registry entry",
                 }
                 with patch(
-                    "weather.reporting.data_layer_audit.data_path",
+                    "weather.reporting.data_quality.data_layer_audit.data_path",
                     lambda *parts: test_data_root.joinpath(*parts),
                 ):
                     out = nearby_history_audit(
@@ -337,7 +337,7 @@ class TestDataLayerAudit(unittest.TestCase):
                     }],
                     "reason_for_adoption": "unit test registry entry",
                 }
-                with patch("weather.reporting.data_layer_audit.data_path", lambda *parts: test_data_root.joinpath(*parts)):
+                with patch("weather.reporting.data_quality.data_layer_audit.data_path", lambda *parts: test_data_root.joinpath(*parts)):
                     out = nearby_history_audit(
                         spec,
                         {"ghcnh": {"target_season": {"covered_days": 0}}},
@@ -417,18 +417,30 @@ class TestDataLayerAudit(unittest.TestCase):
     def test_source_status_summary_counts_stale_and_failed_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "source_status_long.csv"
+            fields = ["source", "ok", "stale", "status", "source_family", "http_status", "degradation_state"]
             with path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=["source", "ok", "stale", "status"])
+                writer = csv.DictWriter(handle, fieldnames=fields)
                 writer.writeheader()
                 writer.writerow({"source": "wu_current", "ok": "True", "stale": "False", "status": "fresh"})
                 writer.writerow({"source": "open_meteo", "ok": "True", "stale": "True", "status": "stale_cache"})
                 writer.writerow({"source": "metar", "ok": "False", "stale": "False", "status": "failed"})
+                writer.writerow({
+                    "source": "wu_history",
+                    "ok": "False",
+                    "stale": "False",
+                    "status": "settlement_source_auth_failure",
+                    "source_family": "wu_history",
+                    "http_status": "401",
+                    "degradation_state": "settlement_source_auth_failure",
+                })
 
             summary = source_status_summary_for_folder(tmp)
 
-        self.assertEqual(summary["row_count"], 3)
-        self.assertEqual(summary["source_count"], 3)
-        self.assertEqual(summary["stale_or_failed_rows"], 2)
+        self.assertEqual(summary["row_count"], 4)
+        self.assertEqual(summary["source_count"], 4)
+        self.assertEqual(summary["stale_or_failed_rows"], 3)
+        self.assertEqual(summary["settlement_source_auth_failure_rows"], 1)
+        self.assertEqual(summary["settlement_source_auth_failure_sources"], ["wu_history"])
         self.assertEqual(summary["status_counts"]["fresh"], 1)
 
     def test_snapshot_audit_tracks_raw_clob_artifact_presence(self):
@@ -572,6 +584,8 @@ class TestDataLayerAudit(unittest.TestCase):
                 "row_count": 10,
                 "stale_or_failed_rows": 2,
                 "stale_or_failed_rate": 0.2,
+                "settlement_source_auth_failure_market_count": 2,
+                "settlement_source_auth_failure_markets": ["atlanta", "nyc"],
             },
         }
         historical = {
@@ -592,7 +606,25 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(by_name["snapshot_artifact_source_status"]["status"], "WARN")
         self.assertEqual(by_name["forecast_payload_artifact_rate"]["status"], "WARN")
         self.assertEqual(by_name["source_status_stale_or_failed_rate"]["status"], "WARN")
+        self.assertEqual(by_name["settlement_source_auth_failure"]["status"], "FAIL")
         self.assertEqual(by_name["reanalysis_raw_only_days"]["status"], "WARN")
+
+    def test_build_recommendations_marks_multi_market_settlement_auth_as_p0(self):
+        recs = build_recommendations(
+            {
+                "folder_count": 2,
+                "artifact_day_counts": {"source_status": 2, "replay_inputs": 2},
+                "source_status": {
+                    "settlement_source_auth_failure_market_count": 2,
+                    "settlement_source_auth_failure_markets": ["atlanta", "nyc"],
+                },
+            },
+            {"markets": []},
+            {},
+        )
+
+        by_title = {row["title"]: row for row in recs}
+        self.assertEqual(by_title["Fail closed on WU settlement-source auth outage"]["priority"], "P0")
 
     def test_build_gates_scopes_snapshot_artifacts_to_training_ready_folders(self):
         snapshot = {

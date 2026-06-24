@@ -15,8 +15,8 @@ from pathlib import Path
 
 from weather.io import read_json, write_json_atomic
 from weather.paths import data_path
-from weather.reporting import daily_rollup_freshness
-from weather.reporting.daily_learning_render import render_report
+from weather.reporting.daily import daily_rollup_freshness
+from weather.reporting.daily.daily_learning_render import render_report
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.trading_evidence import build_trading_evidence_summary
 from weather.schema_registry import schema_version

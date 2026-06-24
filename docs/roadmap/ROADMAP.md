@@ -270,7 +270,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-23 - V1.15 EVIDENCE REFRESHED, LOCATION BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -322,8 +322,8 @@ infrastructure work remains.
 | 278 | [Maker Model-Version Shadow Bakeoff [COMPLETE 2026-06-23 - MAKER MODEL-VARIANT BAKEOFF LIVE]](items/item-278-maker-model-version-shadow-bakeoff.md) |
 | 279 | [Maker Clustered Statistical Promotion Gate [COMPLETE 2026-06-23 - MARKET-DAY CLUSTER GATE LIVE]](items/item-279-maker-clustered-statistical-promotion-gate.md) |
 | 280 | [Maker CLOB Fill Evidence And Trade-Size Completeness [COMPLETE 2026-06-23 - FILL-EVIDENCE COMPLETENESS GATE LIVE]](items/item-280-maker-clob-fill-evidence-and-trade-size-completeness.md) |
-| 281 | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [OPEN 2026-06-23 - AUTH/TRANSIENT SETTLEMENT-SOURCE FAILURES POISON BACKFILL]](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
-| 282 | [Maker Parallel CLOB Raw-Book Refresh SLA [PARTIAL 2026-06-23 - RAW-BOOK FAST PATH EXISTS, SUPERVISOR AUTOMATION OPEN]](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
+| 281 | [Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [COMPLETE 2026-06-24 - FAILURE TYPING, RECOVERY, AND FLEET BLOCKERS LANDED]](items/item-281-settlement-source-auth-failure-and-backfill-poisoning-guard.md) |
+| 282 | [Maker Parallel CLOB Raw-Book Refresh SLA [COMPLETE 2026-06-24 - PARALLEL RAW-REFRESH AND SPLIT FRESHNESS LANDED]](items/item-282-maker-parallel-clob-raw-book-refresh-sla.md) |
 | 283 | [Settlement-Calibrated And Market-Shrunk Taker Fair Value [COMPLETE 2026-06-23 - CALIBRATED MARKET-SHRUNK TAKER FAIR LIVE]](items/item-283-settlement-calibrated-market-shrunk-taker-fair-value.md) |
 | 284 | [After-Fee EV Entry Gate, Adverse-Selection Edge Cap, And EV-Ranked Taker Allocation [COMPLETE 2026-06-23 - AFTER-COST EV GATE AND RANKING LIVE]](items/item-284-after-fee-ev-gate-adverse-selection-cap-ev-ranked-allocation.md) |
 | 285 | [Taker Edge-Permission Map For Per-Slice Proven-Skill Entry [COMPLETE 2026-06-23 - FAIL-CLOSED TAKER EDGE PERMISSION LIVE]](items/item-285-taker-edge-permission-map-per-slice-proven-skill.md) |

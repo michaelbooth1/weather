@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.daily_flow_analysis import build_flow_analysis, render_report, write_outputs
+from weather.reporting.daily.daily_flow_analysis import build_flow_analysis, render_report, write_outputs
 
 
 def write_flow_artifacts(root, *, blocked=True):
@@ -29,7 +29,7 @@ def write_flow_artifacts(root, *, blocked=True):
             "category": "operational_slo",
             "source": "fleet_observability",
             "signal": "live-forward SLO blocked for toronto",
-            "action": "python -m weather.reporting.fleet_observability report",
+            "action": "python -m weather.reporting.fleet.fleet_observability report",
             "blocker": True,
             "evidence": {"market_id": "toronto"},
         })

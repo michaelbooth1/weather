@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-23 - V1.15 EVIDENCE REFRESHED, LOCATION BLOCKED]
+# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - BOTTOM AND EXACT GATES PASS, BROAD GATE BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -664,3 +664,52 @@ This rules out promotion-safe Seattle routing across the existing no-market
 branches. The remaining unblock is a Seattle-specific no-market signal or
 training sample expansion that improves weak-slot, early, and midday Seattle
 winner mass while preserving the random-forest frontier's exact-band clearance.
+
+## 2026-06-24 Seattle warm-support repair clears bottom/exact gates
+
+Added a repeatable same-corpus no-market Seattle warm-support repair over the
+random-forest frontier rows. The repair uses only market id, captured local
+time weak-slot membership, cutoff regime, EQ support center, and the source
+candidate probability distribution. It excludes `outcome`, `market_yes`, and
+`settlement_distance_bucket` as repair features.
+
+Artifacts:
+
+- `data/backtest/item224_no_market_seattle_warm_support_repair.json`
+- `data/backtest/item224_no_market_seattle_warm_support_repair_report.md`
+- `data/backtest/item224_no_market_seattle_warm_support_repair_rows.csv`
+- `data/backtest/item224_no_market_seattle_warm_support_bottom_location.json`
+- `data/backtest/item224_no_market_seattle_warm_support_bottom_location_report.md`
+- `data/backtest/item224_no_market_seattle_warm_support_exact_band_distance_zero.json`
+- `data/backtest/item224_no_market_seattle_warm_support_exact_band_distance_zero_report.md`
+- `data/backtest/item224_no_market_seattle_warm_support_source_missingness_location_gate.json`
+- `data/backtest/item224_no_market_seattle_warm_support_pooled_f_retrain_location_gate.json`
+- `data/backtest/item224_no_market_seattle_warm_support_pooled_f_retrain_location_gate_report.md`
+
+Commands:
+
+```powershell
+python -m weather.reporting.item224_no_market_seattle_warm_support_repair --input-rows data\backtest\item224_no_market_model_frontier_rf_depth8_w1_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out-rows data\backtest\item224_no_market_seattle_warm_support_repair_rows.csv --out-json data\backtest\item224_no_market_seattle_warm_support_repair.json --report data\backtest\item224_no_market_seattle_warm_support_repair_report.md
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_no_market_seattle_warm_support_repair_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out data\backtest\item224_no_market_seattle_warm_support_bottom_location.json --report data\backtest\item224_no_market_seattle_warm_support_bottom_location_report.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_no_market_seattle_warm_support_repair_rows.csv --out data\backtest\item224_no_market_seattle_warm_support_exact_band_distance_zero.json --report data\backtest\item224_no_market_seattle_warm_support_exact_band_distance_zero_report.md
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\current_max_trust_candidate_replay.json --bottom-location data\backtest\item224_no_market_seattle_warm_support_bottom_location.json --exact-distance data\backtest\item224_no_market_seattle_warm_support_exact_band_distance_zero.json --out data\backtest\item224_no_market_seattle_warm_support_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_seattle_warm_support_pooled_f_retrain_location_gate_report.md
+```
+
+Result: partial unblock, still not Item 224 complete.
+
+- repair export changed `105` Seattle snapshot groups and `945` EQ rows.
+- bottom-location gate: `PASS` with `0` blockers. Seattle now clears weak-slot
+  (`+0.0022` vs market), early (`-0.0000` vs market), and midday (`+0.0006`
+  vs market).
+- exact-band/distance-0 gate: `PASS` with `0` blockers.
+- source/missingness direct gate on the repaired rows remains `BLOCK` with `3`
+  blockers: NYC missingness hash `3184...`, Seattle missingness hash `3184...`,
+  and NYC missingness hash `469d...`.
+- top-level pooled-F retrain/location gate remains `BLOCK` with `4` blockers:
+  paired candidate replay, promotion-refresh broad claim, hourly/ten-minute
+  weak-slot mitigation, and source/missingness location.
+
+This removes the previously isolated Seattle bottom-location and exact-band
+technical blocker. The remaining Item 224 work is now a full replay/promotion
+contract for the repaired candidate plus source/missingness repair evidence;
+the same-corpus row export is not broad promotion evidence by itself.

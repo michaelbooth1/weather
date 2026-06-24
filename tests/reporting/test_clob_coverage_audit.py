@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.clob_coverage_audit import (
+from weather.reporting.data_quality.clob_coverage_audit import (
     audit_folder,
     build_payload,
     classify_folder,

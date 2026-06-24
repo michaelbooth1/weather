@@ -214,6 +214,16 @@ def render_report(payload):
             )
         elif step.get("name") == "fleet_observability":
             detail = f"{result.get('status')} {result.get('summary')}"
+        elif step.get("name") == "nightly_health_checks":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; "
+                    f"alerts {result.get('alert_count')}; "
+                    f"critical {result.get('critical_alerts')}; "
+                    f"report {result.get('report_out') or '-'}"
+                )
         elif step.get("name") == "data_layer_audit":
             if result.get("skipped"):
                 detail = result.get("reason") or "skipped"
@@ -410,6 +420,22 @@ def render_report(payload):
     maker_paper = (payload.get("summary") or {}).get("maker_paper_score") or {}
     truth_audit = (payload.get("summary") or {}).get("settlement_source_audit") or {}
     trading = (payload.get("summary") or {}).get("trading_evidence") or {}
+    nightly_health = (payload.get("summary") or {}).get("nightly_health_checks") or {}
+    if nightly_health.get("status"):
+        first = nightly_health.get("first_alert") or {}
+        lines += [
+            "",
+            "## Nightly Health Checks",
+            "",
+            f"Status: `{nightly_health.get('status')}`",
+            f"Alerts: `{nightly_health.get('alert_count')}`",
+            f"Critical: `{nightly_health.get('critical_alerts')}`",
+            f"Warning: `{nightly_health.get('warning_alerts')}`",
+            f"First alert: {first.get('message') or '-'}",
+            f"Report: `{nightly_health.get('report_out') or '-'}`",
+            f"Latest report: `{nightly_health.get('latest_report_out') or '-'}`",
+            "",
+        ]
     if (
         taker_finalization.get("status")
         or taker_tail.get("status")

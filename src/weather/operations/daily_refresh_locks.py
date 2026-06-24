@@ -10,7 +10,7 @@ from pathlib import Path
 from weather.io import write_json_atomic
 from weather.paths import data_path
 from weather.reporting import promotion_refresh
-from weather.reporting.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
+from weather.reporting.data_quality.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,

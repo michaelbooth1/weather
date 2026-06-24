@@ -89,12 +89,63 @@ TEMPERATURE_BOUNDS = {
     "C": (-60.0, 60.0),
     "F": (-80.0, 140.0),
 }
+PERMANENT_NO_DATA = "permanent_no_data"
+AUTH_FAILURE = "auth_failure"
+RATE_LIMITED = "rate_limited"
+TRANSIENT_FAILURE = "transient"
+PERMANENT_NO_DATA_STATUS_CODES = {400, 404}
+AUTH_FAILURE_STATUS_CODES = {401, 403}
+TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
 
 
 def redact_api_key(value):
     if value is None:
         return None
     return re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value))
+
+
+def failure_class_for_exception(exc):
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+        return PERMANENT_NO_DATA
+    if status_code in AUTH_FAILURE_STATUS_CODES:
+        return AUTH_FAILURE
+    if status_code == 429:
+        return RATE_LIMITED
+    if status_code in TRANSIENT_STATUS_CODES:
+        return TRANSIENT_FAILURE
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return TRANSIENT_FAILURE
+    if status_code is None:
+        return TRANSIENT_FAILURE
+    if 500 <= int(status_code) <= 599:
+        return TRANSIENT_FAILURE
+    return TRANSIENT_FAILURE
+
+
+def failure_class_for_error_row(row):
+    failure_class = row.get("failure_class")
+    if failure_class:
+        return failure_class
+    try:
+        status_code = int(row.get("status_code"))
+    except (TypeError, ValueError):
+        status_code = None
+    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+        return PERMANENT_NO_DATA
+    if status_code in AUTH_FAILURE_STATUS_CODES:
+        return AUTH_FAILURE
+    if status_code == 429:
+        return RATE_LIMITED
+    return TRANSIENT_FAILURE
+
+
+def error_row_treats_as_source_unavailable(row):
+    failure_class = failure_class_for_error_row(row)
+    if row.get("failure_class"):
+        return failure_class == PERMANENT_NO_DATA and bool(row.get("treated_as_source_unavailable"))
+    return failure_class == PERMANENT_NO_DATA
 
 
 class WundergroundHistoryClient:
@@ -370,6 +421,7 @@ class WundergroundHistoryStore:
 
     def write_fetch_error(self, start_date, end_date, exc):
         response = getattr(exc, "response", None)
+        failure_class = failure_class_for_exception(exc)
         payload = {
             "source": "weather.com v1 historical observations",
             "station": self.station_icao,
@@ -378,20 +430,20 @@ class WundergroundHistoryStore:
             "start": start_date.isoformat(),
             "end": end_date.isoformat(),
             "status_code": getattr(response, "status_code", None),
+            "failure_class": failure_class,
             "url": redact_api_key(getattr(response, "url", None)),
             "error": redact_api_key(str(exc)),
             "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
-            "treated_as_source_unavailable": True,
+            "treated_as_source_unavailable": failure_class == PERMANENT_NO_DATA,
         }
         self.error_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.error_log_path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
         return payload
 
-    def unavailable_dates(self):
-        dates = set()
+    def iter_error_rows(self):
         if not self.error_log_path.exists():
-            return dates
+            return
         with self.error_log_path.open("r", encoding="utf-8") as handle:
             for line in handle:
                 line = line.strip()
@@ -399,12 +451,67 @@ class WundergroundHistoryStore:
                     continue
                 try:
                     row = json.loads(line)
-                    start = date.fromisoformat(row.get("start"))
-                    end = date.fromisoformat(row.get("end"))
-                except (TypeError, ValueError, json.JSONDecodeError):
+                except json.JSONDecodeError:
                     continue
-                dates.update(iter_dates(start, end))
+                yield row
+
+    def unavailable_dates(self):
+        dates = set()
+        for row in self.iter_error_rows() or []:
+            if not error_row_treats_as_source_unavailable(row):
+                continue
+            try:
+                start = date.fromisoformat(row.get("start"))
+                end = date.fromisoformat(row.get("end"))
+            except (TypeError, ValueError):
+                continue
+            dates.update(iter_dates(start, end))
         return dates
+
+    def recover_unavailable_errors(self, dry_run=False):
+        rows = list(self.iter_error_rows() or [])
+        recovered_dates = set()
+        recovered_rows = 0
+        rewritten_rows = []
+        now = datetime.now(timezone.utc).isoformat()
+        for row in rows:
+            updated = dict(row)
+            failure_class = failure_class_for_error_row(updated)
+            was_unavailable = bool(updated.get("treated_as_source_unavailable", True))
+            updated["failure_class"] = failure_class
+            updated["treated_as_source_unavailable"] = failure_class == PERMANENT_NO_DATA
+            if failure_class != PERMANENT_NO_DATA and was_unavailable:
+                recovered_rows += 1
+                updated["recovery_action"] = "cleared_from_unavailable_dates"
+                updated["recovered_at_utc"] = now
+                try:
+                    start = date.fromisoformat(updated.get("start"))
+                    end = date.fromisoformat(updated.get("end"))
+                except (TypeError, ValueError):
+                    start = end = None
+                if start and end:
+                    recovered_dates.update(iter_dates(start, end))
+            rewritten_rows.append(updated)
+        recovered_ranges = [
+            {"start": start.isoformat(), "end": end.isoformat()}
+            for start, end in split_date_runs(recovered_dates, chunk_days=10_000)
+        ]
+        if rows and not dry_run:
+            tmp_path = self.error_log_path.with_suffix(self.error_log_path.suffix + ".tmp")
+            with tmp_path.open("w", encoding="utf-8", newline="\n") as handle:
+                for row in rewritten_rows:
+                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+            replace_with_retry(tmp_path, self.error_log_path)
+        return {
+            "station": self.station_icao,
+            "history_id": self.history_id,
+            "data_root": str(self.root),
+            "error_rows": len(rows),
+            "recovered_error_rows": recovered_rows,
+            "recovered_days": len(recovered_dates),
+            "recovered_ranges": recovered_ranges,
+            "dry_run": bool(dry_run),
+        }
 
     def missing_dates(self, start_date, end_date):
         existing = self.raw_dates()
@@ -742,11 +849,12 @@ def cmd_backfill(args):
     for chunk_start, chunk_end in ranges:
         try:
             payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
-        except requests.HTTPError as exc:
+        except requests.RequestException as exc:
             error = store.write_fetch_error(chunk_start, chunk_end, exc)
             print(
-                f"Fetch unavailable {chunk_start} to {chunk_end}: "
-                f"HTTP {error.get('status_code')} ({error.get('error')})"
+                f"Fetch failed {chunk_start} to {chunk_end}: "
+                f"{error.get('failure_class')} HTTP {error.get('status_code')} "
+                f"({error.get('error')})"
             )
             if not args.continue_on_error:
                 raise
@@ -787,6 +895,12 @@ def cmd_audit(args):
     success = store.audit_partitions()
     if not success:
         sys.exit(1)
+
+
+def cmd_recover_unavailable(args):
+    store = _store_for(*_resolve(args))
+    report = store.recover_unavailable_errors(dry_run=args.dry_run)
+    print(json.dumps(report, indent=2, sort_keys=True))
 
 
 def history_coverage(store, start_date=None, end_date=None):
@@ -874,6 +988,14 @@ def build_parser():
     coverage.add_argument("--start", default="")
     coverage.add_argument("--end", default="")
     coverage.set_defaults(func=cmd_coverage)
+
+    recover = subparsers.add_parser("recover-unavailable")
+    recover.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report recoverable rows without rewriting backfill_errors.jsonl.",
+    )
+    recover.set_defaults(func=cmd_recover_unavailable)
 
     analyze = subparsers.add_parser("analyze")
     analyze.add_argument("--month", type=int, default=5)

@@ -14,7 +14,7 @@ from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.model.toronto_model import TORONTO_TZ
 from weather.paths import data_path
-from weather.reporting.feature_quality_quarantine import audit_folder_feature_quality
+from weather.reporting.data_quality.feature_quality_quarantine import audit_folder_feature_quality
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -241,10 +241,20 @@ def truthy(value):
 
 def source_status_summary_for_folder(folder):
     rows = read_csv_dicts(Path(folder) / "source_status_long.csv")
+    settlement_auth_failures = [
+        row for row in rows
+        if str(row.get("status") or "").lower() == "settlement_source_auth_failure"
+        or str(row.get("degradation_state") or "").lower() == "settlement_source_auth_failure"
+        or (
+            str(row.get("source_family") or row.get("source") or "").lower() == "wu_history"
+            and str(row.get("http_status") or "").strip() in {"401", "403"}
+        )
+    ]
     stale_or_failed = [
         row for row in rows
         if truthy(row.get("stale"))
         or str(row.get("status") or "").lower() in {"failed", "error", "stale_cache"}
+        or row in settlement_auth_failures
         or str(row.get("ok") or "").lower() == "false"
     ]
     by_status = Counter(row.get("status") or "unknown" for row in rows)
@@ -252,6 +262,10 @@ def source_status_summary_for_folder(folder):
         "row_count": len(rows),
         "source_count": len({row.get("source") for row in rows if row.get("source")}),
         "stale_or_failed_rows": len(stale_or_failed),
+        "settlement_source_auth_failure_rows": len(settlement_auth_failures),
+        "settlement_source_auth_failure_sources": sorted({
+            row.get("source") for row in settlement_auth_failures if row.get("source")
+        }),
         "status_counts": dict(sorted(by_status.items())),
     }
 
@@ -517,6 +531,8 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     training_ready_cutoff = datetime.now(TORONTO_TZ).date()
     source_status_rows = 0
     source_status_stale_or_failed_rows = 0
+    source_status_settlement_auth_failure_rows = 0
+    source_status_settlement_auth_failure_markets = set()
     source_status_counts = Counter()
     forecast_payload_rows = 0
     forecast_payload_bytes = 0
@@ -644,6 +660,10 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         status = row.get("source_status") or {}
         source_status_rows += int(status.get("row_count") or 0)
         source_status_stale_or_failed_rows += int(status.get("stale_or_failed_rows") or 0)
+        auth_failure_rows = int(status.get("settlement_source_auth_failure_rows") or 0)
+        source_status_settlement_auth_failure_rows += auth_failure_rows
+        if auth_failure_rows and row.get("market_id"):
+            source_status_settlement_auth_failure_markets.add(row.get("market_id"))
         source_status_counts.update(status.get("status_counts") or {})
         payloads = row.get("forecast_payloads") or {}
         forecast_payload_rows += int(payloads.get("row_count") or 0)
@@ -747,6 +767,9 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "row_count": source_status_rows,
             "stale_or_failed_rows": source_status_stale_or_failed_rows,
             "stale_or_failed_rate": pct(source_status_stale_or_failed_rows, source_status_rows),
+            "settlement_source_auth_failure_rows": source_status_settlement_auth_failure_rows,
+            "settlement_source_auth_failure_market_count": len(source_status_settlement_auth_failure_markets),
+            "settlement_source_auth_failure_markets": sorted(source_status_settlement_auth_failure_markets),
             "status_counts": dict(sorted(source_status_counts.items())),
         },
         "forecast_payloads": {
@@ -841,4 +864,3 @@ def classify_low_fill_field(row):
 
 def classify_low_fill_fields(rows):
     return [classify_low_fill_field(row) for row in rows or []]
-

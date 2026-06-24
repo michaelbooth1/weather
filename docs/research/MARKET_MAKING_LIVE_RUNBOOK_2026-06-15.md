@@ -74,8 +74,8 @@ No live-pilot order may be attempted unless all of these are true:
 Use one market, one central band, and one dedicated pilot wallet.
 
 1. Pre-open read-only check:
-   - Run `python -m weather.reporting.data_layer_audit --fleet --json`.
-   - Run `python -m weather.reporting.fleet_observability report --strict`.
+   - Run `python -m weather.reporting.data_quality.data_layer_audit --fleet --json`.
+   - Run `python -m weather.reporting.fleet.fleet_observability report --strict`.
    - Run `python -m weather.market.market_microstructure audit --strict`.
    - Run a shadow `market_making_run` tick for the target market.
    - Confirm the live-pilot preflight would pass except for deliberate

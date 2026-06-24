@@ -7,6 +7,7 @@ import unittest
 from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+import requests
 from weather.collection.historical_backfill_plan import build_plan, split_ranges
 from weather.market.market_registry import NYC, TORONTO
 from weather.sources.historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
@@ -29,7 +30,16 @@ from weather.sources.reanalysis_history import (
     normalize_payload,
 )
 from weather.sources.supplemental_stations import SupplementalStationRegistryError, guard_not_canonical_root
-from weather.sources.wu_history import normalize_observation, redact_api_key, summarize_daily
+from weather.sources.wu_history import (
+    AUTH_FAILURE,
+    PERMANENT_NO_DATA,
+    RATE_LIMITED,
+    TRANSIENT_FAILURE,
+    WundergroundHistoryStore,
+    normalize_observation,
+    redact_api_key,
+    summarize_daily,
+)
 
 
 GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|LONGITUDE|ELEVATION|temperature|temperature_Quality_Code|temperature_Report_Type|dew_point_temperature|dew_point_temperature_Quality_Code|station_level_pressure|sea_level_pressure|wind_direction|wind_speed|relative_humidity
@@ -351,6 +361,70 @@ class TestHistoricalSources(unittest.TestCase):
 
         self.assertNotIn("secret123", redacted)
         self.assertIn("apiKey=<redacted>", redacted)
+
+    def wu_http_error(self, status_code):
+        response = requests.Response()
+        response.status_code = status_code
+        response.url = f"https://api.weather.com/v1/location/KLGA:9:US/history?apiKey=secret123&status={status_code}"
+        error = requests.HTTPError(f"{status_code} Client Error")
+        error.response = response
+        return error
+
+    def test_wu_fetch_errors_type_recoverable_failures_without_poisoning_unavailable_dates(self):
+        cases = [
+            (date(2026, 1, 1), self.wu_http_error(400), PERMANENT_NO_DATA, True),
+            (date(2026, 1, 2), self.wu_http_error(401), AUTH_FAILURE, False),
+            (date(2026, 1, 3), self.wu_http_error(403), AUTH_FAILURE, False),
+            (date(2026, 1, 4), self.wu_http_error(429), RATE_LIMITED, False),
+            (date(2026, 1, 5), self.wu_http_error(503), TRANSIENT_FAILURE, False),
+            (date(2026, 1, 6), requests.Timeout("timed out"), TRANSIENT_FAILURE, False),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
+            for day, exc, expected_class, expected_unavailable in cases:
+                row = store.write_fetch_error(day, day, exc)
+                self.assertEqual(row["failure_class"], expected_class)
+                self.assertEqual(row["treated_as_source_unavailable"], expected_unavailable)
+
+            unavailable = store.unavailable_dates()
+            missing = store.missing_dates(date(2026, 1, 1), date(2026, 1, 6))
+
+        self.assertEqual(unavailable, {date(2026, 1, 1)})
+        self.assertNotIn(date(2026, 1, 1), missing)
+        self.assertEqual(set(missing), {date(2026, 1, 2), date(2026, 1, 3), date(2026, 1, 4), date(2026, 1, 5), date(2026, 1, 6)})
+
+    def test_wu_recover_unavailable_rewrites_legacy_poisoned_error_rows(self):
+        legacy_rows = [
+            {"start": "2026-01-01", "end": "2026-01-01", "status_code": 401, "treated_as_source_unavailable": True},
+            {"start": "2026-01-02", "end": "2026-01-02", "status_code": 429, "treated_as_source_unavailable": True},
+            {"start": "2026-01-03", "end": "2026-01-03", "status_code": 500, "treated_as_source_unavailable": True},
+            {"start": "2026-01-04", "end": "2026-01-04", "status_code": 404, "treated_as_source_unavailable": True},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
+            store.error_log_path.parent.mkdir(parents=True, exist_ok=True)
+            store.error_log_path.write_text(
+                "\n".join(json.dumps(row, sort_keys=True) for row in legacy_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            report = store.recover_unavailable_errors()
+            rows = [
+                json.loads(line)
+                for line in store.error_log_path.read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+
+        self.assertEqual(report["recovered_error_rows"], 3)
+        self.assertEqual(report["recovered_days"], 3)
+        self.assertEqual(rows[0]["failure_class"], AUTH_FAILURE)
+        self.assertFalse(rows[0]["treated_as_source_unavailable"])
+        self.assertEqual(rows[1]["failure_class"], RATE_LIMITED)
+        self.assertFalse(rows[1]["treated_as_source_unavailable"])
+        self.assertEqual(rows[2]["failure_class"], TRANSIENT_FAILURE)
+        self.assertFalse(rows[2]["treated_as_source_unavailable"])
+        self.assertEqual(rows[3]["failure_class"], PERMANENT_NO_DATA)
+        self.assertTrue(rows[3]["treated_as_source_unavailable"])
 
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {

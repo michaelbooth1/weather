@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.daily_learning import build_learning_payload, render_report, write_outputs
+from weather.reporting.daily.daily_learning import build_learning_payload, render_report, write_outputs
 
 
 def write_daily_artifacts(root, *, blocked=False):
@@ -1049,7 +1049,7 @@ class TestDailyLearning(unittest.TestCase):
                     "gate": "latest_model_row_freshness",
                     "owner": "weather snapshot/model loop",
                     "repair_command": "python -m weather.collection.snapshot_tracker --status",
-                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                    "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                 },
                 "recovery_checklist": [
                     {
@@ -1059,7 +1059,7 @@ class TestDailyLearning(unittest.TestCase):
                         "owner": "weather snapshot/model loop",
                         "before": "latest_age_minutes=40.0",
                         "repair_command": "python -m weather.collection.snapshot_tracker --status",
-                        "verification_command": "python -m weather.reporting.fleet_observability report",
+                        "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                     }
                 ],
                 "snapshot_cadence_proof": {
@@ -1072,7 +1072,7 @@ class TestDailyLearning(unittest.TestCase):
                     },
                     "status_command": "python -m weather.collection.snapshot_tracker --status",
                     "repair_command": "python -m weather.collection.snapshot_tracker --restart",
-                    "verification_command": "python -m weather.reporting.fleet_observability report",
+                    "verification_command": "python -m weather.reporting.fleet.fleet_observability report",
                     "markets": [
                         {
                             "market_id": "toronto",
@@ -1093,7 +1093,7 @@ class TestDailyLearning(unittest.TestCase):
                         }
                     ],
                 },
-                "rerun_command": "python -m weather.reporting.fleet_observability report",
+                "rerun_command": "python -m weather.reporting.fleet.fleet_observability report",
                 "summary": {
                     "first_blocking_market": "toronto",
                     "first_blocking_gate": "latest_model_row_freshness",

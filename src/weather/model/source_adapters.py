@@ -56,6 +56,25 @@ class SourceExpectedUnavailable(RuntimeError):
         self.fallback_source = fallback_source
 
 
+class SourceSettlementAuthFailure(RuntimeError):
+    """Raised when the canonical settlement source rejects authentication."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        source_family="wu_history",
+        http_status=None,
+    ):
+        super().__init__(message)
+        self.status = "settlement_source_auth_failure"
+        self.source_family = source_family
+        self.http_status = http_status
+        self.degradation_state = "settlement_source_auth_failure"
+        self.cache_status = "auth_failure"
+        self.fallback_source = None
+
+
 @dataclass(frozen=True)
 class SourceAdapter:
     name: str

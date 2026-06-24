@@ -1,6 +1,6 @@
-"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+"""Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
-from weather.reporting.fleet_observability_inventory import *  # noqa: F403
+from weather.reporting.fleet.fleet_observability_inventory import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -370,6 +370,12 @@ def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, wi
         "heartbeat_age_seconds": health.get("heartbeat_age_seconds"),
         "heartbeat_age_minutes": health.get("heartbeat_age_min"),
         "last_capture_age_seconds": health.get("last_books_age_seconds"),
+        "last_raw_books_age_seconds": health.get("last_raw_books_age_seconds"),
+        "raw_book_market_ages_seconds": health.get("raw_book_market_ages_seconds"),
+        "raw_book_useful_iterations": health.get("raw_book_useful_iterations"),
+        "last_derived_features_age_seconds": health.get("last_derived_features_age_seconds"),
+        "derived_feature_market_ages_seconds": health.get("derived_feature_market_ages_seconds"),
+        "derived_feature_error_markets": health.get("derived_feature_error_markets"),
         "last_capture_age_minutes": health.get("last_snapshot_age_min"),
         "last_iteration_elapsed_seconds": health.get("last_iteration_elapsed_seconds"),
         "max_recent_iteration_elapsed_seconds": health.get("max_recent_iteration_elapsed_seconds"),

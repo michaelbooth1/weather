@@ -85,9 +85,9 @@ On or after 2026-07-18:
 | `src/collection_health.py` | `weather.collection.collection_health` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/daily_refresh.py` | `weather.operations.daily_refresh` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/daily_summary.py` | `weather.sources.daily_summary` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/data_auditor.py` | `weather.reporting.data_auditor` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/data_auditor.py` | `weather.reporting.data_quality.data_auditor` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/data_ingestion.py` | `weather.collection.data_ingestion` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/data_layer_audit.py` | `weather.reporting.data_layer_audit` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/data_layer_audit.py` | `weather.reporting.data_quality.data_layer_audit` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/disagreement_casebook.py` | `weather.reporting.disagreement_casebook` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/eccc_history.py` | `weather.sources.eccc_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/eccc_swob_history.py` | `weather.sources.eccc_swob_history` | External/local legacy commands only | No first-party callers for one migration window |
@@ -95,7 +95,7 @@ On or after 2026-07-18:
 | `src/feature_model.py` | `weather.calibration.feature_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/feature_probability_calibration.py` | `weather.calibration.feature_probability_calibration` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/feature_store.py` | `weather.model.feature_store` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/fleet_observability.py` | `weather.reporting.fleet_observability` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/fleet_observability.py` | `weather.reporting.fleet.fleet_observability` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/forecast_archive.py` | `weather.collection.forecast_archive` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/forecast_error_model.py` | `weather.calibration.forecast_error_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/forecast_history.py` | `weather.sources.forecast_history` | External/local legacy commands only | No first-party callers for one migration window |

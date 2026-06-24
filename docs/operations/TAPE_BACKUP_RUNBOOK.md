@@ -190,7 +190,7 @@ market-making evidence.
 
 The latest drill status is copied to
 `latest/tape_restore_drill.json` under the backup root and is surfaced by
-`weather.reporting.fleet_observability`.
+`weather.reporting.fleet.fleet_observability`.
 
 ## Recovery After Workstation Loss
 
@@ -203,7 +203,7 @@ The latest drill status is copied to
 6. Regenerate operational reports:
 
 ```powershell
-python -m weather.reporting.fleet_observability report --tape-backup-root <root>
+python -m weather.reporting.fleet.fleet_observability report --tape-backup-root <root>
 python -m weather.operations.daily_refresh run --continue-on-error --tape-backup-root <root>
 ```
 

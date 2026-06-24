@@ -6,7 +6,7 @@ combines snapshot cadence/completeness, historical source coverage, loop state,
 and known market-microstructure gaps into one durable artifact.
 
 Ownership note: keep audit assembly and CLI glue here. Markdown rendering
-belongs in ``weather.reporting.data_layer_audit_report``.
+belongs in ``weather.reporting.data_quality.data_layer_audit_report``.
 """
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from pathlib import Path
 from weather.io import write_json_atomic
 from weather.paths import data_path
 
-from weather.reporting.data_layer_audit_remediation import (
+from weather.reporting.data_quality.data_layer_audit_remediation import (
     build_remediation_manifest as build_remediation_manifest_payload,
 )
-from weather.reporting.data_layer_audit_collectors import (
+from weather.reporting.data_quality.data_layer_audit_collectors import (
     ACTIVE_DAY_OPTIONAL_MARKET_SIDECARS,
     ACTIVE_DAY_REQUIRED_SIDECARS,
     CLOB_RAW_BOOK_ARTIFACT_KEYS,
@@ -165,6 +165,12 @@ def clob_loop_summary(path=CLOB_LOOP_STATUS_PATH, interval_seconds=60.0):
         "fast_interval_seconds": (status or {}).get("fast_interval_seconds"),
         "heartbeat_age_seconds": health.get("heartbeat_age_seconds"),
         "last_books_age_seconds": health.get("last_books_age_seconds"),
+        "last_raw_books_age_seconds": health.get("last_raw_books_age_seconds"),
+        "raw_book_market_ages_seconds": health.get("raw_book_market_ages_seconds"),
+        "raw_book_useful_iterations": health.get("raw_book_useful_iterations"),
+        "last_derived_features_age_seconds": health.get("last_derived_features_age_seconds"),
+        "derived_feature_market_ages_seconds": health.get("derived_feature_market_ages_seconds"),
+        "derived_feature_error_markets": health.get("derived_feature_error_markets"),
         "consecutive_errors": health.get("consecutive_errors"),
         "error_markets": health.get("error_markets"),
         "last_error": health.get("last_error"),
@@ -751,6 +757,25 @@ def build_gates(snapshot, historical, thresholds=None):
         threshold=f"<= {max_stale_rate:.1%}",
         action="Use source-status rows to isolate persistent stale sources before training on the affected captures.",
     ))
+    auth_failure_markets = source_status.get("settlement_source_auth_failure_markets") or []
+    auth_failure_market_count = int(
+        source_status.get("settlement_source_auth_failure_market_count") or len(auth_failure_markets)
+    )
+    gates.append(gate(
+        "settlement_source_auth_failure",
+        "fail",
+        auth_failure_market_count < 2,
+        (
+            f"{auth_failure_market_count} market(s) have WU settlement-source auth failures"
+            + (f": {', '.join(auth_failure_markets[:6])}." if auth_failure_markets else ".")
+        ),
+        threshold="< 2 markets with settlement_source_auth_failure",
+        action=(
+            "Treat multi-market WU auth failures as a fail-closed settlement-source outage; "
+            "verify the Weather.com key, rerun source-status capture, and run "
+            "`python -m weather.sources.wu_history recover-unavailable` before resuming backfills."
+        ),
+    ))
 
     reanalysis_raw_only_normalizable = 0
     reanalysis_raw_only_source_lag = 0
@@ -1001,6 +1026,24 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
             ),
             "Items 3, 22, 30",
         ))
+    source_status = snapshot.get("source_status") or {}
+    auth_markets = source_status.get("settlement_source_auth_failure_markets") or []
+    auth_market_count = int(source_status.get("settlement_source_auth_failure_market_count") or 0)
+    if auth_market_count >= 2:
+        recs.append(recommendation(
+            "P0",
+            "Fail closed on WU settlement-source auth outage",
+            (
+                f"{auth_market_count} market(s) have settlement_source_auth_failure in source-status rows"
+                + (f": {', '.join(auth_markets[:8])}." if auth_markets else ".")
+            ),
+            (
+                "Verify or rotate the Weather.com/WU key, rerun source-status capture, then run "
+                "`python -m weather.sources.wu_history recover-unavailable` so any poisoned backfill "
+                "error-log rows become re-fetchable."
+            ),
+            "Item 281",
+        ))
     source_status_days = snapshot.get("artifact_day_counts", {}).get("source_status", 0)
     if source_status_days < snapshot.get("folder_count", 0):
         recs.append(recommendation(
@@ -1177,7 +1220,7 @@ def build_audit(
 def write_json(path, payload):
     return write_json_atomic(path, payload, trailing_newline=True)
 
-from weather.reporting.data_layer_audit_report import write_report  # noqa: E402
+from weather.reporting.data_quality.data_layer_audit_report import write_report  # noqa: E402
 
 
 def main(argv=None):

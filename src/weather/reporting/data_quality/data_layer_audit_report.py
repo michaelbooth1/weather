@@ -194,6 +194,8 @@ def write_report(path, payload):
             ["CLOB fast interval", f"{clob_loop.get('fast_interval_seconds')} sec"],
             ["CLOB heartbeat age", f"{clob_loop.get('heartbeat_age_seconds')} sec"],
             ["CLOB last books age", f"{clob_loop.get('last_books_age_seconds')} sec"],
+            ["CLOB raw books age", f"{clob_loop.get('last_raw_books_age_seconds')} sec"],
+            ["CLOB derived features age", f"{clob_loop.get('last_derived_features_age_seconds')} sec"],
             ["CLOB error markets", ", ".join(clob_loop.get("error_markets") or []) or "-"],
             ["Snapshot folders", snapshot.get("folder_count")],
             ["Total snapshots", snapshot.get("total_snapshots")],

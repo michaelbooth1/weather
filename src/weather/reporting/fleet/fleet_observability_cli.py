@@ -1,6 +1,6 @@
-"""Implementation slice extracted from src/weather/reporting/fleet_observability.py."""
+"""Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
-from weather.reporting.fleet_observability_render import *  # noqa: F403
+from weather.reporting.fleet.fleet_observability_render import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.

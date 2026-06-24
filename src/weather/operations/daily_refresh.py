@@ -32,13 +32,13 @@ from weather.backtesting.settlement_ledger import (
 )
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.reporting import disagreement_casebook
-from weather.reporting import data_layer_audit
-from weather.reporting import data_auditor
-from weather.reporting import data_retention_inventory
-from weather.reporting import daily_learning
-from weather.reporting import daily_progress_ledger
-from weather.reporting import daily_rollup_freshness
-from weather.reporting import fleet_observability
+from weather.reporting.data_quality import data_layer_audit
+from weather.reporting.data_quality import data_auditor
+from weather.reporting.data_quality import data_retention_inventory
+from weather.reporting.daily import daily_learning
+from weather.reporting.daily import daily_progress_ledger
+from weather.reporting.daily import daily_rollup_freshness
+from weather.reporting.fleet import fleet_observability
 from weather.reporting import frozen_baseline_replay_trend
 from weather.reporting import hourly_model_performance
 from weather.reporting import market_beating_objective_scoreboard
@@ -67,7 +67,7 @@ from weather.operations.long_job_guard import (
 )
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.schema_registry import schema_version
-from weather.reporting.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
+from weather.reporting.data_quality.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
 
 
 SCHEMA_VERSION = schema_version("daily_refresh")
@@ -126,6 +126,7 @@ from weather.operations.daily_refresh_steps import (
     run_market_beating_objective_scoreboard_step,
     run_maker_paper_score_step,
     run_model_variant_evidence_growth_step,
+    run_nightly_health_checks_step,
     run_price_free_model_learning_step,
     run_proper_scoring_reliability_scorecard_step,
     run_progress_audit_step,
@@ -193,6 +194,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "fail_on_hourly_performance_gate": getattr(args, "fail_on_hourly_performance_gate", True),
             "fail_on_ten_minute_performance_gate": getattr(args, "fail_on_ten_minute_performance_gate", True),
             "fail_on_daily_flow_analysis_blocker": getattr(args, "fail_on_daily_flow_analysis_blocker", False),
+            "fail_on_nightly_health_critical": getattr(args, "fail_on_nightly_health_critical", False),
             "long_job_guard": long_job_guard_info or {},
             "resume_from_step": getattr(args, "resume_from_step", ""),
         },
@@ -227,6 +229,11 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             fleet_step = next((step for step in payload["steps"] if step.get("name") == "fleet_observability"), {})
             fleet_status = ((fleet_step.get("result") or {}).get("status"))
             if fleet_status == "CRITICAL" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        if getattr(args, "fail_on_nightly_health_critical", False):
+            health_step = next((step for step in payload["steps"] if step.get("name") == "nightly_health_checks"), {})
+            health_status = ((health_step.get("result") or {}).get("status"))
+            if health_status == "CRITICAL" and payload["status"] == "ok":
                 payload["status"] = "critical"
         if getattr(args, "fail_on_ingest_quality", False):
             ingest_step = next((step for step in payload["steps"] if step.get("name") == "ingest_quality_gate"), {})

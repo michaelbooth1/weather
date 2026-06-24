@@ -12,7 +12,7 @@ from weather.model.source_adapters import fetch_source
 
 
 class FakeWuHistoryModel(SourceFetchMixin):
-    def __init__(self, history_id, tz_name="America/Toronto"):
+    def __init__(self, history_id, tz_name="America/Toronto", status_code=400):
         tz = ZoneInfo(tz_name)
         target_date = datetime.now(tz).date()
         self.spec = SimpleNamespace(
@@ -24,12 +24,13 @@ class FakeWuHistoryModel(SourceFetchMixin):
         self.target_date_str = target_date.strftime("%Y%m%d")
         self.timeout = 1
         self.saved_cache = None
+        self.status_code = status_code
 
     def get_json(self, _url, _params):
         response = requests.Response()
-        response.status_code = 400
+        response.status_code = self.status_code
         response.url = "https://api.weather.com/v1/location/history"
-        error = requests.HTTPError("400 Client Error")
+        error = requests.HTTPError(f"{self.status_code} Client Error")
         error.response = response
         raise error
 
@@ -107,3 +108,23 @@ def test_expected_current_day_wu_history_source_status_is_not_failed(tmp_path):
     assert family["expected_unavailable_sources"] == ["wu_history"]
     assert family["source_details"][0]["bucket"] == "expected_unavailable"
     assert family["source_details"][0]["fallback_source"] == "wu_current,metar,eccc_swob,current_high_ledger"
+
+
+def test_wu_history_auth_failure_is_typed_and_not_cached_as_expected_unavailable():
+    model = FakeWuHistoryModel("KATL:9:US", status_code=403)
+
+    name, payload = fetch_source(
+        "wu_history",
+        model.fetch_wu_history,
+        fetched_at="2026-06-21T15:36:00-04:00",
+    )
+    blended = model.blend_with_last_good({name: payload})
+
+    row = blended["wu_history"]
+    assert payload["status"] == "settlement_source_auth_failure"
+    assert payload["http_status"] == 403
+    assert row["status"] == "settlement_source_auth_failure"
+    assert row["degradation_state"] == "settlement_source_auth_failure"
+    assert row["cache_status"] == "auth_failure"
+    assert row["source_family"] == "wu_history"
+    assert not row["ok"]

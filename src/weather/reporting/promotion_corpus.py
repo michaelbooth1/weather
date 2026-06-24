@@ -23,7 +23,7 @@ from weather.backtesting.replay import index_records_by_snapshot, is_reconstruct
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, discover_settled_folders
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
-from weather.reporting.feature_quality_quarantine import audit_folder_feature_quality
+from weather.reporting.data_quality.feature_quality_quarantine import audit_folder_feature_quality
 
 PROMOTION_CORPUS_SCHEMA_VERSION = "promotion_corpus_v0.1"
 DEFAULT_OUT = data_path() / "backtest" / "promotion_corpus.json"

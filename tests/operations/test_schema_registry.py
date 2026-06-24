@@ -222,6 +222,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("daily_refresh_disk_preflight"), "daily_refresh_disk_preflight_v0.1")
         self.assertEqual(schema_version("daily_refresh_stale_lock_repair"), "daily_refresh_stale_lock_repair_v0.1")
         self.assertEqual(schema_version("daily_rollup_freshness"), "daily_rollup_freshness_v0.1")
+        self.assertEqual(schema_version("nightly_health_checks"), "nightly_health_checks_v0.1")
         self.assertEqual(schema_version("runtime_identity_evidence"), "runtime_identity_evidence_v0.1")
         self.assertEqual(schema_version("snapshot_core_sidecar_backfill"), "snapshot_core_sidecar_backfill_v0.1")
         self.assertEqual(schema_version("snapshot_explanation_backfill"), "snapshot_explanation_backfill_v0.1")

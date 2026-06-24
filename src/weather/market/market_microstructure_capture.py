@@ -7,6 +7,7 @@ import hashlib
 import json
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from weather.schema_registry import schema_version
 
 
 CLOB_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_capture_status")
+CLOB_RAW_BOOK_REFRESH_SCHEMA_VERSION = "clob_raw_book_refresh_v0.1"
 CLOB_PRICE_HISTORY_RAW_MANIFEST_SCHEMA_VERSION = schema_version("clob_price_history_raw_response_manifest")
 CLOB_PRICE_HISTORY_REPAIR_SCHEMA_VERSION = schema_version("clob_price_history_repair")
 PRICE_HISTORY_RAW_DIRNAME = "price_history_raw"
@@ -835,6 +837,8 @@ def capture_status_from_result(
     return {
         "schema_version": CLOB_CAPTURE_STATUS_SCHEMA_VERSION,
         "captured_at_utc": captured_at.isoformat(),
+        "raw_books_captured_at_utc": result.get("raw_books_captured_at_utc"),
+        "derived_features_captured_at_utc": result.get("derived_features_captured_at_utc"),
         "event_slug": result.get("event_slug"),
         "market_id": result.get("market_id"),
         "status": status,
@@ -1076,6 +1080,14 @@ def capture_event_books(
     result = {
         "event_slug": config.event_slug,
         "market_id": market_id,
+        "captured_at_utc": captured_at.isoformat(),
+        "raw_books_captured_at_utc": captured_at.isoformat() if summaries else None,
+        "derived_features_captured_at_utc": (
+            captured_at.isoformat()
+            if include_clob_features and feature_result.get("rows")
+            else None
+        ),
+        "include_clob_features": bool(include_clob_features),
         "token_rows": len(all_token_rows),
         "captured_tokens": len(token_rows),
         "books": len(summaries),
@@ -1106,6 +1118,146 @@ def capture_event_books(
         include_clob_features=include_clob_features,
     ))
     return result
+
+
+def _raw_refresh_market_result(
+    market_id,
+    *,
+    capture_fn,
+    root,
+    outcomes,
+    batch_size,
+    started_at,
+):
+    started_perf = time.perf_counter()
+    try:
+        result = capture_fn(
+            market_id,
+            root=root,
+            outcomes=outcomes,
+            include_price_history=False,
+            include_ws_events=False,
+            include_clob_features=False,
+            batch_size=batch_size,
+        )
+        result = dict(result or {})
+    except Exception as exc:  # noqa: BLE001 - one market should not stop raw refresh
+        result = {"market_id": market_id, "error": f"{type(exc).__name__}: {exc}"}
+    finished_at = utc_now()
+    result.setdefault("market_id", market_id)
+    result["raw_refresh_started_at_utc"] = started_at.isoformat()
+    result["raw_refresh_finished_at_utc"] = finished_at.isoformat()
+    result["raw_refresh_elapsed_seconds"] = round(time.perf_counter() - started_perf, 3)
+    raw_at = result.get("raw_books_captured_at_utc") or (
+        result.get("captured_at_utc") if int(result.get("books") or 0) > 0 else None
+    )
+    if raw_at:
+        try:
+            parsed = datetime.fromisoformat(str(raw_at))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            result["raw_book_age_seconds_at_finish"] = round(
+                max(0.0, (finished_at - parsed.astimezone(timezone.utc)).total_seconds()),
+                3,
+            )
+        except ValueError:
+            result["raw_book_age_seconds_at_finish"] = None
+    else:
+        result["raw_book_age_seconds_at_finish"] = None
+    result["raw_book_refresh_ok"] = not result.get("error") and int(result.get("books") or 0) > 0
+    return result
+
+
+def capture_fleet_books_parallel(
+    market_id="all",
+    root=None,
+    outcomes="all",
+    batch_size=DEFAULT_BATCH_SIZE,
+    max_workers=None,
+    per_market_timeout_seconds=30.0,
+    freshness_sla_seconds=120.0,
+    capture_fn=None,
+):
+    """Refresh raw CLOB books for all requested markets concurrently.
+
+    This path intentionally skips price history, WebSocket capture, and derived
+    CLOB features so maker preflight remediation can restore raw-book freshness
+    without waiting on heavier diagnostics.
+    """
+    market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
+    capture_fn = capture_fn or capture_market_books
+    generated_at = utc_now()
+    workers = max(1, min(len(market_ids) or 1, int(max_workers or len(market_ids) or 1)))
+    timeout = float(per_market_timeout_seconds)
+    executor = ThreadPoolExecutor(max_workers=workers)
+    futures = {}
+    try:
+        for item in market_ids:
+            started_at = utc_now()
+            future = executor.submit(
+                _raw_refresh_market_result,
+                item,
+                capture_fn=capture_fn,
+                root=root,
+                outcomes=outcomes,
+                batch_size=batch_size,
+                started_at=started_at,
+            )
+            futures[future] = (item, started_at)
+        done, not_done = wait(futures, timeout=timeout)
+        results = {}
+        for future in done:
+            item, _started_at = futures[future]
+            try:
+                results[item] = future.result()
+            except Exception as exc:  # noqa: BLE001 - defensive; worker catches normal failures
+                results[item] = {"market_id": item, "error": f"{type(exc).__name__}: {exc}"}
+        timed_out_at = utc_now()
+        for future in not_done:
+            item, started_at = futures[future]
+            future.cancel()
+            results[item] = {
+                "market_id": item,
+                "error": f"TimeoutError: raw book refresh exceeded {timeout:.1f}s",
+                "timeout": True,
+                "raw_refresh_started_at_utc": started_at.isoformat(),
+                "raw_refresh_finished_at_utc": timed_out_at.isoformat(),
+                "raw_refresh_elapsed_seconds": round((timed_out_at - started_at).total_seconds(), 3),
+                "raw_book_age_seconds_at_finish": None,
+                "raw_book_refresh_ok": False,
+            }
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    ordered = [results[item] for item in market_ids if item in results]
+    ok_rows = [row for row in ordered if row.get("raw_book_refresh_ok")]
+    timeout_rows = [row for row in ordered if row.get("timeout")]
+    failed_rows = [row for row in ordered if row.get("error")]
+    slow_rows = [
+        row for row in ordered
+        if row.get("raw_refresh_elapsed_seconds") is not None
+        and float(row.get("raw_refresh_elapsed_seconds")) > float(freshness_sla_seconds)
+    ]
+    return {
+        "schema_version": CLOB_RAW_BOOK_REFRESH_SCHEMA_VERSION,
+        "generated_at_utc": generated_at.isoformat(),
+        "market_id": market_id,
+        "market_count": len(market_ids),
+        "max_workers": workers,
+        "per_market_timeout_seconds": timeout,
+        "freshness_sla_seconds": float(freshness_sla_seconds),
+        "ok": len(ok_rows) == len(market_ids),
+        "summary": {
+            "ok_market_count": len(ok_rows),
+            "failed_market_count": len(failed_rows),
+            "timeout_market_count": len(timeout_rows),
+            "slow_market_count": len(slow_rows),
+            "failed_markets": [row.get("market_id") for row in failed_rows],
+            "timeout_markets": [row.get("market_id") for row in timeout_rows],
+            "slow_markets": [row.get("market_id") for row in slow_rows],
+        },
+        "markets": ordered,
+    }
 
 
 def capture_fleet_books(
