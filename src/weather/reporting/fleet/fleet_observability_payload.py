@@ -6,7 +6,7 @@ from pathlib import Path
 from weather.reporting.fleet.fleet_observability_gates import *  # noqa: F403
 from weather.operations.closed_market_day_archive import DEFAULT_INCREMENTAL_JSON
 from weather.operations import event_metadata_validation
-from weather.reporting.trading_evidence import (
+from weather.reporting.market.trading_evidence import (
     DEFAULT_MM_RUNS_ROOT,
     DEFAULT_TAKER_RUNS_ROOT,
     build_trading_evidence_summary,

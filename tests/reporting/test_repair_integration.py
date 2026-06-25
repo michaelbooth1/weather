@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from weather.reporting.active_variant_shadow_refresh import execute_registry_prediction_exports
-from weather.reporting.promotion_refresh import (
+from weather.reporting.promotion.promotion_refresh import (
     _candidate_summary,
     build_promotion_allowlist,
     load_precomputed_candidate_report,

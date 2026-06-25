@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.promotion_refresh import promotion_readiness, write_report
+from weather.reporting.promotion.promotion_refresh import promotion_readiness, write_report
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence, main
 
 

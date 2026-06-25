@@ -143,6 +143,14 @@ is now 913 lines, `weather.operations.tape_backup_manifest` is 1,138 lines,
 `weather.operations.tape_backup_cleanup` is 1,038 lines. The regenerated
 module-size audit reports `0` warnings.
 
+## Completion Notes
+
+Completed on 2026-06-25. Owner-scoped splits moved warning-module
+responsibilities into focused helper modules while keeping compatibility
+facades and public CLIs stable. The refreshed module-size audit reports
+`0` warnings against the 2,000-line threshold, and the ownership map records the
+new split boundaries for the former warning set.
+
 Acceptance: `python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md`
 reports zero warnings, or any remaining over-threshold module has an explicit
 documented exception with owner, reason, and next review date; focused owner

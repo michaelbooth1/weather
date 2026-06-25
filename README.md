@@ -187,8 +187,8 @@ Run commands from the repository root with the venv interpreter.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
-.\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
-.\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
+.\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
+.\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily_learning
 .\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23

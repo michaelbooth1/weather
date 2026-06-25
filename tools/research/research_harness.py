@@ -109,7 +109,7 @@ SCRIPT_INVENTORY = {
     "ten_minute_performance_audit.py": {
         "status": "retired",
         "smoke": "compile_main_guard",
-        "notes": "Compatibility wrapper; use weather.reporting.ten_minute_model_performance.",
+        "notes": "Compatibility wrapper; use weather.reporting.hourly.ten_minute_model_performance.",
     },
     "retired_analogs_live.py": {
         "status": "retired",

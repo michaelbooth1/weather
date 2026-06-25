@@ -18,7 +18,7 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.winner_boost_validation import (
+from weather.reporting.validation.winner_boost_validation import (
     brier,
     clamp_probability,
     safe_float,

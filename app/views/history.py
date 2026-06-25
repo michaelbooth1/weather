@@ -12,7 +12,7 @@ def _metric_value(formatter, value):
 
 
 def render_history_page(days=5):
-    import weather.reporting.model_history as history_model
+    import weather.reporting.scorecards.model_history as history_model
 
     history_model = importlib.reload(history_model)
     build_history_payload = history_model.build_history_payload

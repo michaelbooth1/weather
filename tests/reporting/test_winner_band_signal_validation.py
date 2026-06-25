@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.winner_band_signal_validation import (
+from weather.reporting.validation.winner_band_signal_validation import (
     build_payload,
     enrich_rows,
     nested_market_date_split,

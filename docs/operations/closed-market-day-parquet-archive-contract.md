@@ -183,7 +183,7 @@ before returning rows. For fallbacks, provenance reports
 migrated to this boundary. Its JSON and Markdown outputs include
 `historical_reader_summary` / "Historical Reader Sources" so operators can see
 which artifact families came from validated Parquet versus fallback text.
-`weather.reporting.snapshot_evaluation` also reads closed-day snapshot and
+`weather.reporting.scorecards.snapshot_evaluation` also reads closed-day snapshot and
 replay-input history through this boundary and reports source-mode mix.
 
 ## Incremental Conversion

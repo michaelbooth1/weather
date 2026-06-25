@@ -18,7 +18,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.hourly_model_performance import (
+from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_LABELS_CSV,
     DEFAULT_QUALITY_GRADES,
     DEFAULT_SNAPSHOTS_ROOT,
@@ -26,7 +26,7 @@ from weather.reporting.hourly_model_performance import (
     score_folder,
     summarize_rows,
 )
-from weather.reporting.ten_minute_model_performance import (
+from weather.reporting.hourly.ten_minute_model_performance import (
     summarize_by_slot,
     ten_minute_checkpoint_rows,
 )

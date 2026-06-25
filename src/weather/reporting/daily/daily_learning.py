@@ -17,7 +17,7 @@ from weather.io import write_json_atomic
 from weather.reporting.daily import daily_rollup_freshness
 from weather.reporting.daily.daily_learning_render import render_report
 from weather.reporting.formatting import fmt_num, fmt_signed
-from weather.reporting.trading_evidence import build_trading_evidence_summary
+from weather.reporting.market.trading_evidence import build_trading_evidence_summary
 
 
 from weather.reporting.daily.daily_learning_scorecard import *  # noqa: F403
@@ -780,7 +780,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             "hourly_performance_gate",
             "hourly_model_performance",
             f"Hourly performance gate blocked: {first.get('detail') or 'inspect hourly gate blockers'}.",
-            first.get("remediation_command") or "Run weather.reporting.hourly_model_performance and remediate early-hour blockers.",
+            first.get("remediation_command") or "Run weather.reporting.hourly.hourly_model_performance and remediate early-hour blockers.",
             evidence=hourly_gate,
             blocker=True,
         ))
@@ -811,7 +811,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"10-minute weak-slot gate blocked: {first.get('detail') or 'inspect weak-slot blockers'}. "
                 f"Weak slots: {', '.join(weak_slots) or '-'}."
             ),
-            first.get("remediation_command") or "Run weather.reporting.ten_minute_model_performance and remediate weak-slot blockers.",
+            first.get("remediation_command") or "Run weather.reporting.hourly.ten_minute_model_performance and remediate weak-slot blockers.",
             evidence=ten_minute_gate,
             blocker=True,
         ))

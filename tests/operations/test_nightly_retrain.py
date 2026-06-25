@@ -66,7 +66,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
         def runner(command, **_kwargs):
             calls.append(command)
-            if "weather.reporting.promotion_refresh" in command:
+            if "weather.reporting.promotion.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, promote=["nyc"], shadow=["denver"])
             return {"returncode": 0, "stdout": "ok", "stderr": ""}
@@ -98,7 +98,7 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_run_marks_blocked_when_promotion_blocks_markets(self):
         def runner(command, **_kwargs):
-            if "weather.reporting.promotion_refresh" in command:
+            if "weather.reporting.promotion.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, blocked=["miami"])
             return {"returncode": 0, "stdout": "", "stderr": ""}
@@ -186,7 +186,7 @@ class TestNightlyRetrain(unittest.TestCase):
                     }),
                     encoding="utf-8",
                 )
-            if "weather.reporting.promotion_refresh" in command:
+            if "weather.reporting.promotion.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, shadow=["nyc"])
             return {"returncode": 0, "stdout": "ok", "stderr": ""}
@@ -272,7 +272,7 @@ class TestNightlyRetrain(unittest.TestCase):
                     }),
                     encoding="utf-8",
                 )
-            if "weather.reporting.promotion_refresh" in command:
+            if "weather.reporting.promotion.promotion_refresh" in command:
                 out = command[command.index("--out") + 1]
                 _write_promotion(out, shadow=["nyc"])
             return {"returncode": 0, "stdout": "", "stderr": ""}

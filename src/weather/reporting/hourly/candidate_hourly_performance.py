@@ -14,7 +14,7 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.hourly_model_performance import HOUR_REGIME_LABELS, hour_regime
+from weather.reporting.hourly.hourly_model_performance import HOUR_REGIME_LABELS, hour_regime
 from weather.schema_registry import schema_version
 
 

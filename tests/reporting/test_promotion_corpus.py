@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from weather.reporting.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
-from weather.reporting.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
+from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
+from weather.reporting.promotion.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
 from weather.backtesting.replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
 

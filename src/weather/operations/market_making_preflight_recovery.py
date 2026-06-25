@@ -26,7 +26,7 @@ ALLOWED_COMMAND_PREFIXES = (
     "python -m weather.collection.snapshot_tracker",
     "python -m weather.market.market_microstructure",
     "python -m weather.operations.observation_trigger",
-    "python -m weather.reporting.promotion_refresh",
+    "python -m weather.reporting.promotion.promotion_refresh",
     "python -m weather.reporting.data_quality.data_layer_audit",
 )
 OUTPUT_LIMIT = 20000

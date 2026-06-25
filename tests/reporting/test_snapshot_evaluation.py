@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.reporting.snapshot_evaluation import build_evaluation, write_outputs  # noqa: E402
+from weather.reporting.scorecards.snapshot_evaluation import build_evaluation, write_outputs  # noqa: E402
 
 
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"

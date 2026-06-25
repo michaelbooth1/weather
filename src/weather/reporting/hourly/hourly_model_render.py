@@ -1,6 +1,6 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
-from weather.reporting.hourly_model_context import *  # noqa: F403
+from weather.reporting.hourly.hourly_model_context import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -284,7 +284,7 @@ def render_report(payload):
     diagnostics = payload.get("deep_diagnostics") or {}
     variable_context = diagnostics.get("variable_weight_context") or {}
     rerun = (
-        ".\\venv\\Scripts\\python.exe -m weather.reporting.hourly_model_performance"
+        ".\\venv\\Scripts\\python.exe -m weather.reporting.hourly.hourly_model_performance"
     )
     if inputs.get("quality_grades") != list(DEFAULT_QUALITY_GRADES):
         rerun += f" --quality-grades {','.join(inputs.get('quality_grades') or [])}"

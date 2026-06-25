@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from weather.paths import REPO_ROOT, data_path, relative_to_repo
-from weather.reporting.candidate_hourly_performance import (
+from weather.reporting.hourly.candidate_hourly_performance import (
     candidate_rows_corpus_hash,
     read_variant_rows,
     summarize_rows,
 )
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.hourly_model_scoring import HOUR_REGIME_LABELS, hour_regime
+from weather.reporting.hourly.hourly_model_scoring import HOUR_REGIME_LABELS, hour_regime
 from weather.reporting.variant_registry import (
     DEFAULT_REGISTRY_PATH as DEFAULT_VARIANT_REGISTRY_PATH,
     load_registry as load_variant_registry,

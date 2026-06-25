@@ -4,7 +4,7 @@ import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from weather.reporting.model_history import (  # noqa: E402
+from weather.reporting.scorecards.model_history import (  # noqa: E402
     build_history_payload,
     format_daily_brier_table,
     format_group_table,

@@ -16,9 +16,9 @@ Use `--list` to inspect script status. Status meanings:
 Live same-day investigations should start from maintained package reports:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
-.\venv\Scripts\python.exe -m weather.reporting.snapshot_evaluation
-.\venv\Scripts\python.exe -m weather.reporting.disagreement_casebook
+.\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
+.\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
+.\venv\Scripts\python.exe -m weather.reporting.casebooks.disagreement_casebook
 .\venv\Scripts\python.exe -m weather.reporting.fleet.fleet_observability
 ```
 

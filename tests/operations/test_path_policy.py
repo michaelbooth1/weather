@@ -10,9 +10,9 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     nightly_retrain = importlib.import_module("weather.operations.nightly_retrain")
     observation_trigger = importlib.import_module("weather.operations.observation_trigger")
     market_making_constants = importlib.import_module("weather.market.market_making_run_constants")
-    progress_audit = importlib.import_module("weather.reporting.progress_audit")
+    progress_audit = importlib.import_module("weather.reporting.scorecards.progress_audit")
     variant_registry = importlib.import_module("weather.reporting.variant_registry")
-    market_making_dashboard = importlib.import_module("weather.reporting.market_making_dashboard")
+    market_making_dashboard = importlib.import_module("weather.reporting.market.market_making_dashboard")
 
     assert daily_refresh.DEFAULT_BACKTEST_ROOT == data_path("backtest")
     assert nightly_retrain.DEFAULT_SNAPSHOTS_ROOT == data_path("snapshots")

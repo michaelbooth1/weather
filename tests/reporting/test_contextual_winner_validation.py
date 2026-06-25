@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.contextual_winner_validation import (
+from weather.reporting.validation.contextual_winner_validation import (
     build_payload,
     context_key,
     contextual_probabilities,

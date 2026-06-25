@@ -51,7 +51,7 @@ class ModelScoringLivenessTests(unittest.TestCase):
                 labels_csv=labels,
                 quality_grades=("complete", "manual_override"),
                 last_scored_target_date="2026-06-21",
-                rerun_command="python -m weather.reporting.hourly_model_performance",
+                rerun_command="python -m weather.reporting.hourly.hourly_model_performance",
             )
             fresh = build_scoring_liveness(
                 artifact_name="hourly_model_performance",

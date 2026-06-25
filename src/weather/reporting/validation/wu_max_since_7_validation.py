@@ -18,8 +18,8 @@ from weather.reporting.formatting import (
 )
 from weather.backtesting.replay import index_records_by_snapshot, load_replay_records, source_freshness_group
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
-from weather.reporting.promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS
-from weather.reporting.promotion_corpus import folders_from_manifest, load_manifest
+from weather.reporting.promotion.promotion_corpus import DEFAULT_OUT as DEFAULT_CORPUS
+from weather.reporting.promotion.promotion_corpus import folders_from_manifest, load_manifest
 
 
 SCHEMA_VERSION = "wu_max_since_7_validation_v0.1"

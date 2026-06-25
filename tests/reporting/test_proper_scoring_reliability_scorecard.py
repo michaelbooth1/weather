@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.proper_scoring_reliability_scorecard import (
+from weather.reporting.scorecards.proper_scoring_reliability_scorecard import (
     build_scorecard,
     render_report,
     write_outputs,

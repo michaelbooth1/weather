@@ -15,7 +15,7 @@ from weather.io import write_json_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
-from weather.reporting.trading_evidence import build_trading_evidence_summary
+from weather.reporting.market.trading_evidence import build_trading_evidence_summary
 from weather.schema_registry import schema_version
 
 

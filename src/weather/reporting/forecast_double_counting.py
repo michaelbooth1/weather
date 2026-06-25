@@ -13,7 +13,7 @@ from typing import Any
 from weather.model.calibration_runtime import forecast_error_distribution
 from weather.model.model_distribution import EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS
 from weather.paths import data_path
-from weather.reporting.distribution_stage_attribution import (
+from weather.reporting.scorecards.distribution_stage_attribution import (
     aggregate_rows,
     attribution_rows_for_folder,
     component_folders,

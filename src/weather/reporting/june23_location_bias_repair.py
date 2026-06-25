@@ -12,8 +12,8 @@ from typing import Any, Iterable
 from weather.backtesting.settlement_ledger import band_value_hi, parse_band_label
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.model_history import DEFAULT_LABELS_CSV, safe_float, safe_int
-from weather.reporting.winner_rank_parity import (
+from weather.reporting.scorecards.model_history import DEFAULT_LABELS_CSV, safe_float, safe_int
+from weather.reporting.scorecards.winner_rank_parity import (
     DEFAULT_SNAPSHOTS_ROOT,
     _case_summary,
     load_served_rows,

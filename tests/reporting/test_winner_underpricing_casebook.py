@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.winner_underpricing_casebook import (
+from weather.reporting.casebooks.winner_underpricing_casebook import (
     SCHEMA_VERSION,
     build_payload,
     effective_band_count,

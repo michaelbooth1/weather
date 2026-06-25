@@ -230,7 +230,7 @@ def promotion_refresh_command(args):
     command = [
         sys.executable,
         "-m",
-        "weather.reporting.promotion_refresh",
+        "weather.reporting.promotion.promotion_refresh",
         "--family-unit",
         args.family_unit,
         "--snapshots-root",

@@ -19,7 +19,7 @@ from weather.market.market_registry import all_specs
 from weather.model.model_constants import TORONTO_TZ
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.model_history import (
+from weather.reporting.scorecards.model_history import (
     DEFAULT_LABELS_CSV,
     DEFAULT_SNAPSHOTS_ROOT,
     load_label,

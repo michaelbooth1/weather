@@ -335,7 +335,7 @@ REMEDIATION_RULES = {
     "promotion_state": {
         "root_cause": "promotion_blocked_or_missing",
         "owner": "promotion refresh",
-        "suggested_command": "python -m weather.reporting.promotion_refresh",
+        "suggested_command": "python -m weather.reporting.promotion.promotion_refresh",
         "recoverable_same_day": False,
         "counts_after_failure": False,
     },

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.context_guard_validation import (
+from weather.reporting.validation.context_guard_validation import (
     DEFAULT_GUARD_KEYS,
     build_context_guard_validation,
     generate_policies,

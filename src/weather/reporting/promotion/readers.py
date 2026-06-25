@@ -34,14 +34,14 @@ from weather.calibration.pooled_candidate_replay import (
     run_pooled_candidate_replay,
 )
 from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
-from weather.reporting.promotion_corpus import (
+from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     DEFAULT_QUALITY_GRADES,
     build_promotion_corpus,
     parse_quality_grades,
     write_manifest,
 )
-from weather.reporting.promotion_gauntlet import DEFAULT_FORECAST_TRACKER, run_promotion_gauntlet
+from weather.reporting.promotion.promotion_gauntlet import DEFAULT_FORECAST_TRACKER, run_promotion_gauntlet
 from weather.backtesting.replay_backtest import DEFAULT_BASELINE, FIDELITY_FAITHFUL_L1
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
 SCHEMA_VERSION = "promotion_refresh_v0.1"
@@ -371,7 +371,7 @@ def _read_hourly_performance_report(path):
                     {
                         "gate": "hourly_performance_missing",
                         "detail": "hourly performance gate artifact is missing",
-                        "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                        "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
                     }
                 ],
             },
@@ -397,7 +397,7 @@ def _read_candidate_hourly_performance_report(path):
                     {
                         "gate": "candidate_hourly_performance_missing",
                         "detail": "candidate hourly performance artifact is missing",
-                        "remediation_command": "python -m weather.reporting.candidate_hourly_performance",
+                        "remediation_command": "python -m weather.reporting.hourly.candidate_hourly_performance",
                     }
                 ],
             },
@@ -423,7 +423,7 @@ def _read_ten_minute_performance_report(path):
                     {
                         "gate": "ten_minute_performance_missing",
                         "detail": "10-minute performance gate artifact is missing",
-                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                        "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance",
                     }
                 ],
             },
@@ -449,7 +449,7 @@ def _read_candidate_ten_minute_performance_report(path):
                     {
                         "gate": "candidate_ten_minute_performance_missing",
                         "detail": "candidate 10-minute performance artifact is missing",
-                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance --item147-rows <candidate_rows.csv>",
+                        "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance --item147-rows <candidate_rows.csv>",
                     }
                 ],
             },

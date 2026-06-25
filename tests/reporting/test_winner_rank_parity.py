@@ -1,4 +1,4 @@
-from weather.reporting.winner_rank_parity import build_payload, render_report
+from weather.reporting.scorecards.winner_rank_parity import build_payload, render_report
 
 
 def _snapshot_rows(

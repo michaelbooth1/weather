@@ -1,7 +1,7 @@
 import csv
 import json
 
-from weather.reporting.variant_basket_selection_validation import (
+from weather.reporting.validation.variant_basket_selection_validation import (
     NO_GO_SCHEMA_VERSION,
     SCHEMA_VERSION,
     build_payload,

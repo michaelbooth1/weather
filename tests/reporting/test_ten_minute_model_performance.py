@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
-from weather.reporting.ten_minute_model_performance import (
+from weather.reporting.hourly.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
+from weather.reporting.hourly.ten_minute_model_performance import (
     build_candidate_item147,
     candidate_ten_minute_gate,
     rank_slots,

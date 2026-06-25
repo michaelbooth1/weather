@@ -15,8 +15,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Retired Chicago historical probe.")
     parser.parse_args(argv)
     print(
-        "check_chicago_history.py is retired. Use `python -m weather.reporting.promotion_refresh` "
-        "and `python -m weather.reporting.disagreement_casebook` for current diagnostics."
+        "check_chicago_history.py is retired. Use `python -m weather.reporting.promotion.promotion_refresh` "
+        "and `python -m weather.reporting.casebooks.disagreement_casebook` for current diagnostics."
     )
     return 2
 

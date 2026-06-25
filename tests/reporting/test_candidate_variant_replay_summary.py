@@ -9,8 +9,8 @@ from weather.reporting.candidate_variant_replay_summary import (
     build_variant_replay_summary,
     write_outputs,
 )
-from weather.reporting.promotion_refresh_decisions import promotion_readiness
-from weather.reporting.promotion_refresh_readers import _candidate_summary, load_precomputed_candidate_report
+from weather.reporting.promotion.decisions import promotion_readiness
+from weather.reporting.promotion.readers import _candidate_summary, load_precomputed_candidate_report
 
 
 FIELDNAMES = [

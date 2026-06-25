@@ -15,7 +15,7 @@ from typing import Any
 from weather.io import read_json
 from weather.paths import data_path, docs_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.disagreement_casebook import (
+from weather.reporting.casebooks.disagreement_casebook import (
     load_market_event_context,
     market_event_summary,
     parse_time as parse_event_time,

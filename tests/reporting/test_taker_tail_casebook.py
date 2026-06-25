@@ -1,4 +1,4 @@
-from weather.reporting.taker_tail_casebook import build_tail_casebook, render_report
+from weather.reporting.casebooks.taker_tail_casebook import build_tail_casebook, render_report
 
 
 def test_tail_casebook_flags_settled_losing_low_price_tail_slice():

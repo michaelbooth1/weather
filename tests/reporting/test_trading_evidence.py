@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.trading_evidence import build_trading_evidence_summary, write_outputs
+from weather.reporting.market.trading_evidence import build_trading_evidence_summary, write_outputs
 
 
 def _write_active_mm_run(root, target_date, run_id):

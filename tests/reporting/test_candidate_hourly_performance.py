@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.candidate_hourly_performance import (
+from weather.reporting.hourly.candidate_hourly_performance import (
     build_candidate_hourly_performance,
     hourly_checkpoint_rows,
     read_variant_rows,

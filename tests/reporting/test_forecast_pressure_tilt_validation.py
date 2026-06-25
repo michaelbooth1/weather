@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_pressure_tilt_validation import (
+from weather.reporting.validation.forecast_pressure_tilt_validation import (
     SCHEMA_VERSION,
     build_payload,
     score_rows,

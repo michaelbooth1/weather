@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.reporting.progress_audit import (  # noqa: E402
+from weather.reporting.scorecards.progress_audit import (  # noqa: E402
     classify_trend,
     core_model_trend_claim,
     load_daily_progress_ledger,

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import config_path, data_path
-from weather.reporting.candidate_hourly_performance import read_variant_rows
+from weather.reporting.hourly.candidate_hourly_performance import read_variant_rows
 from weather.reporting.candidate_variant_replay_summary import (
     DEFAULT_SOURCE_CANDIDATE_JSON,
     build_variant_replay_summary,

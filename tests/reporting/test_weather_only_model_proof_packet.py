@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
-from weather.reporting.weather_only_model_proof_packet import (
+from weather.reporting.scorecards.weather_only_model_proof_packet import (
     build_payload,
     render_report,
     roadmap_reference_check,

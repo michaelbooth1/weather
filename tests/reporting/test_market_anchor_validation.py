@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.market_anchor_validation import (
+from weather.reporting.validation.market_anchor_validation import (
     anchored_probability,
     build_payload,
     clob_anchor_train_coverage_gate,

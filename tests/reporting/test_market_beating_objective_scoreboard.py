@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.market_beating_objective_scoreboard import (
+from weather.reporting.market.market_beating_objective_scoreboard import (
     build_scoreboard,
     render_report,
     write_outputs,

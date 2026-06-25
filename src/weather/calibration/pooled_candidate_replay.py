@@ -79,7 +79,7 @@ from weather.calibration.pooled_feature_model import (
     predict_density_rows_for_bundle,
     predict_rows,
 )
-from weather.reporting.promotion_corpus import (
+from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     entry_for_folder,
     folders_from_manifest,
@@ -170,7 +170,8 @@ from weather.calibration.pooled_candidate_scoring import (
     write_conservative_bridge_shadow_variants,
     write_microstructure_shadow_variants,
 )
-from weather.calibration.pooled_candidate_replay_diagnostics import (
+
+from weather.calibration.pooled_candidate_replay_diagnostics import (
     DEFAULT_CASEBOOK,
     MICROSTRUCTURE_CATEGORICAL_FEATURES,
     MICROSTRUCTURE_NUMERIC_FEATURES,

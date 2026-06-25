@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import data_path
-from weather.reporting.candidate_hourly_performance import candidate_rows_corpus_hash
+from weather.reporting.hourly.candidate_hourly_performance import candidate_rows_corpus_hash
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
 

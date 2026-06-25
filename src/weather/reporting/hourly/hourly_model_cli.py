@@ -1,6 +1,6 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
-from weather.reporting.hourly_model_render import *  # noqa: F403
+from weather.reporting.hourly.hourly_model_render import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.candidate_rank_sharpening_validation import (
+from weather.reporting.validation.candidate_rank_sharpening_validation import (
     SCHEMA_VERSION,
     build_payload,
     policy_matches,

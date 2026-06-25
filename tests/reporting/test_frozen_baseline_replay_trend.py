@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from weather.reporting import frozen_baseline_replay_trend as fbt
+from weather.reporting.scorecards import frozen_baseline_replay_trend as fbt
 
 
 def _row(market, date, snap, band, prob, outcome, *, market_yes=0.10, regime="ramp", variant="cur"):

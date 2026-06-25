@@ -37,7 +37,7 @@ from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_signed, markdown_table
-from weather.reporting.promotion_corpus import (
+from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     folders_from_manifest,
     load_manifest,

@@ -21,7 +21,7 @@ from weather.reporting.formatting import (
     fmt_signed,
     markdown_table,
 )
-from weather.reporting.model_history import build_history_payload
+from weather.reporting.scorecards.model_history import build_history_payload
 from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.scoring.metrics import daily_first_score
 

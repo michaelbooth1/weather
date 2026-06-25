@@ -30,7 +30,7 @@ from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.paths import data_path
 from weather.reporting.current_max_trust_retrain_gate import TRUST_FIELDS
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.promotion_corpus import (
+from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     entry_for_folder,
     folders_from_manifest,

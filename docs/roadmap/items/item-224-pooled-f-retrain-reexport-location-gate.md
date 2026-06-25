@@ -2011,8 +2011,16 @@ Result on corpus `11b641c7`:
   on corpus `11b641c7`. Folding the repair into serving is gated on the
   production-readiness blockers above and the item-315 consolidation path.
 
-Follow-up (item 315 path, not item 224): the `repair_integration` consolidation
-still stamps its candidate with the old source-candidate corpus hash, so its
-output does not yet pass the precomputed-candidate validator against the current
-manifest. Refreshing repair_integration's source candidate to the current corpus
-is the remaining work for first-class consolidation into the canonical artifact.
+Follow-up (item 315 path, not item 224): re-running `repair_integration` after
+the corpus fix now produces a consolidation that PASSES the precomputed-candidate
+validator against the current manifest. Its consolidated-rows hash is still
+`b407a523` (a stable content hash of the 33924 repair rows), but its
+`source_candidate_corpus_hash` is now `11b641c7` (the default source candidate is
+`pooled_candidate_replay_latest.json`, regenerated today), and with
+`validation_evidence=active_replay_contract` the row-hash mismatch is tolerated.
+The earlier `candidate=b407a523 vs manifest=11b641c7` failure was caused by the
+stale source candidate, not the consolidation logic - so item 315 was unblocked
+by the same corpus fix. The remaining barrier to folding the repair into the
+canonical serving artifact is production readiness (fleet observability
+`live_forward=BLOCK`/critical alerts, and current-code soak), owned by items
+307/312, not consolidation plumbing.

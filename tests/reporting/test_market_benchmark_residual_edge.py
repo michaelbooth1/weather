@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from weather.reporting.market_benchmark_residual_edge import build_report, render_report, write_outputs
+from weather.reporting.market.market_benchmark_residual_edge import build_report, render_report, write_outputs
 
 
 FIELDS = [

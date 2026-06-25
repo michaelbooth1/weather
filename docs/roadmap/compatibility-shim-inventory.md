@@ -88,7 +88,7 @@ On or after 2026-07-18:
 | `src/data_auditor.py` | `weather.reporting.data_quality.data_auditor` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/data_ingestion.py` | `weather.collection.data_ingestion` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/data_layer_audit.py` | `weather.reporting.data_quality.data_layer_audit` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/disagreement_casebook.py` | `weather.reporting.disagreement_casebook` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/disagreement_casebook.py` | `weather.reporting.casebooks.disagreement_casebook` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/eccc_history.py` | `weather.sources.eccc_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/eccc_swob_history.py` | `weather.sources.eccc_swob_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/family_secondary_artifacts.py` | `weather.calibration.family_secondary_artifacts` | External/local legacy commands only | No first-party callers for one migration window |
@@ -124,7 +124,7 @@ On or after 2026-07-18:
 | `src/model_distribution.py` | `weather.model.model_distribution` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_ensemble.py` | `weather.calibration.model_ensemble` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_features.py` | `weather.model.model_features` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/model_history.py` | `weather.reporting.model_history` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/model_history.py` | `weather.reporting.scorecards.model_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_identity.py` | `weather.model.model_identity` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_presentation.py` | `weather.model.model_presentation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_sources.py` | `weather.model.model_sources` | External/local legacy commands only | No first-party callers for one migration window |
@@ -138,10 +138,10 @@ On or after 2026-07-18:
 | `src/pooled_candidate_replay.py` | `weather.calibration.pooled_candidate_replay` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/pooled_feature_model.py` | `weather.calibration.pooled_feature_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/probability_calibration.py` | `weather.calibration.probability_calibration` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/progress_audit.py` | `weather.reporting.progress_audit` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/promotion_corpus.py` | `weather.reporting.promotion_corpus` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/promotion_gauntlet.py` | `weather.reporting.promotion_gauntlet` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/promotion_refresh.py` | `weather.reporting.promotion_refresh` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/progress_audit.py` | `weather.reporting.scorecards.progress_audit` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/promotion_corpus.py` | `weather.reporting.promotion.promotion_corpus` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/promotion_gauntlet.py` | `weather.reporting.promotion.promotion_gauntlet` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/promotion_refresh.py` | `weather.reporting.promotion.promotion_refresh` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/reanalysis_history.py` | `weather.sources.reanalysis_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/reanalysis_synoptic.py` | `weather.sources.reanalysis_synoptic` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/replay.py` | `weather.backtesting.replay` | External/local legacy commands only | No first-party callers for one migration window |
@@ -154,7 +154,7 @@ On or after 2026-07-18:
 | `src/settlement_ledger.py` | `weather.backtesting.settlement_ledger` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/shadow_ab_monitor.py` | `weather.reporting.shadow_ab_monitor` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/snapshot_analytics.py` | `weather.backtesting.snapshot_analytics` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/snapshot_evaluation.py` | `weather.reporting.snapshot_evaluation` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/snapshot_evaluation.py` | `weather.reporting.scorecards.snapshot_evaluation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/snapshot_tracker.py` | `weather.collection.snapshot_tracker` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/source_redundancy.py` | `weather.reporting.source_redundancy` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/supplemental_station_validation.py` | `weather.sources.supplemental_station_validation` | External/local legacy commands only | No first-party callers for one migration window |
@@ -163,4 +163,4 @@ On or after 2026-07-18:
 | `src/toronto_model.py` | `weather.model.toronto_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/variant_evidence_growth.py` | `weather.reporting.variant_evidence_growth` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/wu_history.py` | `weather.sources.wu_history` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/wu_max_since_7_validation.py` | `weather.reporting.wu_max_since_7_validation` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/wu_max_since_7_validation.py` | `weather.reporting.validation.wu_max_since_7_validation` | External/local legacy commands only | No first-party callers for one migration window |

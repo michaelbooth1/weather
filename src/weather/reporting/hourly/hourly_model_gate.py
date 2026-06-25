@@ -1,6 +1,6 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
-from weather.reporting.hourly_model_slots import *  # noqa: F403
+from weather.reporting.hourly.hourly_model_slots import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -186,7 +186,7 @@ def hourly_performance_gate(
         blockers.append({
             "gate": "early_hour_regime_missing",
             "detail": "no early 00:00-08:00 hourly-regime evidence is available",
-            "remediation_command": "python -m weather.reporting.hourly_model_performance",
+            "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
         })
     elif market_days < int(min_regime_market_days):
         blockers.append({

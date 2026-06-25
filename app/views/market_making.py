@@ -8,7 +8,7 @@ from pathlib import Path
 import streamlit as st
 
 from app.table_utils import arrow_safe_dataframe, display_cell
-from weather.reporting.market_making_dashboard import (
+from weather.reporting.market.market_making_dashboard import (
     BACKTEST_ROOT,
     read_csv as _read_csv,
     read_json as _read_json,

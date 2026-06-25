@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.winner_boost_validation import (
+from weather.reporting.validation.winner_boost_validation import (
     build_payload,
     policy_matches,
     boosted_probabilities,

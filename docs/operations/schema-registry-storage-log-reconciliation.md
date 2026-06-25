@@ -20,7 +20,7 @@ non-schema identifiers reported in `excluded_versions`.
 | --- | --- | --- | --- | --- |
 | `backtest_artifact_cleanup_v0.1` | durable cleanup manifest | registered | `weather.reporting.backtest_artifact_retention` | Guarded generated-artifact cleanup evidence. |
 | `backtest_artifact_retention_v0.1` | durable retention report | registered | `weather.reporting.backtest_artifact_retention` | Generated backtest artifact inventory and disk-budget report. |
-| `blocked_market_variant_basket_no_go_v0.1` | report artifact | registered | `weather.reporting.variant_basket_selection_validation` | Blocked variant-basket disposition. |
+| `blocked_market_variant_basket_no_go_v0.1` | report artifact | registered | `weather.reporting.validation.variant_basket_selection_validation` | Blocked variant-basket disposition. |
 | `candidate_replay_sidecar_eligibility_v0.1` | diagnostic artifact | registered | `weather.calibration.pooled_candidate_replay_diagnostics` | Candidate replay sidecar eligibility diagnostics. |
 | `clob_order_book_tiering_v0.1` | storage operation report | registered | `weather.operations.clob_order_book_tiering` | CLOB order-book gzip tiering plan/apply report. |
 | `cross_hub_quoteability_v0.1` | readiness report | registered | `weather.reporting.cross_hub_readiness` | Cross-hub quoteability evidence. |
@@ -37,8 +37,8 @@ non-schema identifiers reported in `excluded_versions`.
 | `forecast_radiation_promotion_lane_v0.1` | gate report | registered | `weather.reporting.forecast_radiation_gate` | Forecast radiation promotion-lane report. |
 | `item224_no_market_ranked_winner_repair_v0.1` | repair report | registered | `weather.reporting.item224_no_market_ranked_winner_repair` | Item 224 ranked-winner repair evidence. |
 | `maker_default_v0` | model variant basket identifier | excluded | `weather.market.market_making_model_variants` | Not a serialized artifact schema. |
-| `market_residual_repair_rejected_registry_v0.1` | registry artifact | registered | `weather.reporting.market_residual_repair_program` | Rejected-family registry. |
-| `mm_evidence_starvation_v0.1` | trading evidence report | registered | `weather.reporting.trading_evidence` | Market-making evidence starvation summary. |
+| `market_residual_repair_rejected_registry_v0.1` | registry artifact | registered | `weather.reporting.market.market_residual_repair_program` | Rejected-family registry. |
+| `mm_evidence_starvation_v0.1` | trading evidence report | registered | `weather.reporting.market.trading_evidence` | Market-making evidence starvation summary. |
 | `mm_fill_evidence_completeness_v0.1` | trading evidence report | registered | `weather.market.mm_paper` | Fill-evidence completeness report. |
 | `mm_model_variant_bakeoff_v0.1` | model bakeoff report | registered | `weather.market.market_making_model_variants` | Market-making model-variant bakeoff. |
 | `mm_model_variant_clustered_promotion_gate_v0.1` | promotion gate report | registered | `weather.market.mm_paper` | Clustered promotion gate. |

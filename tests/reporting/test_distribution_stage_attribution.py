@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.distribution_stage_attribution import (
+from weather.reporting.scorecards.distribution_stage_attribution import (
     build_payload,
     forecast_shape_scope_summary,
     render_report,

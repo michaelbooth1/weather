@@ -86,20 +86,20 @@ TARGET_MODULES = [
     Path("src/weather/reporting/data_quality/data_layer_audit_collectors.py"),
     Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"),
     Path("src/weather/reporting/data_quality/data_layer_audit_report.py"),
-    Path("src/weather/reporting/disagreement_casebook.py"),
+    Path("src/weather/reporting/casebooks/disagreement_casebook.py"),
     Path("src/weather/reporting/fleet/fleet_observability.py"),
     Path("src/weather/reporting/location_trust.py"),
     Path("src/weather/reporting/multi_variant_shadow.py"),
     Path("src/weather/reporting/overview_helpers.py"),
     Path("src/weather/reporting/price_free_model_learning.py"),
-    Path("src/weather/reporting/progress_audit.py"),
-    Path("src/weather/reporting/promotion_corpus.py"),
-    Path("src/weather/reporting/promotion_gauntlet.py"),
-    Path("src/weather/reporting/promotion_refresh.py"),
+    Path("src/weather/reporting/scorecards/progress_audit.py"),
+    Path("src/weather/reporting/promotion/promotion_corpus.py"),
+    Path("src/weather/reporting/promotion/promotion_gauntlet.py"),
+    Path("src/weather/reporting/promotion/promotion_refresh.py"),
     Path("src/weather/reporting/shadow_ab_monitor.py"),
-    Path("src/weather/reporting/snapshot_evaluation.py"),
+    Path("src/weather/reporting/scorecards/snapshot_evaluation.py"),
     Path("src/weather/reporting/source_redundancy.py"),
-    Path("src/weather/reporting/wu_max_since_7_validation.py"),
+    Path("src/weather/reporting/validation/wu_max_since_7_validation.py"),
     Path("src/weather/reporting/formatting.py"),
     Path("src/weather/scoring/metrics.py"),
     Path("src/weather/scoring/trading.py"),
@@ -130,6 +130,58 @@ PROMOTION_REFRESH_IMPL_MODULES = sorted(
 FLEET_OBSERVABILITY_SPLIT_MODULES = sorted(
     Path("src/weather/reporting/fleet").glob("fleet_observability_*.py")
 )
+HOURLY_MODEL_SPLIT_MODULES = sorted(
+    Path("src/weather/reporting/hourly").glob("hourly_model_*.py")
+)
+REPORTING_HOURLY_MODULES = [
+    *HOURLY_MODEL_SPLIT_MODULES,
+    Path("src/weather/reporting/hourly/candidate_hourly_performance.py"),
+    Path("src/weather/reporting/hourly/ten_minute_model_performance.py"),
+]
+REPORTING_SCORECARD_MODULES = [
+    Path("src/weather/reporting/scorecards/distribution_stage_attribution.py"),
+    Path("src/weather/reporting/scorecards/frozen_baseline_replay_trend.py"),
+    Path("src/weather/reporting/scorecards/model_history.py"),
+    Path("src/weather/reporting/scorecards/progress_audit.py"),
+    Path("src/weather/reporting/scorecards/proper_scoring_reliability_scorecard.py"),
+    Path("src/weather/reporting/scorecards/settled_day_root_cause.py"),
+    Path("src/weather/reporting/scorecards/snapshot_evaluation.py"),
+    Path("src/weather/reporting/scorecards/weather_only_model_proof_packet.py"),
+    Path("src/weather/reporting/scorecards/winner_rank_parity.py"),
+]
+REPORTING_CASEBOOK_MODULES = [
+    Path("src/weather/reporting/casebooks/disagreement_casebook.py"),
+    Path("src/weather/reporting/casebooks/taker_tail_casebook.py"),
+    Path("src/weather/reporting/casebooks/winner_underpricing_casebook.py"),
+]
+REPORTING_MARKET_MODULES = [
+    Path("src/weather/reporting/market/market_beating_objective_scoreboard.py"),
+    Path("src/weather/reporting/market/market_benchmark_residual_edge.py"),
+    Path("src/weather/reporting/market/market_making_dashboard.py"),
+    Path("src/weather/reporting/market/market_residual_repair_program.py"),
+    Path("src/weather/reporting/market/trading_evidence.py"),
+]
+REPORTING_VALIDATION_MODULES = [
+    Path("src/weather/reporting/validation/candidate_rank_sharpening_validation.py"),
+    Path("src/weather/reporting/validation/context_guard_validation.py"),
+    Path("src/weather/reporting/validation/contextual_winner_validation.py"),
+    Path("src/weather/reporting/validation/current_blend_validation.py"),
+    Path("src/weather/reporting/validation/forecast_pressure_tilt_validation.py"),
+    Path("src/weather/reporting/validation/forecast_side_rank_validation.py"),
+    Path("src/weather/reporting/validation/market_anchor_validation.py"),
+    Path("src/weather/reporting/validation/variant_basket_selection_validation.py"),
+    Path("src/weather/reporting/validation/winner_band_signal_validation.py"),
+    Path("src/weather/reporting/validation/winner_boost_validation.py"),
+    Path("src/weather/reporting/validation/wu_max_since_7_validation.py"),
+]
+REPORTING_RETIRED_ROOT_WRAPPER_NAMES = {
+    "promotion_refresh_cli.py",
+    "promotion_refresh_decisions.py",
+    "promotion_refresh_gap_analysis.py",
+    "promotion_refresh_orchestration.py",
+    "promotion_refresh_readers.py",
+    "promotion_refresh_report.py",
+}
 REPORTING_SAFE_SLICE_MODULES = [
     Path("src/weather/reporting/fleet/fleet_observability.py"),
     *FLEET_OBSERVABILITY_SPLIT_MODULES,
@@ -149,22 +201,24 @@ REPORTING_SAFE_SLICE_MODULES = [
     Path("src/weather/reporting/daily/daily_learning_scorecard.py"),
     Path("src/weather/reporting/daily/daily_progress_ledger.py"),
     Path("src/weather/reporting/daily/daily_rollup_freshness.py"),
+    *PROMOTION_REFRESH_IMPL_MODULES,
+    *REPORTING_HOURLY_MODULES,
+    *REPORTING_SCORECARD_MODULES,
+    *REPORTING_CASEBOOK_MODULES,
+    *REPORTING_MARKET_MODULES,
+    *REPORTING_VALIDATION_MODULES,
 ]
 REPORTING_SAFE_SLICE_ROOT_NAMES = {
     path.name
     for path in REPORTING_SAFE_SLICE_MODULES
     if path.name != "__init__.py"
-}
-HOURLY_MODEL_SPLIT_MODULES = sorted(Path("src/weather/reporting").glob("hourly_model_*.py"))
+} | REPORTING_RETIRED_ROOT_WRAPPER_NAMES
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
     + TAKER_BOT_SPLIT_MODULES
     + FLEET_OBSERVABILITY_SPLIT_MODULES
     + REPORTING_SAFE_SLICE_MODULES
-    + HOURLY_MODEL_SPLIT_MODULES
-    + PROMOTION_REFRESH_SPLIT_MODULES
-    + PROMOTION_REFRESH_IMPL_MODULES
     + DAILY_REFRESH_SPLIT_MODULES
     + [Path("src/weather/operations/location_config_refresh.py")]
 )

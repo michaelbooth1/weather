@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.current_blend_validation import (
+from weather.reporting.validation.current_blend_validation import (
     base_alpha_for_row,
     build_payload,
     candidate_probability,

@@ -434,9 +434,9 @@ class TestDailyLearning(unittest.TestCase):
                             "first_blocker": {
                                 "gate": "model_scoring_liveness_stale",
                                 "detail": "hourly_model_performance is stale",
-                                "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                                "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
                             },
-                            "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                            "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
                         },
                     }
                 ),
@@ -1204,7 +1204,7 @@ class TestDailyLearning(unittest.TestCase):
                             "first_blocker": {
                                 "gate": "early_hour_model_market_regression",
                                 "detail": "early-hour model Brier trails market by +0.0120",
-                                "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                                "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
                             },
                             "blockers": [],
                         },
@@ -1298,7 +1298,7 @@ class TestDailyLearning(unittest.TestCase):
                             "first_blocker": {
                                 "gate": "weak_slot_brier_regression",
                                 "detail": "03:00 weak-slot model Brier trails market by 0.0129",
-                                "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                                "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance",
                             },
                             "blockers": [],
                         },

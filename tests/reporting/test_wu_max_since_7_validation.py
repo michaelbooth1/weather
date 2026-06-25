@@ -5,8 +5,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.reporting.promotion_corpus import build_promotion_corpus, write_manifest  # noqa: E402
-from weather.reporting.wu_max_since_7_validation import (  # noqa: E402
+from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, write_manifest  # noqa: E402
+from weather.reporting.validation.wu_max_since_7_validation import (  # noqa: E402
     build_validation_payload,
     classify_current_max,
     summarize_validation_rows,
@@ -51,7 +51,7 @@ def write_test_folder(root):
                 "market_yes": 0.5,
                 "market_no": 0.5,
                 "wu_max_since_7am_native": wu_max,
-                "wu_max_since_7am_c": wu_max + 100,
+                "wu_max_since_7am_c": wu_max,
             })
     write_csv(folder / "snapshots_long.csv", rows)
     records = []

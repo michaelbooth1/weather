@@ -24,7 +24,7 @@ The current backtest sample is still small, but it is no longer one clean day.
 The 2026-06-14 audit found that the settlement ledger was stale: 93 settled
 snapshot folders existed, while `market_day_labels.csv` held only 69 labels.
 Running `weather.market.market_day_labels finalize` wrote 93 reconciled labels
-(`complete=27`, `partial=66`, Polymarket `match=93`). `weather.reporting.promotion_refresh`
+(`complete=27`, `partial=66`, Polymarket `match=93`). `weather.reporting.promotion.promotion_refresh`
 then doubled the F-family pinned corpus to 24 market-days and moved the pooled
 candidate to `PASS_WITH_SHADOWS / PER_MARKET_ONLY` with Atlanta and Austin
 promoted, nine F markets shadowed, and zero blocked. This is real progress, but
@@ -159,7 +159,7 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market nyc backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
 .\venv\Scripts\python.exe -m weather.calibration.pooled_feature_model --objective band --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
 .\venv\Scripts\python.exe -m weather.calibration.pooled_candidate_replay --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
-.\venv\Scripts\python.exe -m weather.reporting.promotion_refresh
+.\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 .\venv\Scripts\python.exe -m weather.backtesting.backtest
@@ -289,7 +289,7 @@ ad-hoc live scripts that may hit the network.
   current replay `0.0687` and market `0.0404`. Atlanta and Austin clear the
   per-market gate; the other nine F markets remain shadow because they have not
   beaten market prices on the pinned rows.
-- `weather.reporting.promotion_refresh` is the Item 33/37 settlement-to-promotion runner.
+- `weather.reporting.promotion.promotion_refresh` is the Item 33/37 settlement-to-promotion runner.
   It rebuilds the pinned promotion corpus, refreshes `location_trust.json`,
   reruns the pooled-F candidate replay, runs the current-serving gauntlet, and
   writes machine-readable per-market actions to
@@ -332,8 +332,8 @@ skew is one of the easiest ways to create fake edge.
 - The settlement ledger can drift stale if `weather.market.market_day_labels finalize` is
   not run after new days settle. The June 11/12 backlog materially changed
   trust and promotion results, so automate finalization plus
-  `weather.reporting.promotion_refresh`, `weather.reporting.progress_audit`,
-  and `weather.reporting.disagreement_casebook`.
+  `weather.reporting.promotion.promotion_refresh`, `weather.reporting.scorecards.progress_audit`,
+  and `weather.reporting.casebooks.disagreement_casebook`.
   `weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert`
   now executes that chain plus `weather.reporting.fleet.fleet_observability`, fails
   closed when variant-learning evidence is missing/stale/blocked, and writes

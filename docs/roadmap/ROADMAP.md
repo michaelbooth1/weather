@@ -314,7 +314,7 @@ infrastructure work remains.
 | 267 | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS]](items/item-267-multi-market-source-bias-model-extension.md) |
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 | 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [COMPLETE 2026-06-23 - NORTH-STAR SCOREBOARD LIVE]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
-| 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-24 - FLEET DATA-QUALITY DAILY SLICE LANDED]](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - CASEBOOK MARKET VALIDATION SLICE LANDED]](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 271 | [Audit Analysis Operator Loop [COMPLETE 2026-06-23 - DASHBOARD OPERATOR LOOP LIVE]](items/item-271-audit-analysis-operator-loop.md) |
 | 272 | [Taker Daily-Roll Liveness And Artifact Restart [COMPLETE 2026-06-23]](items/item-272-taker-daily-roll-liveness-and-artifact-restart.md) |
 | 273 | [Settlement-Scored Taker Counterfactual Tape [COMPLETE 2026-06-23]](items/item-273-settlement-scored-taker-counterfactual-tape.md) |
@@ -396,7 +396,7 @@ infrastructure work remains.
 | 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
 | 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [COMPLETE 2026-06-25 - EDGE-PERMISSIONED RISK GUARDS LIVE]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
 | 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
-| 318 | [Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - EIGHT MODULES EXCEED SIZE RATCHET]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
+| 318 | [Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
 
 ## Maintenance Conventions
 

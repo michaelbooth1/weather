@@ -10,7 +10,7 @@ from app.views.market_making import (
     _market_health_rows,
     _runtime_identity_rows,
 )
-from weather.reporting.market_making_dashboard import (
+from weather.reporting.market.market_making_dashboard import (
     latest_run,
     read_csv,
     read_json,

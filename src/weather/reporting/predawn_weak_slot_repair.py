@@ -18,10 +18,10 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from weather.paths import data_path
-from weather.reporting import candidate_hourly_performance
+from weather.reporting.hourly import candidate_hourly_performance
 from weather.reporting import candidate_variant_replay_summary
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.ten_minute_model_performance import (
+from weather.reporting.hourly.ten_minute_model_performance import (
     DEFAULT_ITEM147_ROWS,
     build_candidate_item147,
     candidate_ten_minute_gate,

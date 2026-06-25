@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.hourly_model_performance import (
+from weather.reporting.hourly.hourly_model_performance import (
     build_hourly_performance,
     early_hour_market_deltas,
     forecast_anchor_probability,
@@ -239,7 +239,7 @@ class TestHourlyModelPerformance(unittest.TestCase):
             "model_scoring_liveness_stale",
         )
         self.assertIn(
-            "python -m weather.reporting.hourly_model_performance",
+            "python -m weather.reporting.hourly.hourly_model_performance",
             payload["hourly_performance_gate"]["first_blocker"]["remediation_command"],
         )
 

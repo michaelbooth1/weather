@@ -65,7 +65,7 @@ from weather.reporting.formatting import (
 )
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
-from weather.reporting.promotion_corpus import (
+from weather.reporting.promotion.promotion_corpus import (
     entry_for_folder,
     folders_from_manifest,
     load_manifest,

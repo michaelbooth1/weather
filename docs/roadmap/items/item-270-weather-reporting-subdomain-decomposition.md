@@ -1,4 +1,4 @@
-# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-24 - FLEET DATA-QUALITY DAILY SLICE LANDED]
+# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - CASEBOOK MARKET VALIDATION SLICE LANDED]
 
 Goal: group the now-small `weather.reporting` modules into cohesive subpackages
 by reporting subdomain, so the package is navigable and the import-architecture
@@ -81,9 +81,9 @@ item 206).
    `schema_registry` and `module_size_audit` tests.
 
 - [x] Land scoped `fleet/`, `data_quality/`, and `daily/` safe slice.
-- [ ] Land remaining `promotion/` absorption, `hourly/`, and `scorecards/`
-      after item 224 finishes.
-- [ ] Land `validation/`, `casebooks/`, `market/`, `research/`.
+- [x] Land `promotion/` absorption, `hourly/`, and `scorecards/` slice.
+- [x] Land `casebooks/`, `market/`, and `validation/`.
+- [ ] Land `research/`.
 - [x] schema_registry paths updated atomically for moved safe-slice modules; no
       new root re-export shims.
 - [x] Targeted architecture ratchet blocks the moved safe-slice modules from
@@ -95,6 +95,24 @@ under `weather.reporting.data_quality`, and daily learning/ledger/flow/rollup
 reports now live under `weather.reporting.daily`. Promotion, hourly, research,
 `bottom_location*`, `exact_band*`, and item-224 modules were intentionally left
 at the root or in their existing packages until item 224 finishes.
+
+2026-06-25 safe-slice update: promotion corpus, gauntlet, and refresh now live
+under `weather.reporting.promotion`; hourly performance and candidate reports
+now live under `weather.reporting.hourly`; and snapshot/progress/proof-packet
+scorecards now live under `weather.reporting.scorecards`. Registered schema
+owner paths, daily-refresh/import callers, compatibility-wrapper targets, and
+the import-architecture root guard were updated atomically; the obsolete root
+`promotion_refresh_*` wrappers were removed instead of preserved as permanent
+re-export shims. Remaining item 270 work is `validation/`, `casebooks/`,
+`market/`, and `research/`.
+
+2026-06-25 follow-up safe-slice update: casebooks now live under
+`weather.reporting.casebooks`, non-validation market reporting plus trading
+evidence now live under `weather.reporting.market`, and the eleven
+`*_validation.py` modules now live under `weather.reporting.validation`.
+Registered schema owner paths, active imports, compatibility-wrapper targets,
+and the import-architecture root guard were updated atomically. Remaining item
+270 work is the final `research/` bucket.
 
 Acceptance: `weather.reporting` root holds only shared helpers and subpackages;
 every registered artifact's `schema_registry` module path resolves; the

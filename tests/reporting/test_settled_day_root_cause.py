@@ -5,7 +5,7 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-from weather.reporting.settled_day_root_cause import (
+from weather.reporting.scorecards.settled_day_root_cause import (
     build_payload,
     render_report,
     roadmap_mappings,
@@ -381,7 +381,7 @@ class SettledDayRootCauseTests(unittest.TestCase):
         self.assertEqual(payload["latest_settled_label_date"], "2026-06-21")
         self.assertEqual(payload["scoring_liveness"]["status"], "BLOCK")
         self.assertIn(
-            "python -m weather.reporting.settled_day_root_cause",
+            "python -m weather.reporting.scorecards.settled_day_root_cause",
             payload["scoring_liveness"]["remediation_command"],
         )
 

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from weather.reporting.promotion.readers import _read_physical_feature_family_ratchet
-from weather.reporting.promotion_refresh import (  # noqa: E402
+from weather.reporting.promotion.promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
     _candidate_args,
     _candidate_source_freshness_rows,
@@ -486,7 +486,7 @@ class TestPromotionRefresh(unittest.TestCase):
                     "first_blocker": {
                         "gate": "model_scoring_liveness_stale",
                         "detail": "hourly_model_performance is stale",
-                        "remediation_command": "python -m weather.reporting.hourly_model_performance",
+                        "remediation_command": "python -m weather.reporting.hourly.hourly_model_performance",
                     },
                 },
                 "hourly_performance_gate": {"status": "PASS"},
@@ -581,7 +581,7 @@ class TestPromotionRefresh(unittest.TestCase):
                     "first_blocker": {
                         "gate": "model_scoring_liveness_stale",
                         "detail": "ten_minute_model_performance is stale",
-                        "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+                        "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance",
                     },
                 },
                 "ten_minute_performance_gate": {"status": "PASS"},

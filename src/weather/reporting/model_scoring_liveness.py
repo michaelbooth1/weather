@@ -149,7 +149,7 @@ def build_root_cause_rerun_command(
     backtest_root: str | Path | None = None,
     labels_csv: str | Path | None = None,
 ) -> str:
-    parts = ["python", "-m", "weather.reporting.settled_day_root_cause", "--date", str(target_date)]
+    parts = ["python", "-m", "weather.reporting.scorecards.settled_day_root_cause", "--date", str(target_date)]
     if snapshots_root is not None:
         parts += ["--snapshots-root", str(snapshots_root)]
     if taker_root is not None:

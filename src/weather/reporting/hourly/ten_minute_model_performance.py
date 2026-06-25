@@ -13,9 +13,9 @@ from typing import Any, Callable
 
 from weather.backtesting.tape_scoring import timestamp_key
 from weather.paths import data_path, relative_to_repo
-from weather.reporting.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
+from weather.reporting.hourly.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
 from weather.reporting.formatting import markdown_table
-from weather.reporting.hourly_model_performance import (
+from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_BACKTEST_ROOT,
     DEFAULT_LABELS_CSV,
     DEFAULT_QUALITY_GRADES,
@@ -268,7 +268,7 @@ def ten_minute_performance_gate(
         blockers.append({
             "gate": "weak_slots_missing",
             "detail": "no eligible 10-minute weak slots are available",
-            "remediation_command": "python -m weather.reporting.ten_minute_model_performance",
+            "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance",
         })
     elif market_days < int(min_weak_market_days):
         blockers.append({
@@ -643,7 +643,7 @@ def candidate_ten_minute_gate(
         blockers.append({
             "gate": "candidate_ten_minute_performance_missing",
             "detail": "candidate 10-minute performance artifact is missing or empty",
-            "remediation_command": "python -m weather.reporting.ten_minute_model_performance --item147-rows <candidate_rows.csv>",
+            "remediation_command": "python -m weather.reporting.hourly.ten_minute_model_performance --item147-rows <candidate_rows.csv>",
         })
         status = "MISSING"
     else:
@@ -940,7 +940,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_item147": candidate,
     }
     rerun_command = build_rerun_command(
-        "weather.reporting.ten_minute_model_performance",
+        "weather.reporting.hourly.ten_minute_model_performance",
         labels_csv=args.labels_csv,
         snapshots_root=args.snapshots_root,
         quality_grades=quality_grades,

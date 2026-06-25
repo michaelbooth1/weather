@@ -14,7 +14,7 @@ from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.paths import data_path, relative_to_repo
 from weather.reporting.formatting import markdown_table
-from weather.reporting.hourly_model_performance import (
+from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_LABELS_CSV,
     DEFAULT_QUALITY_GRADES,
     DEFAULT_SNAPSHOTS_ROOT,
