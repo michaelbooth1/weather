@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-25T01:19:32.889672+00:00
+Generated: 2026-06-25T01:33:23.015148+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 310 |
-| Active items | 30 |
+| Active items | 29 |
 | OPEN | 4 |
-| PARTIAL | 26 |
-| COMPLETE | 280 |
+| PARTIAL | 25 |
+| COMPLETE | 281 |
 | ROADMAP rows | 310 |
 | ROADMAP primary rows | 310 |
 | Metadata manifest rows | 310 |
@@ -27,7 +27,6 @@ Status: `OK`
 | :--- | :--- | :--- | :--- | :--- |
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
-| 48 | PARTIAL | 2026-06-20 | MARKET, SLO, AND CLOB CONTINUITY BLOCKED | [F-Family Promotion Readiness And Serving Parity](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 67 | PARTIAL | 2026-06-24 | LIVE CREDENTIALS ABSENT; EVIDENCE BLOCKED | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |

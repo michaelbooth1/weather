@@ -28,9 +28,11 @@ from weather.operations.tape_backup import (  # noqa: E402
     run_dedup_restore_drill,
     run_backup_job,
     run_restore_drill,
+    run_unmanifested_durable_restore_proof,
     select_dedup_restore_drill_paths,
     sha256_file,
     unmanifested_backup_cleanup_plan,
+    unmanifested_durable_restore_proof_hash,
     write_json,
 )
 
@@ -158,6 +160,43 @@ def operator_review():
         "approved_at_utc": "2026-06-23T00:00:00+00:00",
         "note": "reviewed prune-unmanifested dry-run report for unit test",
     }
+
+
+def durable_restore_proof(path, *, rel_path, repository="repo", snapshot_id="snap-proof"):
+    path = Path(path)
+    payload = {
+        "schema_version": "tape_backup_unmanifested_cleanup_v0.1",
+        "kind": "unmanifested_mirror_durable_restore_proof",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status": "PASS",
+        "backend": "restic",
+        "repository": repository,
+        "snapshot_tag": "weather-tape-unmanifested-mirror-proof",
+        "snapshot_id": snapshot_id,
+        "latest_root": str(path.parents[3]),
+        "plan_hash": "unit-test-plan",
+        "commands": {},
+        "entries": [
+            {
+                "rel_path": rel_path,
+                "path": str(path),
+                "size": path.stat().st_size,
+                "backup_sha256": sha256_file(path),
+                "restored_size": path.stat().st_size,
+                "restored_sha256": sha256_file(path),
+                "status": "PASS",
+                "reason": "durable repository restored byte-identical mirror file",
+            }
+        ],
+        "summary": {
+            "selected_files": 1,
+            "selected_bytes": path.stat().st_size,
+            "verified_files": 1,
+            "failed_files": 0,
+        },
+    }
+    payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+    return payload
 
 
 class TestTapeBackup(unittest.TestCase):
@@ -801,6 +840,157 @@ class TestTapeBackup(unittest.TestCase):
         self.assertTrue(missing_source_extra_exists)
         self.assertEqual(applied["summary"]["deleted_files"], 0)
         self.assertGreaterEqual(applied["summary"]["skipped_files"], 1)
+
+    def test_unmanifested_backup_cleanup_plan_accepts_missing_source_with_durable_restore_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            rel = "data/snapshots/event/missing_source.csv"
+            backup_extra = write(backup_root / "latest" / rel, "only durable mirror\n")
+            proof_path = Path(tmp) / "proof.json"
+            write_json(proof_path, durable_restore_proof(backup_extra, rel_path=rel))
+
+            plan = unmanifested_backup_cleanup_plan(
+                backup_root=backup_root,
+                source_root=root,
+                durable_restore_proof_path=proof_path,
+            )
+
+        self.assertEqual(plan["summary"]["candidate_files"], 1)
+        self.assertEqual(plan["summary"]["blocked_files"], 0)
+        self.assertEqual(plan["summary"]["durable_restore_candidate_files"], 1)
+        self.assertTrue(plan["apply_permission"])
+        self.assertEqual(plan["files"][0]["duplicate_evidence"], "durable_repository_restore")
+        self.assertTrue(plan["files"][0]["durable_restore_verified"])
+
+    def test_unmanifested_backup_cleanup_deletes_missing_source_after_durable_restore_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            rel = "data/snapshots/event/missing_source.csv"
+            backup_extra = write(backup_root / "latest" / rel, "only durable mirror\n")
+            proof_path = Path(tmp) / "proof.json"
+            write_json(proof_path, durable_restore_proof(backup_extra, rel_path=rel))
+
+            plan = unmanifested_backup_cleanup_plan(
+                backup_root=backup_root,
+                source_root=root,
+                durable_restore_proof_path=proof_path,
+            )
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
+            backup_extra_exists = backup_extra.exists()
+            source_extra_exists = (root / rel).exists()
+
+        self.assertEqual(applied["status"], "PASS")
+        self.assertFalse(backup_extra_exists)
+        self.assertFalse(source_extra_exists)
+        self.assertEqual(applied["summary"]["deleted_files"], 1)
+        self.assertEqual(applied["actions"][0]["duplicate_evidence"], "durable_repository_restore")
+        self.assertEqual(applied["actions"][0]["reason"], "deleted after guarded apply validation")
+
+    def test_unmanifested_backup_cleanup_apply_blocks_when_durable_proof_candidate_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            run_restore_drill(
+                backup_root=backup_root,
+                restore_root=Path(tmp) / "restore",
+                out=Path(tmp) / "restore.json",
+                report=Path(tmp) / "restore.md",
+                keep_restore=True,
+            )
+            rel = "data/snapshots/event/missing_source.csv"
+            backup_extra = write(backup_root / "latest" / rel, "only durable mirror\n")
+            proof_path = Path(tmp) / "proof.json"
+            write_json(proof_path, durable_restore_proof(backup_extra, rel_path=rel))
+            plan = unmanifested_backup_cleanup_plan(
+                backup_root=backup_root,
+                source_root=root,
+                durable_restore_proof_path=proof_path,
+            )
+            backup_extra.write_text("changed after proof\n", encoding="utf-8")
+
+            applied = apply_unmanifested_backup_cleanup(plan, operator_review=operator_review())
+            backup_extra_exists = backup_extra.exists()
+
+        self.assertEqual(applied["status"], "BLOCK")
+        self.assertTrue(backup_extra_exists)
+        self.assertEqual(applied["summary"]["deleted_files"], 0)
+        self.assertIn("candidate_revalidation", {
+            gate["check"]
+            for gate in applied["gates"]
+            if gate["status"] == "BLOCK"
+        })
+
+    def test_unmanifested_durable_restore_proof_command_verifies_missing_source_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            backup_root = Path(tmp) / "backup"
+            restore_root = Path(tmp) / "proof-restore"
+            fixture_source(root)
+            export_backup(root, backup_root, capacity_margin_bytes=0)
+            rel = "data/snapshots/event/missing_source.csv"
+            backup_extra = write(backup_root / "latest" / rel, "only durable mirror\n")
+            expected_sha = sha256_file(backup_extra)
+            env = {"PATH": "fake", "RESTIC_REPOSITORY": str(Path(tmp) / "repo"), "RESTIC_PASSWORD": "secret"}
+
+            def fake_run(command, **kwargs):
+                if command[1] == "backup":
+                    files_from = Path(command[command.index("--files-from") + 1])
+                    self.assertEqual(files_from.read_text(encoding="utf-8").splitlines(), [rel])
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=json.dumps({"message_type": "summary", "snapshot_id": "snap-proof"}) + "\n",
+                        stderr="",
+                    )
+                if command[1] == "restore":
+                    target = Path(command[command.index("--target") + 1])
+                    include = command[command.index("--include") + 1]
+                    self.assertEqual(include, rel)
+                    dst = target / include
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(backup_extra, dst)
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                raise AssertionError(command)
+
+            with patch("weather.operations.tape_backup.shutil.which", return_value="restic"), patch(
+                "weather.operations.tape_backup.subprocess.run",
+                side_effect=fake_run,
+            ):
+                payload = run_unmanifested_durable_restore_proof(
+                    backup_root=backup_root,
+                    source_root=root,
+                    restore_root=restore_root,
+                    out=Path(tmp) / "proof.json",
+                    report=Path(tmp) / "proof.md",
+                    env=env,
+                )
+
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["snapshot_id"], "snap-proof")
+        self.assertEqual(payload["summary"]["verified_files"], 1)
+        self.assertEqual(payload["entries"][0]["restored_sha256"], expected_sha)
 
     def test_unmanifested_backup_cleanup_deletes_only_after_manifest_restore_and_operator_review(self):
         with tempfile.TemporaryDirectory() as tmp:

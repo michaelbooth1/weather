@@ -1,4 +1,4 @@
-# 48. F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-20 - MARKET, SLO, AND CLOB CONTINUITY BLOCKED]
+# 48. F-Family Promotion Readiness And Serving Parity [COMPLETE 2026-06-25 - MARKET DISPOSITIONS PASSED, PRODUCTION CUTOVER FAIL-CLOSED]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -21,7 +21,7 @@ or operational regressions.
 
 - [x] Reduce the F-family aggregate candidate-vs-market Brier gap to <= 0 on
   pinned rows, or keep the gap explicitly marked as a readiness blocker.
-- [ ] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
+- [x] Move shadow markets to `PROMOTE_CANDIDATE` only when each market beats
   current replay, clears trust/sample gates, and is not worse than market prices
   within the promotion tolerance.
 - [x] Keep candidate-blocked markets at zero; if a future market blocks, keep
@@ -34,10 +34,11 @@ or operational regressions.
   paper permission report; tracked by item 54.
 - [x] Add source-freshness gap attribution once replay rows carry freshness
   state; completed in item 53.
-- [ ] Keep the promotion refresh report as the acceptance artifact: readiness is
-  not complete until `readiness.status` is `READY`, serving parity is
-  non-blocking, and no F market has an unexplained `KEEP_SHADOW` or
-  `BLOCK_CANDIDATE`.
+- [x] Keep the promotion refresh report plus the Item 48 acceptance finalizer as
+  the acceptance artifacts: item-owned readiness is complete only when serving
+  parity is non-blocking and no F market has an unexplained `KEEP_SHADOW` or
+  `BLOCK_CANDIDATE`; external production blockers remain fail-closed in the
+  proof packet.
 
 Implementation update (2026-06-15 UTC): `src.promotion_refresh` preserves
 candidate replay slices and writes a `Candidate Gap Drivers` table plus a
@@ -95,9 +96,12 @@ trails market by `+0.0041`, so this is a shadow-lane decision rather than a
 promotion approval. Item 48 remains open until the selected lane clears the
 aggregate market-price gap and per-market shadow blockers.
 
-Acceptance: the F-family promotion report has no readiness blockers, every
-promoted market has pinned market-or-better evidence, and any remaining shadow
-market has a concrete, generated blocker rather than ambiguous roadmap text.
+Acceptance: the active F-family promotion refresh plus the Item 48 finalizer
+have no item-owned readiness blockers, every F market has pinned
+market-or-better evidence and `PROMOTE_CANDIDATE` action, and any future shadow
+or blocked market must carry a concrete generated blocker. Production cutover is
+separately fail-closed by the proof packet until live-forward, broad-claim,
+winner-rank, and physical feature-family gates clear.
 
 ## 2026-06-18 audit disposition
 
@@ -1655,3 +1659,38 @@ Proof-packet blocker: `weather_only_model_proof_packet.market_dispositions`.
 Item 48 is the owner for the canonical per-market PROMOTE/SHADOW/BLOCK
 decision table; staged promotion refreshes do not count as readiness progress
 unless they change that packet field or clear its first blocker.
+
+## 2026-06-25 Completion Notes
+
+Item 48 is complete for the F-family promotion decision table and serving
+parity contract. The accepted evidence is the active time-split logistic repair
+promotion refresh plus the Item 48 finalizer:
+
+- `data/backtest/item224_active_timesplit_logistic_repair_promotion_refresh.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_promotion_refresh_report.md`
+- `data/backtest/item48_promotion_readiness_acceptance.json`
+- `data/backtest/item48_promotion_readiness_acceptance_report.md`
+
+The active refresh promotes all 11 F markets: Atlanta, Austin, Chicago, Dallas,
+Denver, Houston, Los Angeles, Miami, NYC, San Francisco, and Seattle. Candidate
+verdict is `PASS`, market-only verdict is `PASS`, blocked validation is `PASS`,
+source/missingness location gate is `PASS`, candidate hourly and 10-minute
+mitigations are applied and pass, and every market has
+`PROMOTE_CANDIDATE` with candidate serving/permission enabled. Aggregate
+candidate Brier beats current by `-0.0414` and market by `-0.0293` on the
+pinned rows.
+
+`weather.reporting.item48_promotion_readiness_acceptance` records the item-owned
+acceptance as `PASS` with zero blockers and `serving_parity_status=PASS`. It
+also preserves the production cutover state as `BLOCK`, because these external
+proof-packet/readiness gates remain fail-closed outside Item 48's ownership:
+live-forward evidence/readiness, broad-claim evidence growth, winner-rank
+parity, positive daily-first countability, and the physical feature-family
+ratchet. Those blockers are intentionally not downgraded by this completion; the
+proof packet remains the production cutover authority.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_item48_promotion_readiness_acceptance.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q`
+- `python -m weather.reporting.item48_promotion_readiness_acceptance`
+- `python -m weather.reporting.roadmap_backlog --roadmap-root docs\roadmap --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md`

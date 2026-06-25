@@ -124,6 +124,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "item224_active_timesplit_logistic_repair_v0.1",
         )
         self.assertEqual(
+            schema_version("item48_promotion_readiness_acceptance"),
+            "item48_promotion_readiness_acceptance_v0.1",
+        )
+        self.assertEqual(
             schema_version("item186_soil_antecedent_gate"),
             "item186_soil_antecedent_gate_v0.1",
         )

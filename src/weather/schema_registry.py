@@ -526,6 +526,13 @@ REGISTERED_SCHEMAS = (
         "Item 224 active time-split logistic repair export report.",
     ),
     SchemaSpec(
+        "item48_promotion_readiness_acceptance",
+        "item48_promotion_readiness_acceptance_v0.1",
+        "weather.reporting.item48_promotion_readiness_acceptance",
+        "active",
+        "Item 48 F-family market-disposition and serving-parity acceptance report with external production blockers preserved.",
+    ),
+    SchemaSpec(
         "item186_soil_antecedent_gate",
         "item186_soil_antecedent_gate_v0.1",
         "weather.reporting.item186_soil_antecedent_gate",

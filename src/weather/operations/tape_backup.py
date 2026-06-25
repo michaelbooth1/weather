@@ -52,6 +52,8 @@ DEFAULT_RESTORE_OUT = data_path() / "backtest" / "tape_restore_drill.json"
 DEFAULT_RESTORE_REPORT = data_path() / "backtest" / "tape_restore_drill_report.md"
 DEFAULT_UNMANIFESTED_CLEANUP_OUT = data_path() / "backtest" / "tape_backup_unmanifested_cleanup.json"
 DEFAULT_UNMANIFESTED_CLEANUP_REPORT = data_path() / "backtest" / "tape_backup_unmanifested_cleanup_report.md"
+DEFAULT_UNMANIFESTED_DURABLE_PROOF_OUT = data_path() / "backtest" / "tape_backup_unmanifested_durable_restore_proof.json"
+DEFAULT_UNMANIFESTED_DURABLE_PROOF_REPORT = data_path() / "backtest" / "tape_backup_unmanifested_durable_restore_proof_report.md"
 DEFAULT_DEDUP_MANIFEST_NAME = "tape_dedup_repository_manifest.json"
 DEFAULT_DEDUP_BACKUP_OUT = data_path() / "backtest" / "tape_dedup_repository_backup.json"
 DEFAULT_DEDUP_BACKUP_REPORT = data_path() / "backtest" / "tape_dedup_repository_backup_report.md"
@@ -67,6 +69,7 @@ LATEST_CONTROL_FILES = {
 }
 DEDUP_BACKEND_RESTIC = "restic"
 DEDUP_RESTIC_TAG = "weather-tape"
+UNMANIFESTED_MIRROR_PROOF_RESTIC_TAG = "weather-tape-unmanifested-mirror-proof"
 
 
 @dataclass(frozen=True)
@@ -1760,6 +1763,12 @@ def _unmanifested_cleanup_plan_hash_payload(payload):
                 "source_path": row.get("source_path"),
                 "source_exists": row.get("source_exists"),
                 "source_same_hash": row.get("source_same_hash"),
+                "duplicate_evidence": row.get("duplicate_evidence"),
+                "durable_restore_verified": row.get("durable_restore_verified"),
+                "durable_restore_repository": row.get("durable_restore_repository"),
+                "durable_restore_snapshot_id": row.get("durable_restore_snapshot_id"),
+                "durable_restore_proof_hash": row.get("durable_restore_proof_hash"),
+                "durable_restore_sha256": row.get("durable_restore_sha256"),
                 "status": row.get("status"),
                 "reason": row.get("reason"),
             }
@@ -1795,12 +1804,363 @@ def _is_path_under(path, root):
         return False
 
 
+def _unmanifested_durable_restore_proof_hash_payload(payload):
+    return {
+        "schema_version": payload.get("schema_version"),
+        "kind": payload.get("kind"),
+        "backend": payload.get("backend"),
+        "repository": payload.get("repository"),
+        "snapshot_tag": payload.get("snapshot_tag"),
+        "snapshot_id": payload.get("snapshot_id"),
+        "latest_root": payload.get("latest_root"),
+        "plan_hash": payload.get("plan_hash"),
+        "entries": [
+            {
+                "rel_path": row.get("rel_path"),
+                "size": row.get("size"),
+                "backup_sha256": row.get("backup_sha256"),
+                "restored_sha256": row.get("restored_sha256"),
+                "status": row.get("status"),
+            }
+            for row in sorted(payload.get("entries") or [], key=lambda item: str(item.get("rel_path") or ""))
+        ],
+    }
+
+
+def unmanifested_durable_restore_proof_hash(payload):
+    encoded = json.dumps(
+        _unmanifested_durable_restore_proof_hash_payload(payload),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def load_unmanifested_durable_restore_proof(path=None):
+    if not path:
+        return {"exists": False, "path": "", "status": "MISSING"}
+    path = Path(path)
+    if not path.exists():
+        return {"exists": False, "path": str(path), "status": "MISSING"}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {"exists": True, "path": str(path), "status": "UNREADABLE", "error": str(exc)}
+    payload["exists"] = True
+    payload["path"] = str(path)
+    generated = _parse_time(payload.get("generated_at_utc"))
+    if generated:
+        payload["age_hours"] = round((utc_now() - generated).total_seconds() / 3600.0, 3)
+    return payload
+
+
+def unmanifested_durable_restore_proof_sla_status(proof, max_restore_age_hours=168):
+    proof = proof or {}
+    if not proof.get("exists"):
+        return "PROOF_MISSING", "no durable restore proof supplied"
+    if proof.get("status") in {"UNREADABLE", "FAIL"}:
+        return "PROOF_FAIL", proof.get("error") or "durable restore proof failed"
+    if proof.get("status") != "PASS":
+        return "PROOF_FAIL", f"unexpected durable restore proof status {proof.get('status')}"
+    proof_hash = proof.get("proof_hash")
+    computed_hash = unmanifested_durable_restore_proof_hash(proof)
+    if not proof_hash:
+        return "PROOF_CORRUPT", "durable restore proof has no proof_hash"
+    if proof_hash != computed_hash:
+        return "PROOF_CORRUPT", "durable restore proof hash does not match proof contents"
+    age_hours = proof.get("age_hours")
+    if age_hours is not None and float(age_hours) > float(max_restore_age_hours):
+        return "PROOF_STALE", f"durable restore proof age {age_hours}h exceeds SLA {max_restore_age_hours}h"
+    return "OK", "durable restore proof is current"
+
+
+def _durable_restore_proof_entry_map(proof, max_restore_age_hours=168):
+    status, detail = unmanifested_durable_restore_proof_sla_status(
+        proof,
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    entries = {}
+    if status != "OK":
+        return entries, status, detail
+    for entry in proof.get("entries") or []:
+        rel = entry.get("rel_path")
+        if not rel or entry.get("status") != "PASS":
+            continue
+        if not entry.get("backup_sha256") or entry.get("backup_sha256") != entry.get("restored_sha256"):
+            continue
+        entries[rel] = entry
+    return entries, status, detail
+
+
+def _valid_cleanup_rel_path(rel):
+    rel_path = Path(str(rel or ""))
+    return bool(rel) and not rel_path.is_absolute() and ".." not in rel_path.parts
+
+
+def _unmanifested_rows_needing_durable_proof(plan):
+    rows = []
+    for row in plan.get("files") or []:
+        if row.get("source_same_hash"):
+            continue
+        if not row.get("rel_path") or row.get("rel_path") in LATEST_CONTROL_FILES:
+            continue
+        rows.append(row)
+    return rows
+
+
+def _cleanup_empty_parents(path, stop_root):
+    current = Path(path).parent
+    stop_root = Path(stop_root).resolve()
+    while True:
+        try:
+            current.resolve().relative_to(stop_root)
+        except ValueError:
+            return
+        if current.resolve() == stop_root:
+            return
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
+def write_unmanifested_durable_restore_proof_report(path, payload):
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Tape Backup Unmanifested Durable Restore Proof",
+        "",
+        f"Generated: `{payload.get('generated_at_utc')}`",
+        f"Status: **{payload.get('status')}**",
+        f"Backend: `{payload.get('backend')}`",
+        f"Repository: `{payload.get('repository') or '-'}`",
+        f"Snapshot tag: `{payload.get('snapshot_tag')}`",
+        f"Snapshot id: `{payload.get('snapshot_id') or '-'}`",
+        f"Proof hash: `{payload.get('proof_hash') or '-'}`",
+        f"Latest root: `{payload.get('latest_root')}`",
+        "",
+        "## Summary",
+        "",
+    ]
+    lines += markdown_table(
+        ["Metric", "Value"],
+        [
+            ["Selected files", summary.get("selected_files")],
+            ["Selected MiB", round(int(summary.get("selected_bytes") or 0) / (1024 * 1024), 1)],
+            ["Verified files", summary.get("verified_files")],
+            ["Failed files", summary.get("failed_files")],
+        ],
+    )
+    failures = [row for row in payload.get("entries") or [] if row.get("status") != "PASS"]
+    lines += ["", "## Failures", ""]
+    if failures:
+        lines += markdown_table(
+            ["Path", "Status", "Reason"],
+            [[row.get("rel_path"), row.get("status"), row.get("reason")] for row in failures[:50]],
+        )
+    else:
+        lines.append("- none")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def run_unmanifested_durable_restore_proof(
+    *,
+    backup_root=DEFAULT_BACKUP_ROOT,
+    source_root=REPO_ROOT,
+    plan=None,
+    backend=DEDUP_BACKEND_RESTIC,
+    repository=None,
+    executable=DEDUP_BACKEND_RESTIC,
+    password_file=None,
+    restore_root=None,
+    keep_restore=False,
+    out=DEFAULT_UNMANIFESTED_DURABLE_PROOF_OUT,
+    report=DEFAULT_UNMANIFESTED_DURABLE_PROOF_REPORT,
+    env=None,
+    timeout_seconds=3600,
+):
+    plan = plan or unmanifested_backup_cleanup_plan(
+        backup_root=backup_root,
+        source_root=source_root,
+    )
+    latest_root = Path(plan.get("latest_root") or Path(backup_root) / LATEST_DIR)
+    rows = _unmanifested_rows_needing_durable_proof(plan)
+    payload = {
+        "schema_version": UNMANIFESTED_CLEANUP_SCHEMA_VERSION,
+        "kind": "unmanifested_mirror_durable_restore_proof",
+        "generated_at_utc": utc_iso(),
+        "status": "FAIL",
+        "backend": backend,
+        "repository": str(repository or ""),
+        "snapshot_tag": UNMANIFESTED_MIRROR_PROOF_RESTIC_TAG,
+        "snapshot_id": None,
+        "backup_root": str(backup_root),
+        "latest_root": str(latest_root),
+        "source_root": str(source_root),
+        "plan_hash": plan.get("plan_hash"),
+        "commands": {},
+        "entries": [],
+        "summary": {
+            "selected_files": len(rows),
+            "selected_bytes": sum(int(row.get("size") or 0) for row in rows),
+            "verified_files": 0,
+            "failed_files": 0,
+        },
+    }
+    preflight, merged_env = dedup_repository_preflight(
+        backend=backend,
+        repository=repository,
+        executable=executable,
+        password_file=password_file,
+        env=env,
+    )
+    payload["preflight"] = preflight
+    payload["repository"] = preflight.get("repository") or payload["repository"]
+    if not rows:
+        payload["status"] = "PASS"
+        payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+        write_json(out, payload)
+        write_unmanifested_durable_restore_proof_report(report, payload)
+        return payload
+    if preflight["status"] != "PASS":
+        payload["status"] = preflight["status"]
+        payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+        write_json(out, payload)
+        write_unmanifested_durable_restore_proof_report(report, payload)
+        return payload
+
+    selected = []
+    for row in rows:
+        rel = row.get("rel_path")
+        path = Path(row.get("path") or latest_root / str(rel or ""))
+        entry = {
+            "rel_path": rel,
+            "path": str(path),
+            "size": int(row.get("size") or 0),
+            "backup_sha256": row.get("backup_sha256"),
+            "restored_sha256": None,
+            "status": "PENDING",
+            "reason": "",
+        }
+        if not _valid_cleanup_rel_path(rel):
+            entry.update({"status": "FAIL", "reason": "relative path is invalid"})
+        elif not _is_path_under(path, latest_root):
+            entry.update({"status": "FAIL", "reason": "path escapes latest backup root"})
+        elif not path.exists():
+            entry.update({"status": "FAIL", "reason": "mirror file is missing"})
+        elif int(path.stat().st_size) != int(row.get("size") or 0):
+            entry.update({"status": "FAIL", "reason": "mirror file size changed after cleanup plan"})
+        else:
+            backup_sha = sha256_file(path)
+            entry["backup_sha256"] = backup_sha
+            if row.get("backup_sha256") and row.get("backup_sha256") != backup_sha:
+                entry.update({"status": "FAIL", "reason": "mirror checksum changed after cleanup plan"})
+            else:
+                selected.append(entry)
+        payload["entries"].append(entry)
+    if not selected:
+        payload["summary"]["failed_files"] = len(payload["entries"])
+        payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+        write_json(out, payload)
+        write_unmanifested_durable_restore_proof_report(report, payload)
+        return payload
+
+    with tempfile.TemporaryDirectory(prefix="weather-tape-mirror-proof-files-") as tmp:
+        files_from = Path(tmp) / "files-from.txt"
+        files_from.write_text(
+            "\n".join(row["rel_path"] for row in selected) + "\n",
+            encoding="utf-8",
+        )
+        backup = _run_restic(
+            executable,
+            [
+                "backup",
+                "--files-from",
+                str(files_from),
+                "--tag",
+                UNMANIFESTED_MIRROR_PROOF_RESTIC_TAG,
+                "--tag",
+                POLICY_VERSION,
+                "--json",
+            ],
+            cwd=latest_root,
+            env=merged_env,
+            timeout_seconds=timeout_seconds,
+        )
+    payload["commands"]["backup"] = backup
+    payload["snapshot_id"] = _snapshot_id_from_backup_output(backup.get("stdout_tail") or backup.get("stdout") or "")
+    if backup["status"] != "PASS" or not payload["snapshot_id"]:
+        for entry in payload["entries"]:
+            if entry.get("status") == "PENDING":
+                entry.update({"status": "FAIL", "reason": "durable repository backup failed"})
+        payload["summary"]["failed_files"] = sum(1 for row in payload["entries"] if row.get("status") != "PASS")
+        payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+        write_json(out, payload)
+        write_unmanifested_durable_restore_proof_report(report, payload)
+        return payload
+
+    temp_ctx = None
+    if restore_root is None:
+        temp_ctx = tempfile.TemporaryDirectory(prefix="weather-tape-mirror-proof-restore-")
+        restore_root = Path(temp_ctx.name)
+    else:
+        restore_root = Path(restore_root)
+        restore_root.mkdir(parents=True, exist_ok=True)
+    try:
+        by_rel = {row["rel_path"]: row for row in payload["entries"]}
+        for entry in selected:
+            rel = entry["rel_path"]
+            restore = _run_restic(
+                executable,
+                ["restore", payload["snapshot_id"], "--target", str(restore_root), "--include", rel],
+                env=merged_env,
+                timeout_seconds=timeout_seconds,
+            )
+            payload["commands"].setdefault("restore", {})[rel] = restore
+            restored_path = restore_root / rel
+            target = by_rel[rel]
+            if restore["status"] != "PASS":
+                target.update({"status": "FAIL", "reason": "durable repository restore failed"})
+                continue
+            if not restored_path.exists():
+                target.update({"status": "FAIL", "reason": "restored file is missing"})
+                continue
+            restored_size = restored_path.stat().st_size
+            restored_sha = sha256_file(restored_path)
+            target["restored_size"] = restored_size
+            target["restored_sha256"] = restored_sha
+            if int(restored_size) != int(target.get("size") or 0):
+                target.update({"status": "FAIL", "reason": "restored file size mismatch"})
+            elif restored_sha != target.get("backup_sha256"):
+                target.update({"status": "FAIL", "reason": "restored file checksum mismatch"})
+            else:
+                target.update({"status": "PASS", "reason": "durable repository restored byte-identical mirror file"})
+            if not keep_restore and restored_path.exists():
+                restored_path.unlink()
+                _cleanup_empty_parents(restored_path, restore_root)
+    finally:
+        if temp_ctx is not None and not keep_restore:
+            temp_ctx.cleanup()
+
+    payload["summary"]["verified_files"] = sum(1 for row in payload["entries"] if row.get("status") == "PASS")
+    payload["summary"]["failed_files"] = sum(1 for row in payload["entries"] if row.get("status") != "PASS")
+    payload["status"] = "PASS" if payload["summary"]["failed_files"] == 0 else "FAIL"
+    payload["proof_hash"] = unmanifested_durable_restore_proof_hash(payload)
+    write_json(out, payload)
+    write_unmanifested_durable_restore_proof_report(report, payload)
+    return payload
+
+
 def unmanifested_backup_cleanup_plan(
     backup_root=DEFAULT_BACKUP_ROOT,
     source_root=REPO_ROOT,
     *,
     max_restore_age_hours=168,
     local_cache_retention_days=DEFAULT_LOCAL_MIRROR_CACHE_RETENTION_DAYS,
+    durable_restore_proof_path=None,
 ):
     backup_root = Path(backup_root)
     source_root = Path(source_root)
@@ -1811,6 +2171,11 @@ def unmanifested_backup_cleanup_plan(
     restore_status, restore_detail = restore_drill_sla_status(
         restore,
         manifest_hash_value=manifest.get("manifest_hash") if manifest else None,
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    durable_proof = load_unmanifested_durable_restore_proof(durable_restore_proof_path)
+    durable_entries, durable_status, durable_detail = _durable_restore_proof_entry_map(
+        durable_proof,
         max_restore_age_hours=max_restore_age_hours,
     )
     base = {
@@ -1834,6 +2199,17 @@ def unmanifested_backup_cleanup_plan(
         },
         "restore_drill_sla_status": restore_status,
         "restore_drill_sla_detail": restore_detail,
+        "durable_restore_proof": {
+            "exists": durable_proof.get("exists"),
+            "path": durable_proof.get("path"),
+            "status": durable_proof.get("status"),
+            "sla_status": durable_status,
+            "sla_detail": durable_detail,
+            "generated_at_utc": durable_proof.get("generated_at_utc"),
+            "repository": durable_proof.get("repository"),
+            "snapshot_id": durable_proof.get("snapshot_id"),
+            "proof_hash": durable_proof.get("proof_hash"),
+        },
         "max_restore_age_hours": max_restore_age_hours,
         "summary": {
             "unmanifested_files": 0,
@@ -1842,6 +2218,8 @@ def unmanifested_backup_cleanup_plan(
             "candidate_bytes": 0,
             "blocked_files": 0,
             "blocked_bytes": 0,
+            "durable_restore_candidate_files": 0,
+            "durable_restore_candidate_bytes": 0,
             "source_same_size_files": 0,
             "source_same_hash_files": 0,
         },
@@ -1888,18 +2266,33 @@ def unmanifested_backup_cleanup_plan(
         backup_sha = sha256_file(path)
         source_sha = sha256_file(source_path) if source_same_size else None
         source_same_hash = bool(source_sha and backup_sha == source_sha)
+        durable_entry = durable_entries.get(rel)
+        durable_verified = bool(
+            durable_entry
+            and int(durable_entry.get("size") or -1) == int(size)
+            and durable_entry.get("backup_sha256") == backup_sha
+            and durable_entry.get("restored_sha256") == backup_sha
+        )
         if source_same_hash:
             status = "candidate"
             reason = "unmanifested mirror duplicate; source counterpart exists and hash matches"
+            duplicate_evidence = "source_counterpart"
+        elif durable_verified:
+            status = "candidate"
+            reason = "unmanifested mirror file has verified durable repository restore proof"
+            duplicate_evidence = "durable_repository_restore"
         elif not source_exists:
             status = "blocked_missing_source"
             reason = "unmanifested backup file has no source counterpart"
+            duplicate_evidence = "missing"
         elif not source_same_size:
             status = "blocked_source_size_mismatch"
             reason = "source counterpart exists but size differs from mirror copy"
+            duplicate_evidence = "mismatch"
         else:
             status = "blocked_source_hash_mismatch"
             reason = "source counterpart exists but SHA-256 differs from mirror copy"
+            duplicate_evidence = "mismatch"
         storage_meta = classification_payload(f"data/tape_backups/latest/{rel}")
         rows.append({
             "path": str(path),
@@ -1915,10 +2308,21 @@ def unmanifested_backup_cleanup_plan(
             "source_sha256": source_sha,
             "source_same_hash": source_same_hash,
             "verified_duplicate": source_same_hash,
+            "duplicate_evidence": duplicate_evidence,
+            "durable_restore_verified": durable_verified,
+            "durable_restore_repository": durable_entry.get("repository") or durable_proof.get("repository") if durable_entry else None,
+            "durable_restore_snapshot_id": durable_entry.get("snapshot_id") or durable_proof.get("snapshot_id") if durable_entry else None,
+            "durable_restore_proof_hash": durable_proof.get("proof_hash") if durable_entry else None,
+            "durable_restore_proof_generated_at_utc": durable_proof.get("generated_at_utc") if durable_entry else None,
+            "durable_restore_sha256": durable_entry.get("restored_sha256") if durable_entry else None,
             "status": status,
             "reason": reason,
         })
     candidate_rows = [row for row in rows if row.get("status") == "candidate"]
+    durable_candidate_rows = [
+        row for row in candidate_rows
+        if row.get("duplicate_evidence") == "durable_repository_restore"
+    ]
     blocked_rows = [row for row in rows if row.get("status") != "candidate"]
     status = "WARN" if candidate_rows else "PASS"
     if blocked_rows:
@@ -1929,12 +2333,19 @@ def unmanifested_backup_cleanup_plan(
         _cleanup_gate_row(
             "blocked_rows",
             not blocked_rows,
-            "all unmanifested mirror files have duplicate-source evidence"
-            if not blocked_rows else "one or more unmanifested mirror files lack duplicate-source evidence",
+            "all unmanifested mirror files have source or durable-restore evidence"
+            if not blocked_rows else "one or more unmanifested mirror files lack source or durable-restore evidence",
             blocked_files=len(blocked_rows),
             blocked_bytes=sum(int(row.get("size") or 0) for row in blocked_rows),
         ),
     ]
+    if durable_candidate_rows:
+        gates.append(_cleanup_gate_row(
+            "durable_restore_proof_current",
+            durable_status == "OK",
+            durable_detail,
+            durable_restore_candidate_files=len(durable_candidate_rows),
+        ))
     payload = {
         **base,
         "status": status,
@@ -1946,6 +2357,8 @@ def unmanifested_backup_cleanup_plan(
             "candidate_bytes": sum(int(row.get("size") or 0) for row in candidate_rows),
             "blocked_files": len(blocked_rows),
             "blocked_bytes": sum(int(row.get("size") or 0) for row in blocked_rows),
+            "durable_restore_candidate_files": len(durable_candidate_rows),
+            "durable_restore_candidate_bytes": sum(int(row.get("size") or 0) for row in durable_candidate_rows),
             "source_same_size_files": sum(1 for row in candidate_rows if row.get("source_same_size")),
             "source_same_hash_files": sum(1 for row in candidate_rows if row.get("source_same_hash")),
         },
@@ -2029,8 +2442,8 @@ def apply_unmanifested_backup_cleanup(
     gates.append(_cleanup_gate_row(
         "blocked_rows",
         not blocked_rows,
-        "all dry-run rows are verified duplicate candidates"
-        if not blocked_rows else "dry-run includes rows without duplicate-source evidence",
+        "all dry-run rows are verified source or durable-restore candidates"
+        if not blocked_rows else "dry-run includes rows without source or durable-restore evidence",
         blocked_files=len(blocked_rows),
     ))
     candidate_rows = [row for row in rows if row.get("status") == "candidate"]
@@ -2040,9 +2453,14 @@ def apply_unmanifested_backup_cleanup(
             "path": row.get("path"),
             "rel_path": row.get("rel_path"),
             "size": int(row.get("size") or 0),
+            "duplicate_evidence": row.get("duplicate_evidence") or "source_counterpart",
             "source_exists": bool(row.get("source_exists")),
             "source_same_size": bool(row.get("source_same_size")),
             "source_same_hash": bool(row.get("source_same_hash")),
+            "durable_restore_verified": bool(row.get("durable_restore_verified")),
+            "durable_restore_repository": row.get("durable_restore_repository"),
+            "durable_restore_snapshot_id": row.get("durable_restore_snapshot_id"),
+            "durable_restore_proof_hash": row.get("durable_restore_proof_hash"),
         }
         path = Path(row.get("path") or "")
         rel = str(row.get("rel_path") or "")
@@ -2063,12 +2481,31 @@ def apply_unmanifested_backup_cleanup(
         elif rel in LATEST_CONTROL_FILES or rel in manifest_paths:
             action["status"] = "blocked"
             action["reason"] = "path is now manifest-listed or reserved"
-        elif not source_path.exists():
+        elif row.get("duplicate_evidence") != "durable_repository_restore" and not source_path.exists():
             action["status"] = "blocked"
             action["reason"] = "source counterpart is missing"
         elif int(path.stat().st_size) != int(row.get("size") or 0):
             action["status"] = "blocked"
             action["reason"] = "mirror file size changed after dry-run"
+        elif row.get("duplicate_evidence") == "durable_repository_restore":
+            backup_sha = sha256_file(path)
+            action["backup_sha256"] = backup_sha
+            action["durable_restore_sha256"] = row.get("durable_restore_sha256")
+            if not row.get("durable_restore_verified"):
+                action["status"] = "blocked"
+                action["reason"] = "durable restore proof is missing"
+            elif row.get("backup_sha256") and row.get("backup_sha256") != backup_sha:
+                action["status"] = "blocked"
+                action["reason"] = "mirror checksum changed after dry-run"
+            elif row.get("durable_restore_sha256") != backup_sha:
+                action["status"] = "blocked"
+                action["reason"] = "durable restore proof checksum differs from mirror file"
+            elif not row.get("durable_restore_repository") or not row.get("durable_restore_snapshot_id"):
+                action["status"] = "blocked"
+                action["reason"] = "durable restore proof lacks repository or snapshot id"
+            else:
+                action["status"] = "ready"
+                action["reason"] = "verified durable-restore-backed mirror file"
         elif int(source_path.stat().st_size) != int(path.stat().st_size):
             action["status"] = "blocked"
             action["reason"] = "source counterpart size differs"
@@ -2121,9 +2558,14 @@ def apply_unmanifested_backup_cleanup(
             "size": int(row.get("size") or 0),
             "status": "skipped",
             "reason": row.get("reason") or "not a verified duplicate candidate",
+            "duplicate_evidence": row.get("duplicate_evidence"),
             "source_exists": bool(row.get("source_exists")),
             "source_same_size": bool(row.get("source_same_size")),
             "source_same_hash": bool(row.get("source_same_hash")),
+            "durable_restore_verified": bool(row.get("durable_restore_verified")),
+            "durable_restore_repository": row.get("durable_restore_repository"),
+            "durable_restore_snapshot_id": row.get("durable_restore_snapshot_id"),
+            "durable_restore_proof_hash": row.get("durable_restore_proof_hash"),
         } for row in blocked_rows)
     post_status = backup_status(
         backup_root=backup_root,
@@ -2183,6 +2625,8 @@ def render_unmanifested_cleanup_report(payload):
         f"Dry-run plan hash: `{payload.get('plan_hash') or '-'}`",
         f"Mirror role: `{payload.get('mirror_role') or '-'}`",
         f"Local cache retention days: `{payload.get('local_cache_retention_days')}`",
+        f"Durable restore proof: `{((payload.get('durable_restore_proof') or {}).get('sla_status') or '-')}` "
+        f"({((payload.get('durable_restore_proof') or {}).get('path') or '-')})",
         "",
         "## Summary",
         "",
@@ -2194,6 +2638,8 @@ def render_unmanifested_cleanup_report(payload):
             ["Unmanifested MiB", round(int(summary.get("unmanifested_bytes") or 0) / (1024 * 1024), 1)],
             ["Candidate files", summary.get("candidate_files")],
             ["Candidate MiB", round(int(summary.get("candidate_bytes") or 0) / (1024 * 1024), 1)],
+            ["Durable restore candidate files", summary.get("durable_restore_candidate_files")],
+            ["Durable restore candidate MiB", round(int(summary.get("durable_restore_candidate_bytes") or 0) / (1024 * 1024), 1)],
             ["Blocked files", summary.get("blocked_files")],
             ["Source same-size files", summary.get("source_same_size_files")],
             ["Source same-hash files", summary.get("source_same_hash_files")],
@@ -2214,12 +2660,13 @@ def render_unmanifested_cleanup_report(payload):
     if candidates:
         lines += ["", "## Largest Candidates", ""]
         lines += markdown_table(
-            ["Path", "Storage Class", "Delete Gate", "MiB", "Source Exists", "Same Size", "Same Hash"],
+            ["Path", "Storage Class", "Delete Gate", "Evidence", "MiB", "Source Exists", "Same Size", "Same Hash"],
             [
                 [
                     row.get("rel_path"),
                     row.get("storage_class"),
                     row.get("delete_gate"),
+                    row.get("duplicate_evidence"),
                     round(int(row.get("size") or 0) / (1024 * 1024), 1),
                     row.get("source_exists"),
                     row.get("source_same_size"),
@@ -2233,12 +2680,13 @@ def render_unmanifested_cleanup_report(payload):
     if blocked:
         lines += ["", "## Blocked Rows", ""]
         lines += markdown_table(
-            ["Path", "MiB", "Status", "Reason", "Source Exists", "Same Size", "Same Hash"],
+            ["Path", "MiB", "Status", "Evidence", "Reason", "Source Exists", "Same Size", "Same Hash"],
             [
                 [
                     row.get("rel_path"),
                     round(int(row.get("size") or 0) / (1024 * 1024), 1),
                     row.get("status"),
+                    row.get("duplicate_evidence"),
                     row.get("reason"),
                     row.get("source_exists"),
                     row.get("source_same_size"),
@@ -2973,6 +3421,7 @@ def cmd_prune_unmanifested(args):
             source_root=args.source_root,
             max_restore_age_hours=args.max_restore_age_hours,
             local_cache_retention_days=args.local_cache_retention_days,
+            durable_restore_proof_path=args.durable_restore_proof or None,
         )
     if args.apply:
         if not args.reviewed_plan:
@@ -3020,6 +3469,33 @@ def cmd_prune_unmanifested(args):
     if args.apply and apply_status != "PASS":
         return 2
     return 0 if payload.get("status") in {"PASS", "WARN", "SKIPPED"} else 2
+
+
+def cmd_prove_unmanifested(args):
+    plan = None
+    if args.plan:
+        plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+    payload = run_unmanifested_durable_restore_proof(
+        backup_root=args.backup_root,
+        source_root=args.source_root,
+        plan=plan,
+        backend=args.backend,
+        repository=args.repository or None,
+        executable=args.executable,
+        password_file=args.password_file or None,
+        restore_root=args.restore_root or None,
+        keep_restore=args.keep_restore,
+        out=args.out,
+        report=args.report,
+        timeout_seconds=args.timeout_seconds,
+    )
+    print(
+        f"Tape backup unmanifested durable restore proof: {payload.get('status')} "
+        f"verified={(payload.get('summary') or {}).get('verified_files', 0)}"
+    )
+    print(f"JSON written to {args.out}")
+    print(f"Report written to {args.report}")
+    return 0 if payload.get("status") == "PASS" else 2
 
 
 def cmd_restore_drill(args):
@@ -3172,9 +3648,21 @@ def build_parser():
     prune.add_argument("--max-age-hours", type=float, default=26.0)
     prune.add_argument("--max-restore-age-hours", type=float, default=168.0)
     prune.add_argument("--local-cache-retention-days", type=int, default=DEFAULT_LOCAL_MIRROR_CACHE_RETENTION_DAYS)
+    prune.add_argument("--durable-restore-proof", default="")
     prune.add_argument("--out", default=str(DEFAULT_UNMANIFESTED_CLEANUP_OUT))
     prune.add_argument("--report", default=str(DEFAULT_UNMANIFESTED_CLEANUP_REPORT))
     prune.set_defaults(func=cmd_prune_unmanifested)
+
+    proof = sub.add_parser("prove-unmanifested")
+    proof.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))
+    proof.add_argument("--source-root", default=str(REPO_ROOT))
+    proof.add_argument("--plan", default="")
+    proof.add_argument("--restore-root", default="")
+    proof.add_argument("--keep-restore", action="store_true")
+    proof.add_argument("--out", default=str(DEFAULT_UNMANIFESTED_DURABLE_PROOF_OUT))
+    proof.add_argument("--report", default=str(DEFAULT_UNMANIFESTED_DURABLE_PROOF_REPORT))
+    _add_dedup_common_args(proof)
+    proof.set_defaults(func=cmd_prove_unmanifested)
 
     drill = sub.add_parser("restore-drill")
     drill.add_argument("--backup-root", default=str(DEFAULT_BACKUP_ROOT))

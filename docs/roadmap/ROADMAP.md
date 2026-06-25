@@ -169,7 +169,7 @@ infrastructure work remains.
 | 45 | [Market-Making Position Sizing, Risk Controls, And Live Gate [COMPLETE 2026-06-16 - PLATFORM VERIFICATION GATE LIVE]](items/item-45-market-making-position-sizing-risk-controls-and-live-gate.md) |
 | 46 | [Date/Budget Market-Making Run Orchestrator [COMPLETE 2026-06-15 - OPERATOR WORKFLOW LIVE]](items/item-46-date-budget-market-making-run-orchestrator.md) |
 | 47 | [Model Readiness And Known-Edge Permission Map [COMPLETE 2026-06-15 - POLICY-CONSUMED MAP]](items/item-47-model-readiness-and-known-edge-permission-map.md) |
-| 48 | [F-Family Promotion Readiness And Serving Parity [PARTIAL 2026-06-20 - MARKET, SLO, AND CLOB CONTINUITY BLOCKED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
+| 48 | [F-Family Promotion Readiness And Serving Parity [COMPLETE 2026-06-25 - MARKET DISPOSITIONS PASSED, PRODUCTION CUTOVER FAIL-CLOSED]](items/item-48-f-family-promotion-readiness-and-serving-parity.md) |
 | 49 | [Late-Day Forecast-Gap Continuation Training [COMPLETE 2026-06-15 - FORECAST-GAP ARTIFACTS LIVE]](items/item-49-late-day-forecast-gap-continuation-training.md) |
 | 50 | [Scholarly Weather-Input Gap Closure [COMPLETE 2026-06-16 - CORE BACKFILL AND SHADOW EVIDENCE]](items/item-50-scholarly-weather-input-gap-closure.md) |
 | 51 | [Model Architecture Health Refactor [COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP]](items/item-51-model-architecture-health-refactor.md) |
