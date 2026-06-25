@@ -55,8 +55,23 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/operations/daily_refresh_steps.py": {
         "owner": "operations",
-        "boundary": "Daily refresh step order, runner registry, step adapters, and status summary helpers.",
-        "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
+        "boundary": "Daily refresh step adapter compatibility surface.",
+        "next_split": "Item 318 slice complete; registry, settled-day barrier, and status aggregation live in owner modules.",
+    },
+    "src/weather/operations/daily_refresh_registry.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh step order, planned-step rows, and resume filtering.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade or step adapters.",
+    },
+    "src/weather/operations/daily_refresh_settled_day.py": {
+        "owner": "operations",
+        "boundary": "Settled-day analysis barrier dependency graph, freshness countability, and exception contract.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade or step adapters.",
+    },
+    "src/weather/operations/daily_refresh_status.py": {
+        "owner": "operations",
+        "boundary": "Daily refresh step execution rows, rollup freshness, pipeline summary, and variant-learning gate.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade or step adapters.",
     },
     "src/weather/operations/daily_refresh_report.py": {
         "owner": "operations",
@@ -67,6 +82,41 @@ OWNERSHIP_NOTES = {
         "owner": "operations",
         "boundary": "Daily refresh CLI parser and command handlers with facade-injected dependencies.",
         "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/tape_backup.py": {
+        "owner": "operations",
+        "boundary": "Tape manifest/status, retention/pruning, restore drill, and CLI orchestration.",
+        "next_split": "Item 318 warning module; split manifest/status first, then retention/pruning and restore drill helpers.",
+    },
+    "src/weather/reporting/daily/daily_learning.py": {
+        "owner": "reporting",
+        "boundary": "Daily learning readers, synthesis, retrain recommendations, report rendering, and CLI wiring.",
+        "next_split": "Item 318 warning module; split readers, synthesis/decision model, report rendering, and CLI wiring.",
+    },
+    "src/weather/market/mm_paper.py": {
+        "owner": "market",
+        "boundary": "Market-making paper tape ingestion, accounting/scoring, report rendering, evidence export, and CLI.",
+        "next_split": "Item 318 warning module; split tape ingestion and accounting/scoring before report/evidence export.",
+    },
+    "src/weather/schema_registry.py": {
+        "owner": "shared",
+        "boundary": "Schema registry data, audit/check logic, and CLI rendering.",
+        "next_split": "Item 318 warning module; defer until active 314/316/317 edits settle, then split registry data from audit/check behavior.",
+    },
+    "src/weather/collection/snapshot_store.py": {
+        "owner": "collection",
+        "boundary": "Snapshot schema constants, readers, writers, sidecar backfill/migration helpers, and repair CLI behavior.",
+        "next_split": "Item 318 warning module; split schema constants/readers before writers and repair helpers.",
+    },
+    "src/weather/market/taker_bot_bakeoff.py": {
+        "owner": "market",
+        "boundary": "Taker bakeoff artifact readers, scoring, profitability verification, report rendering, and CLI.",
+        "next_split": "Item 318 warning module; split artifact readers and scoring before report rendering.",
+    },
+    "src/weather/reporting/source_family_inventory.py": {
+        "owner": "reporting",
+        "boundary": "Source-family input readers, family/gate classification, report rendering, and CLI.",
+        "next_split": "Item 318 warning module; split input readers and classification before report rendering.",
     },
 }
 

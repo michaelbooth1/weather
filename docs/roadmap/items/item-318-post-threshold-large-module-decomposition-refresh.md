@@ -1,4 +1,4 @@
-# 318. Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - EIGHT MODULES EXCEED SIZE RATCHET]
+# 318. Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - SEVEN MODULES REMAIN AFTER DAILY REFRESH SLICE]
 
 Goal: bring the module-size audit back under the 2,000-line warning threshold
 with owner-scoped splits, updated ownership docs, and matching test fixture
@@ -54,12 +54,12 @@ gate.
 5. Split oversized tests only with their production owner changes, extracting
    reusable fixtures/builders when they make the source split reviewable.
 
-- [ ] Refresh `docs/operations/module-ownership-map.md` with the eight current
+- [x] Refresh `docs/operations/module-ownership-map.md` with the eight current
   warnings and planned splits.
 - [ ] Reduce `weather.operations.tape_backup` below the warning threshold.
 - [ ] Reduce `weather.reporting.daily.daily_learning` below the warning
   threshold.
-- [ ] Reduce `weather.operations.daily_refresh_steps` below the warning
+- [x] Reduce `weather.operations.daily_refresh_steps` below the warning
   threshold.
 - [ ] Reduce `weather.market.mm_paper` below the warning threshold.
 - [ ] Reduce or explicitly exempt `weather.schema_registry` with documented
@@ -71,6 +71,14 @@ gate.
 - [ ] Split matching large test fixtures/builders where needed for the source
   splits.
 - [ ] Rerun module-size audit and architecture ratchet after each split batch.
+
+2026-06-25 daily-refresh slice: split step order/resume filtering to
+`weather.operations.daily_refresh_registry`, settled-day barrier contracts to
+`weather.operations.daily_refresh_settled_day`, and execution/status aggregation
+to `weather.operations.daily_refresh_status`. `weather.operations.daily_refresh_steps`
+is now a step-adapter compatibility surface at 1,994 lines. The regenerated
+module-size audit reports `7` warnings; the remaining over-threshold modules
+have owner and next-split metadata in both the ownership map and audit notes.
 
 Acceptance: `python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md`
 reports zero warnings, or any remaining over-threshold module has an explicit
