@@ -244,14 +244,35 @@ python -m weather.operations.tape_backup prune-unmanifested
 
 Review both the JSON and Markdown report. Candidate rows must show the latest
 manifest hash, the source counterpart, file size, source/mirror SHA-256 match,
-and the reason the row is eligible or blocked. Apply is fail-closed unless all
-of these are true:
+durable restore proof when the source counterpart is absent, and the reason the
+row is eligible or blocked. If meaningful reclaim bytes are blocked only
+because the source counterpart is absent, create a per-row durable proof before
+regenerating the dry-run:
+
+```powershell
+python -m weather.operations.tape_backup prove-unmanifested `
+  --plan data\backtest\tape_backup_unmanifested_cleanup.json `
+  --executable <restic.exe> `
+  --repository <durable-restic-repo> `
+  --password-file <password-file>
+
+python -m weather.operations.tape_backup prune-unmanifested `
+  --durable-restore-proof data\backtest\tape_backup_unmanifested_durable_restore_proof.json
+```
+
+The proof command writes
+`data/backtest/tape_backup_unmanifested_durable_restore_proof.json` and a
+Markdown report, backs up the selected unmanifested mirror rows to the durable
+Restic repository under tag `weather-tape-unmanifested-mirror-proof`, restores
+each selected row, and verifies the restored SHA-256 equals the local mirror
+SHA-256. Apply is fail-closed unless all of these are true:
 
 - the reviewed dry-run JSON is passed back with `--reviewed-plan`;
 - the latest manifest validates and still matches the dry-run plan hash;
 - the latest restore drill is current and matches the latest manifest hash;
 - tape backup status is `OK`;
-- every unmanifested row is a byte-identical source-backed duplicate;
+- every unmanifested row is either a byte-identical source-backed duplicate or
+  has current byte-identical durable restore proof;
 - an operator approval note is supplied.
 
 Apply syntax, used only after durable backup/restore evidence is current:

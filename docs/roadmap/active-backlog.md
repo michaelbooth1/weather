@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-25T01:59:02.009253+00:00
+Generated: 2026-06-25T02:13:15.625687+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 310 |
-| Active items | 28 |
-| OPEN | 4 |
+| Active items | 27 |
+| OPEN | 3 |
 | PARTIAL | 24 |
-| COMPLETE | 282 |
+| COMPLETE | 283 |
 | ROADMAP rows | 310 |
 | ROADMAP primary rows | 310 |
 | Metadata manifest rows | 310 |
@@ -50,7 +50,6 @@ Status: `OK`
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 247 | OPEN | 2026-06-24 | GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE | [Tape Backup Mirror Demotion And Guarded Reclaim](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 307 | PARTIAL | 2026-06-24 | IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 

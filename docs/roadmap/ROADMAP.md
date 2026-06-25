@@ -142,7 +142,7 @@ infrastructure work remains.
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
 | 246 | [Deduplicated Durable Tape Backup Repository [COMPLETE 2026-06-24 - RESTIC SNAPSHOT AND RESTORE DRILL LIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
-| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
+| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [COMPLETE 2026-06-25 - DURABLE PROOF-BACKED MIRROR RECLAIM APPLIED]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
 | 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
 | 288 | [Fresh Backup/Restore Deletion Gate Before Data Cleanup [COMPLETE 2026-06-23 - CLEANUP PREFLIGHT FAILS CLOSED ON CANONICAL EVIDENCE]](items/item-288-backup-restore-deletion-gate.md) |

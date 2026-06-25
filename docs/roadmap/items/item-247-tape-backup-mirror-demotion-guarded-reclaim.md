@@ -1,4 +1,4 @@
-# 247. Tape Backup Mirror Demotion And Guarded Reclaim [OPEN 2026-06-24 - GUARDED APPLY IMPLEMENTED; RECLAIM BLOCKED BY MANIFEST AND SOURCE EVIDENCE]
+# 247. Tape Backup Mirror Demotion And Guarded Reclaim [COMPLETE 2026-06-25 - DURABLE PROOF-BACKED MIRROR RECLAIM APPLIED]
 
 Goal: safely demote `data/tape_backups/latest` from long-term archive to
 short-term local restore cache, then reclaim only unmanifested duplicate mirror
@@ -40,8 +40,8 @@ be deleted because a mirror cleanup looked plausible.
   validation and restore-drill evidence.
 - [x] Add an operator gate that blocks cleanup when candidate files lack a
   source counterpart or verified durable-repository restore.
-- [ ] Apply cleanup only to verified unmanifested mirror duplicates.
-- [ ] Refresh backup status, fleet observability, and local storage inventory
+- [x] Apply cleanup only to verified unmanifested mirror duplicates.
+- [x] Refresh backup status, fleet observability, and local storage inventory
   after cleanup.
 - [x] Document the new role of `data/tape_backups/latest` as cache, not
   archive.
@@ -82,5 +82,31 @@ missing-source `order_books_long.csv` mirror rows totaling 23,518,335,013
 bytes. Because all meaningful reclaim bytes are missing source-counterpart
 evidence, item 247 cannot be safely finished yet without either source evidence
 or a per-row durable-repository restore proof for those 24 blocked mirror files.
+
+## Completion Notes
+
+2026-06-25: added and used the durable proof lane for missing-source
+unmanifested mirror rows. `python -m weather.operations.tape_backup
+prove-unmanifested --plan data\backtest\tape_backup_unmanifested_cleanup.json`
+created `data/backtest/tape_backup_unmanifested_durable_restore_proof.json`
+with `status=PASS`, Restic snapshot
+`a88af2fe884396a6e6eeb862d3a4526bb4116f95a68792a4e6c9cfb4298a9680`, proof
+hash `81c431cd798bfaa24f2a7f0a3a41567bf8fcf5208dada1e8226d49b4bbab2692`, and
+24/24 restored missing-source mirror rows verified byte-identical
+(`23,518,335,013` bytes). The proof-backed dry-run then reported
+`apply_permission=true`, 28 candidates, zero blocked rows, and plan hash
+`8b25e098ca49fd2516c233d5714930a95ac23ed22bf66d7fbabd7a91b5f3df93`.
+
+Guarded apply was run with the reviewed plan and operator note:
+`python -m weather.operations.tape_backup prune-unmanifested --apply
+--reviewed-plan data\backtest\tape_backup_unmanifested_cleanup.json
+--operator-approve --operator-approved-by codex --operator-note "...durable
+restore proof verified..."`. Apply passed and deleted only unmanifested files
+under `data/tape_backups/latest`: 28 files, `23,518,335,013` bytes. A final
+dry-run now reports `status=PASS`, zero unmanifested files, zero candidates,
+and zero blocked rows. Refreshed backup status is `OK`, restore-drill SLA is
+`OK`, fleet observability reports tape backup status `OK` even though unrelated
+fleet alerts keep the overall fleet report `CRITICAL`, and the data retention
+inventory reports `PASS`.
 
 Related: items 65, 111, 124, 146, 154, 239, 246.

@@ -45,6 +45,8 @@ from weather.sources.reanalysis_synoptic import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     load_reanalysis_synoptic_features,
 )
+from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
+from weather.sources.marine_water_contrast import load_marine_water_contrast_features
 from weather.model.variant_prediction_runtime import apply_continuous_density_calibration
 from weather.reporting.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
@@ -294,6 +296,39 @@ MARINE_REPLAY_FEATURES = (
 )
 
 
+def _has_replay_float(value):
+    return _replay_float(value) is not None
+
+
+def apply_marine_water_contrast_sidecar(feature_row, sidecar_features):
+    """Fill missing replay marine fields from the cutoff-aware sidecar."""
+
+    if not sidecar_features:
+        return {
+            "applied": False,
+            "reason": "missing_sidecar_row",
+            "filled_columns": [],
+            "observed_columns": [],
+        }
+    filled_columns = []
+    observed_columns = []
+    for column in MARINE_CONTEXT_FEATURE_COLUMNS:
+        value = sidecar_features.get(column)
+        if not _has_replay_float(value):
+            continue
+        observed_columns.append(column)
+        if _has_replay_float(feature_row.get(column)):
+            continue
+        feature_row[column] = value
+        filled_columns.append(column)
+    return {
+        "applied": bool(filled_columns),
+        "reason": "applied" if filled_columns else "no_missing_replay_columns_filled",
+        "filled_columns": filled_columns,
+        "observed_columns": observed_columns,
+    }
+
+
 def _replay_float(value):
     if value in (None, ""):
         return None
@@ -434,9 +469,20 @@ def _artifact_needs_reanalysis(artifact):
     return any(name.startswith("reanalysis_") for name in _artifact_feature_names(artifact))
 
 
+def _artifact_needs_marine_water_contrast(artifact):
+    feature_names = _artifact_feature_names(artifact)
+    return any(name in feature_names for name in MARINE_CONTEXT_FEATURE_COLUMNS)
+
+
 def _reanalysis_index_for_market(indexes, spec):
     if spec.id not in indexes:
         indexes[spec.id] = load_reanalysis_synoptic_features(spec=spec)
+    return indexes[spec.id]
+
+
+def _marine_water_contrast_index_for_market(indexes, spec):
+    if spec.id not in indexes:
+        indexes[spec.id] = load_marine_water_contrast_features(spec=spec)
     return indexes[spec.id]
 
 
@@ -489,8 +535,10 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
     climates = {}
     source_reliability = {}
     reanalysis_indexes = {}
+    marine_water_contrast_indexes = {}
     reanalysis_promotion_lane = _artifact_reanalysis_lane(artifact)
     needs_reanalysis = _artifact_needs_reanalysis(artifact)
+    needs_marine_water_contrast = _artifact_needs_marine_water_contrast(artifact)
     diagnostics = {
         "family_unit": family_unit,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -504,6 +552,11 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
         "hour_counts": {},
         "reanalysis_sidecar_loaded_markets": [],
         "reanalysis_promotion_lane": reanalysis_promotion_lane or {},
+        "marine_water_contrast_sidecar_loaded_markets": [],
+        "marine_water_contrast_sidecar_rows_applied": 0,
+        "marine_water_contrast_sidecar_rows_missing": 0,
+        "marine_water_contrast_sidecar_rows_without_observed_features": 0,
+        "marine_water_contrast_sidecar_filled_columns": {},
     }
     include_reconstructed = bool(manifest.get("include_reconstructed"))
     features = {}
@@ -547,6 +600,24 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
                     reanalysis_synoptic_features=reanalysis_features,
                     reanalysis_promotion_lane=reanalysis_promotion_lane,
                 )
+                if needs_marine_water_contrast and target_date is not None:
+                    sidecar_features = _marine_water_contrast_index_for_market(
+                        marine_water_contrast_indexes,
+                        spec,
+                    ).get((target_date.isoformat(), int(feature_row["cutoff_hour"])))
+                    fill_result = apply_marine_water_contrast_sidecar(
+                        feature_row,
+                        sidecar_features,
+                    )
+                    if fill_result["applied"]:
+                        diagnostics["marine_water_contrast_sidecar_rows_applied"] += 1
+                        for column in fill_result["filled_columns"]:
+                            counts = diagnostics["marine_water_contrast_sidecar_filled_columns"]
+                            counts[column] = counts.get(column, 0) + 1
+                    elif fill_result["reason"] == "missing_sidecar_row":
+                        diagnostics["marine_water_contrast_sidecar_rows_missing"] += 1
+                    elif not fill_result["observed_columns"]:
+                        diagnostics["marine_water_contrast_sidecar_rows_without_observed_features"] += 1
             except Exception as exc:  # noqa: BLE001 - diagnostics should survive bad rows
                 if len(diagnostics["feature_errors"]) < 20:
                     diagnostics["feature_errors"].append({
@@ -561,6 +632,7 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
             )
             features[(market_id, snapshot_id)] = feature_row
     diagnostics["reanalysis_sidecar_loaded_markets"] = sorted(reanalysis_indexes)
+    diagnostics["marine_water_contrast_sidecar_loaded_markets"] = sorted(marine_water_contrast_indexes)
     return features, diagnostics
 
 

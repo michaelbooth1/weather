@@ -10,6 +10,7 @@ from weather.calibration.pooled_candidate_replay import (
     attach_density_candidate_probabilities,
     annotate_casebook_rows,
     apply_current_blend_guardrail,
+    apply_marine_water_contrast_sidecar,
     attach_forecast_profile_slice_context,
     attach_marine_contrast_slice_context,
     band_probability_from_distribution,
@@ -1157,6 +1158,33 @@ class TestPooledCandidateReplay(unittest.TestCase):
             "water_contrast_no_onshore",
         )
         self.assertEqual(marine_breeze_slice({}), "missing_marine_context")
+
+    def test_marine_water_contrast_sidecar_fills_missing_replay_columns_only(self):
+        missing = apply_marine_water_contrast_sidecar({}, None)
+
+        self.assertFalse(missing["applied"])
+        self.assertEqual(missing["reason"], "missing_sidecar_row")
+
+        feature_row = {
+            "marine_water_temp_native": None,
+            "marine_onshore_flow": 0.0,
+        }
+        sidecar = {
+            "marine_water_temp_native": 79.2,
+            "marine_onshore_flow": 1.0,
+            "marine_breeze_risk": "",
+            "marine_layer_suppression": 0.7,
+        }
+
+        applied = apply_marine_water_contrast_sidecar(feature_row, sidecar)
+
+        self.assertTrue(applied["applied"])
+        self.assertEqual(feature_row["marine_water_temp_native"], 79.2)
+        self.assertEqual(feature_row["marine_onshore_flow"], 0.0)
+        self.assertEqual(feature_row["marine_layer_suppression"], 0.7)
+        self.assertIn("marine_water_temp_native", applied["filled_columns"])
+        self.assertNotIn("marine_onshore_flow", applied["filled_columns"])
+        self.assertIn("marine_onshore_flow", applied["observed_columns"])
 
     def test_candidate_shadow_variant_rows_preserve_source_state_context(self):
         rows = [
