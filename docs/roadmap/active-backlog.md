@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-25T02:25:39.852185+00:00
+Generated: 2026-06-25T02:47:15.306635+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 312 |
-| Active items | 29 |
-| OPEN | 5 |
-| PARTIAL | 24 |
-| COMPLETE | 283 |
-| ROADMAP rows | 312 |
-| ROADMAP primary rows | 312 |
-| Metadata manifest rows | 312 |
+| Items | 318 |
+| Active items | 34 |
+| OPEN | 11 |
+| PARTIAL | 23 |
+| COMPLETE | 284 |
+| ROADMAP rows | 318 |
+| ROADMAP primary rows | 318 |
+| Metadata manifest rows | 318 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -44,16 +44,21 @@ Status: `OK`
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 191 | PARTIAL | 2026-06-25 | SCOPED REPLAY LIVE, PROMOTION BLOCKED BY MISSING MARINE CONTEXT | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 307 | PARTIAL | 2026-06-24 | JUNE 24 LOOP-DEATH EVIDENCE ADDED, SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | PARTIAL | 2026-06-24 | POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 311 | OPEN | 2026-06-24 | LATEST-TICK STARVATION STILL PASSES LIVENESS | [Taker Evidence-Starvation Classification And Upstream Liveness Gate](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
 | 312 | OPEN | 2026-06-25 | BOT LOOPS HAVE NO ENSURE-SUPERVISOR; A HUNG OR STALE-CODE ROLL GOES DARK FOR HOURS | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
+| 313 | OPEN | 2026-06-24 | DAILY REFRESH AND STREAMLIT RUNTIME ERRORS ESCAPED COMPLETED AUDIT GATES | [Python Runtime Audit Regression Gate](items/item-313-python-runtime-audit-regression-gate.md) |
+| 314 | OPEN | 2026-06-25 | SCHEMA BUMPS STRAND ARTIFACTS HISTORICAL-ONLY INSTEAD OF MIGRATING | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
+| 315 | OPEN | 2026-06-25 | VALIDATED REPAIRS STAY ROW-EXPORT SURROGATES AND NEVER REACH SERVING | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate)](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
+| 316 | OPEN | 2026-06-25 | BLANKET BLOCK-ALL TAIL/WARM/WEAK GUARDS IGNORE THE PROVEN-EDGE MAP | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
+| 317 | OPEN | 2026-06-25 | SOURCES IMPORT MODEL CONSTANT | [Marine Water-Contrast Source/Model Boundary Ratchet](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
+| 318 | OPEN | 2026-06-25 | EIGHT MODULES EXCEED SIZE RATCHET | [Post-Threshold Large Module Decomposition Refresh](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
 
 ## Lint Issues
 

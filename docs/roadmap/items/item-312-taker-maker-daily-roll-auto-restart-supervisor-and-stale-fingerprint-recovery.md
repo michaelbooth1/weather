@@ -17,6 +17,17 @@ non-countable under current-code gates. The taker daily-roll
 `ensure`-style supervisor, unlike the snapshot, CLOB, and observation-trigger
 loops, which run `ensure` every 1-2 minutes and at logon.
 
+2026-06-24 audit update: the Python/log audit found the gap active on both bot
+families. `python -m weather.operations.taker_bot_daily_roll status` reported a
+previous taker run quarantined as `STALE_HEARTBEAT_METADATA` before the current
+forced recovery, while `python -m weather.operations.market_making_daily_roll
+status` reported maker pid `34772` as `started` on commit `3242e26399be` with
+source fingerprint `dc31a4c70a4f0228` even though the repo HEAD during the audit
+was `fb2da2283d88`. The maker daily-roll status also still marked the run as
+`counts_toward_live_forward_gate=true`, even though the latest run summary was
+preflight-blocked by the current exchange-economics gate. Process-alive status
+is therefore not enough to prove current-code, countable bot evidence.
+
 Why this matters: a once-daily launch with no supervisor means a hung or
 redeploy-orphaned bot loop burns settlement-scoreable calendar days until the
 next scheduled fire, and a loop running superseded code produces evidence that

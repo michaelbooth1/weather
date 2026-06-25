@@ -22,6 +22,7 @@ This file is the roadmap index. Detailed narrative, audit history, and each numb
 - [2026-06-23 taker bot performance strategy audit](audits/taker-bot-performance-strategy-audit-2026-06-23.md)
 - [2026-06-23 trading stack performance and strategy audit](audits/trading-stack-performance-strategy-audit-2026-06-23.md)
 - [2026-06-24 system-level backlog audit](audits/system-level-backlog-audit-2026-06-24.md)
+- [2026-06-24 Python and runtime log audit](audits/python-log-audit-2026-06-24.md)
 
 ## Status Taxonomy
 
@@ -132,7 +133,7 @@ infrastructure work remains.
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 190 | [NBM Native Probabilistic Tmax Consumption [COMPLETE 2026-06-25 - SETTLEMENT SCORING LIVE; PROMOTION BLOCKED BY SKILL GATE]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
-| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-25 - SCOPED REPLAY LIVE, PROMOTION BLOCKED BY MISSING MARINE CONTEXT]](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 191 | [Lake/Sea Surface-Temperature Contrast Feature [COMPLETE 2026-06-25 - SIDECAR-BACKED SETTLEMENT REPLAY LIVE; PROMOTION BLOCKED BY DAILY-FIRST GATE]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
 | 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
 | 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |
@@ -389,7 +390,13 @@ infrastructure work remains.
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - JUNE 24 LOOP-DEATH EVIDENCE ADDED, SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 313 | [Python Runtime Audit Regression Gate [OPEN 2026-06-24 - DAILY REFRESH AND STREAMLIT RUNTIME ERRORS ESCAPED COMPLETED AUDIT GATES]](items/item-313-python-runtime-audit-regression-gate.md) |
+| 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [OPEN 2026-06-25 - SCHEMA BUMPS STRAND ARTIFACTS HISTORICAL-ONLY INSTEAD OF MIGRATING]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
+| 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [OPEN 2026-06-25 - VALIDATED REPAIRS STAY ROW-EXPORT SURROGATES AND NEVER REACH SERVING]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
+| 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [OPEN 2026-06-25 - BLANKET BLOCK-ALL TAIL/WARM/WEAK GUARDS IGNORE THE PROVEN-EDGE MAP]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
+| 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [OPEN 2026-06-25 - SOURCES IMPORT MODEL CONSTANT]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
+| 318 | [Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - EIGHT MODULES EXCEED SIZE RATCHET]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
 
 ## Maintenance Conventions
 

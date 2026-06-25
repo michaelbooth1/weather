@@ -1,4 +1,4 @@
-# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - JUNE 24 LOOP-DEATH EVIDENCE ADDED, SOAK PENDING]
+# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -153,3 +153,23 @@ This does not supersede the implementation update above; it records the
 active-day failure shape that the clean soak must eliminate. Item 311 owns the
 taker-side evidence-starvation classification so this item can stay focused on
 the upstream collection-loop recovery and soak proof.
+
+## 2026-06-24 Post-Suppression Baseline Reset
+
+After the duplicate circuit-open remediation landed in `fb2da228`, the managed
+loops were explicitly restarted onto the stable current source identity
+`master@fb2da2283d88 src:c4f6431ebdcd06e3` at 22:39 EDT. A follow-up `ensure`
+pass returned `noop` for snapshot, CLOB, and observation-trigger:
+
+- Snapshot: `RUNNING`, current runtime identity, live writer lock, and
+  `consecutive_errors=0`.
+- CLOB: `RUNNING`, current runtime identity, expected two-process launcher plus
+  interpreter pair, no orphan-process restart, and `consecutive_errors=0`.
+- Observation-trigger: `RUNNING`, current runtime identity, live writer lock,
+  and `consecutive_errors=0`.
+
+This is a pre-soak baseline, not completion evidence. The 2026-06-24 active day
+already has unrecoverable snapshot coverage gaps and the historical restart
+budget window remains blown. Completion still requires the next clean active-day
+fleet observability run to show `current_code_soak=PASS`,
+`counts_toward_active_day=True`, and `live_forward_slo=PASS`.

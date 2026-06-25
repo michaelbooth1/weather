@@ -162,6 +162,23 @@ def candidate_contrast_features(candidate: dict[str, Any]) -> list[str]:
     return [feature for feature in WATER_CONTRAST_FEATURES if feature in names]
 
 
+def candidate_sidecar_evidence(candidate: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = (candidate or {}).get("diagnostics") or {}
+    filled_columns = diagnostics.get("marine_water_contrast_sidecar_filled_columns") or {}
+    return {
+        "loaded_markets": diagnostics.get("marine_water_contrast_sidecar_loaded_markets") or [],
+        "rows_applied": int(diagnostics.get("marine_water_contrast_sidecar_rows_applied") or 0),
+        "rows_missing": int(diagnostics.get("marine_water_contrast_sidecar_rows_missing") or 0),
+        "rows_without_observed_features": int(
+            diagnostics.get("marine_water_contrast_sidecar_rows_without_observed_features") or 0
+        ),
+        "filled_contrast_features": [
+            feature for feature in WATER_CONTRAST_FEATURES if int(filled_columns.get(feature) or 0) > 0
+        ],
+        "filled_columns": filled_columns,
+    }
+
+
 def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTATION) -> dict[str, Any]:
     expected = set(WATER_CONTRAST_FEATURES) | set(SUPPORTING_MARINE_FEATURES)
     grouped: dict[str, dict[str, Any]] = defaultdict(
@@ -248,6 +265,7 @@ def acceptance(
     aggregate = candidate.get("aggregate") or {}
     blocked_validation = candidate.get("blocked_validation") or {}
     candidate_features = candidate_contrast_features(candidate)
+    sidecar_evidence = candidate_sidecar_evidence(candidate)
 
     if not candidate:
         blockers.append({"code": "candidate_replay_missing", "detail": "missing candidate replay JSON"})
@@ -334,6 +352,7 @@ def acceptance(
         "blockers": blockers,
         "artifact_scope": artifact_scope,
         "candidate_contrast_features": candidate_features,
+        "candidate_sidecar_evidence": sidecar_evidence,
         "onshore_breeze_slice": onshore_slice,
     }
 
@@ -369,9 +388,11 @@ def build_report_payload(
             "aggregate": candidate.get("aggregate") or {},
             "blocked_validation": candidate.get("blocked_validation") or {},
             "by_marine_breeze_slice": candidate.get("by_marine_breeze_slice") or candidate.get("by_onshore_breeze_slice") or [],
+            "diagnostics": candidate.get("diagnostics") or {},
             "verdict": candidate.get("verdict"),
             "cutover_decision": candidate.get("cutover_decision"),
             "candidate_contrast_features": candidate_contrast_features(candidate),
+            "candidate_sidecar_evidence": candidate_sidecar_evidence(candidate),
         },
         "permutation_evidence": permutation,
         "acceptance": acceptance(
@@ -408,6 +429,9 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     candidate = payload.get("candidate") or {}
     artifact = candidate.get("artifact") or {}
     permutation = payload.get("permutation_evidence") or {}
+    sidecar = acceptance_payload.get("candidate_sidecar_evidence") or candidate.get("candidate_sidecar_evidence") or {}
+    onshore_slice = acceptance_payload.get("onshore_breeze_slice") or {}
+    onshore_delta = onshore_slice.get("delta_vs_current")
 
     lines = [
         "# Marine Contrast Gate",
@@ -456,8 +480,13 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
             ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
             ["Candidate contrast features", len(candidate.get("candidate_contrast_features") or [])],
-            ["Onshore/breeze rows", (acceptance_payload.get("onshore_breeze_slice") or {}).get("n", 0)],
-            ["Onshore/breeze delta current", fmt_signed((acceptance_payload.get("onshore_breeze_slice") or {}).get("delta_vs_current"), 4)],
+            ["Onshore/breeze rows", onshore_slice.get("n", 0)],
+            ["Onshore/breeze delta current", fmt_signed(onshore_delta, 4)],
+            ["Marine sidecar markets", ", ".join(sidecar.get("loaded_markets") or []) or "-"],
+            ["Marine sidecar rows applied", sidecar.get("rows_applied", 0)],
+            ["Marine sidecar rows missing", sidecar.get("rows_missing", 0)],
+            ["Marine sidecar rows without observed features", sidecar.get("rows_without_observed_features", 0)],
+            ["Sidecar-filled contrast features", ", ".join(sidecar.get("filled_contrast_features") or []) or "-"],
         ],
     )
     lines += ["", "## Acceptance Blockers", ""]
@@ -486,15 +515,16 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         ["Feature", "Kind", "Slices", "Positive Delta MAE Sum", "Best Delta MAE", "Min q"],
         _permutation_rows(permutation.get("rows") or []),
     )
-    lines += [
-        "",
-        "## Next Unblock",
-        "",
-        (
+    next_unblock = (
+        "Refresh broad marine ablation/permutation evidence and resolve the daily-first market-tolerance "
+        "blocker before any cutover; the sidecar-backed onshore/breeze settlement slice is present."
+        if onshore_slice.get("n", 0) and onshore_delta is not None and onshore_delta < 0
+        else (
             "Backfill station history or add GLSEA/OISST gridded SST, train/replay a marine-contrast "
             "candidate with water-contrast columns selected, and add an onshore/breeze settlement slice."
-        ),
-    ]
+        )
+    )
+    lines += ["", "## Next Unblock", "", next_unblock]
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

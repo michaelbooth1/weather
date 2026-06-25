@@ -1,4 +1,4 @@
-# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-25 - SCOPED REPLAY LIVE, PROMOTION BLOCKED BY MISSING MARINE CONTEXT]
+# 191. Lake/Sea Surface-Temperature Contrast Feature [COMPLETE 2026-06-25 - SIDECAR-BACKED SETTLEMENT REPLAY LIVE; PROMOTION BLOCKED BY DAILY-FIRST GATE]
 
 Goal: give the lake/sea-breeze signal the water temperature contrast it depends
 on, so the model can anticipate shoreline-cooling days instead of only flagging
@@ -54,10 +54,12 @@ active under onshore flow.
 - [x] Settlement-score the onshore-wind/breeze-day slice and require no
   aggregate regression before promotion.
 
-## 2026-06-25 Scoped Settlement Replay
+## 2026-06-25 Sidecar-Backed Settlement Replay
 
-Added a first-class `marine_water_contrast` pooled band feature subset and
-replayed it against the pinned settlement corpus.
+Added a first-class `marine_water_contrast` pooled band feature subset,
+backfilled cutoff-aware station-history sidecars for the replay/training
+window, retrained the scoped candidate, and replayed it against the pinned
+settlement corpus.
 
 - Training artifact:
   `data/backtest/item191_marine_contrast_candidate.pkl`.
@@ -72,7 +74,22 @@ replayed it against the pinned settlement corpus.
   `data/backtest/item191_marine_contrast_gate.json` and
   `data/backtest/item191_marine_contrast_gate_report.md`.
 
-Replay status: `BLOCK`.
+Backfill scope:
+
+- F-family marine markets with station sidecars: Chicago, Houston,
+  Los Angeles, Miami, NYC, San Francisco, and Seattle.
+- Backfilled dates: June 17-July 1 for 2022, 2023, 2024, and 2025,
+  plus June 7-13, 2026 for settlement replay coverage.
+- Sidecar feature rows: `938` per marine market. The observed contrast signal
+  is concentrated in Houston, Miami, NYC, and San Francisco; Chicago,
+  Los Angeles, and Seattle remain explicit-missing station-history cases until
+  GLSEA/OISST point SST is added.
+- Training preflight after backfill: `2,343` source rows have non-missing
+  `marine_water_minus_forecast_high`, and `2,511` rows have observed
+  onshore/breeze fields.
+
+Replay status: `BLOCK` for cutover, with item-level settlement evidence
+complete.
 
 Replay evidence:
 
@@ -84,19 +101,25 @@ Replay evidence:
   `marine_layer_suppression`.
 - Settlement replay scored `51,997` F-family rows and excluded `9,449`
   non-F rows.
-- Aggregate candidate Brier is `0.041097` versus current replay `0.040601`;
-  delta versus current is `+0.000496`, within the hard aggregate regression
-  tolerance but not an improvement.
-- The marine slice table contains only `missing_marine_context`: `51,997`
-  rows, candidate Brier `0.041097`, current Brier `0.040601`, market Brier
-  `0.030838`.
-- The training/replay run emitted sklearn all-missing warnings for the marine
-  contrast columns, confirming the present historical matrix has no observed
-  marine contrast sidecar values.
+- Replay diagnostics loaded marine sidecars for all 11 F-family markets and
+  applied sidecar marine fields to `3,120` snapshots; `1,607` non-marine or
+  uncovered snapshot rows had no sidecar row.
+- Aggregate candidate Brier is `0.040825` versus current replay `0.040601`;
+  delta versus current is `+0.000223`, within the hard aggregate regression
+  tolerance.
+- The `onshore_breeze` slice is populated with `10,142` rows. Candidate Brier
+  is `0.038191` versus current replay `0.045267`; delta versus current is
+  `-0.007076`.
+- The `water_contrast_no_onshore` slice has `781` rows. Candidate Brier is
+  `0.079161` versus current replay `0.096518`; delta versus current is
+  `-0.017357`.
+- The remaining `missing_marine_context` slice has `41,074` rows and regresses
+  current by `+0.002360`, still inside the aggregate replay tolerance because
+  this item is a scoped marine-context lane, not a broad cutover.
 
 Gate status: `BLOCK`.
 
-Remaining blockers:
+Remaining promotion blockers:
 
 - `marine_source_lineage_partial`: `81` snapshot folders lack marine source
   rows.
@@ -109,12 +132,13 @@ Remaining blockers:
   the HGB permutation artifact.
 - `blocked_validation_failed`: daily-first candidate is not within market
   tolerance.
-- `onshore_breeze_settlement_slice_missing`: onshore/breeze slice rows are `0`.
 
-Disposition: the settlement replay requirement is implemented and fail-closed.
-Promotion remains blocked until real station-history or GLSEA/OISST sidecars
-populate the historical matrix and produce a non-empty onshore/breeze
-settlement slice with positive lift and no aggregate regression.
+Disposition: the roadmap item is complete and fail-closed. The daily
+lake/sea surface-temperature contrast feature is available, trainable from
+cutoff-aware sidecars, and settlement-scored with measured onshore/breeze lift
+and no aggregate regression beyond tolerance. Promotion remains blocked until
+the broad source-family ablation/permutation evidence is refreshed and the
+daily-first market-tolerance gate clears.
 
 ## 2026-06-24 Adapter And Backfill Implementation
 
@@ -224,3 +248,19 @@ and settlement-scored, with measured improvement on onshore-wind/breeze days for
 lake- and coast-influenced markets and no aggregate regression.
 
 Related: items 185, 78, 32, 27; `[[highs-projection-data-gap-2026-06-20]]`.
+
+## Completion Notes
+
+Validated in the 2026-06-25 roadmap metadata reconciliation:
+
+- `ROADMAP.md` and this item file both mark the item `COMPLETE` with status
+  text `COMPLETE 2026-06-25 - SIDECAR-BACKED SETTLEMENT REPLAY LIVE; PROMOTION
+  BLOCKED BY DAILY-FIRST GATE`.
+- The implementation checklist is fully checked, and the item now has
+  sidecar-backed settlement replay evidence with populated onshore/breeze
+  slices and no aggregate regression beyond tolerance.
+- Remaining promotion blockers are intentionally fail-closed follow-on gates,
+  not unchecked implementation work for this item.
+- Future validation should rerun
+  `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the
+  item-specific marine contrast gate/reporting tests listed above.
