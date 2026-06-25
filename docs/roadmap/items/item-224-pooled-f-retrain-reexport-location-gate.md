@@ -1966,3 +1966,53 @@ location gate now have countable active-contract evidence with
 `model_location_gate_status=PASS`. The same artifact keeps the broad
 weather-only claim blocked via `broad_core_model_claim_allowed=false` until
 cross-cutting fleet/readiness gates clear.
+
+## 2026-06-25 re-proof on regenerated consistent corpus
+
+Re-ran the item-224 proof against the freshly regenerated promotion corpus
+`11b641c7` after fixing the `pooled_candidate_replay_latest` vs
+`promotion_corpus` corpus-hash inconsistency (the candidate replay had drifted
+stale at 2026-06-23 because `daily_refresh` kept dying before
+`promotion_refresh`; a standalone `promotion_refresh` rebuilt corpus + candidate
+together on the same hash, and the exchange-economics gate was re-published and
+accepted for target 2026-06-24).
+
+The frozen repair summary
+`item224_active_timesplit_logistic_repair_replay_summary.json` already validates
+against the current manifest: its `corpus.source_candidate_corpus_hash` is
+`11b641c7` (matching the manifest), and with
+`validation_evidence=active_replay_contract` the precomputed-candidate validator
+in `promotion/readers.py` consumes it without a corpus-hash mismatch. The
+`b407a523` mismatch seen earlier came from the `repair_integration` (item 315)
+consolidation output, whose source candidate was still frozen on the old corpus
+- not from this direct item-224 proof path.
+
+Re-ran steps 1882/1883 to the item224-prefixed (non-serving) outputs:
+
+```
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json ... --skip-serving-gauntlet --disable-long-job-guard
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json ...
+```
+
+Result on corpus `11b641c7`:
+
+- `promotion_refresh`: `11` PROMOTE_CANDIDATE, `0` shadow, `0` blocked;
+  `corpus_hash=11b641c7`.
+- Candidate aggregate `delta_vs_market=-0.029284577196879075`,
+  `delta_vs_current=-0.041413857232037055` (unchanged from the 2026-06-24 proof
+  - the result holds with the stale-corpus confound removed).
+- `pooled_f_retrain_location_gate`: `model_location_gate_status=PASS`,
+  `model_location_blocker_count=0`; `production_readiness_status=BLOCK` with `2`
+  blockers (fleet observability + current-code soak), so
+  `broad_core_model_claim_allowed=false`. Production-readiness remains owned by
+  items 307/312 and the fleet-observability track.
+- The canonical serving artifact `f_family_promotion_refresh.json` was not
+  touched; it still reflects the base pooled candidate (`delta_vs_market=+0.0067`)
+  on corpus `11b641c7`. Folding the repair into serving is gated on the
+  production-readiness blockers above and the item-315 consolidation path.
+
+Follow-up (item 315 path, not item 224): the `repair_integration` consolidation
+still stamps its candidate with the old source-candidate corpus hash, so its
+output does not yet pass the precomputed-candidate validator against the current
+manifest. Refreshing repair_integration's source candidate to the current corpus
+is the remaining work for first-class consolidation into the canonical artifact.

@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from weather.market.market_registry import REGISTRY, all_specs, spec_for_id
-from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 from weather.sources.forecast_history import daily_path_for, load_forecast_daily
@@ -48,6 +47,7 @@ MARINE_GRIDDED_SST_POINT_SCHEMA_VERSION = schema_version("marine_gridded_sst_poi
 SOURCE = "marine_water_contrast"
 DEFAULT_ROOT = data_path() / "marine_water_contrast"
 FEATURE_FILENAME = "marine_water_contrast_features.csv"
+DEFAULT_INTRADAY_CUTOFF_HOURS = (7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
 GLSEA_SOURCE_URL = (
     "https://coastwatch.glerl.noaa.gov/satellite-data-products/"
     "great-lakes-surface-environmental-analysis-glsea/"
@@ -394,7 +394,7 @@ def build_feature_rows(
     station_history_payloads: dict[str, dict[str, Any]] | None = None,
     gridded_sst_rows: dict[str, dict[str, Any]] | None = None,
     forecast_high_index: dict[str, Any] | None = None,
-    cutoff_hours: tuple[int, ...] = INTRADAY_CUTOFF_HOURS,
+    cutoff_hours: tuple[int, ...] = DEFAULT_INTRADAY_CUTOFF_HOURS,
     wall_offsets: tuple[int, ...] = (0,),
 ) -> list[dict[str, Any]]:
     station_history_payloads = station_history_payloads or {}
@@ -742,7 +742,7 @@ class MarineWaterContrastStore:
         self,
         *,
         forecast_high_index: dict[str, Any] | None = None,
-        cutoff_hours: tuple[int, ...] = INTRADAY_CUTOFF_HOURS,
+        cutoff_hours: tuple[int, ...] = DEFAULT_INTRADAY_CUTOFF_HOURS,
         wall_offsets: tuple[int, ...] = (0,),
     ) -> list[dict[str, Any]]:
         rows = build_feature_rows(
@@ -831,7 +831,7 @@ def backfill_station_history(
     continue_on_error: bool = False,
     get_json=None,
     get_text=None,
-    cutoff_hours: tuple[int, ...] = INTRADAY_CUTOFF_HOURS,
+    cutoff_hours: tuple[int, ...] = DEFAULT_INTRADAY_CUTOFF_HOURS,
 ) -> dict[str, Any]:
     store = MarineWaterContrastStore(spec, root=root)
     rows = []
@@ -900,7 +900,7 @@ def cmd_backfill_station_history(args):
         root=args.data_root or None,
         skip_existing=args.skip_existing,
         continue_on_error=args.continue_on_error,
-        cutoff_hours=parse_csv_ints(args.cutoff_hours) or INTRADAY_CUTOFF_HOURS,
+        cutoff_hours=parse_csv_ints(args.cutoff_hours) or DEFAULT_INTRADAY_CUTOFF_HOURS,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
 
@@ -911,7 +911,7 @@ def cmd_build_features(args):
     forecast_index = load_forecast_daily(args.forecast_daily) if args.forecast_daily else load_forecast_daily(daily_path_for(spec))
     rows = store.build_features(
         forecast_high_index=forecast_index,
-        cutoff_hours=parse_csv_ints(args.cutoff_hours) or INTRADAY_CUTOFF_HOURS,
+        cutoff_hours=parse_csv_ints(args.cutoff_hours) or DEFAULT_INTRADAY_CUTOFF_HOURS,
         wall_offsets=parse_csv_ints(args.wall_offsets) or (0,),
     )
     print(f"Wrote {len(rows)} marine water-contrast rows to {store.features_path}")
@@ -974,12 +974,12 @@ def build_parser():
     backfill.add_argument("--end", required=True)
     backfill.add_argument("--skip-existing", action="store_true")
     backfill.add_argument("--continue-on-error", action="store_true")
-    backfill.add_argument("--cutoff-hours", default=",".join(str(hour) for hour in INTRADAY_CUTOFF_HOURS))
+    backfill.add_argument("--cutoff-hours", default=",".join(str(hour) for hour in DEFAULT_INTRADAY_CUTOFF_HOURS))
     backfill.set_defaults(func=cmd_backfill_station_history)
 
     build = sub.add_parser("build-features")
     build.add_argument("--forecast-daily", default="")
-    build.add_argument("--cutoff-hours", default=",".join(str(hour) for hour in INTRADAY_CUTOFF_HOURS))
+    build.add_argument("--cutoff-hours", default=",".join(str(hour) for hour in DEFAULT_INTRADAY_CUTOFF_HOURS))
     build.add_argument("--wall-offsets", default="0")
     build.set_defaults(func=cmd_build_features)
 

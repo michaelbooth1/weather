@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
+import pickle
+import re
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from weather.paths import ARTIFACTS_ROOT, REPO_ROOT, SRC_ROOT, config_path, relative_to_repo
 from weather.schema_registry import schema_version
@@ -18,6 +22,7 @@ ARTIFACT_REGISTRY_SCHEMA_VERSION = schema_version("model_artifact_registry")
 ARTIFACT_SIZE_AUDIT_SCHEMA_VERSION = schema_version("model_artifact_size_audit")
 ARTIFACT_EXTERNALIZATION_SCHEMA_VERSION = schema_version("model_artifact_externalization")
 ARTIFACT_PROMOTION_PREFLIGHT_SCHEMA_VERSION = schema_version("model_artifact_promotion_preflight")
+ARTIFACT_SCHEMA_FORWARD_MIGRATION_SCHEMA_VERSION = schema_version("artifact_schema_forward_migration")
 DEFAULT_ARTIFACT_REGISTRY_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_registry.json"
 DEFAULT_ARTIFACT_SIZE_AUDIT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_size_audit.json"
 DEFAULT_ARTIFACT_EXTERNALIZATION_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_externalization.json"
@@ -40,6 +45,232 @@ VARIANT_CONTRACT_FIELDS = (
     "postprocess_config_hash",
     "live_runtime",
 )
+FEATURE_SCHEMA_RE = re.compile(r"^(?P<family>.+)_v(?P<major>\d+)(?:\.(?P<minor>\d+))?$")
+
+
+def parse_feature_schema_version(version: str | None) -> dict[str, Any] | None:
+    if not version:
+        return None
+    match = FEATURE_SCHEMA_RE.match(str(version))
+    if not match:
+        return None
+    return {
+        "family": match.group("family"),
+        "major": int(match.group("major")),
+        "minor": int(match.group("minor") or 0),
+    }
+
+
+def same_feature_schema_family(source: str | None, target: str | None) -> bool:
+    source_parts = parse_feature_schema_version(source)
+    target_parts = parse_feature_schema_version(target)
+    return bool(
+        source_parts
+        and target_parts
+        and source_parts["family"] == target_parts["family"]
+        and source_parts["major"] == target_parts["major"]
+    )
+
+
+def _schema_order(source: str | None, target: str | None) -> int | None:
+    source_parts = parse_feature_schema_version(source)
+    target_parts = parse_feature_schema_version(target)
+    if not source_parts or not target_parts:
+        return None
+    if source_parts["family"] != target_parts["family"]:
+        return None
+    if source_parts["major"] != target_parts["major"]:
+        return source_parts["major"] - target_parts["major"]
+    return source_parts["minor"] - target_parts["minor"]
+
+
+def _schema_migration_plan(
+    *,
+    source_feature_schema_version: str | None,
+    target_feature_schema_version: str | None,
+    migration_status: str,
+    classification: str,
+    action: str,
+    reason: str,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": ARTIFACT_SCHEMA_FORWARD_MIGRATION_SCHEMA_VERSION,
+        "generated_at_utc": generated_at_utc or datetime.now(timezone.utc).isoformat(),
+        "source_feature_schema_version": source_feature_schema_version,
+        "target_feature_schema_version": target_feature_schema_version,
+        "effective_feature_schema_version": (
+            target_feature_schema_version
+            if migration_status in {"current", "migrated"}
+            else source_feature_schema_version
+        ),
+        "migration_status": migration_status,
+        "classification": classification,
+        "action": action,
+        "reason": reason,
+    }
+
+
+def feature_schema_migration_plan(
+    source_feature_schema_version: str | None,
+    target_feature_schema_version: str | None,
+    *,
+    stable_feature_names: bool | None = None,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    if source_feature_schema_version == target_feature_schema_version and target_feature_schema_version:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="current",
+            classification="current",
+            action="none",
+            reason="artifact already uses the active feature schema",
+            generated_at_utc=generated_at_utc,
+        )
+    if not source_feature_schema_version:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="artifact feature schema is missing",
+            generated_at_utc=generated_at_utc,
+        )
+    if not target_feature_schema_version:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="active feature schema is missing",
+            generated_at_utc=generated_at_utc,
+        )
+    order = _schema_order(source_feature_schema_version, target_feature_schema_version)
+    if order is None:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="artifact feature schema is not in the active feature family",
+            generated_at_utc=generated_at_utc,
+        )
+    if order > 0:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="artifact feature schema is newer than the runtime schema",
+            generated_at_utc=generated_at_utc,
+        )
+    if not same_feature_schema_family(source_feature_schema_version, target_feature_schema_version):
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="artifact feature schema major version predates the active feature family",
+            generated_at_utc=generated_at_utc,
+        )
+    if stable_feature_names is False:
+        return _schema_migration_plan(
+            source_feature_schema_version=source_feature_schema_version,
+            target_feature_schema_version=target_feature_schema_version,
+            migration_status="unrecoverable",
+            classification="unrecoverable",
+            action="quarantine",
+            reason="artifact does not expose stable trained feature names for migration",
+            generated_at_utc=generated_at_utc,
+        )
+    return _schema_migration_plan(
+        source_feature_schema_version=source_feature_schema_version,
+        target_feature_schema_version=target_feature_schema_version,
+        migration_status="migrated",
+        classification="migratable",
+        action="metadata_forward_migration",
+        reason=(
+            "same-family feature schema bump migrated by preserving trained "
+            "feature_names and updating artifact schema metadata"
+        ),
+        generated_at_utc=generated_at_utc,
+    )
+
+
+def _model_bundles(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    models = artifact.get("models")
+    if isinstance(models, dict):
+        return [bundle for bundle in models.values() if isinstance(bundle, dict)]
+    return [
+        value
+        for key, value in artifact.items()
+        if str(key).isdigit() and isinstance(value, dict)
+    ]
+
+
+def artifact_has_stable_feature_names(artifact: dict[str, Any] | None) -> bool:
+    if not isinstance(artifact, dict):
+        return False
+    top_level = artifact.get("feature_names")
+    if isinstance(top_level, list) and top_level:
+        return True
+    bundles = _model_bundles(artifact)
+    return bool(bundles) and all(bool(bundle.get("feature_names")) for bundle in bundles)
+
+
+def migrate_artifact_payload(
+    artifact: dict[str, Any],
+    *,
+    target_feature_schema_version: str,
+    generated_at_utc: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    plan = feature_schema_migration_plan(
+        artifact.get("feature_schema_version"),
+        target_feature_schema_version,
+        stable_feature_names=artifact_has_stable_feature_names(artifact),
+        generated_at_utc=generated_at_utc,
+    )
+    if plan.get("migration_status") != "migrated":
+        return artifact, plan
+
+    migrated = copy.deepcopy(artifact)
+    migrated["feature_schema_version"] = target_feature_schema_version
+    for bundle in _model_bundles(migrated):
+        bundle["feature_schema_version"] = target_feature_schema_version
+    history = list(migrated.get("schema_migration_history") or [])
+    history.append(plan)
+    migrated["schema_migration_history"] = history
+    return migrated, plan
+
+
+def write_migrated_pickle_artifact(
+    source_path: str | Path,
+    output_path: str | Path,
+    *,
+    target_feature_schema_version: str,
+) -> tuple[Path, dict[str, Any]]:
+    source = Path(source_path)
+    with source.open("rb") as handle:
+        artifact = pickle.load(handle)
+    if not isinstance(artifact, dict):
+        raise ValueError(f"artifact at {source} is not a dict payload")
+    migrated, plan = migrate_artifact_payload(
+        artifact,
+        target_feature_schema_version=target_feature_schema_version,
+    )
+    if plan.get("migration_status") != "migrated":
+        raise ValueError(f"artifact at {source} is not migratable: {plan.get('reason')}")
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("wb") as handle:
+        pickle.dump(migrated, handle)
+    return output, plan
 
 
 def _artifact_dir(filename: str) -> Path:

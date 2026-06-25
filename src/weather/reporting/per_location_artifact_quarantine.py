@@ -20,6 +20,7 @@ from weather.artifacts import (
     DEFAULT_ARTIFACT_REGISTRY_PATH,
     DEFAULT_VARIANT_REGISTRY_PATH,
     build_artifact_registry,
+    feature_schema_migration_plan,
 )
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.paths import data_path, relative_to_repo
@@ -80,7 +81,16 @@ def _schema_major(version: str | None) -> int | None:
     return int(match.group("major"))
 
 
-def _schema_status(version: str | None, active_version: str) -> str:
+def _schema_status(
+    version: str | None,
+    active_version: str,
+    migration: dict[str, Any] | None = None,
+) -> str:
+    migration = migration or {}
+    if migration.get("migration_status") == "migrated":
+        return "migrated_schema"
+    if migration.get("migration_status") == "current":
+        return "active_schema"
     major = _schema_major(version)
     active_major = _schema_major(active_version)
     if major is None:
@@ -127,9 +137,22 @@ def _artifact_rows(registry: dict[str, Any], active_feature_schema_version: str)
         for kind in ("hgb_model", "coefs_model"):
             for row in by_kind.get(kind) or []:
                 feature_schema = row.get("feature_schema_version") or paired_schema
-                schema_status = _schema_status(feature_schema, active_feature_schema_version)
+                migration = feature_schema_migration_plan(
+                    feature_schema,
+                    active_feature_schema_version,
+                    stable_feature_names=True,
+                )
+                schema_status = _schema_status(
+                    feature_schema,
+                    active_feature_schema_version,
+                    migration,
+                )
                 active_candidate = row.get("registry_use") in ACTIVE_REGISTRY_USES
-                promotable = active_candidate and schema_status == "active_schema"
+                promotable = (
+                    active_candidate
+                    and migration.get("migration_status") in {"current", "migrated"}
+                    and migration.get("effective_feature_schema_version") == active_feature_schema_version
+                )
                 reasons = _reasons(row, schema_status, active_candidate)
                 if promotable:
                     disposition = "active_candidate"
@@ -145,10 +168,16 @@ def _artifact_rows(registry: dict[str, Any], active_feature_schema_version: str)
                     "registry_use": row.get("registry_use"),
                     "variant_refs": row.get("variant_refs") or [],
                     "feature_schema_version": feature_schema,
+                    "effective_feature_schema_version": migration.get("effective_feature_schema_version"),
                     "metadata_feature_schema_version": row.get("feature_schema_version"),
                     "paired_feature_schema_version": paired_schema,
                     "active_feature_schema_version": active_feature_schema_version,
                     "schema_status": schema_status,
+                    "migration_status": migration.get("migration_status"),
+                    "migration_classification": migration.get("classification"),
+                    "migration_action": migration.get("action"),
+                    "migration_reason": migration.get("reason"),
+                    "schema_migration": migration,
                     "active_candidate": active_candidate,
                     "promotable": promotable,
                     "disposition": disposition,
@@ -160,6 +189,8 @@ def _artifact_rows(registry: dict[str, Any], active_feature_schema_version: str)
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     disposition_counts = Counter(row["disposition"] for row in rows)
     schema_counts = Counter(row["schema_status"] for row in rows)
+    migration_counts = Counter(row.get("migration_status") or "unknown" for row in rows)
+    migration_class_counts = Counter(row.get("migration_classification") or "unknown" for row in rows)
     registry_counts = Counter(row.get("registry_use") or "missing" for row in rows)
     active_violations = [
         row for row in rows
@@ -172,8 +203,13 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "active_candidate_violation_count": len(active_violations),
         "stale_schema_count": schema_counts.get("stale_schema", 0),
         "missing_schema_count": schema_counts.get("missing_schema", 0),
+        "migrated_schema_count": schema_counts.get("migrated_schema", 0),
+        "migratable_artifact_count": migration_class_counts.get("migratable", 0),
+        "unrecoverable_artifact_count": migration_class_counts.get("unrecoverable", 0),
         "disposition_counts": dict(sorted(disposition_counts.items())),
         "schema_status_counts": dict(sorted(schema_counts.items())),
+        "migration_status_counts": dict(sorted(migration_counts.items())),
+        "migration_classification_counts": dict(sorted(migration_class_counts.items())),
         "registry_use_counts": dict(sorted(registry_counts.items())),
     }
 
@@ -215,7 +251,8 @@ def build_payload(
         "artifacts": rows,
         "policy": (
             "Per-location HGB artifacts are non-promotable unless they are active "
-            "registry variants and use the active feature schema family."
+            "registry variants and use, or can be deterministically migrated to, "
+            "the active feature schema family."
         ),
     }
 
@@ -241,6 +278,9 @@ def render_report(payload: dict[str, Any], *, artifact_limit: int = 80) -> str:
             ["Active candidate violations", summary.get("active_candidate_violation_count", 0)],
             ["Stale-schema artifacts", summary.get("stale_schema_count", 0)],
             ["Missing-schema artifacts", summary.get("missing_schema_count", 0)],
+            ["Migrated-schema artifacts", summary.get("migrated_schema_count", 0)],
+            ["Migratable artifacts", summary.get("migratable_artifact_count", 0)],
+            ["Unrecoverable artifacts", summary.get("unrecoverable_artifact_count", 0)],
         ],
     )
 
@@ -248,13 +288,14 @@ def render_report(payload: dict[str, Any], *, artifact_limit: int = 80) -> str:
     lines += ["", "## Active Candidate Violations", ""]
     if violations:
         lines += markdown_table(
-            ["Market", "Kind", "Disposition", "Schema", "Registry use", "Path", "Reasons"],
+            ["Market", "Kind", "Disposition", "Schema", "Migration", "Registry use", "Path", "Reasons"],
             [
                 [
                     row.get("market_id"),
                     row.get("artifact_kind"),
                     row.get("disposition"),
                     row.get("feature_schema_version") or "-",
+                    row.get("migration_status") or "-",
                     row.get("registry_use") or "-",
                     row.get("path"),
                     "; ".join(row.get("reasons") or []),
@@ -268,13 +309,14 @@ def render_report(payload: dict[str, Any], *, artifact_limit: int = 80) -> str:
     rows = payload.get("artifacts") or []
     lines += ["", "## Historical-Only / Quarantined Artifacts", ""]
     lines += markdown_table(
-        ["Market", "Kind", "Disposition", "Schema", "Registry use", "Path", "Reasons"],
+        ["Market", "Kind", "Disposition", "Schema", "Migration", "Registry use", "Path", "Reasons"],
         [
             [
                 row.get("market_id"),
                 row.get("artifact_kind"),
                 row.get("disposition"),
                 row.get("feature_schema_version") or "-",
+                row.get("migration_status") or "-",
                 row.get("registry_use") or "-",
                 row.get("path"),
                 "; ".join(row.get("reasons") or []),

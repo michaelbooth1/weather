@@ -400,8 +400,26 @@ def strategy_risk_gate_allowlisted(row, config, *, family_key, id_key):
 
 def strategy_family_blocked(row, config, key):
     family = str(row.get("strategy_family") or "").strip().lower()
-    blocked = csv_tokens(config.get(key) or "*")
+    blocked = csv_tokens(config.get(key))
     return "*" in blocked or (family and family in blocked)
+
+
+def taker_edge_permission_allows_risk_guard(row, config):
+    if not bool_value((config or {}).get("taker_edge_permission_enabled"), True):
+        return True
+    return str((row or {}).get("taker_edge_permission") or "").strip().lower() == "edge_allowed"
+
+
+def taker_edge_permission_guard_reason(row):
+    permission = str((row or {}).get("taker_edge_permission") or "missing").strip().lower() or "missing"
+    evidence = str((row or {}).get("taker_edge_permission_evidence_status") or "").strip().lower()
+    reason = str((row or {}).get("taker_edge_permission_reason") or "").strip()
+    parts = [f"edge_permission:{permission}"]
+    if evidence:
+        parts.append(f"evidence:{evidence}")
+    if reason:
+        parts.append(f"permission_reason:{reason}")
+    return ";".join(parts)
 
 
 def snapshot_cadence_state_present(row):
@@ -531,12 +549,21 @@ def weak_slot_gate_state(row, config):
     ten_status = str(config.get("_weak_slot_gate_status") or "CONFIG").upper()
     hourly_status = str(config.get("_hourly_gate_status") or "CONFIG").upper()
     block_statuses = csv_tokens(config.get("weak_slot_guard_block_statuses") or "BLOCK")
-    blocked = (
+    source_blocked = (
         ten_status.lower() in block_statuses
         or hourly_status.lower() in block_statuses
         or not configured_minutes
     )
-    state["weak_slot_gate_status"] = "blocked" if blocked else "active"
+    operator_blocked = strategy_family_blocked(row, config, "weak_slot_guard_block_strategy_families")
+    permission_allowed = taker_edge_permission_allows_risk_guard(row, config)
+    blocked = source_blocked and (operator_blocked or not permission_allowed)
+    state["weak_slot_gate_status"] = (
+        "blocked"
+        if blocked
+        else "permissioned"
+        if source_blocked and permission_allowed
+        else "active"
+    )
     source = config.get("_weak_slot_gate_source") or "config"
     state["weak_slot_gate_source"] = source
     reason_bits = [f"slot:{local.hour:02d}:{(local.minute // 10) * 10:02d}"]
@@ -549,6 +576,14 @@ def weak_slot_gate_state(row, config):
     blocker = config.get("_weak_slot_gate_first_blocker") or config.get("_hourly_gate_first_blocker")
     if blocker:
         reason_bits.append(f"blocker:{blocker}")
+    if source_blocked:
+        reason_bits.append(
+            "operator_kill_switch"
+            if operator_blocked
+            else taker_edge_permission_guard_reason(row)
+            if not permission_allowed
+            else "edge_permission:edge_allowed"
+        )
     state["weak_slot_gate_reason"] = ";".join(reason_bits)
     return state
 
@@ -565,21 +600,25 @@ def warm_tail_guard_state(row, config):
     state["warm_tail_guard_status"] = "active"
     family = str(row.get("strategy_family") or "").strip().lower()
     status = str(row.get("strategy_status") or "").strip().lower()
-    allowed = strategy_risk_gate_allowlisted(
-        row,
-        config,
-        family_key="market_centered_warm_tail_allow_strategy_families",
-        id_key="market_centered_warm_tail_allow_strategy_ids",
-    )
     allowed_statuses = {"candidate", "promoted", "active"}
     reasons = [
         f"distance:{row.get('market_modal_band_distance')}",
         f"market_modal:{row.get('market_modal_band_key') or 'missing'}",
     ]
-    if not allowed and strategy_family_blocked(row, config, "market_centered_warm_tail_block_strategy_families"):
+    if strategy_family_blocked(row, config, "market_centered_warm_tail_block_strategy_families"):
         state.update({
             "warm_tail_guard_status": "blocked",
-            "warm_tail_guard_reason": ";".join([*reasons, f"strategy_family:{family or 'missing'}"]),
+            "warm_tail_guard_reason": ";".join([
+                *reasons,
+                f"strategy_family:{family or 'missing'}",
+                "operator_kill_switch",
+            ]),
+        })
+        return state
+    if not taker_edge_permission_allows_risk_guard(row, config):
+        state.update({
+            "warm_tail_guard_status": "blocked",
+            "warm_tail_guard_reason": ";".join([*reasons, taker_edge_permission_guard_reason(row)]),
         })
         return state
     if status not in allowed_statuses:
@@ -620,8 +659,6 @@ def bad_tail_no_go_state(row, config):
             "bad_tail_no_go_reason": "bad-tail no-go registry disabled",
         })
         return state
-    if not strategy_family_blocked(row, config, "bad_tail_no_go_block_strategy_families"):
-        return state
 
     slice_id = ""
     reasons = []
@@ -657,23 +694,22 @@ def bad_tail_no_go_state(row, config):
     if not slice_id:
         return state
 
-    allowed_slices = csv_tokens(config.get("bad_tail_no_go_allow_slice_ids"))
-    allowed = (
-        slice_id.lower() in allowed_slices
-        or strategy_risk_gate_allowlisted(
-            row,
-            config,
-            family_key="bad_tail_no_go_allow_strategy_families",
-            id_key="bad_tail_no_go_allow_strategy_ids",
-        )
-    )
+    operator_blocked = strategy_family_blocked(row, config, "bad_tail_no_go_block_strategy_families")
+    permission_allowed = taker_edge_permission_allows_risk_guard(row, config)
+    allowed = permission_allowed and not operator_blocked
+    if operator_blocked:
+        reasons.append("operator_kill_switch")
+    elif not permission_allowed:
+        reasons.append(taker_edge_permission_guard_reason(row))
+    else:
+        reasons.append("edge_permission:edge_allowed")
     state.update({
         "bad_tail_no_go_status": "allowed" if allowed else "blocked",
         "bad_tail_no_go_action": "allow" if allowed else "no_trade",
         "bad_tail_no_go_slice_id": slice_id,
         "bad_tail_no_go_reason": ";".join([
             *reasons,
-            "requires_settlement_positive_allowlist",
+            "requires_settlement_positive_edge_permission",
         ]),
     })
     return state
@@ -981,16 +1017,12 @@ def candidate_skip_reason(row, config):
         return "NO_TRADE_STALE_BOOK", "book age exceeds latency budget"
     if model_age is None or model_age > float(config["max_model_age_seconds"]):
         return "NO_TRADE_STALE_MODEL", "model age exceeds latency budget"
-    weak_slot_allowlisted = strategy_risk_gate_allowlisted(
-        row,
-        config,
-        family_key="weak_slot_guard_allow_strategy_families",
-        id_key="weak_slot_guard_allow_strategy_ids",
-    )
     if (
         row.get("weak_slot_gate_status") == "blocked"
-        and not weak_slot_allowlisted
-        and strategy_family_blocked(row, config, "weak_slot_guard_block_strategy_families")
+        and (
+            strategy_family_blocked(row, config, "weak_slot_guard_block_strategy_families")
+            or not taker_edge_permission_allows_risk_guard(row, config)
+        )
     ):
         return (
             "NO_TRADE_WEAK_SLOT_KILL_SWITCH",

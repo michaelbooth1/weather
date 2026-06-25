@@ -69,6 +69,9 @@ CSV_FIELDS = [
     "training_excluded",
     "promotion_excluded",
     "score_only",
+    "recovery_class",
+    "recovery_status",
+    "recovery_reason",
     "raw_evidence_available",
     "backfill_status",
     "replay_input_present",
@@ -202,6 +205,9 @@ def make_row(folder, context, source_file, source, field, value, reason, *, comp
         "training_excluded": True,
         "promotion_excluded": True,
         "score_only": True,
+        "recovery_class": "",
+        "recovery_status": "",
+        "recovery_reason": "",
         "raw_evidence_available": bool(context["raw_evidence_available"]),
         "backfill_status": backfill_status,
         "replay_input_present": False,
@@ -398,6 +404,48 @@ def annotate_replay_presence(folder, rows):
     return rows
 
 
+def apply_recovery_classification(rows):
+    contaminated_snapshots = {
+        row.get("snapshot_id")
+        for row in rows
+        if row.get("snapshot_id") and row.get("replay_input_feature_contaminated")
+    }
+    for row in rows:
+        snapshot_id = row.get("snapshot_id")
+        if not row.get("raw_evidence_available"):
+            row["recovery_class"] = "unrecoverable"
+            row["recovery_status"] = "excluded"
+            row["recovery_reason"] = "raw_evidence_absent"
+            continue
+        row["recovery_class"] = "migratable"
+        if not snapshot_id or not row.get("replay_input_present"):
+            row["recovery_status"] = "pending_backfill"
+            row["recovery_reason"] = "replay_input_missing"
+            row["disposition"] = "training_excluded_pending_backfill"
+            row["training_excluded"] = True
+            row["promotion_excluded"] = True
+            row["score_only"] = True
+            row["backfill_status"] = "raw_observation_payload_available"
+            continue
+        if snapshot_id in contaminated_snapshots:
+            row["recovery_status"] = "pending_backfill"
+            row["recovery_reason"] = "replay_input_feature_contaminated"
+            row["disposition"] = "training_excluded_pending_backfill"
+            row["training_excluded"] = True
+            row["promotion_excluded"] = True
+            row["score_only"] = True
+            row["backfill_status"] = "raw_observation_payload_available"
+            continue
+        row["recovery_status"] = "recovered"
+        row["recovery_reason"] = "raw_evidence_available_and_replay_input_clean"
+        row["disposition"] = "training_recovered"
+        row["training_excluded"] = False
+        row["promotion_excluded"] = False
+        row["score_only"] = False
+        row["backfill_status"] = "recovered_clean_replay_input"
+    return rows
+
+
 def dedupe_rows(rows):
     seen = set()
     output = []
@@ -436,6 +484,10 @@ def summarize_rows(rows, *, folder_count=0, scanned_feature_row_count=0, scanned
         "training_excluded_row_count": sum(1 for row in rows if row.get("training_excluded")),
         "promotion_excluded_row_count": sum(1 for row in rows if row.get("promotion_excluded")),
         "score_only_row_count": sum(1 for row in rows if row.get("score_only")),
+        "migratable_row_count": sum(1 for row in rows if row.get("recovery_class") == "migratable"),
+        "unrecoverable_row_count": sum(1 for row in rows if row.get("recovery_class") == "unrecoverable"),
+        "recovered_row_count": sum(1 for row in rows if row.get("recovery_status") == "recovered"),
+        "pending_backfill_row_count": sum(1 for row in rows if row.get("recovery_status") == "pending_backfill"),
         "backfill_candidate_row_count": sum(
             1 for row in rows
             if row.get("disposition") == "training_excluded_pending_backfill"
@@ -462,7 +514,7 @@ def audit_folder_feature_quality(folder):
     rows = []
     rows.extend(feature_rows_for_folder(folder, context, feature_rows))
     rows.extend(sidecar_rows_for_folder(folder, context, snapshot_rows, feature_rows))
-    rows = annotate_replay_presence(folder, dedupe_rows(rows))
+    rows = apply_recovery_classification(annotate_replay_presence(folder, dedupe_rows(rows)))
     summary = summarize_rows(
         rows,
         folder_count=1,
@@ -560,6 +612,10 @@ def render_report(payload):
             ["Quarantined rows", summary.get("quarantine_row_count")],
             ["Training-excluded rows", summary.get("training_excluded_row_count")],
             ["Promotion-excluded rows", summary.get("promotion_excluded_row_count")],
+            ["Recovered rows", summary.get("recovered_row_count")],
+            ["Migratable rows", summary.get("migratable_row_count")],
+            ["Pending-backfill rows", summary.get("pending_backfill_row_count")],
+            ["Unrecoverable rows", summary.get("unrecoverable_row_count")],
             ["Backfill candidates", summary.get("backfill_candidate_row_count")],
             ["Raw evidence absent rows", summary.get("raw_evidence_absent_row_count")],
             ["Replay-input impacted rows", summary.get("replay_input_impacted_count")],
@@ -574,12 +630,13 @@ def render_report(payload):
     if payload.get("by_market"):
         lines += ["", "## By Market", ""]
         lines += markdown_table(
-            ["Market", "Rows", "Training Excluded", "Backfill Candidates", "Reasons"],
+            ["Market", "Rows", "Training Excluded", "Recovered", "Backfill Candidates", "Reasons"],
             [
                 [
                     row.get("market_id"),
                     row.get("quarantine_row_count"),
                     row.get("training_excluded_row_count"),
+                    row.get("recovered_row_count"),
                     row.get("backfill_candidate_row_count"),
                     count_summary(row.get("reason_counts")),
                 ]
@@ -588,7 +645,7 @@ def render_report(payload):
         )
     lines += ["", "## Sample Rows", ""]
     lines += markdown_table(
-        ["Market", "Date", "Snapshot", "Source", "Field", "Value", "Reason", "Disposition"],
+        ["Market", "Date", "Snapshot", "Source", "Field", "Value", "Reason", "Disposition", "Recovery"],
         [
             [
                 row.get("market_id"),
@@ -599,6 +656,7 @@ def render_report(payload):
                 row.get("observed_value"),
                 row.get("reason"),
                 row.get("disposition"),
+                row.get("recovery_status") or "-",
             ]
             for row in (payload.get("rows") or [])[:50]
         ],

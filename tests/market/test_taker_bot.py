@@ -15,6 +15,7 @@ from weather.market.taker_bot import (
     STRATEGY_BAKEOFF_SCHEMA_VERSION,
     CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION,
     apply_taker_budget,
+    bad_tail_no_go_state,
     build_champion_challenger_ledger,
     build_pnl_payload,
     build_run_once,
@@ -29,6 +30,8 @@ from weather.market.taker_bot import (
     next_run_policy_gate,
     recover_run_artifacts_from_orders,
     run_taker_strategy_bakeoff,
+    warm_tail_guard_state,
+    weak_slot_gate_state,
     verify_taker_profitability_artifacts,
 )
 
@@ -1357,7 +1360,6 @@ class TestTakerBot(unittest.TestCase):
                 config={
                     "max_order_usdc": 10,
                     "max_position_per_token_usdc": 10,
-                    "bad_tail_no_go_enabled": False,
                 },
                 strategies="low_price_tail_capped",
                 experiment_id="tail-sizing-fixture",
@@ -1369,6 +1371,7 @@ class TestTakerBot(unittest.TestCase):
         row = filled[0]
         self.assertEqual(row["sizing_rule"], "tail_lottery")
         self.assertEqual(row["low_price_tail"], "True")
+        self.assertEqual(row["bad_tail_no_go_status"], "allowed")
         self.assertEqual(row["tail_risk_bucket"], "low_price_tail")
         self.assertLessEqual(float(row["requested_notional_usdc"]), 0.5)
         self.assertLessEqual(float(row["fill_notional_usdc"]), 0.5)
@@ -1378,10 +1381,21 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(payload["summary"]["active_strategy_lifecycle"], "candidate_canary")
         self.assertEqual(payload["summary"]["active_strategy_canary"]["strategy_id"], "low_price_tail_capped")
 
-    def test_bad_tail_no_go_blocks_low_price_tail_candidate_by_default(self):
+    def test_bad_tail_no_go_blocks_unpermissioned_low_price_tail_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            snapshots_root = write_market_fixture(root, settled=True, bands=[(80, "0.40", "0.01")])
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.40", "0.01")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "taker_edge_permission": "deny",
+                        "taker_edge_permission_reason": "fixture_unproven_tail_slice",
+                        "taker_skill_weight": "0.0",
+                    }
+                },
+            )
 
             payload = build_run_once(
                 TARGET_DATE,
@@ -1405,6 +1419,21 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(row["bad_tail_no_go_status"], "blocked")
         self.assertEqual(row["bad_tail_no_go_action"], "no_trade")
         self.assertEqual(row["bad_tail_no_go_slice_id"], "low_price_tail_price_le_0.05")
+        self.assertIn("edge_permission:deny", row["bad_tail_no_go_reason"])
+
+    def test_bad_tail_no_go_explicit_star_kill_switch_blocks_permissioned_tail(self):
+        state = bad_tail_no_go_state(
+            {
+                "strategy_family": "tail_risk_sizing",
+                "taker_edge_permission": "edge_allowed",
+                "low_price_tail": True,
+                "best_ask": "0.01",
+            },
+            {**DEFAULT_CONFIG, "bad_tail_no_go_block_strategy_families": "*"},
+        )
+
+        self.assertEqual(state["bad_tail_no_go_status"], "blocked")
+        self.assertIn("operator_kill_switch", state["bad_tail_no_go_reason"])
 
     def test_positive_mtm_zero_settled_tail_heavy_run_is_not_countable(self):
         rows = []
@@ -2975,7 +3004,7 @@ class TestTakerBot(unittest.TestCase):
         blocked = [row for row in orders if row["reason_code"] == "NO_TRADE_CURRENT_HIGH_TRUST_GATE"]
         self.assertTrue(all(row["current_high_trust_gate_action"] == "deny_aggressive" for row in blocked))
 
-    def test_weak_slot_gate_blocks_raw_edge_default(self):
+    def test_weak_slot_gate_allows_permissioned_raw_edge_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshots_root = write_market_fixture(
@@ -3012,11 +3041,12 @@ class TestTakerBot(unittest.TestCase):
             )
             orders = read_csv(Path(payload["orders_path"]))
 
-        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
-        self.assertEqual(payload["summary"]["weak_slot_blocked_rows"], 1)
-        self.assertTrue(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 1)
+        self.assertEqual(payload["summary"]["weak_slot_blocked_rows"], 0)
+        self.assertTrue(any(row["weak_slot_gate_status"] == "permissioned" for row in orders))
+        self.assertFalse(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
 
-    def test_weak_slot_gate_blocks_candidate_family_by_default(self):
+    def test_weak_slot_gate_blocks_unpermissioned_candidate_family(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshots_root = write_market_fixture(
@@ -3025,6 +3055,13 @@ class TestTakerBot(unittest.TestCase):
                 captured_at="2026-06-14T13:30:00+00:00",
                 book_captured_at="2026-06-14T13:30:10+00:00",
                 bands=[(80, "0.70", "0.10")],
+                snapshot_extra_fields_by_value={
+                    80: {
+                        "taker_edge_permission": "deny",
+                        "taker_edge_permission_reason": "fixture_unproven_weak_slot",
+                        "taker_skill_weight": "0.0",
+                    }
+                },
             )
             gate_path = root / "ten_minute_gate.json"
             gate_path.write_text(json.dumps({
@@ -3055,8 +3092,31 @@ class TestTakerBot(unittest.TestCase):
             orders = read_csv(Path(payload["orders_path"]))
 
         self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(payload["summary"]["weak_slot_blocked_rows"], 1)
         self.assertTrue(any(row["strategy_id"] == "low_price_tail_capped" for row in orders))
-        self.assertTrue(any(row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH" for row in orders))
+        blocked = [row for row in orders if row["reason_code"] == "NO_TRADE_WEAK_SLOT_KILL_SWITCH"]
+        self.assertEqual(len(blocked), 1)
+        self.assertIn("edge_permission:deny", blocked[0]["weak_slot_gate_reason"])
+
+    def test_weak_slot_explicit_star_kill_switch_blocks_permissioned_slice(self):
+        state = weak_slot_gate_state(
+            {
+                "market_id": "atlanta",
+                "event_slug": EVENT,
+                "captured_at_utc": "2026-06-14T13:30:00+00:00",
+                "strategy_family": "raw_edge",
+                "taker_edge_permission": "edge_allowed",
+            },
+            {
+                **DEFAULT_CONFIG,
+                "_weak_slot_gate_status": "BLOCK",
+                "_weak_slot_minutes": [570],
+                "weak_slot_guard_block_strategy_families": "*",
+            },
+        )
+
+        self.assertEqual(state["weak_slot_gate_status"], "blocked")
+        self.assertIn("operator_kill_switch", state["weak_slot_gate_reason"])
 
     def test_market_centered_warm_tail_guard_blocks_raw_warm_band(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3089,7 +3149,47 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(warm_rows[0]["market_modal_band_key"], "eq:80-81")
         self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
 
-    def test_market_centered_warm_tail_guard_blocks_candidate_family_by_default(self):
+    def test_market_centered_warm_tail_guard_blocks_unpermissioned_candidate_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.28"), (84, "0.70", "0.10")],
+                snapshot_extra_fields_by_value={
+                    84: {
+                        "taker_edge_permission": "deny",
+                        "taker_edge_permission_reason": "fixture_unproven_warm_tail",
+                        "taker_skill_weight": "0.0",
+                    }
+                },
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                budget_usdc=12,
+                markets="atlanta",
+                runs_root=root / "taker_runs",
+                snapshots_root=snapshots_root,
+                run_id="daily",
+                now=NOW,
+                strategies="low_price_tail_capped",
+                config={
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_require_clob_continuity": False,
+                },
+            )
+            orders = read_csv(Path(payload["orders_path"]))
+
+        warm_rows = [row for row in orders if row["range_label"] == "84-85 F"]
+        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
+        self.assertEqual(warm_rows[0]["strategy_id"], "low_price_tail_capped")
+        self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
+        self.assertIn("edge_permission:deny", warm_rows[0]["warm_tail_guard_reason"])
+
+    def test_market_centered_warm_tail_guard_allows_permissioned_candidate_family(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshots_root = write_market_fixture(
@@ -3111,14 +3211,35 @@ class TestTakerBot(unittest.TestCase):
                     "min_edge": 0.05,
                     "max_order_usdc": 10,
                     "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_require_clob_continuity": False,
                 },
             )
             orders = read_csv(Path(payload["orders_path"]))
 
         warm_rows = [row for row in orders if row["range_label"] == "84-85 F"]
-        self.assertEqual(payload["summary"]["latest_tick_filled_orders"], 0)
-        self.assertEqual(warm_rows[0]["strategy_id"], "low_price_tail_capped")
-        self.assertEqual(warm_rows[0]["reason_code"], "NO_TRADE_MARKET_CENTERED_WARM_TAIL")
+        filled = [row for row in warm_rows if row["order_status"] == "FILLED"]
+        self.assertEqual(payload["summary"]["market_centered_warm_tail_blocked_rows"], 0)
+        self.assertEqual(len(filled), 1)
+        self.assertEqual(filled[0]["warm_tail_guard_status"], "active")
+        self.assertEqual(filled[0]["bad_tail_no_go_status"], "inactive")
+
+    def test_market_centered_warm_tail_explicit_star_kill_switch_blocks_permissioned_slice(self):
+        state = warm_tail_guard_state(
+            {
+                "strategy_family": "tail_risk_sizing",
+                "strategy_status": "candidate",
+                "taker_edge_permission": "edge_allowed",
+                "market_centered_warm_tail": True,
+                "market_modal_band_distance": "3",
+                "market_modal_band_key": "eq:80-81",
+                "clob_continuity_status": "pass",
+                "risk_adjusted_edge": "0.50",
+            },
+            {**DEFAULT_CONFIG, "market_centered_warm_tail_block_strategy_families": "*"},
+        )
+
+        self.assertEqual(state["warm_tail_guard_status"], "blocked")
+        self.assertIn("operator_kill_switch", state["warm_tail_guard_reason"])
 
     def test_early_hour_caps_taker_notional(self):
         with tempfile.TemporaryDirectory() as tmp:

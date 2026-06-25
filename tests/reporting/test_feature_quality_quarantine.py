@@ -29,7 +29,7 @@ def _write_csv(path, fieldnames, rows):
         writer.writerows(rows)
 
 
-def _build_bad_folder(root, slug, *, with_raw_observation_payload=False):
+def _build_bad_folder(root, slug, *, with_raw_observation_payload=False, contaminated_replay_input=True):
     folder = Path(root) / slug
     snapshot_id = "20260620T010541-0400"
     (folder / "settlement.json").parent.mkdir(parents=True, exist_ok=True)
@@ -93,12 +93,13 @@ def _build_bad_folder(root, slug, *, with_raw_observation_payload=False):
             }
         ],
     )
+    feature_vector = (
+        {"high_so_far": 17.0, "current_temp": 17.0}
+        if contaminated_replay_input
+        else {"forecast_high": 85.0}
+    )
     (folder / "replay_inputs.jsonl").write_text(
-        json.dumps({
-            "snapshot_id": snapshot_id,
-            "feature_vector": {"high_so_far": 17.0, "current_temp": 17.0},
-        })
-        + "\n",
+        json.dumps({"snapshot_id": snapshot_id, "feature_vector": feature_vector}) + "\n",
         encoding="utf-8",
     )
     if with_raw_observation_payload:
@@ -145,6 +146,26 @@ class TestFeatureQualityQuarantine(unittest.TestCase):
         dispositions = {row["disposition"] for row in audit["rows"]}
         self.assertEqual(dispositions, {"training_excluded_pending_backfill"})
         self.assertEqual(audit["summary"]["backfill_candidate_row_count"], 3)
+        self.assertEqual(audit["summary"]["migratable_row_count"], 3)
+        self.assertEqual(audit["summary"]["pending_backfill_row_count"], 3)
+
+    def test_folder_summary_recovers_clean_replay_rows_with_raw_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = _build_bad_folder(
+                tmp,
+                "highest-temperature-in-austin-on-june-20-2026",
+                with_raw_observation_payload=True,
+                contaminated_replay_input=False,
+            )
+
+            audit = audit_folder_feature_quality(folder)
+
+        dispositions = {row["disposition"] for row in audit["rows"]}
+        self.assertEqual(dispositions, {"training_recovered"})
+        self.assertEqual(audit["summary"]["training_excluded_row_count"], 0)
+        self.assertEqual(audit["summary"]["recovered_row_count"], 3)
+        self.assertEqual(audit["summary"]["migratable_row_count"], 3)
+        self.assertEqual(audit["summary"]["backfill_candidate_row_count"], 0)
 
     def test_write_outputs_creates_json_csv_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

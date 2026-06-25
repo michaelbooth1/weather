@@ -392,10 +392,10 @@ infrastructure work remains.
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
 | 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
-| 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [OPEN 2026-06-25 - SCHEMA BUMPS STRAND ARTIFACTS HISTORICAL-ONLY INSTEAD OF MIGRATING]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
+| 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [COMPLETE 2026-06-25 - FORWARD MIGRATION AND ROW RECOVERY LIVE]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
 | 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
-| 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [OPEN 2026-06-25 - BLANKET BLOCK-ALL TAIL/WARM/WEAK GUARDS IGNORE THE PROVEN-EDGE MAP]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
-| 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [OPEN 2026-06-25 - SOURCES IMPORT MODEL CONSTANT]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
+| 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [COMPLETE 2026-06-25 - EDGE-PERMISSIONED RISK GUARDS LIVE]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
+| 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
 | 318 | [Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - EIGHT MODULES EXCEED SIZE RATCHET]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
 
 ## Maintenance Conventions

@@ -9,6 +9,7 @@ from scipy.io import netcdf_file
 
 from weather.market.market_registry import NYC, TORONTO
 from weather.sources.marine_water_contrast import (
+    DEFAULT_INTRADAY_CUTOFF_HOURS,
     MarineWaterContrastStore,
     build_feature_rows,
     cutoff_context_from_station_history,
@@ -106,6 +107,37 @@ class MarineWaterContrastTests(unittest.TestCase):
         self.assertEqual(row["marine_onshore_cooling_potential"], 18.0)
         self.assertEqual(provenance["station_payload_hash"], "station-hash")
         self.assertEqual(provenance["gridded_sst_payload_hash"], "glsea-hash")
+
+    def test_default_cutoff_hours_are_source_local_and_cutoff_aware(self):
+        rows = build_feature_rows(
+            TORONTO,
+            station_history_payloads={"2026-06-15": station_history_payload()},
+            forecast_high_index={"2026-06-15": 30.0},
+        )
+
+        self.assertEqual(DEFAULT_INTRADAY_CUTOFF_HOURS, tuple(range(7, 21)))
+        self.assertEqual([row["cutoff_hour"] for row in rows], list(DEFAULT_INTRADAY_CUTOFF_HOURS))
+        early = next(row for row in rows if row["cutoff_hour"] == 13)
+        late = next(row for row in rows if row["cutoff_hour"] == 19)
+        self.assertEqual(early["marine_water_temp_native"], 15.0)
+        self.assertEqual(late["marine_water_temp_native"], 25.0)
+
+    def test_source_module_does_not_import_model_package(self):
+        import ast
+        import inspect
+        import weather.sources.marine_water_contrast as module
+
+        tree = ast.parse(inspect.getsource(module))
+        imported = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.append(node.module)
+            elif isinstance(node, ast.Import):
+                imported.extend(alias.name for alias in node.names)
+
+        self.assertFalse(
+            [name for name in imported if name == "weather.model" or name.startswith("weather.model.")],
+        )
 
     def test_extract_gridded_sst_points_from_netcdf_nearest_market_point(self):
         with tempfile.TemporaryDirectory() as tmp:

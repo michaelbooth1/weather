@@ -143,11 +143,33 @@ def test_gate_blocks_stale_schema_and_failed_downstream_evidence(tmp_path):
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["status"] == "BLOCK"
     assert payload["broad_core_model_claim_allowed"] is False
-    assert "artifact_runtime_schema" in blocker_names
+    assert "artifact_runtime_schema" not in blocker_names
     assert "paired_candidate_replay" in blocker_names
     assert "promotion_refresh_broad_claim" in blocker_names
     assert "bottom_location_gate" in blocker_names
     assert "Pooled F Retrain/Re-Export Location Gate" in report_out.read_text(encoding="utf-8")
+
+
+def test_gate_migrates_same_family_artifact_schema_before_blocking(tmp_path):
+    artifact, report, replay, promotion, predawn, bottom, exact = write_pass_inputs(tmp_path)
+    write_artifact(artifact, feature_schema="toronto_feature_store_v1.13")
+
+    payload = build_payload(
+        artifact_path=artifact,
+        training_report=report,
+        candidate_replay=replay,
+        promotion_refresh=promotion,
+        predawn_repair=predawn,
+        bottom_location=bottom,
+        exact_distance=exact,
+    )
+
+    migration = payload["artifact"]["schema_migration"]
+    assert payload["status"] == "PASS"
+    assert payload["artifact"]["source_feature_schema_version"] == "toronto_feature_store_v1.13"
+    assert payload["artifact"]["feature_schema_version"] == FEATURE_SCHEMA_VERSION
+    assert migration["migration_status"] == "migrated"
+    assert migration["classification"] == "migratable"
 
 
 def test_gate_passes_when_artifact_and_all_required_reports_clear(tmp_path):

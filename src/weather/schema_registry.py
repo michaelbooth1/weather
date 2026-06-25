@@ -1250,6 +1250,13 @@ REGISTERED_SCHEMAS = (
         "Historical-only quarantine report for stale-schema per-location model artifacts.",
     ),
     SchemaSpec(
+        "artifact_schema_forward_migration",
+        "artifact_schema_forward_migration_v0.1",
+        "weather.artifacts",
+        "active",
+        "Deterministic forward-migration record for same-family feature-schema artifact bumps.",
+    ),
+    SchemaSpec(
         "early_hour_promotion_blocker",
         "early_hour_promotion_blocker_v0.1",
         "weather.reporting.promotion_refresh",
@@ -1900,6 +1907,20 @@ REGISTERED_SCHEMAS = (
         "weather.calibration.pooled_training",
         "active",
         "Pooled feature-band HGB radiation candidate artifact.",
+    ),
+    SchemaSpec(
+        "pooled_feature_band_hgb_marine_contrast",
+        "pooled_feature_band_hgb_marine_contrast_v0.1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Pooled feature-band HGB marine water-contrast candidate artifact.",
+    ),
+    SchemaSpec(
+        "marine_contrast_calibration",
+        "marine_contrast_calibration_v0.1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Marine water-contrast calibration sidecar embedded in pooled band artifacts.",
     ),
     SchemaSpec(
         "predawn_candidate_ten_minute_performance",

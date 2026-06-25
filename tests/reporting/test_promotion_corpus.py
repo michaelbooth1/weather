@@ -89,6 +89,14 @@ def _write_feature_quality_bad_snapshot(folder, snapshot_id="snap1"):
         })
 
 
+def _write_raw_observation_payload(folder, snapshot_id="snap1"):
+    path = Path(folder) / "observation_payloads_long.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["snapshot_id", "source", "status"])
+        writer.writeheader()
+        writer.writerow({"snapshot_id": snapshot_id, "source": "wu_current", "status": "fresh"})
+
+
 class TestPromotionCorpus(unittest.TestCase):
     def test_manifest_pins_settlement_snapshot_ids_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +145,28 @@ class TestPromotionCorpus(unittest.TestCase):
         entry = manifest["entries"][0]
         self.assertEqual(entry["snapshot_ids"], ["snap2"])
         self.assertEqual(entry["feature_quality_excluded_snapshot_ids"], ["snap1"])
+
+    def test_manifest_recovers_feature_quality_snapshot_when_replay_input_is_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            _write_feature_quality_bad_snapshot(folder, snapshot_id="snap1")
+            _write_raw_observation_payload(folder, snapshot_id="snap1")
+
+            manifest = build_promotion_corpus(
+                [folder],
+                snapshots_root=tmp,
+                as_of="2026-06-04",
+            )
+
+        self.assertEqual(manifest["summary"]["market_day_count"], 1)
+        self.assertEqual(manifest["summary"]["feature_quality_excluded_snapshot_count"], 0)
+        entry = manifest["entries"][0]
+        self.assertEqual(entry["snapshot_ids"], ["snap1"])
+        self.assertEqual(entry["feature_quality_excluded_snapshot_ids"], [])
+        self.assertEqual(entry["feature_quality_quarantine"]["recovered_row_count"], 1)
+        self.assertEqual(entry["feature_quality_quarantine"]["training_excluded_row_count"], 0)
 
     def test_replay_with_manifest_ignores_later_folder_growth(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,4 @@
-# 317. Marine Water-Contrast Source/Model Boundary Ratchet [OPEN 2026-06-25 - SOURCES IMPORT MODEL CONSTANT]
+# 317. Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]
 
 Goal: restore the package dependency ratchet by removing the current
 `weather.sources -> weather.model` import introduced by the marine
@@ -34,14 +34,14 @@ completed the ratchet; this item restores it after the new edge appeared.
 5. Add or adjust focused tests so the cutoff default is covered without
    importing model internals from sources.
 
-- [ ] Remove the `weather.sources -> weather.model` edge from
+- [x] Remove the `weather.sources -> weather.model` edge from
   `marine_water_contrast.py`.
-- [ ] Keep marine water-contrast feature rows and cutoff defaults behaviorally
+- [x] Keep marine water-contrast feature rows and cutoff defaults behaviorally
   equivalent.
-- [ ] Add or update source tests for default cutoff-hour behavior.
-- [ ] Rerun the architecture ratchet and confirm no undocumented package edges
+- [x] Add or update source tests for default cutoff-hour behavior.
+- [x] Rerun the architecture ratchet and confirm no undocumented package edges
   remain.
-- [ ] Update `docs/operations/package-boundaries.md` only if a new shared owner
+- [x] Update `docs/operations/package-boundaries.md` only if a new shared owner
   or temporary transition is introduced.
 
 Acceptance: `python -m pytest tests\operations\test_import_architecture.py -q`
@@ -49,3 +49,17 @@ passes with no `sources->model` edge, and focused marine contrast/source tests
 prove the cutoff-aware sidecar behavior remains intact.
 
 Related: items 99, 191, 89, 97, 254.
+
+## Completion Notes
+
+Removed the `weather.model.model_constants.INTRADAY_CUTOFF_HOURS` import from
+`weather.sources.marine_water_contrast` and replaced it with the source-local
+`DEFAULT_INTRADAY_CUTOFF_HOURS` contract. The default remains the serving/replay
+cutoff grid `(7, 8, ..., 20)`, and callers can still override cutoff hours
+explicitly through the existing builder/store/backfill/CLI surfaces.
+
+Added focused source tests proving the default cutoff grid produces cutoff-aware
+feature rows and that the source module does not import `weather.model`. The
+full architecture ratchet now passes without the undocumented `sources->model`
+edge. No package-boundary doc update was needed because no new shared owner or
+temporary transitional edge was introduced.

@@ -1,4 +1,4 @@
-# 316. Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [OPEN 2026-06-25 - BLANKET BLOCK-ALL TAIL/WARM/WEAK GUARDS IGNORE THE PROVEN-EDGE MAP]
+# 316. Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [COMPLETE 2026-06-25 - EDGE-PERMISSIONED RISK GUARDS LIVE]
 
 Goal: replace the blunt "block all tails, warm-tails, and weak slots for every
 strategy" guards with a data-driven rule that defers to the per-slice
@@ -47,12 +47,12 @@ permission map.
 5. Add tests proving an unproven slice stays blocked and a permission-proven
    slice trades through the formerly-blanket guard.
 
-- [ ] Make the tail/warm/weak guards consult the edge-permission map for
+- [x] Make the tail/warm/weak guards consult the edge-permission map for
   per-slice permission.
-- [ ] Replace the default `*` block with "block unless permissioned," keeping an
+- [x] Replace the default `*` block with "block unless permissioned," keeping an
   explicit kill-switch override.
-- [ ] Tie unblocking to the permission map's requalification/demotion lifecycle.
-- [ ] Add tests for unproven-slice-blocked and proven-slice-allowed paths.
+- [x] Tie unblocking to the permission map's requalification/demotion lifecycle.
+- [x] Add tests for unproven-slice-blocked and proven-slice-allowed paths.
 
 Acceptance: the tail, warm-tail, and weak-slot taker guards block a slice unless
 the per-slice edge-permission map proves settlement-positive out-of-sample edge
@@ -62,3 +62,40 @@ stays blocked; and a slice re-blocks when fresh settled evidence regresses, prov
 by tests.
 
 Related: items 167, 192, 235, 236, 283, 284, 285.
+
+## Completion
+
+Implemented the item 316 guard unification in the taker strategy evaluation
+path. The default `bad_tail_no_go`, `weak_slot_guard`, and
+`market_centered_warm_tail` block-family lists no longer use `*`; blank means no
+operator kill switch, while an explicit `*` or strategy-family value still blocks
+as an emergency override. The guards now consult `taker_edge_permission` directly:
+unpermissioned tail, warm-tail, and weak-slot rows fail closed with guard-specific
+diagnostics, while `edge_allowed` rows pass through to the normal EV, liquidity,
+status, budget, and sizing checks.
+
+Unblocking is governed by the existing item 285 permission-map lifecycle: when
+fresh settlement-scored evidence demotes a cell to `observe` or `deny`,
+`apply_taker_edge_permission` annotates the row accordingly and these guards
+re-block it on the next run. Tests cover unpermissioned low-price tail,
+unpermissioned warm-tail, unpermissioned weak-slot, permissioned allow-through
+paths, and explicit `*` kill-switch overrides.
+
+Verification:
+
+```powershell
+pytest tests\market\test_taker_bot.py -q
+pytest tests\market\test_taker_bot_two_sided.py -q
+```
+
+Acceptance: tail, warm-tail, and weak-slot guards now block unless the
+per-slice taker edge-permission map marks the row `edge_allowed`; the blanket
+`*` block is no longer the default; an explicit operator `*` kill-switch remains;
+and permissioned rows trade through the formerly-blanket guard while unproven
+rows remain blocked.
+
+## Completion Notes
+
+Validated on 2026-06-25 with focused taker guard tests and roadmap lint. This
+item is complete because the runtime defaults, guard logic, explicit kill-switch
+behavior, and regression coverage now match the acceptance criteria.

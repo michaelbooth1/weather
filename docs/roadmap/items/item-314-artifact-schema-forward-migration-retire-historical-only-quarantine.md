@@ -1,4 +1,4 @@
-# 314. Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [OPEN 2026-06-25 - SCHEMA BUMPS STRAND ARTIFACTS HISTORICAL-ONLY INSTEAD OF MIGRATING]
+# 314. Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [COMPLETE 2026-06-25 - FORWARD MIGRATION AND ROW RECOVERY LIVE]
 
 Goal: replace the "quarantine artifacts and rows as historical-only whenever the
 feature schema bumps" shortcut with a forward-migration / re-export path, so a
@@ -48,14 +48,14 @@ migrate the stranded per-location set.
 5. Keep the quarantine as a fail-closed guard for the genuinely unrecoverable
    remainder only.
 
-- [ ] Add a deterministic artifact forward-migration / re-export to the current
+- [x] Add a deterministic artifact forward-migration / re-export to the current
   feature schema, attempted before quarantine.
-- [ ] Add a recoverable-row recovery path that returns fixable quarantined rows
+- [x] Add a recoverable-row recovery path that returns fixable quarantined rows
   to the corpus.
-- [ ] Classify quarantined items `migratable` vs `unrecoverable` with counts.
-- [ ] Trigger migration on schema bump in nightly retrain/promotion instead of a
+- [x] Classify quarantined items `migratable` vs `unrecoverable` with counts.
+- [x] Trigger migration on schema bump in nightly retrain/promotion instead of a
   stranded BLOCK.
-- [ ] Add tests for a schema-bump artifact migration and a recoverable-row
+- [x] Add tests for a schema-bump artifact migration and a recoverable-row
   recovery, and prove the broad retrain/location gate is no longer blocked purely
   on schema-currency.
 
@@ -66,3 +66,28 @@ genuinely unrecoverable data, and the broad retrain/location gate is no longer
 blocked purely by schema-currency, proven by migration and recovery tests.
 
 Related: items 24, 178, 208, 224, 226, 244, 290.
+
+## Completion Notes
+
+Implemented the shared artifact forward-migration contract in
+`weather.artifacts`. Same-family feature-schema bumps are migrated by
+preserving trained `feature_names`, recording source/effective schema metadata,
+and failing closed for missing schemas, newer schemas, older major versions, or
+artifacts without stable feature names.
+
+`per_location_artifact_quarantine` now attempts migration before quarantine and
+reports migrated/migratable/unrecoverable counts. `pooled_f_retrain_location_gate`
+loads the migrated artifact view before evaluating `artifact_runtime_schema`, so
+same-family schema currency no longer blocks the broad retrain/location gate by
+itself.
+
+`feature_quality_quarantine` now classifies quarantined rows as migratable or
+unrecoverable and marks raw-evidence rows with clean replay inputs as
+`training_recovered`, returning those snapshots to `promotion_corpus`. Rows with
+contaminated or missing replay inputs remain pending backfill, and rows without
+raw evidence remain unrecoverable.
+
+Added focused tests proving same-family artifact migration, no schema-only
+pooled-F gate block, recoverable-row return to training, and promotion-corpus
+re-entry. Also closed schema-registry strictness by registering the new migration
+contract plus previously missing marine pooled-training schemas.

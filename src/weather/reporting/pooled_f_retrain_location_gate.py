@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.artifacts import migrate_artifact_payload
 from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.paths import data_path
@@ -114,7 +115,14 @@ def _gate(name: str, status: str, detail: str, evidence: dict[str, Any] | None =
 
 def artifact_summary(artifact_path: str | Path) -> dict[str, Any]:
     path = Path(artifact_path)
-    artifact = _read_pickle_dict(path)
+    raw_artifact = _read_pickle_dict(path)
+    artifact = raw_artifact
+    migration = {}
+    if raw_artifact:
+        artifact, migration = migrate_artifact_payload(
+            raw_artifact,
+            target_feature_schema_version=FEATURE_SCHEMA_VERSION,
+        )
     blocked_validation = (artifact or {}).get("blocked_validation") or {}
     models = (artifact or {}).get("models") or {}
     return {
@@ -122,10 +130,12 @@ def artifact_summary(artifact_path: str | Path) -> dict[str, Any]:
         "exists": path.exists(),
         "size_bytes": path.stat().st_size if path.exists() else None,
         "modified_at_utc": _path_mtime_utc(path),
-        "loaded": bool(artifact),
+        "loaded": bool(raw_artifact),
         "schema_version": (artifact or {}).get("schema_version"),
         "feature_schema_version": (artifact or {}).get("feature_schema_version"),
+        "source_feature_schema_version": (raw_artifact or {}).get("feature_schema_version"),
         "active_feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "schema_migration": migration,
         "trained_at": (artifact or {}).get("trained_at"),
         "family_unit": (artifact or {}).get("family_unit"),
         "objective": (artifact or {}).get("objective"),
@@ -310,7 +320,9 @@ def build_gates(
         {
             "artifact_path": artifact.get("path"),
             "artifact_feature_schema_version": artifact_schema,
+            "source_feature_schema_version": artifact.get("source_feature_schema_version"),
             "active_feature_schema_version": active_schema,
+            "schema_migration": artifact.get("schema_migration") or {},
             "trained_at": artifact.get("trained_at"),
         },
     ))
@@ -526,8 +538,10 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Production readiness status", payload.get("production_readiness_status")],
             ["Production readiness blockers", payload.get("production_readiness_blocker_count")],
             ["First blocker", first.get("detail") or "-"],
+            ["Source artifact feature schema", artifact.get("source_feature_schema_version")],
             ["Artifact feature schema", artifact.get("feature_schema_version")],
             ["Active feature schema", artifact.get("active_feature_schema_version")],
+            ["Artifact schema migration", (artifact.get("schema_migration") or {}).get("migration_status") or "-"],
             ["Artifact trained at", artifact.get("trained_at")],
             ["Replay verdict", replay.get("verdict")],
             ["Replay delta vs current", fmt_num(replay.get("aggregate_delta_vs_current"))],

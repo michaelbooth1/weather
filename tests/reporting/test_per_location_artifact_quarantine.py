@@ -76,6 +76,44 @@ class PerLocationArtifactQuarantineTests(unittest.TestCase):
             {"active_candidate_blocked"},
         )
 
+    def test_active_same_family_schema_artifact_is_migrated_before_quarantine(self):
+        registry = {
+            "artifact_root": "artifacts",
+            "artifacts": [
+                {
+                    "artifact_id": "models/hgb/feature_model_hgb_austin.pkl",
+                    "path": "artifacts/models/hgb/feature_model_hgb_austin.pkl",
+                    "kind": "hgb_model",
+                    "registry_use": "active_promoted",
+                    "variant_refs": [{"variant_id": "austin_legacy"}],
+                },
+                {
+                    "artifact_id": "models/coefs/feature_model_coefs_austin.json",
+                    "path": "artifacts/models/coefs/feature_model_coefs_austin.json",
+                    "kind": "coefs_model",
+                    "registry_use": "active_promoted",
+                    "feature_schema_version": "toronto_feature_store_v1.13",
+                    "variant_refs": [{"variant_id": "austin_legacy"}],
+                },
+            ],
+        }
+
+        payload = build_payload(
+            registry_payload=registry,
+            active_feature_schema_version="toronto_feature_store_v1.15",
+            generated_at_utc="2026-06-25T00:00:00+00:00",
+        )
+
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["summary"]["active_candidate_violation_count"], 0)
+        self.assertEqual(payload["summary"]["migrated_schema_count"], 2)
+        self.assertEqual(payload["summary"]["migratable_artifact_count"], 2)
+        hgb = next(row for row in payload["artifacts"] if row["artifact_kind"] == "hgb_model")
+        self.assertEqual(hgb["schema_status"], "migrated_schema")
+        self.assertEqual(hgb["migration_status"], "migrated")
+        self.assertEqual(hgb["effective_feature_schema_version"], "toronto_feature_store_v1.15")
+        self.assertEqual(hgb["disposition"], "active_candidate")
+
     def test_pooled_hgb_artifacts_are_not_per_location_candidates(self):
         registry = {
             "artifact_root": "artifacts",
