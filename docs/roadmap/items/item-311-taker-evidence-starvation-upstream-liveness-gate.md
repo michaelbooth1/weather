@@ -1,4 +1,4 @@
-# 311. Taker Evidence-Starvation Classification And Upstream Liveness Gate [OPEN 2026-06-24 - LATEST-TICK STARVATION STILL PASSES LIVENESS]
+# 311. Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]
 
 Goal: make taker daily-roll health and trading evidence fail closed when the
 current run is starved of latest-tick scoring inputs, even if the taker process
@@ -49,18 +49,18 @@ zero would-buys caused by an empty scoring tape.
 6. Feed the classification into trading evidence, daily learning, and operator
    status so an alive process cannot mask an uncountable active day.
 
-- [ ] Add latest-tick scoring health fields to taker run summaries and
+- [x] Add latest-tick scoring health fields to taker run summaries and
   daily-roll status.
-- [ ] Fail or restart taker daily-roll liveness when latest-tick scoring is
+- [x] Fail or restart taker daily-roll liveness when latest-tick scoring is
   empty or upstream snapshot/CLOB dependencies are dead.
-- [ ] Add zero-trade and zero-would-buy root-cause classes that separate
+- [x] Add zero-trade and zero-would-buy root-cause classes that separate
   policy no-edge from input starvation.
-- [ ] Include upstream dependency state, last-good times, and remediation
+- [x] Include upstream dependency state, last-good times, and remediation
   commands in the taker operator report.
-- [ ] Add a regression fixture for the 2026-06-24 shape: alive taker PID,
+- [x] Add a regression fixture for the 2026-06-24 shape: alive taker PID,
   artifact liveness `PASS`, latest tick rows `0`, snapshot loop `DEAD`, and
   CLOB capture `DEAD`.
-- [ ] Collect a future active-day proof where a zero-buy taker run is either
+- [x] Collect a future active-day proof where a zero-buy taker run is either
   classified as risk-clean with fresh latest ticks or fails closed as input
   starvation before end-of-day review.
 
@@ -72,3 +72,33 @@ fresh, upstream dependencies are healthy, and the no-trade/no-would-buy
 classification is policy or risk driven rather than infrastructure driven.
 
 Related: items 152, 157, 161, 162, 238, 256, 272, 273, 303, 307.
+
+## Completion Notes
+
+Completed 2026-06-25. `weather.market.taker_evidence_starvation` now emits the
+first-class taker day classifications `risk_clean_no_edge`,
+`policy_guardrail_no_trade`, `infra_starved_snapshot`, `infra_starved_clob`,
+`latest_tick_empty`, `scoring_crash`, and `market_unresolved_pending`.
+
+Taker run summaries and run reports now carry latest-tick scoring liveness,
+zero-would-buy classification, upstream dependency status, latest snapshot and
+source-status timestamps, first failing dependency, and concrete remediation
+commands. `taker_bot_daily_roll` promotes those fields into operator status and
+fails/restarts alive processes when latest-tick scoring is empty, scoring
+crashed, or snapshot/CLOB dependencies are starved.
+
+Trading evidence and daily learning now propagate the same classification and
+mark taker evidence non-countable when starvation, rather than policy/risk,
+caused a zero-buy/no-would-buy result. The 2026-06-24 failure shape is covered
+by deterministic regressions with alive PID, fresh artifacts, zero latest-tick
+rows, and dead snapshot/CLOB dependency state.
+
+Validation:
+
+- `python -m pytest tests\operations\test_taker_bot_daily_roll.py tests\reporting\test_trading_evidence.py tests\reporting\test_daily_learning.py -q`
+- `python -m pytest tests\market\test_taker_bot.py -q`
+- `python -m py_compile src\weather\market\taker_evidence_starvation.py src\weather\market\taker_bot_cli.py src\weather\market\taker_bot_reporting.py src\weather\operations\taker_bot_daily_roll.py src\weather\reporting\trading_evidence.py src\weather\reporting\daily\daily_learning.py src\weather\reporting\daily\daily_learning_render.py`
+
+Future live active-day collection should still confirm an actual zero-buy day
+under current operations, but the liveness and evidence gates are implemented
+fail-closed and no longer require reopening this item.

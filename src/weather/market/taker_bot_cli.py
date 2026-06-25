@@ -2,6 +2,10 @@
 
 from weather.market.taker_bot_finalization import *  # noqa: F403
 from weather.market import exchange_economics
+from weather.market.taker_evidence_starvation import (
+    build_taker_upstream_dependency_status,
+    classify_taker_evidence_starvation,
+)
 from weather.operations import event_metadata_validation
 from weather.runtime_identity import get_runtime_identity
 
@@ -573,6 +577,25 @@ def build_run_once(
         "counterfactual_tape_integrity": counterfactual_tape_integrity,
         **zero_trade_diagnosis,
     }
+    upstream_dependency_status = build_taker_upstream_dependency_status(market_summaries)
+    summary["upstream_dependency_status"] = upstream_dependency_status
+    evidence_starvation = classify_taker_evidence_starvation(summary, markets=market_summaries)
+    summary.update({
+        "taker_evidence_starvation": evidence_starvation,
+        "latest_tick_scoring_liveness": {
+            "status": evidence_starvation.get("status"),
+            "classification": evidence_starvation.get("classification"),
+            "restart_recommended": evidence_starvation.get("restart_recommended"),
+            "countability_status": evidence_starvation.get("countability_status"),
+            "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+            "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
+            "remediation_command": evidence_starvation.get("remediation_command"),
+        },
+        "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+        "zero_would_buy_classification": evidence_starvation.get("zero_would_buy_classification"),
+        "taker_evidence_countability_status": evidence_starvation.get("countability_status"),
+        "taker_evidence_countability_blockers": evidence_starvation.get("countability_blockers") or [],
+    })
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -606,12 +629,18 @@ def build_run_once(
         "tape_integrity": tape_integrity,
         "counterfactual_tape_integrity": counterfactual_tape_integrity,
         "counterfactual_model_variant_manifest": counterfactual_model_variant_manifest,
+        "upstream_dependency_status": upstream_dependency_status,
+        "taker_evidence_starvation": evidence_starvation,
         "operator_alert": {
             "run_folder": str(run_folder),
             "clob_status_command": "python -m weather.market.market_microstructure status",
+            "snapshot_status_command": "python -m weather.collection.snapshot_tracker --status",
             "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
+            "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
             "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
-            "remediation_command": "python -m weather.market.market_microstructure ensure",
+            "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+            "evidence_countability_status": evidence_starvation.get("countability_status"),
+            "remediation_command": evidence_starvation.get("remediation_command"),
         },
     }
     write_json(run_folder / "run_summary.json", payload)
@@ -846,6 +875,25 @@ def recover_run_artifacts_from_orders(
         },
         **zero_trade_diagnosis,
     }
+    upstream_dependency_status = build_taker_upstream_dependency_status([])
+    summary["upstream_dependency_status"] = upstream_dependency_status
+    evidence_starvation = classify_taker_evidence_starvation(summary, markets=[])
+    summary.update({
+        "taker_evidence_starvation": evidence_starvation,
+        "latest_tick_scoring_liveness": {
+            "status": evidence_starvation.get("status"),
+            "classification": evidence_starvation.get("classification"),
+            "restart_recommended": evidence_starvation.get("restart_recommended"),
+            "countability_status": evidence_starvation.get("countability_status"),
+            "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+            "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
+            "remediation_command": evidence_starvation.get("remediation_command"),
+        },
+        "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+        "zero_would_buy_classification": evidence_starvation.get("zero_would_buy_classification"),
+        "taker_evidence_countability_status": evidence_starvation.get("countability_status"),
+        "taker_evidence_countability_blockers": evidence_starvation.get("countability_blockers") or [],
+    })
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now.isoformat(),
@@ -879,12 +927,18 @@ def recover_run_artifacts_from_orders(
         "tape_integrity": tape_integrity,
         "counterfactual_tape_integrity": counterfactual_tape_integrity,
         "counterfactual_model_variant_manifest": summary["counterfactual_model_variant_manifest"],
+        "upstream_dependency_status": upstream_dependency_status,
+        "taker_evidence_starvation": evidence_starvation,
         "operator_alert": {
             "run_folder": str(run_folder),
             "clob_status_command": "python -m weather.market.market_microstructure status",
+            "snapshot_status_command": "python -m weather.collection.snapshot_tracker --status",
             "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
+            "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
             "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
-            "remediation_command": "python -m weather.market.market_microstructure ensure",
+            "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+            "evidence_countability_status": evidence_starvation.get("countability_status"),
+            "remediation_command": evidence_starvation.get("remediation_command"),
         },
     }
     write_json(run_folder / "run_summary.json", payload)

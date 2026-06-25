@@ -35,6 +35,7 @@ from weather.operations.daily_refresh_locks import (
     resume_command,
     stale_lock_repair_command,
     utc_iso,
+    utc_now,
     write_json,
 )
 from weather.reporting import active_variant_shadow_refresh
@@ -1863,6 +1864,7 @@ def run_daily_roll_log_hygiene_step(args):
         "incidents_out": as_path(incidents_path),
         "current_log_root": as_path(current_log_root),
         "current_blocker_count": summary.get("current_blocker_count"),
+        "current_signature_count": summary.get("current_signature_count"),
         "historical_error_count": summary.get("historical_error_count"),
         "archived_incident_count": summary.get("archived_incident_count"),
         "recurring_incident_count": summary.get("recurring_incident_count"),

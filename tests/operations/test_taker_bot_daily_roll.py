@@ -2,13 +2,15 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from weather.operations.taker_bot_daily_roll import (
     DEFAULT_STRATEGIES,
     build_taker_bot_command,
+    ensure_for_date,
     load_status,
     start_for_date,
     target_date_for_roll,
@@ -482,9 +484,70 @@ class TestTakerBotDailyRoll(unittest.TestCase):
             )
 
         self.assertEqual(payload["status"], "idle_process")
-        self.assertEqual(payload["root_cause_class"], "stale_book_input")
-        self.assertEqual(payload["artifact_liveness"]["status"], "STALE_BOOK_INPUT")
+        self.assertEqual(payload["root_cause_class"], "infra_starved_clob")
+        self.assertEqual(payload["artifact_liveness"]["status"], "INFRA_STARVED_CLOB")
+        self.assertEqual(payload["latest_tick_scoring_liveness"]["classification"], "infra_starved_clob")
         self.assertEqual(payload["operator_report"]["latest_candidate_rows"], 100)
+
+    def test_latest_tick_scoring_starvation_blocks_alive_pid_with_fresh_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-starved",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={
+                    "latest_tick_rows": 0,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 19184,
+                    "cumulative_filled_orders": 0,
+                    "cumulative_counterfactual_rows": 147906,
+                    "cumulative_counterfactual_would_buy_count": 0,
+                    "root_cause_class": "crashed_before_scoring",
+                    "first_failing_gate": "scoring",
+                    "upstream_dependency_status": {
+                        "status": "BLOCK",
+                        "first_failing_dependency": "clob",
+                        "first_failing_gate": "clob_loop",
+                        "newest_snapshot_timestamp_utc": "2026-06-18T18:07:00+00:00",
+                        "latest_source_status_utc": "2026-06-18T18:07:00+00:00",
+                        "dependencies": {
+                            "snapshot": {
+                                "status": "BLOCK",
+                                "loop_state": "DEAD",
+                                "heartbeat_age_seconds": 3600,
+                            },
+                            "clob": {
+                                "status": "BLOCK",
+                                "loop_state": "DEAD",
+                                "heartbeat_age_seconds": 9000,
+                            },
+                        },
+                    },
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["first_failing_gate"], "latest_tick_scoring_liveness")
+        self.assertEqual(payload["root_cause_class"], "scoring_crash")
+        self.assertEqual(payload["artifact_liveness"]["status"], "SCORING_CRASH")
+        self.assertEqual(payload["latest_tick_scoring_liveness"]["status"], "BLOCK")
+        self.assertEqual(payload["latest_tick_scoring_liveness"]["countability_status"], "NON_COUNTABLE")
+        self.assertEqual(payload["operator_report"]["latest_tick_rows"], 0)
+        self.assertEqual(payload["operator_report"]["first_failing_dependency"], "clob")
+        self.assertEqual(
+            payload["remediation_command"],
+            "python -m weather.market.market_microstructure ensure",
+        )
 
     def test_policy_no_edge_idle_is_classified_without_restart(self):
         calls = []
@@ -567,6 +630,168 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertFalse(stale_run.exists())
         self.assertTrue(quarantine_exists)
         self.assertEqual(len(calls), 1)
+
+    def test_ensure_restarts_dead_existing_pid_with_force(self):
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 9001
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp)
+
+            payload = ensure_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                start_after_local_time="00:00",
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: False,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            diagnostics = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(payload["action"], "start")
+        self.assertEqual(payload["restart_cause"], "pid_missing")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(saved["status"], "started")
+        self.assertEqual(saved["daily_roll_supervisor"]["action"], "start")
+        self.assertEqual(diagnostics[-1]["restart_cause"], "pid_missing")
+
+    def test_ensure_restarts_superseded_code_and_quarantines_latest_run(self):
+        calls = []
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "new",
+            "source_fingerprint": "current",
+        }
+        stale_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "old",
+            "source_fingerprint": "stale",
+        }
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 9002
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp)
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            status["runtime_identity"] = stale_identity
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            run_folder = tmp / "taker_runs" / "2026-06-18" / "taker-fresh-stale-code"
+            _write_run_artifacts(
+                run_folder,
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={"latest_tick_rows": 12, "latest_tick_filled_orders": 0},
+            )
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                return_value={"pid": 7654, "stopped": True},
+            ):
+                payload = ensure_for_date(
+                    "2026-06-18",
+                    status_path=status_path,
+                    diagnostics_path=diagnostics_path,
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "taker_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-18T04:20:00+00:00",
+                    start_after_local_time="00:00",
+                    max_activity_age_seconds=120,
+                    startup_grace_seconds=60,
+                    current_identity=current_identity,
+                    launcher=launcher,
+                    pid_alive=lambda pid, target_date=None: True,
+                )
+
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["action"], "restart")
+        self.assertEqual(payload["restart_cause"], "superseded_code")
+        self.assertEqual(payload["stop"]["stopped"], True)
+        self.assertEqual(saved["forced_run_retirement"]["status"], "QUARANTINED")
+        self.assertTrue(saved["forced_run_retirement"]["forced"])
+        self.assertFalse(run_folder.exists())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(saved["daily_roll_supervisor"]["restart_cause"], "superseded_code")
+
+    def test_ensure_backoff_blocks_repeated_superseded_code_restart(self):
+        calls = []
+        current_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "new",
+            "source_fingerprint": "current",
+        }
+        stale_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "old",
+            "source_fingerprint": "stale",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp)
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            status["runtime_identity"] = stale_identity
+            status_path.write_text(json.dumps(status), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-stale-code",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={"latest_tick_rows": 12, "latest_tick_filled_orders": 0},
+            )
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (datetime(2026, 6, 18, 4, 20, tzinfo=timezone.utc) - timedelta(seconds=30)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "STALE_CODE",
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = ensure_for_date(
+                "2026-06-18",
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-18T04:20:00+00:00",
+                start_after_local_time="00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                current_identity=current_identity,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+
+        self.assertEqual(payload["action"], "backoff")
+        self.assertEqual(payload["intended_action"], "restart")
+        self.assertEqual(payload["restart_cause"], "superseded_code")
 
 
 if __name__ == "__main__":

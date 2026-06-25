@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.market import exchange_economics, mm_paper
+from weather.market.taker_evidence_starvation import (
+    BLOCKING_CLASSES as TAKER_STARVATION_BLOCKING_CLASSES,
+    classify_taker_evidence_starvation,
+)
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
@@ -152,6 +156,10 @@ TAKER_STRATEGY_DISABLED_REASONS = {
 TAKER_INFRA_ROOT_CAUSES = {
     "stale_book_input",
     "stale_model_input",
+    "infra_starved_snapshot",
+    "infra_starved_clob",
+    "latest_tick_empty",
+    "scoring_crash",
     "missing_orders_tape",
     "missing_strategy_summary",
     "missing_heartbeat_metadata",
@@ -1078,6 +1086,29 @@ def _taker_summary_fields(payload, settled_payload=None):
         pnl_payload = settled_payload.get("pnl") or pnl_payload
     exchange_gate = _exchange_gate_from_payloads(settled_payload, payload, pnl_payload)
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
+    evidence_starvation = classify_taker_evidence_starvation(
+        summary,
+        markets=payload.get("markets") or [],
+        payload=payload,
+    )
+    starvation_fields = {
+        "taker_evidence_starvation": evidence_starvation,
+        "latest_tick_scoring_liveness": {
+            "status": evidence_starvation.get("status"),
+            "classification": evidence_starvation.get("classification"),
+            "restart_recommended": evidence_starvation.get("restart_recommended"),
+            "countability_status": evidence_starvation.get("countability_status"),
+            "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+            "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
+            "remediation_command": evidence_starvation.get("remediation_command"),
+        },
+        "upstream_dependency_status": evidence_starvation.get("upstream_dependency_status") or {},
+        "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+        "zero_would_buy_classification": evidence_starvation.get("zero_would_buy_classification"),
+        "taker_evidence_countability_status": evidence_starvation.get("countability_status"),
+        "taker_evidence_countability_blockers": evidence_starvation.get("countability_blockers") or [],
+        "blocks_taker_evidence_countability": bool(evidence_starvation.get("blocks_taker_evidence_countability")),
+    }
     strategy_comparison = pnl_payload.get("strategy_comparison") or {}
     by_strategy = pnl_payload.get("by_strategy") or []
     countable_candidate = strategy_comparison.get("countable_strategy_quality_candidate") or {}
@@ -1209,6 +1240,7 @@ def _taker_summary_fields(payload, settled_payload=None):
                 if _exchange_gate_blocked(exchange_gate)
                 else exchange_gate.get("evidence_basis")
             ),
+            **starvation_fields,
             **exchange_fields,
             "active_strategy_id": next_gate.get("active_strategy_id") or settled_summary.get("active_strategy_id"),
             "active_strategy_lifecycle": (
@@ -1334,6 +1366,7 @@ def _taker_summary_fields(payload, settled_payload=None):
             if _exchange_gate_blocked(exchange_gate)
             else exchange_gate.get("evidence_basis")
         ),
+        **starvation_fields,
         **exchange_fields,
         "active_strategy_id": summary.get("active_strategy_id"),
         "active_strategy_lifecycle": summary.get("active_strategy_lifecycle"),
@@ -1687,6 +1720,10 @@ def _summary_status(payload):
         return "BLOCK"
     if taker.get("settlement_source_audit_status") == "BLOCK":
         return "BLOCK"
+    if taker.get("blocks_taker_evidence_countability"):
+        return "BLOCK"
+    if taker.get("taker_day_classification") in TAKER_STARVATION_BLOCKING_CLASSES:
+        return "BLOCK"
     if taker.get("zero_fill_quality_classification") in {"infra_blocked", "unscored_stale_labels"}:
         return "BLOCK"
     if taker_quality.get("status") == "BLOCK":
@@ -1774,6 +1811,17 @@ def render_report(payload):
             ["Exchange economics", taker.get("exchange_economics_gate_status") or "-"],
             ["Exchange snapshot", taker.get("exchange_economics_snapshot_id") or "-"],
             ["Zero-fill quality", taker.get("zero_fill_quality_classification") or "-"],
+            ["Taker day classification", taker.get("taker_day_classification") or "-"],
+            ["Zero would-buy classification", taker.get("zero_would_buy_classification") or "-"],
+            ["Taker evidence countability", taker.get("taker_evidence_countability_status") or "-"],
+            [
+                "Latest-tick scoring liveness",
+                (taker.get("latest_tick_scoring_liveness") or {}).get("status") or "-",
+            ],
+            [
+                "Upstream dependency",
+                (taker.get("upstream_dependency_status") or {}).get("status") or "-",
+            ],
             [
                 "No-trade taxonomy",
                 json.dumps((taker.get("no_trade_reason_taxonomy") or {}).get("category_counts") or {}, sort_keys=True),

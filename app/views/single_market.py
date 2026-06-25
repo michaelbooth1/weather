@@ -459,7 +459,6 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 analog_path = d.get("temp_path", {})
                 chart_data[col_name] = [analog_path.get(h) for h in hours]
                 
-            import pandas as pd
             chart_df = pd.DataFrame(chart_data, index=hours)
             
             st.markdown("**Temperature Progression Comparison (7 AM to 8 PM)**")

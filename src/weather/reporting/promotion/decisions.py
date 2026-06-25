@@ -117,6 +117,12 @@ def _candidate_identity(candidate):
 
 def _candidate_cutover_allowed(candidate):
     candidate = candidate or {}
+    validation_evidence = (
+        candidate.get("validation_evidence")
+        or (candidate.get("blocked_validation") or {}).get("validation_evidence")
+    )
+    if validation_evidence == "row_export_surrogate":
+        return False
     verdict = str(candidate.get("verdict") or "").upper()
     cutover = str(candidate.get("cutover_decision") or "").upper()
     blocked_verdicts = {"BLOCK", "FAIL", "FAILED", "ERROR"}
@@ -126,6 +132,12 @@ def _candidate_cutover_allowed(candidate):
 
 def _candidate_cutover_blocker(candidate):
     candidate = candidate or {}
+    validation_evidence = (
+        candidate.get("validation_evidence")
+        or (candidate.get("blocked_validation") or {}).get("validation_evidence")
+    )
+    if validation_evidence == "row_export_surrogate":
+        return "candidate evidence is row_export_surrogate preview-only; active_replay_contract is required for serving"
     verdict = candidate.get("verdict") or "missing"
     cutover = candidate.get("cutover_decision") or "missing"
     return f"candidate cutover is not allowed: verdict={verdict}, cutover={cutover}"
@@ -1022,6 +1034,32 @@ def promotion_readiness(
                 + ("; ".join(blocked_validation.get("reasons") or []) or "inspect blocked validation gate")
             ),
             "evidence": blocked_validation,
+        })
+    validation_evidence = candidate.get("validation_evidence") or blocked_validation.get("validation_evidence")
+    if validation_evidence == "row_export_surrogate":
+        blockers.append({
+            "category": "repair_integration",
+            "severity": "block",
+            "detail": (
+                "row-export surrogate evidence is preview-only; serving-changing repairs "
+                "must be integrated and re-scored with validation_evidence=active_replay_contract"
+            ),
+            "evidence": {
+                "validation_evidence": validation_evidence,
+                "row_export_metric_passed": candidate.get("row_export_metric_passed"),
+                "blocked_validation": blocked_validation,
+            },
+        })
+    repair_integration = candidate.get("repair_integration") or {}
+    if repair_integration and validation_evidence != "active_replay_contract":
+        blockers.append({
+            "category": "repair_integration_contract",
+            "severity": "block",
+            "detail": "integrated repair candidates require active replay/export contract evidence",
+            "evidence": {
+                "validation_evidence": validation_evidence,
+                "repair_integration": repair_integration,
+            },
         })
     shadow_details = _readiness_market_details(decisions, "KEEP_SHADOW")
     shadow_markets = [row.get("market_id") for row in shadow_details if row.get("market_id")]

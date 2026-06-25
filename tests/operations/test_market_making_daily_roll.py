@@ -3,14 +3,58 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from weather.operations.market_making_daily_roll import (  # noqa: E402
     build_market_making_command,
+    ensure_for_date,
     load_status,
     start_for_date,
     target_date_for_roll,
 )
+
+
+def _ts(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+
+
+def _write_status(path, tmp, *, started_at="2026-06-16T23:00:00+00:00", pid=4321):
+    path.write_text(json.dumps({
+        "schema_version": "market_making_daily_roll_v0.2",
+        "runner": "market_making_daily_roll",
+        "generated_at_utc": started_at,
+        "started_at_utc": started_at,
+        "target_date": "2026-06-16",
+        "status": "started",
+        "pid": pid,
+        "runs_root": str(tmp / "mm_runs"),
+        "console_log_path": str(tmp / "daily_roll_console.log"),
+        "command": ["python.exe", "-m", "weather.market.market_making_run"],
+        "runtime_identity": {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "current",
+            "source_fingerprint": "current",
+        },
+    }), encoding="utf-8")
+
+
+def _write_run_artifacts(run_folder, *, timestamp, summary=None, include_quote=True, include_run_summary=True):
+    run_folder.mkdir(parents=True, exist_ok=True)
+    if include_quote:
+        quote = run_folder / "quote_intents_long.csv"
+        quote.write_text("market_id,reason_code\natlanta,NO_QUOTE_EDGE_TOO_SMALL\n", encoding="utf-8")
+        os.utime(quote, (timestamp, timestamp))
+    for name in ("budget_ledger.jsonl", "order_lifecycle.jsonl"):
+        path = run_folder / name
+        path.write_text("{}\n", encoding="utf-8")
+        os.utime(path, (timestamp, timestamp))
+    if include_run_summary:
+        run_summary = run_folder / "run_summary.json"
+        run_summary.write_text(json.dumps(summary or {"row_count": 1}), encoding="utf-8")
+        os.utime(run_summary, (timestamp, timestamp))
 
 
 class TestMarketMakingDailyRoll(unittest.TestCase):
@@ -233,6 +277,85 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertEqual(second["status"], "pid_missing")
         self.assertEqual(status["status"], "pid_missing")
         self.assertEqual(len(calls), 1)
+
+    def test_alive_existing_pid_with_stale_activity_records_idle_process(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+
+            payload = start_for_date(
+                "2026-06-16",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "mm_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-16T23:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: True,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["root_cause_class"], "stale_pid_no_recent_useful_artifacts")
+        self.assertEqual(payload["artifact_liveness"]["status"], "NO_RUN_FOLDER")
+        self.assertEqual(saved["status"], "idle_process")
+        self.assertEqual(calls, [])
+
+    def test_ensure_restarts_stale_market_making_run_summary(self):
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 7001
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+            run_folder = tmp / "mm_runs" / "2026-06-16" / "mm-stale"
+            _write_run_artifacts(
+                run_folder,
+                timestamp=_ts("2026-06-16T23:00:00+00:00"),
+                summary={"row_count": 1, "quote_permission_rows": 0},
+            )
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                return_value={"pid": 4321, "stopped": True},
+            ):
+                payload = ensure_for_date(
+                    "2026-06-16",
+                    status_path=status_path,
+                    diagnostics_path=diagnostics_path,
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "mm_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-16T23:20:00+00:00",
+                    start_after_local_time="19:30",
+                    max_activity_age_seconds=120,
+                    startup_grace_seconds=60,
+                    launcher=launcher,
+                    pid_alive=lambda pid, target_date=None: True,
+                )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            diagnostics = [json.loads(line) for line in diagnostics_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(payload["action"], "restart")
+        self.assertEqual(payload["restart_cause"], "stale_heartbeat_metadata")
+        self.assertEqual(payload["stop"]["stopped"], True)
+        self.assertEqual(saved["status"], "started")
+        self.assertEqual(saved["forced_run_retirement"]["status"], "QUARANTINED")
+        self.assertFalse(run_folder.exists())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(diagnostics[-1]["restart_cause"], "stale_heartbeat_metadata")
 
 
 if __name__ == "__main__":

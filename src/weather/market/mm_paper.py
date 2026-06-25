@@ -1987,7 +1987,6 @@ def load_or_build_clob_recon(clob_recon_path, snapshots_root, event_slugs, now=N
 
 def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics, decisive_resting, clob_recon, config):
     config = {**DEFAULT_CONFIG, **(config or {})}
-    leg_by_id = {leg.get("leg_id"): leg for leg in legs or []}
     queue_by_leg = {row.get("leg_id"): row for row in queue_rows or []}
     queue_counts = Counter(row.get("status") or "unknown" for row in queue_rows or [])
     missing_size_trade_rows = sum(int(row.get("missing_size_trade_rows") or 0) for row in diagnostics.values())

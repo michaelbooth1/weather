@@ -478,12 +478,6 @@ def _canary_gate_status(active_id, active_gate, bakeoff, run_config, strategy_ro
     ).strip()
     age_days = int(canary.get("age_days") or 0)
     missing_settlement_block_age = int(policy.get("canary_missing_settlement_blocks_after_age_days") or 1)
-    hard_demotion_gates = {
-        "no_unresolved_orders",
-        "max_tail_fill_fraction",
-        "non_negative_settled_roi",
-        "no_resolved_stale_mark_sign_flips",
-    }
     hard_reasons = []
     if active_unsettled + active_unscored > 0 or "no_unresolved_orders" in failed_gate_set:
         hard_reasons.append("unresolved_or_unscored_orders")

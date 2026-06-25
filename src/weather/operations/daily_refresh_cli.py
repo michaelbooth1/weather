@@ -389,7 +389,7 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument(
         "--daily-roll-log-sources",
         default="",
-        help="Comma-separated loop=path entries for taker, maker, snapshot, and daily_refresh logs.",
+        help="Comma-separated loop=path entries for Streamlit, daily-refresh, collection, taker, and maker logs.",
     )
     parser.add_argument(
         "--daily-roll-log-incidents",

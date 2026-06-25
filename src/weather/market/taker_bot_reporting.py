@@ -28,6 +28,8 @@ def render_report(payload):
     no_side_campaign = summary.get("no_side_campaign") or {}
     counterfactual_no_side_campaign = summary.get("counterfactual_no_side_campaign") or {}
     edge_permission = summary.get("taker_edge_permission_coverage") or {}
+    scoring_liveness = summary.get("latest_tick_scoring_liveness") or {}
+    upstream = summary.get("upstream_dependency_status") or {}
     lines = [
         "# Taker Bot Paper Report",
         "",
@@ -62,6 +64,14 @@ def render_report(payload):
             ["Adverse-selection blocked rows", edge_permission.get("adverse_selection_blocked_rows")],
             ["Counterfactual rows", summary.get("latest_tick_counterfactual_rows")],
             ["Counterfactual would-buy rows", summary.get("latest_tick_counterfactual_would_buy_count")],
+            ["Latest-tick scoring liveness", scoring_liveness.get("status") or "-"],
+            ["Taker day classification", summary.get("taker_day_classification") or "-"],
+            ["Zero would-buy classification", summary.get("zero_would_buy_classification") or "-"],
+            ["Taker evidence countability", summary.get("taker_evidence_countability_status") or "-"],
+            ["Upstream dependency status", upstream.get("status") or "-"],
+            ["First failing dependency", upstream.get("first_failing_dependency") or "-"],
+            ["Newest snapshot", upstream.get("newest_snapshot_timestamp_utc") or "-"],
+            ["Latest source status", upstream.get("latest_source_status_utc") or "-"],
             ["NO-side campaign status", counterfactual_no_side_campaign.get("status") or no_side_campaign.get("status") or "-"],
             ["NO-side real-book rows", counterfactual_no_side_campaign.get("real_no_book_row_count") or no_side_campaign.get("real_no_book_row_count") or 0],
             ["NO-side countable would-buy rows", counterfactual_no_side_campaign.get("countable_no_side_would_buy_count") or no_side_campaign.get("countable_no_side_would_buy_count") or 0],

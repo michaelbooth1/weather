@@ -232,7 +232,7 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            folder = self.make_closed_folder(root)
+            self.make_closed_folder(root)
             archive_root = root / "archive"
 
             payload = build_backfill_payload(

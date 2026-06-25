@@ -37,6 +37,8 @@ from weather.operations.observation_trigger import OBSERVATION_SUPERVISOR
 from weather.operations.observation_trigger import STATUS_PATH as OBSERVATION_STATUS_PATH
 from weather.operations.observation_trigger import read_status as read_observation_status
 from weather.operations.observation_trigger import watcher_health
+from weather.operations.market_making_daily_roll import MARKET_MAKING_DAILY_ROLL_SUPERVISOR
+from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo, data_path
@@ -143,10 +145,23 @@ LOOP_RESTART_BUDGETS = {
     "snapshot_capture": 6,
     "clob_capture": 12,
     "observation_trigger": 12,
+    "taker_bot_daily_roll": 12,
+    "market_making_daily_roll": 12,
 }
 LOOP_RESTART_BUDGET_WINDOW_HOURS = 24.0
 LOOP_DIAGNOSTIC_WINDOW_DAYS = 7
 COUNTABLE_SOAK_STATES = {"RUNNING"}
+SUPERVISED_LOOP_SPECS = (
+    SNAPSHOT_SUPERVISOR,
+    CLOB_SUPERVISOR,
+    OBSERVATION_SUPERVISOR,
+    TAKER_DAILY_ROLL_SUPERVISOR,
+    MARKET_MAKING_DAILY_ROLL_SUPERVISOR,
+)
+BOT_DAILY_ROLL_SUPERVISOR_NAMES = {
+    TAKER_DAILY_ROLL_SUPERVISOR.name,
+    MARKET_MAKING_DAILY_ROLL_SUPERVISOR.name,
+}
 
 
 MARKET_ARTIFACT_TEMPLATES = {

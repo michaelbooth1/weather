@@ -576,7 +576,6 @@ def route_for_pattern(pattern: dict[str, Any]) -> dict[str, Any]:
         )
     direction = pattern.get("direction")
     band_key = str(pattern.get("band_key") or "")
-    range_label = str(pattern.get("range_label") or "")
     market_id = str(pattern.get("market_id") or "market")
     if direction == "market_higher_than_model" and band_key.startswith("eq:"):
         return _lane_with_overrides(

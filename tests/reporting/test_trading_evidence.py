@@ -131,6 +131,56 @@ def _write_zero_fill_taker_run(root, target_date, run_id, reason_code, *, settle
     return run
 
 
+def _write_starved_taker_run(root, target_date, run_id):
+    run = Path(root) / "taker_runs" / target_date / run_id
+    run.mkdir(parents=True)
+    (run / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "taker_bot_run_v0.1",
+                "run_id": run_id,
+                "target_date": target_date,
+                "mode": "paper-taker",
+                **_exchange_fields(),
+                "summary": {
+                    "latest_tick_rows": 0,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 19184,
+                    "cumulative_filled_orders": 0,
+                    "cumulative_counterfactual_rows": 147906,
+                    "cumulative_counterfactual_would_buy_count": 0,
+                    "reason_counts": {},
+                    "root_cause_class": "crashed_before_scoring",
+                    "first_failing_gate": "scoring",
+                    "upstream_dependency_status": {
+                        "status": "BLOCK",
+                        "first_failing_dependency": "clob",
+                        "first_failing_gate": "clob_loop",
+                        "newest_snapshot_timestamp_utc": f"{target_date}T18:07:00+00:00",
+                        "latest_source_status_utc": f"{target_date}T18:07:00+00:00",
+                        "dependencies": {
+                            "snapshot": {"status": "BLOCK", "loop_state": "DEAD"},
+                            "clob": {"status": "BLOCK", "loop_state": "DEAD"},
+                        },
+                    },
+                },
+                "pnl": {
+                    "summary": {
+                        "filled_order_count": 0,
+                        "net_pnl_usdc": 0.0,
+                        "mark_to_market_pnl_usdc": 0.0,
+                        "settled_order_count": 0,
+                        "unsettled_order_count": 0,
+                        "reason_counts": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run
+
+
 class TestTradingEvidence(unittest.TestCase):
     def test_market_making_useful_work_liveness_blocks_countability_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -488,6 +538,34 @@ class TestTradingEvidence(unittest.TestCase):
         taker = summary["taker"]
         self.assertEqual(taker["zero_fill_quality_classification"], "infra_blocked")
         self.assertEqual(taker["no_trade_reason_taxonomy"]["category_counts"]["market_book_infra"], 1)
+
+    def test_latest_tick_starved_taker_day_is_non_countable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_starved_taker_run(
+                root,
+                "2026-06-19",
+                "taker-starved",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+            json_out = root / "trading_evidence.json"
+            report_out = root / "trading_evidence.md"
+            write_outputs(summary, json_out=json_out, report_out=report_out)
+            saved = json.loads(json_out.read_text(encoding="utf-8"))
+            report = report_out.read_text(encoding="utf-8")
+
+        taker = summary["taker"]
+        self.assertEqual(taker["taker_day_classification"], "scoring_crash")
+        self.assertEqual(taker["zero_would_buy_classification"], "scoring_crash")
+        self.assertEqual(taker["taker_evidence_countability_status"], "NON_COUNTABLE")
+        self.assertTrue(taker["blocks_taker_evidence_countability"])
+        self.assertEqual(saved["status"], "BLOCK")
+        self.assertIn("scoring_crash", report)
 
     def test_unsettled_zero_fill_taker_day_is_stale_label_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

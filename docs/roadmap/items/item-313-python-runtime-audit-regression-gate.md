@@ -1,4 +1,4 @@
-# 313. Python Runtime Audit Regression Gate [OPEN 2026-06-24 - DAILY REFRESH AND STREAMLIT RUNTIME ERRORS ESCAPED COMPLETED AUDIT GATES]
+# 313. Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]
 
 Goal: keep high-signal Python audit checks actionable for operator-facing
 runtime paths, so undefined names, dashboard tracebacks, and current-window log
@@ -53,14 +53,14 @@ triage clean after those items closed.
    include focused tests for the daily-refresh missing-import path, the pandas
    local-shadowing dashboard regression, and log-signature ownership routing.
 
-- [ ] Define and document the focused Python audit gate and its explicit
+- [x] Define and document the focused Python audit gate and its explicit
   analyzer-noise baseline.
-- [ ] Add daily-refresh step smoke coverage for the reanalysis and
+- [x] Add daily-refresh step smoke coverage for the reanalysis and
   event-metadata validation entry paths.
-- [ ] Add Streamlit route smoke coverage that fails on single-market runtime
+- [x] Add Streamlit route smoke coverage that fails on single-market runtime
   tracebacks.
-- [ ] Add current-window traceback signature grouping and roadmap-owner routing.
-- [ ] Add regression tests for missing imported helpers, pandas local-shadowing,
+- [x] Add current-window traceback signature grouping and roadmap-owner routing.
+- [x] Add regression tests for missing imported helpers, pandas local-shadowing,
   and log-signature ownership.
 
 Acceptance: the focused Python audit command passes without hiding real
@@ -70,3 +70,28 @@ log signatures are grouped with active roadmap ownership, and the documented
 maintenance command can be run before closing future audit/UI cleanup items.
 
 Related: items 92, 107, 119, 122, 129, 205, 306, 312.
+
+## Completion Notes
+
+Implemented `weather.operations.python_runtime_audit`, a strict regression gate
+that combines the focused ruff sweep, an explicit analyzer-noise baseline at
+`docs/operations/python-runtime-audit-baseline.json`, daily-refresh
+runner/global smoke checks, a fixture-backed Streamlit single-market route
+smoke, and current-window log signature ownership routing.
+
+The gate is documented in `docs/operations/PYTHON_RUNTIME_AUDIT_GATE.md` and
+passes with:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.python_runtime_audit --strict --json-out data\backtest\python_runtime_audit.json
+```
+
+Targeted verification also passed:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q tests\operations\test_python_runtime_audit.py
+.\venv\Scripts\python.exe -m pytest -q tests\app\test_single_market_route_smoke.py
+.\venv\Scripts\python.exe -m pytest -q tests\operations\test_daily_refresh.py::TestDailyRefresh::test_daily_roll_log_hygiene_archives_old_errors_and_promotes_recurrence
+.\venv\Scripts\python.exe -m pytest -q tests\app\test_app_overview.py tests\app\test_app_roadmap.py
+.\venv\Scripts\python.exe -m compileall -q app src tests tools weather
+```

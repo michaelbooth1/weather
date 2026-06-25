@@ -13,7 +13,7 @@ def loop_artifact_integrity():
         usable = [str(path) for path in paths if path]
         return "python -m weather.operations.loop_jsonl_repair repair " + " ".join(usable)
 
-    for spec in (SNAPSHOT_SUPERVISOR, CLOB_SUPERVISOR, OBSERVATION_SUPERVISOR):
+    for spec in SUPERVISED_LOOP_SPECS:
         status = {}
         status_path = Path(spec.status_path)
         try:
@@ -26,7 +26,22 @@ def loop_artifact_integrity():
         status_pid = str(status_writer.get("pid")) if status_writer.get("pid") is not None else None
         duplicate_writer = bool(active_pid and status_pid and active_pid != status_pid)
         diagnostics = jsonl_integrity(spec.diagnostics_path)
-        console = jsonl_integrity(spec.console_log_path)
+        if spec.name in BOT_DAILY_ROLL_SUPERVISOR_NAMES:
+            console_path = Path(spec.console_log_path)
+            console = {
+                "path": str(console_path),
+                "exists": console_path.exists(),
+                "line_count": None,
+                "valid_json_lines": None,
+                "malformed_lines": 0,
+                "examples": [],
+                "malformed_line_numbers": [],
+                "classification_counts": {},
+                "ok": True,
+                "skipped_reason": "plain_text_daily_roll_console",
+            }
+        else:
+            console = jsonl_integrity(spec.console_log_path)
         malformed_lines = int(diagnostics.get("malformed_lines") or 0) + int(console.get("malformed_lines") or 0)
         malformed_samples = []
         for source, payload in (("diagnostics", diagnostics), ("console", console)):
@@ -219,6 +234,10 @@ def _loop_owner(spec):
         return "CLOB book supervisor"
     if spec.name == OBSERVATION_SUPERVISOR.name:
         return "observation-trigger supervisor"
+    if spec.name == TAKER_DAILY_ROLL_SUPERVISOR.name:
+        return "taker-bot daily-roll supervisor"
+    if spec.name == MARKET_MAKING_DAILY_ROLL_SUPERVISOR.name:
+        return "market-making daily-roll supervisor"
     return "unknown"
 
 
@@ -243,7 +262,39 @@ def _loop_health_for_spec(spec, status, now, current_identity):
         return clob_loop_health(status, now=now)
     if spec.name == OBSERVATION_SUPERVISOR.name:
         return watcher_health(status, now=now)
+    if spec.name in BOT_DAILY_ROLL_SUPERVISOR_NAMES:
+        from weather.operations.bot_daily_roll_supervisor import daily_roll_health
+        from weather.operations.market_making_daily_roll import pid_matches_market_making_run
+        from weather.operations.taker_bot_daily_roll import pid_matches_taker_bot
+
+        pid_alive = (
+            pid_matches_taker_bot
+            if spec.name == TAKER_DAILY_ROLL_SUPERVISOR.name
+            else pid_matches_market_making_run
+        )
+
+        return daily_roll_health(
+            status,
+            target_date=(status or {}).get("target_date"),
+            current_identity=current_identity,
+            now=now,
+            pid_alive=pid_alive,
+        )
     return {}
+
+
+def _loop_restart_command(spec):
+    if spec.name == SNAPSHOT_SUPERVISOR.name:
+        return spec.command("--restart")
+    if spec.name in BOT_DAILY_ROLL_SUPERVISOR_NAMES:
+        return spec.command("start", "--force")
+    return spec.command("restart")
+
+
+def _loop_ensure_command(spec):
+    if spec.name == SNAPSHOT_SUPERVISOR.name:
+        return spec.command("--ensure")
+    return spec.command("ensure")
 
 
 def _runtime_code_state(status, current_identity):
@@ -310,8 +361,8 @@ def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, wi
     blocking_reasons = []
     immediate_repair_commands = []
     aging_blockers = []
-    restart_command = spec.command("restart" if spec.name != SNAPSHOT_SUPERVISOR.name else "--restart")
-    ensure_command = spec.command("ensure" if spec.name != SNAPSHOT_SUPERVISOR.name else "--ensure")
+    restart_command = _loop_restart_command(spec)
+    ensure_command = _loop_ensure_command(spec)
     restart_budget_clears_at = _expiry_after_window(
         restart_event_times,
         allowed_count=restart_budget,
@@ -424,7 +475,7 @@ def current_code_soak_summary(loop_integrity, live_forward_slo, now=None, curren
         row.get("name"): row
         for row in (loop_integrity or {}).get("rows") or []
     }
-    specs = tuple(specs or (SNAPSHOT_SUPERVISOR, CLOB_SUPERVISOR, OBSERVATION_SUPERVISOR))
+    specs = tuple(specs or SUPERVISED_LOOP_SPECS)
     loop_rows = [
         _current_code_soak_row(
             spec,

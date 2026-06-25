@@ -139,6 +139,9 @@ def _trust_summary(trust_rows, trust_path, family_ids):
 
 def _candidate_summary(candidate_report, candidate_json_path, candidate_report_path):
     aggregate = candidate_report.get("aggregate") or {}
+    shadow = candidate_report.get("candidate_shadow_variants") or {}
+    active_contract = shadow.get("active_registry_contract") or candidate_report.get("active_registry_contract") or {}
+    repair_integration = candidate_report.get("repair_integration") or active_contract.get("repair_integration") or {}
     microstructure = candidate_report.get("microstructure") or {}
     micro_diag = microstructure.get("diagnostics") or {}
     micro_agg = microstructure.get("aggregate") or {}
@@ -173,7 +176,10 @@ def _candidate_summary(candidate_report, candidate_json_path, candidate_report_p
         "coverage": candidate_report.get("coverage") or {},
         "replay_gate": candidate_report.get("replay_gate") or {},
         "blocked_validation": candidate_report.get("blocked_validation") or {},
-        "candidate_shadow_variants": candidate_report.get("candidate_shadow_variants") or {},
+        "validation_evidence": candidate_report.get("validation_evidence"),
+        "row_export_metric_passed": candidate_report.get("row_export_metric_passed"),
+        "candidate_shadow_variants": shadow,
+        "repair_integration": repair_integration,
         "evidence_accounting": evidence,
         "aggregate": {
             "rows": aggregate.get("n", 0),

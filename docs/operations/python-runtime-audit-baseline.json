@@ -1,0 +1,190 @@
+{
+  "schema_version": "python_runtime_audit_baseline_v0.1",
+  "ruff_baseline": [
+    {
+      "code": "F811",
+      "path": "src/weather/calibration/pooled_band_training.py",
+      "symbols": [
+        "adjacent_calibration_contexts",
+        "adjacent_calibration_factor",
+        "apply_adjacent_calibration",
+        "apply_band_postprocessing",
+        "apply_exact_winner_catchup",
+        "apply_forecast_centering",
+        "apply_market_bias_calibration",
+        "calibration_gap_bucket",
+        "calibration_hour_bucket",
+        "exact_winner_catchup_contexts",
+        "exact_winner_catchup_factor",
+        "forecast_anchor_probability",
+        "forecast_centering_alpha",
+        "market_bias_calibration_contexts",
+        "market_bias_calibration_factor",
+        "normal_cdf",
+        "predict_band_probabilities",
+        "predict_band_rows_for_bundle",
+        "source_trust_bucket"
+      ],
+      "owner": "item-313",
+      "disposition": "Compatibility-slice re-export of variant_prediction_runtime names; listed so new redefinitions outside this exported symbol set fail the gate."
+    },
+    {
+      "code": "F811",
+      "path": "src/weather/calibration/pooled_candidate_replay.py",
+      "symbols": [
+        "density_projection_index",
+        "density_projection_probability",
+        "market_verdict"
+      ],
+      "owner": "item-313",
+      "disposition": "Compatibility-slice re-export from extracted pooled candidate replay helpers."
+    },
+    {
+      "code": "F811",
+      "path": "src/weather/calibration/pooled_candidate_replay_diagnostics.py",
+      "symbols": [
+        "MICROSTRUCTURE_CATEGORICAL_FEATURES",
+        "MICROSTRUCTURE_NUMERIC_FEATURES",
+        "cutoff_hour_bucket",
+        "microstructure_feature_frame",
+        "microstructure_feature_record",
+        "probability_logit"
+      ],
+      "owner": "item-313",
+      "disposition": "Compatibility-slice re-export from extracted microstructure diagnostics helpers."
+    },
+    {
+      "code": "F811",
+      "path": "src/weather/calibration/pooled_feature_assembly.py",
+      "symbols": [
+        "band_feature_frame",
+        "band_outcome",
+        "band_prediction_record",
+        "canonical_density_record",
+        "canonical_density_records",
+        "feature_frame",
+        "feature_names_need_dynamic_source_state",
+        "finite_float",
+        "hard_floor_probability",
+        "late_lockin_strength_from_features",
+        "late_lockin_target",
+        "native_delta_to_f",
+        "native_value_to_f",
+        "record_unit",
+        "support_floor_cap",
+        "temperature_scale_probability"
+      ],
+      "owner": "item-313",
+      "disposition": "Compatibility-slice re-export from extracted pooled feature assembly helpers."
+    },
+    {
+      "code": "F811",
+      "path": "src/weather/calibration/pooled_training.py",
+      "symbols": [
+        "predict_density_rows_for_bundle"
+      ],
+      "owner": "item-313",
+      "disposition": "Compatibility-slice re-export from extracted pooled density training helpers."
+    },
+    {
+      "code": "F821",
+      "path": "src/weather/operations/daily_refresh_cli.py",
+      "symbols": [
+        "DEFAULT_BACKTEST_ROOT",
+        "DEFAULT_LABELS_CSV",
+        "DEFAULT_LEDGER_ROOT",
+        "DEFAULT_LOCK_PATH",
+        "DEFAULT_LONG_JOB_LOCK_PATH",
+        "DEFAULT_LONG_JOB_STATE_PATH",
+        "DEFAULT_REPORT_OUT",
+        "DEFAULT_SNAPSHOTS_ROOT",
+        "DEFAULT_STATUS_OUT",
+        "STEP_ORDER",
+        "_remove_lock_if_verified_stale",
+        "acquire_lock",
+        "active_variant_shadow_refresh",
+        "clear_stale_long_job_state",
+        "clob_order_book_tiering",
+        "daily_roll_log_hygiene",
+        "data_retention_inventory",
+        "event_metadata_validation",
+        "fleet_observability",
+        "hourly_model_performance",
+        "june23_location_bias_repair",
+        "load_status",
+        "lock_diagnostic",
+        "lock_preflight",
+        "model_market_disagreement_analysis",
+        "progress_audit",
+        "promotion_refresh",
+        "release_lock",
+        "run_daily_refresh",
+        "settled_day_root_cause",
+        "taker_bot",
+        "ten_minute_model_performance",
+        "utc_iso",
+        "winner_rank_parity"
+      ],
+      "owner": "item-313",
+      "disposition": "daily_refresh_cli is configured by weather.operations.daily_refresh before parser construction; only these dependency-injected globals are baselined."
+    }
+  ],
+  "log_signature_routes": [
+    {
+      "loop": "streamlit",
+      "category": "console_error",
+      "pattern": "Traceback \\(most recent call last\\):",
+      "roadmap_owner": "item 313",
+      "disposition": "traceback_envelope",
+      "detail": "Streamlit traceback envelope; final exception signature is routed separately."
+    },
+    {
+      "loop": "streamlit",
+      "category": "console_error",
+      "pattern": "UnboundLocalError: cannot access local variable 'pd'",
+      "roadmap_owner": "item 313",
+      "disposition": "known_dashboard_regression",
+      "detail": "Pre-fix 2026-06-24 single-market dashboard pandas local-shadowing regression."
+    },
+    {
+      "loop": "maker",
+      "category": "console_error",
+      "pattern": "Traceback \\(most recent call last\\):",
+      "roadmap_owner": "item 306",
+      "disposition": "traceback_envelope",
+      "detail": "Maker console traceback envelope; final exception signature is routed separately."
+    },
+    {
+      "loop": "taker",
+      "category": "console_error",
+      "pattern": "Traceback \\(most recent call last\\):",
+      "roadmap_owner": "item 306",
+      "disposition": "traceback_envelope",
+      "detail": "Taker console traceback envelope; final exception signature is routed separately."
+    },
+    {
+      "loop": "maker",
+      "category": "encoding_error",
+      "pattern": "codec can't decode byte",
+      "roadmap_owner": "item 306",
+      "disposition": "historical_console_noise",
+      "detail": "Historical maker console encoding traceback; current-window health is handled by structured daily-roll status."
+    },
+    {
+      "loop": "maker",
+      "category": "blocked_by_disk",
+      "pattern": "No space left on device",
+      "roadmap_owner": "item 306",
+      "disposition": "historical_console_noise",
+      "detail": "Historical maker console disk-full traceback; current-window health is handled by structured daily-roll status."
+    },
+    {
+      "loop": "taker",
+      "category": "blocked_by_disk",
+      "pattern": "No space left on device",
+      "roadmap_owner": "item 306",
+      "disposition": "historical_console_noise",
+      "detail": "Historical taker console disk-full traceback; current-window health is handled by structured daily-roll status."
+    }
+  ]
+}

@@ -88,6 +88,9 @@ def variant_export_contract(variant):
         "postprocess_config_hash",
         "live_runtime",
         "route_recipe_path",
+        "repair_specs_path",
+        "source_candidate_json",
+        "repair_integration",
     ):
         if key in variant and key not in contract:
             contract[key] = variant.get(key)
@@ -338,6 +341,8 @@ def audit_registry(
         missing = [field for field in REQUIRED_ACTIVE_EXPORT_FIELDS if not contract.get(field)]
         if contract.get("live_runtime") == "candidate_row_route_composite" and not contract.get("route_recipe_path"):
             missing.append("route_recipe_path")
+        if contract.get("live_runtime") == "repair_integration_active_contract" and not contract.get("repair_specs_path"):
+            missing.append("repair_specs_path")
         if contract.get("artifact_required", True) and not contract.get("artifact_path"):
             missing.append("artifact_path")
         if missing:

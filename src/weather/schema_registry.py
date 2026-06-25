@@ -978,6 +978,13 @@ REGISTERED_SCHEMAS = (
         "Promotion-refresh-compatible candidate replay summary derived from candidate variant row exports.",
     ),
     SchemaSpec(
+        "repair_integration",
+        "repair_integration_v0.1",
+        "weather.reporting.repair_integration",
+        "active",
+        "Integrated active-contract repair candidate that consolidates validated repair row exports.",
+    ),
+    SchemaSpec(
         "ten_minute_model_performance",
         "ten_minute_model_performance_v0.1",
         "weather.reporting.ten_minute_model_performance",
@@ -1752,6 +1759,20 @@ REGISTERED_SCHEMAS = (
         "weather.operations.daily_roll_log_hygiene",
         "active",
         "Current-window daily-roll log health with historical disk/encoding incident archive separation.",
+    ),
+    SchemaSpec(
+        "python_runtime_audit",
+        "python_runtime_audit_v0.1",
+        "weather.operations.python_runtime_audit",
+        "active",
+        "Focused Python static, smoke, and current-window traceback regression gate.",
+    ),
+    SchemaSpec(
+        "python_runtime_audit_baseline",
+        "python_runtime_audit_baseline_v0.1",
+        "docs.operations.python-runtime-audit-baseline",
+        "active",
+        "Explicit baseline for the focused Python runtime audit gate.",
     ),
     SchemaSpec(
         "feature_quality_quarantine_folder",

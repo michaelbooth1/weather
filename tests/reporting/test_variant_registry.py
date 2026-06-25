@@ -182,6 +182,37 @@ class TestVariantRegistry(unittest.TestCase):
         ]
         self.assertTrue(any("route_recipe_path" in row["detail"] for row in missing_checks))
 
+    def test_audit_requires_repair_specs_for_active_repair_integration_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "variants.csv"
+            export.write_text(
+                "variant_id,variant_family,market_id,target_date,snapshot_id,band_key,probability,current_probability,market_yes,outcome\n"
+                "repair_v1,demo_family,nyc,2026-06-18,s1,eq:82,0.55,0.50,0.52,1\n",
+                encoding="utf-8",
+            )
+            registry = {
+                "schema_version": SCHEMA_VERSION,
+                "exists": True,
+                "path": "inline",
+                "variants": [
+                    _active_variant(
+                        "repair_v1",
+                        live_runtime="repair_integration_active_contract",
+                        default_export_path=str(export),
+                    )
+                ],
+            }
+
+            payload = audit_registry(registry)
+
+        self.assertEqual(payload["status"], "ERROR")
+        missing_checks = [
+            row for row in payload["checks"]
+            if row["category"] == "missing_export_contract_fields"
+        ]
+        self.assertTrue(any("repair_specs_path" in row["detail"] for row in missing_checks))
+
 
 if __name__ == "__main__":
     unittest.main()

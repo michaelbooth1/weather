@@ -179,7 +179,8 @@ def _scorecard_rows(scorecard):
                 f"{taker.get('unsettled_order_count', '-')}; "
                 f"tail={taker.get('low_price_tail_fill_count', 0)} "
                 f"({taker.get('tail_fill_quality_status') or '-'}); "
-                f"root={taker.get('root_cause_class') or '-'}"
+                f"root={taker.get('root_cause_class') or '-'}; "
+                f"class={taker.get('taker_day_classification') or '-'}"
             ),
         ],
         [
@@ -816,6 +817,12 @@ def render_report(payload):
                     ) or "-",
                 ],
                 ["Taker root cause", taker.get("root_cause_class") or "-"],
+                ["Taker day classification", taker.get("taker_day_classification") or "-"],
+                ["Taker evidence countability", taker.get("taker_evidence_countability_status") or "-"],
+                [
+                    "Taker latest-tick liveness",
+                    (taker.get("latest_tick_scoring_liveness") or {}).get("status") or "-",
+                ],
                 ["Taker quality status", taker_quality.get("status") or "-"],
                 ["Taker quality interpretation", taker_quality.get("interpretation") or "-"],
                 ["Taker finalization status", taker_finalization.get("status") or "-"],

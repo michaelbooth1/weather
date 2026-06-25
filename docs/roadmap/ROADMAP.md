@@ -346,8 +346,8 @@ infrastructure work remains.
 | 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
 | 309 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [COMPLETE 2026-06-24 - SNAPSHOT TEMPLATE, PUBLISH, ACCEPT-BASELINE, AND REFRESH CADENCE IN PLACE]](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 | 310 | [Toronto WU Current-Max Boundary Over-Lock Guard [COMPLETE 2026-06-24 - SUPPORT-ONLY CURRENT-MAX BOUNDARY GUARD LIVE]](items/item-310-toronto-wu-current-max-boundary-overlock-guard.md) |
-| 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [OPEN 2026-06-24 - LATEST-TICK STARVATION STILL PASSES LIVENESS]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
-| 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [OPEN 2026-06-25 - BOT LOOPS HAVE NO ENSURE-SUPERVISOR; A HUNG OR STALE-CODE ROLL GOES DARK FOR HOURS]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
+| 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
+| 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
 
 ### Architecture And Maintainability
 
@@ -391,9 +391,9 @@ infrastructure work remains.
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
 | 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
-| 313 | [Python Runtime Audit Regression Gate [OPEN 2026-06-24 - DAILY REFRESH AND STREAMLIT RUNTIME ERRORS ESCAPED COMPLETED AUDIT GATES]](items/item-313-python-runtime-audit-regression-gate.md) |
+| 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
 | 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [OPEN 2026-06-25 - SCHEMA BUMPS STRAND ARTIFACTS HISTORICAL-ONLY INSTEAD OF MIGRATING]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
-| 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [OPEN 2026-06-25 - VALIDATED REPAIRS STAY ROW-EXPORT SURROGATES AND NEVER REACH SERVING]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
+| 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
 | 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [OPEN 2026-06-25 - BLANKET BLOCK-ALL TAIL/WARM/WEAK GUARDS IGNORE THE PROVEN-EDGE MAP]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
 | 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [OPEN 2026-06-25 - SOURCES IMPORT MODEL CONSTANT]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
 | 318 | [Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - EIGHT MODULES EXCEED SIZE RATCHET]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |

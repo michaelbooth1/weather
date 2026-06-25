@@ -62,6 +62,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("candidate_hourly_performance"), "candidate_hourly_performance_v0.1")
         self.assertEqual(schema_version("candidate_hourly_performance_gate"), "candidate_hourly_performance_gate_v0.1")
         self.assertEqual(schema_version("candidate_variant_replay_summary"), "candidate_variant_replay_summary_v0.1")
+        self.assertEqual(schema_version("repair_integration"), "repair_integration_v0.1")
         self.assertEqual(schema_version("ten_minute_model_performance"), "ten_minute_model_performance_v0.1")
         self.assertEqual(schema_version("ten_minute_performance_gate"), "ten_minute_performance_gate_v0.1")
         self.assertEqual(
@@ -244,6 +245,8 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("daily_refresh_disk_preflight"), "daily_refresh_disk_preflight_v0.1")
         self.assertEqual(schema_version("daily_refresh_stale_lock_repair"), "daily_refresh_stale_lock_repair_v0.1")
         self.assertEqual(schema_version("daily_rollup_freshness"), "daily_rollup_freshness_v0.1")
+        self.assertEqual(schema_version("python_runtime_audit"), "python_runtime_audit_v0.1")
+        self.assertEqual(schema_version("python_runtime_audit_baseline"), "python_runtime_audit_baseline_v0.1")
         self.assertEqual(schema_version("nightly_health_checks"), "nightly_health_checks_v0.1")
         self.assertEqual(schema_version("runtime_identity_evidence"), "runtime_identity_evidence_v0.1")
         self.assertEqual(schema_version("runtime_identity_reconciliation"), "runtime_identity_reconciliation_v0.1")

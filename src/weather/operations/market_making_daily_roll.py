@@ -23,13 +23,20 @@ from weather.market.market_making_evidence import (
 )
 from weather.market.market_making_run_constants import DEFAULT_RUNS_ROOT, RUN_MODES
 from weather.operations.bot_run_liveness import (
+    DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
+    DEFAULT_STARTUP_GRACE_SECONDS,
+    age_seconds,
     disk_capacity_preflight,
     disk_full_status,
     failed_status,
     is_disk_full_error,
-    terminal_status_for_dead_pid,
+    parse_utc,
+    terminal_status_for_inactive_process,
+    utc_iso as liveness_utc_iso,
 )
+from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll
+from weather.operations.supervisor import SupervisorSpec
 from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
@@ -38,12 +45,40 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("market_making_daily_roll")
 DEFAULT_STATUS_PATH = DEFAULT_RUNS_ROOT / "daily_roll_status.json"
 DEFAULT_CONSOLE_LOG_PATH = DEFAULT_RUNS_ROOT / "daily_roll_console.log"
+DEFAULT_DIAGNOSTICS_PATH = DEFAULT_RUNS_ROOT / "daily_roll_diagnostics.jsonl"
 DEFAULT_TASK_NAME = "WeatherMarketMakingDailyRoll"
+DEFAULT_SUPERVISOR_TASK_NAME = "WeatherMarketMakingDailyRollSupervisor"
 DEFAULT_TIMEZONE = "America/Toronto"
+DEFAULT_START_AFTER_LOCAL_TIME = "19:30"
 DEFAULT_BUDGET_USDC = 500.0
 DEFAULT_MODE = "paper-live-forward"
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
+ACTIVITY_FILENAMES = (
+    "quote_intents_long.csv",
+    "order_lifecycle.jsonl",
+    "budget_ledger.jsonl",
+    "run_summary.json",
+    "live_forward_gate.json",
+    "preflight.json",
+)
+REQUIRED_LATEST_RUN_ARTIFACTS = (
+    "quote_intents_long.csv",
+    "run_summary.json",
+)
+QUARANTINE_DIR_NAME = "_quarantine"
+MARKET_MAKING_DAILY_ROLL_SUPERVISOR = SupervisorSpec(
+    name="market_making_daily_roll",
+    module="weather.operations.market_making_daily_roll",
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+    cwd=REPO_ROOT,
+    restart_budget=12,
+    restart_budget_window_hours=24.0,
+    restart_backoff_base_seconds=120.0,
+    restart_backoff_max_seconds=3600.0,
+)
 
 
 def utc_now():
@@ -114,6 +149,19 @@ def write_json(path, payload):
                 raise
             time.sleep(0.05)
     return path
+
+
+def runtime_market_making_daily_roll_supervisor_spec(
+    *,
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+):
+    return MARKET_MAKING_DAILY_ROLL_SUPERVISOR.with_paths(
+        status_path=status_path,
+        diagnostics_path=diagnostics_path,
+        console_log_path=console_log_path,
+    )
 
 
 def build_market_making_command(
@@ -223,6 +271,320 @@ def launch_market_making_process(command, *, repo_root=REPO_ROOT, console_log_pa
     return child.pid
 
 
+def market_making_run_folders(runs_root, target_date):
+    day_root = Path(runs_root) / ensure_date(target_date)
+    if not day_root.exists():
+        return []
+    folders = []
+    for folder in day_root.iterdir():
+        if not folder.is_dir():
+            continue
+        if folder.name == QUARANTINE_DIR_NAME or folder.name.startswith("."):
+            continue
+        folders.append(folder)
+    return sorted(folders)
+
+
+def _path_stat(path, stat_fn=None):
+    stat_fn = stat_fn or (lambda value: Path(value).stat())
+    try:
+        return stat_fn(Path(path))
+    except OSError:
+        return None
+
+
+def _path_mtime_utc(path, stat_fn=None):
+    stat = _path_stat(path, stat_fn=stat_fn)
+    if stat is None:
+        return None
+    return datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+
+
+def _path_size(path, stat_fn=None):
+    stat = _path_stat(path, stat_fn=stat_fn)
+    if stat is None:
+        return None
+    return int(getattr(stat, "st_size", 0) or 0)
+
+
+def _run_folder_latest_mtime(run_folder, stat_fn=None):
+    latest = _path_mtime_utc(run_folder, stat_fn=stat_fn)
+    try:
+        children = list(Path(run_folder).iterdir())
+    except OSError:
+        children = []
+    for path in children:
+        if path.is_file():
+            mtime = _path_mtime_utc(path, stat_fn=stat_fn)
+            if mtime is not None and (latest is None or mtime > latest):
+                latest = mtime
+    return latest
+
+
+def latest_market_making_run_folder(runs_root, target_date, *, stat_fn=None):
+    folders = market_making_run_folders(runs_root, target_date)
+    if not folders:
+        return None
+    return max(
+        folders,
+        key=lambda folder: (
+            _run_folder_latest_mtime(folder, stat_fn=stat_fn) or datetime.min.replace(tzinfo=timezone.utc),
+            folder.name,
+        ),
+    )
+
+
+def market_making_activity_paths(runs_root, target_date):
+    paths = []
+    day_root = Path(runs_root) / ensure_date(target_date)
+    if day_root.exists():
+        for run_folder in sorted(day_root.glob("*")):
+            if not run_folder.is_dir():
+                continue
+            if run_folder.name == QUARANTINE_DIR_NAME or run_folder.name.startswith("."):
+                continue
+            paths.extend(run_folder / name for name in ACTIVITY_FILENAMES)
+    return paths
+
+
+def _latest_useful_artifact_row(paths, *, now=None, stat_fn=None):
+    current = parse_utc(now) or datetime.now(timezone.utc)
+    best = None
+    for path in paths:
+        mtime = _path_mtime_utc(path, stat_fn=stat_fn)
+        if mtime is None:
+            continue
+        row = {
+            "path": str(path),
+            "modified_at_utc": mtime.isoformat(),
+            "age_seconds": round(max(0.0, (current - mtime).total_seconds()), 3),
+            "size_bytes": _path_size(path, stat_fn=stat_fn),
+        }
+        if best is None or mtime > parse_utc(best["modified_at_utc"]):
+            best = row
+    return best
+
+
+def _read_run_summary(run_folder):
+    return read_json(Path(run_folder) / "run_summary.json") or {}
+
+
+def market_making_artifact_health(
+    runs_root,
+    target_date,
+    *,
+    now=None,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    started_at_utc=None,
+    stat_fn=None,
+):
+    current = parse_utc(now) or datetime.now(timezone.utc)
+    folders = market_making_run_folders(runs_root, target_date)
+    startup_age = age_seconds(started_at_utc, now=current)
+    in_startup_grace = startup_age is not None and startup_age <= float(startup_grace_seconds)
+    if not folders:
+        status = "STARTUP_GRACE" if in_startup_grace else "NO_RUN_FOLDER"
+        return {
+            "status": status,
+            "ok": in_startup_grace,
+            "root_cause_class": None if in_startup_grace else "stale_pid_no_recent_useful_artifacts",
+            "run_folder_count": 0,
+            "latest_run_folder": None,
+            "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
+        }
+
+    latest = latest_market_making_run_folder(runs_root, target_date, stat_fn=stat_fn)
+    try:
+        files = [path for path in latest.iterdir() if path.is_file()]
+    except OSError:
+        files = []
+    useful_paths = [latest / name for name in ACTIVITY_FILENAMES]
+    latest_useful = _latest_useful_artifact_row(useful_paths, now=current, stat_fn=stat_fn)
+    missing_required = [name for name in REQUIRED_LATEST_RUN_ARTIFACTS if _path_stat(latest / name, stat_fn=stat_fn) is None]
+    status = "PASS"
+    root_cause = None
+    detail = "latest market-making run artifacts are current"
+    if not files:
+        status = "EMPTY_RUN_FOLDER"
+        root_cause = "empty_run_artifact_folder"
+        detail = "latest market-making run folder has no files"
+    elif "quote_intents_long.csv" in missing_required:
+        status = "MISSING_QUOTE_TAPE"
+        root_cause = "missing_quote_tape"
+        detail = "latest market-making run folder is missing quote_intents_long.csv"
+    elif "run_summary.json" in missing_required:
+        status = "MISSING_HEARTBEAT_METADATA"
+        root_cause = "missing_heartbeat_metadata"
+        detail = "latest market-making run folder is missing run_summary.json"
+    else:
+        run_summary_mtime = _path_mtime_utc(latest / "run_summary.json", stat_fn=stat_fn)
+        quote_mtime = _path_mtime_utc(latest / "quote_intents_long.csv", stat_fn=stat_fn)
+        run_summary_age = max(0.0, (current - run_summary_mtime).total_seconds()) if run_summary_mtime else None
+        quote_age = max(0.0, (current - quote_mtime).total_seconds()) if quote_mtime else None
+        if run_summary_age is not None and run_summary_age > float(max_activity_age_seconds):
+            status = "STALE_HEARTBEAT_METADATA"
+            root_cause = "stale_heartbeat_metadata"
+            detail = "run_summary.json is stale"
+        elif quote_age is not None and quote_age > float(max_activity_age_seconds):
+            status = "STALE_QUOTE_TAPE"
+            root_cause = "stale_quote_tape"
+            detail = "quote_intents_long.csv is stale"
+
+    if status != "PASS" and in_startup_grace and status in {
+        "EMPTY_RUN_FOLDER",
+        "MISSING_QUOTE_TAPE",
+        "MISSING_HEARTBEAT_METADATA",
+    }:
+        ok = True
+        root_cause = None
+        detail = f"{detail}; still inside startup grace"
+        status = "STARTUP_GRACE"
+    else:
+        ok = status == "PASS"
+
+    summary = _read_run_summary(latest) if latest else {}
+    useful_work = summary.get("useful_work_liveness") or (summary.get("live_forward_gate") or {}).get("useful_work_liveness") or {}
+    report = {
+        "latest_run_folder": str(latest) if latest else None,
+        "latest_useful_write_path": (latest_useful or {}).get("path"),
+        "latest_useful_write_at_utc": (latest_useful or {}).get("modified_at_utc"),
+        "latest_useful_write_age_seconds": (latest_useful or {}).get("age_seconds"),
+        "latest_quote_rows": summary.get("row_count") or (summary.get("latest_tick") or {}).get("row_count"),
+        "latest_quote_permission_rows": summary.get("quote_permission_rows")
+        or (summary.get("latest_tick") or {}).get("quote_permission_rows"),
+        "useful_work_liveness_status": useful_work.get("status"),
+        "useful_work_liveness_reason": useful_work.get("reason"),
+        "restart_recommended": not ok,
+        "restart_reason": root_cause,
+    }
+    return {
+        "status": status,
+        "ok": ok,
+        "root_cause_class": root_cause,
+        "detail": detail,
+        "run_folder_count": len(folders),
+        "latest_run_folder": str(latest) if latest else None,
+        "missing_required_artifacts": missing_required,
+        "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
+        "max_activity_age_seconds": float(max_activity_age_seconds),
+        "latest_useful_artifact": latest_useful,
+        "operator_report": report,
+    }
+
+
+def enrich_market_making_liveness_status(
+    payload,
+    *,
+    now=None,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    stat_fn=None,
+):
+    if not payload or payload.get("status") not in {"started", "already_running", "idle_process"}:
+        return payload
+    health = market_making_artifact_health(
+        payload.get("runs_root") or DEFAULT_RUNS_ROOT,
+        payload.get("target_date") or target_date_for_roll(now=now),
+        now=now,
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        started_at_utc=payload.get("started_at_utc") or payload.get("generated_at_utc"),
+        stat_fn=stat_fn,
+    )
+    payload["artifact_liveness"] = health
+    payload["operator_report"] = health.get("operator_report") or {}
+    if health.get("ok"):
+        return payload
+    payload.update({
+        "status": "idle_process",
+        "action": "blocked_restart_required",
+        "terminal": True,
+        "completed_at_utc": liveness_utc_iso(now),
+        "first_failing_gate": "artifact_liveness",
+        "root_cause_class": health.get("root_cause_class") or "stale_pid_no_recent_useful_artifacts",
+        "zero_trades_expected": False,
+        "remediation_command": "quarantine stale or incomplete market-making artifacts, then restart the daily roll with --force",
+    })
+    return payload
+
+
+def market_making_terminal_status_for_inactive_process(
+    payload,
+    *,
+    now=None,
+    pid_alive=None,
+    runs_root=None,
+    target_date=None,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    stat_fn=None,
+):
+    root = runs_root or (payload or {}).get("runs_root") or DEFAULT_RUNS_ROOT
+    target = target_date or (payload or {}).get("target_date")
+    payload = terminal_status_for_inactive_process(
+        payload,
+        now=now,
+        pid_alive=pid_alive,
+        activity_paths=market_making_activity_paths(root, target or target_date_for_roll(now=now)),
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        stat_fn=stat_fn,
+    )
+    return enrich_market_making_liveness_status(
+        payload,
+        now=now,
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        stat_fn=stat_fn,
+    )
+
+
+def quarantine_unhealthy_market_making_run_folder(
+    runs_root,
+    target_date,
+    *,
+    artifact_health=None,
+    now=None,
+    force=False,
+):
+    health = artifact_health or market_making_artifact_health(runs_root, target_date, now=now)
+    if health.get("ok") and not force:
+        return {"status": "SKIPPED_HEALTHY", "action": "none", "reason": "latest run artifacts are healthy"}
+    source = health.get("latest_run_folder")
+    if not source:
+        return {"status": "SKIPPED_NO_RUN_FOLDER", "action": "none", "reason": "no run folder to quarantine"}
+    source = Path(source)
+    if not source.exists() or not source.is_dir():
+        return {"status": "SKIPPED_MISSING_SOURCE", "action": "none", "source_path": str(source)}
+    timestamp = (parse_utc(now) or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    quarantine_root = source.parent / QUARANTINE_DIR_NAME
+    quarantine_root.mkdir(parents=True, exist_ok=True)
+    destination = quarantine_root / f"{source.name}__{timestamp}"
+    if destination.exists():
+        destination = quarantine_root / f"{source.name}__{timestamp}__{os.getpid()}_{time.time_ns()}"
+    try:
+        source.rename(destination)
+    except OSError as exc:
+        return {
+            "status": "FAILED",
+            "action": "quarantine_failed",
+            "source_path": str(source),
+            "quarantine_path": str(destination),
+            "reason": f"{type(exc).__name__}: {exc}",
+            "artifact_liveness_status": health.get("status"),
+        }
+    return {
+        "status": "QUARANTINED",
+        "action": "quarantine",
+        "source_path": str(source),
+        "quarantine_path": str(destination),
+        "artifact_liveness_status": health.get("status"),
+        "root_cause_class": health.get("root_cause_class"),
+        "forced": bool(force),
+    }
+
+
 def _base_payload(
     *,
     target_date,
@@ -280,10 +642,14 @@ def start_for_date(
     config_overrides=None,
     evidence_mode=EVIDENCE_MODE_AUTO,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     disk_usage_fn=None,
+    activity_stat_fn=None,
     now=None,
     pid_alive=pid_matches_market_making_run,
     launcher=launch_market_making_process,
+    force_retire_latest_run=False,
 ):
     target_date = ensure_date(target_date)
     status_path = Path(status_path)
@@ -309,9 +675,20 @@ def start_for_date(
     )
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
+    existing_liveness = None
     if existing.get("target_date") == target_date and existing.get("status") in {"started", "already_running"}:
-        refreshed = terminal_status_for_dead_pid(existing, now=now, pid_alive=pid_alive)
-        if refreshed.get("status") == "pid_missing" and not force:
+        refreshed = market_making_terminal_status_for_inactive_process(
+            existing,
+            now=now,
+            pid_alive=pid_alive,
+            runs_root=existing.get("runs_root") or runs_root,
+            target_date=target_date,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            stat_fn=activity_stat_fn,
+        )
+        existing_liveness = refreshed
+        if refreshed.get("status") in {"pid_missing", "idle_process"} and not force:
             payload = _base_payload(
                 target_date=target_date,
                 budget_usdc=budget_usdc,
@@ -358,6 +735,10 @@ def start_for_date(
             "started_at_utc": existing.get("started_at_utc"),
             "previous_status_generated_at_utc": existing.get("generated_at_utc"),
         })
+        if existing_liveness:
+            for key in ("activity_liveness", "artifact_liveness", "operator_report"):
+                if key in existing_liveness:
+                    payload[key] = existing_liveness[key]
         write_json(status_path, payload)
         return payload
 
@@ -366,6 +747,24 @@ def start_for_date(
         min_free_bytes=min_free_bytes,
         usage_fn=disk_usage_fn,
     )
+    forced_run_retirement = None
+    if force and existing.get("target_date") == target_date:
+        health = market_making_artifact_health(
+            existing.get("runs_root") or runs_root,
+            target_date,
+            now=now,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            started_at_utc=existing.get("started_at_utc") or existing.get("generated_at_utc"),
+            stat_fn=activity_stat_fn,
+        )
+        forced_run_retirement = quarantine_unhealthy_market_making_run_folder(
+            existing.get("runs_root") or runs_root,
+            target_date,
+            artifact_health=health,
+            now=now,
+            force=force_retire_latest_run,
+        )
     payload = _base_payload(
         target_date=target_date,
         budget_usdc=budget_usdc,
@@ -381,8 +780,12 @@ def start_for_date(
         disk_preflight=disk_preflight,
         now=now,
     )
+    if forced_run_retirement is not None:
+        payload["forced_run_retirement"] = forced_run_retirement
     if not disk_preflight.get("ok"):
         payload = disk_full_status(payload, preflight=disk_preflight, now=now)
+        if forced_run_retirement is not None:
+            payload["forced_run_retirement"] = forced_run_retirement
         write_json(status_path, payload)
         return payload
     try:
@@ -402,6 +805,8 @@ def start_for_date(
         "forced": bool(force),
         "once": bool(once),
     })
+    if forced_run_retirement is not None:
+        payload["forced_run_retirement"] = forced_run_retirement
     write_json(status_path, payload)
     return payload
 
@@ -420,14 +825,129 @@ def start_for_current_day(
     )
 
 
-def load_status(path=DEFAULT_STATUS_PATH, *, now=None, pid_alive=pid_matches_market_making_run, write_back=False):
+def ensure_for_date(
+    target_date,
+    *,
+    budget_usdc=DEFAULT_BUDGET_USDC,
+    mode=DEFAULT_MODE,
+    markets=DEFAULT_MARKETS,
+    interval_seconds=DEFAULT_INTERVAL_SECONDS,
+    timezone_name=DEFAULT_TIMEZONE,
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+    runs_root=DEFAULT_RUNS_ROOT,
+    repo_root=REPO_ROOT,
+    python_executable=None,
+    once=False,
+    config_overrides=None,
+    evidence_mode=EVIDENCE_MODE_AUTO,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    disk_usage_fn=None,
+    activity_stat_fn=None,
+    now=None,
+    pid_alive=pid_matches_market_making_run,
+    launcher=launch_market_making_process,
+    start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
+    current_identity=None,
+):
+    target_date = ensure_date(target_date)
+    spec = runtime_market_making_daily_roll_supervisor_spec(
+        status_path=status_path,
+        diagnostics_path=diagnostics_path,
+        console_log_path=console_log_path,
+    )
+
+    def load_current_status():
+        return load_status(
+            status_path,
+            now=now,
+            pid_alive=pid_alive,
+            write_back=True,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            activity_stat_fn=activity_stat_fn,
+        )
+
+    def start_recovery(*, force, force_retire_latest_run=False):
+        return start_for_date(
+            target_date,
+            budget_usdc=budget_usdc,
+            mode=mode,
+            markets=markets,
+            interval_seconds=interval_seconds,
+            timezone_name=timezone_name,
+            status_path=status_path,
+            console_log_path=console_log_path,
+            runs_root=runs_root,
+            repo_root=repo_root,
+            python_executable=python_executable,
+            force=force,
+            once=once,
+            config_overrides=config_overrides,
+            evidence_mode=evidence_mode,
+            min_free_bytes=min_free_bytes,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            disk_usage_fn=disk_usage_fn,
+            activity_stat_fn=activity_stat_fn,
+            now=now,
+            pid_alive=pid_alive,
+            launcher=launcher,
+            force_retire_latest_run=force_retire_latest_run,
+        )
+
+    return ensure_daily_roll(
+        spec=spec,
+        target_date=target_date,
+        load_status_fn=load_current_status,
+        start_fn=start_recovery,
+        pid_alive=pid_alive,
+        write_status_fn=write_json,
+        now=now,
+        current_identity=current_identity,
+        timezone_name=timezone_name,
+        start_after_local_time=start_after_local_time,
+    )
+
+
+def ensure_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs):
+    return ensure_for_date(
+        target_date_for_roll(now=now, timezone_name=timezone_name),
+        now=now,
+        timezone_name=timezone_name,
+        **kwargs,
+    )
+
+
+def load_status(
+    path=DEFAULT_STATUS_PATH,
+    *,
+    now=None,
+    pid_alive=pid_matches_market_making_run,
+    write_back=False,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    activity_stat_fn=None,
+):
     status = read_json(path)
     if not status:
         return {"exists": False, "path": str(path)}
-    status = terminal_status_for_dead_pid(status, now=now, pid_alive=pid_alive)
+    status = market_making_terminal_status_for_inactive_process(
+        status,
+        now=now,
+        pid_alive=pid_alive,
+        runs_root=status.get("runs_root") or DEFAULT_RUNS_ROOT,
+        target_date=status.get("target_date") or target_date_for_roll(now=now),
+        max_activity_age_seconds=max_activity_age_seconds,
+        startup_grace_seconds=startup_grace_seconds,
+        stat_fn=activity_stat_fn,
+    )
     status["exists"] = True
     status["path"] = str(path)
-    if write_back and status.get("status") == "pid_missing":
+    if write_back and status.get("status") in {"pid_missing", "idle_process"}:
         write_json(path, status)
     return status
 
@@ -448,6 +968,8 @@ def build_start_parser(parser):
     parser.add_argument("--config", action="append", default=[], help="Policy config override passed to market_making_run.")
     parser.add_argument("--evidence-mode", default=EVIDENCE_MODE_AUTO, choices=sorted(EVIDENCE_MODE_CHOICES))
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
+    parser.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
+    parser.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
     return parser
 
 
@@ -468,6 +990,8 @@ def cmd_start(args):
         config_overrides=args.config,
         evidence_mode=args.evidence_mode,
         min_free_bytes=args.min_free_bytes,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
         now=parse_datetime(args.now),
     )
     print(
@@ -481,9 +1005,40 @@ def cmd_start(args):
 
 
 def cmd_status(args):
-    status = load_status(args.status_out, write_back=True)
+    status = load_status(
+        args.status_out,
+        write_back=True,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
+    )
     print(json.dumps(status, indent=2, sort_keys=True, default=str))
     return 0 if status.get("exists") else 1
+
+
+def cmd_ensure(args):
+    target = args.date or target_date_for_roll(now=args.now, timezone_name=args.timezone)
+    payload = ensure_for_date(
+        target,
+        budget_usdc=args.budget_usdc,
+        mode=args.mode,
+        markets=args.markets,
+        interval_seconds=args.interval_seconds,
+        timezone_name=args.timezone,
+        status_path=args.status_out,
+        diagnostics_path=args.diagnostics_out,
+        console_log_path=args.console_log,
+        runs_root=Path(args.runs_root),
+        once=args.once,
+        config_overrides=args.config,
+        evidence_mode=args.evidence_mode,
+        min_free_bytes=args.min_free_bytes,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
+        now=parse_datetime(args.now),
+        start_after_local_time=args.start_after_local_time,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0
 
 
 def build_parser():
@@ -493,7 +1048,13 @@ def build_parser():
     start.set_defaults(func=cmd_start)
     status = sub.add_parser("status")
     status.add_argument("--status-out", default=str(DEFAULT_STATUS_PATH))
+    status.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
+    status.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
     status.set_defaults(func=cmd_status)
+    ensure_parser = build_start_parser(sub.add_parser("ensure", help="Supervisor check: restart dead, idle, or stale-code maker rolls."))
+    ensure_parser.add_argument("--diagnostics-out", default=str(DEFAULT_DIAGNOSTICS_PATH))
+    ensure_parser.add_argument("--start-after-local-time", default=DEFAULT_START_AFTER_LOCAL_TIME)
+    ensure_parser.set_defaults(func=cmd_ensure)
     return parser
 
 

@@ -1,4 +1,4 @@
-# 312. Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [OPEN 2026-06-25 - BOT LOOPS HAVE NO ENSURE-SUPERVISOR; A HUNG OR STALE-CODE ROLL GOES DARK FOR HOURS]
+# 312. Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]
 
 Goal: give the taker and maker daily-roll loops the same auto-restart
 supervision the collection loops have, so a dead, hung, or stale-code bot loop
@@ -64,16 +64,51 @@ restart or stale-fingerprint recovery to the taker or maker daily-roll loops.
    restart cause, fingerprint, and last useful write in the daily-roll status and
    fleet observability.
 
-- [ ] Add a minute-cadence `ensure`/supervisor and registration script for the
+- [x] Add a minute-cadence `ensure`/supervisor and registration script for the
   taker and maker daily-roll loops.
-- [ ] Make `ensure` consume `restart_recommended`/latest-tick starvation and
+- [x] Make `ensure` consume `restart_recommended`/latest-tick starvation and
   relaunch dead/hung/idle loops with `--force`.
-- [ ] Add `superseded_code` stale-fingerprint detection and restart on current
+- [x] Add `superseded_code` stale-fingerprint detection and restart on current
   code.
-- [ ] Extend useful-write liveness detection to the maker daily-roll.
-- [ ] Bound restarts with backoff/budget and surface restart cause + fingerprint
+- [x] Extend useful-write liveness detection to the maker daily-roll.
+- [x] Bound restarts with backoff/budget and surface restart cause + fingerprint
   in status and fleet observability, with tests for dead-pid, hung-no-write, and
   stale-fingerprint restart paths.
+
+## Completion Notes
+
+Completed 2026-06-25. Added shared bot daily-roll ensure supervision in
+`weather.operations.bot_daily_roll_supervisor`, with bounded restart budget and
+backoff via the existing supervisor primitives. Taker and maker daily-roll CLIs
+now expose `ensure`, write restart cause/current-code identity/last useful
+write into status, and append JSONL diagnostics. Stale-code restarts classify as
+`superseded_code`, terminate the previous matching Python process, and launch
+with `--force`; stale-code taker runs force-retire the prior run folder even
+when artifacts were otherwise fresh.
+
+Maker daily-roll status now has taker-parity useful-write liveness for
+`run_summary.json`/`quote_intents_long.csv`, latest useful-write reporting, and
+quarantine-on-force for unhealthy latest run folders. Added
+`register_taker_bot_daily_roll_supervisor.ps1` and
+`register_market_making_daily_roll_supervisor.ps1` minute-cadence/logon Task
+Scheduler registration scripts while keeping the existing once-daily launch
+tasks intact. Fleet current-code soak now includes both bot daily-roll
+supervisors and reports their restart budgets, stale-code restarts, status
+paths, diagnostics paths, and repair commands without treating plain bot console
+logs as JSONL integrity failures.
+
+Validation:
+
+- `python -m pytest tests/operations/test_taker_bot_daily_roll.py tests/operations/test_market_making_daily_roll.py tests/reporting/test_fleet_observability.py -q`
+- `python -m pytest tests/operations/test_nightly_health_checks.py -q`
+- `python -m py_compile src/weather/operations/bot_daily_roll_supervisor.py src/weather/operations/taker_bot_daily_roll.py src/weather/operations/market_making_daily_roll.py src/weather/reporting/fleet/fleet_observability_inventory.py src/weather/reporting/fleet/fleet_observability_loops.py`
+- CLI help smoke tests for `python -m weather.operations.taker_bot_daily_roll ensure --help` and `python -m weather.operations.market_making_daily_roll ensure --help`.
+
+Known unrelated validation blocker observed while checking nearby operations
+tests: `python -m pytest tests/operations/test_schema_registry.py -q` still
+reports pre-existing unregistered
+`marine_contrast_calibration_v0.1` and
+`pooled_feature_band_hgb_marine_contrast_v0.1` schema versions.
 
 Acceptance: a taker or maker daily-roll loop that is dead, hung (no useful
 writes), or running a superseded code fingerprint is automatically restarted on

@@ -1,4 +1,4 @@
-# 315. First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [OPEN 2026-06-25 - VALIDATED REPAIRS STAY ROW-EXPORT SURROGATES AND NEVER REACH SERVING]
+# 315. First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]
 
 Goal: replace the "score a validated repair as a row-export surrogate" shortcut
 with a first-class path that folds a validated repair into the active candidate
@@ -44,14 +44,14 @@ validated repairs; item 269 measures market-beating but does not integrate.
 4. Report which validated repairs are integrated versus still surrogate, and the
    consolidated candidate's aggregate-vs-market delta.
 
-- [ ] Add a repair-integration step that folds a validated repair into the
+- [x] Add a repair-integration step that folds a validated repair into the
   active candidate artifact and re-runs the real replay/export contract.
-- [ ] Consolidate multiple validated repairs into one candidate before scoring.
-- [ ] Require active-replay-contract evidence for promotion of serving-changing
+- [x] Consolidate multiple validated repairs into one candidate before scoring.
+- [x] Require active-replay-contract evidence for promotion of serving-changing
   repairs; mark surrogate evidence preview-only.
-- [ ] Report integrated-vs-surrogate repairs and the consolidated
+- [x] Report integrated-vs-surrogate repairs and the consolidated
   aggregate-vs-market delta.
-- [ ] Add an end-to-end test proving a surrogate-validated repair can be
+- [x] Add an end-to-end test proving a surrogate-validated repair can be
   integrated, re-scored on the active contract, and reflected in the canonical
   promotion artifact.
 
@@ -62,3 +62,29 @@ promotion artifact reflects the integrated repairs, and surrogate evidence can n
 longer satisfy promotion countability, proven by an end-to-end integration test.
 
 Related: items 35, 178, 219, 224, 269, 296, 301.
+
+## Completion Notes
+
+Implemented a first-class repair integration contract in
+`weather.reporting.repair_integration`. The new artifact consumes validated
+repair specs, consolidates their countable rows into one active candidate export,
+writes a registry/contract sidecar with `live_runtime=repair_integration_active_contract`,
+and re-scores the consolidated candidate through
+`candidate_variant_replay_summary` with `validation_evidence=active_replay_contract`.
+The CLI writes both the integration wrapper and a promotion-refresh-compatible
+active replay summary JSON/Markdown pair for direct
+`--precomputed-candidate-json` consumption.
+
+Promotion now treats explicit `row_export_surrogate` evidence as preview-only for
+cutover/readiness, while active-contract repair candidates expose their
+`repair_integration` metadata through the promotion candidate summary. Repair
+rows are reported as `integrated` or `not_yet_integrated`, and the active variant
+shadow refresh executor can regenerate repair-integration exports from a registry
+entry and `repair_specs_path`.
+
+Validation:
+
+- `python -m pytest tests\reporting\test_repair_integration.py -q`
+- `python -m pytest tests\reporting\test_variant_registry.py tests\operations\test_schema_registry.py::TestSchemaRegistry::test_registry_lookup_returns_public_versions -q`
+- `python -m pytest tests\reporting\test_candidate_variant_replay_summary.py tests\reporting\test_active_variant_shadow_refresh.py -q`
+- `python -m pytest tests\calibration\test_promotion_refresh.py -q`

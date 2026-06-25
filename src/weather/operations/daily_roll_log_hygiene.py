@@ -21,10 +21,13 @@ DEFAULT_JSON_OUT = data_path("backtest", "daily_roll_log_hygiene.json")
 DEFAULT_INCIDENTS_OUT = data_path("backtest", "daily_roll_log_incidents.jsonl")
 DEFAULT_CURRENT_LOG_ROOT = data_path("backtest", "daily_roll_current_logs")
 DEFAULT_LOG_SOURCES = {
-    "taker": data_path("logs", "taker_daily_roll.log"),
-    "maker": data_path("logs", "market_making_daily_roll.log"),
-    "snapshot": data_path("logs", "snapshot_capture.log"),
+    "streamlit": data_path("logs", "streamlit_stderr.log"),
     "daily_refresh": data_path("logs", "daily_refresh.log"),
+    "snapshot": data_path("snapshots", "loop_console.log"),
+    "clob": data_path("snapshots", "clob_loop_console.log"),
+    "observation_trigger": data_path("snapshots", "observation_trigger_console.log"),
+    "taker": data_path("taker_runs", "daily_roll_console.log"),
+    "maker": data_path("mm_runs", "daily_roll_console.log"),
 }
 
 ISO_RE = re.compile(
@@ -104,6 +107,36 @@ def timestamp_from_line(line: str) -> datetime | None:
 
 
 def classify_error(line: str) -> str | None:
+    stripped = line.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            status = str(payload.get("status") or payload.get("level") or payload.get("severity") or "").casefold()
+            if status in {"error", "exception", "failed", "critical", "fatal"}:
+                return "console_error"
+            top_level_error = next(
+                (
+                    value
+                    for value in (
+                        payload.get("error"),
+                        payload.get("exception"),
+                        payload.get("traceback"),
+                    )
+                    if value not in (None, "", False)
+                ),
+                None,
+            )
+            if top_level_error is None:
+                return None
+            text = f" {str(top_level_error).casefold()} "
+            if any(pattern in text for pattern in DISK_PATTERNS):
+                return "blocked_by_disk"
+            if any(pattern in text for pattern in ENCODING_PATTERNS):
+                return "encoding_error"
+            return "console_error"
     text = f" {line.casefold()} "
     if any(pattern in text for pattern in DISK_PATTERNS):
         return "blocked_by_disk"
@@ -158,15 +191,23 @@ def _line_rows(loop: str, path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return rows
     try:
+        inherited_timestamp = None
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             for number, line in enumerate(handle, start=1):
                 text = line.rstrip("\n")
                 timestamp = timestamp_from_line(text)
+                timestamp_inherited = False
+                if timestamp is not None:
+                    inherited_timestamp = timestamp
+                elif inherited_timestamp is not None:
+                    timestamp = inherited_timestamp
+                    timestamp_inherited = True
                 rows.append({
                     "loop": loop,
                     "path": str(path),
                     "line_number": number,
                     "timestamp_utc": timestamp.isoformat() if timestamp is not None else None,
+                    "timestamp_inherited": timestamp_inherited,
                     "message": text,
                 })
     except OSError as exc:
@@ -235,6 +276,46 @@ def _source_rows(log_sources: dict[str, Path]) -> list[dict[str, Any]]:
     return rows
 
 
+def current_signature_groups(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for error in errors:
+        key = (
+            str(error.get("loop") or "unknown"),
+            str(error.get("category") or "unknown"),
+            str(error.get("normalized_message") or ""),
+        )
+        group = grouped.setdefault(
+            key,
+            {
+                "loop": key[0],
+                "category": key[1],
+                "normalized_message": key[2],
+                "incident_id": error.get("incident_id"),
+                "occurrence_count": 0,
+                "first_seen_utc": error.get("seen_at_utc"),
+                "last_seen_utc": error.get("seen_at_utc"),
+                "sample_message": error.get("sample_message"),
+                "sample_path": error.get("path"),
+                "sample_line_number": error.get("line_number"),
+            },
+        )
+        group["occurrence_count"] += 1
+        seen_at = error.get("seen_at_utc")
+        if seen_at:
+            values = [value for value in [group.get("first_seen_utc"), seen_at] if value]
+            group["first_seen_utc"] = min(values) if values else seen_at
+            values = [value for value in [group.get("last_seen_utc"), seen_at] if value]
+            group["last_seen_utc"] = max(values) if values else seen_at
+    return sorted(
+        grouped.values(),
+        key=lambda row: (
+            str(row.get("loop") or ""),
+            str(row.get("category") or ""),
+            str(row.get("normalized_message") or ""),
+        ),
+    )
+
+
 def build_payload(
     *,
     log_sources: dict[str, str | Path] | None = None,
@@ -289,6 +370,7 @@ def build_payload(
             incident["resolution_detail"] = "historical incident reappeared in current log window"
 
     category_counts = Counter(row.get("category") for row in current_errors)
+    signature_groups = current_signature_groups(current_errors)
     missing_logs = [row for row in _source_rows(sources) if not row.get("exists")]
     status = "BLOCK" if current_errors else ("WARN" if missing_logs else "PASS")
     blockers = [
@@ -318,6 +400,7 @@ def build_payload(
             "loop_count": len(sources),
             "missing_log_count": len(missing_logs),
             "current_blocker_count": len(current_errors),
+            "current_signature_count": len(signature_groups),
             "historical_error_count": len(historical_errors),
             "archived_incident_count": len(incidents),
             "recurring_incident_count": len(recurring_ids),
@@ -326,6 +409,7 @@ def build_payload(
         "sources": _source_rows(sources),
         "missing_logs": missing_logs,
         "current_blockers": blockers,
+        "current_signature_groups": signature_groups,
         "historical_errors_archived": historical_errors[:50],
         "incidents": sorted(incidents.values(), key=lambda row: (
             str(row.get("last_seen_utc") or ""),

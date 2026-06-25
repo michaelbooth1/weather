@@ -23,6 +23,7 @@ from weather.market.taker_bot import (
     current_high_trust_config_warnings,
     parse_config_overrides,
 )
+from weather.market.taker_evidence_starvation import classify_taker_evidence_starvation
 from weather.operations.bot_run_liveness import (
     DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
@@ -36,6 +37,8 @@ from weather.operations.bot_run_liveness import (
     terminal_status_for_inactive_process,
     utc_iso as liveness_utc_iso,
 )
+from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll
+from weather.operations.supervisor import SupervisorSpec
 from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
@@ -44,8 +47,11 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("taker_bot_daily_roll")
 DEFAULT_STATUS_PATH = DEFAULT_RUNS_ROOT / "daily_roll_status.json"
 DEFAULT_CONSOLE_LOG_PATH = DEFAULT_RUNS_ROOT / "daily_roll_console.log"
+DEFAULT_DIAGNOSTICS_PATH = DEFAULT_RUNS_ROOT / "daily_roll_diagnostics.jsonl"
 DEFAULT_TASK_NAME = "WeatherTakerBotDailyRoll"
+DEFAULT_SUPERVISOR_TASK_NAME = "WeatherTakerBotDailyRollSupervisor"
 DEFAULT_TIMEZONE = "America/Toronto"
+DEFAULT_START_AFTER_LOCAL_TIME = "00:05"
 DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
@@ -63,6 +69,18 @@ REQUIRED_LATEST_RUN_ARTIFACTS = (
     "strategy_summary.json",
 )
 QUARANTINE_DIR_NAME = "_quarantine"
+TAKER_DAILY_ROLL_SUPERVISOR = SupervisorSpec(
+    name="taker_bot_daily_roll",
+    module="weather.operations.taker_bot_daily_roll",
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+    cwd=REPO_ROOT,
+    restart_budget=12,
+    restart_budget_window_hours=24.0,
+    restart_backoff_base_seconds=120.0,
+    restart_backoff_max_seconds=3600.0,
+)
 
 
 def utc_now():
@@ -133,6 +151,19 @@ def write_json(path, payload):
                 raise
             time.sleep(0.05)
     return path
+
+
+def runtime_taker_daily_roll_supervisor_spec(
+    *,
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+):
+    return TAKER_DAILY_ROLL_SUPERVISOR.with_paths(
+        status_path=status_path,
+        diagnostics_path=diagnostics_path,
+        console_log_path=console_log_path,
+    )
 
 
 def build_taker_bot_command(
@@ -352,6 +383,12 @@ def _latest_useful_artifact_row(paths, *, now=None, stat_fn=None):
 
 
 def _artifact_status_from_summary(summary):
+    evidence_starvation = classify_taker_evidence_starvation(summary)
+    if evidence_starvation.get("status") == "BLOCK":
+        return (
+            str(evidence_starvation.get("classification") or "latest_tick_starvation").upper(),
+            evidence_starvation.get("classification"),
+        )
     latest_rows = int(summary.get("latest_tick_rows") or 0)
     latest_fills = int(summary.get("latest_tick_filled_orders") or 0)
     stale_model = _reason_count(summary, "NO_TRADE_STALE_MODEL")
@@ -403,6 +440,8 @@ def taker_artifact_health(
     useful_paths = [latest / name for name in ACTIVITY_FILENAMES]
     latest_useful = _latest_useful_artifact_row(useful_paths, now=current, stat_fn=stat_fn)
     missing_required = [name for name in REQUIRED_LATEST_RUN_ARTIFACTS if _path_stat(latest / name, stat_fn=stat_fn) is None]
+    summary = {}
+    evidence_starvation = {}
     status = "PASS"
     root_cause = None
     detail = "latest taker run artifacts are current"
@@ -443,11 +482,12 @@ def taker_artifact_health(
             detail = "strategy_summary.json is stale"
         else:
             summary = _read_run_summary(latest)
+            evidence_starvation = classify_taker_evidence_starvation(summary)
             summary_status, summary_root = _artifact_status_from_summary(summary)
             if summary_status != "PASS":
                 status = summary_status
                 root_cause = summary_root
-                detail = f"latest run summary classified as {summary_root}"
+                detail = evidence_starvation.get("detail") or f"latest run summary classified as {summary_root}"
 
     if status != "PASS" and in_startup_grace and status in {
         "EMPTY_RUN_FOLDER",
@@ -460,9 +500,28 @@ def taker_artifact_health(
         detail = f"{detail}; still inside startup grace"
         status = "STARTUP_GRACE"
     else:
-        ok = status in {"PASS", "POLICY_NO_EDGE"}
+        ok = status in {"PASS", "POLICY_NO_EDGE", "POLICY_GUARDRAIL_NO_TRADE"}
 
-    summary = _read_run_summary(latest) if latest else {}
+    summary = summary or (_read_run_summary(latest) if latest else {})
+    evidence_starvation = evidence_starvation or classify_taker_evidence_starvation(summary)
+    latest_tick_scoring_liveness = {
+        "status": evidence_starvation.get("status"),
+        "classification": evidence_starvation.get("classification"),
+        "restart_recommended": evidence_starvation.get("restart_recommended"),
+        "countability_status": evidence_starvation.get("countability_status"),
+        "countability_blockers": evidence_starvation.get("countability_blockers") or [],
+        "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+        "latest_tick_filled_orders": evidence_starvation.get("latest_tick_filled_orders"),
+        "latest_tick_counterfactual_rows": evidence_starvation.get("latest_tick_counterfactual_rows"),
+        "latest_tick_counterfactual_would_buy_count": evidence_starvation.get(
+            "latest_tick_counterfactual_would_buy_count"
+        ),
+        "first_failing_gate": evidence_starvation.get("first_failing_gate"),
+        "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
+        "remediation_command": evidence_starvation.get("remediation_command"),
+        "detail": evidence_starvation.get("detail"),
+    }
+    upstream_dependency_status = evidence_starvation.get("upstream_dependency_status") or {}
     report = {
         "latest_run_folder": str(latest) if latest else None,
         "latest_useful_write_path": (latest_useful or {}).get("path"),
@@ -471,6 +530,19 @@ def taker_artifact_health(
         "latest_candidate_rows": summary.get("cumulative_order_rows") or summary.get("latest_tick_rows"),
         "latest_fill_count": summary.get("cumulative_filled_orders") or summary.get("latest_tick_filled_orders"),
         "latest_top_reason_counts": _top_reason_counts(summary),
+        "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+        "latest_tick_counterfactual_rows": evidence_starvation.get("latest_tick_counterfactual_rows"),
+        "latest_tick_counterfactual_would_buy_count": evidence_starvation.get(
+            "latest_tick_counterfactual_would_buy_count"
+        ),
+        "taker_day_classification": evidence_starvation.get("taker_day_classification"),
+        "zero_would_buy_classification": evidence_starvation.get("zero_would_buy_classification"),
+        "evidence_countability_status": evidence_starvation.get("countability_status"),
+        "upstream_dependency_status": upstream_dependency_status.get("status"),
+        "first_failing_dependency": upstream_dependency_status.get("first_failing_dependency"),
+        "newest_snapshot_timestamp_utc": upstream_dependency_status.get("newest_snapshot_timestamp_utc"),
+        "latest_source_status_utc": upstream_dependency_status.get("latest_source_status_utc"),
+        "remediation_command": evidence_starvation.get("remediation_command"),
         "restart_recommended": not ok,
         "restart_reason": root_cause,
     }
@@ -485,6 +557,9 @@ def taker_artifact_health(
         "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
         "max_activity_age_seconds": float(max_activity_age_seconds),
         "latest_useful_artifact": latest_useful,
+        "latest_tick_scoring_liveness": latest_tick_scoring_liveness,
+        "upstream_dependency_status": upstream_dependency_status,
+        "taker_evidence_starvation": evidence_starvation,
         "operator_report": report,
     }
 
@@ -509,18 +584,38 @@ def enrich_taker_liveness_status(
         stat_fn=stat_fn,
     )
     payload["artifact_liveness"] = health
+    payload["latest_tick_scoring_liveness"] = health.get("latest_tick_scoring_liveness") or {}
+    payload["upstream_dependency_status"] = health.get("upstream_dependency_status") or {}
     payload["operator_report"] = health.get("operator_report") or {}
     if health.get("ok"):
         return payload
+    scoring_liveness = health.get("latest_tick_scoring_liveness") or {}
+    latest_tick_failure_statuses = {
+        "LATEST_TICK_EMPTY",
+        "SCORING_CRASH",
+        "INFRA_STARVED_SNAPSHOT",
+        "INFRA_STARVED_CLOB",
+    }
+    failing_gate = (
+        "latest_tick_scoring_liveness"
+        if (
+            scoring_liveness.get("status") == "BLOCK"
+            and health.get("status") in latest_tick_failure_statuses
+        ) else
+        "artifact_liveness"
+    )
     payload.update({
         "status": "idle_process",
         "action": "blocked_restart_required",
         "terminal": True,
         "completed_at_utc": liveness_utc_iso(now),
-        "first_failing_gate": "artifact_liveness",
+        "first_failing_gate": failing_gate,
         "root_cause_class": health.get("root_cause_class") or "stale_pid_no_recent_useful_artifacts",
         "zero_trades_expected": False,
-        "remediation_command": "quarantine stale or incomplete taker artifacts, then restart the daily roll with --force",
+        "remediation_command": (
+            scoring_liveness.get("remediation_command")
+            or "quarantine stale or incomplete taker artifacts, then restart the daily roll with --force"
+        ),
     })
     return payload
 
@@ -593,9 +688,10 @@ def quarantine_unhealthy_taker_run_folder(
     *,
     artifact_health=None,
     now=None,
+    force=False,
 ):
     health = artifact_health or taker_artifact_health(runs_root, target_date, now=now)
-    if health.get("ok"):
+    if health.get("ok") and not force:
         return {"status": "SKIPPED_HEALTHY", "action": "none", "reason": "latest run artifacts are healthy"}
     source = health.get("latest_run_folder")
     if not source:
@@ -627,6 +723,7 @@ def quarantine_unhealthy_taker_run_folder(
         "quarantine_path": str(destination),
         "artifact_liveness_status": health.get("status"),
         "root_cause_class": health.get("root_cause_class"),
+        "forced": bool(force),
     }
 
 
@@ -692,6 +789,7 @@ def start_for_date(
     now=None,
     pid_alive=pid_matches_taker_bot,
     launcher=launch_taker_bot_process,
+    force_retire_latest_run=False,
 ):
     target_date = ensure_date(target_date)
     status_path = Path(status_path)
@@ -771,7 +869,13 @@ def start_for_date(
             "previous_status_generated_at_utc": existing.get("generated_at_utc"),
         })
         if existing_liveness:
-            for key in ("activity_liveness", "artifact_liveness", "operator_report"):
+            for key in (
+                "activity_liveness",
+                "artifact_liveness",
+                "latest_tick_scoring_liveness",
+                "upstream_dependency_status",
+                "operator_report",
+            ):
                 if key in existing_liveness:
                     payload[key] = existing_liveness[key]
             artifact_status = (payload.get("artifact_liveness") or {}).get("status")
@@ -803,6 +907,7 @@ def start_for_date(
             target_date,
             artifact_health=health,
             now=now,
+            force=force_retire_latest_run,
         )
     payload = _base_payload(
         target_date=target_date,
@@ -851,6 +956,103 @@ def start_for_date(
 
 def start_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs):
     return start_for_date(
+        target_date_for_roll(now=now, timezone_name=timezone_name),
+        now=now,
+        timezone_name=timezone_name,
+        **kwargs,
+    )
+
+
+def ensure_for_date(
+    target_date,
+    *,
+    budget_usdc=DEFAULT_BUDGET_USDC,
+    markets=DEFAULT_MARKETS,
+    interval_seconds=DEFAULT_INTERVAL_SECONDS,
+    timezone_name=DEFAULT_TIMEZONE,
+    status_path=DEFAULT_STATUS_PATH,
+    diagnostics_path=DEFAULT_DIAGNOSTICS_PATH,
+    console_log_path=DEFAULT_CONSOLE_LOG_PATH,
+    runs_root=DEFAULT_RUNS_ROOT,
+    repo_root=REPO_ROOT,
+    python_executable=None,
+    once=False,
+    config_overrides=None,
+    strategies=None,
+    experiment_id=None,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
+    startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
+    disk_usage_fn=None,
+    activity_stat_fn=None,
+    now=None,
+    pid_alive=pid_matches_taker_bot,
+    launcher=launch_taker_bot_process,
+    start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
+    current_identity=None,
+):
+    target_date = ensure_date(target_date)
+    spec = runtime_taker_daily_roll_supervisor_spec(
+        status_path=status_path,
+        diagnostics_path=diagnostics_path,
+        console_log_path=console_log_path,
+    )
+
+    def load_current_status():
+        return load_status(
+            status_path,
+            now=now,
+            pid_alive=pid_alive,
+            write_back=True,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            activity_stat_fn=activity_stat_fn,
+        )
+
+    def start_recovery(*, force, force_retire_latest_run=False):
+        return start_for_date(
+            target_date,
+            budget_usdc=budget_usdc,
+            markets=markets,
+            interval_seconds=interval_seconds,
+            timezone_name=timezone_name,
+            status_path=status_path,
+            console_log_path=console_log_path,
+            runs_root=runs_root,
+            repo_root=repo_root,
+            python_executable=python_executable,
+            force=force,
+            once=once,
+            config_overrides=config_overrides,
+            strategies=strategies,
+            experiment_id=experiment_id,
+            min_free_bytes=min_free_bytes,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            disk_usage_fn=disk_usage_fn,
+            activity_stat_fn=activity_stat_fn,
+            now=now,
+            pid_alive=pid_alive,
+            launcher=launcher,
+            force_retire_latest_run=force_retire_latest_run,
+        )
+
+    return ensure_daily_roll(
+        spec=spec,
+        target_date=target_date,
+        load_status_fn=load_current_status,
+        start_fn=start_recovery,
+        pid_alive=pid_alive,
+        write_status_fn=write_json,
+        now=now,
+        current_identity=current_identity,
+        timezone_name=timezone_name,
+        start_after_local_time=start_after_local_time,
+    )
+
+
+def ensure_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs):
+    return ensure_for_date(
         target_date_for_roll(now=now, timezone_name=timezone_name),
         now=now,
         timezone_name=timezone_name,
@@ -950,6 +1152,32 @@ def cmd_status(args):
     return 0 if status.get("exists") else 1
 
 
+def cmd_ensure(args):
+    target = args.date or target_date_for_roll(now=args.now, timezone_name=args.timezone)
+    payload = ensure_for_date(
+        target,
+        budget_usdc=args.budget_usdc,
+        markets=args.markets,
+        interval_seconds=args.interval_seconds,
+        timezone_name=args.timezone,
+        status_path=args.status_out,
+        diagnostics_path=args.diagnostics_out,
+        console_log_path=args.console_log,
+        runs_root=Path(args.runs_root),
+        once=args.once,
+        config_overrides=args.config,
+        strategies=args.strategies,
+        experiment_id=args.experiment_id,
+        min_free_bytes=args.min_free_bytes,
+        max_activity_age_seconds=args.max_activity_age_seconds,
+        startup_grace_seconds=args.startup_grace_seconds,
+        now=parse_datetime(args.now),
+        start_after_local_time=args.start_after_local_time,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Start the daily paper taker-bot run.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -960,6 +1188,10 @@ def build_parser():
     status.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
     status.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
     status.set_defaults(func=cmd_status)
+    ensure_parser = build_start_parser(sub.add_parser("ensure", help="Supervisor check: restart dead, idle, or stale-code taker rolls."))
+    ensure_parser.add_argument("--diagnostics-out", default=str(DEFAULT_DIAGNOSTICS_PATH))
+    ensure_parser.add_argument("--start-after-local-time", default=DEFAULT_START_AFTER_LOCAL_TIME)
+    ensure_parser.set_defaults(func=cmd_ensure)
     return parser
 
 

@@ -48,6 +48,7 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_report.md"
 DEFAULT_EXECUTION_OUT_DIR = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_runs"
 ROW_ROUTE_COMPOSITE_RUNTIME = "candidate_row_route_composite"
 ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME = "active_timesplit_logistic_repair"
+REPAIR_INTEGRATION_RUNTIME = "repair_integration_active_contract"
 DERIVED_RUNTIMES = {"conservative_bridge_policy", "microstructure_shadow_report"}
 
 
@@ -436,6 +437,54 @@ def _execute_active_timesplit_logistic_repair_contract(
     )
 
 
+def _execute_repair_integration_contract(
+    variant: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    registry_path: str | Path,
+    out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
+) -> dict[str, Any]:
+    """Execute a repair-integration active export contract."""
+    from weather.reporting import repair_integration
+
+    output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+    if output_path is None:
+        raise ValueError("repair integration requires default_export_path")
+    specs_path = _resolve_registry_output_path(
+        contract.get("repair_specs_path") or variant.get("repair_specs_path")
+    )
+    if specs_path is None:
+        raise ValueError("repair integration requires repair_specs_path")
+    out_dir = Path(out_dir)
+    slug = _variant_slug(str(variant.get("variant_id") or contract.get("variant_id") or "variant"))
+    source_candidate_json = (
+        _resolve_registry_output_path(contract.get("source_candidate_json") or variant.get("source_candidate_json"))
+        or repair_integration.DEFAULT_SOURCE_CANDIDATE_JSON
+    )
+    payload = repair_integration.build_payload(
+        repair_specs_path=specs_path,
+        rows_out=output_path,
+        registry_out=out_dir / f"{slug}_registry.json",
+        contract_out=out_dir / f"{slug}_contract.json",
+        base_registry=registry_path,
+        source_candidate_json=source_candidate_json,
+        variant_id=str(variant.get("variant_id") or contract.get("variant_id")),
+        variant_family=contract.get("export_family") or variant.get("variant_family") or repair_integration.DEFAULT_VARIANT_FAMILY,
+    )
+    summary = payload.get("summary") or {}
+    return _execution_row(
+        variant,
+        contract,
+        status="OK" if payload.get("status") == "PASS" else "BLOCK",
+        output_path=output_path,
+        detail=(
+            f"repairs={summary.get('integrated_repair_count')}; "
+            f"rows={summary.get('integrated_rows')}; "
+            f"delta_vs_market={summary.get('aggregate_delta_vs_market')}"
+        ),
+    )
+
+
 def execute_registry_prediction_exports(
     *,
     registry_path: str | Path = DEFAULT_REGISTRY_PATH,
@@ -493,6 +542,11 @@ def execute_registry_prediction_exports(
         for variant in active_variants
         if str(variant_export_contract(variant).get("live_runtime") or "") == ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME
     ]
+    repair_integration_variants = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "") == REPAIR_INTEGRATION_RUNTIME
+    ]
     unsupported = [
         variant
         for variant in active_variants
@@ -501,6 +555,7 @@ def execute_registry_prediction_exports(
             "pooled_candidate_replay",
             ROW_ROUTE_COMPOSITE_RUNTIME,
             ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME,
+            REPAIR_INTEGRATION_RUNTIME,
             *DERIVED_RUNTIMES,
         }
     ]
@@ -638,6 +693,32 @@ def execute_registry_prediction_exports(
             blockers.append(f"execution failed for {variant.get('variant_id')}: {exc}")
             continue
         rows.append(row)
+        if output_path is not None:
+            generated_paths.append(str(output_path))
+
+    for variant in repair_integration_variants:
+        contract = variant_export_contract(variant)
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        try:
+            row = _execute_repair_integration_contract(
+                variant,
+                contract,
+                registry_path=registry_path,
+                out_dir=out_dir,
+            )
+        except Exception as exc:  # pragma: no cover - exercised through failure payloads in production.
+            rows.append(_execution_row(
+                variant,
+                contract,
+                status="ERROR",
+                output_path=output_path,
+                detail=str(exc),
+            ))
+            blockers.append(f"execution failed for {variant.get('variant_id')}: {exc}")
+            continue
+        rows.append(row)
+        if row.get("status") != "OK":
+            blockers.append(f"execution blocked for {variant.get('variant_id')}: {row.get('detail')}")
         if output_path is not None:
             generated_paths.append(str(output_path))
 

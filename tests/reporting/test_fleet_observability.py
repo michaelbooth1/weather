@@ -14,7 +14,9 @@ from weather.collection.collection_health import (  # noqa: E402
     source_family_degradation,
 )
 from weather.market.market_registry import all_specs  # noqa: E402
+from weather.operations.market_making_daily_roll import MARKET_MAKING_DAILY_ROLL_SUPERVISOR
 from weather.operations.supervisor import SupervisorSpec
+from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
@@ -36,6 +38,7 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     trust_readiness,
     write_markdown,
 )
+from weather.reporting.fleet import fleet_observability_loops
 
 
 class TestFleetObservability(unittest.TestCase):
@@ -1526,6 +1529,125 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(row["diagnostic_duplicate_writer_incidents"], 1)
         self.assertEqual(soak["summary"]["diagnostic_duplicate_writer_incident_count"], 1)
         self.assertEqual(soak["summary"]["duplicate_writer_incident_count"], 0)
+
+    def test_current_code_soak_includes_bot_daily_roll_supervisors(self):
+        now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+        current_identity = {
+            "git_branch": "master",
+            "git_commit": "abc123",
+            "source_fingerprint": "current",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            taker_status = root / "taker_status.json"
+            taker_diag = root / "taker_diagnostics.jsonl"
+            taker_console = root / "taker_console.log"
+            maker_status = root / "maker_status.json"
+            maker_diag = root / "maker_diagnostics.jsonl"
+            maker_console = root / "maker_console.log"
+            for path, runner in (
+                (taker_status, "taker_bot_daily_roll"),
+                (maker_status, "market_making_daily_roll"),
+            ):
+                path.write_text(
+                    json.dumps({
+                        "runner": runner,
+                        "status": "already_running",
+                        "pid": 123,
+                        "target_date": "2026-06-20",
+                        "started_at_utc": now.isoformat(),
+                        "runtime_identity": current_identity,
+                        "artifact_liveness": {"status": "PASS", "ok": True},
+                        "status_writer": {"pid": 123},
+                    }),
+                    encoding="utf-8",
+                )
+            taker_diag.write_text(
+                json.dumps({
+                    "time": (now - timedelta(minutes=5)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "STALE_CODE",
+                    "restart_cause": "superseded_code",
+                    "runtime_identity_matches_current": False,
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            maker_diag.write_text("", encoding="utf-8")
+            taker_console.write_text("plain child console output\n", encoding="utf-8")
+            maker_console.write_text("plain child console output\n", encoding="utf-8")
+            taker_spec = TAKER_DAILY_ROLL_SUPERVISOR.with_paths(
+                status_path=taker_status,
+                diagnostics_path=taker_diag,
+                console_log_path=taker_console,
+            )
+            maker_spec = MARKET_MAKING_DAILY_ROLL_SUPERVISOR.with_paths(
+                status_path=maker_status,
+                diagnostics_path=maker_diag,
+                console_log_path=maker_console,
+            )
+            integrity = {
+                "rows": [
+                    {
+                        "name": taker_spec.name,
+                        "writer_lock": {"exists": False},
+                        "status_writer": {"pid": 123},
+                        "duplicate_writer": False,
+                        "malformed_lines": 0,
+                    },
+                    {
+                        "name": maker_spec.name,
+                        "writer_lock": {"exists": False},
+                        "status_writer": {"pid": 123},
+                        "duplicate_writer": False,
+                        "malformed_lines": 0,
+                    },
+                ]
+            }
+
+            with patch("weather.operations.taker_bot_daily_roll.pid_matches_taker_bot", return_value=True), \
+                    patch("weather.operations.market_making_daily_roll.pid_matches_market_making_run", return_value=True):
+                soak = current_code_soak_summary(
+                    integrity,
+                    {"status": "PASS", "counts_toward_live_forward_gate": True},
+                    now=now,
+                    current_identity=current_identity,
+                    specs=(taker_spec, maker_spec),
+                )
+
+        rows = {row["name"]: row for row in soak["loops"]}
+        self.assertEqual(soak["status"], "PASS")
+        self.assertEqual(soak["summary"]["loop_count"], 2)
+        self.assertIn("taker_bot_daily_roll", rows)
+        self.assertIn("market_making_daily_roll", rows)
+        self.assertEqual(rows["taker_bot_daily_roll"]["restart_class_counts"]["stale_code"], 1)
+        self.assertIn("start --force", " ".join(rows["taker_bot_daily_roll"]["restart_command"]))
+        self.assertIn("ensure", " ".join(rows["market_making_daily_roll"]["ensure_command"]))
+
+    def test_bot_daily_roll_plain_console_is_not_loop_integrity_malformed_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "taker_status.json"
+            diagnostics_path = root / "taker_diagnostics.jsonl"
+            console_path = root / "taker_console.log"
+            status_path.write_text(json.dumps({"status_writer": {"pid": 123}}), encoding="utf-8")
+            diagnostics_path.write_text(json.dumps({"time": "2026-06-20T12:00:00+00:00", "status": "ok"}) + "\n", encoding="utf-8")
+            console_path.write_text("plain bot output\nTraceback text stays outside JSONL integrity\n", encoding="utf-8")
+            spec = TAKER_DAILY_ROLL_SUPERVISOR.with_paths(
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=console_path,
+            )
+
+            with patch.object(fleet_observability_loops, "SUPERVISED_LOOP_SPECS", (spec,)):
+                integrity = fleet_observability_loops.loop_artifact_integrity()
+
+        row = integrity["rows"][0]
+        self.assertEqual(row["name"], "taker_bot_daily_roll")
+        self.assertEqual(row["console_integrity"]["malformed_lines"], 0)
+        self.assertEqual(row["console_integrity"]["skipped_reason"], "plain_text_daily_roll_console")
+        self.assertTrue(row["ok"])
 
     def test_settled_day_freshness_alert_names_repair_commands(self):
         alerts = settled_day_freshness_alerts({

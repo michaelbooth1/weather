@@ -1519,6 +1519,17 @@ class TestDailyLearning(unittest.TestCase):
                         "run_id": "taker-1",
                         "target_date": "2026-06-19",
                         "mode": "paper-taker",
+                        "exchange_economics_gate": {
+                            "required": True,
+                            "ok": True,
+                            "status": "PASS",
+                            "snapshot_id": "xecon-test",
+                            "snapshot_hash": "hash-test",
+                            "evidence_basis": "current_exchange_economics",
+                        },
+                        "exchange_economics_snapshot_id": "xecon-test",
+                        "exchange_economics_hash": "hash-test",
+                        "exchange_economics_evidence_basis": "current_exchange_economics",
                         "summary": {
                             "cumulative_filled_orders": 50,
                             "budget_spent_usdc": 59.80507,
@@ -1608,6 +1619,56 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("## Trading Evidence", report)
         self.assertIn("operator_drill", report)
         self.assertIn("settlement_finalization", report)
+
+    def test_build_learning_payload_blocks_taker_latest_tick_starvation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "trading_evidence.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "trading_evidence_summary_v0.1",
+                        "generated_at_utc": "2026-06-16T23:59:00+00:00",
+                        "run_date": "2026-06-16",
+                        "target_date": "2026-06-16",
+                        "status": "BLOCK",
+                        "market_making": {"exists": False},
+                        "taker": {
+                            "exists": True,
+                            "run_id": "taker-starved",
+                            "filled_orders": 0,
+                            "net_pnl_usdc": 0.0,
+                            "pnl_source": "unscored",
+                            "pnl_evidence_status": "UNSCORED",
+                            "settled_order_count": 0,
+                            "unsettled_order_count": 0,
+                            "low_price_tail_fill_count": 0,
+                            "root_cause_class": "crashed_before_scoring",
+                            "zero_fill_quality_classification": "unscored_stale_labels",
+                            "taker_day_classification": "scoring_crash",
+                            "zero_would_buy_classification": "scoring_crash",
+                            "taker_evidence_countability_status": "NON_COUNTABLE",
+                            "blocks_taker_evidence_countability": True,
+                            "latest_tick_scoring_liveness": {
+                                "status": "BLOCK",
+                                "classification": "scoring_crash",
+                                "latest_tick_rows": 0,
+                            },
+                            "quality_gate": {"status": "SAMPLE_PENDING", "sample_ready": False},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            learning = next(row for row in payload["learnings"] if row["category"] == "taker_strategy_quality")
+            report = render_report(payload)
+
+        self.assertEqual(learning["priority"], "P0")
+        self.assertTrue(learning["blocker"])
+        self.assertIn("taker_day_classification=scoring_crash", learning["signal"])
+        self.assertIn("scoring_crash", report)
 
     def test_build_learning_payload_blocks_broad_slo_with_recovery_checklist(self):
         with tempfile.TemporaryDirectory() as tmp:

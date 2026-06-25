@@ -2519,7 +2519,11 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     if taker.get("exists"):
         quality = taker.get("quality_gate") or {}
         zero_fill_quality = taker.get("zero_fill_quality_classification")
-        zero_fill_blocker = zero_fill_quality in {"infra_blocked", "unscored_stale_labels"}
+        taker_starvation_blocker = bool(taker.get("blocks_taker_evidence_countability"))
+        zero_fill_blocker = (
+            zero_fill_quality in {"infra_blocked", "unscored_stale_labels"}
+            or taker_starvation_blocker
+        )
         learnings.append(_learning(
             "P0" if zero_fill_blocker else ("P1" if quality.get("sample_ready") else "P2"),
             "taker_strategy_quality",
@@ -2536,10 +2540,12 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
                 f"reconciliation={taker.get('settlement_reconciliation_status') or '-'} "
                 f"root_cause={taker.get('root_cause_class')}; "
                 f"zero_fill_quality={zero_fill_quality or '-'}; "
+                f"taker_day_classification={taker.get('taker_day_classification') or '-'}; "
+                f"evidence_countability={taker.get('taker_evidence_countability_status') or '-'}; "
                 f"quality={quality.get('status')}."
             ),
             (
-                "Repair stale labels/artifacts or infrastructure blockers before treating zero-fill days "
+                "Repair stale labels/artifacts, latest-tick starvation, or infrastructure blockers before treating zero-fill days "
                 "as no-edge evidence; otherwise require settlement-scored fills, tail-fill quality, "
                 "and rolling P&L thresholds before taker strategy-quality claims."
                 if zero_fill_blocker else
