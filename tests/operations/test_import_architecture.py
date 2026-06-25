@@ -4,6 +4,12 @@ import subprocess
 from pathlib import Path
 
 
+TAPE_BACKUP_SPLIT_MODULES = [
+    Path("src/weather/operations/tape_backup_manifest.py"),
+    Path("src/weather/operations/tape_backup_dedup.py"),
+    Path("src/weather/operations/tape_backup_cleanup.py"),
+]
+
 TARGET_MODULES = [
     Path("src/weather/io.py"),
     Path("src/weather/time.py"),
@@ -51,6 +57,7 @@ TARGET_MODULES = [
     Path("src/weather/market/mm_paper.py"),
     Path("src/weather/market/mm_paper_evidence.py"),
     Path("src/weather/market/mm_paper_reports.py"),
+    Path("src/weather/market/mm_paper_scoring.py"),
     Path("src/weather/market/mm_policy.py"),
     Path("src/weather/market/polymarket_client.py"),
     Path("src/weather/model/calibration_runtime.py"),
@@ -72,6 +79,7 @@ TARGET_MODULES = [
     Path("src/weather/operations/ops_monitor.py"),
     Path("src/weather/operations/structure_inventory.py"),
     Path("src/weather/operations/tape_backup.py"),
+    *TAPE_BACKUP_SPLIT_MODULES,
     Path("src/weather/reporting/data_quality/data_auditor.py"),
     Path("src/weather/reporting/daily/daily_learning_render.py"),
     Path("src/weather/reporting/data_quality/data_layer_audit.py"),
@@ -138,6 +146,7 @@ REPORTING_SAFE_SLICE_MODULES = [
     Path("src/weather/reporting/daily/daily_flow_analysis.py"),
     Path("src/weather/reporting/daily/daily_learning.py"),
     Path("src/weather/reporting/daily/daily_learning_render.py"),
+    Path("src/weather/reporting/daily/daily_learning_scorecard.py"),
     Path("src/weather/reporting/daily/daily_progress_ledger.py"),
     Path("src/weather/reporting/daily/daily_rollup_freshness.py"),
 ]
@@ -205,7 +214,7 @@ LEGACY_IMPORT_RE = re.compile(
     r"market_config|market_making_run_constants|market_making_run_support|market_registry|"
     r"market_microstructure|market_microstructure_constants|"
     r"market_microstructure_features|mm_exchange|mm_exchange_reports|"
-    r"mm_paper_constants|mm_paper_evidence|mm_paper_reports|"
+    r"mm_paper_constants|mm_paper_evidence|mm_paper_reports|mm_paper_scoring|"
     r"mm_policy|model_constants|model_identity|model_presentation|model_sources|"
     r"noaa_ghcnh_history|observation_trigger|polymarket_client|pooled_candidate_replay|"
     r"pooled_feature_model|probability_calibration|promotion_corpus|"
@@ -277,6 +286,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         r"import\s+weather\.market\.mm_paper\b)",
         re.MULTILINE,
     ),
+    Path("src/weather/market/mm_paper_scoring.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
+        r"import\s+weather\.market\.mm_paper\b)",
+        re.MULTILINE,
+    ),
     Path("src/weather/reporting/data_quality/data_layer_audit_remediation.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.reporting\.data_quality\.data_layer_audit|\.data_layer_audit)\s+import\b|"
         r"import\s+weather\.reporting\.data_quality\.data_layer_audit\b)",
@@ -288,6 +302,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         re.MULTILINE,
     ),
     Path("src/weather/reporting/daily/daily_learning_render.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.reporting\.daily\.daily_learning|\.daily_learning)\s+import\b|"
+        r"import\s+weather\.reporting\.daily\.daily_learning\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/reporting/daily/daily_learning_scorecard.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.reporting\.daily\.daily_learning|\.daily_learning)\s+import\b|"
         r"import\s+weather\.reporting\.daily\.daily_learning\b)",
         re.MULTILINE,
@@ -340,6 +359,14 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
         re.MULTILINE,
     )
     for path in DAILY_REFRESH_SPLIT_MODULES
+})
+EXTRACTED_MODULE_IMPORT_RULES.update({
+    path: re.compile(
+        r"^\s*(?:from\s+(?:weather\.operations\.tape_backup|\.tape_backup)\s+import\b|"
+        r"import\s+weather\.operations\.tape_backup\b)",
+        re.MULTILINE,
+    )
+    for path in TAPE_BACKUP_SPLIT_MODULES
 })
 
 ROUND_HALF_UP_DEFINITION_RE = re.compile(r"^\s*def\s+round_half_up\s*\(", re.MULTILINE)

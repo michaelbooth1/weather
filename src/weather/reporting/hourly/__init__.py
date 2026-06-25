@@ -1,0 +1,1 @@
+"""Hourly performance reporting package."""

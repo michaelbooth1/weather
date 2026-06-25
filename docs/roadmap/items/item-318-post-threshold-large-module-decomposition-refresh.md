@@ -1,4 +1,4 @@
-# 318. Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - FIVE MODULES REMAIN AFTER SNAPSHOT STORE SLICE]
+# 318. Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]
 
 Goal: bring the module-size audit back under the 2,000-line warning threshold
 with owner-scoped splits, updated ownership docs, and matching test fixture
@@ -56,21 +56,21 @@ gate.
 
 - [x] Refresh `docs/operations/module-ownership-map.md` with the eight current
   warnings and planned splits.
-- [ ] Reduce `weather.operations.tape_backup` below the warning threshold.
-- [ ] Reduce `weather.reporting.daily.daily_learning` below the warning
+- [x] Reduce `weather.operations.tape_backup` below the warning threshold.
+- [x] Reduce `weather.reporting.daily.daily_learning` below the warning
   threshold.
 - [x] Reduce `weather.operations.daily_refresh_steps` below the warning
   threshold.
-- [ ] Reduce `weather.market.mm_paper` below the warning threshold.
-- [ ] Reduce or explicitly exempt `weather.schema_registry` with documented
+- [x] Reduce `weather.market.mm_paper` below the warning threshold.
+- [x] Reduce or explicitly exempt `weather.schema_registry` with documented
   registry/audit ownership.
 - [x] Reduce `weather.collection.snapshot_store` below the warning threshold.
-- [ ] Reduce `weather.market.taker_bot_bakeoff` below the warning threshold.
+- [x] Reduce `weather.market.taker_bot_bakeoff` below the warning threshold.
 - [x] Reduce `weather.reporting.source_family_inventory` below the warning
   threshold.
-- [ ] Split matching large test fixtures/builders where needed for the source
+- [x] Split matching large test fixtures/builders where needed for the source
   splits.
-- [ ] Rerun module-size audit and architecture ratchet after each split batch.
+- [x] Rerun module-size audit and architecture ratchet after each split batch.
 
 2026-06-25 daily-refresh slice: split step order/resume filtering to
 `weather.operations.daily_refresh_registry`, settled-day barrier contracts to
@@ -94,6 +94,54 @@ while keeping `weather.collection.snapshot_store` compatibility exports stable.
 `weather.collection.snapshot_store` is now 1,972 lines. The regenerated
 module-size audit reports `5` warnings; the remaining over-threshold modules
 keep owner and next-split metadata in both the ownership map and audit notes.
+
+2026-06-25 taker-bakeoff slice: split replay input normalization, current
+replay profitability verification, and model-variant row expansion to
+`weather.market.taker_bot_bakeoff_scoring` while keeping
+`weather.market.taker_bot_bakeoff` compatibility exports stable.
+`weather.market.taker_bot_bakeoff` is now 1,861 lines. The regenerated
+module-size audit reports `4` warnings; the remaining over-threshold modules
+keep owner and next-split metadata in both the ownership map and audit notes.
+
+2026-06-25 schema-registry slice: split static schema registry records to
+`weather.schema_registry_data`, recent runtime/snapshot/taker records to
+`weather.schema_registry_recent_data`, and registry dataclasses to
+`weather.schema_registry_types` while keeping `weather.schema_registry`
+compatibility exports stable. `weather.schema_registry` is now 181 lines and
+the largest registry data shard is 1,946 lines. The regenerated module-size
+audit reports `3` warnings; the remaining over-threshold modules keep owner
+and next-split metadata in both the ownership map and audit notes.
+
+2026-06-25 mm-paper slice: split active-day freshness, tape readers,
+conservative fill accounting, queue companion scoring, and P&L summaries to
+`weather.market.mm_paper_scoring` while keeping `weather.market.mm_paper`
+compatibility exports stable. `weather.market.mm_paper` is now 1,366 lines and
+`weather.market.mm_paper_scoring` is 1,187 lines. The regenerated module-size
+audit reports `2` warnings; the remaining over-threshold modules keep owner
+and next-split metadata in both the ownership map and audit notes.
+
+2026-06-25 daily-learning slice: split artifact readers, input
+freshness/coverage/consistency gates, experiment queue item builders, label
+countability, calibration monitoring, and scorecard assembly to
+`weather.reporting.daily.daily_learning_scorecard` while keeping
+`weather.reporting.daily.daily_learning` compatibility exports stable.
+`weather.reporting.daily.daily_learning` is now 1,783 lines and
+`weather.reporting.daily.daily_learning_scorecard` is 1,381 lines. The
+regenerated module-size audit reports `1` warning; the remaining
+over-threshold module keeps owner and next-split metadata in both the ownership
+map and audit notes.
+
+2026-06-25 tape-backup slice: split retention policy, manifest building,
+capacity checks, validation, restore-drill SLA, backup status, and alerts to
+`weather.operations.tape_backup_manifest`; deduplicated repository preflight,
+restic command execution, backup/status/restore drill, and dedup job helpers to
+`weather.operations.tape_backup_dedup`; and unmanifested cleanup planning,
+durable restore proof verification, cleanup apply gates, and cleanup report
+rendering to `weather.operations.tape_backup_cleanup`. `weather.operations.tape_backup`
+is now 913 lines, `weather.operations.tape_backup_manifest` is 1,138 lines,
+`weather.operations.tape_backup_dedup` is 842 lines, and
+`weather.operations.tape_backup_cleanup` is 1,038 lines. The regenerated
+module-size audit reports `0` warnings.
 
 Acceptance: `python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md`
 reports zero warnings, or any remaining over-threshold module has an explicit

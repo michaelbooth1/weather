@@ -85,23 +85,63 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/operations/tape_backup.py": {
         "owner": "operations",
-        "boundary": "Tape manifest/status, retention/pruning, restore drill, and CLI orchestration.",
-        "next_split": "Item 318 warning module; split manifest/status first, then retention/pruning and restore drill helpers.",
+        "boundary": "Compatibility facade for export, restore drill, backup-job, status-report, and CLI behavior.",
+        "next_split": "Item 318 slice complete; manifest/status, dedup repository, and unmanifested cleanup helpers live in owner modules.",
+    },
+    "src/weather/operations/tape_backup_manifest.py": {
+        "owner": "operations",
+        "boundary": "Tape retention policy, manifest building, capacity checks, manifest validation, restore-drill SLA, backup status, and alert helpers.",
+        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
+    },
+    "src/weather/operations/tape_backup_dedup.py": {
+        "owner": "operations",
+        "boundary": "Deduplicated repository preflight, restic command execution, repository status, backup, restore drill, and dedup backup job helpers.",
+        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
+    },
+    "src/weather/operations/tape_backup_cleanup.py": {
+        "owner": "operations",
+        "boundary": "Unmanifested backup cleanup planning, durable restore proof verification, cleanup apply gates, and cleanup report rendering.",
+        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
     },
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",
-        "boundary": "Daily learning readers, synthesis, retrain recommendations, report rendering, and CLI wiring.",
-        "next_split": "Item 318 warning module; split readers, synthesis/decision model, report rendering, and CLI wiring.",
+        "boundary": "Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers.",
+        "next_split": "Item 318 slice complete; input readers, input gates, experiment queue builders, and scorecard assembly live in daily_learning_scorecard.",
+    },
+    "src/weather/reporting/daily/daily_learning_scorecard.py": {
+        "owner": "reporting",
+        "boundary": "Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly.",
+        "next_split": "Owner module for item 318; must not import the daily_learning facade.",
     },
     "src/weather/market/mm_paper.py": {
         "owner": "market",
-        "boundary": "Market-making paper tape ingestion, accounting/scoring, report rendering, evidence export, and CLI.",
-        "next_split": "Item 318 warning module; split tape ingestion and accounting/scoring before report/evidence export.",
+        "boundary": "Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers.",
+        "next_split": "Item 318 slice complete; tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in mm_paper_scoring.",
+    },
+    "src/weather/market/mm_paper_scoring.py": {
+        "owner": "market",
+        "boundary": "Active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries.",
+        "next_split": "Owner module for item 318; must not import the mm_paper facade.",
     },
     "src/weather/schema_registry.py": {
         "owner": "shared",
-        "boundary": "Schema registry data, audit/check logic, and CLI rendering.",
-        "next_split": "Item 318 warning module; defer until active 314/316/317 edits settle, then split registry data from audit/check behavior.",
+        "boundary": "Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports.",
+        "next_split": "Item 318 slice complete; static registry records live in schema_registry_data and schema_registry_recent_data.",
+    },
+    "src/weather/schema_registry_data.py": {
+        "owner": "shared",
+        "boundary": "Static registered schema records, exclusion records, and lookup maps for the schema registry facade.",
+        "next_split": "Owner module for item 318; must not import the schema_registry facade or producer modules.",
+    },
+    "src/weather/schema_registry_recent_data.py": {
+        "owner": "shared",
+        "boundary": "Recent runtime, snapshot-sidecar, source-status, and taker schema records split from the main registry data shard.",
+        "next_split": "Owner module for item 318; static data shard that imports only schema registry record types.",
+    },
+    "src/weather/schema_registry_types.py": {
+        "owner": "shared",
+        "boundary": "Dependency-free schema registry dataclasses and registry schema version constant.",
+        "next_split": "Owner module for item 318; shared by registry data shards and the public facade.",
     },
     "src/weather/collection/snapshot_store.py": {
         "owner": "collection",
@@ -115,8 +155,13 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/market/taker_bot_bakeoff.py": {
         "owner": "market",
-        "boundary": "Taker bakeoff artifact readers, scoring, profitability verification, report rendering, and CLI.",
-        "next_split": "Item 318 warning module; split artifact readers and scoring before report rendering.",
+        "boundary": "Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers.",
+        "next_split": "Item 318 slice complete; replay input, profitability verification, and model-variant scoring helpers live in taker_bot_bakeoff_scoring.",
+    },
+    "src/weather/market/taker_bot_bakeoff_scoring.py": {
+        "owner": "market",
+        "boundary": "Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion.",
+        "next_split": "Owner module for item 318; must not import the taker_bot_bakeoff facade.",
     },
     "src/weather/reporting/source_family_inventory.py": {
         "owner": "reporting",
