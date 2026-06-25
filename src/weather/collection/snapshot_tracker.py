@@ -44,6 +44,7 @@ from weather.operations.supervisor import (
     read_writer_lock,
     read_json_file,
     release_writer_lock,
+    should_emit_recovery_block_diagnostic,
     supervisor_recovery_guard,
     terminate_python_pid,
 )
@@ -633,7 +634,11 @@ def ensure_loop(interval_minutes=10.0, now=None):
         result["action"] = guard.get("action")
         result["reason"] = guard.get("reason")
         result["remediation"] = guard.get("remediation")
-        append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+        event = {"time": now.isoformat(), "supervisor": "ensure", **result}
+        if should_emit_recovery_block_diagnostic(spec, event):
+            append_diagnostic(event)
+        else:
+            result["diagnostic_suppressed"] = True
         return result
     if action == "restart":
         result["stop"] = stop_loop(now=now)

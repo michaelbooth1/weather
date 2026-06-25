@@ -513,6 +513,61 @@ def supervisor_recovery_guard(
     return {**base, "allowed": True, "action": action, "reason": "within_restart_budget"}
 
 
+def _tail_text_lines(path: str | Path, *, max_bytes: int = 1_000_000) -> list[str]:
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(0, size - int(max_bytes))
+            handle.seek(start)
+            if start:
+                handle.readline()
+            return handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def recovery_block_diagnostic_key(event: dict[str, Any]) -> tuple[Any, ...] | None:
+    guard = event.get("recovery_guard") or {}
+    action = str(event.get("action") or guard.get("action") or "").lower()
+    if action != "circuit_open":
+        return None
+    return (
+        action,
+        guard.get("loop"),
+        event.get("intended_action") or guard.get("requested_action"),
+        guard.get("last_recovery_at_utc"),
+        guard.get("restart_budget"),
+        guard.get("restart_budget_window_hours"),
+        event.get("remediation") or guard.get("remediation"),
+    )
+
+
+def should_emit_recovery_block_diagnostic(
+    spec: SupervisorSpec,
+    event: dict[str, Any],
+    *,
+    max_scan_bytes: int = 1_000_000,
+) -> bool:
+    """Coalesce repeated circuit-open ensure diagnostics for one breaker trip."""
+    key = recovery_block_diagnostic_key(event)
+    if key is None:
+        return True
+    for line in reversed(_tail_text_lines(spec.diagnostics_path, max_bytes=max_scan_bytes)):
+        if '"circuit_open"' not in line or '"action"' not in line:
+            continue
+        try:
+            previous = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if recovery_block_diagnostic_key(previous) == key:
+            return False
+    return True
+
+
 def parse_iso_datetime(value: object, *, default_tz=timezone.utc) -> datetime | None:
     return parse_datetime(value, default_tz=default_tz)
 

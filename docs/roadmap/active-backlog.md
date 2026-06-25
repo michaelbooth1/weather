@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-25T02:13:15.625687+00:00
+Generated: 2026-06-25T02:25:39.852185+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 310 |
-| Active items | 27 |
-| OPEN | 3 |
+| Items | 312 |
+| Active items | 29 |
+| OPEN | 5 |
 | PARTIAL | 24 |
 | COMPLETE | 283 |
-| ROADMAP rows | 310 |
-| ROADMAP primary rows | 310 |
-| Metadata manifest rows | 310 |
+| ROADMAP rows | 312 |
+| ROADMAP primary rows | 312 |
+| Metadata manifest rows | 312 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -35,9 +35,9 @@ Status: `OK`
 | 144 | PARTIAL | 2026-06-18 | GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED | [Early-Hour Market-Aware Risk Guardrail](items/item-144-early-hour-market-aware-risk-guardrail.md) |
 | 147 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY BASELINE | [Early-Hour Winner-Centering Candidate](items/item-147-early-hour-winner-centering-candidate.md) |
 | 156 | OPEN | 2026-06-20 | LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED | [CLOB Midpoint Continuity For Market-Informed Repair](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
-| 157 | PARTIAL | 2026-06-22 | JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 157 | PARTIAL | 2026-06-24 | JUNE 24 CADENCE BLOCKED, CLEAN DAY NEEDED | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 160 | PARTIAL | 2026-06-24 | MODEL-READY ACTIVE CANDIDATE, READINESS/PROGRESS BLOCKED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
-| 161 | PARTIAL | 2026-06-22 | CURRENT SOURCE RUNNING, JUNE 23 AGING PENDING | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
+| 161 | PARTIAL | 2026-06-24 | JUNE 24 SOAK FAILED, NEW CLEAN SOAK NEEDED | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 176 | PARTIAL | 2026-06-22 | SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 178 | PARTIAL | 2026-06-22 | GATE REFRESHED, VALIDATION BLOCKED | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
@@ -51,7 +51,9 @@ Status: `OK`
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 270 | PARTIAL | 2026-06-24 | FLEET DATA-QUALITY DAILY SLICE LANDED | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits)](items/item-270-weather-reporting-subdomain-decomposition.md) |
-| 307 | PARTIAL | 2026-06-24 | IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | PARTIAL | 2026-06-24 | JUNE 24 LOOP-DEATH EVIDENCE ADDED, SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 311 | OPEN | 2026-06-24 | LATEST-TICK STARVATION STILL PASSES LIVENESS | [Taker Evidence-Starvation Classification And Upstream Liveness Gate](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
+| 312 | OPEN | 2026-06-25 | BOT LOOPS HAVE NO ENSURE-SUPERVISOR; A HUNG OR STALE-CODE ROLL GOES DARK FOR HOURS | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
 
 ## Lint Issues
 

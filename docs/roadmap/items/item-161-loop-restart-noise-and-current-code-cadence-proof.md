@@ -1,4 +1,4 @@
-# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-22 - CURRENT SOURCE RUNNING, JUNE 23 AGING PENDING]
+# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-24 - JUNE 24 SOAK FAILED, NEW CLEAN SOAK NEEDED]
 
 Goal: reduce supervisor restart noise and prove that current-code loops can
 hold cadence across a full active day.
@@ -190,3 +190,16 @@ inside the 24-hour aging window:
 Next unblock: leave the loops running on `ce533797aeb70c1d` through the aging
 window, then rerun fleet observability after `2026-06-23T03:50:15Z`. Completion
 still requires the restart budgets and the snapshot cadence SLO to pass.
+
+## 2026-06-24 Active-Day Soak Failure Evidence
+
+The 2026-06-24 taker audit shows the current-code soak is still not countable.
+By end-of-day review, the snapshot loop was `DEAD` after a stale-code exit and
+CLOB capture was also `DEAD`, with last captured books around 11:39 EDT. The
+taker bot process remained alive, but its latest scoring tick was empty and the
+run report classified the zero-trade root cause as `crashed_before_scoring`.
+
+This evidence belongs here as a soak failure, not as a completed restart-budget
+proof. The open acceptance remains unchanged: retain a full active day where
+snapshot, CLOB, and observation-trigger loops stay current-code, single-writer,
+under restart budget, and within cadence thresholds.

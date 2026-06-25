@@ -1,4 +1,4 @@
-# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - IMPLEMENTATION DEPLOYED, CLEAN ACTIVE-DAY SOAK PENDING]
+# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - JUNE 24 LOOP-DEATH EVIDENCE ADDED, SOAK PENDING]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -138,3 +138,18 @@ Remaining blocker: retain one full active-day soak after the pre-fix restart
 storm ages out, where all three loops stay current-code, single-writer, under
 restart budget, and live-forward cadence passes. That evidence is required
 before this item should be marked complete.
+
+## 2026-06-24 Taker-Audit Evidence
+
+The same target date produced direct downstream evidence of why this item must
+remain open. The 2026-06-24 taker run stayed alive but stopped receiving useful
+late-day inputs: the regular snapshot loop was `DEAD` after a stale-code exit
+around 14:07 EDT, and CLOB capture was `DEAD` with last books around 11:39 EDT.
+The taker report consequently showed `latest tick rows=0`,
+`crashed_before_scoring`, and remediation through
+`python -m weather.market.market_microstructure ensure`.
+
+This does not supersede the implementation update above; it records the
+active-day failure shape that the clean soak must eliminate. Item 311 owns the
+taker-side evidence-starvation classification so this item can stay focused on
+the upstream collection-loop recovery and soak proof.

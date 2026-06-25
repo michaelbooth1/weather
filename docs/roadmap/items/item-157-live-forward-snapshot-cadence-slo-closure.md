@@ -1,4 +1,4 @@
-# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-22 - JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING]
+# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-24 - JUNE 24 CADENCE BLOCKED, CLEAN DAY NEEDED]
 
 Goal: eliminate active-day snapshot cadence gaps so broad live-forward evidence
 can count for all selected markets.
@@ -105,3 +105,18 @@ los-angeles `3` max `20`, san-francisco `6` max `20`, and seattle `3` max `18`.
 June 21 window countable. The useful action is to keep collecting the June 22
 active day on the current source and rerun fleet observability after the active
 window has enough coverage to prove zero blocked snapshot-coverage-gap markets.
+
+## 2026-06-24 Taker-Run Cadence Evidence
+
+The 2026-06-24 taker audit added another non-countable active-day cadence
+example. The regular snapshot loop was `DEAD` at review time, with the child
+having exited on stale-code identity around 14:07 EDT and the latest taker
+snapshot rows stopping around 13:58 EDT. `snapshot_tracker --status` reported
+all 12 active markets as `PARTIAL/BLOCK`, with max same-day gaps around 142
+minutes.
+
+This does not change the design of the item, but it updates the current
+blocker: the next acceptable evidence is still a fresh active day where all
+selected markets pass snapshot cadence. The 2026-06-24 taker run should not
+count as strategy-quality evidence because its late-day scoring tape was
+starved by snapshot cadence failure.

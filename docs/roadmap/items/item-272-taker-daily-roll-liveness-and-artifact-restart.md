@@ -65,6 +65,15 @@ Validation:
 
 Related: items 161, 239, 256.
 
+## 2026-06-24 Follow-Up Gap
+
+The 2026-06-24 taker audit found a narrower blind spot that should not reopen
+this completed item directly. The taker daily roll could show an alive process
+and useful-artifact liveness `PASS` while the current run had
+`latest tick rows=0`, zero-trade root cause `crashed_before_scoring`, and dead
+upstream snapshot/CLOB dependencies. Item 311 now owns that pre-settlement
+latest-tick/evidence-starvation gate.
+
 ## Completion Notes
 
 Validated in the 2026-06-24 complete-roadmap sweep:
@@ -73,4 +82,3 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
-

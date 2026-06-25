@@ -193,6 +193,55 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(circuit["action"], "circuit_open")
         self.assertEqual(circuit["recent_recovery_count"], 2)
 
+    def test_circuit_open_diagnostic_emits_once_per_breaker_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="example",
+                module="weather.example",
+                status_path=root / "status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "console.log",
+                restart_budget=2,
+            )
+            event = {
+                "time": "2026-06-16T12:00:00+00:00",
+                "supervisor": "ensure",
+                "action": "circuit_open",
+                "intended_action": "start",
+                "remediation": "inspect diagnostics, then run an explicit restart",
+                "recovery_guard": {
+                    "action": "circuit_open",
+                    "loop": "example",
+                    "requested_action": "start",
+                    "last_recovery_at_utc": "2026-06-16T11:59:00+00:00",
+                    "restart_budget": 2,
+                    "restart_budget_window_hours": 24.0,
+                    "remediation": "inspect diagnostics, then run an explicit restart",
+                },
+            }
+
+            self.assertTrue(supervisor.should_emit_recovery_block_diagnostic(spec, event))
+            diagnostics_path.write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+            duplicate = {
+                **event,
+                "time": "2026-06-16T12:01:00+00:00",
+                "reason": "restart_budget_exceeded=8>=2",
+            }
+            next_trip = {
+                **event,
+                "recovery_guard": {
+                    **event["recovery_guard"],
+                    "last_recovery_at_utc": "2026-06-16T12:30:00+00:00",
+                },
+            }
+
+            self.assertFalse(supervisor.should_emit_recovery_block_diagnostic(spec, duplicate))
+            self.assertTrue(supervisor.should_emit_recovery_block_diagnostic(spec, next_trip))
+            self.assertTrue(supervisor.should_emit_recovery_block_diagnostic(spec, {"action": "backoff"}))
+
     def test_recent_recovery_events_skips_large_non_supervisor_lines(self):
         now = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
