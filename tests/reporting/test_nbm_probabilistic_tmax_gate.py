@@ -91,6 +91,16 @@ class NbmProbabilisticTmaxGateTests(unittest.TestCase):
             "cutover_decision": "SHADOW_READY",
         }
 
+    def _calibration_anchor_candidate(self):
+        candidate = self._candidate(market_rows=1)
+        candidate["artifact"].update({
+            "schema_version": "nbm_probabilistic_tmax_settlement_scoring_v0.1",
+            "prediction_mode": "nbm_percentile_curve_anchor",
+            "objective": "settlement_scored_nbm_probabilistic_tmax_band_brier",
+        })
+        candidate["coverage"] = {"nbm_payload_folder_count": 1}
+        return candidate
+
     def test_source_inventory_evidence_separates_status_from_payload_capture(self):
         evidence = source_inventory_evidence(
             self._inventory(
@@ -131,6 +141,31 @@ class NbmProbabilisticTmaxGateTests(unittest.TestCase):
         self.assertIn("isolated_nbm_replay_missing", codes)
         self.assertIn("nbm_forecast_payload_missing", codes)
         self.assertIn("us_market_settlement_slices_missing", codes)
+
+    def test_acceptance_allows_calibration_anchor_without_model_training_evidence(self):
+        candidate = self._calibration_anchor_candidate()
+        source_evidence = source_inventory_evidence(
+            self._inventory(
+                nbm_payload_seen=False,
+                historical_status="live_only_until_grid_archive_backfill",
+                active=False,
+                parity="LINEAGE_BLOCKED",
+                missing_folders=3,
+            )
+        )
+        permutation = {"observed_expected_feature_count": 0, "missing_expected_features": list(NBM_FEATURES)}
+
+        result = acceptance(candidate, source_evidence, permutation)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(result["calibration_anchor"])
+        codes = {row["code"] for row in result["blockers"]}
+        self.assertNotIn("nbm_forecast_payload_missing", codes)
+        self.assertNotIn("nbm_payload_lineage_partial", codes)
+        self.assertNotIn("historical_nbm_backfill_missing", codes)
+        self.assertNotIn("nbm_features_not_selected_by_active_artifact", codes)
+        self.assertNotIn("train_serve_parity_not_pass", codes)
+        self.assertNotIn("nbm_permutation_evidence_missing", codes)
 
     def test_report_payload_passes_for_nbm_candidate_with_complete_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

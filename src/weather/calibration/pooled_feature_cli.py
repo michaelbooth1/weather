@@ -21,6 +21,8 @@ def training_output_paths(args):
         artifact = args.artifact or str(
             DEFAULT_FORECAST_RADIATION_BAND_ARTIFACT
             if args.feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION else
+            DEFAULT_MARINE_CONTRAST_BAND_ARTIFACT
+            if args.feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST else
             DEFAULT_FORECAST_PROFILE_BAND_ARTIFACT
             if args.feature_subset == FEATURE_SUBSET_FORECAST_PROFILE else
             DEFAULT_EXACT_WINNER_ARTIFACT
@@ -32,6 +34,8 @@ def training_output_paths(args):
         report = args.out or str(
             DEFAULT_FORECAST_RADIATION_BAND_REPORT
             if args.feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION else
+            DEFAULT_MARINE_CONTRAST_BAND_REPORT
+            if args.feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST else
             DEFAULT_FORECAST_PROFILE_BAND_REPORT
             if args.feature_subset == FEATURE_SUBSET_FORECAST_PROFILE else
             DEFAULT_EXACT_WINNER_REPORT
@@ -92,7 +96,8 @@ def main():
                         help="Blend non-all-fresh replay rows fully back to current serving.")
     parser.add_argument("--feature-subset", default=FEATURE_SUBSET_ALL, choices=FEATURE_SUBSET_CHOICES,
                         help=("Optional band-model feature subset. Use forecast_profile for roadmap item 134 "
-                              "or forecast_cloud_solar_radiation for roadmap item 187."))
+                              "forecast_cloud_solar_radiation for roadmap item 187, or "
+                              "marine_water_contrast for roadmap item 191."))
     parser.add_argument("--reanalysis-lane-json", default=None,
                         help="Source-family inventory JSON or promotion-lane JSON for Item 32 allowed-market masking.")
     parser.add_argument("--min-artifact-free-bytes", type=int, default=DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,

@@ -12,6 +12,7 @@ from weather.calibration.pooled_feature_model import (
     BAND_MERGE_PAYLOAD_KEY,
     FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
     FEATURE_SUBSET_FORECAST_PROFILE,
+    FEATURE_SUBSET_MARINE_WATER_CONTRAST,
     add_city_features,
     add_dynamic_source_state_features,
     adjacent_calibration_contexts,
@@ -1338,6 +1339,75 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertNotIn("current_temp", feature_names)
         self.assertNotIn("live_reading_temp", feature_names)
         self.assertNotIn("band_mid_minus_high_so_far", feature_names)
+
+    def test_pooled_band_model_can_train_marine_water_contrast_subset(self):
+        records = []
+        for idx in range(80):
+            final_bucket = 80 + (idx % 5)
+            cooling = 8.0 + (idx % 4)
+            record = {
+                **self._base_record(),
+                "market_id": "nyc",
+                "high_so_far": 74.0 + (idx % 3),
+                "current_temp": 75.0 + (idx % 3),
+                "forecast_high": final_bucket + 0.25,
+                "forecast_gap": 4.0 + (idx % 2),
+                "forecast_temp_14": final_bucket - 0.5,
+                "marine_station_count": 1.0,
+                "marine_latest_age_minutes": 15.0 + (idx % 5),
+                "marine_missing_sensor_count": 0.0,
+                "marine_water_temp_native": final_bucket - cooling,
+                "marine_water_minus_forecast_high": -cooling,
+                "marine_wind_speed_kmh": 12.0 + (idx % 6),
+                "marine_onshore_flow": 1.0 if idx % 2 == 0 else 0.0,
+                "marine_offshore_flow": 0.0 if idx % 2 == 0 else 1.0,
+                "marine_onshore_water_minus_forecast_high": -cooling if idx % 2 == 0 else 0.0,
+                "marine_onshore_cooling_potential": cooling if idx % 2 == 0 else 0.0,
+                "marine_breeze_risk": 1.0 if idx % 2 == 0 else 0.0,
+                "marine_layer_suppression": 0.0,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 8,
+                "year": 2024 if idx < 60 else 2025,
+            }
+            records.append(add_city_features(record, NYC, {
+                "climate_normal": 82.0,
+                "climate_std": 5.0,
+            }))
+
+        artifact, validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=2025,
+            feature_subset=FEATURE_SUBSET_MARINE_WATER_CONTRAST,
+        )
+        feature_names = set(artifact["models"]["8"]["feature_names"])
+
+        self.assertEqual(artifact["schema_version"], "pooled_feature_band_hgb_marine_contrast_v0.1")
+        self.assertEqual(artifact["feature_subset"], FEATURE_SUBSET_MARINE_WATER_CONTRAST)
+        self.assertEqual(
+            artifact["feature_subset_contract"]["allowed_feature_families"],
+            [
+                "marine_context",
+                "market_climate_context",
+                "market_band_geometry",
+            ],
+        )
+        self.assertEqual(
+            artifact["marine_contrast_calibration"]["anchor_feature"],
+            "marine_water_minus_forecast_high",
+        )
+        self.assertTrue(validation_rows)
+        self.assertIn("marine_water_minus_forecast_high", feature_names)
+        self.assertIn("marine_onshore_water_minus_forecast_high", feature_names)
+        self.assertIn("marine_onshore_cooling_potential", feature_names)
+        self.assertIn("marine_breeze_risk", feature_names)
+        self.assertIn("band_mid_anomaly", feature_names)
+        self.assertIn("market_id_nyc", feature_names)
+        self.assertNotIn("forecast_high", feature_names)
+        self.assertNotIn("forecast_temp_14", feature_names)
+        self.assertNotIn("high_so_far", feature_names)
+        self.assertNotIn("current_temp", feature_names)
+        self.assertNotIn("live_reading_temp", feature_names)
+        self.assertNotIn("band_mid_minus_forecast", feature_names)
 
     def test_pooled_band_model_records_weak_input_family_preflight(self):
         records = []

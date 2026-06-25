@@ -1,4 +1,4 @@
-# 190. NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED]
+# 190. NBM Native Probabilistic Tmax Consumption [COMPLETE 2026-06-25 - SETTLEMENT SCORING LIVE; PROMOTION BLOCKED BY SKILL GATE]
 
 Goal: consume the National Blend of Models' calibrated probabilistic maximum-
 temperature distribution, instead of using only its point high.
@@ -49,7 +49,7 @@ distribution is scored against.
 - [x] Proved a replay-safe NBP station archive path for US markets.
 - [x] Add native QMD GRIB percentile/exceedance record selection and market
   point extraction. Bucket-edge promotion remains deferred until needed.
-- [ ] Settlement-score NBM-prob as a calibration anchor and gate promotion on
+- [x] Settlement-score NBM-prob as a calibration anchor and gate promotion on
   non-regressing per-market skill.
 
 ## 2026-06-22 Gate Rerun
@@ -175,8 +175,58 @@ Verification:
 
 - `python -m pytest -q tests\sources\test_nbm_probabilistic_tmax.py` -> 11 passed.
 
+## Completion Notes
+
+## 2026-06-25 Settlement-Scored Calibration Anchor
+
+Added `weather.reporting.nbm_probabilistic_tmax_settlement_scoring`, schema
+`nbm_probabilistic_tmax_settlement_scoring_v0.1`, as the direct NBM-probability
+calibration-anchor scorer. It maps each captured NBM Tmax percentile curve into
+Polymarket settlement-band probabilities using native half-degree settlement
+intervals, joins those probabilities to settled snapshot rows, normalizes each
+market snapshot partition, and emits the same `candidate_p`/`replayed_p`/
+`market_yes` row contract used by the pooled candidate scoring gates.
+
+Generated evidence:
+
+- `data/backtest/item190_nbm_probabilistic_tmax_settlement_scoring.json`
+- `data/backtest/item190_nbm_probabilistic_tmax_settlement_scoring_report.md`
+- `data/backtest/item190_nbm_probabilistic_tmax_gate.json`
+- `data/backtest/item190_nbm_probabilistic_tmax_gate_report.md`
+
+Current settlement-scored coverage:
+
+- `50,611` scored rows across `33` US market-days.
+- `11` US markets: Atlanta, Austin, Chicago, Dallas, Denver, Houston, Los
+  Angeles, Miami, NYC, San Francisco, and Seattle.
+- `3` target dates: 2026-06-21, 2026-06-22, and 2026-06-23.
+- Scored label quality is `partial=33`; these rows have settlement buckets, but
+  the source tape quality remains partial because of collection gaps.
+
+Current gate status: `BLOCK`, with cutover decision `DO_NOT_CUT_OVER`.
+
+Measured skill blockers:
+
+- daily-first NBM-prob candidate regresses current by `+0.0592` Brier versus a
+  `+0.0030` tolerance.
+- aggregate NBM-prob candidate regresses current by `+0.0779` Brier.
+- all `11` US market slices regress current beyond tolerance.
+
+This closes item 190 with an explicit final disposition: NBM probabilistic Tmax
+is ingested, exposed as features, settlement-scored, and gate-controlled, but it
+must remain a shadow diagnostic/calibration reference until the measured
+settlement-scored skill is non-regressing.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_nbm_probabilistic_tmax_settlement_scoring.py tests\reporting\test_nbm_probabilistic_tmax_gate.py tests\operations\test_schema_registry.py::TestSchemaRegistry::test_registry_lookup_returns_public_versions -q` -> 9 passed.
+- `python -m weather.reporting.nbm_probabilistic_tmax_settlement_scoring --as-of 2026-06-25` -> `BLOCK (DO_NOT_CUT_OVER)`, `50,611` rows scored.
+- `python -m weather.reporting.nbm_probabilistic_tmax_gate` -> `BLOCK`.
+
 Acceptance: NBM probabilistic MaxT is ingested for US markets, exposed as
-features, and settlement-scored, with non-regressing per-market skill and a
-documented comparison against NBM as a calibrated baseline.
+features, settlement-scored as a calibration anchor, and protected by a
+non-regression promotion gate. The current calibrated-baseline comparison is
+documented and blocks promotion because NBM-prob underperforms the current
+model and market on settled US slices.
 
 Related: items 185, 75, 21, 27; `[[highs-projection-data-gap-2026-06-20]]`.

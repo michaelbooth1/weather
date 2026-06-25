@@ -131,8 +131,8 @@ infrastructure work remains.
 | 187 | [Forecast Shortwave-Radiation & Peak-Window Insolation Features [COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS]](items/item-187-forecast-shortwave-insolation-features.md) |
 | 188 | [Aerosol & Wildfire-Smoke Suppression Features [PARTIAL 2026-06-24 - AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED]](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | [ECMWF & ML-NWP Ensemble Forecast Members [PARTIAL 2026-06-24 - GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED]](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 190 | [NBM Native Probabilistic Tmax Consumption [PARTIAL 2026-06-24 - NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
-| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-24 - ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY]](items/item-191-lake-sea-surface-temperature-contrast.md) |
+| 190 | [NBM Native Probabilistic Tmax Consumption [COMPLETE 2026-06-25 - SETTLEMENT SCORING LIVE; PROMOTION BLOCKED BY SKILL GATE]](items/item-190-nbm-probabilistic-tmax-consumption.md) |
+| 191 | [Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-25 - SCOPED REPLAY LIVE, PROMOTION BLOCKED BY MISSING MARINE CONTEXT]](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 193 | [WU Current-Max Anomaly Quarantine And Trust Weighting [COMPLETE 2026-06-21 - TRUSTED SUPPORT-ONLY QUARANTINE FIELDS LIVE]](items/item-193-wu-current-max-anomaly-quarantine-and-trust-weighting.md) |
 | 197 | [Startup Live-Observation Null And Unit Guard [COMPLETE 2026-06-21 - IMPLAUSIBLE STARTUP OBSERVATIONS QUARANTINED]](items/item-197-startup-live-observation-null-unit-guard.md) |
 | 201 | [Raw Observation Payload Sidecars [COMPLETE 2026-06-21 - OBSERVATION RAW PAYLOADS HAVE DURABLE SIDECARS]](items/item-201-raw-observation-payload-sidecars.md) |

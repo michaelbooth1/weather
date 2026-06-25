@@ -423,6 +423,9 @@ def train_pooled_band_models(
     if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
         schema_version = "pooled_feature_band_hgb_forecast_radiation_v0.1"
         objective = "binary_market_band_brier_forecast_radiation_calibrated"
+    if feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST:
+        schema_version = "pooled_feature_band_hgb_marine_contrast_v0.1"
+        objective = "binary_market_band_brier_marine_water_contrast"
     artifact = {
         "schema_version": schema_version,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -468,6 +471,19 @@ def train_pooled_band_models(
             "promotion_blocker": (
                 "Forecast-radiation weighting cannot promote unless replay "
                 "proves early/midday lift, late guardrails, and market safety."
+            ),
+        }
+    if feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST:
+        artifact["marine_contrast_calibration"] = {
+            "schema_version": "marine_contrast_calibration_v0.1",
+            "status": "shadow_candidate",
+            "anchor_feature": "marine_water_minus_forecast_high",
+            "feature_subset": feature_subset,
+            "onshore_breeze_replay_required": True,
+            "promotion_blocker": (
+                "Marine contrast cannot promote unless a scoped settlement "
+                "replay proves onshore/breeze-slice lift with no aggregate "
+                "regression."
             ),
         }
     if dynamic_source_state:

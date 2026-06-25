@@ -101,6 +101,8 @@ DEFAULT_FORECAST_PROFILE_BAND_REPORT = data_path() / "backtest" / "item134_forec
 DEFAULT_FORECAST_PROFILE_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_forecast_profile_v0_1.pkl")
 DEFAULT_FORECAST_RADIATION_BAND_REPORT = data_path() / "backtest" / "item187_forecast_radiation_band_model_report.md"
 DEFAULT_FORECAST_RADIATION_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_forecast_radiation_v0_1.pkl")
+DEFAULT_MARINE_CONTRAST_BAND_REPORT = data_path() / "backtest" / "item191_marine_contrast_band_model_report.md"
+DEFAULT_MARINE_CONTRAST_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_marine_contrast_v0_1.pkl")
 DEFAULT_TRAINING_OUTPUT_ESTIMATED_BYTES = 10_000_000
 BAND_MERGE_PAYLOAD_KEY = "band_postprocess_merge_payload"
 
@@ -109,10 +111,12 @@ CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly clo
 FEATURE_SUBSET_ALL = "all"
 FEATURE_SUBSET_FORECAST_PROFILE = "forecast_profile"
 FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION = "forecast_cloud_solar_radiation"
+FEATURE_SUBSET_MARINE_WATER_CONTRAST = "marine_water_contrast"
 FEATURE_SUBSET_CHOICES = (
     FEATURE_SUBSET_ALL,
     FEATURE_SUBSET_FORECAST_PROFILE,
     FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
+    FEATURE_SUBSET_MARINE_WATER_CONTRAST,
 )
 DENSITY_SIGMA_TUNING_SCALES = (0.35, 0.5, 0.65, 0.8, 1.0, 1.25, 1.5, 2.0)
 DENSITY_DEFAULT_SHAPE = {"shape": "gaussian", "id": "gaussian"}
@@ -190,6 +194,32 @@ FORECAST_CLOUD_SOLAR_RADIATION_CONTEXT_COLUMNS = {
     "band_width",
     "band_mid",
     "band_mid_minus_forecast",
+    "band_mid_anomaly",
+}
+MARINE_WATER_CONTRAST_COLUMNS = {
+    "marine_station_count",
+    "marine_latest_age_minutes",
+    "marine_missing_sensor_count",
+    "marine_water_temp_native",
+    "marine_water_minus_forecast_high",
+    "marine_wind_speed_kmh",
+    "marine_onshore_flow",
+    "marine_offshore_flow",
+    "marine_onshore_water_minus_forecast_high",
+    "marine_onshore_cooling_potential",
+    "marine_breeze_risk",
+    "marine_layer_suppression",
+}
+MARINE_WATER_CONTRAST_CONTEXT_COLUMNS = {
+    "latitude",
+    "longitude",
+    "coastal",
+    "climate_normal",
+    "climate_std",
+    "band_value",
+    "band_value_hi",
+    "band_width",
+    "band_mid",
     "band_mid_anomaly",
 }
 BAND_KINDS = ("eq", "lte", "gte")
@@ -361,6 +391,42 @@ def feature_subset_contract(feature_subset=FEATURE_SUBSET_ALL):
                 "guardrails."
             ),
         }
+    if feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST:
+        return {
+            "name": FEATURE_SUBSET_MARINE_WATER_CONTRAST,
+            "schema_version": "pooled_feature_subset_v0.1",
+            "description": (
+                "Roadmap item 191 marine lane: lake/sea water-temperature "
+                "contrast, onshore-flow gating, and marine cooling-potential "
+                "features plus market/climate and direct band geometry. Broad "
+                "forecast-profile, observed-temperature-path, live-reading, "
+                "CLOB, and dynamic source-state columns are excluded."
+            ),
+            "allowed_feature_families": [
+                "marine_context",
+                "market_climate_context",
+                "market_band_geometry",
+            ],
+            "blocked_feature_families": [
+                "observed_temp_path",
+                "live_reading_path",
+                "surface_weather",
+                "forecast_profile_temperature",
+                "forecast_cloud_solar_radiation",
+                "forecast_gap",
+                "forecast_ensemble_spread",
+                "forecast_source_state_guardrail",
+                "official_guidance",
+                "clob_microstructure",
+                "dynamic_source_state",
+            ],
+            "anchor_feature": "marine_water_minus_forecast_high",
+            "postprocess_policy": (
+                "Promotion requires a marine-contrast scoped settlement replay "
+                "with positive onshore/breeze-slice lift and no aggregate "
+                "regression."
+            ),
+        }
     raise ValueError(f"Unknown pooled feature subset: {feature_subset}")
 
 
@@ -372,6 +438,16 @@ def feature_names_for_subset(columns, feature_subset=FEATURE_SUBSET_ALL):
     if feature_subset == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
         selected = []
         allowed = FORECAST_CLOUD_SOLAR_RADIATION_COLUMNS | FORECAST_CLOUD_SOLAR_RADIATION_CONTEXT_COLUMNS
+        for column in columns:
+            if column in allowed:
+                selected.append(column)
+                continue
+            if column.startswith("market_id_") or column.startswith("band_kind_"):
+                selected.append(column)
+        return selected
+    if feature_subset == FEATURE_SUBSET_MARINE_WATER_CONTRAST:
+        selected = []
+        allowed = MARINE_WATER_CONTRAST_COLUMNS | MARINE_WATER_CONTRAST_CONTEXT_COLUMNS
         for column in columns:
             if column in allowed:
                 selected.append(column)

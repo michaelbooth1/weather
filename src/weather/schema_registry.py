@@ -364,6 +364,13 @@ REGISTERED_SCHEMAS = (
         "Roadmap item 190 gate for NBM probabilistic Tmax payload capture, archive parity, feature selection, and US-market settlement scoring.",
     ),
     SchemaSpec(
+        "nbm_probabilistic_tmax_settlement_scoring",
+        "nbm_probabilistic_tmax_settlement_scoring_v0.1",
+        "weather.reporting.nbm_probabilistic_tmax_settlement_scoring",
+        "active",
+        "Roadmap item 190 settlement-scored NBM percentile-curve calibration-anchor artifact.",
+    ),
+    SchemaSpec(
         "marine_contrast_gate",
         "marine_contrast_gate_v0.1",
         "weather.reporting.marine_contrast_gate",

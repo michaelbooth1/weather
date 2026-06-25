@@ -11,6 +11,7 @@ from weather.calibration.pooled_candidate_replay import (
     annotate_casebook_rows,
     apply_current_blend_guardrail,
     attach_forecast_profile_slice_context,
+    attach_marine_contrast_slice_context,
     band_probability_from_distribution,
     build_microstructure_gate,
     candidate_shadow_variant_rows,
@@ -27,6 +28,7 @@ from weather.calibration.pooled_candidate_replay import (
     bridge_alpha_for_market,
     load_casebook_index,
     market_verdict,
+    marine_breeze_slice,
     microstructure_comparison,
     microstructure_feature_frame,
     microstructure_shadow_variant_rows,
@@ -1121,6 +1123,40 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         self.assertEqual(variant_id, "item187_forecast_radiation_v0_1")
         self.assertEqual(variant_family, "forecast_radiation_calibration")
+
+    def test_marine_contrast_variant_defaults_and_slice_context(self):
+        variant_id, variant_family = candidate_variant_defaults({
+            "prediction_mode": "band_binary",
+            "feature_subset": "marine_water_contrast",
+        })
+        feature_row = {
+            "marine_water_temp_native": 59.0,
+            "marine_water_minus_forecast_high": -22.0,
+            "marine_onshore_flow": 1.0,
+            "marine_onshore_water_minus_forecast_high": -22.0,
+            "marine_onshore_cooling_potential": 22.0,
+            "marine_breeze_risk": 1.0,
+        }
+        replay_row = {}
+        band_row = {}
+
+        attach_marine_contrast_slice_context(replay_row, feature_row=feature_row, band_row=band_row)
+
+        self.assertEqual(variant_id, "item191_marine_water_contrast_v0_1")
+        self.assertEqual(variant_family, "marine_water_contrast_calibration")
+        self.assertEqual(marine_breeze_slice(feature_row), "onshore_breeze")
+        self.assertEqual(replay_row["marine_breeze_slice"], "onshore_breeze")
+        self.assertEqual(band_row["marine_breeze_slice"], "onshore_breeze")
+        self.assertEqual(replay_row["marine_onshore_cooling_potential"], 22.0)
+        self.assertEqual(
+            marine_breeze_slice({
+                "marine_water_temp_native": 59.0,
+                "marine_water_minus_forecast_high": -22.0,
+                "marine_onshore_flow": 0.0,
+            }),
+            "water_contrast_no_onshore",
+        )
+        self.assertEqual(marine_breeze_slice({}), "missing_marine_context")
 
     def test_candidate_shadow_variant_rows_preserve_source_state_context(self):
         rows = [

@@ -17,6 +17,7 @@ from weather.backtesting.replay_backtest import FIDELITY_FAITHFUL_L1
 from weather.calibration.pooled_feature_model import (
     FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION,
     FEATURE_SUBSET_FORECAST_PROFILE,
+    FEATURE_SUBSET_MARINE_WATER_CONTRAST,
 )
 from weather.calibration.pooled_candidate_scoring import (
     DEFAULT_MICROSTRUCTURE_VARIANT_OUT,
@@ -648,6 +649,8 @@ def candidate_variant_defaults(artifact, *, variant_registry=None, artifact_path
         return "item134_forecast_profile_v0_1", "forecast_profile_calibration"
     if artifact.get("feature_subset") == FEATURE_SUBSET_FORECAST_CLOUD_SOLAR_RADIATION:
         return "item187_forecast_radiation_v0_1", "forecast_radiation_calibration"
+    if artifact.get("feature_subset") == FEATURE_SUBSET_MARINE_WATER_CONTRAST:
+        return "item191_marine_water_contrast_v0_1", "marine_water_contrast_calibration"
     if prediction_mode == "continuous_density_f":
         schema = artifact.get("schema_version") or "pooled_continuous_density_hgb_v0.1"
         return str(schema).replace(".", "_"), "pooled_continuous_density"

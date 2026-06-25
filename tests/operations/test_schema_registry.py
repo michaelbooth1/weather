@@ -139,6 +139,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("forecast_smoke_gate"), "forecast_smoke_gate_v0.1")
         self.assertEqual(schema_version("global_model_guidance_gate"), "global_model_guidance_gate_v0.1")
         self.assertEqual(schema_version("nbm_probabilistic_tmax_gate"), "nbm_probabilistic_tmax_gate_v0.1")
+        self.assertEqual(
+            schema_version("nbm_probabilistic_tmax_settlement_scoring"),
+            "nbm_probabilistic_tmax_settlement_scoring_v0.1",
+        )
         self.assertEqual(schema_version("marine_contrast_gate"), "marine_contrast_gate_v0.1")
         self.assertEqual(schema_version("marine_water_contrast_features"), "marine_water_contrast_features_v0.1")
         self.assertEqual(schema_version("marine_water_contrast_backfill"), "marine_water_contrast_backfill_v0.1")

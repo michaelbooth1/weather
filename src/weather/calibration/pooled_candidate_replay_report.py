@@ -820,6 +820,8 @@ def write_report(report, out_path, min_free_bytes=0):
         lines += _slice_markdown("By Forecast-Relative Bucket Pressure", report.get("by_forecast_bucket_pressure") or [])
     if report.get("by_current_max_boundary"):
         lines += _slice_markdown("By Current-Max Boundary", report.get("by_current_max_boundary") or [])
+    if report.get("by_marine_breeze_slice"):
+        lines += _slice_markdown("By Marine Breeze Slice", report.get("by_marine_breeze_slice") or [])
 
     guardrails = report.get("forecast_profile_guardrails") or {}
     guardrail_rows = guardrails.get("rows") or []

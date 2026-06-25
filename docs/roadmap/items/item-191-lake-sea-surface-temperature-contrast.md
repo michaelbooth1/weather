@@ -1,4 +1,4 @@
-# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-24 - ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY]
+# 191. Lake/Sea Surface-Temperature Contrast Feature [PARTIAL 2026-06-25 - SCOPED REPLAY LIVE, PROMOTION BLOCKED BY MISSING MARINE CONTEXT]
 
 Goal: give the lake/sea-breeze signal the water temperature contrast it depends
 on, so the model can anticipate shoreline-cooling days instead of only flagging
@@ -51,8 +51,70 @@ active under onshore flow.
   market-point extraction and provenance.
 - [x] Backfill or replay-gate the station/gridded water-contrast features for
   lake/coast-influenced markets.
-- [ ] Settlement-score the onshore-wind/breeze-day slice and require no
+- [x] Settlement-score the onshore-wind/breeze-day slice and require no
   aggregate regression before promotion.
+
+## 2026-06-25 Scoped Settlement Replay
+
+Added a first-class `marine_water_contrast` pooled band feature subset and
+replayed it against the pinned settlement corpus.
+
+- Training artifact:
+  `data/backtest/item191_marine_contrast_candidate.pkl`.
+- Training report:
+  `data/backtest/item191_marine_contrast_band_model_report.md`.
+- Settlement replay:
+  `data/backtest/item191_marine_contrast_replay.json` and
+  `data/backtest/item191_marine_contrast_replay_report.md`.
+- Current-serving replay reference:
+  `data/backtest/item191_marine_contrast_current_replay_report.md`.
+- Gate evidence:
+  `data/backtest/item191_marine_contrast_gate.json` and
+  `data/backtest/item191_marine_contrast_gate_report.md`.
+
+Replay status: `BLOCK`.
+
+Replay evidence:
+
+- Candidate artifact is isolated to `feature_subset=marine_water_contrast`;
+  selected contrast fields include all six gate features:
+  `marine_water_temp_native`, `marine_water_minus_forecast_high`,
+  `marine_onshore_water_minus_forecast_high`,
+  `marine_onshore_cooling_potential`, `marine_breeze_risk`, and
+  `marine_layer_suppression`.
+- Settlement replay scored `51,997` F-family rows and excluded `9,449`
+  non-F rows.
+- Aggregate candidate Brier is `0.041097` versus current replay `0.040601`;
+  delta versus current is `+0.000496`, within the hard aggregate regression
+  tolerance but not an improvement.
+- The marine slice table contains only `missing_marine_context`: `51,997`
+  rows, candidate Brier `0.041097`, current Brier `0.040601`, market Brier
+  `0.030838`.
+- The training/replay run emitted sklearn all-missing warnings for the marine
+  contrast columns, confirming the present historical matrix has no observed
+  marine contrast sidecar values.
+
+Gate status: `BLOCK`.
+
+Remaining blockers:
+
+- `marine_source_lineage_partial`: `81` snapshot folders lack marine source
+  rows.
+- `historical_marine_backfill_missing`: archive status remains
+  `station_archive_partial`.
+- `train_serve_parity_not_pass`: parity remains `PARTIAL_MISSINGNESS`.
+- `marine_ablation_no_positive_lift`: existing marine-context ablation delta
+  remains `+0.0000`.
+- `marine_contrast_permutation_evidence_missing`: no water-contrast rows are in
+  the HGB permutation artifact.
+- `blocked_validation_failed`: daily-first candidate is not within market
+  tolerance.
+- `onshore_breeze_settlement_slice_missing`: onshore/breeze slice rows are `0`.
+
+Disposition: the settlement replay requirement is implemented and fail-closed.
+Promotion remains blocked until real station-history or GLSEA/OISST sidecars
+populate the historical matrix and produce a non-empty onshore/breeze
+settlement slice with positive lift and no aggregate regression.
 
 ## 2026-06-24 Adapter And Backfill Implementation
 

@@ -279,6 +279,55 @@ def current_max_boundary_slice(feature_row):
     return state or disposition
 
 
+MARINE_REPLAY_FEATURES = (
+    "marine_station_count",
+    "marine_latest_age_minutes",
+    "marine_missing_sensor_count",
+    "marine_water_temp_native",
+    "marine_water_minus_forecast_high",
+    "marine_onshore_flow",
+    "marine_offshore_flow",
+    "marine_onshore_water_minus_forecast_high",
+    "marine_onshore_cooling_potential",
+    "marine_breeze_risk",
+    "marine_layer_suppression",
+)
+
+
+def _replay_float(value):
+    if value in (None, ""):
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def marine_breeze_slice(feature_row):
+    """Replay slice for item 191 onshore lake/sea-breeze settlement scoring."""
+
+    feature_row = feature_row or {}
+    onshore = _replay_float(feature_row.get("marine_onshore_flow"))
+    breeze = _replay_float(feature_row.get("marine_breeze_risk"))
+    suppression = _replay_float(feature_row.get("marine_layer_suppression"))
+    cooling = _replay_float(feature_row.get("marine_onshore_cooling_potential"))
+    water_temp = _replay_float(feature_row.get("marine_water_temp_native"))
+    contrast = _replay_float(feature_row.get("marine_water_minus_forecast_high"))
+    has_marine = any(value is not None for value in (water_temp, contrast, onshore, breeze, suppression, cooling))
+    if not has_marine:
+        return "missing_marine_context"
+    if onshore is not None and onshore >= 0.5:
+        if (breeze is not None and breeze >= 0.5) or (suppression is not None and suppression >= 0.5):
+            return "onshore_breeze"
+        if cooling is not None and cooling > 0.0:
+            return "onshore_breeze"
+        return "onshore"
+    if contrast is not None:
+        return "water_contrast_no_onshore"
+    return "marine_observed_no_onshore"
+
+
 def density_projection_index(payload):
     density = normalize_density(density_f_from_payload(payload) or {})
     if not density:
@@ -307,7 +356,8 @@ def density_projection_probability(index, unit, kind, value, value_hi=None):
 
 def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None):
     feature_row = feature_row or {}
-    band_row = band_row or {}
+    if band_row is None:
+        band_row = {}
     source_count = feature_row.get("forecast_source_count")
     disagreement = feature_row.get("forecast_disagreement")
     forecast_gap = feature_row.get("forecast_gap")
@@ -330,6 +380,19 @@ def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None)
     boundary_slice = current_max_boundary_slice(feature_row)
     copy["current_max_boundary_slice"] = boundary_slice
     band_row["current_max_boundary_slice"] = boundary_slice
+
+
+def attach_marine_contrast_slice_context(copy, feature_row=None, band_row=None):
+    feature_row = feature_row or {}
+    if band_row is None:
+        band_row = {}
+    slice_name = marine_breeze_slice(feature_row)
+    copy["marine_breeze_slice"] = slice_name
+    band_row["marine_breeze_slice"] = slice_name
+    for column in MARINE_REPLAY_FEATURES:
+        value = feature_row.get(column)
+        copy[column] = value
+        band_row[column] = value
 
 def _model_for_market(models, market_id):
     if market_id not in models:
@@ -692,6 +755,7 @@ def attach_band_candidate_probabilities(
             )
             copy["_band_postprocess_row"] = band_row
             attach_forecast_profile_slice_context(copy, feature_row=feature_row, band_row=band_row)
+            attach_marine_contrast_slice_context(copy, feature_row=feature_row, band_row=band_row)
             clob_key = (market_id, snapshot_id, kind, value, value_hi)
             clob_row = (clob_features or {}).get(clob_key)
             if clob_row:
@@ -1114,6 +1178,7 @@ def run_pooled_candidate_replay(args):
         row.setdefault("forecast_disagreement_bucket", "unknown")
         row.setdefault("forecast_bucket_pressure", "unknown")
         row.setdefault("current_max_boundary_slice", "unknown")
+        row.setdefault("marine_breeze_slice", "missing_marine_context")
 
     trust_rows = score_all_markets(
         root=args.snapshots_root,
@@ -1139,6 +1204,7 @@ def run_pooled_candidate_replay(args):
     by_forecast_disagreement = grouped_candidate_comparison(candidate_rows, "forecast_disagreement_bucket")
     by_forecast_bucket_pressure = grouped_candidate_comparison(candidate_rows, "forecast_bucket_pressure")
     by_current_max_boundary = grouped_candidate_comparison(candidate_rows, "current_max_boundary_slice")
+    by_marine_breeze_slice = grouped_candidate_comparison(candidate_rows, "marine_breeze_slice")
     candidate_variant_path, candidate_variant_rows_count = write_candidate_shadow_variants(
         candidate_variant_out,
         candidate_rows,
@@ -1220,8 +1286,10 @@ def run_pooled_candidate_replay(args):
             "objective": artifact.get("objective"),
             "feature_subset": artifact.get("feature_subset"),
             "feature_subset_contract": artifact.get("feature_subset_contract") or {},
+            "feature_names": sorted(_artifact_feature_names(artifact)),
             "forecast_profile_calibration": artifact.get("forecast_profile_calibration") or {},
             "forecast_radiation_calibration": artifact.get("forecast_radiation_calibration") or {},
+            "marine_contrast_calibration": artifact.get("marine_contrast_calibration") or {},
             "trained_at": artifact.get("trained_at"),
             "support_min": min(artifact.get("support") or []) if artifact.get("support") else None,
             "support_max": max(artifact.get("support") or []) if artifact.get("support") else None,
@@ -1291,6 +1359,7 @@ def run_pooled_candidate_replay(args):
         "by_forecast_disagreement": by_forecast_disagreement,
         "by_forecast_bucket_pressure": by_forecast_bucket_pressure,
         "by_current_max_boundary": by_current_max_boundary,
+        "by_marine_breeze_slice": by_marine_breeze_slice,
         "forecast_profile_guardrails": forecast_profile_guardrails(candidate_rows),
         "candidate_shadow_variants": candidate_shadow_variants,
         "active_registry_contract": registry_contract or {},

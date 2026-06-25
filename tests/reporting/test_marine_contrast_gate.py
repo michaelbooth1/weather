@@ -73,8 +73,9 @@ class MarineContrastGateTests(unittest.TestCase):
                 "feature_subset": feature_subset,
                 "feature_subset_contract": {
                     "name": feature_subset,
-                    "allowed_feature_families": ["marine_context", "market_climate_context"],
+                    "allowed_feature_families": ["marine_context", "market_climate_context", "market_band_geometry"],
                 },
+                "feature_names": [*WATER_CONTRAST_FEATURES, "band_mid", "market_id_nyc"],
                 "schema_version": "pooled_feature_band_hgb_marine_context_v0.1",
             },
             "aggregate": {"delta_vs_current": -0.001},

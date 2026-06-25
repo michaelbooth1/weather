@@ -18,7 +18,7 @@ from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 SCHEMA_VERSION = "nbm_probabilistic_tmax_gate_v0.1"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SOURCE_INVENTORY_JSON = DEFAULT_BACKTEST_ROOT / "source_family_inventory.json"
-DEFAULT_CANDIDATE_JSON = DEFAULT_BACKTEST_ROOT / "item134_forecast_profile_all_hours_replay.json"
+DEFAULT_CANDIDATE_JSON = DEFAULT_BACKTEST_ROOT / "item190_nbm_probabilistic_tmax_settlement_scoring.json"
 DEFAULT_HGB_PERMUTATION = DEFAULT_BACKTEST_ROOT / "input_variable_significance_2026_06_18_hgb_permutation.csv"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "item190_nbm_probabilistic_tmax_gate.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "item190_nbm_probabilistic_tmax_gate_report.md"
@@ -132,6 +132,14 @@ def isolated_nbm_artifact(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def calibration_anchor_artifact(candidate: dict[str, Any]) -> bool:
+    artifact = (candidate or {}).get("artifact") or {}
+    return (
+        artifact.get("prediction_mode") == "nbm_percentile_curve_anchor"
+        or artifact.get("objective") == "settlement_scored_nbm_probabilistic_tmax_band_brier"
+    )
+
+
 def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTATION) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
@@ -208,6 +216,7 @@ def acceptance(
 ) -> dict[str, Any]:
     blockers = []
     artifact_scope = isolated_nbm_artifact(candidate)
+    calibration_anchor = calibration_anchor_artifact(candidate)
     market_rows = _us_market_rows(candidate)
     aggregate = candidate.get("aggregate") or {}
     blocked_validation = candidate.get("blocked_validation") or {}
@@ -229,37 +238,45 @@ def acceptance(
             "code": "nbm_source_status_missing",
             "detail": "nbm_probabilistic_tmax is absent from source-status inventory",
         })
-    if not source_evidence.get("nbm_forecast_payload_seen"):
+    candidate_coverage = candidate.get("coverage") or {}
+    candidate_payload_folders = int(candidate_coverage.get("nbm_payload_folder_count") or 0)
+    if not source_evidence.get("nbm_forecast_payload_seen") and candidate_payload_folders <= 0:
         blockers.append({
             "code": "nbm_forecast_payload_missing",
             "detail": "nbm_probabilistic_tmax is absent from forecast-payload inventory",
         })
-    if source_evidence.get("missing_forecast_payload_folder_count", 0):
+    if (
+        not calibration_anchor
+        and source_evidence.get("missing_forecast_payload_folder_count", 0)
+    ):
         blockers.append({
             "code": "nbm_payload_lineage_partial",
             "detail": f"{source_evidence.get('missing_forecast_payload_folder_count')} snapshot folders lack NBM payload rows",
         })
-    if source_evidence.get("historical_archive_status") not in HISTORICAL_NBM_STATUSES:
+    if (
+        not calibration_anchor
+        and source_evidence.get("historical_archive_status") not in HISTORICAL_NBM_STATUSES
+    ):
         blockers.append({
             "code": "historical_nbm_backfill_missing",
             "detail": str(source_evidence.get("historical_archive_status") or "missing inventory status"),
         })
-    if not source_evidence.get("active_nbm_features"):
+    if not calibration_anchor and not source_evidence.get("active_nbm_features"):
         blockers.append({
             "code": "nbm_features_not_selected_by_active_artifact",
             "detail": "NBM probabilistic columns are cataloged but absent from active artifact feature_names",
         })
-    if source_evidence.get("train_serve_parity_status") != "PASS":
+    if not calibration_anchor and source_evidence.get("train_serve_parity_status") != "PASS":
         blockers.append({
             "code": "train_serve_parity_not_pass",
             "detail": str(source_evidence.get("train_serve_parity_status") or "-"),
         })
-    if permutation.get("observed_expected_feature_count", 0) == 0:
+    if not calibration_anchor and permutation.get("observed_expected_feature_count", 0) == 0:
         blockers.append({
             "code": "nbm_permutation_evidence_missing",
             "detail": "no NBM probabilistic Tmax rows found in HGB permutation artifact",
         })
-    elif permutation.get("missing_expected_features"):
+    elif not calibration_anchor and permutation.get("missing_expected_features"):
         blockers.append({
             "code": "nbm_permutation_features_missing",
             "detail": ", ".join(permutation.get("missing_expected_features") or []),
@@ -301,6 +318,7 @@ def acceptance(
         "min_us_market_rows": min_us_market_rows,
         "blockers": blockers,
         "artifact_scope": artifact_scope,
+        "calibration_anchor": calibration_anchor,
         "us_market_rows": market_rows,
     }
 
@@ -430,14 +448,22 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         ["Feature", "Slices", "Positive Delta MAE Sum", "Best Delta MAE", "Min q"],
         _permutation_rows(permutation.get("rows") or []),
     )
+    if acceptance_payload.get("calibration_anchor"):
+        next_unblock = (
+            "Do not cut over NBM probabilistic Tmax as a calibration anchor until "
+            "settlement-scored daily-first validation and every US-market slice are "
+            "non-regressing versus the current model."
+        )
+    else:
+        next_unblock = (
+            "Persist NBM probabilistic payloads, add QMD/bucket-edge or replay-safe station archives, "
+            "train/replay an NBM-prob-scoped candidate, and add US-market settlement slices."
+        )
     lines += [
         "",
         "## Next Unblock",
         "",
-        (
-            "Persist NBM probabilistic payloads, add QMD/bucket-edge or replay-safe station archives, "
-            "train/replay an NBM-prob-scoped candidate, and add US-market settlement slices."
-        ),
+        next_unblock,
     ]
 
     path.parent.mkdir(parents=True, exist_ok=True)

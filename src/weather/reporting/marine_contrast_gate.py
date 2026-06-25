@@ -19,7 +19,7 @@ SCHEMA_VERSION = "marine_contrast_gate_v0.1"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SOURCE_INVENTORY_JSON = DEFAULT_BACKTEST_ROOT / "source_family_inventory.json"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation_marine_context.json"
-DEFAULT_CANDIDATE_JSON = DEFAULT_BACKTEST_ROOT / "item134_forecast_profile_all_hours_replay.json"
+DEFAULT_CANDIDATE_JSON = DEFAULT_BACKTEST_ROOT / "item191_marine_contrast_replay.json"
 DEFAULT_HGB_PERMUTATION = DEFAULT_BACKTEST_ROOT / "input_variable_significance_2026_06_18_hgb_permutation.csv"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "item191_marine_contrast_gate.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "item191_marine_contrast_gate_report.md"
@@ -142,9 +142,10 @@ def isolated_marine_artifact(candidate: dict[str, Any]) -> dict[str, Any]:
         reasons.append(f"feature_subset={subset}")
     if contract_name in ISOLATED_MARINE_SUBSETS:
         reasons.append(f"feature_subset_contract.name={contract_name}")
-    if allowed_families and allowed_families <= {"marine_context", "market_climate_context"}:
+    marine_allowed = {"marine_context", "market_climate_context", "market_band_geometry"}
+    if allowed_families and allowed_families <= marine_allowed:
         if "marine_context" in allowed_families:
-            reasons.append("feature_subset_contract.allowed_feature_families includes only marine context plus context")
+            reasons.append("feature_subset_contract.allowed_feature_families isolates marine context plus band context")
 
     return {
         "isolated": bool(reasons),
@@ -153,6 +154,12 @@ def isolated_marine_artifact(candidate: dict[str, Any]) -> dict[str, Any]:
         "contract_name": contract_name,
         "allowed_feature_families": sorted(allowed_families),
     }
+
+
+def candidate_contrast_features(candidate: dict[str, Any]) -> list[str]:
+    artifact = (candidate or {}).get("artifact") or {}
+    names = set(artifact.get("feature_names") or [])
+    return [feature for feature in WATER_CONTRAST_FEATURES if feature in names]
 
 
 def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTATION) -> dict[str, Any]:
@@ -240,6 +247,7 @@ def acceptance(
     onshore_slice = _find_onshore_slice(candidate)
     aggregate = candidate.get("aggregate") or {}
     blocked_validation = candidate.get("blocked_validation") or {}
+    candidate_features = candidate_contrast_features(candidate)
 
     if not candidate:
         blockers.append({"code": "candidate_replay_missing", "detail": "missing candidate replay JSON"})
@@ -268,10 +276,10 @@ def acceptance(
             "code": "historical_marine_backfill_missing",
             "detail": str(source_evidence.get("historical_archive_status") or "missing inventory status"),
         })
-    if not source_evidence.get("active_contrast_features"):
+    if artifact_scope["isolated"] and not candidate_features:
         blockers.append({
-            "code": "marine_contrast_features_not_selected_by_active_artifact",
-            "detail": "marine contrast columns are cataloged but absent from active artifact feature_names",
+            "code": "marine_contrast_features_not_selected_by_candidate_artifact",
+            "detail": "marine contrast columns are absent from the scoped candidate artifact feature_names",
         })
     if source_evidence.get("train_serve_parity_status") != "PASS":
         blockers.append({
@@ -325,6 +333,7 @@ def acceptance(
         "min_onshore_rows": min_onshore_rows,
         "blockers": blockers,
         "artifact_scope": artifact_scope,
+        "candidate_contrast_features": candidate_features,
         "onshore_breeze_slice": onshore_slice,
     }
 
@@ -362,6 +371,7 @@ def build_report_payload(
             "by_marine_breeze_slice": candidate.get("by_marine_breeze_slice") or candidate.get("by_onshore_breeze_slice") or [],
             "verdict": candidate.get("verdict"),
             "cutover_decision": candidate.get("cutover_decision"),
+            "candidate_contrast_features": candidate_contrast_features(candidate),
         },
         "permutation_evidence": permutation,
         "acceptance": acceptance(
@@ -445,6 +455,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Verdict", candidate.get("verdict") or "-"],
             ["Cutover decision", candidate.get("cutover_decision") or "-"],
             ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
+            ["Candidate contrast features", len(candidate.get("candidate_contrast_features") or [])],
             ["Onshore/breeze rows", (acceptance_payload.get("onshore_breeze_slice") or {}).get("n", 0)],
             ["Onshore/breeze delta current", fmt_signed((acceptance_payload.get("onshore_breeze_slice") or {}).get("delta_vs_current"), 4)],
         ],
