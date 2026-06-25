@@ -205,7 +205,14 @@ class TestProgressAudit(unittest.TestCase):
         }
         fleet = {
             "status": "CRITICAL",
-            "live_forward_slo": {"counts_toward_live_forward_gate": False},
+            "live_forward_slo": {
+                "counts_toward_live_forward_gate": False,
+                "first_blocker": {
+                    "detail": "afternoon window not fully covered",
+                    "market_id": "toronto",
+                    "gate": "snapshot_coverage_gap",
+                },
+            },
         }
         variant = {
             "delta_vs_baseline": {
@@ -237,6 +244,9 @@ class TestProgressAudit(unittest.TestCase):
         self.assertIn("need 3 positive-skill comparable days; have 1", claim["threshold_failures"])
         self.assertTrue(
             any("live-forward SLO" in failure for failure in claim["threshold_failures"])
+        )
+        self.assertTrue(
+            any("market=toronto" in failure for failure in claim["threshold_failures"])
         )
         self.assertTrue(
             any("unique observations changed by 0" in failure for failure in claim["threshold_failures"])

@@ -57,6 +57,7 @@ from weather.reporting import price_free_model_learning
 from weather.reporting import proper_scoring_reliability_scorecard
 from weather.reporting import progress_audit
 from weather.reporting import promotion_refresh
+from weather.reporting import runtime_identity_reconciliation
 from weather.reporting import settled_day_root_cause
 from weather.reporting import shadow_ab_monitor
 from weather.reporting import snapshot_evaluation
@@ -89,6 +90,8 @@ STEP_ORDER = (
     "price_free_model_learning",
     "model_market_disagreement_rehydration",
     "settled_day_analysis_barrier",
+    "runtime_identity_reconciliation",
+    "fleet_observability",
     "promotion_refresh",
     "shadow_ab_monitor",
     "active_variant_shadow",
@@ -97,7 +100,6 @@ STEP_ORDER = (
     "model_variant_evidence_growth",
     "progress_audit",
     "disagreement_casebook",
-    "fleet_observability",
     "daily_roll_log_hygiene",
     "nightly_health_checks",
     "data_layer_audit",
@@ -1441,6 +1443,16 @@ def _variant_evidence_paths(args, attr, default_name):
     return [backtest_path(args, default_name)]
 
 
+def _variant_evidence_baseline_paths(args):
+    value = getattr(args, "variant_evidence_baseline", "") or ""
+    if value:
+        return [item.strip() for item in value.split(",") if item.strip()]
+    preferred = backtest_path(args, "model_variant_evidence_baseline_active_shadow_long.csv")
+    if Path(preferred).exists():
+        return [preferred]
+    return [backtest_path(args, "item70_71_full_multi_variant_shadow_long.csv")]
+
+
 def run_active_variant_shadow_step(args):
     if getattr(args, "skip_active_variant_shadow", False):
         return {"status": "SKIPPED", "reason": "skip_active_variant_shadow"}
@@ -1644,11 +1656,7 @@ def run_model_variant_evidence_growth_step(args):
         "variant_evidence_current",
         "active_variant_shadow_long.csv",
     )
-    baseline_paths = _variant_evidence_paths(
-        args,
-        "variant_evidence_baseline",
-        "item70_71_full_multi_variant_shadow_long.csv",
-    )
+    baseline_paths = _variant_evidence_baseline_paths(args)
     missing_current = [path for path in current_paths if not Path(path).exists()]
     if missing_current:
         return {
@@ -1688,6 +1696,8 @@ def run_model_variant_evidence_growth_step(args):
         "status": payload.get("status"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
+        "input_paths": payload.get("input_paths") or [],
+        "baseline_paths": payload.get("baseline_paths") or [],
         "summary": payload.get("summary") or {},
         "delta_vs_baseline": payload.get("delta_vs_baseline"),
         "evidence_sla": payload.get("evidence_sla") or {},
@@ -1715,6 +1725,30 @@ def run_progress_audit_step(args):
         "fleet_status": ((payload.get("fleet_observability") or {}).get("status")),
         "market_day_labels": payload.get("market_day_labels") or {},
         "promotion_refresh": payload.get("promotion_refresh") or {},
+    }
+
+
+def run_runtime_identity_reconciliation_step(args):
+    target_date = settled_analysis_target_date(args).isoformat()
+    payload = runtime_identity_reconciliation.build_payload(
+        snapshots_root=args.snapshots_root,
+        target_date=target_date,
+    )
+    json_out, report_out = runtime_identity_reconciliation.write_outputs(
+        payload,
+        json_out=backtest_path(args, "runtime_identity_reconciliation.json"),
+        report_out=backtest_path(args, "runtime_identity_reconciliation.md"),
+    )
+    return {
+        "status": payload.get("status"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "target_date": payload.get("target_date"),
+        "mixed_runtime_identity": payload.get("mixed_runtime_identity"),
+        "runtime_identity_count": payload.get("runtime_identity_count"),
+        "snapshot_row_count": payload.get("snapshot_row_count"),
+        "blocker_count": payload.get("blocker_count"),
+        "first_blocker": payload.get("first_blocker"),
     }
 
 
@@ -2260,6 +2294,8 @@ DEFAULT_RUNNERS = (
     ("price_free_model_learning", run_price_free_model_learning_step),
     ("model_market_disagreement_rehydration", run_model_market_disagreement_rehydration_step),
     ("settled_day_analysis_barrier", run_settled_day_analysis_barrier_step),
+    ("runtime_identity_reconciliation", run_runtime_identity_reconciliation_step),
+    ("fleet_observability", run_fleet_observability_step),
     ("promotion_refresh", run_promotion_refresh_step),
     ("shadow_ab_monitor", run_shadow_ab_monitor_step),
     ("active_variant_shadow", run_active_variant_shadow_step),
@@ -2268,7 +2304,6 @@ DEFAULT_RUNNERS = (
     ("model_variant_evidence_growth", run_model_variant_evidence_growth_step),
     ("progress_audit", run_progress_audit_step),
     ("disagreement_casebook", run_disagreement_casebook_step),
-    ("fleet_observability", run_fleet_observability_step),
     ("daily_roll_log_hygiene", run_daily_roll_log_hygiene_step),
     ("nightly_health_checks", run_nightly_health_checks_step),
     ("data_layer_audit", run_data_layer_audit_step),

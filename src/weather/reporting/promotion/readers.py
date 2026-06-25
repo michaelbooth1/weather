@@ -261,13 +261,16 @@ def load_precomputed_candidate_report(path, manifest):
     candidate_hash = candidate_corpus.get("corpus_hash")
     manifest_hash = manifest.get("corpus_hash")
     source_candidate_hash = candidate_corpus.get("source_candidate_corpus_hash")
-    row_export_surrogate = candidate_report.get("validation_evidence") == "row_export_surrogate"
+    validation_evidence = candidate_report.get("validation_evidence")
+    row_export_surrogate = validation_evidence == "row_export_surrogate"
+    active_replay_contract = validation_evidence == "active_replay_contract"
     source_matches_manifest = bool(source_candidate_hash and manifest_hash and source_candidate_hash == manifest_hash)
+    row_export_matches_manifest = source_matches_manifest and (row_export_surrogate or active_replay_contract)
     if (
         candidate_hash
         and manifest_hash
         and candidate_hash != manifest_hash
-        and not (row_export_surrogate and source_matches_manifest)
+        and not row_export_matches_manifest
     ):
         raise ValueError(
             "precomputed candidate corpus hash mismatch: "

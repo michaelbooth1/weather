@@ -19,6 +19,8 @@ def write_inputs(
     exact_status="BLOCK",
     bottom_status="BLOCK",
     broad_status="BLOCK",
+    model_location_status=None,
+    production_readiness_status=None,
 ):
     serving = tmp_path / "serving.json"
     retrain = tmp_path / "retrain.json"
@@ -43,8 +45,20 @@ def write_inputs(
         {
             "status": broad_status,
             "broad_core_model_claim_allowed": broad_status == "PASS",
+            "model_location_gate_status": model_location_status,
+            "model_location_claim_evidence_allowed": None if model_location_status is None else model_location_status == "PASS",
+            "model_location_blocker_count": None if model_location_status is None else 0 if model_location_status == "PASS" else 1,
+            "production_readiness_status": production_readiness_status,
+            "production_readiness_blocker_count": None if production_readiness_status is None else 0 if production_readiness_status == "PASS" else 1,
             "blocker_count": 0 if broad_status == "PASS" else 1,
             "first_blocker": {"detail": "runtime schema mismatch"},
+            "blockers": [
+                {
+                    "gate": "promotion_refresh_broad_claim",
+                    "status": "BLOCK",
+                    "detail": "fleet observability must be OK/PASS before location validation counts",
+                }
+            ] if production_readiness_status == "BLOCK" else [],
         },
     )
     write_json(
@@ -178,3 +192,37 @@ def test_contract_passes_when_active_replay_and_all_required_gates_clear(tmp_pat
     assert payload["status"] == "PASS"
     assert payload["acceptance_passed"] is True
     assert payload["blocker_count"] == 0
+
+
+def test_contract_accepts_model_location_pass_while_broad_claim_readiness_blocks(tmp_path):
+    serving, retrain, replay, hourly, ten, exact, bottom, promotion = write_inputs(
+        tmp_path,
+        active_replay=True,
+        hourly_status="PASS",
+        exact_status="PASS",
+        bottom_status="PASS",
+        broad_status="BLOCK",
+        model_location_status="PASS",
+        production_readiness_status="BLOCK",
+    )
+
+    payload = build_payload(
+        serving_ordinal_gate=serving,
+        retrain_location_gate=retrain,
+        replay=replay,
+        candidate_hourly=hourly,
+        candidate_ten_minute=ten,
+        exact_distance=exact,
+        bottom_location=bottom,
+        promotion_refresh=promotion,
+    )
+
+    gates = {gate["gate"]: gate for gate in payload["gates"]}
+    assert payload["status"] == "PASS"
+    assert payload["acceptance_passed"] is True
+    assert payload["model_served_distribution_status"] == "PASS"
+    assert payload["broad_core_model_claim_allowed"] is False
+    assert payload["production_readiness_status"] == "BLOCK"
+    assert payload["production_readiness_blockers"][0]["gate"] == "promotion_refresh_broad_claim"
+    assert gates["broad_claim_gate"]["status"] == "PASS"
+    assert "broad claim remains readiness-blocked" in gates["broad_claim_gate"]["detail"]

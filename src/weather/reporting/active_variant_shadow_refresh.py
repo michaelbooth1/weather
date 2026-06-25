@@ -9,6 +9,8 @@ bakeoff exports.
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,8 @@ from typing import Any
 from weather.paths import config_path, data_path
 from weather.reporting.formatting import markdown_table
 from weather.reporting.multi_variant_shadow import (
+    LONG_TABLE_COLUMNS,
+    OBSERVATION_KEY_FIELDS,
     build_payload as build_multi_variant_payload,
     read_prediction_rows,
     write_attribution_sidecar,
@@ -42,6 +46,8 @@ DEFAULT_ATTRIBUTION_SIDECAR_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_report.md"
 DEFAULT_EXECUTION_OUT_DIR = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_runs"
+ROW_ROUTE_COMPOSITE_RUNTIME = "candidate_row_route_composite"
+ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME = "active_timesplit_logistic_repair"
 DERIVED_RUNTIMES = {"conservative_bridge_policy", "microstructure_shadow_report"}
 
 
@@ -113,6 +119,184 @@ def _execution_row(
     if detail:
         row["detail"] = detail
     return row
+
+
+def _registry_active_entry(registry: dict[str, Any], variant_id: str) -> dict[str, Any] | None:
+    entry = (registry.get("by_id") or {}).get(str(variant_id))
+    if entry:
+        return entry
+    for row in registry.get("variants") or []:
+        if str(row.get("variant_id") or "") == str(variant_id):
+            return row
+    return None
+
+
+def _read_route_recipe(path: str | Path | None) -> dict[str, Any]:
+    if path in (None, ""):
+        raise ValueError("candidate row-route composite requires route_recipe_path")
+    recipe_path = _resolve_registry_output_path(path)
+    if recipe_path is None or not recipe_path.exists():
+        raise FileNotFoundError(f"candidate row-route recipe not found: {path}")
+    payload = json.loads(recipe_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("candidate row-route recipe must contain a JSON object")
+    sources = payload.get("sources") or []
+    source_ids = payload.get("source_variant_ids") or []
+    for source in sources:
+        if isinstance(source, dict) and source.get("variant_id"):
+            source_ids.append(source.get("variant_id"))
+    source_ids = [str(source_id) for source_id in dict.fromkeys(source_ids) if source_id]
+    rules = payload.get("routes") or payload.get("rules") or []
+    if not source_ids:
+        raise ValueError("candidate row-route recipe requires source_variant_ids")
+    if not rules:
+        raise ValueError("candidate row-route recipe requires routes")
+    return {**payload, "source_variant_ids": source_ids, "routes": rules}
+
+
+def _observation_key(row: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(str(row.get(field) or "") for field in OBSERVATION_KEY_FIELDS)
+
+
+def _rule_matches(row: dict[str, Any], rule: dict[str, Any]) -> bool:
+    match = rule.get("match") or {}
+    if not isinstance(match, dict):
+        raise ValueError("candidate row-route recipe route.match must be an object")
+    for field, expected in match.items():
+        actual = str(row.get(field) or "")
+        if isinstance(expected, list):
+            allowed = {str(value) for value in expected}
+        else:
+            allowed = {str(expected)}
+        if actual not in allowed:
+            return False
+    return True
+
+
+def _route_source_variant_id(row: dict[str, Any], rules: list[dict[str, Any]]) -> str:
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise ValueError("candidate row-route recipe routes must be objects")
+        if _rule_matches(row, rule):
+            source_id = str(rule.get("source_variant_id") or "")
+            if not source_id:
+                raise ValueError("candidate row-route recipe route requires source_variant_id")
+            return source_id
+    raise ValueError(
+        "candidate row-route recipe did not match observation "
+        + "/".join(str(row.get(field) or "") for field in OBSERVATION_KEY_FIELDS)
+    )
+
+
+def _write_candidate_row_route_export(path: str | Path, rows: list[dict[str, Any]]) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    extra_fields = sorted({
+        key
+        for row in rows
+        for key in row
+        if key not in LONG_TABLE_COLUMNS
+    })
+    fieldnames = [*LONG_TABLE_COLUMNS, *extra_fields]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+def _source_variant_rows(
+    registry: dict[str, Any],
+    source_variant_id: str,
+) -> tuple[dict[str, Any], dict[tuple[str, ...], dict[str, Any]]]:
+    entry = _registry_active_entry(registry, source_variant_id)
+    if not entry:
+        raise ValueError(f"candidate row-route source variant is not registered: {source_variant_id}")
+    lifecycle = str(entry.get("lifecycle") or "").lower()
+    if lifecycle != "active" or entry.get("active_for_headline") is False:
+        raise ValueError(f"candidate row-route source variant is not active/headline-countable: {source_variant_id}")
+    contract = variant_export_contract(entry)
+    export_path = _resolve_registry_output_path(contract.get("default_export_path"))
+    if export_path is None or not export_path.exists():
+        raise FileNotFoundError(
+            f"candidate row-route source export not found for {source_variant_id}: "
+            f"{contract.get('default_export_path')}"
+        )
+    rows = [
+        row for row in read_prediction_rows([export_path])
+        if str(row.get("variant_id") or "") == source_variant_id
+    ]
+    if not rows:
+        raise ValueError(f"candidate row-route source export has no rows for {source_variant_id}")
+    by_key = {_observation_key(row): row for row in rows}
+    if len(by_key) != len(rows):
+        raise ValueError(f"candidate row-route source export has duplicate observation rows: {source_variant_id}")
+    return {**contract, "variant_id": source_variant_id, "variant_family": entry.get("variant_family")}, by_key
+
+
+def _execute_candidate_row_route_composite_contract(
+    variant: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    registry: dict[str, Any],
+) -> dict[str, Any]:
+    output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+    if output_path is None:
+        raise ValueError("candidate row-route composite requires default_export_path")
+    recipe = _read_route_recipe(contract.get("route_recipe_path") or variant.get("route_recipe_path"))
+    variant_id = str(variant.get("variant_id") or contract.get("variant_id") or "")
+    if not variant_id:
+        raise ValueError("candidate row-route composite requires variant_id")
+
+    source_maps: dict[str, dict[tuple[str, ...], dict[str, Any]]] = {}
+    source_contracts: dict[str, dict[str, Any]] = {}
+    for source_id in recipe["source_variant_ids"]:
+        source_contract, rows_by_key = _source_variant_rows(registry, source_id)
+        source_contracts[source_id] = source_contract
+        source_maps[source_id] = rows_by_key
+
+    all_keys = sorted({key for rows_by_key in source_maps.values() for key in rows_by_key})
+    output_rows: list[dict[str, Any]] = []
+    missing_routes: list[str] = []
+    source_order = list(recipe["source_variant_ids"])
+    for key in all_keys:
+        reference = next((source_maps[source_id][key] for source_id in source_order if key in source_maps[source_id]), None)
+        if reference is None:
+            continue
+        source_id = _route_source_variant_id(reference, recipe["routes"])
+        source_row = source_maps.get(source_id, {}).get(key)
+        if source_row is None:
+            missing_routes.append(f"{'/'.join(key)} -> {source_id}")
+            continue
+        source_contract = source_contracts[source_id]
+        output_row = dict(source_row)
+        output_row.update({
+            "variant_id": variant_id,
+            "variant_family": contract.get("export_family") or variant.get("variant_family") or variant_id,
+            "uses_market_features": str(contract.get("track") or variant.get("track") or "") == "market_informed",
+            "is_control": False,
+            "claim_lane": output_row.get("claim_lane") or "weather_only_core_model",
+            "route_source_path": source_contract.get("default_export_path"),
+            "route_source_variant_family": source_contract.get("variant_family"),
+            "route_source_variant_id": source_id,
+        })
+        output_rows.append(output_row)
+    if missing_routes:
+        raise ValueError(
+            "candidate row-route recipe selected source rows that are missing: "
+            + "; ".join(missing_routes[:5])
+        )
+    if not output_rows:
+        raise ValueError("candidate row-route composite emitted no rows")
+
+    _write_candidate_row_route_export(output_path, output_rows)
+    return _execution_row(
+        variant,
+        contract,
+        status="OK",
+        output_path=output_path,
+        detail=f"rows={len(output_rows)}; sources={','.join(source_order)}",
+    )
 
 
 def _derived_output_paths(active_variants: list[dict[str, Any]]) -> dict[str, Path]:
@@ -212,6 +396,46 @@ def _execute_pooled_candidate_replay_contract(
     return row
 
 
+def _execute_active_timesplit_logistic_repair_contract(
+    variant: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    registry_path: str | Path,
+    out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
+) -> dict[str, Any]:
+    """Execute the active time-split logistic export contract."""
+    from weather.reporting import item224_active_timesplit_logistic_repair
+
+    output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+    if output_path is None:
+        raise ValueError("active time-split logistic repair requires default_export_path")
+    out_dir = Path(out_dir)
+    slug = _variant_slug(str(variant.get("variant_id") or contract.get("variant_id") or "variant"))
+    input_rows = _resolve_registry_output_path(
+        contract.get("input_rows_path")
+        or variant.get("input_rows_path")
+        or item224_active_timesplit_logistic_repair.DEFAULT_INPUT_ROWS
+    )
+    payload = item224_active_timesplit_logistic_repair.build_payload(
+        input_rows=input_rows,
+        rows_out=output_path,
+        registry_out=out_dir / f"{slug}_registry.json",
+        contract_out=out_dir / f"{slug}_contract.json",
+        base_registry=registry_path,
+    )
+    aggregate = payload.get("aggregate") or {}
+    return _execution_row(
+        variant,
+        contract,
+        status="OK",
+        output_path=output_path,
+        detail=(
+            f"rows={payload.get('eval_rows')}; "
+            f"delta_vs_market={aggregate.get('delta_vs_market')}"
+        ),
+    )
+
+
 def execute_registry_prediction_exports(
     *,
     registry_path: str | Path = DEFAULT_REGISTRY_PATH,
@@ -259,11 +483,26 @@ def execute_registry_prediction_exports(
         for variant in active_variants
         if str(variant_export_contract(variant).get("live_runtime") or "") in DERIVED_RUNTIMES
     ]
+    row_route_composite_variants = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "") == ROW_ROUTE_COMPOSITE_RUNTIME
+    ]
+    active_timesplit_variants = [
+        variant
+        for variant in active_variants
+        if str(variant_export_contract(variant).get("live_runtime") or "") == ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME
+    ]
     unsupported = [
         variant
         for variant in active_variants
         if str(variant_export_contract(variant).get("live_runtime") or "")
-        not in {"pooled_candidate_replay", *DERIVED_RUNTIMES}
+        not in {
+            "pooled_candidate_replay",
+            ROW_ROUTE_COMPOSITE_RUNTIME,
+            ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME,
+            *DERIVED_RUNTIMES,
+        }
     ]
 
     derived_paths = _derived_output_paths(derived_variants)
@@ -354,6 +593,53 @@ def execute_registry_prediction_exports(
             detail="derived runtime was not emitted by a pooled_candidate_replay source",
         ))
         blockers.append(f"derived runtime not emitted for {variant.get('variant_id')}")
+
+    for variant in row_route_composite_variants:
+        contract = variant_export_contract(variant)
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        try:
+            row = _execute_candidate_row_route_composite_contract(
+                variant,
+                contract,
+                registry=registry,
+            )
+        except Exception as exc:  # pragma: no cover - exercised through failure payloads in production.
+            rows.append(_execution_row(
+                variant,
+                contract,
+                status="ERROR",
+                output_path=output_path,
+                detail=str(exc),
+            ))
+            blockers.append(f"execution failed for {variant.get('variant_id')}: {exc}")
+            continue
+        rows.append(row)
+        if output_path is not None:
+            generated_paths.append(str(output_path))
+
+    for variant in active_timesplit_variants:
+        contract = variant_export_contract(variant)
+        output_path = _resolve_registry_output_path(contract.get("default_export_path"))
+        try:
+            row = _execute_active_timesplit_logistic_repair_contract(
+                variant,
+                contract,
+                registry_path=registry_path,
+                out_dir=out_dir,
+            )
+        except Exception as exc:  # pragma: no cover - exercised through failure payloads in production.
+            rows.append(_execution_row(
+                variant,
+                contract,
+                status="ERROR",
+                output_path=output_path,
+                detail=str(exc),
+            ))
+            blockers.append(f"execution failed for {variant.get('variant_id')}: {exc}")
+            continue
+        rows.append(row)
+        if output_path is not None:
+            generated_paths.append(str(output_path))
 
     generated_paths = sorted(dict.fromkeys(generated_paths))
     status = "OK" if not blockers else ("ERROR" if any(row.get("status") == "ERROR" for row in rows) else "BLOCK")

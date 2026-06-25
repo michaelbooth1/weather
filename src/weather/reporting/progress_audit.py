@@ -579,10 +579,40 @@ def _trend_collection_blockers(fleet):
     live_slo = fleet.get("live_forward_slo") or {}
     blockers = []
     if live_slo.get("counts_toward_live_forward_gate") is False:
-        blockers.append("live-forward SLO is not countable")
+        detail = _live_forward_slo_blocker_detail(live_slo)
+        blockers.append(
+            "live-forward SLO is not countable"
+            + (f": {detail}" if detail else "")
+        )
     elif fleet.get("status") == "CRITICAL":
-        blockers.append("fleet observability is CRITICAL")
+        summary = fleet.get("summary") or {}
+        critical = summary.get("critical_alerts")
+        blockers.append(
+            "fleet observability is CRITICAL"
+            + (f"; critical_alerts={critical}" if critical is not None else "")
+        )
     return blockers
+
+
+def _live_forward_slo_blocker_detail(live_slo):
+    first = live_slo.get("first_blocker") or {}
+    if isinstance(first, dict):
+        parts = []
+        detail = first.get("detail")
+        market = first.get("market_id")
+        gate = first.get("gate")
+        if detail:
+            parts.append(str(detail))
+        if market:
+            parts.append(f"market={market}")
+        if gate:
+            parts.append(f"gate={gate}")
+        if parts:
+            return "; ".join(parts)
+    blockers = live_slo.get("blockers") or []
+    if blockers:
+        return str(blockers[0])
+    return str(live_slo.get("reason") or "")
 
 
 def _trend_row_multiplier_blockers(variant):

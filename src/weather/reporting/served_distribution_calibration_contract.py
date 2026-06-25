@@ -156,6 +156,7 @@ def serving_ordinal_summary(path: str | Path) -> dict[str, Any]:
 
 def retrain_location_summary(path: str | Path) -> dict[str, Any]:
     payload = _read_json(path)
+    readiness_blockers = (payload or {}).get("production_readiness_blockers") or (payload or {}).get("blockers") or []
     return {
         "path": str(path),
         "exists": Path(path).exists(),
@@ -163,9 +164,35 @@ def retrain_location_summary(path: str | Path) -> dict[str, Any]:
         "generated_at_utc": (payload or {}).get("generated_at_utc"),
         "status": (payload or {}).get("status"),
         "broad_core_model_claim_allowed": (payload or {}).get("broad_core_model_claim_allowed"),
+        "model_location_gate_status": (payload or {}).get("model_location_gate_status"),
+        "model_location_claim_evidence_allowed": (payload or {}).get("model_location_claim_evidence_allowed"),
+        "model_location_blocker_count": (payload or {}).get("model_location_blocker_count"),
+        "production_readiness_status": (payload or {}).get("production_readiness_status"),
+        "production_readiness_blocker_count": (payload or {}).get("production_readiness_blocker_count"),
+        "production_readiness_blockers": readiness_blockers,
         "blocker_count": (payload or {}).get("blocker_count", len((payload or {}).get("blockers") or [])),
         "first_blocker": _first_blocker(payload),
     }
+
+
+def _retrain_model_location_passes(retrain_location: dict[str, Any]) -> bool:
+    if retrain_location.get("model_location_gate_status") not in (None, ""):
+        return (
+            _passes(retrain_location.get("model_location_gate_status"))
+            and retrain_location.get("model_location_claim_evidence_allowed") is not False
+        )
+    return (
+        _passes(retrain_location.get("status"))
+        and retrain_location.get("broad_core_model_claim_allowed") is True
+    )
+
+
+def _retrain_model_location_detail(retrain_location: dict[str, Any]) -> str:
+    if _retrain_model_location_passes(retrain_location):
+        if retrain_location.get("broad_core_model_claim_allowed") is False:
+            return "pooled F retrain/location model-location gate passed; broad claim remains readiness-blocked"
+        return "pooled F retrain/location broad-claim gate passed"
+    return retrain_location.get("first_blocker") or "pooled F retrain/location model-location gate is not clear"
 
 
 def candidate_hourly_summary(path: str | Path) -> dict[str, Any]:
@@ -336,12 +363,8 @@ def build_gates(
     ))
     gates.append(_gate(
         "broad_claim_gate",
-        "PASS" if _passes(retrain_location.get("status")) and retrain_location.get("broad_core_model_claim_allowed") else "BLOCK",
-        (
-            "pooled F retrain/location broad-claim gate passed"
-            if _passes(retrain_location.get("status")) and retrain_location.get("broad_core_model_claim_allowed")
-            else retrain_location.get("first_blocker") or "pooled F retrain/location broad-claim gate is not clear"
-        ),
+        "PASS" if _retrain_model_location_passes(retrain_location) else "BLOCK",
+        _retrain_model_location_detail(retrain_location),
         retrain_location,
     ))
     return gates
@@ -379,12 +402,19 @@ def build_payload(
         lane=lane,
     )
     blockers = [gate for gate in gates if gate.get("status") == "BLOCK"]
+    production_readiness_status = retrain.get("production_readiness_status")
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "status": "PASS" if not blockers else "BLOCK",
         "served_distribution_contract_specified": True,
         "acceptance_passed": not blockers,
+        "model_served_distribution_status": "PASS" if not blockers else "BLOCK",
+        "model_acceptance_passed": not blockers,
+        "broad_core_model_claim_allowed": retrain.get("broad_core_model_claim_allowed"),
+        "production_readiness_status": production_readiness_status,
+        "production_readiness_blocker_count": retrain.get("production_readiness_blocker_count"),
+        "production_readiness_blockers": retrain.get("production_readiness_blockers") or [],
         "blocker_count": len(blockers),
         "first_blocker": blockers[0] if blockers else None,
         "inputs": {
@@ -432,6 +462,9 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Contract specified", payload.get("served_distribution_contract_specified")],
             ["Acceptance passed", payload.get("acceptance_passed")],
             ["Blockers", payload.get("blocker_count")],
+            ["Model served-distribution status", payload.get("model_served_distribution_status")],
+            ["Broad core-model claim allowed", payload.get("broad_core_model_claim_allowed")],
+            ["Production readiness", payload.get("production_readiness_status") or "-"],
             ["First blocker", first.get("detail") or "-"],
             ["Replay validation evidence", replay.get("validation_evidence")],
             ["Replay verdict", replay.get("verdict")],

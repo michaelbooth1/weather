@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-24T18:50:08.955004+00:00
+Generated: 2026-06-25T01:03:30.156244+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 310 |
-| Active items | 32 |
+| Active items | 31 |
 | OPEN | 4 |
-| PARTIAL | 28 |
-| COMPLETE | 278 |
+| PARTIAL | 27 |
+| COMPLETE | 279 |
 | ROADMAP rows | 310 |
 | ROADMAP primary rows | 310 |
 | Metadata manifest rows | 310 |
@@ -37,7 +37,7 @@ Status: `OK`
 | 147 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY BASELINE | [Early-Hour Winner-Centering Candidate](items/item-147-early-hour-winner-centering-candidate.md) |
 | 156 | OPEN | 2026-06-20 | LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED | [CLOB Midpoint Continuity For Market-Informed Repair](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 | 157 | PARTIAL | 2026-06-22 | JUNE 21 NONRECOVERABLE, NEW DAY COLLECTING | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
-| 160 | PARTIAL | 2026-06-22 | GATE REFRESHED, PROOF BLOCKED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
+| 160 | PARTIAL | 2026-06-24 | MODEL-READY ACTIVE CANDIDATE, READINESS/PROGRESS BLOCKED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 161 | PARTIAL | 2026-06-22 | CURRENT SOURCE RUNNING, JUNE 23 AGING PENDING | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 176 | PARTIAL | 2026-06-22 | SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
@@ -49,7 +49,6 @@ Status: `OK`
 | 191 | PARTIAL | 2026-06-24 | ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
-| 224 | PARTIAL | 2026-06-24 | DATA PASS, ACTIVE CONTRACT BLOCKED | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |

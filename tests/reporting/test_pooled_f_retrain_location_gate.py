@@ -165,4 +165,117 @@ def test_gate_passes_when_artifact_and_all_required_reports_clear(tmp_path):
 
     assert payload["status"] == "PASS"
     assert payload["broad_core_model_claim_allowed"] is True
+    assert payload["model_location_gate_status"] == "PASS"
+    assert payload["production_readiness_status"] == "PASS"
     assert payload["blocker_count"] == 0
+
+
+def test_gate_reports_readiness_blocker_when_broad_claim_passes(tmp_path):
+    artifact, report, replay, promotion, predawn, bottom, exact = write_pass_inputs(tmp_path)
+    write_json(
+        promotion,
+        {
+            "readiness": {
+                "status": "OPEN",
+                "blockers": [{"detail": "fleet observability must pass"}],
+            },
+            "model_skill_claims": {
+                "weather_only_core_model": {
+                    "broad_market_skill_claim_allowed": True,
+                    "daily_first_passed": True,
+                    "delta_vs_market": -0.02,
+                    "reason": "core candidate clears aggregate and daily-first market-skill gates",
+                }
+            },
+            "early_hour_promotion_blocker": {
+                "status": "PASS",
+                "promotion_allowed": True,
+                "blocker_count": 0,
+            },
+            "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+        },
+    )
+
+    payload = build_payload(
+        artifact_path=artifact,
+        training_report=report,
+        candidate_replay=replay,
+        promotion_refresh=promotion,
+        predawn_repair=predawn,
+        bottom_location=bottom,
+        exact_distance=exact,
+    )
+
+    gate = next(row for row in payload["gates"] if row["gate"] == "promotion_refresh_broad_claim")
+    assert payload["status"] == "BLOCK"
+    assert gate["detail"] == "fleet observability must pass"
+    assert payload["broad_core_model_claim_allowed"] is False
+    assert payload["model_location_gate_status"] == "PASS"
+    assert payload["model_location_blocker_count"] == 0
+    assert payload["production_readiness_status"] == "BLOCK"
+    assert payload["production_readiness_blocker_count"] == 1
+
+
+def test_gate_treats_current_code_soak_as_readiness_when_candidate_weak_slots_clear(tmp_path):
+    artifact, report, replay, promotion, predawn, bottom, exact = write_pass_inputs(tmp_path)
+    lineage = {
+        "gate_status": "PASS",
+        "variant_match": True,
+        "corpus_match": True,
+        "freshness": {"status": "PASS"},
+    }
+    write_json(
+        promotion,
+        {
+            "readiness": {
+                "status": "PASS",
+                "blockers": [],
+            },
+            "model_skill_claims": {
+                "weather_only_core_model": {
+                    "broad_market_skill_claim_allowed": True,
+                    "daily_first_passed": True,
+                    "delta_vs_market": -0.02,
+                    "reason": "core candidate clears aggregate and daily-first market-skill gates",
+                }
+            },
+            "early_hour_promotion_blocker": {
+                "status": "BLOCK",
+                "promotion_allowed": False,
+                "blocker_count": 1,
+                "blockers": [
+                    {
+                        "category": "current_code_soak",
+                        "detail": "current-code soak remains a production-readiness blocker, status=BLOCK",
+                    }
+                ],
+                "candidate_gates": {
+                    "hourly": lineage,
+                    "ten_minute": lineage,
+                },
+                "broad_replay": {
+                    "active_registry_contract_present": True,
+                    "within_market_tolerance": True,
+                },
+            },
+            "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+        },
+    )
+
+    payload = build_payload(
+        artifact_path=artifact,
+        training_report=report,
+        candidate_replay=replay,
+        promotion_refresh=promotion,
+        predawn_repair=predawn,
+        bottom_location=bottom,
+        exact_distance=exact,
+    )
+
+    gate = next(row for row in payload["gates"] if row["gate"] == "hourly_ten_minute_weak_slot_gate")
+    assert payload["status"] == "BLOCK"
+    assert gate["detail"] == "current-code soak remains a production-readiness blocker, status=BLOCK"
+    assert payload["model_location_gate_status"] == "PASS"
+    assert payload["model_location_blocker_count"] == 0
+    assert payload["production_readiness_status"] == "BLOCK"
+    assert payload["production_readiness_blocker_count"] == 1

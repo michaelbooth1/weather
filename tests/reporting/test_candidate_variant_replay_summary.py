@@ -165,6 +165,55 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
         self.assertEqual(loaded["corpus"]["corpus_hash"], payload["corpus"]["row_export_corpus_hash"])
         self.assertEqual(loaded["corpus"]["source_candidate_corpus_hash"], "source-corpus")
 
+    def test_active_replay_contract_loads_when_source_corpus_matches_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            summary_path = root / "summary.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            payload = build_variant_replay_summary(
+                rows_path,
+                source_path,
+                validation_evidence="active_replay_contract",
+                active_registry_contract=_active_contract(rows_path),
+                variant_registry=_active_registry(rows_path),
+            )
+            self.assertNotEqual(payload["corpus"]["corpus_hash"], "source-corpus")
+            write_outputs(payload, summary_path, root / "summary.md")
+            loaded = load_precomputed_candidate_report(
+                summary_path,
+                {"corpus_hash": "source-corpus"},
+            )
+
+        self.assertEqual(loaded["validation_evidence"], "active_replay_contract")
+        self.assertEqual(loaded["corpus"]["source_candidate_corpus_hash"], "source-corpus")
+
+    def test_active_replay_contract_rejects_when_source_corpus_does_not_match_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            summary_path = root / "summary.json"
+            _write_rows(rows_path, _passing_rows())
+            _write_source(source_path)
+
+            payload = build_variant_replay_summary(
+                rows_path,
+                source_path,
+                validation_evidence="active_replay_contract",
+                active_registry_contract=_active_contract(rows_path),
+                variant_registry=_active_registry(rows_path),
+            )
+            write_outputs(payload, summary_path, root / "summary.md")
+            with self.assertRaisesRegex(ValueError, "corpus hash mismatch"):
+                load_precomputed_candidate_report(
+                    summary_path,
+                    {"corpus_hash": "other-source-corpus"},
+                )
+
     def test_active_replay_contract_summary_can_feed_promotion_refresh_mitigation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -344,13 +393,18 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
             root = Path(tmp)
             rows_path = root / "variant_rows.csv"
             source_path = root / "source.json"
+            source_rows_path = root / "source_rows.csv"
             rows = _passing_rows()
             for row in rows:
                 row["route_source_variant_id"] = "source_active_v1"
             _write_rows(rows_path, rows)
+            source_rows = _passing_rows()
+            for row in source_rows:
+                row["variant_id"] = "source_active_v1"
+            _write_rows(source_rows_path, source_rows)
             _write_source(source_path)
             registry = _active_registry(rows_path)
-            registry["variants"].append(_registry_variant(root / "source_rows.csv", variant_id="source_active_v1"))
+            registry["variants"].append(_registry_variant(source_rows_path, variant_id="source_active_v1"))
 
             payload = build_variant_replay_summary(
                 rows_path,
@@ -362,6 +416,34 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
 
             checks = payload["candidate_shadow_variants"]["active_registry_contract"]["validation_checks"]
             self.assertTrue(checks["source_variant_lineage_countable"])
+
+    def test_active_replay_contract_rejects_non_countable_source_export_lineage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows_path = root / "variant_rows.csv"
+            source_path = root / "source.json"
+            source_rows_path = root / "source_rows.csv"
+            rows = _passing_rows()
+            for row in rows:
+                row["route_source_variant_id"] = "source_active_v1"
+            _write_rows(rows_path, rows)
+            source_rows = _passing_rows()
+            for row in source_rows:
+                row["variant_id"] = "source_active_v1"
+            source_rows[0]["repair_marker"] = "same_corpus_location_repair_v1"
+            _write_rows(source_rows_path, source_rows)
+            _write_source(source_path)
+            registry = _active_registry(rows_path)
+            registry["variants"].append(_registry_variant(source_rows_path, variant_id="source_active_v1"))
+
+            with self.assertRaisesRegex(ValueError, "source variant source_active_v1 export is non-countable"):
+                build_variant_replay_summary(
+                    rows_path,
+                    source_path,
+                    validation_evidence="active_replay_contract",
+                    active_registry_contract=_active_contract(rows_path),
+                    variant_registry=registry,
+                )
 
     def test_market_regression_blocks_even_with_active_contract_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

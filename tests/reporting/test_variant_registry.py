@@ -151,6 +151,37 @@ class TestVariantRegistry(unittest.TestCase):
         categories = {row["category"] for row in payload["checks"]}
         self.assertIn("shadow_local_candidate_artifact_path", categories)
 
+    def test_audit_requires_route_recipe_for_active_row_route_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            export = root / "variants.csv"
+            export.write_text(
+                "variant_id,variant_family,market_id,target_date,snapshot_id,band_key,probability,current_probability,market_yes,outcome\n"
+                "route_v1,demo_family,nyc,2026-06-18,s1,eq:82,0.55,0.50,0.52,1\n",
+                encoding="utf-8",
+            )
+            registry = {
+                "schema_version": SCHEMA_VERSION,
+                "exists": True,
+                "path": "inline",
+                "variants": [
+                    _active_variant(
+                        "route_v1",
+                        live_runtime="candidate_row_route_composite",
+                        default_export_path=str(export),
+                    )
+                ],
+            }
+
+            payload = audit_registry(registry)
+
+        self.assertEqual(payload["status"], "ERROR")
+        missing_checks = [
+            row for row in payload["checks"]
+            if row["category"] == "missing_export_contract_fields"
+        ]
+        self.assertTrue(any("route_recipe_path" in row["detail"] for row in missing_checks))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,6 +229,37 @@ def _source_variant_lineage_blockers(
             "row export references source variant(s) not active_for_headline: "
             + ", ".join(non_headline[:8])
         )
+    if not missing and not inactive and not non_headline:
+        for source_id in sorted(source_ids):
+            entry = by_id.get(source_id)
+            if not entry:
+                continue
+            contract = variant_export_contract(entry)
+            export_path = _resolved_repo_path(contract.get("default_export_path"))
+            if export_path is None or not export_path.exists():
+                blockers.append(
+                    f"source variant {source_id} export is unavailable: "
+                    f"{contract.get('default_export_path') or 'missing default_export_path'}"
+                )
+                continue
+            try:
+                source_rows = [
+                    row
+                    for row in read_variant_rows(export_path)
+                    if str(row.get("variant_id") or "") == source_id
+                ]
+            except (OSError, ValueError) as exc:
+                blockers.append(f"source variant {source_id} export is unreadable: {exc}")
+                continue
+            if not source_rows:
+                blockers.append(f"source variant {source_id} export has no rows for that variant_id")
+                continue
+            source_row_blockers = _active_row_export_blockers(source_rows)
+            if source_row_blockers:
+                blockers.append(
+                    f"source variant {source_id} export is non-countable: "
+                    + "; ".join(source_row_blockers)
+                )
     return blockers
 
 

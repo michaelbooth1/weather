@@ -120,6 +120,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "item138_weak_input_family_gate_v0.1",
         )
         self.assertEqual(
+            schema_version("item224_active_timesplit_logistic_repair"),
+            "item224_active_timesplit_logistic_repair_v0.1",
+        )
+        self.assertEqual(
             schema_version("item186_soil_antecedent_gate"),
             "item186_soil_antecedent_gate_v0.1",
         )
@@ -234,6 +238,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("daily_rollup_freshness"), "daily_rollup_freshness_v0.1")
         self.assertEqual(schema_version("nightly_health_checks"), "nightly_health_checks_v0.1")
         self.assertEqual(schema_version("runtime_identity_evidence"), "runtime_identity_evidence_v0.1")
+        self.assertEqual(schema_version("runtime_identity_reconciliation"), "runtime_identity_reconciliation_v0.1")
         self.assertEqual(schema_version("snapshot_core_sidecar_backfill"), "snapshot_core_sidecar_backfill_v0.1")
         self.assertEqual(schema_version("snapshot_explanation_backfill"), "snapshot_explanation_backfill_v0.1")
         self.assertEqual(schema_version("snapshot_explanations"), "snapshot_explanations_v0.1")

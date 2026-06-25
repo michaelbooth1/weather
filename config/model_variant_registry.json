@@ -1,6 +1,6 @@
 {
   "schema_version": "model_variant_registry_v0.1",
-  "updated_at_utc": "2026-06-18T00:00:00+00:00",
+  "updated_at_utc": "2026-06-24T22:55:00+00:00",
   "description": "Lifecycle registry for model variants used by shadow and promotion reports.",
   "variants": [
     {
@@ -147,6 +147,23 @@
       "postprocess_config_hash": "pooled_continuous_density_hgb_v0.1",
       "live_runtime": "pooled_candidate_replay",
       "roadmap_items": [35, 85]
+    },
+    {
+      "variant_id": "item224_active_timesplit_logistic_repair_v0_1",
+      "variant_family": "item224_active_timesplit_logistic_repair",
+      "lifecycle": "active",
+      "track": "no_market",
+      "roles": ["candidate", "no-market", "active-bakeoff", "item160-model-ready", "item224-active-timesplit-probe"],
+      "active_for_headline": true,
+      "artifact_required": false,
+      "prediction_function": "weather.reporting.item224_active_timesplit_logistic_repair:build_payload",
+      "prediction_mode": "band_binary",
+      "export_family": "item224_active_timesplit_logistic_repair",
+      "default_export_path": "data/backtest/item224_active_timesplit_logistic_repair_rows.csv",
+      "input_rows_path": "data/backtest/item224_active_source_route_composite_rows.csv",
+      "postprocess_config_hash": "item224_active_timesplit_logistic_repair_v0_1",
+      "live_runtime": "active_timesplit_logistic_repair",
+      "roadmap_items": [160, 224]
     },
     {
       "variant_id": "no_market_extra_locations_flat_pool_v0_1",

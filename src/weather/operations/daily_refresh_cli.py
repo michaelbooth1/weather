@@ -126,7 +126,11 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument(
         "--variant-evidence-baseline",
         default="",
-        help="Comma-separated baseline variant long-table paths; defaults to item 70/71 long CSV.",
+        help=(
+            "Comma-separated baseline variant long-table paths; defaults to "
+            "model_variant_evidence_baseline_active_shadow_long.csv when present, "
+            "then the legacy item 70/71 long CSV."
+        ),
     )
     parser.add_argument("--variant-evidence-min-unique-observations", type=int, default=1)
     parser.add_argument("--variant-evidence-min-market-days", type=int, default=1)

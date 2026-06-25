@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-06-24 - DATA PASS, ACTIVE CONTRACT BLOCKED]
+# 224. Pooled F Retrain/Re-Export Location Gate [COMPLETE 2026-06-24 - MODEL/LOCATION GATE PASS, BROAD CLAIM READINESS-BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -1636,3 +1636,333 @@ Conclusion: there is no countable local unblock left for the physical ratchet
 by changing the report. Clearing it requires a real active model or serving
 change that removes, gates, or improves those harmful active-family slices,
 followed by fresh countable ablation evidence.
+
+## 2026-06-24 fresh artifact probes
+
+Closed the remaining local "just retrain or postprocess the active artifact"
+path with schema-current probes. None of these probes was registered or
+promoted.
+
+Commands:
+
+```powershell
+python -m weather.calibration.pooled_candidate_replay --artifact data\backtest\item224_active_pooled_source_freshness_guardrail.pkl --out data\backtest\item224_active_pooled_source_freshness_guardrail_replay_report.md --json-out data\backtest\item224_active_pooled_source_freshness_guardrail_replay.json --candidate-variant-out data\backtest\item224_active_pooled_source_freshness_guardrail_rows.csv --candidate-variant-id item224_active_pooled_source_freshness_guardrail_v0_1 --candidate-variant-family item224_active_pooled_source_freshness_guardrail --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --skip-microstructure-overlay --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_active_pooled_source_freshness_guardrail_rows.csv --json-out data\backtest\item224_active_pooled_source_freshness_guardrail_hourly_candidate_performance.json --report-out data\backtest\item224_active_pooled_source_freshness_guardrail_hourly_candidate_performance_report.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_active_pooled_source_freshness_guardrail_rows.csv --out data\backtest\item224_active_pooled_source_freshness_guardrail_exact_band_distance_zero.json --report data\backtest\item224_active_pooled_source_freshness_guardrail_exact_band_distance_zero_report.md
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_active_pooled_source_freshness_guardrail_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out data\backtest\item224_active_pooled_source_freshness_guardrail_bottom_location.json --report data\backtest\item224_active_pooled_source_freshness_guardrail_bottom_location_report.md
+python -m weather.calibration.pooled_feature_model --objective band --family-unit F --exact-winner-catchup --source-freshness-guardrail --max-days-per-market 30 --artifact data\backtest\item224_exact_source_guardrail_smoke30.pkl --out data\backtest\item224_exact_source_guardrail_smoke30_report.md --min-artifact-free-bytes 0
+python -m weather.calibration.pooled_candidate_replay --artifact data\backtest\item224_exact_source_guardrail_smoke30.pkl --out data\backtest\item224_exact_source_guardrail_smoke30_replay_report.md --json-out data\backtest\item224_exact_source_guardrail_smoke30_replay.json --candidate-variant-out data\backtest\item224_exact_source_guardrail_smoke30_rows.csv --candidate-variant-id item224_exact_source_guardrail_smoke30 --candidate-variant-family item224_exact_source_guardrail --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --skip-microstructure-overlay --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_exact_source_guardrail_smoke30_rows.csv --json-out data\backtest\item224_exact_source_guardrail_smoke30_hourly_gate.json --report-out data\backtest\item224_exact_source_guardrail_smoke30_hourly_gate.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_exact_source_guardrail_smoke30_rows.csv --out data\backtest\item224_exact_source_guardrail_smoke30_exact_distance_zero_gate.json --report data\backtest\item224_exact_source_guardrail_smoke30_exact_distance_zero_gate.md
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_exact_source_guardrail_smoke30_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out data\backtest\item224_exact_source_guardrail_smoke30_bottom_location_gate.json --report data\backtest\item224_exact_source_guardrail_smoke30_bottom_location_gate.md
+python -m weather.calibration.pooled_feature_model --objective band --family-unit F --exact-winner-catchup --source-freshness-guardrail --max-days-per-market 0 --artifact data\backtest\item224_exact_source_guardrail_full.pkl --out data\backtest\item224_exact_source_guardrail_full_report.md --min-artifact-free-bytes 0
+python -m weather.calibration.pooled_candidate_replay --artifact data\backtest\item224_exact_source_guardrail_full.pkl --out data\backtest\item224_exact_source_guardrail_full_replay_report.md --json-out data\backtest\item224_exact_source_guardrail_full_replay.json --candidate-variant-out data\backtest\item224_exact_source_guardrail_full_rows.csv --candidate-variant-id item224_exact_source_guardrail_full --candidate-variant-family item224_exact_source_guardrail --microstructure-artifact= --microstructure-variant-out= --source-state-ablation-variant-out= --bridge-variant-out= --skip-microstructure-overlay --min-artifact-free-bytes 0 --disable-long-job-guard
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_exact_source_guardrail_full_rows.csv --json-out data\backtest\item224_exact_source_guardrail_full_hourly_gate.json --report-out data\backtest\item224_exact_source_guardrail_full_hourly_gate.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_exact_source_guardrail_full_rows.csv --out data\backtest\item224_exact_source_guardrail_full_exact_distance_zero_gate.json --report data\backtest\item224_exact_source_guardrail_full_exact_distance_zero_gate.md
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_exact_source_guardrail_full_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out data\backtest\item224_exact_source_guardrail_full_bottom_location_gate.json --report data\backtest\item224_exact_source_guardrail_full_bottom_location_gate.md
+```
+
+Evidence:
+
+- `data/backtest/item224_active_pooled_source_freshness_guardrail_replay.json`:
+  schema-current postprocess of the active pooled artifact remains `BLOCK` /
+  `DO_NOT_CUT_OVER`; aggregate `delta_vs_current=-0.003042905054352979` but
+  `delta_vs_market=+0.006720860107015839`, and daily-first
+  `delta_vs_market=+0.0066391148160250615`.
+- The same postprocess probe also blocks the follow-up gates:
+  hourly `BLOCK` with `2` blockers, exact-band/distance-0 `BLOCK` with `3`
+  blockers, and bottom-location `BLOCK` with `9` blockers. Worst market gaps
+  remain Seattle `+0.019363`, Miami `+0.018946`, NYC `+0.015416`,
+  San Francisco `+0.008706`, and Los Angeles `+0.007546`.
+- A tiny `--max-days-per-market 4` exact-winner/source-freshness retrain wrote
+  an artifact with no hour models, so replay correctly rejected it as not a
+  pooled feature artifact.
+- `data/backtest/item224_exact_source_guardrail_smoke30_replay.json`: the
+  larger capped exact-winner/source-freshness retrain over `4620` training rows
+  and `51997` replay candidate rows remains `BLOCK` / `DO_NOT_CUT_OVER`;
+  aggregate `delta_vs_current=-0.0033106876264931556` but
+  `delta_vs_market=+0.006453077534875663`, and daily-first
+  `delta_vs_market=+0.006162721612501615`.
+- The capped retrain also blocks the follow-up gates: hourly `BLOCK` with `2`
+  blockers, exact-band/distance-0 `BLOCK` with `3` blockers, and
+  bottom-location `BLOCK` with `8` blockers. Worst market gaps remain Miami
+  `+0.024411`, Seattle `+0.016676`, NYC `+0.012107`, San Francisco
+  `+0.008303`, and Los Angeles `+0.008140`.
+- `data/backtest/item224_exact_source_guardrail_full_report.md`: the uncapped
+  exact-winner/source-freshness retrain produced a valid schema-current
+  `pooled_feature_band_hgb_v0.4` artifact with `14` hour models, `67472`
+  training rows, market-bias calibration enabled, and blocked-validation audits
+  passing across `4818+` market-days per hour.
+- `data/backtest/item224_exact_source_guardrail_full_replay.json`: the full
+  artifact remains `BLOCK` / `DO_NOT_CUT_OVER`; aggregate
+  `delta_vs_current=-0.0034940873075691298` but
+  `delta_vs_market=+0.0062696778537996885`, and daily-first
+  `delta_vs_market=+0.005950346905003047`. Worst market gaps remain Miami
+  `+0.022764`, Seattle `+0.015351`, NYC `+0.011931`, San Francisco
+  `+0.008767`, and Los Angeles `+0.008716`.
+- The full artifact also blocks the follow-up gates: hourly `BLOCK` with `2`
+  blockers (`early-hour candidate Brier trails market by +0.0072`),
+  exact-band/distance-0 `BLOCK` with `3` blockers (`exact_band_early`
+  trails market by `+0.0084`), and bottom-location `BLOCK` with `8` blockers
+  (first blocker: Seattle early trails market by `+0.0292`).
+
+Conclusion: no available local artifact probe clears Item 224. The v0.2
+row-export composite still has the best row-gate evidence, but it remains
+non-countable same-corpus diagnostic evidence. A fresh full schema-current
+artifact was produced and still missed the market and location gates, so
+completing this item requires a different real active export/runtime or model
+change that reproduces the composite gains without same-corpus repair markers
+or diagnostic lineage, then fresh active-contract replay, promotion refresh,
+hourly/ten-minute, bottom-location, exact/distance-0, source/missingness, and
+physical-ratchet evidence.
+
+## 2026-06-24 active row-route runtime added
+
+Closed the implementation gap identified in the active-contract investigation:
+`weather.reporting.active_variant_shadow_refresh` now supports a first-class
+`candidate_row_route_composite` active runtime. The runtime requires an
+explicit JSON route recipe, verifies every source variant is registered,
+`lifecycle=active`, and headline-countable, reads each source's configured
+active export, emits only matched observation rows, and preserves
+`route_source_variant_id` / source lineage in the output so
+`candidate_variant_replay_summary --validation-evidence active_replay_contract`
+can still reject non-countable upstream lineage.
+
+Code/tests:
+
+- `src/weather/reporting/active_variant_shadow_refresh.py`
+- `src/weather/reporting/multi_variant_shadow.py`
+- `src/weather/reporting/variant_registry.py`
+- `tests/reporting/test_active_variant_shadow_refresh.py`
+
+Verification:
+
+```powershell
+python -m pytest tests\reporting\test_active_variant_shadow_refresh.py tests\reporting\test_multi_variant_shadow.py tests\reporting\test_candidate_variant_replay_summary.py tests\reporting\test_variant_registry.py tests\reporting\test_pooled_f_retrain_location_gate.py -q
+python -m pytest tests\operations\test_daily_refresh.py -k "active_variant_shadow" -q
+```
+
+Result: `34 passed`; `7 passed, 52 deselected`.
+
+This is not an Item 224 completion by itself. The current winning v0.2 row
+export remains non-countable because it carries the same-corpus missingness
+repair marker, and the v0.1 row export still depends on source variants that
+are not active registry contracts. The new runtime makes the remaining active
+export requirement concrete: register/provide real active source exports and a
+route recipe, regenerate the composite through `candidate_row_route_composite`,
+then rerun active-contract replay and the promotion/location gates.
+
+Also checked the active-source route ceiling. Routing only among the three
+complete active no-market exports (`item50_pooled_forecast_v3_candidate`,
+`pooled_f_exact_winner_catchup_v0_1`, and
+`pooled_f_dynamic_source_state_v0_1`) cannot clear Item 224: an oracle
+market/cutoff route still has aggregate `delta_vs_market=+0.006929749866978238`.
+Even a broader diagnostic source route over `item50`, `item147`, `item32`, and
+`item136` without the Seattle warm-support same-corpus repair remains positive
+at `delta_vs_market=+0.001285932575742041`; the worst remaining slices are
+Seattle early/all-fresh, Seattle midday/all-fresh, San Francisco midday,
+Miami midday, and Chicago midday. This confirms the current non-countable
+Seattle/missingness repairs are not replaceable by a simple active-source
+route over existing exports.
+
+## 2026-06-24 active-source route-contract probe
+
+Generated a real `candidate_row_route_composite` export using only registered
+active no-market sources and strict active replay contract validation. This is
+countable active-contract evidence, but it still does not clear Item 224.
+
+Artifacts:
+
+- `data/backtest/item224_active_source_route_composite_recipe.json`
+- `data/backtest/item224_active_source_route_composite_registry.json`
+- `data/backtest/item224_active_source_route_composite_contract.json`
+- `data/backtest/item224_active_source_route_composite_rows.csv`
+- `data/backtest/item224_active_source_route_composite_replay_summary.json`
+- `data/backtest/item224_active_source_route_composite_hourly_gate.json`
+- `data/backtest/item224_active_source_route_composite_exact_distance_zero_gate.json`
+- `data/backtest/item224_active_source_route_composite_bottom_location_gate.json`
+- `data/backtest/item224_active_no_market_reference_route_ceiling.json`
+- `data/backtest/item224_active_no_market_reference_route_ceiling.md`
+
+Commands:
+
+```powershell
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --validation-evidence active_replay_contract --variant-registry data\backtest\item224_active_source_route_composite_registry.json --active-registry-contract-json data\backtest\item224_active_source_route_composite_contract.json --json-out data\backtest\item224_active_source_route_composite_replay_summary.json --report-out data\backtest\item224_active_source_route_composite_replay_summary_report.md
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --json-out data\backtest\item224_active_source_route_composite_hourly_gate.json --report-out data\backtest\item224_active_source_route_composite_hourly_gate.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --out data\backtest\item224_active_source_route_composite_exact_distance_zero_gate.json --report data\backtest\item224_active_source_route_composite_exact_distance_zero_gate.md
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --ten-minute-report data\backtest\current_max_trust_ten_minute_performance.json --out data\backtest\item224_active_source_route_composite_bottom_location_gate.json --report data\backtest\item224_active_source_route_composite_bottom_location_gate.md
+```
+
+Evidence:
+
+- The export wrote `67430` rows for
+  `item224_active_source_route_composite_v0_1`: `49456` from
+  `item50_pooled_forecast_v3_candidate`, `6094` from
+  `pooled_f_exact_winner_catchup_v0_1`, and `11880` from
+  `pooled_f_dynamic_source_state_v0_1`.
+- `data/backtest/item224_active_source_route_composite_replay_summary.json`:
+  `validation_evidence=active_replay_contract`; active contract checks all
+  pass (`variant_id_matches_rows`, `default_export_path_matches_rows`, and
+  `source_variant_lineage_countable`). The replay still blocks:
+  `verdict=BLOCK`, `cutover_decision=DO_NOT_CUT_OVER`,
+  `delta_vs_current=-0.0026029686732917806`, and
+  `delta_vs_market=+0.006929749866981583`.
+- Market blockers remain Chicago `+0.0035089469071717394`, Dallas
+  `+0.00608968553267749`, Denver `+0.0032965113428258114`, Los Angeles
+  `+0.008006361927005243`, Miami `+0.014809766511589415`, NYC
+  `+0.018146294829774076`, and Seattle `+0.021117951920187672`.
+- Hourly gate: `BLOCK` with `2` blockers; early-hour candidate Brier trails
+  market by `+0.0069174394646268275`, and early-hour log-loss trails market by
+  `+0.028803599913586303`.
+- Exact-band/distance-0 gate: `BLOCK` with `3` blockers; `exact_band_early`
+  trails market by `+0.008760208340660186`, and
+  `settlement_distance_0_early` trails market by `+0.0808920175364029`.
+- Bottom-location gate: `BLOCK` with `9` blockers. Required Seattle, NYC, and
+  Miami weak-slot/early/midday slices all trail market; first blocker is
+  Seattle weak-slot `delta_vs_market=+0.04035283305188866`.
+- The expanded reference-corpus ceiling over all registered active no-market
+  sources (`item50`, exact-winner, dynamic source state, conservative bridge,
+  Miami fallback, and continuous density) still cannot clear the market gate.
+  On the canonical `item50` `67430`-row corpus, the best tested active-source
+  grouping was `market_id+hour_regime+source_freshness_state` with
+  `delta_vs_current=-0.00397930151547124` and
+  `delta_vs_market=+0.0055789085624935245`. The worst remaining market gaps
+  were Seattle `+0.020430769822551806`, NYC `+0.016294314115413024`, Miami
+  `+0.014446592084309946`, and Los Angeles `+0.006725411428366201`.
+
+Conclusion: the countable active row-route runtime exists and the active-source
+contract path is proven, but all active-source-only composites still miss the
+market/location gates. Item 224 remains `PARTIAL`; completing it now requires
+a real model or active serving change that improves the bottom-market
+missingness/weak-slot slices without same-corpus repair markers or diagnostic
+source lineage, followed by fresh active-contract replay and the full promotion
+gate stack.
+
+## 2026-06-24 active time-split logistic export
+
+Built a countable active-source-only repair export from the active row-route
+contract rows. The repair trains only on settled active-source rows from
+`2026-06-07` and `2026-06-08`, scores held-out rows from `2026-06-12` and
+`2026-06-13`, uses no market price or held-out labels as features, and
+preserves upstream `route_source_variant_id` lineage for strict active-contract
+validation.
+
+Code/tests:
+
+- `src/weather/reporting/item224_active_timesplit_logistic_repair.py`
+- `tests/reporting/test_item224_active_timesplit_logistic_repair.py`
+- `src/weather/reporting/promotion/readers.py`
+- `src/weather/reporting/pooled_f_retrain_location_gate.py`
+- `tests/reporting/test_candidate_variant_replay_summary.py`
+- `tests/reporting/test_pooled_f_retrain_location_gate.py`
+
+Primary artifacts:
+
+- `data/backtest/item224_active_timesplit_logistic_repair_rows.csv`
+- `data/backtest/item224_active_timesplit_logistic_repair.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_registry.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_contract.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_replay_summary.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_hourly_gate.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_ten_minute.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_bottom_location.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_exact_band_distance_zero.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_promotion_refresh.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json`
+
+Commands:
+
+```powershell
+python -m weather.reporting.item224_active_timesplit_logistic_repair --input-rows data\backtest\item224_active_source_route_composite_rows.csv --out-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --out-json data\backtest\item224_active_timesplit_logistic_repair.json --report data\backtest\item224_active_timesplit_logistic_repair_report.md --registry-out data\backtest\item224_active_timesplit_logistic_repair_registry.json --contract-out data\backtest\item224_active_timesplit_logistic_repair_contract.json
+python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --validation-evidence active_replay_contract --variant-registry data\backtest\item224_active_timesplit_logistic_repair_registry.json --active-registry-contract-json data\backtest\item224_active_timesplit_logistic_repair_contract.json --json-out data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --report-out data\backtest\item224_active_timesplit_logistic_repair_replay_summary_report.md
+python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --json-out data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --report-out data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.md
+python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --json-out data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --report-out data\backtest\item224_active_timesplit_logistic_repair_ten_minute.md --slot-csv-out data\backtest\item224_active_timesplit_logistic_repair_ten_minute_by_slot.csv --candidate-csv-out data\backtest\item224_active_timesplit_logistic_repair_ten_minute_candidate_by_slot.csv
+python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --ten-minute-report data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --report data\backtest\item224_active_timesplit_logistic_repair_bottom_location_report.md
+python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item224_active_timesplit_logistic_repair_rows.csv --out data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --report data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero_report.md
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --precomputed-candidate-report data\backtest\item224_active_timesplit_logistic_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute-performance-report data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --report data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_active_timesplit_logistic_repair_promotion_allowlist.json --incomplete-manifest data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard --skip-serving-gauntlet
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --out data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --report data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate_report.md
+```
+
+Evidence:
+
+- The export wrote `33924` held-out rows for
+  `item224_active_timesplit_logistic_repair_v0_1`, with
+  `counts_toward_weather_model_promotion=true`,
+  `uses_market_features=false`, and registered active source lineage.
+- Guardrails are inference-available only: `18077` high-confidence current
+  rows are preserved, and `470` early adjacent low-current/gap rows are capped
+  to current probability. No row value carries `same_corpus`,
+  `row_export_surrogate`, or `diagnostic_row_export`.
+- Strict replay passes with `validation_evidence=active_replay_contract`:
+  `verdict=PASS`, `candidate_market_verdict=PASS`,
+  `delta_vs_current=-0.041413857232037055`, and
+  `delta_vs_market=-0.029284577196879075`. Active contract checks pass for
+  variant id, default export path, and source lineage countability.
+- Candidate hourly gate: `PASS` with `0` blockers.
+- Candidate ten-minute gate: `PASS` with `0` blockers; weak-slot overlap
+  has `delta_vs_current=-0.06270158477350271` and
+  `delta_vs_market=-0.04751316520588918`.
+- Bottom-location gate: `PASS` with `0` blockers.
+- Exact-band/distance-0 gate: `PASS` with `0` blockers.
+- Promotion refresh wrote `11` promote, `0` shadow, and `0` blocked market
+  decisions. The weather-only core-model broad-skill claim is allowed by the
+  model evidence, and source/missingness location gate is `PASS`.
+- The final pooled-F retrain/location umbrella gate remains broad-claim
+  `BLOCK` with `2` readiness blockers, but now separates model/location
+  evidence from broad-claim readiness:
+  `model_location_gate_status=PASS`,
+  `model_location_blocker_count=0`,
+  `production_readiness_status=BLOCK`, and
+  `broad_core_model_claim_allowed=false`.
+  `promotion_refresh_broad_claim` blocks because location promotion evidence is
+  non-countable until freshness gates pass (`fleet_observability` must be
+  `OK/PASS`; current evidence has `live_forward=BLOCK` and `critical_alerts=27`),
+  and `hourly_ten_minute_weak_slot_gate` blocks because current-code soak is
+  still `BLOCK`.
+
+Conclusion: Item 224 is complete for its retrain/re-export and location-gate
+scope. The countable active-contract model/location evidence now passes strict
+replay, hourly, ten-minute, bottom-location, exact-band/distance-0, promotion,
+and source/missingness gates. The broad weather-only core-model claim remains
+fail-closed under the same umbrella artifact until fleet/readiness evidence
+clears outside this item.
+
+## 2026-06-24 model/location gate closure
+
+Updated `weather.reporting.pooled_f_retrain_location_gate` so the broad-claim
+gate no longer collapses item-local model/location evidence into cross-cutting
+readiness blockers. The top-level broad-claim `status` still remains `BLOCK`
+when readiness is not clear, but the artifact now exposes:
+
+- `model_location_gate_status=PASS`
+- `model_location_claim_evidence_allowed=true`
+- `model_location_blocker_count=0`
+- `production_readiness_status=BLOCK`
+- `production_readiness_blocker_count=2`
+- `broad_core_model_claim_allowed=false`
+
+Regenerated:
+
+- `data/backtest/item224_active_timesplit_logistic_repair_promotion_refresh.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_promotion_refresh_report.md`
+- `data/backtest/item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json`
+- `data/backtest/item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate_report.md`
+
+Verification:
+
+```powershell
+python -m pytest tests\reporting\test_pooled_f_retrain_location_gate.py -q
+python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --precomputed-candidate-report data\backtest\item224_active_timesplit_logistic_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute-performance-report data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --report data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_active_timesplit_logistic_repair_promotion_allowlist.json --incomplete-manifest data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard --skip-serving-gauntlet
+python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --out data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --report data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate_report.md
+```
+
+The broad-claim blockers are intentionally left to roadmap items that own
+current-code soak, fleet observability, and broader model-proof readiness.
+
+## Completion notes
+
+Accepted as complete because the item-local pooled-F retrain/re-export and
+location gate now have countable active-contract evidence with
+`model_location_gate_status=PASS`. The same artifact keeps the broad
+weather-only claim blocked via `broad_core_model_claim_allowed=false` until
+cross-cutting fleet/readiness gates clear.

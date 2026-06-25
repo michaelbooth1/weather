@@ -519,6 +519,13 @@ REGISTERED_SCHEMAS = (
         "Fail-closed gate for Item 138 active-artifact weak-family pruning and regime-backfill policy readiness.",
     ),
     SchemaSpec(
+        "item224_active_timesplit_logistic_repair",
+        "item224_active_timesplit_logistic_repair_v0.1",
+        "weather.reporting.item224_active_timesplit_logistic_repair",
+        "active",
+        "Item 224 active time-split logistic repair export report.",
+    ),
+    SchemaSpec(
         "item186_soil_antecedent_gate",
         "item186_soil_antecedent_gate_v0.1",
         "weather.reporting.item186_soil_antecedent_gate",
@@ -1367,6 +1374,13 @@ REGISTERED_SCHEMAS = (
         "Acceptance gate requiring early-hour remediation to clear candidate hourly, served-distribution, and positive daily-first trend evidence.",
     ),
     SchemaSpec(
+        "item160_candidate_viability_audit",
+        "item160_candidate_viability_audit_v0.1",
+        "weather.reporting.item160_candidate_viability_audit",
+        "active",
+        "Rank and classify early-hour candidate evidence by metric skill, active-contract countability, hourly, and weak-slot gates.",
+    ),
+    SchemaSpec(
         "item147_winner_centering_disposition",
         "item147_winner_centering_disposition_v0.1",
         "weather.reporting.item147_winner_centering_disposition",
@@ -1865,6 +1879,13 @@ REGISTERED_SCHEMAS = (
         "weather.reporting.runtime_identity_evidence",
         "active",
         "Runtime identity reconciliation evidence over snapshot and trading artifacts.",
+    ),
+    SchemaSpec(
+        "runtime_identity_reconciliation",
+        "runtime_identity_reconciliation_v0.1",
+        "weather.reporting.runtime_identity_reconciliation",
+        "active",
+        "Fail-closed reviewed reconciliation surface for mixed runtime identity aggregation.",
     ),
     SchemaSpec(
         "snapshot_core_sidecar_backfill",

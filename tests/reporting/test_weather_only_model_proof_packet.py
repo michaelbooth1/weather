@@ -54,6 +54,66 @@ def write_roadmap_item(path, number, title, body):
     )
 
 
+def write_minimal_pass_packet_inputs(backtest, promotion_payload):
+    write_json(backtest / "promotion.json", promotion_payload)
+    write_json(
+        backtest / "hourly.json",
+        {"hourly_performance_gate": {"status": "PASS", "blockers": []}},
+    )
+    write_json(
+        backtest / "ten.json",
+        {"ten_minute_performance_gate": {"status": "PASS", "blockers": []}},
+    )
+    write_json(backtest / "exact.json", {"status": "PASS", "blocker_count": 0})
+    write_json(backtest / "bottom.json", {"status": "PASS", "blocker_count": 0})
+    write_json(
+        backtest / "fleet.json",
+        {
+            "status": "PASS",
+            "live_forward_slo": {
+                "status": "PASS",
+                "counts_toward_live_forward_gate": True,
+            },
+        },
+    )
+    write_json(
+        backtest / "progress.json",
+        {
+            "core_model_trend_claim": {
+                "status": "PASS",
+                "claim_allowed": True,
+                "threshold_failures": [],
+            }
+        },
+    )
+    write_json(backtest / "daily.json", {"broad_improvement_claim_allowed": True})
+    write_json(backtest / "served.json", {"status": "PASS", "acceptance_passed": True})
+    write_json(backtest / "positive.json", {"status": "PASS", "acceptance_passed": True})
+    write_json(backtest / "austin.json", {"status": "PASS", "summary": {}, "hard_slices": []})
+    write_json(backtest / "winner.json", {"status": "PASS", "parity_gate": {"status": "PASS"}})
+
+
+def build_minimal_packet(root, artifact):
+    backtest = root / "backtest"
+    roadmap = root / "roadmap"
+    return build_payload(
+        artifact_path=artifact,
+        promotion_refresh=backtest / "promotion.json",
+        hourly=backtest / "hourly.json",
+        ten_minute=backtest / "ten.json",
+        exact_distance=backtest / "exact.json",
+        bottom_location=backtest / "bottom.json",
+        fleet_observability=backtest / "fleet.json",
+        progress_audit=backtest / "progress.json",
+        daily_progress=backtest / "daily.json",
+        served_distribution=backtest / "served.json",
+        positive_daily_first=backtest / "positive.json",
+        austin_requalification=backtest / "austin.json",
+        winner_rank_parity=backtest / "winner.json",
+        roadmap_root=roadmap,
+    )
+
+
 class TestWeatherOnlyModelProofPacket(unittest.TestCase):
     def test_packet_joins_gates_market_dispositions_and_ratchet(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -309,6 +369,220 @@ class TestWeatherOnlyModelProofPacket(unittest.TestCase):
         self.assertEqual(ratchet_classes["clob_overlay_or_taker_trading_packet"], "separate_lane")
         self.assertIn("## Market Dispositions", report)
         self.assertIn("weather-only proof packet", report)
+
+    def test_packet_uses_candidate_mitigation_and_reports_progress_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            roadmap = root / "roadmap"
+            artifact = root / "models" / "pooled.pkl"
+            write_artifact(artifact)
+            write_json(
+                backtest / "promotion.json",
+                {
+                    "candidate": {
+                        "verdict": "PASS",
+                        "artifact": {"path": str(artifact)},
+                        "candidate_shadow_variants": {
+                            "variant_id": "active_candidate",
+                            "active_registry_contract": {"variant_id": "active_candidate"},
+                            "uses_market_features": False,
+                        },
+                        "aggregate": {"rows": 10, "delta_vs_market": -0.02},
+                    },
+                    "readiness": {
+                        "status": "PASS",
+                        "blockers": [],
+                        "hourly_performance_mitigation": {
+                            "applied": True,
+                            "candidate_hourly_status": "PASS",
+                            "candidate_variant_id": "active_candidate",
+                            "current_hourly_status": "BLOCK",
+                        },
+                        "ten_minute_performance_mitigation": {
+                            "applied": True,
+                            "candidate_ten_minute_status": "PASS",
+                            "candidate_variant_id": "active_candidate",
+                            "current_ten_minute_status": "BLOCK",
+                        },
+                    },
+                    "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+                    "model_skill_claims": {
+                        "weather_only_core_model": {
+                            "broad_market_skill_claim_allowed": True,
+                            "reason": "core candidate clears aggregate and daily-first market-skill gates",
+                        },
+                        "market_informed_quote_risk": {
+                            "counts_toward_core_skill_claim": False,
+                        },
+                    },
+                    "decisions": {
+                        "markets": [
+                            {
+                                "market_id": "nyc",
+                                "action": "PROMOTE_CANDIDATE",
+                                "metrics": {"delta_vs_market": -0.02},
+                            }
+                        ]
+                    },
+                },
+            )
+            write_json(
+                backtest / "hourly.json",
+                {
+                    "hourly_performance_gate": {
+                        "status": "BLOCK",
+                        "first_blocker": {"detail": "current hourly still trails market"},
+                    }
+                },
+            )
+            write_json(
+                backtest / "ten.json",
+                {
+                    "ten_minute_performance_gate": {
+                        "status": "BLOCK",
+                        "first_blocker": {"detail": "current weak slots still trail market"},
+                    }
+                },
+            )
+            write_json(backtest / "exact.json", {"status": "PASS"})
+            write_json(backtest / "bottom.json", {"status": "PASS"})
+            write_json(
+                backtest / "fleet.json",
+                {
+                    "status": "PASS",
+                    "live_forward_slo": {
+                        "status": "PASS",
+                        "counts_toward_live_forward_gate": True,
+                    },
+                },
+            )
+            write_json(
+                backtest / "progress.json",
+                {
+                    "core_model_trend_claim": {
+                        "status": "DIRECTIONAL",
+                        "claim_allowed": False,
+                        "threshold_failures": ["need 3 positive daily-first days; have 1"],
+                    }
+                },
+            )
+            write_json(backtest / "daily.json", {"broad_improvement_claim_allowed": True})
+            write_json(backtest / "served.json", {"status": "PASS", "acceptance_passed": True})
+            write_json(backtest / "positive.json", {"status": "BLOCK", "acceptance_passed": False})
+            write_json(backtest / "austin.json", {"status": "PASS", "summary": {}, "hard_slices": []})
+            write_json(
+                backtest / "winner.json",
+                {"status": "PASS", "parity_gate": {"status": "PASS"}},
+            )
+
+            payload = build_payload(
+                artifact_path=artifact,
+                promotion_refresh=backtest / "promotion.json",
+                hourly=backtest / "hourly.json",
+                ten_minute=backtest / "ten.json",
+                exact_distance=backtest / "exact.json",
+                bottom_location=backtest / "bottom.json",
+                fleet_observability=backtest / "fleet.json",
+                progress_audit=backtest / "progress.json",
+                daily_progress=backtest / "daily.json",
+                served_distribution=backtest / "served.json",
+                positive_daily_first=backtest / "positive.json",
+                austin_requalification=backtest / "austin.json",
+                winner_rank_parity=backtest / "winner.json",
+                roadmap_root=roadmap,
+            )
+
+        gates = {row["gate"]: row for row in payload["gates"]}
+        by_market = {row["market_id"]: row for row in payload["market_dispositions"]}
+        self.assertEqual(gates["hourly_gate"]["status"], "PASS")
+        self.assertEqual(gates["ten_minute_gate"]["status"], "PASS")
+        self.assertEqual(gates["broad_claim_gate"]["status"], "BLOCK")
+        self.assertIn("need 3 positive daily-first days", gates["broad_claim_gate"]["detail"])
+        self.assertNotIn("core candidate clears", gates["broad_claim_gate"]["detail"])
+        self.assertEqual(payload["first_blocker"]["field"], "gates.broad_claim_gate")
+        self.assertEqual(by_market["nyc"]["first_blocking_slice"], "gates.broad_claim_gate")
+
+    def test_packet_uses_active_replay_contract_when_candidate_artifact_differs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            artifact = root / "models" / "pooled.pkl"
+            write_artifact(artifact)
+            write_minimal_pass_packet_inputs(
+                backtest,
+                {
+                    "candidate": {
+                        "verdict": "PASS",
+                        "artifact": {"path": str(root / "models" / "source_candidate.pkl")},
+                        "candidate_shadow_variants": {
+                            "variant_id": "active_rows_v0_1",
+                            "active_registry_contract": {"variant_id": "active_rows_v0_1"},
+                            "uses_market_features": False,
+                        },
+                        "aggregate": {"rows": 10, "delta_vs_market": -0.02},
+                    },
+                    "readiness": {"status": "PASS", "blockers": []},
+                    "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+                    "model_skill_claims": {
+                        "weather_only_core_model": {
+                            "broad_market_skill_claim_allowed": True,
+                            "reason": "clear",
+                        }
+                    },
+                    "decisions": {"markets": []},
+                },
+            )
+
+            payload = build_minimal_packet(root, artifact)
+
+        gate = next(row for row in payload["gates"] if row["gate"] == "active_artifact_identity")
+        self.assertEqual(gate["status"], "PASS")
+        self.assertEqual(payload["summary"]["evidence_basis"], "active_replay_contract")
+        self.assertFalse(gate["evidence"]["candidate_artifact_matches"])
+        self.assertTrue(gate["evidence"]["active_replay_contract_ok"])
+        self.assertEqual(gate["evidence"]["evidence_basis"], "active_replay_contract")
+        self.assertIn("active replay/export contract evidence", gate["detail"])
+
+    def test_packet_blocks_mismatched_candidate_artifact_without_active_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            artifact = root / "models" / "pooled.pkl"
+            write_artifact(artifact)
+            write_minimal_pass_packet_inputs(
+                backtest,
+                {
+                    "candidate": {
+                        "verdict": "PASS",
+                        "artifact": {"path": str(root / "models" / "other_candidate.pkl")},
+                        "candidate_shadow_variants": {
+                            "variant_id": "row_export_v0_1",
+                            "uses_market_features": False,
+                        },
+                        "aggregate": {"rows": 10, "delta_vs_market": -0.02},
+                    },
+                    "readiness": {"status": "PASS", "blockers": []},
+                    "source_missingness_location_gate": {"status": "PASS", "blockers": []},
+                    "model_skill_claims": {
+                        "weather_only_core_model": {
+                            "broad_market_skill_claim_allowed": True,
+                            "reason": "clear",
+                        }
+                    },
+                    "decisions": {"markets": []},
+                },
+            )
+
+            payload = build_minimal_packet(root, artifact)
+
+        gate = next(row for row in payload["gates"] if row["gate"] == "active_artifact_identity")
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertEqual(payload["first_blocker"]["field"], "gates.active_artifact_identity")
+        self.assertEqual(payload["summary"]["evidence_basis"], "artifact_identity_mismatch")
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["evidence"]["evidence_basis"], "artifact_identity_mismatch")
+        self.assertIn("candidate artifact path does not match proof artifact", gate["detail"])
 
     def test_roadmap_reference_check_allows_diagnostic_only_items(self):
         with tempfile.TemporaryDirectory() as tmp:

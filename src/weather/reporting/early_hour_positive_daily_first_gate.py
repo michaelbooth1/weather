@@ -16,12 +16,12 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("early_hour_positive_daily_first_gate")
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_PROGRESS_AUDIT = DEFAULT_BACKTEST_ROOT / "progress_audit.json"
-DEFAULT_CONTRACT = DEFAULT_BACKTEST_ROOT / "served_distribution_calibration_contract.json"
+DEFAULT_CONTRACT = DEFAULT_BACKTEST_ROOT / "item160_active_timesplit_served_distribution_contract.json"
 DEFAULT_CANDIDATE_HOURLY = (
-    DEFAULT_BACKTEST_ROOT / "pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json"
+    DEFAULT_BACKTEST_ROOT / "item224_active_timesplit_logistic_repair_hourly_gate.json"
 )
 DEFAULT_CANDIDATE_TEN_MINUTE = (
-    DEFAULT_BACKTEST_ROOT / "pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json"
+    DEFAULT_BACKTEST_ROOT / "item224_active_timesplit_logistic_repair_ten_minute.json"
 )
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "early_hour_positive_daily_first_gate.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "early_hour_positive_daily_first_gate_report.md"
@@ -64,6 +64,21 @@ def _passes(value: Any) -> bool:
     return str(value or "").upper() in {"PASS", "READY", "PROVEN", "ALLOW", "ALLOWED"}
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _first_blocker(payload: dict[str, Any] | None) -> str:
     payload = payload or {}
     first = payload.get("first_blocker") or {}
@@ -82,6 +97,94 @@ def _gate(name: str, status: str, detail: str, evidence: dict[str, Any] | None =
         "detail": detail,
         "evidence": evidence or {},
     }
+
+
+def _progress_refresh_gate(
+    *,
+    progress: dict[str, Any],
+    contract: dict[str, Any],
+    hourly: dict[str, Any],
+    ten_minute: dict[str, Any],
+) -> dict[str, Any]:
+    accepted_candidate_evidence = (
+        _passes(hourly.get("status"))
+        and _passes(ten_minute.get("status"))
+        and _contract_model_acceptance_passed(contract)
+    )
+    dependencies = [
+        ("served_distribution_contract", contract),
+        ("candidate_hourly", hourly),
+        ("candidate_ten_minute", ten_minute),
+    ]
+    dependency_rows = []
+    for name, payload in dependencies:
+        generated = payload.get("generated_at_utc")
+        parsed = _parse_datetime(generated)
+        dependency_rows.append({
+            "name": name,
+            "generated_at_utc": generated,
+            "parsed_at_utc": parsed.isoformat() if parsed else None,
+        })
+    progress_generated = progress.get("generated_at_utc")
+    progress_dt = _parse_datetime(progress_generated)
+    evidence = {
+        "accepted_candidate_evidence_complete": accepted_candidate_evidence,
+        "progress_generated_at_utc": progress_generated,
+        "progress_parsed_at_utc": progress_dt.isoformat() if progress_dt else None,
+        "dependencies": dependency_rows,
+    }
+    if not accepted_candidate_evidence:
+        return _gate(
+            "progress_audit_refreshed_after_candidate",
+            "PASS",
+            "progress refresh check waits for accepted candidate evidence",
+            evidence,
+        )
+
+    missing = [row["name"] for row in dependency_rows if not row.get("parsed_at_utc")]
+    if progress_dt is None:
+        return _gate(
+            "progress_audit_refreshed_after_candidate",
+            "BLOCK",
+            "progress audit generated_at_utc is missing or invalid after accepted candidate evidence",
+            evidence,
+        )
+    if missing:
+        return _gate(
+            "progress_audit_refreshed_after_candidate",
+            "BLOCK",
+            "accepted candidate evidence is missing generated_at_utc: " + ", ".join(missing),
+            evidence,
+        )
+
+    latest_name, latest_dt = max(
+        (
+            (row["name"], _parse_datetime(row["generated_at_utc"]))
+            for row in dependency_rows
+        ),
+        key=lambda item: item[1],
+    )
+    evidence["latest_candidate_dependency"] = {
+        "name": latest_name,
+        "generated_at_utc": latest_dt.isoformat() if latest_dt else None,
+    }
+    if latest_dt is not None and progress_dt >= latest_dt:
+        return _gate(
+            "progress_audit_refreshed_after_candidate",
+            "PASS",
+            "progress audit was regenerated after accepted candidate evidence",
+            evidence,
+        )
+    return _gate(
+        "progress_audit_refreshed_after_candidate",
+        "BLOCK",
+        (
+            "progress audit is stale: generated_at_utc="
+            f"{progress_generated or 'missing'} before latest accepted candidate evidence "
+            f"{latest_name}={latest_dt.isoformat() if latest_dt else 'missing'}"
+        ),
+        evidence,
+    )
 
 
 def progress_summary(path: str | Path) -> dict[str, Any]:
@@ -108,6 +211,9 @@ def progress_summary(path: str | Path) -> dict[str, Any]:
 
 def contract_summary(path: str | Path) -> dict[str, Any]:
     payload = _read_json(path)
+    model_acceptance = (payload or {}).get("model_acceptance_passed")
+    if model_acceptance is None:
+        model_acceptance = (payload or {}).get("acceptance_passed")
     return {
         "path": str(path),
         "exists": Path(path).exists(),
@@ -115,9 +221,52 @@ def contract_summary(path: str | Path) -> dict[str, Any]:
         "generated_at_utc": (payload or {}).get("generated_at_utc"),
         "status": (payload or {}).get("status"),
         "acceptance_passed": (payload or {}).get("acceptance_passed"),
+        "model_served_distribution_status": (payload or {}).get("model_served_distribution_status"),
+        "model_acceptance_passed": model_acceptance,
+        "broad_core_model_claim_allowed": (payload or {}).get("broad_core_model_claim_allowed"),
+        "production_readiness_status": (payload or {}).get("production_readiness_status"),
+        "production_readiness_blocker_count": (payload or {}).get("production_readiness_blocker_count"),
+        "production_readiness_blockers": (payload or {}).get("production_readiness_blockers") or [],
         "blocker_count": (payload or {}).get("blocker_count", len((payload or {}).get("blockers") or [])),
         "first_blocker": _first_blocker(payload),
     }
+
+
+def _contract_model_acceptance_passed(contract: dict[str, Any]) -> bool:
+    if contract.get("model_served_distribution_status") not in (None, ""):
+        return _passes(contract.get("model_served_distribution_status")) and contract.get("model_acceptance_passed") is True
+    return _passes(contract.get("status")) and contract.get("acceptance_passed") is True
+
+
+def _contract_production_readiness_gate(contract: dict[str, Any]) -> dict[str, Any]:
+    status = contract.get("production_readiness_status")
+    if status in (None, ""):
+        return _gate(
+            "production_readiness_gate",
+            "PASS",
+            "served-distribution contract has no separate production-readiness blocker",
+            contract,
+        )
+    if _passes(status):
+        return _gate(
+            "production_readiness_gate",
+            "PASS",
+            "production readiness gate passed for served-distribution evidence",
+            contract,
+        )
+    readiness_blockers = contract.get("production_readiness_blockers") or []
+    if readiness_blockers and isinstance(readiness_blockers[0], dict):
+        detail = str(
+            readiness_blockers[0].get("detail")
+            or readiness_blockers[0].get("gate")
+            or f"production readiness is {status}; broad core-model claim remains blocked"
+        )
+        return _gate("production_readiness_gate", "BLOCK", detail, contract)
+    detail = (
+        contract.get("first_blocker")
+        or f"production readiness is {status}; broad core-model claim remains blocked"
+    )
+    return _gate("production_readiness_gate", "BLOCK", detail, contract)
 
 
 def candidate_hourly_summary(path: str | Path) -> dict[str, Any]:
@@ -190,13 +339,20 @@ def build_gates(
     ))
     gates.append(_gate(
         "served_distribution_contract",
-        "PASS" if _passes(contract.get("status")) and contract.get("acceptance_passed") is True else "BLOCK",
+        "PASS" if _contract_model_acceptance_passed(contract) else "BLOCK",
         (
             "served-distribution calibration contract passed"
-            if _passes(contract.get("status")) and contract.get("acceptance_passed") is True
+            if _contract_model_acceptance_passed(contract)
             else contract.get("first_blocker") or "served-distribution calibration contract is not clear"
         ),
         contract,
+    ))
+    gates.append(_contract_production_readiness_gate(contract))
+    gates.append(_progress_refresh_gate(
+        progress=progress,
+        contract=contract,
+        hourly=hourly,
+        ten_minute=ten_minute,
     ))
     rolling = progress.get("rolling_daily_first_brier_skill")
     gates.append(_gate(
@@ -326,6 +482,7 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Early-hour delta vs market", fmt_num(hourly.get("delta_vs_market"))],
             ["Candidate 10-minute status", ten.get("status")],
             ["Weak-slot delta vs market", fmt_num(ten.get("delta_vs_market"))],
+            ["Production readiness", (payload.get("served_distribution_contract") or {}).get("production_readiness_status") or "-"],
         ],
     )
     lines += ["", "## Gates", ""]

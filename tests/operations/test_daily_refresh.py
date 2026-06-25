@@ -37,6 +37,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_proper_scoring_reliability_scorecard_step,
     run_reanalysis_recent_refresh_step,
     run_daily_roll_log_hygiene_step,
+    run_runtime_identity_reconciliation_step,
     run_settled_day_analysis_barrier_step,
     run_settled_day_root_cause_step,
     run_settlement_source_audit_step,
@@ -637,6 +638,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
         self.assertLess(names.index("clob_order_book_tiering"), names.index("replay_status_backfill"))
         self.assertLess(names.index("replay_status_backfill"), names.index("closed_day_parquet_incremental"))
+        self.assertLess(names.index("settled_day_analysis_barrier"), names.index("fleet_observability"))
+        self.assertLess(names.index("fleet_observability"), names.index("promotion_refresh"))
+        self.assertLess(names.index("fleet_observability"), names.index("progress_audit"))
         self.assertLess(names.index("fleet_observability"), names.index("nightly_health_checks"))
         self.assertLess(names.index("fleet_observability"), names.index("daily_roll_log_hygiene"))
         self.assertLess(names.index("daily_roll_log_hygiene"), names.index("nightly_health_checks"))
@@ -662,10 +666,52 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("price_free_model_learning"), names.index("model_market_disagreement_rehydration"))
         self.assertLess(names.index("model_market_disagreement_rehydration"), names.index("settled_day_analysis_barrier"))
         self.assertLess(names.index("price_free_model_learning"), names.index("settled_day_analysis_barrier"))
+        self.assertLess(names.index("settled_day_analysis_barrier"), names.index("runtime_identity_reconciliation"))
+        self.assertLess(names.index("runtime_identity_reconciliation"), names.index("fleet_observability"))
+        self.assertLess(names.index("runtime_identity_reconciliation"), names.index("promotion_refresh"))
+        self.assertLess(names.index("runtime_identity_reconciliation"), names.index("progress_audit"))
         self.assertLess(names.index("settled_day_analysis_barrier"), names.index("promotion_refresh"))
         self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
+
+    def test_runtime_identity_reconciliation_step_uses_settled_target_date(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("weather.operations.daily_refresh_steps.runtime_identity_reconciliation.build_payload") as build, \
+                patch("weather.operations.daily_refresh_steps.runtime_identity_reconciliation.write_outputs") as write:
+            root = Path(tmp)
+            payload = {
+                "status": "BLOCK",
+                "target_date": "2026-06-19",
+                "mixed_runtime_identity": True,
+                "runtime_identity_count": 2,
+                "snapshot_row_count": 10,
+                "blocker_count": 1,
+                "first_blocker": {"category": "mixed_runtime_identity"},
+            }
+            build.return_value = payload
+            write.return_value = (
+                root / "backtest" / "runtime_identity_reconciliation.json",
+                root / "backtest" / "runtime_identity_reconciliation.md",
+            )
+
+            result = run_runtime_identity_reconciliation_step(
+                _args(tmp, settled_analysis_target_date="2026-06-19")
+            )
+
+        build.assert_called_once_with(
+            snapshots_root=str(root / "snapshots"),
+            target_date="2026-06-19",
+        )
+        write.assert_called_once_with(
+            payload,
+            json_out=str(root / "backtest" / "runtime_identity_reconciliation.json"),
+            report_out=str(root / "backtest" / "runtime_identity_reconciliation.md"),
+        )
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["target_date"], "2026-06-19")
+        self.assertTrue(result["mixed_runtime_identity"])
+        self.assertEqual(result["blocker_count"], 1)
 
     def test_exchange_economics_rule_drift_step_blocks_on_material_change(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1472,6 +1518,33 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 0)
         self.assertFalse(result["evidence_sla"]["broad_promotion_claim_allowed"])
         self.assertEqual(result["no_growth_reasons"][0]["reason"], "variant_rows_only")
+
+    def test_model_variant_evidence_growth_prefers_pinned_active_shadow_baseline(self):
+        header = (
+            "variant_id,variant_family,uses_market_features,is_control,market_id,"
+            "target_date,snapshot_id,band_key,probability,current_probability,"
+            "recorded_probability,market_yes,outcome,artifact_hash,"
+            "postprocess_config_hash,experiment_start_date\n"
+        )
+        baseline_row = "v1,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-15\n"
+        new_row = "v1,f_family,False,False,nyc,2026-06-12,s2,eq:83,0.7,0.5,0.5,0.5,0,a,p,2026-06-15\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            (backtest / "active_variant_shadow_long.csv").write_text(
+                header + baseline_row + new_row,
+                encoding="utf-8",
+            )
+            baseline = backtest / "model_variant_evidence_baseline_active_shadow_long.csv"
+            baseline.write_text(header + baseline_row, encoding="utf-8")
+            args = _args(tmp)
+
+            result = run_model_variant_evidence_growth_step(args)
+
+        self.assertEqual(result["baseline_paths"], [str(baseline)])
+        self.assertEqual(result["delta_vs_baseline"]["unique_observation_count"], 1)
+        self.assertEqual(result["delta_vs_baseline"]["market_day_count"], 1)
 
     def test_data_retention_inventory_step_writes_daily_budget_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

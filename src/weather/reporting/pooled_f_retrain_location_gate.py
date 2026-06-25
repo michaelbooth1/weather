@@ -196,6 +196,10 @@ def promotion_summary(path: str | Path) -> dict[str, Any]:
         "early_hour_promotion_allowed": early.get("promotion_allowed"),
         "early_hour_blocker_count": early.get("blocker_count"),
         "first_early_hour_blocker": _first_blocker_detail(early),
+        "early_hour_blockers": early.get("blockers") or [],
+        "early_hour_candidate_gates": early.get("candidate_gates") or {},
+        "early_hour_broad_replay": early.get("broad_replay") or {},
+        "early_hour_production_readiness": early.get("production_readiness") or {},
         "source_missingness_status": source_gate.get("status"),
         "source_missingness_blocker_count": len(source_gate.get("blockers") or []),
         "first_source_missingness_blocker": _first_blocker_detail(source_gate),
@@ -217,6 +221,69 @@ def simple_gate_summary(path: str | Path) -> dict[str, Any]:
         "first_blocker": _first_blocker_detail(payload),
         "summary": (payload or {}).get("summary") or {},
     }
+
+
+def _lineage_gate_passed(payload: dict[str, Any] | None) -> bool:
+    payload = payload or {}
+    freshness = payload.get("freshness") or {}
+    return (
+        payload.get("gate_status") == "PASS"
+        and payload.get("variant_match") is True
+        and payload.get("corpus_match") is True
+        and freshness.get("status") == "PASS"
+    )
+
+
+def _promotion_broad_claim_has_only_readiness_blockers(promotion: dict[str, Any]) -> bool:
+    return (
+        promotion.get("broad_market_skill_claim_allowed") is True
+        and not _passes_status(promotion.get("readiness_status"))
+    )
+
+
+def _early_hour_model_evidence_passes(promotion: dict[str, Any]) -> bool:
+    if (
+        _passes_status(promotion.get("early_hour_status"))
+        and promotion.get("early_hour_promotion_allowed") is not False
+    ):
+        return True
+
+    blockers = promotion.get("early_hour_blockers") or []
+    blocker_categories = {
+        str(blocker.get("category") or "")
+        for blocker in blockers
+        if isinstance(blocker, dict)
+    }
+    if not blocker_categories or not blocker_categories <= {"live_forward_slo", "current_code_soak"}:
+        return False
+
+    candidate_gates = promotion.get("early_hour_candidate_gates") or {}
+    broad_replay = promotion.get("early_hour_broad_replay") or {}
+    return (
+        _lineage_gate_passed(candidate_gates.get("hourly"))
+        and _lineage_gate_passed(candidate_gates.get("ten_minute"))
+        and broad_replay.get("active_registry_contract_present") is True
+        and broad_replay.get("within_market_tolerance") is True
+    )
+
+
+def _split_model_and_readiness_blockers(
+    gates: list[dict[str, Any]],
+    promotion: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    model_blockers: list[dict[str, Any]] = []
+    readiness_blockers: list[dict[str, Any]] = []
+    for gate in gates:
+        if gate.get("status") != "BLOCK":
+            continue
+        name = gate.get("gate")
+        if name == "promotion_refresh_broad_claim" and _promotion_broad_claim_has_only_readiness_blockers(promotion):
+            readiness_blockers.append(gate)
+        elif name == "hourly_ten_minute_weak_slot_gate" and _early_hour_model_evidence_passes(promotion):
+            readiness_blockers.append(gate)
+        else:
+            model_blockers.append(gate)
+    return model_blockers, readiness_blockers
 
 
 def build_gates(
@@ -283,16 +350,23 @@ def build_gates(
 
     broad_allowed = promotion.get("broad_market_skill_claim_allowed") is True
     readiness_pass = _passes_status(promotion.get("readiness_status"))
+    if broad_allowed and readiness_pass:
+        broad_claim_detail = "promotion refresh allows the weather-only broad skill claim"
+    elif not broad_allowed:
+        broad_claim_detail = (
+            promotion.get("claim_reason")
+            or promotion.get("first_readiness_blocker")
+            or "promotion refresh does not allow broad weather-only claims"
+        )
+    else:
+        broad_claim_detail = (
+            promotion.get("first_readiness_blocker")
+            or "promotion refresh readiness is not clear"
+        )
     gates.append(_gate(
         "promotion_refresh_broad_claim",
         "PASS" if broad_allowed and readiness_pass else "BLOCK",
-        (
-            "promotion refresh allows the weather-only broad skill claim"
-            if broad_allowed and readiness_pass
-            else promotion.get("claim_reason")
-            or promotion.get("first_readiness_blocker")
-            or "promotion refresh does not allow broad weather-only claims"
-        ),
+        broad_claim_detail,
         promotion,
     ))
 
@@ -389,11 +463,21 @@ def build_payload(
         exact_distance=exact,
     )
     blockers = [gate for gate in gates if gate.get("status") == "BLOCK"]
+    model_blockers, readiness_blockers = _split_model_and_readiness_blockers(gates, promotion)
+    model_location_status = "PASS" if not model_blockers else "BLOCK"
+    production_readiness_status = "PASS" if not readiness_blockers else "BLOCK"
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "status": "PASS" if not blockers else "BLOCK",
         "broad_core_model_claim_allowed": not blockers,
+        "model_location_gate_status": model_location_status,
+        "model_location_claim_evidence_allowed": model_location_status == "PASS",
+        "model_location_blocker_count": len(model_blockers),
+        "model_location_blockers": model_blockers,
+        "production_readiness_status": production_readiness_status,
+        "production_readiness_blocker_count": len(readiness_blockers),
+        "production_readiness_blockers": readiness_blockers,
         "blocker_count": len(blockers),
         "first_blocker": blockers[0] if blockers else None,
         "inputs": {
@@ -437,6 +521,10 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Status", payload.get("status")],
             ["Broad core-model claim allowed", payload.get("broad_core_model_claim_allowed")],
             ["Blockers", payload.get("blocker_count")],
+            ["Model/location gate status", payload.get("model_location_gate_status")],
+            ["Model/location blockers", payload.get("model_location_blocker_count")],
+            ["Production readiness status", payload.get("production_readiness_status")],
+            ["Production readiness blockers", payload.get("production_readiness_blocker_count")],
             ["First blocker", first.get("detail") or "-"],
             ["Artifact feature schema", artifact.get("feature_schema_version")],
             ["Active feature schema", artifact.get("active_feature_schema_version")],

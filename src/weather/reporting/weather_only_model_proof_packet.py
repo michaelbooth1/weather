@@ -210,6 +210,8 @@ def promotion_summary(path: str | Path) -> dict[str, Any]:
     artifact = candidate.get("artifact") or {}
     shadow = candidate.get("candidate_shadow_variants") or {}
     readiness = (payload or {}).get("readiness") or {}
+    hourly_mitigation = readiness.get("hourly_performance_mitigation") or {}
+    ten_minute_mitigation = readiness.get("ten_minute_performance_mitigation") or {}
     source_gate = (payload or {}).get("source_missingness_location_gate") or {}
     claims = (payload or {}).get("model_skill_claims") or {}
     weather_claim = claims.get("weather_only_core_model") or {}
@@ -237,6 +239,22 @@ def promotion_summary(path: str | Path) -> dict[str, Any]:
             "status": readiness.get("status"),
             "blocker_count": len(readiness.get("blockers") or []),
             "first_blocker": _first_blocker_detail(readiness),
+        },
+        "candidate_gate_mitigation": {
+            "hourly": {
+                "applied": hourly_mitigation.get("applied"),
+                "status": hourly_mitigation.get("candidate_hourly_status"),
+                "variant_id": hourly_mitigation.get("candidate_variant_id"),
+                "variant_ids": hourly_mitigation.get("candidate_hourly_variant_ids") or [],
+                "current_status": hourly_mitigation.get("current_hourly_status"),
+            },
+            "ten_minute": {
+                "applied": ten_minute_mitigation.get("applied"),
+                "status": ten_minute_mitigation.get("candidate_ten_minute_status"),
+                "variant_id": ten_minute_mitigation.get("candidate_variant_id"),
+                "variant_ids": ten_minute_mitigation.get("candidate_ten_minute_variant_ids") or [],
+                "current_status": ten_minute_mitigation.get("current_ten_minute_status"),
+            },
         },
         "source_missingness_location_gate": {
             "status": source_gate.get("status"),
@@ -334,13 +352,121 @@ def broad_claim_summary(progress_audit: str | Path, daily_progress: str | Path) 
 
 def evidence_class(promotion: dict[str, Any], artifact: dict[str, Any]) -> str:
     candidate = promotion.get("candidate") or {}
-    if artifact.get("loaded") and candidate.get("artifact_path"):
+    if artifact.get("loaded") and _candidate_artifact_matches(candidate, artifact):
         return "active_artifact"
-    if candidate.get("active_registry_contract"):
+    if _active_replay_contract_ok(candidate):
         return "active_replay_contract"
+    if artifact.get("loaded") and candidate.get("artifact_path"):
+        return "artifact_identity_mismatch"
     if candidate.get("variant_id") or candidate.get("rows"):
         return "row_export_surrogate"
     return "diagnostic_only"
+
+
+def _paths_match(left: Any, right: Any) -> bool:
+    if not left or not right:
+        return False
+    try:
+        return Path(str(left)).expanduser().resolve(strict=False) == Path(str(right)).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return str(left) == str(right)
+
+
+def _candidate_artifact_matches(candidate: dict[str, Any], artifact: dict[str, Any]) -> bool:
+    return _paths_match(candidate.get("artifact_path"), artifact.get("path"))
+
+
+def _active_replay_contract_ok(candidate: dict[str, Any]) -> bool:
+    contract = candidate.get("active_registry_contract")
+    if not contract:
+        return False
+    variant_id = candidate.get("variant_id")
+    contract_variant = contract.get("variant_id") if isinstance(contract, dict) else None
+    if isinstance(contract, dict) and variant_id and contract_variant and variant_id != contract_variant:
+        return False
+    return bool(variant_id or contract_variant) and candidate.get("uses_market_features") is False
+
+
+def _active_artifact_identity_gate(
+    artifact: dict[str, Any],
+    promotion: dict[str, Any],
+) -> dict[str, Any]:
+    candidate = promotion.get("candidate") or {}
+    artifact_loaded = bool(
+        artifact.get("exists")
+        and artifact.get("loaded")
+        and artifact.get("feature_schema_version") == artifact.get("active_feature_schema_version")
+    )
+    artifact_match = artifact_loaded and _candidate_artifact_matches(candidate, artifact)
+    active_contract = _active_replay_contract_ok(candidate)
+    candidate_path = candidate.get("artifact_path")
+    artifact_path = artifact.get("path")
+    if artifact_match:
+        status = "PASS"
+        detail = f"active artifact {artifact_path} matches candidate artifact and feature schema {artifact.get('active_feature_schema_version')}"
+        evidence_basis = "active_artifact"
+    elif active_contract:
+        status = "PASS"
+        detail = (
+            "active replay/export contract evidence is present for "
+            f"{candidate.get('variant_id') or (candidate.get('active_registry_contract') or {}).get('variant_id')}"
+        )
+        evidence_basis = "active_replay_contract"
+    else:
+        status = "BLOCK"
+        evidence_basis = "artifact_identity_mismatch" if artifact_loaded and candidate_path else "diagnostic_only"
+        if artifact_loaded and candidate_path:
+            detail = (
+                "candidate artifact path does not match proof artifact: "
+                f"candidate={candidate_path}, proof_artifact={artifact_path}"
+            )
+        else:
+            detail = (
+                f"active artifact identity is not proof-grade: loaded={artifact.get('loaded')}, "
+                f"artifact_schema={artifact.get('feature_schema_version')}, "
+                f"active_schema={artifact.get('active_feature_schema_version')}"
+            )
+    return _gate(
+        "active_artifact_identity",
+        status,
+        detail,
+        {
+            "artifact": artifact,
+            "promotion_candidate": candidate,
+            "artifact_loaded": artifact_loaded,
+            "candidate_artifact_matches": artifact_match,
+            "active_replay_contract_ok": active_contract,
+            "evidence_basis": evidence_basis,
+        },
+    )
+
+
+def _candidate_mitigation_passed(promotion: dict[str, Any], gate_name: str) -> bool:
+    mitigation = (promotion.get("candidate_gate_mitigation") or {}).get(gate_name) or {}
+    return mitigation.get("applied") is True and _passes(mitigation.get("status"))
+
+
+def _claim_failure_detail(
+    *,
+    weather_claim: dict[str, Any],
+    progress: dict[str, Any],
+    daily: dict[str, Any],
+    promotion_allowed: bool,
+    progress_allowed: bool,
+    daily_allowed: bool,
+) -> str:
+    if not promotion_allowed:
+        return weather_claim.get("reason") or "promotion refresh does not allow the weather-only broad claim"
+    if not progress_allowed:
+        return "; ".join(progress.get("threshold_failures") or []) or "progress audit does not allow the claim"
+    if not daily_allowed:
+        failures = daily.get("broad_improvement_claim_failures")
+        if isinstance(failures, str):
+            return failures or "daily progress ledger does not allow the broad claim"
+        if isinstance(failures, list):
+            return "; ".join(str(item) for item in failures) or "daily progress ledger does not allow the broad claim"
+        return "daily progress ledger does not allow the broad claim"
+    return "weather-only broad claim is not allowed"
 
 
 def build_gates(
@@ -358,25 +484,7 @@ def build_gates(
     winner_rank_parity: dict[str, Any],
 ) -> list[dict[str, Any]]:
     gates: list[dict[str, Any]] = []
-    artifact_ok = bool(
-        artifact.get("exists")
-        and artifact.get("loaded")
-        and artifact.get("feature_schema_version") == artifact.get("active_feature_schema_version")
-    )
-    gates.append(_gate(
-        "active_artifact_identity",
-        "PASS" if artifact_ok else "BLOCK",
-        (
-            f"active artifact {artifact.get('path')} matches feature schema {artifact.get('active_feature_schema_version')}"
-            if artifact_ok
-            else (
-                f"active artifact identity is not proof-grade: loaded={artifact.get('loaded')}, "
-                f"artifact_schema={artifact.get('feature_schema_version')}, "
-                f"active_schema={artifact.get('active_feature_schema_version')}"
-            )
-        ),
-        artifact,
-    ))
+    gates.append(_active_artifact_identity_gate(artifact, promotion))
 
     readiness = promotion.get("readiness") or {}
     gates.append(_gate(
@@ -390,26 +498,40 @@ def build_gates(
         promotion,
     ))
 
+    hourly_mitigated = _candidate_mitigation_passed(promotion, "hourly")
     gates.append(_gate(
         "hourly_gate",
-        "PASS" if _passes(hourly.get("status")) else "BLOCK",
+        "PASS" if _passes(hourly.get("status")) or hourly_mitigated else "BLOCK",
         (
             "hourly model-performance gate passed"
             if _passes(hourly.get("status"))
+            else "candidate hourly mitigation passed; current-serving hourly blocker is superseded"
+            if hourly_mitigated
             else hourly.get("first_blocker") or "hourly model-performance gate is not clear"
         ),
-        hourly,
+        {
+            "current_hourly": hourly,
+            "candidate_mitigation": (promotion.get("candidate_gate_mitigation") or {}).get("hourly") or {},
+        },
+        supersedes=["hourly_model_performance"] if hourly_mitigated else [],
     ))
 
+    ten_minute_mitigated = _candidate_mitigation_passed(promotion, "ten_minute")
     gates.append(_gate(
         "ten_minute_gate",
-        "PASS" if _passes(ten_minute.get("status")) else "BLOCK",
+        "PASS" if _passes(ten_minute.get("status")) or ten_minute_mitigated else "BLOCK",
         (
             "10-minute weak-slot gate passed"
             if _passes(ten_minute.get("status"))
+            else "candidate 10-minute mitigation passed; current-serving weak-slot blocker is superseded"
+            if ten_minute_mitigated
             else ten_minute.get("first_blocker") or "10-minute weak-slot gate is not clear"
         ),
-        ten_minute,
+        {
+            "current_ten_minute": ten_minute,
+            "candidate_mitigation": (promotion.get("candidate_gate_mitigation") or {}).get("ten_minute") or {},
+        },
+        supersedes=["ten_minute_model_performance"] if ten_minute_mitigated else [],
     ))
 
     gates.append(_gate(
@@ -486,10 +608,13 @@ def build_gates(
         (
             "promotion refresh, progress audit, and daily ledger allow the weather-only broad claim"
             if broad_ok
-            else (
-                weather_claim.get("reason")
-                or "; ".join(progress.get("threshold_failures") or [])
-                or "weather-only broad claim is not allowed"
+            else _claim_failure_detail(
+                weather_claim=weather_claim,
+                progress=progress,
+                daily=daily,
+                promotion_allowed=promotion_allowed,
+                progress_allowed=progress_allowed,
+                daily_allowed=daily_allowed,
             )
         ),
         {
