@@ -267,7 +267,7 @@ infrastructure work remains.
 | 216 | [Runtime-Identity Segmented Model Evidence [COMPLETE 2026-06-22 - SEGMENTED CLAIM GATES LIVE]](items/item-216-runtime-identity-segmented-model-evidence.md) |
 | 217 | [Pinned Frozen-Baseline Replay Trend For Code-vs-Weather Skill Separation [COMPLETE 2026-06-22 - DAILY REFRESH AND LEDGER WIRING LIVE]](items/item-217-pinned-frozen-baseline-replay-trend.md) |
 | 218 | [Location-Specific F-Family Promotion Allowlist [COMPLETE 2026-06-22 - PER-MARKET ALLOWLIST ENFORCED]](items/item-218-location-specific-f-family-promotion-allowlist.md) |
-| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-06-22 - GATE REFRESHED, HARD MARKET SLICES BLOCKED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
+| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [COMPLETE 2026-06-24 - ACTIVE TIMESPLIT GATE PASSED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 220 | [CLOB Overlay Quote-Risk Lane Separation [COMPLETE 2026-06-22 - CLOB QUOTE-RISK LANE SEPARATED]](items/item-220-clob-overlay-quote-risk-lane-separation.md) |
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |

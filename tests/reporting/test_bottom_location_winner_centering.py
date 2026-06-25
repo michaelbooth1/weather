@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 
 from weather.reporting.bottom_location_winner_centering import (
+    DEFAULT_TEN_MINUTE_REPORT,
+    DEFAULT_VARIANT_ROWS,
     SCHEMA_VERSION,
     build_payload,
     write_outputs,
@@ -72,6 +74,16 @@ def winning_pair(market, date, label, winner_p, current_p, market_p, captured, r
 
 
 class BottomLocationWinnerCenteringTests(unittest.TestCase):
+    def test_default_gate_uses_active_timesplit_no_market_candidate(self):
+        self.assertEqual(
+            Path(DEFAULT_VARIANT_ROWS).name,
+            "item224_active_timesplit_logistic_repair_rows.csv",
+        )
+        self.assertEqual(
+            Path(DEFAULT_TEN_MINUTE_REPORT).name,
+            "item224_active_timesplit_logistic_repair_ten_minute.json",
+        )
+
     def test_build_payload_requires_hard_markets_to_clear_required_slices(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,4 +1,4 @@
-# 219. Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-06-22 - GATE REFRESHED, HARD MARKET SLICES BLOCKED]
+# 219. Bottom-Location Early/Midday Winner-Centering Repair [COMPLETE 2026-06-24 - ACTIVE TIMESPLIT GATE PASSED]
 
 Goal: build a no-market centering candidate for the bottom locations,
 especially Seattle, NYC, and Miami, focused on early and midday winner mass
@@ -33,7 +33,7 @@ hard markets.
 - [x] Require Seattle, NYC, and Miami to clear weak-slot and early/midday
   market tolerance independently.
 - [x] Add guardrails for late-day and lock-in non-regression.
-- [ ] Build the next no-market repair that clears Seattle, NYC, and Miami
+- [x] Build the next no-market repair that clears Seattle, NYC, and Miami
   early/midday market tolerance.
 
 Acceptance: a no-market candidate improves bottom-location early/midday winner
@@ -105,3 +105,36 @@ late and lock-in guardrails that already pass.
 Proof-packet blocker: `weather_only_model_proof_packet.gates.bottom_location_gate`.
 Bottom-location work is ordered by this packet blocker; candidate diagnostics
 must clear or retire it before the roadmap treats them as readiness progress.
+
+## Completion Notes
+
+2026-06-24: `item224_active_timesplit_logistic_repair_v0_1` is the accepted
+no-market repair for this item. The active time-split logistic export trains on
+2026-06-07 and 2026-06-08, evaluates on 2026-06-12 and 2026-06-13, excludes
+label/market/identity fields from training, and carries `uses_market_features=false`.
+
+`weather.reporting.bottom_location_winner_centering` now defaults to:
+
+- `data/backtest/item224_active_timesplit_logistic_repair_rows.csv`
+- `data/backtest/item224_active_timesplit_logistic_repair_ten_minute.json`
+
+Regenerated canonical evidence:
+
+- `data/backtest/bottom_location_winner_centering.json`
+- `data/backtest/bottom_location_winner_centering_report.md`
+
+Result: `PASS` with `blocker_count=0`. Seattle, NYC, and Miami independently
+clear `weak_slot`, `early`, and `midday` required slices under the `+0.0030`
+market Brier tolerance and `+0.0100` log-loss tolerance. Aggregate bottom
+early/midday winner probability improves from `0.2335`/`0.2743` current to
+`0.8918`/`0.8889` candidate, and bottom early/midday Brier improves versus
+current by `-0.0695`/`-0.0683` and versus market by `-0.0263`/`-0.0156`.
+Late-day guardrails pass for all hard markets; lock-in remains sparse in this
+row export.
+
+Verification:
+
+```powershell
+python -m weather.reporting.bottom_location_winner_centering
+python -m pytest tests\reporting\test_bottom_location_winner_centering.py tests\reporting\test_item224_active_timesplit_logistic_repair.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q
+```

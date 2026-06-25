@@ -22,8 +22,8 @@ from weather.schema_registry import schema_version
 
 SCHEMA_VERSION = schema_version("bottom_location_winner_centering")
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
-DEFAULT_VARIANT_ROWS = DEFAULT_BACKTEST_ROOT / "pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv"
-DEFAULT_TEN_MINUTE_REPORT = DEFAULT_BACKTEST_ROOT / "ten_minute_model_performance.json"
+DEFAULT_VARIANT_ROWS = DEFAULT_BACKTEST_ROOT / "item224_active_timesplit_logistic_repair_rows.csv"
+DEFAULT_TEN_MINUTE_REPORT = DEFAULT_BACKTEST_ROOT / "item224_active_timesplit_logistic_repair_ten_minute.json"
 DEFAULT_OUT = DEFAULT_BACKTEST_ROOT / "bottom_location_winner_centering.json"
 DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "bottom_location_winner_centering_report.md"
 DEFAULT_BOTTOM_MARKETS = ("seattle", "nyc", "miami")

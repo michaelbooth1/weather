@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-25T01:03:30.156244+00:00
+Generated: 2026-06-25T01:10:29.473166+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 310 |
-| Active items | 31 |
+| Active items | 30 |
 | OPEN | 4 |
-| PARTIAL | 27 |
-| COMPLETE | 279 |
+| PARTIAL | 26 |
+| COMPLETE | 280 |
 | ROADMAP rows | 310 |
 | ROADMAP primary rows | 310 |
 | Metadata manifest rows | 310 |
@@ -48,7 +48,6 @@ Status: `OK`
 | 190 | PARTIAL | 2026-06-24 | NATIVE QMD GRIB POINT EXTRACTION ADDED; SCORING BLOCKED | [NBM Native Probabilistic Tmax Consumption](items/item-190-nbm-probabilistic-tmax-consumption.md) |
 | 191 | PARTIAL | 2026-06-24 | ADAPTER/BACKFILL COMPLETE, PROMOTION GATE AWAITS REPLAY | [Lake/Sea Surface-Temperature Contrast Feature](items/item-191-lake-sea-surface-temperature-contrast.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
-| 219 | PARTIAL | 2026-06-22 | GATE REFRESHED, HARD MARKET SLICES BLOCKED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-22 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
