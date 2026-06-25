@@ -1,4 +1,4 @@
-# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]
+# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -173,3 +173,40 @@ already has unrecoverable snapshot coverage gaps and the historical restart
 budget window remains blown. Completion still requires the next clean active-day
 fleet observability run to show `current_code_soak=PASS`,
 `counts_toward_active_day=True`, and `live_forward_slo=PASS`.
+
+## 2026-06-25 Fleet Observability Timeout And Blocker Refresh
+
+Diagnosed the two-minute `weather.reporting.fleet.fleet_observability report`
+timeout: the report was recomputing the full tape-backup status, which parses a
+large local backup manifest and walks the local mirror. Fleet observability now
+uses the generated `data/backtest/tape_backup_status.json` by default, recomputes
+its current age/SLA from cached timestamps, and keeps the full backup refresh
+behind `--refresh-tape-backup-status` or `--verify-tape-backup-checksums`.
+
+Verification:
+
+- `python -m pytest tests\reporting\test_fleet_observability.py -q` passed
+  (`42 passed`).
+- `python -m weather.reporting.fleet.fleet_observability report --skip-audits`
+  now completes in about 25-32 seconds and refreshed
+  `data/backtest/fleet_observability.json` plus
+  `data/backtest/fleet_observability_report.md`.
+
+The refreshed canonical proof generated at `2026-06-25T18:47:03Z` is still
+`CRITICAL`, so this item stays partial:
+
+- `live_forward_slo=BLOCK` and `counts_toward_live_forward_gate=False`.
+- `snapshot_cadence_proof.summary.snapshot_coverage_gap_blocked_market_count=12`,
+  `total_gap_count=12`, and `max_gap_minutes=223.57417106666665`.
+- `next_unblock_action` is now correctly
+  `collect next active day with zero snapshot_coverage_gap blocked markets`.
+- `current_code_soak=BLOCK` and `counts_toward_active_day=False`.
+- Snapshot, CLOB, observation-trigger, and taker daily-roll loops are back to
+  current code. The restart budgets are still blown: snapshot `38>6` until
+  `2026-06-26T15:02:13.212901+00:00`, CLOB `25>12` until
+  `2026-06-26T14:56:12.808360+00:00`, and observation-trigger `14>12` until
+  `2026-06-25T22:21:16.195105+00:00`.
+
+Conclusion: the proof is runnable and current, but June 25 is non-countable.
+Closure still requires the next active day to hold zero snapshot coverage gaps
+and pass the restart-budget soak.

@@ -548,6 +548,8 @@ def write_markdown(path, payload):
     canonical_cleanup_gate = cleanup_gate.get("canonical_evidence") or {}
     backup_rows = [
         ["Status", backup.get("status")],
+        ["Status cache", backup.get("status_cache_path") or "-"],
+        ["Status cache loaded", backup.get("status_cache_loaded")],
         ["Backup root", backup.get("backup_root")],
         ["Manifest age hours", backup.get("age_hours")],
         ["Files", backup.get("file_count")],

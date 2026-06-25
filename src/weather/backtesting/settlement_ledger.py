@@ -17,7 +17,7 @@ from weather.paths import data_path
 import pandas as pd
 import requests
 
-from weather.collection.collection_health import coverage_summary, parse_times
+from weather.collection.collection_health import coverage_summary, local_window, parse_times
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.schema_registry import schema_version
@@ -40,6 +40,17 @@ SNAPSHOT_HIGH_COLUMNS = (
 DAILY_BUCKET_COLUMNS = ("max_temp_bucket_native", "max_temp_bucket", "max_temp_bucket_c")
 DAILY_HIGH_COLUMNS = ("max_temp_native", "max_temp", "max_temp_c")
 CORE_PROB_COLUMNS = ("model_probability", "market_yes")
+MATERIAL_COVERAGE_WINDOW = "12:00-18:00 local"
+MATERIAL_PEAK_WINDOW = "14:00-17:00 local"
+MATERIAL_CAPTURE_RATIO_MIN = 0.80
+MATERIAL_MAX_GAP_MINUTES = 60.0
+MATERIAL_PEAK_MAX_GAP_MINUTES = 45.0
+MATERIAL_COUNTABLE_COVERAGE_GRADES = {
+    "strict_complete",
+    "minor_gap_material",
+    "manual_override",
+}
+PROMOTION_RECONCILIATION_STATUSES = {"match"}
 
 LABEL_COLUMNS = [
     "schema_version",
@@ -64,6 +75,16 @@ LABEL_COLUMNS = [
     "capture_ratio",
     "max_gap_minutes",
     "coverage_reason",
+    "material_coverage_grade",
+    "material_coverage_reason",
+    "material_coverage_window",
+    "material_coverage_gap_count",
+    "material_coverage_max_gap_minutes",
+    "material_peak_gap_minutes",
+    "material_coverage_decisive_gap_count",
+    "material_coverage_gap_windows",
+    "promotion_countable",
+    "promotion_countable_reason",
     "resolution_source_type",
     "resolution_wu_history_id",
     "resolution_station",

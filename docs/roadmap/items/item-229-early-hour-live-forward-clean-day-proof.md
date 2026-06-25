@@ -1,4 +1,4 @@
-# 229. Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-22 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]
+# 229. Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]
 
 Goal: collect one clean current-code active day so early-hour model fixes can be
 counted as production evidence rather than only backtest evidence.
@@ -40,3 +40,23 @@ current-code soak `PASS`, and downstream promotion/daily-learning reports mark
 the day countable for early-hour evidence without masking model-skill blockers.
 
 Related: items 157, 161, 210, 212, 227.
+
+## 2026-06-25 Clean-Day Proof Refresh
+
+Fleet observability now runs quickly enough to serve as the clean-day proof
+again, but the refreshed `data/backtest/fleet_observability.json` generated at
+`2026-06-25T18:47:03Z` does not count for this item.
+
+Current blocker cascade:
+
+- `live_forward_slo=BLOCK` and `current_code_soak=BLOCK`.
+- All 12 markets have nonrecoverable `snapshot_coverage_gap` evidence for
+  June 25, with `max_gap_minutes=223.57417106666665`.
+- Snapshot and CLOB are current and running after restart, but their 24-hour
+  restart budgets do not age under threshold until June 26 UTC.
+- The report's next unblock action is explicitly a future clean active day:
+  `collect next active day with zero snapshot_coverage_gap blocked markets`.
+
+No early-hour production proof should be counted from June 25. Keep this item
+open until the next active day passes both live-forward cadence and current-code
+soak.

@@ -1,4 +1,4 @@
-# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-24 - JUNE 24 CADENCE BLOCKED, CLEAN DAY NEEDED]
+# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-25 - JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED]
 
 Goal: eliminate active-day snapshot cadence gaps so broad live-forward evidence
 can count for all selected markets.
@@ -120,3 +120,25 @@ blocker: the next acceptable evidence is still a fresh active day where all
 selected markets pass snapshot cadence. The 2026-06-24 taker run should not
 count as strategy-quality evidence because its late-day scoring tape was
 starved by snapshot cadence failure.
+
+## 2026-06-25 Cadence Evidence
+
+The refreshed canonical fleet observability proof generated at
+`2026-06-25T18:47:03Z` is runnable but still blocks the live-forward cadence SLO.
+`live_forward_slo=BLOCK`, `counts_toward_live_forward_gate=False`, and the first
+blocker is `snapshot_coverage_gap` for Toronto.
+
+Snapshot cadence summary:
+
+- `blocked_market_count=12`
+- `snapshot_coverage_gap_blocked_market_count=12`
+- `total_gap_count=12`
+- `max_gap_minutes=223.57417106666665`
+- `active_day_countable_market_count=0`
+- `clean_active_day_required=True`
+- `next_unblock_action=collect next active day with zero snapshot_coverage_gap blocked markets`
+
+The snapshot loop was restarted onto current code and resumed fresh captures,
+but the 11:00-14:44 local gap range is nonrecoverable for June 25. This item
+remains partial until a future active day reports zero snapshot coverage gap
+blocked markets.

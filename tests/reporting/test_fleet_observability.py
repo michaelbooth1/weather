@@ -20,6 +20,7 @@ from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
+    cached_tape_backup_status,
     classify_loop_diagnostic_event,
     clob_alerts,
     cleanup_deletion_gate_summary,
@@ -35,6 +36,7 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     runtime_identity_alerts,
     runtime_identity_target_date,
     settled_day_freshness_alerts,
+    tape_backup_status_summary,
     trust_readiness,
     write_markdown,
 )
@@ -361,6 +363,97 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(gate["status"], "BLOCK")
         self.assertEqual(gate["delete_permission"], "blocked_missing_critical_backup_files")
         self.assertEqual(gate["missing_samples"][0]["path"], "data/snapshots/event/order_books.jsonl")
+
+    def test_cached_tape_backup_status_recomputes_age_and_stale_status(self):
+        now = datetime(2026, 6, 25, 18, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tape_backup_status.json"
+            path.write_text(
+                json.dumps({
+                    "status": "OK",
+                    "backup_root": str(Path(tmp) / "tape_backups"),
+                    "manifest_hash": "abc123",
+                    "generated_at_utc": "2026-06-24T06:00:00+00:00",
+                    "missing_critical_classes": [],
+                    "missing_critical_files": 0,
+                    "missing_critical_bytes": 0,
+                    "checksum_failures": [],
+                    "last_restore_drill": {
+                        "exists": True,
+                        "status": "PASS",
+                        "manifest_hash": "abc123",
+                        "generated_at_utc": "2026-06-24T07:00:00+00:00",
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            status = cached_tape_backup_status(
+                path,
+                max_age_hours=26,
+                max_restore_age_hours=168,
+                now=now,
+            )
+
+        self.assertTrue(status["status_cache_loaded"])
+        self.assertEqual(status["age_hours"], 36.0)
+        self.assertEqual(status["last_restore_drill"]["age_hours"], 35.0)
+        self.assertEqual(status["restore_drill_sla_status"], "OK")
+        self.assertEqual(status["status"], "STALE")
+
+    def test_tape_backup_status_summary_uses_cache_without_backup_scan(self):
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tape_backup_status.json"
+            path.write_text(
+                json.dumps({
+                    "status": "OK",
+                    "backup_root": str(Path(tmp) / "tape_backups"),
+                    "manifest_hash": "abc123",
+                    "generated_at_utc": now.isoformat(),
+                    "missing_critical_classes": [],
+                    "missing_critical_files": 0,
+                    "missing_critical_bytes": 0,
+                    "checksum_failures": [],
+                    "last_restore_drill": {
+                        "exists": True,
+                        "status": "PASS",
+                        "manifest_hash": "abc123",
+                        "generated_at_utc": now.isoformat(),
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "weather.reporting.fleet.fleet_observability_payload.tape_backup.backup_status",
+                side_effect=AssertionError("unexpected full backup status scan"),
+            ):
+                status = tape_backup_status_summary(
+                    status_path=path,
+                    backup_root=Path(tmp) / "tape_backups",
+                )
+
+        self.assertTrue(status["status_cache_loaded"])
+        self.assertEqual(status["status"], "OK")
+
+    def test_tape_backup_status_summary_refresh_runs_full_backup_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status_path = Path(tmp) / "tape_backup_status.json"
+            backup_root = Path(tmp) / "tape_backups"
+            with patch(
+                "weather.reporting.fleet.fleet_observability_payload.tape_backup.backup_status",
+                return_value={"status": "OK", "missing_critical_files": 0, "missing_critical_bytes": 0},
+            ) as mocked:
+                status = tape_backup_status_summary(
+                    status_path=status_path,
+                    backup_root=backup_root,
+                    refresh=True,
+                )
+
+        mocked.assert_called_once()
+        self.assertFalse(status["status_cache_loaded"])
+        self.assertEqual(status["status_cache_path"], str(status_path))
 
     def test_runtime_identity_alerts_warn_on_mixed_runtime_blocker(self):
         collection = {
@@ -689,6 +782,50 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("collect next active day", cadence["summary"]["next_unblock_action"])
         self.assertTrue(all(row["gap_windows"] for row in cadence["markets"]))
         self.assertIn("snapshot_tracker --restart", cadence["repair_command"])
+
+    def test_snapshot_cadence_next_unblock_prioritizes_any_nonrecoverable_gap(self):
+        collection = {
+            "markets": [
+                {
+                    "market_id": "toronto",
+                    "action_required": True,
+                    "snapshot_action_required": True,
+                    "state": "AT_RISK",
+                    "reason": "1 gap(s), max 214 min",
+                    "snapshots": 64,
+                    "snapshot_cadence_proof": {
+                        "status": "BLOCK",
+                        "active_day_countable": False,
+                        "recoverable_same_day": False,
+                        "gap_count": 1,
+                        "gap_windows": [{"gap_minutes": 214.0}],
+                    },
+                },
+                {
+                    "market_id": "nyc",
+                    "action_required": True,
+                    "snapshot_action_required": True,
+                    "state": "AT_RISK",
+                    "reason": "latest capture is 20 min old",
+                    "snapshots": 80,
+                    "snapshot_cadence_proof": {
+                        "status": "BLOCK",
+                        "active_day_countable": True,
+                        "recoverable_same_day": True,
+                        "gap_count": 0,
+                    },
+                },
+            ]
+        }
+        clob = {"loop": {"state": "RUNNING"}, "books": {"markets": []}}
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 5.0}
+
+        cadence = live_forward_slo_gate(collection, clob, observation)["snapshot_cadence_proof"]
+
+        self.assertEqual(cadence["summary"]["recoverable_same_day_market_count"], 1)
+        self.assertEqual(cadence["summary"]["nonrecoverable_active_day_blocked_market_count"], 1)
+        self.assertTrue(cadence["summary"]["clean_active_day_required"])
+        self.assertIn("collect next active day", cadence["summary"]["next_unblock_action"])
 
     def test_live_forward_slo_source_status_provider_fallback_has_specific_repair(self):
         collection = {

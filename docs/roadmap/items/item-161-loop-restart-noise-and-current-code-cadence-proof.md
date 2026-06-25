@@ -1,4 +1,4 @@
-# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-24 - JUNE 24 SOAK FAILED, NEW CLEAN SOAK NEEDED]
+# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]
 
 Goal: reduce supervisor restart noise and prove that current-code loops can
 hold cadence across a full active day.
@@ -203,3 +203,30 @@ This evidence belongs here as a soak failure, not as a completed restart-budget
 proof. The open acceptance remains unchanged: retain a full active day where
 snapshot, CLOB, and observation-trigger loops stay current-code, single-writer,
 under restart budget, and within cadence thresholds.
+
+## 2026-06-25 Soak Refresh
+
+Fleet observability is runnable again after switching its tape-backup section to
+the generated status cache by default. The refreshed
+`data/backtest/fleet_observability.json` was generated at
+`2026-06-25T18:47:03Z`, but the current-code soak is still `BLOCK` and
+`counts_toward_active_day=False`.
+
+Current loop state:
+
+- Snapshot: `RUNNING`, current code, single writer, but restart budget `38>6`
+  until `2026-06-26T15:02:13.212901+00:00`.
+- CLOB: `RUNNING`, current code, single writer, but restart budget `25>12`
+  until `2026-06-26T14:56:12.808360+00:00`.
+- Observation trigger: `RUNNING`, current code, but restart budget `14>12`
+  until `2026-06-25T22:21:16.195105+00:00`.
+- Taker daily roll: `PASS`, `RUNNING`, current code, `6/12` restarts.
+- Market-making daily roll remains a scheduled-start blocker before its local
+  start window; the immediate command is
+  `python -m weather.operations.market_making_daily_roll ensure`.
+
+The cadence side also blocks the soak: `live_forward_slo=BLOCK` because all 12
+markets have nonrecoverable June 25 `snapshot_coverage_gap` evidence. This is a
+fresh failed soak, not completion evidence. The next acceptable proof is still a
+future active day with current-code loops under budget and live-forward cadence
+passing.

@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.reporting.fleet.fleet_observability_gates import *  # noqa: F403
@@ -224,6 +225,159 @@ def cleanup_deletion_gate_summary(tape_backup_status):
     }
 
 
+def _parse_utc_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _age_hours_since(value, *, now=None):
+    parsed = _parse_utc_datetime(value)
+    if parsed is None:
+        return None
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return round((now - parsed).total_seconds() / 3600.0, 3)
+
+
+def _status_cache_error(path, status, detail, *, backup_root):
+    return {
+        "status": status,
+        "backup_root": str(backup_root),
+        "status_cache_path": str(path),
+        "status_cache_loaded": False,
+        "status_cache_detail": detail,
+        "missing_critical_classes": [],
+        "missing_critical_files": 0,
+        "missing_critical_bytes": 0,
+        "checksum_failures": [],
+        "last_restore_drill": {},
+    }
+
+
+def cached_tape_backup_status(
+    status_path=tape_backup.DEFAULT_STATUS_OUT,
+    *,
+    backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
+    max_age_hours=26.0,
+    max_restore_age_hours=168.0,
+    now=None,
+):
+    """Read the generated tape-backup status without rescanning the mirror.
+
+    The full tape backup status audit can parse a large manifest and walk the
+    local backup mirror. Fleet observability needs the latest generated status
+    to stay visible, but it should not redo that audit on every report run.
+    """
+    path = Path(status_path)
+    if not path.exists():
+        return _status_cache_error(
+            path,
+            "MISSING_STATUS_CACHE",
+            "status cache does not exist",
+            backup_root=backup_root,
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _status_cache_error(
+            path,
+            "UNREADABLE_STATUS_CACHE",
+            str(exc),
+            backup_root=backup_root,
+        )
+    if not isinstance(payload, dict):
+        return _status_cache_error(
+            path,
+            "UNREADABLE_STATUS_CACHE",
+            "status cache is not a JSON object",
+            backup_root=backup_root,
+        )
+
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    status = dict(payload)
+    status["status_cache_path"] = str(path)
+    status["status_cache_loaded"] = True
+    try:
+        status["status_cache_mtime_utc"] = datetime.fromtimestamp(
+            path.stat().st_mtime,
+            timezone.utc,
+        ).isoformat()
+    except OSError:
+        status["status_cache_mtime_utc"] = None
+    status["max_age_hours"] = max_age_hours
+    status["max_restore_age_hours"] = max_restore_age_hours
+    if not status.get("backup_root"):
+        status["backup_root"] = str(backup_root)
+
+    age_hours = _age_hours_since(status.get("generated_at_utc"), now=now)
+    if age_hours is not None:
+        status["age_hours"] = age_hours
+
+    restore = dict(status.get("last_restore_drill") or {})
+    restore_age = _age_hours_since(restore.get("generated_at_utc"), now=now)
+    if restore_age is not None:
+        restore["age_hours"] = restore_age
+    status["last_restore_drill"] = restore
+    restore_status, restore_detail = tape_backup.restore_drill_sla_status(
+        restore,
+        manifest_hash_value=status.get("manifest_hash"),
+        max_restore_age_hours=max_restore_age_hours,
+    )
+    status["restore_drill_sla_status"] = restore_status
+    status["restore_drill_sla_detail"] = restore_detail
+
+    base_status = status.get("status") or "UNKNOWN"
+    generated_stale = age_hours is not None and age_hours > float(max_age_hours)
+    recomputable_states = {
+        "OK",
+        "STALE",
+        "RESTORE_DRILL_MISSING",
+        "RESTORE_DRILL_FAIL",
+        "RESTORE_DRILL_STALE",
+    }
+    if base_status in recomputable_states:
+        if generated_stale:
+            status["status"] = "STALE"
+        elif restore_status != "OK":
+            status["status"] = restore_status
+        else:
+            status["status"] = "OK"
+    return status
+
+
+def tape_backup_status_summary(
+    *,
+    backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
+    status_path=tape_backup.DEFAULT_STATUS_OUT,
+    refresh=False,
+    verify_checksums=False,
+    max_age_hours=26.0,
+    max_restore_age_hours=168.0,
+):
+    if refresh or verify_checksums:
+        status = tape_backup.backup_status(
+            backup_root=backup_root,
+            max_age_hours=max_age_hours,
+            verify_checksums=verify_checksums,
+            max_restore_age_hours=max_restore_age_hours,
+        )
+        status["status_cache_loaded"] = False
+        status["status_cache_path"] = str(status_path)
+        return status
+    return cached_tape_backup_status(
+        status_path,
+        backup_root=backup_root,
+        max_age_hours=max_age_hours,
+        max_restore_age_hours=max_restore_age_hours,
+    )
+
+
 def parquet_incremental_status(path=DEFAULT_INCREMENTAL_JSON):
     path = Path(path)
     if not path.exists():
@@ -307,7 +461,11 @@ def build_observability_payload(
     years=None,
     include_audits=True,
     tape_backup_root=tape_backup.DEFAULT_BACKUP_ROOT,
+    tape_backup_status_path=tape_backup.DEFAULT_STATUS_OUT,
+    refresh_tape_backup_status=False,
     verify_tape_backup_checksums=False,
+    max_tape_backup_age_hours=26.0,
+    max_tape_restore_age_hours=168.0,
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
     parquet_incremental_path=DEFAULT_INCREMENTAL_JSON,
@@ -357,9 +515,13 @@ def build_observability_payload(
     )
     settled_freshness = settled_day_freshness_summary()
     parquet_incremental = parquet_incremental_status(parquet_incremental_path)
-    tape_backup_status = tape_backup.backup_status(
+    tape_backup_status = tape_backup_status_summary(
         backup_root=tape_backup_root,
+        status_path=tape_backup_status_path,
+        refresh=refresh_tape_backup_status,
         verify_checksums=verify_tape_backup_checksums,
+        max_age_hours=max_tape_backup_age_hours,
+        max_restore_age_hours=max_tape_restore_age_hours,
     )
     cleanup_deletion_gate = cleanup_deletion_gate_summary(tape_backup_status)
     alerts = []

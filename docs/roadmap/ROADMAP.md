@@ -124,7 +124,7 @@ infrastructure work remains.
 | 146 | [Tape Backup Capacity And CLOB Tiered Retention [COMPLETE 2026-06-24 - DURABLE RESTIC REPOSITORY AND RESTORE DRILL LIVE]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
 | 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
-| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-24 - JUNE 24 CADENCE BLOCKED, CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-25 - JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 | 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
@@ -278,7 +278,7 @@ infrastructure work remains.
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
 | 228 | [Predawn Weak-Slot Repair Candidate Gate [PARTIAL 2026-06-22 - PARAMETER SWEEP BLOCKS BROAD HOURLY]](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
-| 229 | [Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-22 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]](items/item-229-early-hour-live-forward-clean-day-proof.md) |
+| 229 | [Early-Hour Live-Forward Clean-Day Proof [OPEN 2026-06-25 - CLEAN ACTIVE DAY EVIDENCE REQUIRED]](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration [PARTIAL 2026-06-22 - GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED]](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 231 | [Market-Specific Early-Hour Residual Repair Program [COMPLETE 2026-06-22 - MARKET MANIFESTS AND REJECTED-FAMILY REGISTRY LIVE]](items/item-231-market-specific-early-hour-residual-repair-program.md) |
 | 232 | [Current-Max Trust Retrain And Warm-Tail Replay [COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS]](items/item-232-current-max-trust-retrain-and-warm-tail-replay.md) |
@@ -378,7 +378,7 @@ infrastructure work remains.
 | 131 | [Model Artifact Storage Growth Guard [COMPLETE 2026-06-18 - SIZE AUDIT AND STORAGE POLICY LIVE]](items/item-131-model-artifact-storage-growth-guard.md) |
 | 132 | [Active Docs Canonical Command Normalization [COMPLETE 2026-06-18 - ACTIVE DOC LINT LIVE]](items/item-132-active-docs-canonical-command-normalization.md) |
 | 133 | [Data Runtime Locality And Fixture Boundary Guard [COMPLETE 2026-06-18 - DATA BOUNDARY GUARD LIVE]](items/item-133-data-runtime-locality-and-fixture-boundary-guard.md) |
-| 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-24 - JUNE 24 SOAK FAILED, NEW CLEAN SOAK NEEDED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
+| 161 | [Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 171 | [Local Data Retention And CLOB Tape Storage Cleanup [COMPLETE 2026-06-20 - DATA RETENTION INVENTORY AND DAILY BUDGET LIVE]](items/item-171-local-data-retention-and-clob-tape-storage-cleanup.md) |
 | 172 | [Artifact Storage Externalization And Git Object Store Cleanup [COMPLETE 2026-06-20 - LFS ARTIFACT PREFLIGHT PASS]](items/item-172-artifact-storage-externalization-and-git-object-store-cleanup.md) |
 | 173 | [Post-Agent Large Module Decomposition And Ownership Split [COMPLETE 2026-06-20 - FACADES SPLIT AND SIZE AUDIT RATIFIED]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
@@ -390,13 +390,14 @@ infrastructure work remains.
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-24 - POST-SUPPRESSION BASELINE RESET, CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
 | 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [COMPLETE 2026-06-25 - FORWARD MIGRATION AND ROW RECOVERY LIVE]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
 | 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |
 | 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [COMPLETE 2026-06-25 - EDGE-PERMISSIONED RISK GUARDS LIVE]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
 | 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
 | 318 | [Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
+| 319 | [Material Coverage Grading For Settled-Label Promotion Countability [OPEN 2026-06-25 - BINARY ZERO-GAP COVERAGE GATE BLOCKS 76% OF SETTLED LABELS]](items/item-319-material-coverage-grading-for-settled-label-promotion-countability.md) |
 
 ## Maintenance Conventions
 

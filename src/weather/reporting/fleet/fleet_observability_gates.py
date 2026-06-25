@@ -580,6 +580,16 @@ def _snapshot_cadence_market_proof(row):
     return proof
 
 
+def _snapshot_next_unblock_action(blocked, recoverable_same_day, nonrecoverable_active_day_blocked):
+    if not blocked:
+        return "none"
+    if nonrecoverable_active_day_blocked:
+        return "collect next active day with zero snapshot_coverage_gap blocked markets"
+    if recoverable_same_day:
+        return SNAPSHOT_RESTART_COMMAND
+    return SNAPSHOT_RESTART_COMMAND
+
+
 def _snapshot_cadence_proof(collection, recovery_rows):
     provided = (collection or {}).get("snapshot_cadence_proof") or {}
     markets = [_snapshot_cadence_market_proof(row) for row in (collection or {}).get("markets") or []]
@@ -633,14 +643,10 @@ def _snapshot_cadence_proof(collection, recovery_rows):
         "recoverable_same_day_market_count": len(recoverable_same_day),
         "nonrecoverable_active_day_blocked_market_count": len(nonrecoverable_active_day_blocked),
         "clean_active_day_required": bool(nonrecoverable_active_day_blocked),
-        "next_unblock_action": (
-            "none"
-            if not blocked
-            else (
-                SNAPSHOT_RESTART_COMMAND
-                if recoverable_same_day
-                else "collect next active day with zero snapshot_coverage_gap blocked markets"
-            )
+        "next_unblock_action": _snapshot_next_unblock_action(
+            blocked,
+            recoverable_same_day,
+            nonrecoverable_active_day_blocked,
         ),
         "status_command": SNAPSHOT_STATUS_COMMAND,
         "repair_command": SNAPSHOT_RESTART_COMMAND,
@@ -653,14 +659,10 @@ def _snapshot_cadence_proof(collection, recovery_rows):
     summary["recoverable_same_day_market_count"] = len(recoverable_same_day)
     summary["nonrecoverable_active_day_blocked_market_count"] = len(nonrecoverable_active_day_blocked)
     summary["clean_active_day_required"] = bool(nonrecoverable_active_day_blocked)
-    summary["next_unblock_action"] = (
-        "none"
-        if not blocked
-        else (
-            SNAPSHOT_RESTART_COMMAND
-            if recoverable_same_day
-            else "collect next active day with zero snapshot_coverage_gap blocked markets"
-        )
+    summary["next_unblock_action"] = _snapshot_next_unblock_action(
+        blocked,
+        recoverable_same_day,
+        nonrecoverable_active_day_blocked,
     )
     return {
         "schema_version": "snapshot_cadence_proof_v0.1",
