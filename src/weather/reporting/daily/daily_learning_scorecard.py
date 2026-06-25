@@ -410,7 +410,11 @@ def _market_day_labels_summary(path):
     quality_counts = Counter()
     reconciliation_counts = Counter()
     settlement_source_counts = Counter()
+    material_coverage_counts = Counter()
     total = 0
+    material_available = False
+    promotion_countable_count = 0
+    promotion_blocked_count = 0
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
             if not row.get("event_slug"):
@@ -419,6 +423,15 @@ def _market_day_labels_summary(path):
             quality_counts[str(row.get("quality_grade") or "missing")] += 1
             reconciliation_counts[str(row.get("reconciliation_status") or "missing")] += 1
             settlement_source_counts[str(row.get("settlement_source") or "missing")] += 1
+            material_grade = row.get("material_coverage_grade")
+            if material_grade:
+                material_available = True
+                material_coverage_counts[str(material_grade)] += 1
+            if "promotion_countable" in row and row.get("promotion_countable") != "":
+                if str(row.get("promotion_countable")).strip().lower() in {"1", "true", "yes", "y"}:
+                    promotion_countable_count += 1
+                else:
+                    promotion_blocked_count += 1
     return {
         "path": str(path),
         "exists": True,
@@ -426,6 +439,10 @@ def _market_day_labels_summary(path):
         "quality_counts": dict(sorted(quality_counts.items())),
         "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
         "settlement_source_counts": dict(sorted(settlement_source_counts.items())),
+        "material_coverage_counts": dict(sorted(material_coverage_counts.items())),
+        "promotion_countability_available": material_available,
+        "promotion_countable_label_count": promotion_countable_count,
+        "promotion_blocked_label_count": promotion_blocked_count,
     }
 
 
@@ -957,6 +974,10 @@ def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
             or market_day_labels.get("reconciliation_counts")
             or {}
         ),
+        "material_coverage_counts": market_day_labels.get("material_coverage_counts") or {},
+        "promotion_countability_available": bool(market_day_labels.get("promotion_countability_available")),
+        "promotion_countable_label_count": safe_int(market_day_labels.get("promotion_countable_label_count")),
+        "promotion_blocked_label_count": safe_int(market_day_labels.get("promotion_blocked_label_count")),
         "source": source,
         "path": market_day_labels.get("path"),
         "total_all": market_day_labels.get("total_all"),
@@ -972,6 +993,29 @@ def _label_countability_policy(label_summary, barrier):
             "source": "settled_day_analysis_barrier",
         }
     quality_counts = (label_summary or {}).get("quality_counts") or {}
+    if (label_summary or {}).get("promotion_countability_available"):
+        blocked_count = safe_int((label_summary or {}).get("promotion_blocked_label_count"))
+        partial_count = safe_int(quality_counts.get("partial"))
+        promotion_countable = blocked_count == 0
+        return {
+            "status": "promotion_countable" if promotion_countable else "diagnostic_only",
+            "promotion_countable": promotion_countable,
+            "diagnostic_only": not promotion_countable,
+            "partial_label_count": partial_count,
+            "strict_partial_label_count": partial_count,
+            "quality_counts": quality_counts,
+            "material_coverage_counts": (label_summary or {}).get("material_coverage_counts") or {},
+            "material_promotion_countable_label_count": safe_int(
+                (label_summary or {}).get("promotion_countable_label_count")
+            ),
+            "material_promotion_blocked_label_count": blocked_count,
+            "reason": (
+                "all selected settled labels are promotion-countable"
+                if promotion_countable
+                else f"{blocked_count} settled label(s) are not material-coverage promotion-countable"
+            ),
+            "source": "label_material_coverage_counts",
+        }
     partial_count = safe_int(quality_counts.get("partial"))
     if partial_count:
         return {

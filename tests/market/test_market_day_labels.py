@@ -8,7 +8,42 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+from weather.backtesting.settlement_ledger import build_label
 from weather.market.market_day_labels import finalize_folders, missing_fraction, quality_grade
+
+
+def _resolved_event(label):
+    return {
+        "closed": True,
+        "markets": [
+            {
+                "groupItemTitle": label,
+                "closed": True,
+                "umaResolutionStatus": "resolved",
+                "outcomes": json.dumps(["Yes", "No"]),
+                "outcomePrices": json.dumps(["1", "0"]),
+            }
+        ],
+    }
+
+
+def _write_toronto_tape(folder, *, omitted_indexes=None):
+    omitted_indexes = set(omitted_indexes or [])
+    start = datetime(2026, 5, 27, 11, 0)
+    pd.DataFrame([
+        {
+            "snapshot_id": f"s{i}",
+            "captured_at_local": (start + timedelta(minutes=10 * i)).isoformat(),
+            "range_label": "25 C",
+            "bin_kind": "eq",
+            "bin_value_c": 25,
+            "model_probability": 0.8,
+            "market_yes": 0.4,
+            "wu_history_high_c": 25.0,
+        }
+        for i in range(43)
+        if i not in omitted_indexes
+    ]).to_csv(folder / "snapshots_long.csv", index=False)
 
 
 class TestMarketDayLabels(unittest.TestCase):
@@ -33,20 +68,7 @@ class TestMarketDayLabels(unittest.TestCase):
             root = Path(tmp)
             folder = root / "highest-temperature-in-toronto-on-may-27-2026"
             folder.mkdir()
-            start = datetime(2026, 5, 27, 11, 0)
-            pd.DataFrame([
-                {
-                    "snapshot_id": f"s{i}",
-                    "captured_at_local": (start + timedelta(minutes=10 * i)).isoformat(),
-                    "range_label": "25 C",
-                    "bin_kind": "eq",
-                    "bin_value_c": 25,
-                    "model_probability": 0.8,
-                    "market_yes": 0.4,
-                    "wu_history_high_c": 25.0,
-                }
-                for i in range(43)
-            ]).to_csv(folder / "snapshots_long.csv", index=False)
+            _write_toronto_tape(folder)
             daily = root / "daily.csv"
             daily.write_text(
                 "local_date,row_count,max_temp_bucket_c\n2026-05-27,24,25\n",
@@ -81,6 +103,55 @@ class TestMarketDayLabels(unittest.TestCase):
             self.assertEqual(ledger_rows[0]["settlement_unit"], "C")
             self.assertEqual(ledger_rows[0]["resolution_station"], "CYYZ")
             self.assertEqual(resolution_specs["schema_version"], "resolution_spec_v1")
+
+    def test_minor_gap_partial_label_is_material_promotion_countable_when_reconciled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-toronto-on-may-27-2026"
+            folder.mkdir()
+            _write_toronto_tape(folder, omitted_indexes={18})
+            daily = root / "daily.csv"
+            daily.write_text(
+                "local_date,row_count,max_temp_bucket_c\n2026-05-27,24,25\n",
+                encoding="utf-8",
+            )
+
+            label = build_label(
+                folder,
+                daily_summary_path=daily,
+                reconcile_polymarket=True,
+                polymarket_event=_resolved_event("25 C"),
+            )
+
+        self.assertEqual(label["quality_grade"], "partial")
+        self.assertFalse(label["coverage_clean"])
+        self.assertEqual(label["material_coverage_grade"], "minor_gap_material")
+        self.assertIn("peak_heating_window:20m", label["material_coverage_gap_windows"])
+        self.assertTrue(label["promotion_countable"])
+
+    def test_decisive_peak_gap_partial_label_is_not_material_promotion_countable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-toronto-on-may-27-2026"
+            folder.mkdir()
+            _write_toronto_tape(folder, omitted_indexes=set(range(19, 25)))
+            daily = root / "daily.csv"
+            daily.write_text(
+                "local_date,row_count,max_temp_bucket_c\n2026-05-27,24,25\n",
+                encoding="utf-8",
+            )
+
+            label = build_label(
+                folder,
+                daily_summary_path=daily,
+                reconcile_polymarket=True,
+                polymarket_event=_resolved_event("25 C"),
+            )
+
+        self.assertEqual(label["quality_grade"], "partial")
+        self.assertEqual(label["material_coverage_grade"], "decisive_gap")
+        self.assertEqual(label["material_coverage_decisive_gap_count"], 1)
+        self.assertFalse(label["promotion_countable"])
 
 
 if __name__ == "__main__":

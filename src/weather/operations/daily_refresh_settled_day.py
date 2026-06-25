@@ -123,6 +123,14 @@ def _parse_market_ids(value):
     return [part.strip() for part in str(value).split(",") if part.strip()]
 
 
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
 def _dependency_status(step, dependency, target_date):
     result = step.get("result") or {}
     step_status = step.get("status")
@@ -174,6 +182,78 @@ def _label_countability_from_freshness(freshness, finalize_result=None):
             grade = row.get("quality_grade")
             if grade:
                 quality_counts[str(grade)] += 1
+
+    material_counts = Counter()
+    material_available = bool(finalize_result.get("promotion_countability_available"))
+    if finalize_result.get("material_coverage_counts"):
+        material_counts.update({
+            key: int(value or 0)
+            for key, value in (finalize_result.get("material_coverage_counts") or {}).items()
+        })
+    else:
+        for row in freshness.get("markets") or []:
+            grade = row.get("material_coverage_grade")
+            if grade:
+                material_available = True
+                material_counts[str(grade)] += 1
+
+    if material_available:
+        if finalize_result.get("promotion_countability_available"):
+            total_labels = int(finalize_result.get("label_count") or 0)
+            countable_count = int(finalize_result.get("promotion_countable_label_count") or 0)
+            blocked_count = int(finalize_result.get("promotion_blocked_label_count") or 0)
+            blocked_sample = finalize_result.get("material_coverage_blocked_sample") or []
+        else:
+            material_rows = [
+                row for row in freshness.get("markets") or []
+                if row.get("material_coverage_grade")
+            ]
+            total_labels = len(material_rows)
+            countable_count = sum(1 for row in material_rows if _truthy(row.get("promotion_countable")))
+            blocked_rows = [row for row in material_rows if not _truthy(row.get("promotion_countable"))]
+            blocked_count = len(blocked_rows)
+            blocked_sample = [
+                {
+                    "event_slug": row.get("event_slug"),
+                    "market_id": row.get("market_id"),
+                    "target_date": row.get("target_date"),
+                    "quality_grade": row.get("quality_grade"),
+                    "material_coverage_grade": row.get("material_coverage_grade"),
+                    "material_coverage_reason": row.get("material_coverage_reason"),
+                    "promotion_countable_reason": row.get("promotion_countable_reason"),
+                }
+                for row in blocked_rows[:5]
+            ]
+
+        partial_count = int(quality_counts.get("partial") or 0)
+        promotion_countable = blocked_count == 0
+        if promotion_countable:
+            status = "promotion_countable"
+            if partial_count:
+                reason = (
+                    f"all selected settled labels are promotion-countable; "
+                    f"{partial_count} strict partial label(s) passed material coverage"
+                )
+            else:
+                reason = "all selected settled labels are promotion-countable"
+        else:
+            status = "diagnostic_only"
+            reason = f"{blocked_count} settled label(s) are not material-coverage promotion-countable"
+        return {
+            "status": status,
+            "promotion_countable": promotion_countable,
+            "diagnostic_only": not promotion_countable,
+            "partial_label_count": partial_count,
+            "strict_partial_label_count": partial_count,
+            "quality_counts": dict(sorted(quality_counts.items())),
+            "material_coverage_counts": dict(sorted(material_counts.items())),
+            "material_promotion_countable_label_count": countable_count,
+            "material_promotion_blocked_label_count": blocked_count,
+            "material_total_label_count": total_labels,
+            "material_coverage_blocked_sample": blocked_sample,
+            "reason": reason,
+        }
+
     partial_count = int(quality_counts.get("partial") or 0)
     if partial_count:
         status = "diagnostic_only"
@@ -188,6 +268,7 @@ def _label_countability_from_freshness(freshness, finalize_result=None):
         "promotion_countable": promotion_countable,
         "diagnostic_only": not promotion_countable,
         "partial_label_count": partial_count,
+        "strict_partial_label_count": partial_count,
         "quality_counts": dict(sorted(quality_counts.items())),
         "reason": reason,
     }

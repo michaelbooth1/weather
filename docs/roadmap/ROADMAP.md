@@ -397,7 +397,7 @@ infrastructure work remains.
 | 316 | [Unify The Blanket Tail/Warm/Weak-Slot Taker Blocks With The Per-Slice Edge-Permission Map [COMPLETE 2026-06-25 - EDGE-PERMISSIONED RISK GUARDS LIVE]](items/item-316-unify-blanket-taker-risk-blocks-with-edge-permission-map.md) |
 | 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
 | 318 | [Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
-| 319 | [Material Coverage Grading For Settled-Label Promotion Countability [OPEN 2026-06-25 - BINARY ZERO-GAP COVERAGE GATE BLOCKS 76% OF SETTLED LABELS]](items/item-319-material-coverage-grading-for-settled-label-promotion-countability.md) |
+| 319 | [Material Coverage Grading For Settled-Label Promotion Countability [COMPLETE 2026-06-25 - MATERIAL COVERAGE COUNTABILITY LIVE]](items/item-319-material-coverage-grading-for-settled-label-promotion-countability.md) |
 
 ## Maintenance Conventions
 

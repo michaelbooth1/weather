@@ -1,4 +1,4 @@
-# 319. Material Coverage Grading For Settled-Label Promotion Countability [OPEN 2026-06-25 - BINARY ZERO-GAP COVERAGE GATE BLOCKS 76% OF SETTLED LABELS]
+# 319. Material Coverage Grading For Settled-Label Promotion Countability [COMPLETE 2026-06-25 - MATERIAL COVERAGE COUNTABILITY LIVE]
 
 Goal: stop the binary zero-gap intraday-coverage gate from permanently
 disqualifying settled-day labels whose settlement value is already confirmed,
@@ -92,17 +92,40 @@ from intraday-coverage completeness.
    `promotion_refresh` for a recent settled target date once materially-complete
    labels count.
 
-- [ ] Add a material-coverage grade that separates settlement correctness from
+- [x] Add a material-coverage grade that separates settlement correctness from
   intraday-coverage completeness, with thresholds for capture ratio, max gap,
   and settlement-window overlap.
-- [ ] Make settled-label promotion countability use the material grade while
+- [x] Make settled-label promotion countability use the material grade while
   still blocking labels with decisive gaps, keeping strict-`complete` reported.
-- [ ] Update `settled_day_analysis_barrier` label countability to consume the
+- [x] Update `settled_day_analysis_barrier` label countability to consume the
   material grade and re-evaluate `promotion_countable` for a recent target date.
-- [ ] Record and report the material grade, reason, and gap window for audit.
-- [ ] Add tests proving a confirmed-settlement day with a single minor gap is
+- [x] Record and report the material grade, reason, and gap window for audit.
+- [x] Add tests proving a confirmed-settlement day with a single minor gap is
   promotion-countable while a day with a decisive afternoon gap is not, and that
   the barrier reaches `promotion_refresh` once materially-complete labels count.
+
+## Completion 2026-06-25
+
+Implemented material coverage as an additive label contract in
+`weather.backtesting.settlement_ledger`: strict `quality_grade` remains
+zero-gap, while `material_coverage_grade`, material gap-window details, and
+`promotion_countable` record whether a reconciled settled label can count for
+promotion. The material gate requires the afternoon settlement window to be
+covered, capture ratio >= 80%, max gap <= 60 minutes, and peak-window gaps <=
+45 minutes.
+
+`settled_day_analysis_barrier` now consumes material promotion-countability
+when available, reports strict partial counts separately, and preserves the old
+strict partial-label fallback for older labels without the new fields. The
+settled-day freshness and daily-learning summaries now carry material coverage
+counts and promotion-countable totals for audit.
+
+Verification:
+
+- `.\\venv\\Scripts\\python.exe -m pytest tests\\market\\test_market_day_labels.py tests\\operations\\test_daily_refresh.py tests\\operations\\test_settled_day_freshness.py tests\\reporting\\test_daily_learning.py tests\\reporting\\test_model_scoring_liveness.py -q`
+  - 115 passed
+- `.\\venv\\Scripts\\python.exe -m pytest tests\\operations\\test_nightly_retrain.py tests\\reporting\\test_daily_progress_ledger.py -q`
+  - 18 passed
 
 Acceptance: a settled-day label whose settlement bucket is confirmed and
 reconciled but whose intraday tape has only minor, non-decisive gaps is

@@ -50,7 +50,6 @@ Status: `OK`
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
-| 319 | OPEN | 2026-06-25 | BINARY ZERO-GAP COVERAGE GATE BLOCKS 76% OF SETTLED LABELS | [Material Coverage Grading For Settled-Label Promotion Countability](items/item-319-material-coverage-grading-for-settled-label-promotion-countability.md) |
 
 ## Lint Issues
 

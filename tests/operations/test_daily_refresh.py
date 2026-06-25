@@ -551,6 +551,97 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(freshness["summary"]["needs_finalization_count"], 1)
         self.assertIn("settled_day_freshness", {row["component"] for row in payload["blockers"]})
 
+    def test_settled_day_barrier_counts_material_partial_labels_for_promotion(self):
+        target_date = "2026-06-17"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            slug = event_slug_for_date(target_date, "nyc")
+            folder = snapshots / slug
+            folder.mkdir(parents=True)
+            (folder / "snapshots_long.csv").write_text(
+                "event_slug,snapshot_id,captured_at_local,range_label,bin_kind,bin_value_c,model_probability,market_yes\n"
+                f"{slug},s1,{target_date}T12:00:00-04:00,77 F,eq,77,0.5,0.5\n",
+                encoding="utf-8",
+            )
+            (folder / "replay_inputs.jsonl").write_text('{"snapshot_id": "s1"}\n', encoding="utf-8")
+            (folder / "source_status_long.csv").write_text(
+                "snapshot_id,source,ok,status\ns1,wu_history,True,fresh\n",
+                encoding="utf-8",
+            )
+            (folder / "replay_input_status_long.csv").write_text(
+                "snapshot_id,replay_input_status,replay_input_source\ns1,captured,replay_inputs.jsonl\n",
+                encoding="utf-8",
+            )
+            label = {
+                "event_slug": slug,
+                "market_id": "nyc",
+                "target_date": target_date,
+                "settlement_bucket": "77",
+                "winning_band": "77 F",
+                "settlement_source": "daily_summary",
+                "quality_grade": "partial",
+                "coverage_reason": "1 gap(s), max 20 min",
+                "material_coverage_grade": "minor_gap_material",
+                "material_coverage_reason": "1 non-material gap(s), max 20 min",
+                "material_coverage_gap_windows": "peak_heating_window:20m",
+                "promotion_countable": "True",
+                "promotion_countable_reason": "settlement reconciled and material coverage countable",
+                "reconciliation_status": "match",
+            }
+            labels = root / "backtest" / "market_day_labels.csv"
+            labels.parent.mkdir(parents=True)
+            with labels.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(label))
+                writer.writeheader()
+                writer.writerow(label)
+            ledger = root / "settlements" / "nyc" / "ledger.jsonl"
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps(label) + "\n", encoding="utf-8")
+            (folder / "settlement.json").write_text(json.dumps(label), encoding="utf-8")
+            args = _args(
+                tmp,
+                snapshots_root=str(snapshots),
+                labels_csv=str(labels),
+                ledger_root=str(root / "settlements"),
+                settled_analysis_target_date=target_date,
+                markets="nyc",
+            )
+            args._daily_refresh_steps_so_far = [
+                {
+                    "name": "market_day_labels_finalize",
+                    "status": "ok",
+                    "result": {
+                        "label_count": 1,
+                        "quality_counts": {"partial": 1},
+                        "material_coverage_counts": {"minor_gap_material": 1},
+                        "promotion_countability_available": True,
+                        "promotion_countable_label_count": 1,
+                        "promotion_blocked_label_count": 0,
+                    },
+                },
+                {"name": "exchange_economics_rule_drift", "status": "ok", "result": {"status": "PASS"}},
+                {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "ten_minute_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "price_free_model_learning", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "model_market_disagreement_rehydration", "status": "ok", "result": {"status": "SKIPPED"}},
+            ]
+
+            payload = run_settled_day_analysis_barrier_step(args)
+
+        countability = payload["label_countability"]
+        self.assertEqual(payload["status"], "PASS")
+        self.assertTrue(countability["promotion_countable"])
+        self.assertEqual(countability["strict_partial_label_count"], 1)
+        self.assertEqual(countability["material_promotion_countable_label_count"], 1)
+        self.assertIn("passed material coverage", countability["reason"])
+
     def test_dry_run_records_planned_steps_without_calling_runners(self):
         def should_not_run(_args):
             raise AssertionError("dry run should not execute runners")

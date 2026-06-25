@@ -86,18 +86,55 @@ from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 
 
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
 def summarize_labels(labels):
     quality_counts = Counter(label.get("quality_grade") or "unknown" for label in labels)
     reconciliation_counts = Counter(label.get("reconciliation_status") or "-" for label in labels)
+    material_coverage_counts = Counter(label.get("material_coverage_grade") or "missing" for label in labels)
     complete_by_market = Counter(
         label.get("market_id") or "unknown"
         for label in labels
         if label.get("quality_grade") == "complete"
     )
+    promotion_countability_available = any("promotion_countable" in label for label in labels)
+    promotion_countable_labels = (
+        [label for label in labels if _truthy(label.get("promotion_countable"))]
+        if promotion_countability_available
+        else []
+    )
+    promotion_blocked_labels = (
+        [label for label in labels if not _truthy(label.get("promotion_countable"))]
+        if promotion_countability_available
+        else []
+    )
     return {
         "label_count": len(labels),
         "quality_counts": dict(sorted(quality_counts.items())),
         "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
+        "material_coverage_counts": dict(sorted(material_coverage_counts.items())),
+        "promotion_countability_available": promotion_countability_available,
+        "promotion_countable_label_count": len(promotion_countable_labels),
+        "promotion_blocked_label_count": len(promotion_blocked_labels),
+        "material_coverage_blocked_sample": [
+            {
+                "event_slug": label.get("event_slug"),
+                "market_id": label.get("market_id"),
+                "target_date": label.get("target_date"),
+                "quality_grade": label.get("quality_grade"),
+                "material_coverage_grade": label.get("material_coverage_grade"),
+                "material_coverage_reason": label.get("material_coverage_reason"),
+                "promotion_countable_reason": label.get("promotion_countable_reason"),
+                "coverage_reason": label.get("coverage_reason"),
+            }
+            for label in promotion_blocked_labels[:5]
+        ],
         "complete_by_market": dict(sorted(complete_by_market.items())),
     }
 

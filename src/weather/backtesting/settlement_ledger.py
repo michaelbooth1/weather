@@ -183,6 +183,146 @@ def quality_reason(grade, missing_core_fraction, coverage_reason=None):
     return "complete enough for headline scoring"
 
 
+def _iso(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _overlaps(start, end, window_start, window_end):
+    return start < window_end and end > window_start
+
+
+def _gap_window_label(gap, target_date, tzinfo):
+    after = gap.get("after")
+    before = gap.get("before")
+    if not isinstance(after, datetime) or not isinstance(before, datetime) or target_date is None:
+        return "unknown"
+    settlement_start, settlement_end = local_window(target_date, tzinfo)
+    peak_start = datetime.combine(target_date, datetime.strptime("14:00", "%H:%M").time().replace(tzinfo=tzinfo))
+    peak_end = datetime.combine(target_date, datetime.strptime("17:00", "%H:%M").time().replace(tzinfo=tzinfo))
+    if _overlaps(after, before, peak_start, peak_end):
+        return "peak_heating_window"
+    if _overlaps(after, before, settlement_start, settlement_end):
+        return "settlement_window"
+    return "outside_settlement_window"
+
+
+def material_coverage_gap_rows(coverage, target_date=None):
+    coverage = coverage or {}
+    first = coverage.get("first")
+    tzinfo = first.tzinfo if isinstance(first, datetime) else None
+    rows = []
+    for gap in coverage.get("gaps") or []:
+        window = _gap_window_label(gap, target_date, tzinfo)
+        gap_minutes = safe_float(gap.get("gap_minutes")) or 0.0
+        material = bool(
+            gap_minutes > MATERIAL_MAX_GAP_MINUTES
+            or (window == "peak_heating_window" and gap_minutes > MATERIAL_PEAK_MAX_GAP_MINUTES)
+        )
+        rows.append({
+            "after": _iso(gap.get("after")),
+            "before": _iso(gap.get("before")),
+            "gap_minutes": gap_minutes,
+            "window": window,
+            "material": material,
+        })
+    return rows
+
+
+def _compact_gap_windows(gaps):
+    return "; ".join(
+        f"{gap.get('window')}:{float(gap.get('gap_minutes') or 0):.0f}m"
+        for gap in gaps or []
+    )
+
+
+def material_coverage_grade(
+    snapshot_count,
+    band_count,
+    settlement_bucket,
+    settlement_source,
+    missing_core_fraction=0.0,
+    coverage=None,
+    target_date=None,
+):
+    coverage = coverage or {}
+    gaps = material_coverage_gap_rows(coverage, target_date=target_date)
+    capture_ratio = safe_float(coverage.get("capture_ratio"))
+    max_gap = max((safe_float(gap.get("gap_minutes")) or 0.0 for gap in gaps), default=0.0)
+    peak_gap = max(
+        (
+            safe_float(gap.get("gap_minutes")) or 0.0
+            for gap in gaps
+            if gap.get("window") == "peak_heating_window"
+        ),
+        default=0.0,
+    )
+    decisive_gaps = [gap for gap in gaps if gap.get("material")]
+
+    if settlement_bucket is None:
+        grade = "missing_settlement"
+        reason = "no settlement bucket available"
+    elif snapshot_count <= 0 or band_count <= 0:
+        grade = "missing_tape"
+        reason = "snapshot tape missing required rows or bands"
+    elif str(settlement_source) == "override":
+        grade = "manual_override"
+        reason = "manual settlement override"
+    elif snapshot_count < 6:
+        grade = "insufficient_captures"
+        reason = f"snapshot_count {snapshot_count} below material floor 6"
+    elif "sparse" in str(settlement_source) or str(settlement_source) == "none":
+        grade = "sparse_settlement_source"
+        reason = f"settlement_source={settlement_source}"
+    elif missing_core_fraction > 0.20:
+        grade = "stale_source"
+        reason = f"core source missing fraction {missing_core_fraction:.1%}"
+    elif not coverage.get("covers_afternoon"):
+        grade = "decisive_gap"
+        reason = coverage.get("reason") or "afternoon window not fully covered"
+    elif capture_ratio is None or capture_ratio < MATERIAL_CAPTURE_RATIO_MIN:
+        grade = "low_capture_ratio"
+        ratio = 0.0 if capture_ratio is None else capture_ratio
+        reason = f"capture_ratio {ratio:.1%} below material threshold {MATERIAL_CAPTURE_RATIO_MIN:.0%}"
+    elif decisive_gaps:
+        grade = "decisive_gap"
+        largest = max(safe_float(gap.get("gap_minutes")) or 0.0 for gap in decisive_gaps)
+        reason = f"{len(decisive_gaps)} material gap(s), max {largest:.0f} min"
+    elif coverage.get("clean"):
+        grade = "strict_complete"
+        reason = "zero-gap coverage across settlement window"
+    elif gaps:
+        grade = "minor_gap_material"
+        reason = f"{len(gaps)} non-material gap(s), max {max_gap:.0f} min"
+    else:
+        grade = "strict_complete"
+        reason = "material coverage complete"
+
+    return {
+        "grade": grade,
+        "reason": reason,
+        "promotion_coverage_countable": grade in MATERIAL_COUNTABLE_COVERAGE_GRADES,
+        "window": f"{MATERIAL_COVERAGE_WINDOW}; peak={MATERIAL_PEAK_WINDOW}",
+        "gap_count": len(gaps),
+        "max_gap_minutes": max_gap,
+        "peak_gap_minutes": peak_gap,
+        "decisive_gap_count": len(decisive_gaps),
+        "gap_windows": _compact_gap_windows(gaps),
+        "gaps": gaps,
+    }
+
+
+def promotion_countability(material_coverage, reconciliation_status):
+    material_coverage = material_coverage or {}
+    grade = material_coverage.get("grade")
+    if grade not in MATERIAL_COUNTABLE_COVERAGE_GRADES:
+        return False, material_coverage.get("reason") or f"material_coverage_grade={grade}"
+    if str(reconciliation_status) not in PROMOTION_RECONCILIATION_STATUSES:
+        return False, f"settlement reconciliation status is {reconciliation_status or 'missing'}"
+    return True, "settlement reconciled and material coverage countable"
+
+
 def captured_times(frame):
     if "captured_at_local" not in frame:
         return []
@@ -710,6 +850,19 @@ def build_label(
     winning_markets = reconciliation.get("winning_markets") or []
     polymarket_winning_band = winning_markets[0].get("label") if winning_markets else None
     ledger_path = ledger_path_for_market(spec.id, ledger_root)
+    material = material_coverage_grade(
+        snapshot_count,
+        band_count,
+        bucket,
+        settlement["source"],
+        missing_core,
+        coverage=coverage,
+        target_date=target_date,
+    )
+    is_promotion_countable, promotion_countable_reason = promotion_countability(
+        material,
+        reconciliation.get("status"),
+    )
 
     label = {
         "schema_version": LEDGER_SCHEMA_VERSION,
@@ -736,6 +889,17 @@ def build_label(
         "capture_ratio": coverage.get("capture_ratio"),
         "max_gap_minutes": coverage.get("max_gap_minutes"),
         "coverage_reason": coverage.get("reason"),
+        "material_coverage_grade": material["grade"],
+        "material_coverage_reason": material["reason"],
+        "material_coverage_window": material["window"],
+        "material_coverage_gap_count": material["gap_count"],
+        "material_coverage_max_gap_minutes": material["max_gap_minutes"],
+        "material_peak_gap_minutes": material["peak_gap_minutes"],
+        "material_coverage_decisive_gap_count": material["decisive_gap_count"],
+        "material_coverage_gap_windows": material["gap_windows"],
+        "material_coverage_gaps": material["gaps"],
+        "promotion_countable": is_promotion_countable,
+        "promotion_countable_reason": promotion_countable_reason,
         "resolution_source_type": resolution["resolution_source_type"],
         "resolution_wu_history_id": resolution["wu_history_id"],
         "resolution_station": resolution["station_icao"],

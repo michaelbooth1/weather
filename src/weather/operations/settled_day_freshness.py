@@ -42,6 +42,14 @@ TORONTO_TZ = ZoneInfo("America/Toronto")
 FALLBACK_SETTLEMENT_SOURCES = {"snapshot_high", "daily_summary(sparse)", "none"}
 
 
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
 def utc_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -242,6 +250,16 @@ def market_row(spec, target_date, snapshots_root, labels, ledgers, ledger_root):
         "settlement_bucket": best_label.get("settlement_bucket"),
         "winning_band": best_label.get("winning_band"),
         "quality_grade": best_label.get("quality_grade"),
+        "material_coverage_grade": best_label.get("material_coverage_grade"),
+        "material_coverage_reason": best_label.get("material_coverage_reason"),
+        "material_coverage_window": best_label.get("material_coverage_window"),
+        "material_coverage_gap_count": best_label.get("material_coverage_gap_count"),
+        "material_coverage_max_gap_minutes": best_label.get("material_coverage_max_gap_minutes"),
+        "material_peak_gap_minutes": best_label.get("material_peak_gap_minutes"),
+        "material_coverage_decisive_gap_count": best_label.get("material_coverage_decisive_gap_count"),
+        "material_coverage_gap_windows": best_label.get("material_coverage_gap_windows"),
+        "promotion_countable": truthy(best_label.get("promotion_countable")),
+        "promotion_countable_reason": best_label.get("promotion_countable_reason"),
         "reconciliation_status": best_label.get("reconciliation_status"),
         "daily_summary": summary_status,
         "source_lag_warning": source_lag_warning,
@@ -288,9 +306,15 @@ def summarize_rows(rows):
     needs_finalization = [row for row in rows if row.get("needs_finalization")]
     source_lag = [row for row in rows if row.get("source_lag_warning")]
     quality_counts = {}
+    material_coverage_counts = {}
+    material_rows = []
     for row in rows:
         grade = row.get("quality_grade") or "missing"
         quality_counts[grade] = quality_counts.get(grade, 0) + 1
+        material_grade = row.get("material_coverage_grade") or "missing"
+        material_coverage_counts[material_grade] = material_coverage_counts.get(material_grade, 0) + 1
+        if row.get("material_coverage_grade"):
+            material_rows.append(row)
     status = "PASS"
     if incomplete:
         status = "FAIL"
@@ -313,6 +337,10 @@ def summarize_rows(rows):
         "source_lag_warning_count": len(source_lag),
         "quality_counts": dict(sorted(quality_counts.items())),
         "partial_label_count": quality_counts.get("partial", 0),
+        "material_coverage_counts": dict(sorted(material_coverage_counts.items())),
+        "promotion_countability_available": bool(material_rows),
+        "promotion_countable_label_count": sum(1 for row in material_rows if row.get("promotion_countable")),
+        "promotion_blocked_label_count": sum(1 for row in material_rows if row.get("promotion_countable") is False),
     }
 
 
@@ -502,6 +530,8 @@ def render_report(payload):
             "Source",
             "Daily Summary",
             "Winning Band",
+            "Material Coverage",
+            "Promotion Countable",
         ],
         [
             [
@@ -513,6 +543,8 @@ def render_report(payload):
                 row.get("settlement_source") or "-",
                 (row.get("daily_summary") or {}).get("status"),
                 row.get("winning_band") or "-",
+                row.get("material_coverage_grade") or "-",
+                row.get("promotion_countable"),
             ]
             for row in payload.get("markets") or []
         ],
