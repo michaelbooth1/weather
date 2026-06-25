@@ -105,8 +105,13 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/collection/snapshot_store.py": {
         "owner": "collection",
-        "boundary": "Snapshot schema constants, readers, writers, sidecar backfill/migration helpers, and repair CLI behavior.",
-        "next_split": "Item 318 warning module; split schema constants/readers before writers and repair helpers.",
+        "boundary": "Snapshot schema constants, readers, writers, and compatibility exports for backfill utilities.",
+        "next_split": "Item 318 slice complete; backfill helpers and utility CLI wiring live in snapshot_store_backfill.",
+    },
+    "src/weather/collection/snapshot_store_backfill.py": {
+        "owner": "collection",
+        "boundary": "Snapshot sidecar/cadence backfill helpers and snapshot-store utility CLI wiring.",
+        "next_split": "Owner module for item 318; imports SnapshotStore lazily to avoid cycles.",
     },
     "src/weather/market/taker_bot_bakeoff.py": {
         "owner": "market",
@@ -115,8 +120,13 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/reporting/source_family_inventory.py": {
         "owner": "reporting",
-        "boundary": "Source-family input readers, family/gate classification, report rendering, and CLI.",
-        "next_split": "Item 318 warning module; split input readers and classification before report rendering.",
+        "boundary": "Source-family input readers, family/gate classification, payload assembly, and CLI.",
+        "next_split": "Item 318 slice complete; Markdown rendering lives in source_family_inventory_report.",
+    },
+    "src/weather/reporting/source_family_inventory_report.py": {
+        "owner": "reporting",
+        "boundary": "Markdown rendering for source-family inventory artifacts.",
+        "next_split": "Owner module for item 318; must not import the source-family inventory facade.",
     },
 }
 

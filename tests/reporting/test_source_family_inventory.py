@@ -738,6 +738,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 snapshots_root=snapshots_root,
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
+                ablation_json=backtest_root / "missing_source_family_ablation.json",
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
                 locations_config=locations_config,
                 item27_reanalysis_paths={},

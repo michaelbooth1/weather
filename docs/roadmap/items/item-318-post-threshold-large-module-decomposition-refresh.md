@@ -1,4 +1,4 @@
-# 318. Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - SEVEN MODULES REMAIN AFTER DAILY REFRESH SLICE]
+# 318. Post-Threshold Large Module Decomposition Refresh [OPEN 2026-06-25 - FIVE MODULES REMAIN AFTER SNAPSHOT STORE SLICE]
 
 Goal: bring the module-size audit back under the 2,000-line warning threshold
 with owner-scoped splits, updated ownership docs, and matching test fixture
@@ -64,9 +64,9 @@ gate.
 - [ ] Reduce `weather.market.mm_paper` below the warning threshold.
 - [ ] Reduce or explicitly exempt `weather.schema_registry` with documented
   registry/audit ownership.
-- [ ] Reduce `weather.collection.snapshot_store` below the warning threshold.
+- [x] Reduce `weather.collection.snapshot_store` below the warning threshold.
 - [ ] Reduce `weather.market.taker_bot_bakeoff` below the warning threshold.
-- [ ] Reduce `weather.reporting.source_family_inventory` below the warning
+- [x] Reduce `weather.reporting.source_family_inventory` below the warning
   threshold.
 - [ ] Split matching large test fixtures/builders where needed for the source
   splits.
@@ -79,6 +79,21 @@ to `weather.operations.daily_refresh_status`. `weather.operations.daily_refresh_
 is now a step-adapter compatibility surface at 1,994 lines. The regenerated
 module-size audit reports `7` warnings; the remaining over-threshold modules
 have owner and next-split metadata in both the ownership map and audit notes.
+
+2026-06-25 source-family slice: split Markdown rendering to
+`weather.reporting.source_family_inventory_report` while keeping
+`weather.reporting.source_family_inventory.write_report` as a compatibility
+export. `weather.reporting.source_family_inventory` is now 1,826 lines. The
+regenerated module-size audit reports `6` warnings; the remaining
+over-threshold modules keep owner and next-split metadata in both the ownership
+map and audit notes.
+
+2026-06-25 snapshot-store slice: split sidecar/cadence backfill helpers and
+snapshot-store utility CLI wiring to `weather.collection.snapshot_store_backfill`
+while keeping `weather.collection.snapshot_store` compatibility exports stable.
+`weather.collection.snapshot_store` is now 1,972 lines. The regenerated
+module-size audit reports `5` warnings; the remaining over-threshold modules
+keep owner and next-split metadata in both the ownership map and audit notes.
 
 Acceptance: `python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md`
 reports zero warnings, or any remaining over-threshold module has an explicit
