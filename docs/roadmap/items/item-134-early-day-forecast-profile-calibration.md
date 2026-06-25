@@ -75,7 +75,7 @@ Generated smoke artifact:
 --max-days-per-market 20`. This proves the candidate artifact path and subset
 contract, but it is not acceptance evidence because it is a capped smoke run.
 
-Added `weather.reporting.forecast_profile_calibration`, which writes
+Added `weather.reporting.research.forecast_profile_calibration`, which writes
 `data/backtest/item134_forecast_profile_calibration.json` and
 `data/backtest/item134_forecast_profile_calibration_report.md`. The report
 uses HGB permutation rows with `forecast_high` retained in the fitted model to
@@ -144,11 +144,11 @@ high-disagreement safety, so it should not be promoted as an Item 48 unblock.
 
 ## 2026-06-22 forecast-profile disposition
 
-Added `weather.reporting.item134_forecast_profile_disposition`, schema
+Added `weather.reporting.research.item134_forecast_profile_disposition`, schema
 `item134_forecast_profile_disposition_v0.1`, and generated:
 
 ```powershell
-python -m weather.reporting.item134_forecast_profile_disposition --out data\backtest\item134_forecast_profile_disposition.json --report data\backtest\item134_forecast_profile_disposition_report.md
+python -m weather.reporting.research.item134_forecast_profile_disposition --out data\backtest\item134_forecast_profile_disposition.json --report data\backtest\item134_forecast_profile_disposition_report.md
 ```
 
 Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. The report keeps the

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_double_counting import (
+from weather.reporting.research.forecast_double_counting import (
     acceptance,
     build_payload,
     forecast_pull_delta_summary,

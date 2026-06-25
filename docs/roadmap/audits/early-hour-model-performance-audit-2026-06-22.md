@@ -223,7 +223,7 @@ candidate artifact.
 Validation:
 
 ```powershell
-python -m weather.reporting.predawn_weak_slot_repair --out data\backtest\predawn_weak_slot_repair.json --report data\backtest\predawn_weak_slot_repair_report.md
+python -m weather.reporting.research.predawn_weak_slot_repair --out data\backtest\predawn_weak_slot_repair.json --report data\backtest\predawn_weak_slot_repair_report.md
 ```
 
 Success criterion:

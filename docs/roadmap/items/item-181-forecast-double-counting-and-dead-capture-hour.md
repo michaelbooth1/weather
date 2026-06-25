@@ -70,7 +70,7 @@ replay/attribution evidence for HGB forecast-feature contribution and aggregate
 plus per-market regression deltas; the serving scope proof itself no longer
 blocks.
 
-Progress note 2026-06-22: `weather.reporting.forecast_double_counting` now
+Progress note 2026-06-22: `weather.reporting.research.forecast_double_counting` now
 writes `data/backtest/item181_forecast_double_counting.json` and
 `data/backtest/item181_forecast_double_counting_report.md`, combining HGB
 forecast-feature attribution, forecast-pull/floor stage deltas, current-code

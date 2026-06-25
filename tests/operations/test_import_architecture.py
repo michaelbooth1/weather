@@ -174,6 +174,33 @@ REPORTING_VALIDATION_MODULES = [
     Path("src/weather/reporting/validation/winner_boost_validation.py"),
     Path("src/weather/reporting/validation/wu_max_since_7_validation.py"),
 ]
+REPORTING_RESEARCH_MODULES = [
+    Path("src/weather/reporting/research/austin_hgb_requalification.py"),
+    Path("src/weather/reporting/research/austin_weather_model_hardening.py"),
+    Path("src/weather/reporting/research/blocked_market_repair_diagnostics.py"),
+    Path("src/weather/reporting/research/bottom_location_winner_centering.py"),
+    Path("src/weather/reporting/research/cross_hub_research_audit.py"),
+    Path("src/weather/reporting/research/exact_band_distance_zero_calibration.py"),
+    Path("src/weather/reporting/research/forecast_double_counting.py"),
+    Path("src/weather/reporting/research/forecast_profile_calibration.py"),
+    Path("src/weather/reporting/research/forecast_source_state_reliability.py"),
+    Path("src/weather/reporting/research/item134_forecast_profile_disposition.py"),
+    Path("src/weather/reporting/research/item135_cutoff_regime_disposition.py"),
+    Path("src/weather/reporting/research/item136_source_state_disposition.py"),
+    Path("src/weather/reporting/research/item138_weak_input_family_gate.py"),
+    Path("src/weather/reporting/research/item147_winner_centering_disposition.py"),
+    Path("src/weather/reporting/research/item160_candidate_viability_audit.py"),
+    Path("src/weather/reporting/research/item186_soil_antecedent_gate.py"),
+    Path("src/weather/reporting/research/item186_soil_antecedent_settlement_gate.py"),
+    Path("src/weather/reporting/research/item224_active_timesplit_logistic_repair.py"),
+    Path("src/weather/reporting/research/item224_no_market_ranked_winner_repair.py"),
+    Path("src/weather/reporting/research/item224_no_market_seattle_warm_support_repair.py"),
+    Path("src/weather/reporting/research/item48_promotion_readiness_acceptance.py"),
+    Path("src/weather/reporting/research/late_day_lock_in_repair.py"),
+    Path("src/weather/reporting/research/predawn_weak_slot_parameter_sweep.py"),
+    Path("src/weather/reporting/research/predawn_weak_slot_repair.py"),
+    Path("src/weather/reporting/research/reanalysis_synoptic_band_ablation.py"),
+]
 REPORTING_RETIRED_ROOT_WRAPPER_NAMES = {
     "promotion_refresh_cli.py",
     "promotion_refresh_decisions.py",
@@ -207,12 +234,63 @@ REPORTING_SAFE_SLICE_MODULES = [
     *REPORTING_CASEBOOK_MODULES,
     *REPORTING_MARKET_MODULES,
     *REPORTING_VALIDATION_MODULES,
+    *REPORTING_RESEARCH_MODULES,
 ]
 REPORTING_SAFE_SLICE_ROOT_NAMES = {
     path.name
     for path in REPORTING_SAFE_SLICE_MODULES
     if path.name != "__init__.py"
 } | REPORTING_RETIRED_ROOT_WRAPPER_NAMES
+REPORTING_ROOT_SHARED_MODULES = {
+    "__init__.py",
+    "formatting.py",
+    "overview_helpers.py",
+}
+REPORTING_ROOT_EXCEPTION_REASONS = {
+    "active_variant_shadow_refresh.py": "candidate lifecycle orchestration; spans registry, replay summary, and active repair workflows",
+    "backtest_artifact_retention.py": "artifact retention policy report; needs a data-quality or operations-reporting home",
+    "candidate_variant_replay_summary.py": "shared candidate lifecycle summary consumed by repair integration and roadmap evidence",
+    "cross_hub_readiness.py": "cross-hub readiness gate; not the one-shot research audit moved in this slice",
+    "current_max_trust_retrain_evidence.py": "current max-trust retrain evidence paired with the active retrain gate",
+    "current_max_trust_retrain_gate.py": "current max-trust retrain gate; source-gate taxonomy is still pending",
+    "cutoff_regime_weighting.py": "scorecard-consumed cutoff-regime weighting helper, not research-only",
+    "early_hour_positive_daily_first_gate.py": "serving gate report pending a gate-specific reporting taxonomy",
+    "extra_location_registry.py": "location registry support pending a location/config reporting taxonomy",
+    "forecast_radiation_gate.py": "source-family promotion gate pending a source-gate reporting taxonomy",
+    "forecast_smoke_gate.py": "source-family smoke gate pending a source-gate reporting taxonomy",
+    "forecast_smoke_slice_prep.py": "source-family smoke slice prep paired with the smoke gate",
+    "global_model_guidance_gate.py": "source-family guidance gate pending a source-gate reporting taxonomy",
+    "june23_location_bias_repair.py": "daily-refresh repair packet still invoked by operations workflows",
+    "location_similarity_pooling.py": "location pooling report pending a location-analysis reporting taxonomy",
+    "location_trust.py": "legacy location trust report with active callers; needs an accurate shared home",
+    "marine_contrast_gate.py": "source-family marine contrast gate pending a source-gate reporting taxonomy",
+    "model_market_disagreement_analysis.py": "daily-refresh disagreement analysis still has operational callers",
+    "model_market_disagreement_audit.py": "shared disagreement audit helper consumed by overview helpers and tools",
+    "model_scoring_liveness.py": "model scoring liveness report pending an operations-reporting home",
+    "multi_variant_shadow.py": "shadow variant reporting depends on the shared variant registry contract",
+    "nbm_probabilistic_tmax_gate.py": "NBM source gate pending a source-gate reporting taxonomy",
+    "nbm_probabilistic_tmax_settlement_scoring.py": "NBM settlement scoring paired with the NBM source gate",
+    "no_market_location_transfer.py": "location-transfer report pending a location-analysis reporting taxonomy",
+    "official_guidance_sparse_coverage.py": "official guidance coverage evidence pending a source-gate reporting taxonomy",
+    "per_location_artifact_quarantine.py": "per-location artifact quarantine pending a data-quality/location boundary",
+    "physical_feature_family_ratchet.py": "source-family ratchet consumes source-family inventory definitions",
+    "pooled_f_retrain_location_gate.py": "shared item-224 location gate consumed by scorecards and roadmap evidence",
+    "price_free_model_learning.py": "price-free learning report with existing root callers",
+    "repair_integration.py": "repair integration spans replay summaries, registry contracts, and promotion artifacts",
+    "roadmap_backlog.py": "roadmap maintenance CLI, intentionally outside research taxonomy",
+    "runtime_identity_evidence.py": "runtime identity evidence report pending an operations-reporting taxonomy",
+    "runtime_identity_reconciliation.py": "runtime identity reconciliation paired with identity evidence",
+    "served_distribution_calibration_contract.py": "served distribution contract report pending a serving-reporting taxonomy",
+    "serving_ordinal_smoothing_gate.py": "serving ordinal smoothing gate pending a serving-reporting taxonomy",
+    "settlement_source_audit.py": "settlement-source audit has daily-refresh and market-reporting callers",
+    "shadow_ab_monitor.py": "shadow A/B monitor still shares root-level variant reporting dependencies",
+    "source_family_inventory.py": "shared source-family inventory consumed by gates, ratchets, and roadmap evidence",
+    "source_family_inventory_report.py": "rendering half of the shared source-family inventory owner",
+    "source_redundancy.py": "shared source redundancy report pending a source-analysis taxonomy",
+    "variant_evidence_growth.py": "variant evidence growth report pending a candidate-lifecycle taxonomy",
+    "variant_registry.py": "active variant registry contract shared by calibration, reporting, and tests",
+    "weak_input_family_disposition.py": "training preflight helper consumed by calibration, not research-only",
+}
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
 TARGET_MODULES.extend(
     POOLED_FEATURE_SPLIT_MODULES
@@ -645,6 +723,25 @@ def test_reporting_safe_slice_modules_stay_in_subpackages():
 
     assert missing == []
     assert root_offenders == []
+
+
+def test_reporting_root_modules_are_shared_or_explicitly_classified():
+    actual_root_modules = {
+        path.name
+        for path in Path("src/weather/reporting").glob("*.py")
+    }
+    allowed_root_modules = REPORTING_ROOT_SHARED_MODULES | set(REPORTING_ROOT_EXCEPTION_REASONS)
+    unexpected = sorted(actual_root_modules - allowed_root_modules)
+    stale_exceptions = sorted(set(REPORTING_ROOT_EXCEPTION_REASONS) - actual_root_modules)
+    empty_reasons = sorted(
+        name
+        for name, reason in REPORTING_ROOT_EXCEPTION_REASONS.items()
+        if not reason.strip()
+    )
+
+    assert unexpected == []
+    assert stale_exceptions == []
+    assert empty_reasons == []
 
 
 def test_project_critical_files_are_tracked_or_ignored():

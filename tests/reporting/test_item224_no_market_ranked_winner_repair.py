@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from weather.reporting.item224_no_market_ranked_winner_repair import (
+from weather.reporting.research.item224_no_market_ranked_winner_repair import (
     SCHEMA_VERSION,
     build_payload,
     render_report,

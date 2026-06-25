@@ -405,7 +405,7 @@ def _execute_active_timesplit_logistic_repair_contract(
     out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
 ) -> dict[str, Any]:
     """Execute the active time-split logistic export contract."""
-    from weather.reporting import item224_active_timesplit_logistic_repair
+    from weather.reporting.research import item224_active_timesplit_logistic_repair
 
     output_path = _resolve_registry_output_path(contract.get("default_export_path"))
     if output_path is None:

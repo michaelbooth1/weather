@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.item147_winner_centering_disposition import (
+from weather.reporting.research.item147_winner_centering_disposition import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

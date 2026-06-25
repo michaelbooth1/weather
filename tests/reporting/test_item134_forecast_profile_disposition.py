@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.item134_forecast_profile_disposition import (
+from weather.reporting.research.item134_forecast_profile_disposition import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

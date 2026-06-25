@@ -107,11 +107,11 @@ Regenerated the weak-family disposition report:
 python -m weather.reporting.weak_input_family_disposition --out data\backtest\item138_weak_input_family_disposition.json --report data\backtest\item138_weak_input_family_disposition_report.md
 ```
 
-Added `weather.reporting.item138_weak_input_family_gate`, schema
+Added `weather.reporting.research.item138_weak_input_family_gate`, schema
 `item138_weak_input_family_gate_v0.1`, and generated:
 
 ```powershell
-python -m weather.reporting.item138_weak_input_family_gate --out data\backtest\item138_weak_input_family_gate.json --report data\backtest\item138_weak_input_family_gate_report.md
+python -m weather.reporting.research.item138_weak_input_family_gate --out data\backtest\item138_weak_input_family_gate.json --report data\backtest\item138_weak_input_family_gate_report.md
 ```
 
 Result: **BLOCK**, disposition **KEEP_POLICY_SHADOW_PRUNE_ON_RETRAIN**.

@@ -100,11 +100,11 @@ regime blend is not an Item 48 promotion path by itself.
 
 ## 2026-06-22 cutoff-regime disposition
 
-Added `weather.reporting.item135_cutoff_regime_disposition`, schema
+Added `weather.reporting.research.item135_cutoff_regime_disposition`, schema
 `item135_cutoff_regime_disposition_v0.1`, and generated:
 
 ```powershell
-python -m weather.reporting.item135_cutoff_regime_disposition --out data\backtest\item135_cutoff_regime_disposition.json --report data\backtest\item135_cutoff_regime_disposition_report.md
+python -m weather.reporting.research.item135_cutoff_regime_disposition --out data\backtest\item135_cutoff_regime_disposition.json --report data\backtest\item135_cutoff_regime_disposition_report.md
 ```
 
 Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. The report keeps the

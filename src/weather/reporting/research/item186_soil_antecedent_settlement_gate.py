@@ -12,7 +12,7 @@ from typing import Any
 from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_pct, fmt_signed, markdown_table
-from weather.reporting.item186_soil_antecedent_gate import DEFAULT_REANALYSIS_ROOT, coverage_summary
+from weather.reporting.research.item186_soil_antecedent_gate import DEFAULT_REANALYSIS_ROOT, coverage_summary
 from weather.reporting.source_family_inventory import item27_reanalysis_ablation_evidence
 from weather.schema_registry import schema_version
 

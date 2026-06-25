@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import data_path
-from weather.reporting.exact_band_distance_zero_calibration import (
+from weather.reporting.research.exact_band_distance_zero_calibration import (
     GUARDRAIL_SLICES,
     TARGET_SLICES,
     guardrail_status,

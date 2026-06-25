@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import data_path
-from weather.reporting.bottom_location_winner_centering import parse_time_slot
+from weather.reporting.research.bottom_location_winner_centering import parse_time_slot
 from weather.reporting.formatting import fmt_num, markdown_table
-from weather.reporting.predawn_weak_slot_repair import weak_slots_from_report
+from weather.reporting.research.predawn_weak_slot_repair import weak_slots_from_report
 
 
 SCHEMA_VERSION = "item224_no_market_seattle_warm_support_repair_v0.1"

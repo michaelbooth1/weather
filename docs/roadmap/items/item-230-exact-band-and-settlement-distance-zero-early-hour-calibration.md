@@ -45,7 +45,7 @@ Related: items 70, 147, 160, 178, 228, 231.
 
 ## 2026-06-22 exact/distance gate update
 
-Added `weather.reporting.exact_band_distance_zero_calibration` with schema
+Added `weather.reporting.research.exact_band_distance_zero_calibration` with schema
 `exact_band_distance_zero_calibration_v0.1`. The report consumes Item-69-style
 candidate row exports, infers early/ramp/late/lock-in regimes from local capture
 time when cutoff metadata is absent, scores daily-first exact-band and
@@ -86,8 +86,8 @@ passed with `67 passed`.
 Run commands:
 
 ```powershell
-python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --out data\backtest\exact_band_distance_zero_calibration.json --report data\backtest\exact_band_distance_zero_calibration_report.md
-python -m weather.reporting.exact_band_distance_zero_calibration --variant-rows data\backtest\item147_time_split_alpha_variant_rows.csv --out data\backtest\item147_time_split_alpha_exact_band_distance_zero_calibration.json --report data\backtest\item147_time_split_alpha_exact_band_distance_zero_calibration_report.md
+python -m weather.reporting.research.exact_band_distance_zero_calibration --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --out data\backtest\exact_band_distance_zero_calibration.json --report data\backtest\exact_band_distance_zero_calibration_report.md
+python -m weather.reporting.research.exact_band_distance_zero_calibration --variant-rows data\backtest\item147_time_split_alpha_variant_rows.csv --out data\backtest\item147_time_split_alpha_exact_band_distance_zero_calibration.json --report data\backtest\item147_time_split_alpha_exact_band_distance_zero_calibration_report.md
 ```
 
 ## 2026-06-22 gate refresh after predawn/bottom-location updates

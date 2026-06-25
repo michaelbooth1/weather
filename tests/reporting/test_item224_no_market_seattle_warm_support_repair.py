@@ -1,4 +1,4 @@
-from weather.reporting.item224_no_market_seattle_warm_support_repair import (
+from weather.reporting.research.item224_no_market_seattle_warm_support_repair import (
     METADATA_DEFAULTS,
     apply_repair,
     repair_rule_for_group,

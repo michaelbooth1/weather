@@ -45,7 +45,7 @@ confidence, and distort market-making/taker risk decisions.
 - [x] Prove late-day Brier/log-loss improves versus current without regressing
   predawn weak slots or ramp/midday discovery windows.
 
-Implementation evidence (2026-06-20): `weather.reporting.late_day_lock_in_repair`
+Implementation evidence (2026-06-20): `weather.reporting.research.late_day_lock_in_repair`
 writes `data/backtest/late_day_lock_in_repair.json` and
 `data/backtest/late_day_lock_in_repair_report.md` with schema
 `late_day_lock_in_repair_v0.1`. The passing candidate,

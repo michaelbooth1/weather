@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.exact_band_distance_zero_calibration import (
+from weather.reporting.research.exact_band_distance_zero_calibration import (
     SCHEMA_VERSION,
     build_payload,
     read_variant_rows,

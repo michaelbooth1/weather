@@ -15,7 +15,7 @@ from typing import Any
 from weather.paths import data_path
 from weather.reporting.hourly.candidate_hourly_performance import candidate_rows_corpus_hash
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.predawn_weak_slot_repair import weak_slots_from_report
+from weather.reporting.research.predawn_weak_slot_repair import weak_slots_from_report
 from weather.reporting.hourly.ten_minute_model_performance import slot_label
 from weather.schema_registry import schema_version
 

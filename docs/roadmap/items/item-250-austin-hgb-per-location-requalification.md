@@ -23,7 +23,7 @@ Related: items 48, 218, 219, 224, 230, 231, 241, and 242.
 
 ## 2026-06-22 implementation
 
-Added `weather.reporting.austin_hgb_requalification` with schema
+Added `weather.reporting.research.austin_hgb_requalification` with schema
 `austin_hgb_requalification_v0.1`.
 
 Generated artifacts:
@@ -34,7 +34,7 @@ Generated artifacts:
 Command:
 
 ```powershell
-python -m weather.reporting.austin_hgb_requalification
+python -m weather.reporting.research.austin_hgb_requalification
 ```
 
 Result: `PASS` as an enforcement packet with Austin HGB serving disposition

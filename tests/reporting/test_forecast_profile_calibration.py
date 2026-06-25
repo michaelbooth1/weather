@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_profile_calibration import (
+from weather.reporting.research.forecast_profile_calibration import (
     acceptance,
     build_report_payload,
     forecast_profile_subfamily_rows,

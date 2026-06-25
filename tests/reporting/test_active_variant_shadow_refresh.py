@@ -235,7 +235,7 @@ def test_active_timesplit_logistic_runtime_executes_registry_export(tmp_path):
         }
 
     with patch(
-        "weather.reporting.item224_active_timesplit_logistic_repair.build_payload",
+        "weather.reporting.research.item224_active_timesplit_logistic_repair.build_payload",
         side_effect=fake_build_payload,
     ):
         execution = execute_registry_prediction_exports(registry_path=registry, corpus_path=corpus)

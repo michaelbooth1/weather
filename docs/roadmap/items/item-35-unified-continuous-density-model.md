@@ -1125,7 +1125,7 @@ only Brier tables. It is registered as
 promotion evidence.
 
 I regenerated the retained later-date blocked-market export:
-`python -m weather.reporting.blocked_market_repair_diagnostics data\backtest\item147_blocked_markets_time_split_alpha_variant_rows.csv --out data\backtest\item147_blocked_market_repair_actions.json --report data\backtest\item147_blocked_market_repair_actions_report.md --min-slice-rows 200 --top-slices 6`.
+`python -m weather.reporting.research.blocked_market_repair_diagnostics data\backtest\item147_blocked_markets_time_split_alpha_variant_rows.csv --out data\backtest\item147_blocked_market_repair_actions.json --report data\backtest\item147_blocked_market_repair_actions_report.md --min-slice-rows 200 --top-slices 6`.
 
 The report scores `30,569` rows across Austin, Los Angeles, NYC, San Francisco,
 and Seattle. It confirms that the next useful model work is not another broad

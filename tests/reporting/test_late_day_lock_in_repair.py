@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.late_day_lock_in_repair import (
+from weather.reporting.research.late_day_lock_in_repair import (
     bin_covers_value,
     compare_summary,
     lock_in_candidate_rows,

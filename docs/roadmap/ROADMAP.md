@@ -314,7 +314,7 @@ infrastructure work remains.
 | 267 | [Multi-Market Source-Bias Model Extension (Global-Ensemble + NWS, Per-Market Refit) [COMPLETE 2026-06-23 - MULTI-MARKET SOURCE-BIAS ARTIFACTS REFIT WITH RELIABILITY WEIGHTS]](items/item-267-multi-market-source-bias-model-extension.md) |
 | 268 | [Afternoon Post-Ramp Per-Market Warm-Centering Correction (15:00-18:00 Local) [COMPLETE 2026-06-23 - AFTERNOON RESIDUAL CENTERING ARTIFACT LIVE]](items/item-268-afternoon-post-ramp-per-market-warm-centering.md) |
 | 269 | [Market-Beating Objective Scoreboard And Anti-Anchoring Gate [COMPLETE 2026-06-23 - NORTH-STAR SCOREBOARD LIVE]](items/item-269-market-beating-objective-scoreboard-and-anti-anchoring-gate.md) |
-| 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - CASEBOOK MARKET VALIDATION SLICE LANDED]](items/item-270-weather-reporting-subdomain-decomposition.md) |
+| 270 | [weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - RESEARCH CLASSIFICATION SLICE LANDED]](items/item-270-weather-reporting-subdomain-decomposition.md) |
 | 271 | [Audit Analysis Operator Loop [COMPLETE 2026-06-23 - DASHBOARD OPERATOR LOOP LIVE]](items/item-271-audit-analysis-operator-loop.md) |
 | 272 | [Taker Daily-Roll Liveness And Artifact Restart [COMPLETE 2026-06-23]](items/item-272-taker-daily-roll-liveness-and-artifact-restart.md) |
 | 273 | [Settlement-Scored Taker Counterfactual Tape [COMPLETE 2026-06-23]](items/item-273-settlement-scored-taker-counterfactual-tape.md) |

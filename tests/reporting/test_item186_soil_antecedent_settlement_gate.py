@@ -1,8 +1,8 @@
 import csv
 import json
 
-from weather.reporting.item186_soil_antecedent_gate import SOIL_COLUMNS, WATER_COLUMNS
-from weather.reporting.item186_soil_antecedent_settlement_gate import (
+from weather.reporting.research.item186_soil_antecedent_gate import SOIL_COLUMNS, WATER_COLUMNS
+from weather.reporting.research.item186_soil_antecedent_settlement_gate import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.predawn_weak_slot_repair import (
+from weather.reporting.research.predawn_weak_slot_repair import (
     SCHEMA_VERSION,
     build_payload,
     build_repair_result,

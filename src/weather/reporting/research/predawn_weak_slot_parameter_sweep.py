@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 
 from weather.paths import data_path
-from weather.reporting import predawn_weak_slot_repair as predawn
+from weather.reporting.research import predawn_weak_slot_repair as predawn
 from weather.reporting.formatting import fmt_signed, markdown_table
 from weather.reporting.hourly.ten_minute_model_performance import (
     parse_time,

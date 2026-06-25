@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.reanalysis_synoptic_band_ablation import (
+from weather.reporting.research.reanalysis_synoptic_band_ablation import (
     build_ablation_payload,
     merge_source_family_ablation,
     paired_ablation_rows,

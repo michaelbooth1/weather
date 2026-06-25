@@ -133,7 +133,7 @@ Verification:
 
 ## 2026-06-22 Fail-Closed Item 186 Gate
 
-I added `weather.reporting.item186_soil_antecedent_gate` with schema
+I added `weather.reporting.research.item186_soil_antecedent_gate` with schema
 `item186_soil_antecedent_gate_v0.1` and generated:
 
 - `data/backtest/item186_soil_antecedent_gate.json`
@@ -175,7 +175,7 @@ over `2026-04-28` through `2026-06-13`, then rebuilt every
 water-balance rows (`17` per market), enough to score the current settled
 May 28-June 13 evidence window without refreshing the full 2000-2026 archive.
 
-Added `weather.reporting.item186_soil_antecedent_settlement_gate` with schema
+Added `weather.reporting.research.item186_soil_antecedent_settlement_gate` with schema
 `item186_soil_antecedent_settlement_gate_v0.1` and generated:
 
 - `data/backtest/item186_soil_antecedent_settlement_gate.json`

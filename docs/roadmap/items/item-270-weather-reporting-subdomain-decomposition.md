@@ -1,4 +1,4 @@
-# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - CASEBOOK MARKET VALIDATION SLICE LANDED]
+# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - RESEARCH CLASSIFICATION SLICE LANDED]
 
 Goal: group the now-small `weather.reporting` modules into cohesive subpackages
 by reporting subdomain, so the package is navigable and the import-architecture
@@ -63,12 +63,16 @@ item 206).
    - `reporting/casebooks/` - `disagreement_casebook`, `taker_tail_casebook`,
      `winner_underpricing_casebook`
    - `reporting/market/` - `market_*`, `trading_evidence`
-   - `reporting/research/` - item-prefixed one-shot dispositions
-     (`item134*`, `item135*`, `item136*`, `item138*`, `item147*`, `item186*`),
+   - `reporting/research/` - item-prefixed one-shot dispositions and repairs,
      location/regime one-shots (`austin_*`, `predawn_*`,
      `bottom_location_winner_centering`, `cross_hub_research_audit`,
-     `late_day_lock_in_repair`, `exact_band_distance_zero_calibration`)
-   - keep shared helpers at root (`formatting`, `overview_helpers`, `__init__`).
+     `late_day_lock_in_repair`, `exact_band_distance_zero_calibration`), and
+     narrow diagnostics such as blocked-market repair, forecast-profile/source
+     reliability, forecast double-counting, and reanalysis synoptic ablation.
+   - keep shared helpers at root (`formatting`, `overview_helpers`, `__init__`)
+     plus explicitly justified temporary exceptions until the item taxonomy gives
+     cross-cutting gates, registries, inventories, and candidate-lifecycle reports
+     accurate homes.
 2. Update `schema_registry` module paths and all importers in the same change as
    each move; no root re-export shims.
 3. Extend the import-architecture ratchet with intra-`reporting` rules: research
@@ -83,11 +87,16 @@ item 206).
 - [x] Land scoped `fleet/`, `data_quality/`, and `daily/` safe slice.
 - [x] Land `promotion/` absorption, `hourly/`, and `scorecards/` slice.
 - [x] Land `casebooks/`, `market/`, and `validation/`.
-- [ ] Land `research/`.
+- [x] Land `research/` for the clear one-shot/research diagnostics.
 - [x] schema_registry paths updated atomically for moved safe-slice modules; no
       new root re-export shims.
 - [x] Targeted architecture ratchet blocks the moved safe-slice modules from
       returning to the reporting root.
+- [x] Root guard now allows only shared root helpers plus named, justified
+      exceptions.
+- [ ] Resolve explicitly classified root exceptions into accurate homes when the
+      taxonomy adds candidate-lifecycle, source-gate, serving-gate, and
+      location-analysis buckets.
 
 2026-06-24 safe-slice update: `fleet_observability*` now lives under
 `weather.reporting.fleet`, the historical/data-quality audit family now lives
@@ -113,6 +122,17 @@ evidence now live under `weather.reporting.market`, and the eleven
 Registered schema owner paths, active imports, compatibility-wrapper targets,
 and the import-architecture root guard were updated atomically. Remaining item
 270 work is the final `research/` bucket.
+
+2026-06-25 research classification update: clear one-shot and item-owned
+diagnostics now live under `weather.reporting.research`, including `item*`,
+`austin_*`, `predawn_*`, bottom-location, exact-band, late-day, cross-hub
+research audit, blocked-market repair diagnostics, forecast-profile/source-state
+diagnostics, forecast double-counting, and reanalysis synoptic ablation. Shared
+or cross-cutting infrastructure such as `roadmap_backlog`, `variant_registry`,
+`variant_evidence_growth`, `source_family_inventory`,
+`candidate_variant_replay_summary`, and `pooled_f_retrain_location_gate` remains
+at the root as explicit architecture-ratchet exceptions until the taxonomy gives
+those modules accurate homes.
 
 Acceptance: `weather.reporting` root holds only shared helpers and subpackages;
 every registered artifact's `schema_registry` module path resolves; the

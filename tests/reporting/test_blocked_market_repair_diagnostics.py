@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.blocked_market_repair_diagnostics import (
+from weather.reporting.research.blocked_market_repair_diagnostics import (
     build_payload,
     classify_market,
     market_diagnostics,

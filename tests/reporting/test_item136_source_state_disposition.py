@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.item136_source_state_disposition import (
+from weather.reporting.research.item136_source_state_disposition import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

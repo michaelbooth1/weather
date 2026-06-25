@@ -1,4 +1,4 @@
-from weather.reporting import item224_active_timesplit_logistic_repair as repair
+from weather.reporting.research import item224_active_timesplit_logistic_repair as repair
 
 
 def _row(**overrides):

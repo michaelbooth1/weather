@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from weather.reporting.austin_weather_model_hardening import build_payload, render_report
+from weather.reporting.research.austin_weather_model_hardening import build_payload, render_report
 
 
 def write_json(path: Path, payload):

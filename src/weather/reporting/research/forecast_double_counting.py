@@ -18,7 +18,7 @@ from weather.reporting.scorecards.distribution_stage_attribution import (
     attribution_rows_for_folder,
     component_folders,
 )
-from weather.reporting.forecast_profile_calibration import forecast_profile_subfamily_rows
+from weather.reporting.research.forecast_profile_calibration import forecast_profile_subfamily_rows
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
 

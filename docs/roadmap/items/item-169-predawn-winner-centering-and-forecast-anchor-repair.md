@@ -50,7 +50,7 @@ overlay.
 
 Implementation evidence:
 
-- Added `weather.reporting.predawn_weak_slot_repair` with schema
+- Added `weather.reporting.research.predawn_weak_slot_repair` with schema
   `predawn_weak_slot_repair_v0.1`.
 - The scoped no-market policy fits a weak-slot logistic winner-centering layer
   on train rows, blends that score with `item147_time_split_alpha`, normalizes

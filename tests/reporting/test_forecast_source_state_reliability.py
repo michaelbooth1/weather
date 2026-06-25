@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_source_state_reliability import (
+from weather.reporting.research.forecast_source_state_reliability import (
     build_report_payload,
     build_reliability_rows,
     source_state_risk,

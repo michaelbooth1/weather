@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.bottom_location_winner_centering import (
+from weather.reporting.research.bottom_location_winner_centering import (
     DEFAULT_TEN_MINUTE_REPORT,
     DEFAULT_VARIANT_ROWS,
     SCHEMA_VERSION,

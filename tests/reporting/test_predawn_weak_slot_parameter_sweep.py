@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.predawn_weak_slot_parameter_sweep import (
+from weather.reporting.research.predawn_weak_slot_parameter_sweep import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

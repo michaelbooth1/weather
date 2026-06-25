@@ -59,7 +59,7 @@ Extended the shadow-variant export with optional source-state context columns:
 forecast-profile replay so item 136 can score row-level source-state slices
 without changing serving behavior.
 
-Added `weather.reporting.forecast_source_state_reliability`, schema
+Added `weather.reporting.research.forecast_source_state_reliability`, schema
 `forecast_source_state_reliability_v0.1`. The report builds a non-serving
 source-state reliability candidate by shrinking the forecast-profile
 probability toward current serving probability as source-state risk rises.
@@ -86,7 +86,7 @@ open, so this item remains partial.
 
 ## 2026-06-22 source-state disposition
 
-Updated `weather.reporting.forecast_source_state_reliability` so the default
+Updated `weather.reporting.research.forecast_source_state_reliability` so the default
 input is the current all-hour Item 134 shadow export and the report includes a
 dedicated quote-risk diagnostic section. The report now surfaces
 `source_state_reliability_reason`, `source_state_reliability_alpha`, and
@@ -96,14 +96,14 @@ lane no-market and shadow-only.
 Regenerated:
 
 ```powershell
-python -m weather.reporting.forecast_source_state_reliability --out data\backtest\item136_source_state_reliability.json --report data\backtest\item136_source_state_reliability_report.md --variant-out data\backtest\item136_reliability_calibrated_shadow_variants.csv
+python -m weather.reporting.research.forecast_source_state_reliability --out data\backtest\item136_source_state_reliability.json --report data\backtest\item136_source_state_reliability_report.md --variant-out data\backtest\item136_reliability_calibrated_shadow_variants.csv
 ```
 
-Added `weather.reporting.item136_source_state_disposition`, schema
+Added `weather.reporting.research.item136_source_state_disposition`, schema
 `item136_source_state_disposition_v0.1`, and generated:
 
 ```powershell
-python -m weather.reporting.item136_source_state_disposition --out data\backtest\item136_source_state_disposition.json --report data\backtest\item136_source_state_disposition_report.md
+python -m weather.reporting.research.item136_source_state_disposition --out data\backtest\item136_source_state_disposition.json --report data\backtest\item136_source_state_disposition_report.md
 ```
 
 Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**.

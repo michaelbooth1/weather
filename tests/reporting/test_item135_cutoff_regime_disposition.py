@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.item135_cutoff_regime_disposition import (
+from weather.reporting.research.item135_cutoff_regime_disposition import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

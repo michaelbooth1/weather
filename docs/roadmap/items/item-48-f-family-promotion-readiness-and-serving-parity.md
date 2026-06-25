@@ -644,7 +644,7 @@ unblock. Austin/Los Angeles/San Francisco need non-current fallback skill, while
 NYC/Seattle need direct winner/market-signal repair.
 
 The follow-up blocked-market repair diagnostic is now repeatable in
-`weather.reporting.blocked_market_repair_diagnostics` and generated
+`weather.reporting.research.blocked_market_repair_diagnostics` and generated
 `data/backtest/item147_blocked_market_repair_diagnostics_report.md` over 30,569
 blocked-market rows. It classifies Austin, Los Angeles, and San Francisco as
 `current_fallback_trails_market` with 100% current-fallback share, Seattle as
@@ -1680,7 +1680,7 @@ mitigations are applied and pass, and every market has
 candidate Brier beats current by `-0.0414` and market by `-0.0293` on the
 pinned rows.
 
-`weather.reporting.item48_promotion_readiness_acceptance` records the item-owned
+`weather.reporting.research.item48_promotion_readiness_acceptance` records the item-owned
 acceptance as `PASS` with zero blockers and `serving_parity_status=PASS`. It
 also preserves the production cutover state as `BLOCK`, because these external
 proof-packet/readiness gates remain fail-closed outside Item 48's ownership:
@@ -1692,5 +1692,5 @@ proof packet remains the production cutover authority.
 Verification:
 
 - `python -m pytest tests\reporting\test_item48_promotion_readiness_acceptance.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q`
-- `python -m weather.reporting.item48_promotion_readiness_acceptance`
+- `python -m weather.reporting.research.item48_promotion_readiness_acceptance`
 - `python -m weather.reporting.roadmap_backlog --roadmap-root docs\roadmap --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md`

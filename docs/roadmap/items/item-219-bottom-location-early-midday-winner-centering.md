@@ -44,7 +44,7 @@ Related: items 147, 160, 168, 169, 178, 218, 222.
 
 ## Implementation Update 2026-06-22
 
-- Added `weather.reporting.bottom_location_winner_centering` with schema
+- Added `weather.reporting.research.bottom_location_winner_centering` with schema
   `bottom_location_winner_centering_v0.1`.
 - The report scores the repaired no-market predawn candidate by hard market
   (`seattle`, `nyc`, `miami`) and by `weak_slot`, `early`, `midday`, `late`,
@@ -68,7 +68,7 @@ Verification:
 
 ```powershell
 python -m pytest tests\reporting\test_bottom_location_winner_centering.py tests\reporting\test_predawn_weak_slot_repair.py tests\reporting\test_candidate_variant_replay_summary.py tests\reporting\test_candidate_hourly_performance.py tests\calibration\test_promotion_refresh.py tests\operations\test_schema_registry.py -q
-python -m weather.reporting.bottom_location_winner_centering --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --ten-minute-report data\backtest\ten_minute_model_performance.json --out data\backtest\bottom_location_winner_centering.json --report data\backtest\bottom_location_winner_centering_report.md
+python -m weather.reporting.research.bottom_location_winner_centering --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --ten-minute-report data\backtest\ten_minute_model_performance.json --out data\backtest\bottom_location_winner_centering.json --report data\backtest\bottom_location_winner_centering_report.md
 ```
 
 ## 2026-06-22 gate refresh after predawn sweep
@@ -113,7 +113,7 @@ no-market repair for this item. The active time-split logistic export trains on
 2026-06-07 and 2026-06-08, evaluates on 2026-06-12 and 2026-06-13, excludes
 label/market/identity fields from training, and carries `uses_market_features=false`.
 
-`weather.reporting.bottom_location_winner_centering` now defaults to:
+`weather.reporting.research.bottom_location_winner_centering` now defaults to:
 
 - `data/backtest/item224_active_timesplit_logistic_repair_rows.csv`
 - `data/backtest/item224_active_timesplit_logistic_repair_ten_minute.json`
@@ -135,6 +135,6 @@ row export.
 Verification:
 
 ```powershell
-python -m weather.reporting.bottom_location_winner_centering
+python -m weather.reporting.research.bottom_location_winner_centering
 python -m pytest tests\reporting\test_bottom_location_winner_centering.py tests\reporting\test_item224_active_timesplit_logistic_repair.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q
 ```

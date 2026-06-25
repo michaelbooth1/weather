@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.cross_hub_research_audit import (
+from weather.reporting.research.cross_hub_research_audit import (
     build_research_audit,
     summarize_run_logs,
     write_markdown_report,

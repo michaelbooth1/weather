@@ -16,7 +16,7 @@ same candidate.
 
 ## Design
 
-1. Promote `weather.reporting.predawn_weak_slot_repair` output into an active
+1. Promote `weather.reporting.research.predawn_weak_slot_repair` output into an active
    candidate artifact or replay export contract, not only a row-export
    surrogate.
 2. Generate candidate hourly and candidate 10-minute reports from the same
@@ -48,7 +48,7 @@ Related: items 147, 160, 168, 169, 178, 227, 230, 231.
 
 ## Implementation Update 2026-06-22
 
-- `weather.reporting.predawn_weak_slot_repair` now writes the repaired
+- `weather.reporting.research.predawn_weak_slot_repair` now writes the repaired
   candidate rows plus matching replay-summary, candidate-hourly, and
   candidate-10-minute gate artifacts from the same command.
 - Candidate gate lineage now keeps the pinned promotion `corpus_hash` separate
@@ -70,14 +70,14 @@ Verification:
 
 ```powershell
 python -m pytest tests\reporting\test_predawn_weak_slot_repair.py tests\reporting\test_candidate_variant_replay_summary.py tests\reporting\test_candidate_hourly_performance.py tests\calibration\test_promotion_refresh.py -q
-python -m weather.reporting.predawn_weak_slot_repair --candidate-rows data\backtest\item82_miami_fallback_shadow_variants.csv --ten-minute-report data\backtest\ten_minute_model_performance.json --calibrator-blend 0.30 --calibrator-extrapolation 2.0 --calibrator-power 3.0 --output-variant-id pooled_f_candidate_miami_current_fallback_predawn_repair_v0_1 --candidate-rows-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --write-candidate-gates --source-candidate-json data\backtest\pooled_candidate_replay_latest.json --candidate-replay-summary-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --candidate-replay-summary-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md --candidate-hourly-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --candidate-hourly-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance_report.md --candidate-ten-minute-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --candidate-ten-minute-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance_report.md --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair_report.md
+python -m weather.reporting.research.predawn_weak_slot_repair --candidate-rows data\backtest\item82_miami_fallback_shadow_variants.csv --ten-minute-report data\backtest\ten_minute_model_performance.json --calibrator-blend 0.30 --calibrator-extrapolation 2.0 --calibrator-power 3.0 --output-variant-id pooled_f_candidate_miami_current_fallback_predawn_repair_v0_1 --candidate-rows-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --write-candidate-gates --source-candidate-json data\backtest\pooled_candidate_replay_latest.json --candidate-replay-summary-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --candidate-replay-summary-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md --candidate-hourly-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --candidate-hourly-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance_report.md --candidate-ten-minute-json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --candidate-ten-minute-report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance_report.md --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_weak_slot_repair_report.md
 python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --precomputed-candidate-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --skip-serving-gauntlet --disable-long-job-guard --out data\backtest\f_family_promotion_refresh_predawn_repair.json --report data\backtest\f_family_promotion_refresh_predawn_repair_report.md --incomplete-manifest data\backtest\f_family_promotion_refresh_predawn_repair_incomplete.json
 ```
 
 ## 2026-06-22 parameter-sweep no-go refresh
 
 I added the registered diagnostic
-`weather.reporting.predawn_weak_slot_parameter_sweep`
+`weather.reporting.research.predawn_weak_slot_parameter_sweep`
 (`predawn_weak_slot_parameter_sweep_v0.1`) and generated:
 
 - `data/backtest/item228_predawn_weak_slot_parameter_sweep.json`

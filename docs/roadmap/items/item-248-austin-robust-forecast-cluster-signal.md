@@ -52,7 +52,7 @@ The Austin hardening packet passes item 248 gates:
 Verification:
 
 ```powershell
-python -m weather.reporting.austin_weather_model_hardening
+python -m weather.reporting.research.austin_weather_model_hardening
 python -m pytest tests/reporting/test_austin_weather_model_hardening.py tests/model/test_estimate_distribution.py tests/operations/test_schema_registry.py -q
 ```
 

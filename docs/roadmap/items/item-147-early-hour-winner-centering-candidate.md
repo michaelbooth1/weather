@@ -332,7 +332,7 @@ gate pass.
 
 ## 2026-06-19 blocked-market repair diagnostics
 
-Added `weather.reporting.blocked_market_repair_diagnostics` so the next repair
+Added `weather.reporting.research.blocked_market_repair_diagnostics` so the next repair
 loop can score blocked-market row exports by inference-available slices instead
 of hand-written shell summaries. The generated evidence lives at
 `data/backtest/item147_blocked_market_repair_diagnostics.json` and
@@ -678,7 +678,7 @@ reported one discovered literal, registered, with zero unregistered versions.
 
 ## 2026-06-22 Winner-Centering Disposition
 
-Added `weather.reporting.item147_winner_centering_disposition` with schema
+Added `weather.reporting.research.item147_winner_centering_disposition` with schema
 `item147_winner_centering_disposition_v0.1`.
 
 Artifacts:
@@ -688,7 +688,7 @@ Artifacts:
 
 Command:
 
-`python -m weather.reporting.item147_winner_centering_disposition --out data\backtest\item147_winner_centering_disposition.json --report data\backtest\item147_winner_centering_disposition_report.md`
+`python -m weather.reporting.research.item147_winner_centering_disposition --out data\backtest\item147_winner_centering_disposition.json --report data\backtest\item147_winner_centering_disposition_report.md`
 
 Result: **BLOCK**, disposition **KEEP_SHADOW_DIAGNOSTIC**. Item 147 remains the
 diagnostic early-hour baseline, not a promotion candidate.

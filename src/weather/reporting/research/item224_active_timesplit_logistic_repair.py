@@ -285,7 +285,7 @@ def active_contract(rows_out: str | Path) -> dict[str, Any]:
         "roles": ["candidate", "no-market", "item224-active-timesplit-probe"],
         "active_for_headline": True,
         "artifact_required": False,
-        "prediction_function": "weather.reporting.item224_active_timesplit_logistic_repair:build_payload",
+        "prediction_function": "weather.reporting.research.item224_active_timesplit_logistic_repair:build_payload",
         "prediction_mode": "band_binary",
         "export_family": VARIANT_FAMILY,
         "default_export_path": str(rows_out).replace("\\", "/"),

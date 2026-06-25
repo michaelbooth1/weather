@@ -640,7 +640,7 @@ zero missing candidate rows, candidate Brier `0.0431` versus current `0.0435`
 and market `0.0379`, and daily-first gap `+0.0052` versus market.
 
 I then ran the repair-action diagnostic:
-`python -m weather.reporting.blocked_market_repair_diagnostics data\backtest\item32_reanalysis_rich_no_pressure_full_merged_variant_rows.csv --out data\backtest\item32_reanalysis_rich_no_pressure_full_merged_repair_actions.json --report data\backtest\item32_reanalysis_rich_no_pressure_full_merged_repair_actions_report.md --min-slice-rows 200 --top-slices 6`.
+`python -m weather.reporting.research.blocked_market_repair_diagnostics data\backtest\item32_reanalysis_rich_no_pressure_full_merged_variant_rows.csv --out data\backtest\item32_reanalysis_rich_no_pressure_full_merged_repair_actions.json --report data\backtest\item32_reanalysis_rich_no_pressure_full_merged_repair_actions_report.md --min-slice-rows 200 --top-slices 6`.
 
 The remaining Item 32 blockers are now market-specific:
 
