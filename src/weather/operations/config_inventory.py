@@ -43,7 +43,7 @@ CONFIG_POLICIES = {
         "max_age_days": None,
     },
     "model_variant_registry.json": {
-        "owner": "weather.reporting.variant_registry",
+        "owner": "weather.reporting.candidate_lifecycle.variant_registry",
         "classification": "hand_authored_registry",
         "freshness_policy": "validate_before_promotion",
         "max_age_days": None,
@@ -55,7 +55,7 @@ CONFIG_POLICIES = {
         "max_age_days": None,
     },
     "no_market_extra_locations.json": {
-        "owner": "weather.reporting.extra_location_registry",
+        "owner": "weather.reporting.location_analysis.extra_location_registry",
         "classification": "local_shadow_registry",
         "freshness_policy": "backfill_or_archive_before_training",
         "max_age_days": None,

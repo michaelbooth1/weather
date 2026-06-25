@@ -58,7 +58,7 @@ Verification:
 
 - `python -m pytest tests\calibration\test_promotion_refresh.py tests\market\test_mm_paper.py tests\market\test_mm_policy.py tests\reporting\test_shadow_ab_monitor.py tests\operations\test_schema_registry.py -q`
 - `python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_candidate_replay_latest.json --precomputed-candidate-report data\backtest\pooled_candidate_replay_latest_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_performance.json --skip-serving-gauntlet`
-- `python -m weather.reporting.shadow_ab_monitor --promotion-refresh data\backtest\f_family_promotion_refresh.json --candidate-replay data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\shadow_ab_monitor.json --report-out data\backtest\shadow_ab_monitor_report.md`
+- `python -m weather.reporting.candidate_lifecycle.shadow_ab_monitor --promotion-refresh data\backtest\f_family_promotion_refresh.json --candidate-replay data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\shadow_ab_monitor.json --report-out data\backtest\shadow_ab_monitor_report.md`
 
 Acceptance: a candidate can be promoted only for markets whose generated action
 is `PROMOTE_CANDIDATE`; all other markets remain shadow/current in serving and

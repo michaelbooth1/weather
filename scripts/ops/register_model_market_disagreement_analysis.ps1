@@ -21,7 +21,7 @@ if (-not (Test-Path $python)) {
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
-    -Argument "-m weather.reporting.model_market_disagreement_analysis" `
+    -Argument "-m weather.reporting.candidate_lifecycle.model_market_disagreement_analysis" `
     -WorkingDirectory $RepoRoot
 
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

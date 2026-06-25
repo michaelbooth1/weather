@@ -28,7 +28,7 @@ from weather.calibration.pooled_candidate_scoring import (
 from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.paths import data_path
-from weather.reporting.current_max_trust_retrain_gate import TRUST_FIELDS
+from weather.reporting.candidate_lifecycle.current_max_trust_retrain_gate import TRUST_FIELDS
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,

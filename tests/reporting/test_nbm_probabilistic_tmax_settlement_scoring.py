@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.nbm_probabilistic_tmax_settlement_scoring import (
+from weather.reporting.source_gates.nbm_probabilistic_tmax_settlement_scoring import (
     build_payload,
     cdf_from_percentile_curve,
     nbm_band_probability_from_percentiles,

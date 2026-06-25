@@ -267,7 +267,7 @@ def shadow_ab_monitor_command(args):
     command = [
         sys.executable,
         "-m",
-        "weather.reporting.shadow_ab_monitor",
+        "weather.reporting.candidate_lifecycle.shadow_ab_monitor",
         "--promotion-refresh",
         args.promotion_out,
         "--candidate-replay",

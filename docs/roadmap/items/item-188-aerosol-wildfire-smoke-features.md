@@ -69,10 +69,10 @@ artifact retraining. `weather.sources.open_meteo_archives` now has:
 - historical backfill planner support via source
   `open_meteo_air_quality`.
 
-Added `weather.reporting.forecast_smoke_slice_prep`, schema
+Added `weather.reporting.source_gates.forecast_smoke_slice_prep`, schema
 `forecast_smoke_slice_prep_v0.1`, which reads archived AQ hourly rows and emits
 market/date join keys for `high_smoke` and `high_aod_high_pm` replay slices.
-`weather.reporting.source_family_inventory` now reports Open-Meteo AQ archive
+`weather.reporting.source_gates.source_family_inventory` now reports Open-Meteo AQ archive
 coverage as `historical_smoke_archive_available`,
 `partial_historical_smoke_archive`, or `historical_smoke_archive_missing`.
 
@@ -97,13 +97,13 @@ history, followed by a smoke-slice gate.
 
 ## 2026-06-22 AQ/Smoke Gate Artifact
 
-Added `weather.reporting.forecast_smoke_gate`, schema
+Added `weather.reporting.source_gates.forecast_smoke_gate`, schema
 `forecast_smoke_gate_v0.1`, with generated evidence at:
 
 - `data/backtest/item188_forecast_smoke_gate.json`
 - `data/backtest/item188_forecast_smoke_gate_report.md`
 
-Also updated `weather.reporting.source_family_inventory` so
+Also updated `weather.reporting.source_gates.source_family_inventory` so
 `open_meteo_air_quality` is classified under the `open_meteo_expanded` source
 family. The refreshed inventory remains `PASS` and now sees
 `open_meteo_air_quality` in both source status and forecast payloads.

@@ -13,7 +13,7 @@ from weather.reporting.formatting import (
     fmt_num,
     markdown_table,
 )
-from weather.reporting.multi_variant_shadow import (
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     evidence_accounting,
     evidence_by_market,
     normalize_rows,

@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.model_market_disagreement_analysis import (
+from weather.reporting.candidate_lifecycle.model_market_disagreement_analysis import (
     build_payload,
     rehydrate_audit_log,
     render_report,

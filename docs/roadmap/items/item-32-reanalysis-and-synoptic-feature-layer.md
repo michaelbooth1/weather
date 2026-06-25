@@ -115,7 +115,7 @@ promotion.
 
 Rebuilt `reanalysis_synoptic_features.csv` sidecars for all 12 active markets
 from the existing `data/reanalysis/<station>/daily/daily_summary.csv` archives.
-`weather.reporting.source_family_inventory` now scans those historical sidecar
+`weather.reporting.source_gates.source_family_inventory` now scans those historical sidecar
 files directly instead of treating live snapshot `features_long.csv` null
 defaults as missing historical rows. The regenerated inventory reports
 `reanalysis_synoptic` as lineage `PASS`, train/serve parity `PASS`, 115,896
@@ -149,7 +149,7 @@ broad all-market cutover. The positive markets can move into a guarded
 candidate/shadow lane now; blocked markets need subfamily diagnostics before
 they are allowed to influence a served artifact.
 
-Follow-up implementation in `weather.reporting.source_family_inventory` now
+Follow-up implementation in `weather.reporting.source_gates.source_family_inventory` now
 keeps those Item 27 per-market gates in
 `data/backtest/source_family_inventory.json` under
 `reanalysis_synoptic.ablation.market_details`, plus `positive_markets` and
@@ -158,7 +158,7 @@ table, so the positive-market lane is no longer tracked only in roadmap prose.
 
 ## 2026-06-18 positive-market lane contract
 
-`weather.reporting.source_family_inventory` now emits an explicit
+`weather.reporting.source_gates.source_family_inventory` now emits an explicit
 `reanalysis_synoptic.promotion_lane` contract instead of only a broad
 `PROMOTION_CANDIDATE` family decision. The regenerated
 `data/backtest/source_family_inventory.json` and
@@ -182,7 +182,7 @@ but is not promotion evidence.
 Verification:
 `python -m pytest tests\reporting\test_source_family_inventory.py -q` passed
 with `9 passed`, and
-`python -m weather.reporting.source_family_inventory --snapshots-root data\snapshots --backtest-root data\backtest --ablation-json data\backtest\source_family_ablation.json --candidate-replay-json data\backtest\pooled_candidate_replay_latest.json`
+`python -m weather.reporting.source_gates.source_family_inventory --snapshots-root data\snapshots --backtest-root data\backtest --ablation-json data\backtest\source_family_ablation.json --candidate-replay-json data\backtest\pooled_candidate_replay_latest.json`
 regenerated the inventory and report with status `PASS`.
 
 ## 2026-06-18 lane-aware training/replay plumbing update
@@ -373,7 +373,7 @@ The source-family gate was rerun two ways. The canonical inventory using
 `data\backtest\pooled_candidate_replay_latest.json` remains `PASS` with zero
 active model-input blockers. The Item 32 experimental inventory saved at
 `data\backtest\item32_reanalysis_rich_2024_2025_source_family_inventory.json`
-also reports `PASS` after `weather.reporting.source_family_inventory` was
+also reports `PASS` after `weather.reporting.source_gates.source_family_inventory` was
 tightened to count only imputer-retained artifact features. The experimental
 artifact declares 222 feature names, but sklearn drops the all-missing
 weak/live-only columns; the inventory now reports 156 retained active features,
@@ -859,7 +859,7 @@ The report is `PASS` with zero blocking family rows and now points its
 preflight command at
 `data/backtest/item32_reanalysis_austin_guard_chicago_nyc_raw_replay.json`.
 
-I also tightened `weather.reporting.source_family_inventory` so it extracts the
+I also tightened `weather.reporting.source_gates.source_family_inventory` so it extracts the
 artifact-declared `reanalysis_promotion_lane`, reports it separately from the
 gate-derived lane, and blocks preflight if an active reanalysis artifact allows
 markets that the settlement-scored Item 27 gates quarantine. The regenerated

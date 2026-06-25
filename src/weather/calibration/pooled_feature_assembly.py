@@ -34,7 +34,7 @@ from weather.reporting.data_quality.artifact_disk_budget import (
     DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
     ensure_artifact_disk_headroom,
 )
-from weather.reporting.weak_input_family_disposition import weak_input_training_preflight
+from weather.reporting.source_gates.weak_input_family_disposition import weak_input_training_preflight
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.model.continuous_density import (
@@ -53,7 +53,7 @@ from weather.model.feature_store import (
 )
 from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
 from weather.model.toronto_model import TorontoHighTempModel
-from weather.reporting.source_redundancy import (
+from weather.reporting.source_gates.source_redundancy import (
     FALLBACK_ORDER,
     PRIMARY_SOURCE,
     SUPPLEMENTAL_FEATURE_FAMILY,

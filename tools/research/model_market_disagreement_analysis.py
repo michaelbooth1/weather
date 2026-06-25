@@ -7,7 +7,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from weather.reporting.model_market_disagreement_analysis import main  # noqa: E402
+from weather.reporting.candidate_lifecycle.model_market_disagreement_analysis import main  # noqa: E402
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ independent evidence was collected.
    lifecycle, track, and role.
 3. Run/export each active variant against the current promotion corpus or
    replay inputs with stable observation keys.
-4. Combine the exported rows through `weather.reporting.multi_variant_shadow`
+4. Combine the exported rows through `weather.reporting.candidate_lifecycle.multi_variant_shadow`
    with shared-control deduplication enabled.
 5. Write canonical outputs under `data/backtest`:
    `active_variant_shadow_long.csv`, `active_variant_shadow.json`, and
@@ -49,7 +49,7 @@ evidence path unless explicitly requested.
 
 ## 2026-06-18 implementation update
 
-Added `weather.reporting.active_variant_shadow_refresh`, schema
+Added `weather.reporting.candidate_lifecycle.active_variant_shadow_refresh`, schema
 `active_variant_shadow_refresh_v0.1`, and wired a new
 `active_variant_shadow` step into `weather.operations.daily_refresh` before
 `model_variant_evidence_growth`. The scheduled evidence-growth default now
@@ -98,7 +98,7 @@ full per-contract execution orchestration remains to close this item.
 
 ## 2026-06-21 completion update
 
-`weather.reporting.active_variant_shadow_refresh` now has an inline active
+`weather.reporting.candidate_lifecycle.active_variant_shadow_refresh` now has an inline active
 registry execution runner. During a normal `daily_refresh`, when no explicit
 `--active-variant-shadow-sources` override is supplied, the
 `active_variant_shadow` step executes active registry contracts against the
@@ -128,5 +128,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - INLINE REGISTRY EXECUTION LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

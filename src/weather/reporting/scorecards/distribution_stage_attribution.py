@@ -18,7 +18,7 @@ from weather.runtime_identity import (
     identities_match,
 )
 from weather.paths import data_path
-from weather.reporting.cutoff_regime_weighting import cutoff_regime
+from weather.reporting.candidate_lifecycle.cutoff_regime_weighting import cutoff_regime
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
 

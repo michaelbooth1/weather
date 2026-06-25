@@ -79,7 +79,7 @@ What is not working as "more data":
 
 ## Governance Fix Applied
 
-`weather.reporting.multi_variant_shadow` now warns when:
+`weather.reporting.candidate_lifecycle.multi_variant_shadow` now warns when:
 
 - the same `variant_id` repeats the same market/date/snapshot/band observation;
 - one `variant_id` carries conflicting immutable metadata, such as different

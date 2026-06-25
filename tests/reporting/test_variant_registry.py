@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     AUDIT_SCHEMA_VERSION,
     SCHEMA_VERSION,
     active_export_paths,

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from weather.reporting.location_trust import grade_for, score_market, trust_from_components
+from weather.reporting.location_analysis.location_trust import grade_for, score_market, trust_from_components
 
 
 SLUG = "highest-temperature-in-toronto-on-july-1-2026"

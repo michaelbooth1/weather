@@ -56,7 +56,7 @@ the results are available to daily learning/experiment queue artifacts.
 
 Closed notes:
 
-- Added `weather.reporting.june23_location_bias_repair` with JSON/Markdown
+- Added `weather.reporting.location_analysis.june23_location_bias_repair` with JSON/Markdown
   outputs `data/backtest/june23_location_bias_repair_packet.json` and
   `data/backtest/june23_location_bias_repair_packet.md`.
 - The packet classifies Seattle/Toronto/San Francisco cold-miss targets,
@@ -76,5 +76,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-24 - LOCATION-BIAS PACKET, REPAIR MANIFESTS, AND PROTECTED-SLICE REPLAY LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

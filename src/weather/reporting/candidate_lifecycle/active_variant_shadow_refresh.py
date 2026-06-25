@@ -18,7 +18,7 @@ from typing import Any
 
 from weather.paths import config_path, data_path
 from weather.reporting.formatting import markdown_table
-from weather.reporting.multi_variant_shadow import (
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     LONG_TABLE_COLUMNS,
     OBSERVATION_KEY_FIELDS,
     build_payload as build_multi_variant_payload,
@@ -27,7 +27,7 @@ from weather.reporting.multi_variant_shadow import (
     write_json as write_multi_variant_json,
     write_long_csv,
 )
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     active_export_paths,
     active_registry_variants,
     audit_registry,
@@ -445,7 +445,7 @@ def _execute_repair_integration_contract(
     out_dir: str | Path = DEFAULT_EXECUTION_OUT_DIR,
 ) -> dict[str, Any]:
     """Execute a repair-integration active export contract."""
-    from weather.reporting import repair_integration
+    from weather.reporting.candidate_lifecycle import repair_integration
 
     output_path = _resolve_registry_output_path(contract.get("default_export_path"))
     if output_path is None:

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.price_free_model_learning import (
+from weather.reporting.candidate_lifecycle.price_free_model_learning import (
     build_price_free_learning,
     classify_current_max_state,
     write_outputs,

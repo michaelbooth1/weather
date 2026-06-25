@@ -430,7 +430,7 @@ def streamlit_route_smoke() -> dict[str, Any]:
             patch.object(single_market, "PolymarketClient", client_cls),
             patch.object(single_market, "TorontoHighTempModel", model_cls),
             patch(
-                "weather.reporting.location_trust.score_market",
+                "weather.reporting.location_analysis.location_trust.score_market",
                 lambda _market_id: {
                     "trust_score": 100,
                     "grade": "Strong",

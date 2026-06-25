@@ -29,7 +29,7 @@ Scope covered Python under `app/`, `src/`, `tests/`, `tools/`, `scripts/`, and
 | `.\venv\Scripts\python.exe -m weather.operations.observation_trigger status` | PASS command execution; loop running, no consecutive errors. |
 | `.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status` | PASS command execution; current process alive, previous stale heartbeat run quarantined. |
 | `.\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status` | PASS command execution; process alive, but status runtime identity is stale relative to audit HEAD. |
-| `.\venv\Scripts\python.exe -m weather.reporting.roadmap_backlog --fail-on-lint` | PASS after roadmap edits; regenerated `docs/roadmap/active-backlog.md` and `data/backtest/roadmap_backlog.json`. |
+| `.\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` | PASS after roadmap edits; regenerated `docs/roadmap/active-backlog.md` and `data/backtest/roadmap_backlog.json`. |
 
 ## Executive Summary
 
@@ -145,5 +145,5 @@ After implementing item 313, run:
 .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --status
 .\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
 .\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
-.\venv\Scripts\python.exe -m weather.reporting.roadmap_backlog --fail-on-lint
+.\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint
 ```

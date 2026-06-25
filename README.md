@@ -226,7 +226,7 @@ plus `data/backtest/nightly_retrain_report.md`.
 .\venv\Scripts\python.exe -m weather.collection.collection_health --fleet --live --strict --json
 .\venv\Scripts\python.exe -m weather.reporting.fleet_observability report --strict
 .\venv\Scripts\python.exe -m weather.reporting.data_layer_audit
-.\venv\Scripts\python.exe -m weather.reporting.source_redundancy report --start 2026-06-01 --end 2026-06-22
+.\venv\Scripts\python.exe -m weather.reporting.source_gates.source_redundancy report --start 2026-06-01 --end 2026-06-22
 .\venv\Scripts\python.exe -m weather.reporting.data_auditor
 .\venv\Scripts\python.exe -m weather.reporting.data_auditor --fleet --json --strict
 .\venv\Scripts\python.exe -m weather.calibration.feature_model --market toronto

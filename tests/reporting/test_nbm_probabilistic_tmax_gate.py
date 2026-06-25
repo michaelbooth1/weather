@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.nbm_probabilistic_tmax_gate import (
+from weather.reporting.source_gates.nbm_probabilistic_tmax_gate import (
     NBM_FEATURES,
     acceptance,
     build_report_payload,

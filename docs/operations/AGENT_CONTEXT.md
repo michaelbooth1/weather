@@ -155,7 +155,7 @@ Operational and research commands:
 .\venv\Scripts\python.exe -m weather.collection.collection_health --fleet --live --strict --json
 .\venv\Scripts\python.exe -m weather.reporting.fleet.fleet_observability report --strict
 .\venv\Scripts\python.exe -m weather.reporting.data_quality.data_layer_audit
-.\venv\Scripts\python.exe -m weather.reporting.source_redundancy report --start 2026-06-01 --end 2026-06-12
+.\venv\Scripts\python.exe -m weather.reporting.source_gates.source_redundancy report --start 2026-06-01 --end 2026-06-12
 .\venv\Scripts\python.exe -m weather.sources.metar_history --market nyc backfill --start 2026-06-01 --end 2026-06-12 --skip-existing
 .\venv\Scripts\python.exe -m weather.calibration.pooled_feature_model --objective band --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\f_family_pooled_band_model_v0_3_report.md
 .\venv\Scripts\python.exe -m weather.calibration.pooled_candidate_replay --artifact artifacts\models\hgb\feature_model_hgb_f_pooled_v0_3.pkl --out data\backtest\pooled_candidate_replay_v0_3_report.md --json-out data\backtest\pooled_candidate_replay_v0_3.json
@@ -259,7 +259,7 @@ ad-hoc live scripts that may hit the network.
   rows against the casebook's WU lag/catch-up loss cases; the first generated
   report sees 745 WU-lag losses but zero historical triggered rows because the
   watcher did not exist for those tapes.
-- `weather.reporting.source_redundancy report` writes
+- `weather.reporting.source_gates.source_redundancy report` writes
   `data/backtest/source_redundancy.json`,
   `data/backtest/source_redundancy_report.md`,
   `data/backtest/source_truth_daily.csv`, and

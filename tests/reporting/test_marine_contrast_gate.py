@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.marine_contrast_gate import (
+from weather.reporting.source_gates.marine_contrast_gate import (
     WATER_CONTRAST_FEATURES,
     acceptance,
     build_report_payload,

@@ -12,7 +12,7 @@ Source: 2026-06-25 Python structure refactor audit. The current
 `weather.market.mm_paper` (2,475), `weather.schema_registry` (2,200),
 `weather.collection.snapshot_store` (2,164),
 `weather.market.taker_bot_bakeoff` (2,162), and
-`weather.reporting.source_family_inventory` (2,038). Prior decomposition items
+`weather.reporting.source_gates.source_family_inventory` (2,038). Prior decomposition items
 90, 98, 130, 173, and 205 are complete and do not own this refreshed warning
 set.
 
@@ -66,7 +66,7 @@ gate.
   registry/audit ownership.
 - [x] Reduce `weather.collection.snapshot_store` below the warning threshold.
 - [x] Reduce `weather.market.taker_bot_bakeoff` below the warning threshold.
-- [x] Reduce `weather.reporting.source_family_inventory` below the warning
+- [x] Reduce `weather.reporting.source_gates.source_family_inventory` below the warning
   threshold.
 - [x] Split matching large test fixtures/builders where needed for the source
   splits.
@@ -81,9 +81,9 @@ module-size audit reports `7` warnings; the remaining over-threshold modules
 have owner and next-split metadata in both the ownership map and audit notes.
 
 2026-06-25 source-family slice: split Markdown rendering to
-`weather.reporting.source_family_inventory_report` while keeping
-`weather.reporting.source_family_inventory.write_report` as a compatibility
-export. `weather.reporting.source_family_inventory` is now 1,826 lines. The
+`weather.reporting.source_gates.source_family_inventory_report` while keeping
+`weather.reporting.source_gates.source_family_inventory.write_report` as a compatibility
+export. `weather.reporting.source_gates.source_family_inventory` is now 1,826 lines. The
 regenerated module-size audit reports `6` warnings; the remaining
 over-threshold modules keep owner and next-split metadata in both the ownership
 map and audit notes.

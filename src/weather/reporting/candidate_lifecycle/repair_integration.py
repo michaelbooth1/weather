@@ -12,14 +12,14 @@ from typing import Any
 
 from weather.paths import config_path, data_path
 from weather.reporting.hourly.candidate_hourly_performance import read_variant_rows
-from weather.reporting.candidate_variant_replay_summary import (
+from weather.reporting.candidate_lifecycle.candidate_variant_replay_summary import (
     DEFAULT_SOURCE_CANDIDATE_JSON,
     build_variant_replay_summary,
     write_outputs as write_replay_summary_outputs,
 )
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.multi_variant_shadow import LONG_TABLE_COLUMNS, OBSERVATION_KEY_FIELDS
-from weather.reporting.variant_registry import SCHEMA_VERSION as VARIANT_REGISTRY_SCHEMA_VERSION
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import LONG_TABLE_COLUMNS, OBSERVATION_KEY_FIELDS
+from weather.reporting.candidate_lifecycle.variant_registry import SCHEMA_VERSION as VARIANT_REGISTRY_SCHEMA_VERSION
 from weather.schema_registry import schema_version
 
 
@@ -37,7 +37,7 @@ DEFAULT_CONTRACT_OUT = DEFAULT_BACKTEST_ROOT / "repair_integration_contract.json
 DEFAULT_VARIANT_ID = "repair_integrated_active_candidate_v0_1"
 DEFAULT_VARIANT_FAMILY = "repair_integrated_active_candidate"
 LIVE_RUNTIME = "repair_integration_active_contract"
-REPLAY_PREDICTION_FUNCTION = "weather.reporting.repair_integration:build_payload"
+REPLAY_PREDICTION_FUNCTION = "weather.reporting.candidate_lifecycle.repair_integration:build_payload"
 HARD_NON_COUNTABLE_MARKERS = ("same_corpus", "diagnostic_row_export")
 SURROGATE_MARKER = "row_export_surrogate"
 

@@ -82,7 +82,7 @@ risk overlay.
 
 ## 2026-06-22 Positive Daily-First Gate
 
-Added `weather.reporting.early_hour_positive_daily_first_gate` with schema
+Added `weather.reporting.serving_gates.early_hour_positive_daily_first_gate` with schema
 `early_hour_positive_daily_first_gate_v0.1`.
 
 Artifacts:
@@ -92,7 +92,7 @@ Artifacts:
 
 Command:
 
-`python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md`
+`python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md`
 
 Result: **BLOCK** with 6 blockers. The gate now reconciles candidate hourly,
 weak-slot, served-distribution, progress-audit, and daily-first trend evidence
@@ -172,7 +172,7 @@ that accepted candidate evidence. Otherwise the positive daily-first gate could
 close on a stale rolling trend.
 
 Implemented this as a fail-closed gate in
-`weather.reporting.early_hour_positive_daily_first_gate`:
+`weather.reporting.serving_gates.early_hour_positive_daily_first_gate`:
 
 - New gate: `progress_audit_refreshed_after_candidate`.
 - The gate is deferred while candidate hourly, candidate 10-minute, or
@@ -188,7 +188,7 @@ Verification:
 
 ```powershell
 python -m pytest tests\reporting\test_early_hour_positive_daily_first_gate.py -q
-python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
 ```
 
 Result: `3 passed`. The regenerated gate remains `BLOCK` with `6` blockers.
@@ -239,7 +239,7 @@ proof packet evidence.
 
 ## 2026-06-24 upstream source countability enforcement
 
-Extended `weather.reporting.candidate_variant_replay_summary` so
+Extended `weather.reporting.candidate_lifecycle.candidate_variant_replay_summary` so
 `validation_evidence=active_replay_contract` now verifies upstream source rows,
 not just source variant registry labels. When candidate rows include
 `route_source_variant_id` or `source_variant_id`, every referenced source
@@ -270,7 +270,7 @@ Verification:
 
 ```powershell
 python -m pytest tests\reporting\test_candidate_variant_replay_summary.py -q
-python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --validation-evidence active_replay_contract --variant-registry data\backtest\item224_active_source_route_composite_registry.json --active-registry-contract-json data\backtest\item224_active_source_route_composite_contract.json --json-out data\backtest\item224_active_source_route_composite_replay_summary.json --report-out data\backtest\item224_active_source_route_composite_replay_summary_report.md
+python -m weather.reporting.candidate_lifecycle.candidate_variant_replay_summary --variant-rows data\backtest\item224_active_source_route_composite_rows.csv --source-candidate-json data\backtest\current_max_trust_candidate_replay.json --validation-evidence active_replay_contract --variant-registry data\backtest\item224_active_source_route_composite_registry.json --active-registry-contract-json data\backtest\item224_active_source_route_composite_contract.json --json-out data\backtest\item224_active_source_route_composite_replay_summary.json --report-out data\backtest\item224_active_source_route_composite_replay_summary_report.md
 ```
 
 Result: `13 passed`; the legitimate active-source route still validates as
@@ -357,7 +357,7 @@ Implementation:
   positive-gate artifacts. A model-ready active candidate that still blocks on
   readiness or progress is classified at that deeper blocker rather than as
   promotion-ready.
-- `weather.reporting.early_hour_positive_daily_first_gate` now defaults to the
+- `weather.reporting.serving_gates.early_hour_positive_daily_first_gate` now defaults to the
   active time-split candidate evidence instead of the older predawn repair
   artifacts.
 - Generated an Item-160-specific served-distribution contract from the active
@@ -381,9 +381,9 @@ Artifacts:
 Commands:
 
 ```powershell
-python -m weather.reporting.served_distribution_calibration_contract --retrain-location-gate data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --out data\backtest\item160_active_timesplit_served_distribution_contract.json --report data\backtest\item160_active_timesplit_served_distribution_contract_report.md
+python -m weather.reporting.serving_gates.served_distribution_calibration_contract --retrain-location-gate data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --out data\backtest\item160_active_timesplit_served_distribution_contract.json --report data\backtest\item160_active_timesplit_served_distribution_contract_report.md
 python -m weather.reporting.progress_audit --json-out data\backtest\progress_audit.json --report-out data\backtest\progress_audit_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
 python -m weather.reporting.research.item160_candidate_viability_audit --out data\backtest\item160_candidate_viability_audit.json --report data\backtest\item160_candidate_viability_audit_report.md
 ```
 
@@ -437,11 +437,11 @@ positive daily-first days, at least `84` promotion-grade market-days, and
 After Item 224 exposed `model_location_gate_status=PASS` separately from the
 broad claim readiness blocker, Item 160 was updated to consume that split:
 
-- `weather.reporting.served_distribution_calibration_contract` now accepts a
+- `weather.reporting.serving_gates.served_distribution_calibration_contract` now accepts a
   model/location pass from the pooled-F retrain/location gate while retaining
   `production_readiness_status` and `broad_core_model_claim_allowed` as
   explicit fields.
-- `weather.reporting.early_hour_positive_daily_first_gate` now treats the
+- `weather.reporting.serving_gates.early_hour_positive_daily_first_gate` now treats the
   served-distribution model contract as accepted, adds a separate
   `production_readiness_gate`, and requires `progress_audit` freshness after
   that accepted candidate evidence.
@@ -479,10 +479,10 @@ python -m weather.reporting.fleet.fleet_observability report --out data\backtest
 python -m weather.collection.snapshot_tracker --ensure
 python -m weather.market.market_microstructure ensure
 python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --precomputed-candidate-report data\backtest\item224_active_timesplit_logistic_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute-performance-report data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --report data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_active_timesplit_logistic_repair_promotion_allowlist.json --incomplete-manifest data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard --skip-serving-gauntlet
-python -m weather.reporting.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --out data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --report data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate_report.md
-python -m weather.reporting.served_distribution_calibration_contract --retrain-location-gate data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --out data\backtest\item160_active_timesplit_served_distribution_contract.json --report data\backtest\item160_active_timesplit_served_distribution_contract_report.md
+python -m weather.reporting.location_analysis.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --out data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --report data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate_report.md
+python -m weather.reporting.serving_gates.served_distribution_calibration_contract --retrain-location-gate data\backtest\item224_active_timesplit_logistic_repair_pooled_f_retrain_location_gate.json --replay data\backtest\item224_active_timesplit_logistic_repair_replay_summary.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --exact-distance data\backtest\item224_active_timesplit_logistic_repair_exact_band_distance_zero.json --bottom-location data\backtest\item224_active_timesplit_logistic_repair_bottom_location.json --promotion-refresh data\backtest\item224_active_timesplit_logistic_repair_promotion_refresh.json --out data\backtest\item160_active_timesplit_served_distribution_contract.json --report data\backtest\item160_active_timesplit_served_distribution_contract_report.md
 python -m weather.reporting.progress_audit --json-out data\backtest\progress_audit.json --report-out data\backtest\progress_audit_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
 python -m weather.reporting.research.item160_candidate_viability_audit --out data\backtest\item160_candidate_viability_audit.json --report data\backtest\item160_candidate_viability_audit_report.md
 ```
 
@@ -531,7 +531,7 @@ Implementation:
 - Added `item224_active_timesplit_logistic_repair_v0_1` to
   `config/model_variant_registry.json` as an active no-market variant with
   `live_runtime=active_timesplit_logistic_repair`.
-- Extended `weather.reporting.active_variant_shadow_refresh` so daily refresh
+- Extended `weather.reporting.candidate_lifecycle.active_variant_shadow_refresh` so daily refresh
   can execute that runtime through
   `weather.reporting.research.item224_active_timesplit_logistic_repair:build_payload`
   and write the active export plus registry/contract sidecars.
@@ -558,12 +558,12 @@ Regenerated artifacts:
 Commands:
 
 ```powershell
-python -m weather.reporting.variant_registry --registry config\model_variant_registry.json --json-out data\backtest\model_variant_registry_audit_item160.json --report-out data\backtest\model_variant_registry_audit_item160.md
-python -m weather.reporting.active_variant_shadow_refresh --variant-registry config\model_variant_registry.json --long-out data\backtest\active_variant_shadow_long.csv --attribution-sidecar-out data\backtest\active_variant_shadow_attribution.jsonl --json-out data\backtest\active_variant_shadow.json --report-out data\backtest\active_variant_shadow_report.md
-python -m weather.reporting.variant_evidence_growth data\backtest\active_variant_shadow_long.csv --json-out data\backtest\model_variant_evidence_growth.json --report-out data\backtest\model_variant_evidence_growth_report.md
+python -m weather.reporting.candidate_lifecycle.variant_registry --registry config\model_variant_registry.json --json-out data\backtest\model_variant_registry_audit_item160.json --report-out data\backtest\model_variant_registry_audit_item160.md
+python -m weather.reporting.candidate_lifecycle.active_variant_shadow_refresh --variant-registry config\model_variant_registry.json --long-out data\backtest\active_variant_shadow_long.csv --attribution-sidecar-out data\backtest\active_variant_shadow_attribution.jsonl --json-out data\backtest\active_variant_shadow.json --report-out data\backtest\active_variant_shadow_report.md
+python -m weather.reporting.candidate_lifecycle.variant_evidence_growth data\backtest\active_variant_shadow_long.csv --json-out data\backtest\model_variant_evidence_growth.json --report-out data\backtest\model_variant_evidence_growth_report.md
 python -m weather.reporting.progress_audit --json-out data\backtest\progress_audit.json --report-out data\backtest\progress_audit_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
 python -m weather.reporting.research.item160_candidate_viability_audit --out data\backtest\item160_candidate_viability_audit.json --report data\backtest\item160_candidate_viability_audit_report.md
 python -m weather.reporting.weather_only_model_proof_packet --served-distribution data\backtest\item160_active_timesplit_served_distribution_contract.json --positive-daily-first data\backtest\early_hour_positive_daily_first_gate.json --out data\backtest\weather_only_model_proof_packet.json --report data\backtest\weather_only_model_proof_packet_report.md
 ```
@@ -645,10 +645,10 @@ Regenerated:
 Commands:
 
 ```powershell
-python -m weather.reporting.variant_evidence_growth data\backtest\active_variant_shadow_long.csv --baseline-predictions data\backtest\model_variant_evidence_baseline_active_shadow_long.csv --json-out data\backtest\model_variant_evidence_growth.json --report-out data\backtest\model_variant_evidence_growth_report.md
+python -m weather.reporting.candidate_lifecycle.variant_evidence_growth data\backtest\active_variant_shadow_long.csv --baseline-predictions data\backtest\model_variant_evidence_baseline_active_shadow_long.csv --json-out data\backtest\model_variant_evidence_growth.json --report-out data\backtest\model_variant_evidence_growth_report.md
 python -m weather.reporting.progress_audit --json-out data\backtest\progress_audit.json --report-out data\backtest\progress_audit_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
 python -m weather.reporting.research.item160_candidate_viability_audit --out data\backtest\item160_candidate_viability_audit.json --report data\backtest\item160_candidate_viability_audit_report.md
 python -m weather.reporting.weather_only_model_proof_packet --served-distribution data\backtest\item160_active_timesplit_served_distribution_contract.json --positive-daily-first data\backtest\early_hour_positive_daily_first_gate.json --out data\backtest\weather_only_model_proof_packet.json --report data\backtest\weather_only_model_proof_packet_report.md
 ```
@@ -684,9 +684,9 @@ actionable.
 
 Implementation:
 
-- `weather.reporting.served_distribution_calibration_contract` now forwards
+- `weather.reporting.serving_gates.served_distribution_calibration_contract` now forwards
   `production_readiness_blockers` from the retrain/location gate.
-- `weather.reporting.early_hour_positive_daily_first_gate` now reports the
+- `weather.reporting.serving_gates.early_hour_positive_daily_first_gate` now reports the
   first concrete production-readiness blocker instead of the generic
   `production readiness is BLOCK` detail.
 - `weather.reporting.progress_audit` now includes the first concrete
@@ -766,8 +766,8 @@ Verification:
 
 ```powershell
 python -m pytest tests\operations\test_daily_refresh.py -q
-python -m weather.reporting.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
-python -m weather.reporting.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --out data\backtest\early_hour_positive_daily_first_gate.json --report data\backtest\early_hour_positive_daily_first_gate_report.md
+python -m weather.reporting.serving_gates.early_hour_positive_daily_first_gate --served-distribution-contract data\backtest\item160_active_timesplit_served_distribution_contract.json --candidate-hourly data\backtest\item224_active_timesplit_logistic_repair_hourly_gate.json --candidate-ten-minute data\backtest\item224_active_timesplit_logistic_repair_ten_minute.json --out data\backtest\item160_active_timesplit_positive_daily_first_gate.json --report data\backtest\item160_active_timesplit_positive_daily_first_gate_report.md
 python -m weather.reporting.research.item160_candidate_viability_audit --out data\backtest\item160_candidate_viability_audit.json --report data\backtest\item160_candidate_viability_audit_report.md
 python -m weather.reporting.weather_only_model_proof_packet --served-distribution data\backtest\item160_active_timesplit_served_distribution_contract.json --positive-daily-first data\backtest\early_hour_positive_daily_first_gate.json --out data\backtest\weather_only_model_proof_packet.json --report data\backtest\weather_only_model_proof_packet_report.md
 ```
@@ -938,7 +938,7 @@ fail-closed report.
 
 Implementation:
 
-- Added `weather.reporting.runtime_identity_reconciliation`.
+- Added `weather.reporting.serving_gates.runtime_identity_reconciliation`.
 - Registered schema `runtime_identity_reconciliation_v0.1`.
 - The generated report summarizes mixed runtime segments, commit row counts,
   top runtime segments, and pass requirements.
@@ -970,7 +970,7 @@ Verification:
 ```powershell
 python -m pytest tests\reporting\test_runtime_identity_reconciliation.py tests\reporting\test_runtime_identity_evidence.py tests\reporting\test_progress_audit.py tests\operations\test_schema_registry.py -q
 python -m pytest tests\reporting\test_weather_only_model_proof_packet.py tests\reporting\test_early_hour_positive_daily_first_gate.py tests\reporting\test_item160_candidate_viability_audit.py -q
-python -m weather.reporting.runtime_identity_reconciliation --target-date 2026-06-24 --out data\backtest\runtime_identity_reconciliation.json --report data\backtest\runtime_identity_reconciliation.md
+python -m weather.reporting.serving_gates.runtime_identity_reconciliation --target-date 2026-06-24 --out data\backtest\runtime_identity_reconciliation.json --report data\backtest\runtime_identity_reconciliation.md
 python -m weather.reporting.progress_audit --json-out data\backtest\progress_audit.json --report-out data\backtest\progress_audit_report.md
 ```
 

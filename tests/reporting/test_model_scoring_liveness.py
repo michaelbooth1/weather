@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.model_scoring_liveness import (
+from weather.reporting.serving_gates.model_scoring_liveness import (
     build_scoring_liveness,
     latest_settled_label_summary,
 )

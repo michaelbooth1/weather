@@ -77,7 +77,7 @@ Medium-term (integration + storage hygiene):
   deeper climatology priors, WU-stale redundancy) or stop collecting/committing.
   Decision 2026-06-15: keep and integrate them as non-serving source-reliability
   and redundancy inputs, while keeping same-day settlement truth WU-primary.
-  `src.weather.reporting.source_redundancy` joins WU, METAR/ASOS, GHCNh, and
+  `src.weather.reporting.source_gates.source_redundancy` joins WU, METAR/ASOS, GHCNh, and
   ERA5-style reanalysis into provenance-safe daily truth rows, source bias stats,
   gap-fill candidates, and disagreement alerts. `pooled_feature_model` consumes
   the same indexes as static source-reliability priors (`source_ghcnh_*` and
@@ -129,7 +129,7 @@ Long-term (the production data layer):
 - [x] Unified per-market daily "truth" table joining WU / METAR / SWOB / GHCNh /
   ERA5 with provenance + a consensus high (today sources are siloed; foundation
   for honest settlement modeling + source-disagreement signal). Extends item 30.
-  Done 2026-06-15: `src.weather.reporting.source_redundancy` now writes
+  Done 2026-06-15: `src.weather.reporting.source_gates.source_redundancy` now writes
   `daily_source_truth_v0.2` rows with `consensus_high`, `consensus_bucket`,
   `consensus_source_count`, and `consensus_sources`, while preserving WU as the
   selected settlement-primary source. Toronto's declared ECCC SWOB source is
@@ -253,5 +253,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - AUDIT FINDINGS RECONCILED`.
 - The file contains 16 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

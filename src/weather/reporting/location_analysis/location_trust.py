@@ -21,7 +21,7 @@ Registry-driven: scores every market in the registry; new locations appear
 automatically and rise as they accumulate clean settled days.
 
 CLI:
-  python -m weather.reporting.location_trust [--out data/backtest/location_trust.json]
+  python -m weather.reporting.location_analysis.location_trust [--out data/backtest/location_trust.json]
 """
 import argparse
 import json

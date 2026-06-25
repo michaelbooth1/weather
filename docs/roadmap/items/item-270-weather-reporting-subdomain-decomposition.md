@@ -1,4 +1,4 @@
-# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [PARTIAL 2026-06-25 - RESEARCH CLASSIFICATION SLICE LANDED]
+# 270. weather.reporting Subdomain Decomposition (Folder Cohesion After Size-Splits) [COMPLETE 2026-06-25 - REPORTING ROOT RATCHETED]
 
 Goal: group the now-small `weather.reporting` modules into cohesive subpackages
 by reporting subdomain, so the package is navigable and the import-architecture
@@ -69,10 +69,20 @@ item 206).
      `late_day_lock_in_repair`, `exact_band_distance_zero_calibration`), and
      narrow diagnostics such as blocked-market repair, forecast-profile/source
      reliability, forecast double-counting, and reanalysis synoptic ablation.
-   - keep shared helpers at root (`formatting`, `overview_helpers`, `__init__`)
-     plus explicitly justified temporary exceptions until the item taxonomy gives
-     cross-cutting gates, registries, inventories, and candidate-lifecycle reports
-     accurate homes.
+   - `reporting/candidate_lifecycle/` - active shadow refresh, candidate replay
+     summaries, variant registries/evidence, repair integration, shadow monitors,
+     disagreement analysis, price-free learning, and current max-trust gates.
+   - `reporting/source_gates/` - source-family inventory/redundancy, source
+     promotion gates, settlement-source audit, cross-hub readiness, and weak-input
+     family disposition.
+   - `reporting/serving_gates/` - served-distribution contracts, runtime identity
+     reconciliation/evidence, model-scoring liveness, and serving/early-hour gates.
+   - `reporting/location_analysis/` - location trust, similarity pooling,
+     location-bias repair, transfer reports, extra-location registry, and
+     pooled-F location gates.
+   - `reporting/roadmap/` - roadmap backlog maintenance CLI.
+   - keep only shared helpers at root (`formatting`, `overview_helpers`,
+     `__init__`).
 2. Update `schema_registry` module paths and all importers in the same change as
    each move; no root re-export shims.
 3. Extend the import-architecture ratchet with intra-`reporting` rules: research
@@ -92,11 +102,11 @@ item 206).
       new root re-export shims.
 - [x] Targeted architecture ratchet blocks the moved safe-slice modules from
       returning to the reporting root.
-- [x] Root guard now allows only shared root helpers plus named, justified
-      exceptions.
-- [ ] Resolve explicitly classified root exceptions into accurate homes when the
-      taxonomy adds candidate-lifecycle, source-gate, serving-gate, and
-      location-analysis buckets.
+- [x] Resolve explicitly classified root exceptions into accurate homes:
+      `candidate_lifecycle/`, `source_gates/`, `serving_gates/`,
+      `location_analysis/`, `data_quality/`, and `roadmap/`.
+- [x] Root guard allows only shared root helpers: `__init__.py`, `formatting.py`,
+      and `overview_helpers.py`.
 
 2026-06-24 safe-slice update: `fleet_observability*` now lives under
 `weather.reporting.fleet`, the historical/data-quality audit family now lives
@@ -130,14 +140,44 @@ research audit, blocked-market repair diagnostics, forecast-profile/source-state
 diagnostics, forecast double-counting, and reanalysis synoptic ablation. Shared
 or cross-cutting infrastructure such as `roadmap_backlog`, `variant_registry`,
 `variant_evidence_growth`, `source_family_inventory`,
-`candidate_variant_replay_summary`, and `pooled_f_retrain_location_gate` remains
-at the root as explicit architecture-ratchet exceptions until the taxonomy gives
-those modules accurate homes.
+`candidate_variant_replay_summary`, and `pooled_f_retrain_location_gate` was left
+at the root temporarily as explicit architecture-ratchet exceptions until the
+final taxonomy gave those modules accurate homes.
+
+2026-06-25 final taxonomy update: all remaining non-helper root modules now have
+accurate subdomain homes. Candidate lifecycle, source gates, serving gates,
+location analysis, data-quality retention/quarantine, and roadmap maintenance
+modules were moved atomically with schema owner paths, app/test imports,
+compatibility-wrapper targets, and active docs. The import-architecture root
+guard now enforces that `weather.reporting` root contains only `__init__.py`,
+`formatting.py`, and `overview_helpers.py`.
 
 Acceptance: `weather.reporting` root holds only shared helpers and subpackages;
 every registered artifact's `schema_registry` module path resolves; the
 import-architecture ratchet enforces intra-reporting boundaries and blocks new
 root-level modules; and the full reporting, schema-registry, and module-size
 test suites are green.
+
+## Completion Notes
+
+Completed in the 2026-06-25 reporting taxonomy closeout:
+
+- `weather.reporting` root now contains only `__init__.py`, `formatting.py`, and
+  `overview_helpers.py`.
+- All other reporting modules live under explicit subdomain packages:
+  `candidate_lifecycle/`, `casebooks/`, `daily/`, `data_quality/`, `fleet/`,
+  `hourly/`, `location_analysis/`, `market/`, `promotion/`, `research/`,
+  `roadmap/`, `scorecards/`, `serving_gates/`, `source_gates/`, and
+  `validation/`.
+- Schema registry owners, imports, compatibility-wrapper targets, app/test
+  callers, and active docs were retargeted atomically; no root re-export shims
+  were added.
+- The import-architecture ratchet enforces helpers-only reporting root
+  membership and prevents moved safe-slice modules from returning to root.
+- Future validation should rerun
+  `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint`,
+  `python -m weather.schema_registry audit --paths src --strict`,
+  `python -m pytest tests/operations/test_import_architecture.py`, and focused
+  reporting tests.
 
 Related: items 90, 98, 130, 173, 204, 206, 254, 262; project-structure-action-plan-2026-06-22.

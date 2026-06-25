@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.global_model_guidance_gate import (
+from weather.reporting.source_gates.global_model_guidance_gate import (
     GLOBAL_MODEL_FEATURES,
     acceptance,
     build_report_payload,

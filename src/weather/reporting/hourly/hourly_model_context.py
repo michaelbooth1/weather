@@ -1,7 +1,7 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
 from weather.reporting.hourly.hourly_model_gate import *  # noqa: F403
-from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
+from weather.reporting.serving_gates.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.

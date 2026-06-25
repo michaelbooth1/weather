@@ -18,7 +18,7 @@ from weather.calibration import forecast_error_model as forecast_error
 from weather.calibration import probability_calibration as probability_calibration
 from weather.calibration import settlement_lag_model as settlement_lag
 from weather.market.market_registry import all_specs
-from weather.reporting.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.sources.forecast_history import daily_path_for
 from weather.artifacts import resolve_artifact_path, writable_artifact_path
 

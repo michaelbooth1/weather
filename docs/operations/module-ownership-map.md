@@ -40,8 +40,8 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 | `weather.collection.snapshot_store_backfill` | Collection | Snapshot sidecar/cadence backfill helpers and snapshot-store utility CLI wiring. | Owner module for item 318; imports `SnapshotStore` lazily to avoid cycles. |
 | `weather.market.taker_bot_bakeoff` | Market | Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers. Replay input, profitability verification, and model-variant scoring helpers live in `weather.market.taker_bot_bakeoff_scoring`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
 | `weather.market.taker_bot_bakeoff_scoring` | Market | Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion. | Owner module for item 318; must not import the `taker_bot_bakeoff` facade. |
-| `weather.reporting.source_family_inventory` | Reporting | Source-family input readers, family/gate classification, payload assembly, and CLI. Markdown rendering lives in `weather.reporting.source_family_inventory_report`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
-| `weather.reporting.source_family_inventory_report` | Reporting | Markdown rendering for source-family inventory artifacts. | Owner module for item 318; must not import the source-family inventory facade. |
+| `weather.reporting.source_gates.source_family_inventory` | Reporting | Source-family input readers, family/gate classification, payload assembly, and CLI. Markdown rendering lives in `weather.reporting.source_gates.source_family_inventory_report`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
+| `weather.reporting.source_gates.source_family_inventory_report` | Reporting | Markdown rendering for source-family inventory artifacts. | Owner module for item 318; must not import the source-family inventory facade. |
 
 Run the current audit with:
 

@@ -47,7 +47,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_winner_rank_parity_step,
 )
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
-from weather.reporting.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
+from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
 
 def _args(tmp, **overrides):
@@ -1253,13 +1253,13 @@ class TestDailyRefresh(unittest.TestCase):
                 "last_scored_target_date": "2026-06-21",
                 "latest_settled_label_date": "2026-06-23",
                 "scoring_liveness_status": "BLOCK",
-                "remediation_command": "python -m weather.reporting.price_free_model_learning",
+                "remediation_command": "python -m weather.reporting.candidate_lifecycle.price_free_model_learning",
                 "scoring_liveness": {
                     "status": "BLOCK",
                     "artifact_name": "price_free_model_learning",
                     "last_scored_target_date": "2026-06-21",
                     "latest_settled_label_date": "2026-06-23",
-                    "remediation_command": "python -m weather.reporting.price_free_model_learning",
+                    "remediation_command": "python -m weather.reporting.candidate_lifecycle.price_free_model_learning",
                 },
             }
 
@@ -2193,7 +2193,7 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(tmp, variant_registry=str(registry), promotion_min_artifact_free_bytes=0)
 
             with patch(
-                "weather.reporting.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
+                "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
                 side_effect=fake_execute_pooled_contract,
             ) as execute:
                 result = run_active_variant_shadow_step(args)
@@ -2246,7 +2246,7 @@ class TestDailyRefresh(unittest.TestCase):
                 variant_registry=str(registry),
             )
 
-            with patch("weather.reporting.active_variant_shadow_refresh.execute_registry_prediction_exports") as execute:
+            with patch("weather.reporting.candidate_lifecycle.active_variant_shadow_refresh.execute_registry_prediction_exports") as execute:
                 result = run_active_variant_shadow_step(args)
 
         self.assertEqual(result["status"], "OK")
@@ -2295,7 +2295,7 @@ class TestDailyRefresh(unittest.TestCase):
             }
 
             with patch(
-                "weather.reporting.active_variant_shadow_refresh.execute_registry_prediction_exports",
+                "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh.execute_registry_prediction_exports",
                 return_value=failed_execution,
             ):
                 result = run_active_variant_shadow_step(args)

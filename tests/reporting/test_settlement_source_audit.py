@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.settlement_source_audit import (
+from weather.reporting.source_gates.settlement_source_audit import (
     build_settlement_source_audit,
     settlement_label_gate_for_target_dates,
 )

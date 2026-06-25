@@ -26,8 +26,8 @@ No-market extra-location transfer experiments should use the package harness
 instead of scratch scripts:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.reporting.extra_location_registry
-.\venv\Scripts\python.exe -m weather.reporting.no_market_location_transfer observations.csv --target-markets nyc --extra-locations boston,philadelphia --holdout-years 2025 --cutoff-regimes early --scoring-backend fast_residual
+.\venv\Scripts\python.exe -m weather.reporting.location_analysis.extra_location_registry
+.\venv\Scripts\python.exe -m weather.reporting.location_analysis.no_market_location_transfer observations.csv --target-markets nyc --extra-locations boston,philadelphia --holdout-years 2025 --cutoff-regimes early --scoring-backend fast_residual
 ```
 
 The transfer harness is price-free by design: it scores target-only,

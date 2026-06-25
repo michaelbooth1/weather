@@ -75,7 +75,7 @@ The two active registry entries that previously referenced ignored
 - `artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl`
 - `artifacts/models/hgb/item35_density_full_candidate.pkl`
 
-`weather.reporting.variant_registry` now errors on active promoted variants
+`weather.reporting.candidate_lifecycle.variant_registry` now errors on active promoted variants
 that point at ignored `data/` artifact paths and only warns for variants
 explicitly marked `shadow-only`.
 
@@ -99,5 +99,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-20 - LFS ARTIFACT PREFLIGHT PASS`.
 - The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

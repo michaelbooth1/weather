@@ -3,12 +3,12 @@
 The durable registry is configuration, not reporting state. This facade keeps
 collection and calibration callers from depending on the reporting package
 while preserving the established implementation and CLI under
-``weather.reporting.variant_registry``.
+``weather.reporting.candidate_lifecycle.variant_registry``.
 """
 
 from __future__ import annotations
 
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     AUDIT_SCHEMA_VERSION,
     DEFAULT_REGISTRY_PATH,
     REQUIRED_ACTIVE_EXPORT_FIELDS,

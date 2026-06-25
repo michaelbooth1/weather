@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.variant_evidence_growth import build_payload, render_report
+from weather.reporting.candidate_lifecycle.variant_evidence_growth import build_payload, render_report
 
 
 def _row(variant_id, day, probability, **extra):

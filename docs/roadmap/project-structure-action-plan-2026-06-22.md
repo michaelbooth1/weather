@@ -109,8 +109,8 @@ Near-threshold modules:
 | `weather.model.model_sources` | 1,883 |
 | `weather.model.model_features` | 1,849 |
 | `weather.operations.tape_backup` | 1,789 |
-| `weather.reporting.source_family_inventory` | 1,753 |
-| `weather.reporting.multi_variant_shadow` | 1,693 |
+| `weather.reporting.source_gates.source_family_inventory` | 1,753 |
+| `weather.reporting.candidate_lifecycle.multi_variant_shadow` | 1,693 |
 | `weather.operations.daily_refresh_steps` | 1,678 |
 
 ## Action Order

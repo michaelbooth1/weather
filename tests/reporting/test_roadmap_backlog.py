@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.roadmap_backlog import (
+from weather.reporting.roadmap.roadmap_backlog import (
     SCHEMA_VERSION,
     build_payload,
     summarize_roadmap_status,

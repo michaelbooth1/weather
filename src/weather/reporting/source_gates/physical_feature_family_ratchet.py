@@ -15,7 +15,7 @@ from pathlib import Path
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_signed, markdown_table
-from weather.reporting.source_family_inventory import FAMILY_SPECS
+from weather.reporting.source_gates.source_family_inventory import FAMILY_SPECS
 from weather.schema_registry import schema_version
 
 

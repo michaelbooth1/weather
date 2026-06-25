@@ -187,19 +187,19 @@ Modules over 1,000 lines:
 | `weather.model.model_sources` | 1,869 | provider fetch clients vs serving adapter logic |
 | `weather.operations.tape_backup` | 1,789 | manifest, retention, backup, restore drill CLI |
 | `weather.calibration.feature_model` | 1,617 | training pipeline, artifact IO, CLI, reports |
-| `weather.reporting.multi_variant_shadow` | 1,610 | row normalization, scoring, governance report, CLI |
+| `weather.reporting.candidate_lifecycle.multi_variant_shadow` | 1,610 | row normalization, scoring, governance report, CLI |
 | `weather.model.model_features` | 1,583 | feature extraction groups and source-state features |
 | `weather.market.mm_paper` | 1,575 | tape ingestion, scoring, accounting, report/CLI |
 | `weather.operations.observation_trigger` | 1,548 | watcher loop, trigger classification, replay, CLI |
 | `weather.reporting.ten_minute_model_performance` | 1,521 | scoring, slots, gates, rendering, CLI |
-| `weather.reporting.source_family_inventory` | 1,497 | source inventory, promotion gates, report |
+| `weather.reporting.source_gates.source_family_inventory` | 1,497 | source inventory, promotion gates, report |
 | `weather.sources.reanalysis_synoptic` | 1,430 | retrieval, sidecars, feature transforms, audit |
 | `weather.market.mm_policy` | 1,427 | pure policy, risk overlays, quote intent formatting |
 | `weather.model.model_distribution` | 1,417 | distribution construction, calibration, explanations |
 | `weather.market.market_microstructure` | 1,385 | facade/orchestration around capture/features/audit |
 | `weather.model.feature_store` | 1,380 | schema, transforms, validation, export helpers |
 | `weather.operations.daily_refresh_steps` | 1,362 | registry, adapters, status aggregation |
-| `weather.reporting.source_redundancy` | 1,356 | daily truth, redundancy metrics, report |
+| `weather.reporting.source_gates.source_redundancy` | 1,356 | daily truth, redundancy metrics, report |
 | `weather.calibration.pooled_candidate_scoring` | 1,347 | row-level scoring and shadow policy helpers |
 | `weather.reporting.progress_audit` | 1,299 | data loading, gate model, doc/report output |
 | `weather.reporting.settled_day_root_cause` | 1,268 | data joins, classification, rendering |
@@ -211,8 +211,8 @@ Modules over 1,000 lines:
 | `weather.market.mm_exchange` | 1,101 | keyless exchange adapter and reports boundary |
 | `weather.calibration.pooled_density_training` | 1,088 | density training pipeline |
 | `weather.reporting.variant_basket_selection_validation` | 1,087 | validation harness and reports |
-| `weather.reporting.no_market_location_transfer` | 1,077 | no-market transfer validation |
-| `weather.reporting.price_free_model_learning` | 1,067 | inactive-market diagnostics |
+| `weather.reporting.location_analysis.no_market_location_transfer` | 1,077 | no-market transfer validation |
+| `weather.reporting.candidate_lifecycle.price_free_model_learning` | 1,067 | inactive-market diagnostics |
 | `weather.calibration.pooled_feature_assembly` | 1,053 | pooled feature matrix assembly |
 | `weather.operations.nightly_retrain` | 1,009 | retrain orchestration |
 

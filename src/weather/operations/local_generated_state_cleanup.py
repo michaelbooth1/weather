@@ -148,7 +148,7 @@ def scratch_recommendation(path: Path) -> tuple[str, str]:
         if "no_market_location" in path.name:
             return (
                 "superseded_by_package_harness",
-                "Confirm no unique logic remains, then prefer weather.reporting.no_market_location_transfer.",
+                "Confirm no unique logic remains, then prefer weather.reporting.location_analysis.no_market_location_transfer.",
             )
         return ("review_for_tool_or_test_promotion", "Promote to tools/research or tests before deletion.")
     if path.suffix == ".md":

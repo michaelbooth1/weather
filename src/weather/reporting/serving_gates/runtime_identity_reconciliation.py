@@ -10,7 +10,7 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
-from weather.reporting.runtime_identity_evidence import DEFAULT_SNAPSHOTS_ROOT, snapshot_runtime_segments
+from weather.reporting.serving_gates.runtime_identity_evidence import DEFAULT_SNAPSHOTS_ROOT, snapshot_runtime_segments
 from weather.schema_registry import schema_version
 
 

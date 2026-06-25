@@ -42,7 +42,7 @@ Related: items 153, 193, 197, 215, 227, 230.
 
 ## 2026-06-22 current-max trust gate update
 
-Added `weather.reporting.current_max_trust_retrain_gate` with schema
+Added `weather.reporting.candidate_lifecycle.current_max_trust_retrain_gate` with schema
 `current_max_trust_retrain_gate_v0.1`. The gate pins the pre-retrain evidence
 needed for this item and fails closed until a retrained artifact/report proves
 the active model consumed the current-max trust fields and includes a
@@ -87,7 +87,7 @@ passed with `68 passed`.
 Run command:
 
 ```powershell
-python -m weather.reporting.current_max_trust_retrain_gate --out data\backtest\current_max_trust_retrain_gate.json --report data\backtest\current_max_trust_retrain_gate_report.md
+python -m weather.reporting.candidate_lifecycle.current_max_trust_retrain_gate --out data\backtest\current_max_trust_retrain_gate.json --report data\backtest\current_max_trust_retrain_gate_report.md
 ```
 
 ## 2026-06-22 current-max trust gate refresh
@@ -169,8 +169,8 @@ aggressive trading.
 Verification:
 
 ```powershell
-python -m weather.reporting.current_max_trust_retrain_evidence --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_retrain_evidence.json --report data\backtest\current_max_trust_retrain_evidence_report.md
-python -m weather.reporting.current_max_trust_retrain_gate --retrain-report-json data\backtest\current_max_trust_retrain_evidence.json --out data\backtest\current_max_trust_retrain_gate.json --report data\backtest\current_max_trust_retrain_gate_report.md
+python -m weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_retrain_evidence.json --report data\backtest\current_max_trust_retrain_evidence_report.md
+python -m weather.reporting.candidate_lifecycle.current_max_trust_retrain_gate --retrain-report-json data\backtest\current_max_trust_retrain_evidence.json --out data\backtest\current_max_trust_retrain_gate.json --report data\backtest\current_max_trust_retrain_gate_report.md
 python -m weather.calibration.pooled_candidate_replay --artifact data\backtest\current_max_trust_retrain_merged_candidate.pkl --out data\backtest\current_max_trust_candidate_replay_report.md --json-out data\backtest\current_max_trust_candidate_replay.json --replay-report=data\backtest\current_max_trust_candidate_current_replay_report.md --candidate-variant-out data\backtest\current_max_trust_variant_rows.csv --candidate-variant-id current_max_trust_retrain_v0_1 --candidate-variant-family pooled_f_current_max_trust --skip-microstructure-overlay --source-state-ablation-variant-out= --bridge-variant-out= --min-artifact-free-bytes 0
 python -m weather.reporting.candidate_hourly_performance --variant-rows data\backtest\current_max_trust_variant_rows.csv --json-out data\backtest\current_max_trust_hourly_candidate_performance.json --report-out data\backtest\current_max_trust_hourly_candidate_performance_report.md
 python -m weather.reporting.ten_minute_model_performance --item147-rows data\backtest\current_max_trust_variant_rows.csv --json-out data\backtest\current_max_trust_ten_minute_performance.json --report-out data\backtest\current_max_trust_ten_minute_performance_report.md --slot-csv-out data\backtest\current_max_trust_ten_minute_by_slot.csv --candidate-csv-out data\backtest\current_max_trust_ten_minute_candidate_by_slot.csv
@@ -184,5 +184,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - TRUST RETRAIN AND WARM-TAIL ABLATION PASS`.
 - The file contains 4 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

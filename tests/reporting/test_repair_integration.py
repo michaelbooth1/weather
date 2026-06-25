@@ -2,14 +2,14 @@ import csv
 import json
 from pathlib import Path
 
-from weather.reporting.active_variant_shadow_refresh import execute_registry_prediction_exports
+from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import execute_registry_prediction_exports
 from weather.reporting.promotion.promotion_refresh import (
     _candidate_summary,
     build_promotion_allowlist,
     load_precomputed_candidate_report,
     promotion_readiness,
 )
-from weather.reporting.repair_integration import (
+from weather.reporting.candidate_lifecycle.repair_integration import (
     LIVE_RUNTIME,
     SCHEMA_VERSION,
     build_payload,
@@ -298,7 +298,7 @@ def test_active_variant_refresh_executes_repair_integration_runtime(tmp_path):
                 "roles": ["candidate", "no-market", "repair-integrated"],
                 "active_for_headline": True,
                 "artifact_required": False,
-                "prediction_function": "weather.reporting.repair_integration:build_payload",
+                "prediction_function": "weather.reporting.candidate_lifecycle.repair_integration:build_payload",
                 "prediction_mode": "band_binary",
                 "export_family": "integrated_repair",
                 "default_export_path": str(export_path),

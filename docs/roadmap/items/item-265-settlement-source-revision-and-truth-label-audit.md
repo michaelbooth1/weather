@@ -55,7 +55,7 @@ Related: items 25, 153, 166, 193, 201, 215, 232, 242.
 
 Completed on 2026-06-23:
 
-- Added `weather.reporting.settlement_source_audit`, schema
+- Added `weather.reporting.source_gates.settlement_source_audit`, schema
   `settlement_source_revision_audit_v0.1`, with JSON and Markdown outputs at
   `data/backtest/settlement_source_revision_audit.json` and
   `data/backtest/settlement_source_revision_audit.md`.
@@ -87,7 +87,7 @@ Verification:
   passed with `13 passed`.
 - `python -m pytest tests\operations\test_daily_refresh.py -q` passed with
   `46 passed`.
-- `python -m weather.reporting.settlement_source_audit --json-out data\backtest\settlement_source_revision_audit.json --report-out data\backtest\settlement_source_revision_audit.md`
+- `python -m weather.reporting.source_gates.settlement_source_audit --json-out data\backtest\settlement_source_revision_audit.json --report-out data\backtest\settlement_source_revision_audit.md`
   generated status `BLOCK`, reflecting current non-proof-grade label rows.
 
 ## Completion Notes
@@ -97,5 +97,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - TRUTH-LABEL AUDIT AND BLOCKER LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

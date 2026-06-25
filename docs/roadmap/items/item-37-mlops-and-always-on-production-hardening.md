@@ -168,7 +168,7 @@ slice. Focused validation: `pytest tests/operations/test_nightly_retrain.py -q`
 passes; CLI dry-run and strict schema audit pass.
 
 Shadow/A-B monitoring update (2026-06-15 UTC):
-`weather.reporting.shadow_ab_monitor` adds schema `shadow_ab_monitor_v0.1` and
+`weather.reporting.candidate_lifecycle.shadow_ab_monitor` adds schema `shadow_ab_monitor_v0.1` and
 builds an alertable per-market monitor from `f_family_promotion_refresh.json`
 and `pooled_candidate_replay_latest.json`. It classifies markets as
 `PROMOTE_READY`, `SHADOW`, or `ALERT`, flags candidate regression versus the
@@ -208,5 +208,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - NIGHTLY RETRAIN + SHADOW AB MONITORING LIVE`.
 - The file contains 12 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

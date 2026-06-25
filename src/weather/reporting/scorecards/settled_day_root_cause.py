@@ -20,8 +20,8 @@ from weather.reporting.casebooks.disagreement_casebook import (
     market_event_summary,
     parse_time as parse_event_time,
 )
-from weather.reporting.roadmap_backlog import item_files, parse_item
-from weather.reporting.model_scoring_liveness import (
+from weather.reporting.roadmap.roadmap_backlog import item_files, parse_item
+from weather.reporting.serving_gates.model_scoring_liveness import (
     attach_scoring_liveness,
     build_root_cause_rerun_command,
 )

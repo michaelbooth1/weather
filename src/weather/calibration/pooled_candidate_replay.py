@@ -48,7 +48,7 @@ from weather.sources.reanalysis_synoptic import (
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
 from weather.sources.marine_water_contrast import load_marine_water_contrast_features
 from weather.model.variant_prediction_runtime import apply_continuous_density_calibration
-from weather.reporting.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
     feature_index_for_folder,
@@ -102,7 +102,7 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     DEFAULT_REGISTRY_PATH as DEFAULT_VARIANT_REGISTRY_PATH,
     load_registry as load_variant_registry,
     variant_contract_for_artifact,

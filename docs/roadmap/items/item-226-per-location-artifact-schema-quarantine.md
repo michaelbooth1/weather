@@ -34,7 +34,7 @@ alternatives while actually measuring schema drift or old validation policy.
 
 ## Completion Notes
 
-Added `weather.reporting.per_location_artifact_quarantine` with JSON and
+Added `weather.reporting.data_quality.per_location_artifact_quarantine` with JSON and
 Markdown outputs. The report scans the model artifact registry, pairs legacy
 per-location HGB files with their `feature_model_coefs*` schema metadata, and
 marks per-location artifacts as promotable only when they are active registry
@@ -56,7 +56,7 @@ Verification:
 
 - `python -m pytest tests\reporting\test_per_location_artifact_quarantine.py -q`
 - `python -m pytest tests\calibration\test_promotion_refresh.py -q`
-- `python -m weather.reporting.per_location_artifact_quarantine --artifact-registry artifacts\manifests\model_artifact_registry.json --json-out data\backtest\per_location_artifact_quarantine.json --report-out data\backtest\per_location_artifact_quarantine_report.md --fail-on-active-violation`
+- `python -m weather.reporting.data_quality.per_location_artifact_quarantine --artifact-registry artifacts\manifests\model_artifact_registry.json --json-out data\backtest\per_location_artifact_quarantine.json --report-out data\backtest\per_location_artifact_quarantine_report.md --fail-on-active-violation`
 - `python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_candidate_replay_latest.json --precomputed-candidate-report data\backtest\pooled_candidate_replay_latest_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_ten_minute_performance.json --skip-serving-gauntlet`
 
 Acceptance: promotion dashboards and model-comparison reports exclude

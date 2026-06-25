@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_radiation_gate import (
+from weather.reporting.source_gates.forecast_radiation_gate import (
     CLOUD_PROXY_FEATURES,
     EXPECTED_FEATURES,
     RADIATION_FEATURES,

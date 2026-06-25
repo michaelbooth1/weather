@@ -43,7 +43,7 @@ Native audits:
 ```powershell
 python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md --run-architecture-ratchet
 python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
-python -m weather.reporting.roadmap_backlog --fail-on-lint
+python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint
 python -m pytest tests\operations\test_import_architecture.py -q
 python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md --include-data-sizes
 ```
@@ -408,7 +408,7 @@ For the audit state:
 python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md --run-architecture-ratchet
 python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md --include-data-sizes
 python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
-python -m weather.reporting.roadmap_backlog --fail-on-lint
+python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint
 ```
 
 For item 317:

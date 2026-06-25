@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.multi_variant_shadow import (
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     ATTRIBUTION_SCHEMA_VERSION,
     attribution_sidecar_rows,
     build_payload,

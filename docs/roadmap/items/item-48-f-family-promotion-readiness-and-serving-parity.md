@@ -1693,4 +1693,4 @@ Verification:
 
 - `python -m pytest tests\reporting\test_item48_promotion_readiness_acceptance.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q`
 - `python -m weather.reporting.research.item48_promotion_readiness_acceptance`
-- `python -m weather.reporting.roadmap_backlog --roadmap-root docs\roadmap --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md`
+- `python -m weather.reporting.roadmap.roadmap_backlog --roadmap-root docs\roadmap --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md`

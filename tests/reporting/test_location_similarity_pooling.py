@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.location_similarity_pooling import (
+from weather.reporting.location_analysis.location_similarity_pooling import (
     blend_prediction,
     build_payload,
     build_similarity_table,

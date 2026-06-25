@@ -62,7 +62,7 @@ warning.
 
 ## Completion Evidence
 
-- Added `weather.reporting.price_free_model_learning`, which writes
+- Added `weather.reporting.candidate_lifecycle.price_free_model_learning`, which writes
   `data/backtest/price_free_model_learning.json`,
   `data/backtest/price_free_model_learning_report.md`,
   `data/backtest/price_free_model_learning_by_hour.csv`, and
@@ -107,5 +107,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-19 - 2026-06-18 AUDIT GAP`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

@@ -34,7 +34,7 @@ from pathlib import Path
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
-from weather.reporting.multi_variant_shadow import (
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     normalize_rows,
     observation_key,
     read_prediction_rows,

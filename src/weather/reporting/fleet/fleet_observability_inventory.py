@@ -43,8 +43,8 @@ from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo, data_path
 from weather.reporting.data_quality.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result
-from weather.reporting.location_trust import score_all_markets
-from weather.reporting.source_redundancy import (
+from weather.reporting.location_analysis.location_trust import score_all_markets
+from weather.reporting.source_gates.source_redundancy import (
     FALLBACK_ORDER,
     PRIMARY_SOURCE,
     source_daily_indexes,

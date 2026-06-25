@@ -176,7 +176,7 @@ then an onshore/breeze-day settlement slice.
 
 ## 2026-06-22 Marine Contrast Gate Artifact
 
-Added `weather.reporting.marine_contrast_gate`, schema
+Added `weather.reporting.source_gates.marine_contrast_gate`, schema
 `marine_contrast_gate_v0.1`, with generated evidence at:
 
 - `data/backtest/item191_marine_contrast_gate.json`
@@ -262,5 +262,5 @@ Validated in the 2026-06-25 roadmap metadata reconciliation:
 - Remaining promotion blockers are intentionally fail-closed follow-on gates,
   not unchecked implementation work for this item.
 - Future validation should rerun
-  `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the
+  `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the
   item-specific marine contrast gate/reporting tests listed above.

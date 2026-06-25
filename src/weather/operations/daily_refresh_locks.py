@@ -52,7 +52,7 @@ def cleanup_command(args, target_bytes):
     root = Path(args.backtest_root)
     manifest = root / "backtest_artifact_cleanup_manifest.json"
     return (
-        "python -m weather.reporting.backtest_artifact_retention "
+        "python -m weather.reporting.data_quality.backtest_artifact_retention "
         f"--root {root} "
         f"--cleanup-manifest {manifest} "
         f"--cleanup-target-bytes {int(max(0, target_bytes))}"

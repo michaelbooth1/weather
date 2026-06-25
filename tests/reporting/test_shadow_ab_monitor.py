@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from weather.reporting.shadow_ab_monitor import build_monitor, write_json, write_report  # noqa: E402
+from weather.reporting.candidate_lifecycle.shadow_ab_monitor import build_monitor, write_json, write_report  # noqa: E402
 
 
 def _write(path, payload):

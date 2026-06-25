@@ -46,7 +46,7 @@ report.
 
 ## 2026-06-18 implementation update
 
-Added `weather.reporting.location_similarity_pooling`, with schemas
+Added `weather.reporting.location_analysis.location_similarity_pooling`, with schemas
 `location_similarity_features_v0.1` and
 `location_similarity_partial_pooling_v0.1`.
 
@@ -56,7 +56,7 @@ forecast-error MAE gap. The weighting policy preserves an explicit
 target-local weight and shrinks extra-location influence to zero when no extra
 location clears the minimum similarity threshold.
 
-`weather.reporting.no_market_location_transfer` now scores
+`weather.reporting.location_analysis.no_market_location_transfer` now scores
 `similarity_weighted_minus_target_only` alongside target-only,
 flat target-plus-extra, and extra-only. The transfer report exports
 per-target attribution rows showing each target-local and extra-location
@@ -71,5 +71,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - WEIGHTED TRANSFER PATH LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

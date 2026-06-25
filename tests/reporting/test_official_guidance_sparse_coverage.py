@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.official_guidance_sparse_coverage import (
+from weather.reporting.source_gates.official_guidance_sparse_coverage import (
     build_report_payload,
     guidance_family_for_feature,
     write_markdown_report,

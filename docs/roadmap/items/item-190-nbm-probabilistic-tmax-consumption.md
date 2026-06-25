@@ -61,7 +61,7 @@ per-market settlement scoring before it can act as a calibration anchor.
 
 ## 2026-06-22 NBM Probabilistic Gate Artifact
 
-Added `weather.reporting.nbm_probabilistic_tmax_gate`, schema
+Added `weather.reporting.source_gates.nbm_probabilistic_tmax_gate`, schema
 `nbm_probabilistic_tmax_gate_v0.1`, with generated evidence at:
 
 - `data/backtest/item190_nbm_probabilistic_tmax_gate.json`
@@ -138,7 +138,7 @@ Added a replay-safety proof for the NBP station-text archive path:
   values, mean, standard deviation, spread, and IQR against the CSV manifest.
 - `nbp_station_archive_summary` reports archive status as `PASS` only when at
   least one available row exists and every manifest row replays cleanly.
-- `weather.reporting.source_family_inventory` now upgrades item 190's NWS/NBM
+- `weather.reporting.source_gates.source_family_inventory` now upgrades item 190's NWS/NBM
   historical archive status to `nbp_station_archive_available` only when that
   replay-safe archive evidence is present; otherwise the family remains on the
   live-only/grid-backfill status.
@@ -179,7 +179,7 @@ Verification:
 
 ## 2026-06-25 Settlement-Scored Calibration Anchor
 
-Added `weather.reporting.nbm_probabilistic_tmax_settlement_scoring`, schema
+Added `weather.reporting.source_gates.nbm_probabilistic_tmax_settlement_scoring`, schema
 `nbm_probabilistic_tmax_settlement_scoring_v0.1`, as the direct NBM-probability
 calibration-anchor scorer. It maps each captured NBM Tmax percentile curve into
 Polymarket settlement-band probabilities using native half-degree settlement
@@ -220,8 +220,8 @@ settlement-scored skill is non-regressing.
 Verification:
 
 - `python -m pytest tests\reporting\test_nbm_probabilistic_tmax_settlement_scoring.py tests\reporting\test_nbm_probabilistic_tmax_gate.py tests\operations\test_schema_registry.py::TestSchemaRegistry::test_registry_lookup_returns_public_versions -q` -> 9 passed.
-- `python -m weather.reporting.nbm_probabilistic_tmax_settlement_scoring --as-of 2026-06-25` -> `BLOCK (DO_NOT_CUT_OVER)`, `50,611` rows scored.
-- `python -m weather.reporting.nbm_probabilistic_tmax_gate` -> `BLOCK`.
+- `python -m weather.reporting.source_gates.nbm_probabilistic_tmax_settlement_scoring --as-of 2026-06-25` -> `BLOCK (DO_NOT_CUT_OVER)`, `50,611` rows scored.
+- `python -m weather.reporting.source_gates.nbm_probabilistic_tmax_gate` -> `BLOCK`.
 
 Acceptance: NBM probabilistic MaxT is ingested for US markets, exposed as
 features, settlement-scored as a calibration anchor, and protected by a

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.calibration.pooled_candidate_scoring import ATTRIBUTION_FEATURE_FIELDS
-from weather.reporting.model_scoring_liveness import apply_liveness_to_gate, gate_has_liveness_blocker
+from weather.reporting.serving_gates.model_scoring_liveness import apply_liveness_to_gate, gate_has_liveness_blocker
 from weather.reporting.promotion.readers import *  # noqa: F403
 from weather.schema_registry import schema_version
 

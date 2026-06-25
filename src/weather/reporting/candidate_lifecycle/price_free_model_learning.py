@@ -23,7 +23,7 @@ from weather.reporting.hourly.hourly_model_performance import (
     parse_csv_values,
     parse_quality_grades,
 )
-from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
+from weather.reporting.serving_gates.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 from weather.schema_registry import schema_version
 from weather.scoring.metrics import binary_log_loss, brier, expected_calibration_error, missing, safe_float
 
@@ -722,7 +722,7 @@ def build_price_free_learning(
         },
     }
     rerun_command = build_rerun_command(
-        "weather.reporting.price_free_model_learning",
+        "weather.reporting.candidate_lifecycle.price_free_model_learning",
         labels_csv=labels_csv,
         snapshots_root=snapshots_root,
         quality_grades=quality_grades,
@@ -804,7 +804,7 @@ def render_report(payload):
     current_max = payload.get("current_max_carryover") or {}
     current_summary = current_max.get("summary") or {}
     liveness = payload.get("scoring_liveness") or {}
-    rerun = ".\\venv\\Scripts\\python.exe -m weather.reporting.price_free_model_learning"
+    rerun = ".\\venv\\Scripts\\python.exe -m weather.reporting.candidate_lifecycle.price_free_model_learning"
     if inputs.get("quality_grades") != list(DEFAULT_QUALITY_GRADES):
         rerun += f" --quality-grades {','.join(inputs.get('quality_grades') or [])}"
     lines = [

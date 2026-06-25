@@ -70,7 +70,7 @@ That was an inventory false positive: parity compared every catalogued
 reanalysis feature against sidecar columns even when the active artifact's
 imputer had dropped all-missing new soil-dryness fields.
 
-I updated `weather.reporting.source_family_inventory` so train/serve parity
+I updated `weather.reporting.source_gates.source_family_inventory` so train/serve parity
 requires the active artifact's retained feature columns when an active artifact
 is present. After regenerating the inventory at `2026-06-22T04:13:52Z`,
 `reanalysis_synoptic` reports `train_serve_parity_status=PASS`,
@@ -216,5 +216,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - WATER BACKFILL AND POSITIVE-MARKET LANE PASS`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

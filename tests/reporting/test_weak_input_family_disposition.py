@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.weak_input_family_disposition import (
+from weather.reporting.source_gates.weak_input_family_disposition import (
     build_report_payload,
     input_family_for_model_feature,
     weak_input_training_preflight,

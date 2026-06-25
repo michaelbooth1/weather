@@ -13,7 +13,7 @@ The no-market location transfer scratch scripts are superseded by the canonical
 package harness:
 
 ```powershell
-python -m weather.reporting.no_market_location_transfer
+python -m weather.reporting.location_analysis.no_market_location_transfer
 ```
 
 Their durable conclusion is already reflected in the no-market roadmap work:

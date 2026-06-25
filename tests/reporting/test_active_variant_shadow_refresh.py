@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from weather.reporting.active_variant_shadow_refresh import (
+from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import (
     build_payload,
     execute_registry_prediction_exports,
 )
@@ -134,7 +134,7 @@ def test_candidate_row_route_composite_runtime_emits_active_routed_rows(tmp_path
     )
 
     with patch(
-        "weather.reporting.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
+        "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
         side_effect=_fake_pooled_execute,
     ):
         execution = execute_registry_prediction_exports(registry_path=registry, corpus_path=corpus)
@@ -200,7 +200,7 @@ def test_candidate_row_route_composite_runtime_rejects_inactive_source(tmp_path)
     )
 
     with patch(
-        "weather.reporting.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
+        "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
         side_effect=_fake_pooled_execute,
     ):
         execution = execute_registry_prediction_exports(registry_path=registry, corpus_path=corpus)

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import config_path, data_path
-from weather.reporting.extra_location_registry import (
+from weather.reporting.location_analysis.extra_location_registry import (
     build_compatibility_report,
     load_registry,
 )

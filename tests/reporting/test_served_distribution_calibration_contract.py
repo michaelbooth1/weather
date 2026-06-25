@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.served_distribution_calibration_contract import (
+from weather.reporting.serving_gates.served_distribution_calibration_contract import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

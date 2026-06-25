@@ -1,6 +1,6 @@
 import json
 
-from weather.reporting.early_hour_positive_daily_first_gate import (
+from weather.reporting.serving_gates.early_hour_positive_daily_first_gate import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

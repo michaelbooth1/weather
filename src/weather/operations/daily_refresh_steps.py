@@ -53,7 +53,7 @@ from weather.operations.daily_refresh_locks import (
     utc_now,
     write_json,
 )
-from weather.reporting import active_variant_shadow_refresh
+from weather.reporting.candidate_lifecycle import active_variant_shadow_refresh
 from weather.reporting.data_quality import data_auditor
 from weather.reporting.data_quality import data_layer_audit
 from weather.reporting.data_quality import data_retention_inventory
@@ -65,22 +65,22 @@ from weather.reporting.scorecards import distribution_stage_attribution
 from weather.reporting.fleet import fleet_observability
 from weather.reporting.scorecards import frozen_baseline_replay_trend
 from weather.reporting.hourly import hourly_model_performance
-from weather.reporting import june23_location_bias_repair
+from weather.reporting.location_analysis import june23_location_bias_repair
 from weather.reporting.market import market_beating_objective_scoreboard
-from weather.reporting import model_market_disagreement_analysis
-from weather.reporting import price_free_model_learning
+from weather.reporting.candidate_lifecycle import model_market_disagreement_analysis
+from weather.reporting.candidate_lifecycle import price_free_model_learning
 from weather.reporting.scorecards import proper_scoring_reliability_scorecard
 from weather.reporting.scorecards import progress_audit
 from weather.reporting.promotion import promotion_refresh
-from weather.reporting import runtime_identity_reconciliation
+from weather.reporting.serving_gates import runtime_identity_reconciliation
 from weather.reporting.scorecards import settled_day_root_cause
-from weather.reporting import shadow_ab_monitor
+from weather.reporting.candidate_lifecycle import shadow_ab_monitor
 from weather.reporting.scorecards import snapshot_evaluation
-from weather.reporting import settlement_source_audit
+from weather.reporting.source_gates import settlement_source_audit
 from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.hourly import ten_minute_model_performance
 from weather.reporting.market import trading_evidence
-from weather.reporting import variant_evidence_growth
+from weather.reporting.candidate_lifecycle import variant_evidence_growth
 from weather.reporting.scorecards import winner_rank_parity
 from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore

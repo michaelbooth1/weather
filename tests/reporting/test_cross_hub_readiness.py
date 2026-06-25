@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.cross_hub_readiness import (
+from weather.reporting.source_gates.cross_hub_readiness import (
     build_cross_hub_readiness,
     quoteability_from_runs,
     write_markdown_report,

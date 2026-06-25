@@ -1,7 +1,7 @@
 import json
 import pickle
 
-from weather.reporting.serving_ordinal_smoothing_gate import (
+from weather.reporting.serving_gates.serving_ordinal_smoothing_gate import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

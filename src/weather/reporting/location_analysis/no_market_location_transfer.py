@@ -19,14 +19,14 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import data_path
-from weather.reporting.extra_location_registry import (
+from weather.reporting.location_analysis.extra_location_registry import (
     build_compatibility_report,
     load_registry,
     location_status_map,
     training_eligible_ids,
 )
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.location_similarity_pooling import (
+from weather.reporting.location_analysis.location_similarity_pooling import (
     blend_prediction,
     build_similarity_table,
     pooling_weights,

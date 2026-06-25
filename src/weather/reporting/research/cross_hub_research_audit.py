@@ -9,7 +9,7 @@ from typing import Any
 
 from weather.io import read_json, write_json_atomic
 from weather.paths import data_path
-from weather.reporting import cross_hub_readiness
+from weather.reporting.source_gates import cross_hub_readiness
 from weather.reporting.formatting import fmt_num, fmt_pct, fmt_signed, markdown_table
 
 

@@ -17,7 +17,7 @@ wrong section, miss the primary owner, or double-count active work.
 
 ## Design
 
-1. Extend `weather.reporting.roadmap_backlog` or add a companion linter that
+1. Extend `weather.reporting.roadmap.roadmap_backlog` or add a companion linter that
    parses `ROADMAP.md` table rows and joins them to item files.
 2. Require each numbered item to have exactly one primary index row, unless a
    deliberate cross-track reference is represented in a separate non-primary
@@ -38,7 +38,7 @@ Acceptance: `ROADMAP.md` and `docs/roadmap/items/*.md` agree on item number,
 title, status, and exactly one primary section per item; duplicate primary rows
 fail lint before they reach the active backlog.
 
-Completion note 2026-06-21: `weather.reporting.roadmap_backlog` now parses
+Completion note 2026-06-21: `weather.reporting.roadmap.roadmap_backlog` now parses
 `ROADMAP.md` table rows and joins them to canonical numbered item files. The
 lint fails orphan links, row-number/link mismatches, title drift, status drift,
 missing primary rows, duplicate primary rows, duplicate item numbers, and
@@ -59,5 +59,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-21 - INDEX LINT GATE LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

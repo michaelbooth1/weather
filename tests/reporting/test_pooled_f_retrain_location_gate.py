@@ -2,7 +2,7 @@ import json
 import pickle
 
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
-from weather.reporting.pooled_f_retrain_location_gate import (
+from weather.reporting.location_analysis.pooled_f_retrain_location_gate import (
     SCHEMA_VERSION,
     build_payload,
     write_outputs,

@@ -41,7 +41,7 @@ The normal daily refresh also writes the same artifacts:
   and a restore drill as deletion proof for irreplaceable classes.
 - Follow the [Tape Backup Runbook](TAPE_BACKUP_RUNBOOK.md) before treating
   backup status as deletion proof.
-- Use `python -m weather.reporting.backtest_artifact_retention` for large
+- Use `python -m weather.reporting.data_quality.backtest_artifact_retention` for large
   rebuildable `data/backtest` row exports; delete only from its cleanup
   manifest when paired reports or manifests exist.
 - Use `python -m weather.operations.tape_backup prune-unmanifested` only as a

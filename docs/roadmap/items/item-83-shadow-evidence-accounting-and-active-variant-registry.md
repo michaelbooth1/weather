@@ -35,7 +35,7 @@ Completion update 2026-06-16:
 
 - Added `config/model_variant_registry.json` with active, control, archived,
   alpha/smoke, no-market, market-informed, and policy-only lifecycle metadata.
-- `weather.reporting.multi_variant_shadow` now reports `scored_rows`,
+- `weather.reporting.candidate_lifecycle.multi_variant_shadow` now reports `scored_rows`,
   `unique_observation_count`, snapshots, bands, settled labels, row multiplier,
   active headline variant counts, archived/historical counts, and active-only
   track summaries.
@@ -59,5 +59,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-16 - ACTIVE EVIDENCE ACCOUNTING LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

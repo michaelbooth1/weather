@@ -16,7 +16,7 @@ from typing import Any
 from weather.backtesting.settlement_ledger import DEFAULT_LABELS_CSV
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.model_market_disagreement_audit import (
+from weather.reporting.candidate_lifecycle.model_market_disagreement_audit import (
     DEFAULT_LOG_PATH,
     append_audit_log,
     audit_key_for_row,

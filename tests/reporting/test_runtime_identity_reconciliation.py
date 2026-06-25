@@ -2,7 +2,7 @@ import csv
 import tempfile
 from pathlib import Path
 
-from weather.reporting.runtime_identity_reconciliation import build_payload, render_report
+from weather.reporting.serving_gates.runtime_identity_reconciliation import build_payload, render_report
 
 
 def write_snapshot_rows(path: Path, rows: list[dict]):

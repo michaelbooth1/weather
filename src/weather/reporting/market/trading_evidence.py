@@ -17,7 +17,7 @@ from weather.market.taker_evidence_starvation import (
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting import settlement_source_audit
+from weather.reporting.source_gates import settlement_source_audit
 from weather.schema_registry import schema_version
 
 

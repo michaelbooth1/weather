@@ -14,7 +14,7 @@ from weather.collection.live_variant_predictions import (
 )
 from weather.collection.collection_health import variant_prediction_tape_health
 from weather.collection.snapshot_tracker import SnapshotStore
-from weather.reporting.variant_registry import SCHEMA_VERSION as REGISTRY_SCHEMA_VERSION
+from weather.reporting.candidate_lifecycle.variant_registry import SCHEMA_VERSION as REGISTRY_SCHEMA_VERSION
 
 
 class FakeModelClient:

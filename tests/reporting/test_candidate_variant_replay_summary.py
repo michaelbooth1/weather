@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.candidate_variant_replay_summary import (
+from weather.reporting.candidate_lifecycle.candidate_variant_replay_summary import (
     SCHEMA_VERSION,
     build_variant_replay_summary,
     write_outputs,

@@ -76,7 +76,7 @@ being added because the external API exists.
 
 ## Completion Notes
 
-Implemented `weather.reporting.source_family_inventory` with JSON and Markdown
+Implemented `weather.reporting.source_gates.source_family_inventory` with JSON and Markdown
 outputs, schema registration, source-family specs, source-status and raw
 forecast-payload lineage checks, feature-column missingness by market and
 cutoff hour, `live_only` policy fields, CLOB/source-state replay evidence

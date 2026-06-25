@@ -60,7 +60,7 @@ after confirming paired evidence is retained.
 
 ## 2026-06-19 retention report and multi-variant guard update
 
-`weather.reporting.backtest_artifact_retention` now writes
+`weather.reporting.data_quality.backtest_artifact_retention` now writes
 `data/backtest/backtest_artifact_retention.json` and
 `data/backtest/backtest_artifact_retention_report.md`. The current report is
 `BLOCK`: after deleting three generated Item 147 row-level CSV exports while
@@ -74,7 +74,7 @@ candidates only after paired reports, corpus inputs, and model artifacts are
 retained or externally archived.
 
 The disk guard is also shared through
-`weather.reporting.artifact_disk_budget`. `weather.reporting.multi_variant_shadow`
+`weather.reporting.artifact_disk_budget`. `weather.reporting.candidate_lifecycle.multi_variant_shadow`
 now exposes `--min-artifact-free-bytes`, defaulting to the same 1 GB reserve,
 and preflights its long CSV, attribution sidecar, JSON, and Markdown report
 writes before opening output files. That covers the large multi-variant shadow
@@ -98,7 +98,7 @@ requires retaining paired reports, corpus inputs, and model artifacts first.
 
 ## 2026-06-19 cleanup manifest and reserve clearance
 
-`weather.reporting.backtest_artifact_retention` now supports explicit cleanup
+`weather.reporting.data_quality.backtest_artifact_retention` now supports explicit cleanup
 manifests for rebuildable generated artifacts. The command only selects
 artifacts with retained paired evidence, records the selected paths and paired
 reports/manifests, and deletes only when `--apply-cleanup` is present. Cleanup
@@ -142,7 +142,7 @@ items included `item35_density_source_state_ablation_v0_2.csv` and
 source-state ablation exports whose retained replay reports explicitly name the
 CSV outputs.
 
-`weather.reporting.backtest_artifact_retention` now classifies
+`weather.reporting.data_quality.backtest_artifact_retention` now classifies
 `source_state_ablation` CSVs as rebuildable generated row exports, still
 requiring paired replay-report evidence before deletion. Cleanup manifests then
 deleted 19 rebuildable row/shadow exports totaling `156.9 MB`:
@@ -196,5 +196,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE`.
 - The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

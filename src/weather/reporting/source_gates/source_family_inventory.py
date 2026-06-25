@@ -34,7 +34,7 @@ from weather.model.feature_store import (
     US_GUIDANCE_FEATURE_COLUMNS,
 )
 from weather.paths import config_path, data_path
-from weather.reporting.source_family_inventory_report import write_report
+from weather.reporting.source_gates.source_family_inventory_report import write_report
 from weather.schema_registry import schema_version
 from weather.sources.marine_water_contrast import (
     DEFAULT_ROOT as DEFAULT_MARINE_WATER_CONTRAST_ROOT,
@@ -1600,7 +1600,7 @@ def promotion_preflight(
             for row in blocked
         ],
         "inventory_command": (
-            "python -m weather.reporting.source_family_inventory "
+            "python -m weather.reporting.source_gates.source_family_inventory "
             f"--snapshots-root {Path(snapshots_root).as_posix()} "
             f"--archive-root {Path(archive_root).as_posix()} "
             f"--marine-water-contrast-root {Path(marine_water_contrast_root).as_posix()} "

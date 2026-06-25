@@ -10,7 +10,7 @@ from weather.market.market_config import config_for_date
 from weather.market.market_registry import all_specs
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
-from weather.reporting.model_market_disagreement_audit import (
+from weather.reporting.candidate_lifecycle.model_market_disagreement_audit import (
     DEFAULT_GAP_THRESHOLD_POINTS,
     DEFAULT_LOG_PATH as DEFAULT_DISAGREEMENT_AUDIT_LOG,
     audit_key_for_row,
@@ -20,11 +20,11 @@ from weather.reporting.model_market_disagreement_audit import (
     read_audit_log,
     row_gap_points,
 )
-from weather.reporting.model_market_disagreement_analysis import (
+from weather.reporting.candidate_lifecycle.model_market_disagreement_analysis import (
     DEFAULT_JSON_OUT as DEFAULT_DISAGREEMENT_ANALYSIS_JSON,
     parse_time,
 )
-from weather.reporting.location_trust import score_market
+from weather.reporting.location_analysis.location_trust import score_market
 
 @st.cache_data(ttl=60, show_spinner=False)
 def compute_biggest_edges(n=10):

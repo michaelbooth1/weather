@@ -23,8 +23,8 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.reporting.data_quality.artifact_disk_budget import ensure_artifact_disk_headroom
-from weather.reporting.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
-from weather.reporting.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
+from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_registry import all_specs
 from weather.calibration.pooled_candidate_replay import (
     DEFAULT_CASEBOOK,

@@ -18,7 +18,7 @@ overfit.
 
 ## Design
 
-1. Add `weather.reporting.no_market_location_transfer` or an equivalent
+1. Add `weather.reporting.location_analysis.no_market_location_transfer` or an equivalent
    research CLI that builds paired target-only, target-plus-extra, extra-only,
    and weighted-extra comparisons.
 2. Support multiple scoring backends:
@@ -52,11 +52,11 @@ evidence without market prices and without relying on scratch scripts.
 
 ## 2026-06-18 implementation update
 
-Added `weather.reporting.no_market_location_transfer`, schema
+Added `weather.reporting.location_analysis.no_market_location_transfer`, schema
 `no_market_location_transfer_v0.1`, with a canonical CLI:
 
 ```powershell
-python -m weather.reporting.no_market_location_transfer observations.csv --target-markets nyc --extra-locations boston,philadelphia --holdout-years 2025 --cutoff-regimes early --scoring-backend fast_residual
+python -m weather.reporting.location_analysis.no_market_location_transfer observations.csv --target-markets nyc --extra-locations boston,philadelphia --holdout-years 2025 --cutoff-regimes early --scoring-backend fast_residual
 ```
 
 The harness emits JSON, CSV, and Markdown under `data/backtest/` by default,
@@ -82,5 +82,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - PRICE-FREE TRANSFER HARNESS LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

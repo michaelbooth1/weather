@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.extra_location_registry import (
+from weather.reporting.location_analysis.extra_location_registry import (
     BLOCKED,
     PASS,
     SHADOW_ONLY,

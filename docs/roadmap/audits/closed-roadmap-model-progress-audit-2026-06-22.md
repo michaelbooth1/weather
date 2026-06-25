@@ -7,7 +7,7 @@ the weather model.
 Method:
 
 - Regenerated the active roadmap scan with
-  `python -m weather.reporting.roadmap_backlog --fail-on-lint`.
+  `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint`.
 - Used `docs/roadmap/ROADMAP.md`, `docs/roadmap/active-backlog.md`, numbered
   item files under `docs/roadmap/items/`, current backtest reports, and the
   latest model/taker audits as evidence.

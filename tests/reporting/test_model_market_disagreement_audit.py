@@ -2,7 +2,7 @@ import csv
 import json
 from pathlib import Path
 
-from weather.reporting.model_market_disagreement_audit import (
+from weather.reporting.candidate_lifecycle.model_market_disagreement_audit import (
     DEFAULT_GAP_THRESHOLD_POINTS,
     build_audit_records,
     ensure_audit_record_saved,

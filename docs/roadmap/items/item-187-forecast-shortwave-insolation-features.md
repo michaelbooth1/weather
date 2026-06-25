@@ -64,7 +64,7 @@ late-day regression.
 
 ## 2026-06-22 Radiation Gate Artifact
 
-Added `weather.reporting.forecast_radiation_gate`, schema
+Added `weather.reporting.source_gates.forecast_radiation_gate`, schema
 `forecast_radiation_gate_v0.1`, with generated evidence at:
 
 - `data/backtest/item187_forecast_radiation_gate.json`
@@ -150,7 +150,7 @@ Remaining blockers:
 - `market_guardrails_blocked`: Atlanta, Denver, Miami, NYC, San Francisco, and
   Seattle remain blocked in high-disagreement guardrails.
 
-I then added lane-aware scoring to `weather.reporting.forecast_radiation_gate`
+I then added lane-aware scoring to `weather.reporting.source_gates.forecast_radiation_gate`
 using the row-level `item187_forecast_radiation_shadow_variants.csv` export. The
 gate auto-selects only markets that individually clear daily-first validation
 and high-disagreement guardrails, then recomputes acceptance on that lane.
@@ -188,5 +188,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-23 - POSITIVE-MARKET RADIATION LANE PASS`.
 - The file contains 5 checked implementation checklist item(s); 1 optional unchecked checklist item(s) remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

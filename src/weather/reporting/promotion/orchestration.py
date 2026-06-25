@@ -6,7 +6,7 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
-from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
+from weather.reporting.serving_gates.runtime_identity_evidence import build_runtime_identity_evidence
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.

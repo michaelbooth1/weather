@@ -39,7 +39,7 @@ from weather.calibration.pooled_candidate_scoring import (
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS, snapshot_band_key
 from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
-from weather.reporting.variant_registry import variant_contract_for_artifact
+from weather.reporting.candidate_lifecycle.variant_registry import variant_contract_for_artifact
 from weather.scoring.metrics import group_sort_key
 
 

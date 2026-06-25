@@ -51,7 +51,7 @@ owner/action is required to make tomorrow's corpus larger.
 
 ## Implementation Notes
 
-`weather.reporting.variant_evidence_growth` now emits an independent evidence
+`weather.reporting.candidate_lifecycle.variant_evidence_growth` now emits an independent evidence
 SLA with daily, rolling 7-day, and per-shadow-market thresholds, plus
 market-delta rows, no-growth classifications, and remediation actions. Daily
 refresh carries the SLA, no-growth reasons, and trend rows into the pipeline
@@ -69,5 +69,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-17 - EVIDENCE SLA LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

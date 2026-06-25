@@ -36,7 +36,7 @@ different runtime state.
 
 ## Completion Notes
 
-Implemented `weather.reporting.runtime_identity_evidence` as the shared
+Implemented `weather.reporting.serving_gates.runtime_identity_evidence` as the shared
 runtime segmentation gate. It groups snapshot rows by git commit, dirty/source
 fingerprint, runtime code state, markets, target dates, and trading run
 identity. The June 21 mixed-commit fixture now blocks unsegmented broad and

@@ -745,7 +745,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     source_preflight = source_family_inventory.get("promotion_preflight") or {}
     if source_preflight.get("status") == "BLOCK":
         blocked_families = source_preflight.get("blocked_families") or []
-        command = source_preflight.get("inventory_command") or "python -m weather.reporting.source_family_inventory"
+        command = source_preflight.get("inventory_command") or "python -m weather.reporting.source_gates.source_family_inventory"
         ablation_command = source_preflight.get("ablation_command")
         action = command
         if ablation_command:

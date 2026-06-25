@@ -51,7 +51,7 @@ movement where the causal contribution is unclear.
 
 ## Completion Notes
 
-Implemented `weather.reporting.physical_feature_family_ratchet` with schema
+Implemented `weather.reporting.source_gates.physical_feature_family_ratchet` with schema
 `physical_feature_family_ratchet_v0.1` and canonical outputs at
 `data/backtest/physical_feature_family_ratchet.json` and
 `data/backtest/physical_feature_family_ratchet.md`.
@@ -78,7 +78,7 @@ lineage, active-column, missingness, and isolated settlement-scored evidence.
 
 Verification:
 
-- `python -m weather.reporting.physical_feature_family_ratchet --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md`
+- `python -m weather.reporting.source_gates.physical_feature_family_ratchet --json-out data\backtest\physical_feature_family_ratchet.json --report-out data\backtest\physical_feature_family_ratchet.md`
 - `python -m pytest tests\reporting\test_physical_feature_family_ratchet.py tests\backtesting\test_replay_ablation.py tests\operations\test_schema_registry.py tests\calibration\test_promotion_refresh.py -q`
 
 Acceptance: no pressure-level, boundary-layer, soil, radiation, smoke, marine,

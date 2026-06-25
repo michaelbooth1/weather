@@ -12,7 +12,7 @@ from weather.reporting.market.trading_evidence import (
     build_trading_evidence_summary,
     mm_evidence_starvation_summary,
 )
-from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
+from weather.reporting.serving_gates.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.operations.storage_classes import CANONICAL_EVIDENCE, delete_gate_for_storage_class
 
 # The extracted functions below intentionally resolve globals from the

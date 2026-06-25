@@ -35,7 +35,7 @@ from weather.reporting.data_quality.artifact_disk_budget import (
     ensure_artifact_disk_headroom,
     ensure_row_export_disk_headroom,
 )
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     DEFAULT_REGISTRY_PATH,
     active_registry_variants,
     decorate_variant,

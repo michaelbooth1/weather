@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from weather.reporting.source_family_inventory import (
+from weather.reporting.source_gates.source_family_inventory import (
     FAMILY_SPECS,
     build_source_family_inventory,
     item27_reanalysis_ablation_evidence,

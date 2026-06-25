@@ -31,7 +31,7 @@ from weather.backtesting.replay_backtest import (
 )
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
 from weather.market.market_registry import REGISTRY
-from weather.reporting.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     folders_from_manifest,

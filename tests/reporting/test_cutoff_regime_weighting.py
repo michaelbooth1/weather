@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.cutoff_regime_weighting import (
+from weather.reporting.candidate_lifecycle.cutoff_regime_weighting import (
     build_report_payload,
     cutoff_regime,
     family_weight_rows,

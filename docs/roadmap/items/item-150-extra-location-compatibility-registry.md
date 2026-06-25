@@ -49,7 +49,7 @@ has a concrete reason instead of silently becoming pooled training data.
 ## 2026-06-18 implementation update
 
 Added `config/no_market_extra_locations.json` and
-`weather.reporting.extra_location_registry`, with schemas
+`weather.reporting.location_analysis.extra_location_registry`, with schemas
 `no_market_extra_location_registry_v0.1` and
 `extra_location_compatibility_report_v0.1`.
 
@@ -79,5 +79,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - COMPATIBILITY GATE LIVE`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

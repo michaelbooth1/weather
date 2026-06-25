@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.backtest_artifact_retention import (
+from weather.reporting.data_quality.backtest_artifact_retention import (
     apply_cleanup_manifest,
     build_cleanup_manifest,
     build_payload,

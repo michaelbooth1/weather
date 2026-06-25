@@ -6,7 +6,7 @@ artifact and re-runs the real active-replay/export contract, so repairs
 consolidate into serving instead of fragmenting into one-off scoped wins.
 
 Source: 2026-06-25 gate audit and the recurring 178/219/224/301 pattern.
-`weather.reporting.candidate_variant_replay_summary` defines `validation_evidence`
+`weather.reporting.candidate_lifecycle.candidate_variant_replay_summary` defines `validation_evidence`
 as either `row_export_surrogate` (explicitly listed in `NON_COUNTABLE_ROW_MARKERS`)
 or `active_replay_contract`. Validated repairs - predawn weak-slot, bottom-location
 winner-centering, the item 301 location-bias packet - are scored as surrogates and
@@ -66,7 +66,7 @@ Related: items 35, 178, 219, 224, 269, 296, 301.
 ## Completion Notes
 
 Implemented a first-class repair integration contract in
-`weather.reporting.repair_integration`. The new artifact consumes validated
+`weather.reporting.candidate_lifecycle.repair_integration`. The new artifact consumes validated
 repair specs, consolidates their countable rows into one active candidate export,
 writes a registry/contract sidecar with `live_runtime=repair_integration_active_contract`,
 and re-scores the consolidated candidate through

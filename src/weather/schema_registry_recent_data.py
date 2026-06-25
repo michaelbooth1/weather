@@ -9,14 +9,14 @@ RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
         "runtime_identity_evidence",
         "runtime_identity_evidence_v0.1",
-        "weather.reporting.runtime_identity_evidence",
+        "weather.reporting.serving_gates.runtime_identity_evidence",
         "active",
         "Runtime identity reconciliation evidence over snapshot and trading artifacts.",
     ),
     SchemaSpec(
         "runtime_identity_reconciliation",
         "runtime_identity_reconciliation_v0.1",
-        "weather.reporting.runtime_identity_reconciliation",
+        "weather.reporting.serving_gates.runtime_identity_reconciliation",
         "active",
         "Fail-closed reviewed reconciliation surface for mixed runtime identity aggregation.",
     ),

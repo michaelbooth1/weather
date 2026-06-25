@@ -316,7 +316,7 @@ def build_cleanup_manifest(
             break
     operator_review = {
         "approved": True,
-        "approved_by": "weather.reporting.backtest_artifact_retention",
+        "approved_by": "weather.reporting.data_quality.backtest_artifact_retention",
         "approved_at_utc": datetime.now(timezone.utc).isoformat(),
         "note": "Projection-only generated-artifact cleanup; paired evidence is retained by conservative manifest rules.",
     }

@@ -59,7 +59,7 @@ Completed 2026-06-23:
   `gzip_tiered_text` and `text_tape`.
 - Added `ArtifactReadProvenance` with source mode, manifest path/hash, source
   hash, Parquet hash, row count, and fallback reason.
-- Migrated `weather.reporting.source_family_inventory` to the shared reader for
+- Migrated `weather.reporting.source_gates.source_family_inventory` to the shared reader for
   `source_status_long`, `forecast_payloads_long`, `features_long`, and
   `clob_features_long`, preserving CSV-shaped rows for the existing inventory
   logic. The JSON/Markdown report now exposes `historical_reader_summary` /

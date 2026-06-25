@@ -18,12 +18,12 @@ non-schema identifiers reported in `excluded_versions`.
 
 | Version | Classification | Action | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| `backtest_artifact_cleanup_v0.1` | durable cleanup manifest | registered | `weather.reporting.backtest_artifact_retention` | Guarded generated-artifact cleanup evidence. |
-| `backtest_artifact_retention_v0.1` | durable retention report | registered | `weather.reporting.backtest_artifact_retention` | Generated backtest artifact inventory and disk-budget report. |
+| `backtest_artifact_cleanup_v0.1` | durable cleanup manifest | registered | `weather.reporting.data_quality.backtest_artifact_retention` | Guarded generated-artifact cleanup evidence. |
+| `backtest_artifact_retention_v0.1` | durable retention report | registered | `weather.reporting.data_quality.backtest_artifact_retention` | Generated backtest artifact inventory and disk-budget report. |
 | `blocked_market_variant_basket_no_go_v0.1` | report artifact | registered | `weather.reporting.validation.variant_basket_selection_validation` | Blocked variant-basket disposition. |
 | `candidate_replay_sidecar_eligibility_v0.1` | diagnostic artifact | registered | `weather.calibration.pooled_candidate_replay_diagnostics` | Candidate replay sidecar eligibility diagnostics. |
 | `clob_order_book_tiering_v0.1` | storage operation report | registered | `weather.operations.clob_order_book_tiering` | CLOB order-book gzip tiering plan/apply report. |
-| `cross_hub_quoteability_v0.1` | readiness report | registered | `weather.reporting.cross_hub_readiness` | Cross-hub quoteability evidence. |
+| `cross_hub_quoteability_v0.1` | readiness report | registered | `weather.reporting.source_gates.cross_hub_readiness` | Cross-hub quoteability evidence. |
 | `cross_hub_run_log_summary_v0.1` | log summary artifact | registered | `weather.reporting.research.cross_hub_research_audit` | Cross-hub run-log summary. |
 | `daily_progress_ledger_v0.1` | durable log artifact | registered | `weather.reporting.daily.daily_progress_ledger` | Append-only daily progress ledger. |
 | `daily_refresh_disk_preflight_v0.1` | preflight report | registered | `weather.operations.daily_refresh_locks` | Daily-refresh disk-headroom preflight payload. |
@@ -34,7 +34,7 @@ non-schema identifiers reported in `excluded_versions`.
 | `flat_notional_v1` | sizing policy identifier | excluded | `weather.market.taker_bot_sizing` | Not a serialized artifact schema. |
 | `forecast_error_model_v0.2` | model/report artifact | registered | `weather.calibration.forecast_error_model` | Forecast error model artifact. |
 | `forecast_radiation_calibration_v0.1` | calibration sidecar | registered | `weather.calibration.pooled_training` | Forecast radiation calibration sidecar. |
-| `forecast_radiation_promotion_lane_v0.1` | gate report | registered | `weather.reporting.forecast_radiation_gate` | Forecast radiation promotion-lane report. |
+| `forecast_radiation_promotion_lane_v0.1` | gate report | registered | `weather.reporting.source_gates.forecast_radiation_gate` | Forecast radiation promotion-lane report. |
 | `item224_no_market_ranked_winner_repair_v0.1` | repair report | registered | `weather.reporting.research.item224_no_market_ranked_winner_repair` | Item 224 ranked-winner repair evidence. |
 | `maker_default_v0` | model variant basket identifier | excluded | `weather.market.market_making_model_variants` | Not a serialized artifact schema. |
 | `market_residual_repair_rejected_registry_v0.1` | registry artifact | registered | `weather.reporting.market.market_residual_repair_program` | Rejected-family registry. |
@@ -51,7 +51,7 @@ non-schema identifiers reported in `excluded_versions`.
 | `polymarket_symmetric_price_v1` | fee/pricing model identifier | excluded | `weather.market.taker_bot_sizing` | Not a serialized artifact schema. |
 | `pooled_feature_band_hgb_forecast_radiation_v0.1` | model artifact | registered | `weather.calibration.pooled_training` | Pooled HGB forecast-radiation candidate. |
 | `predawn_candidate_ten_minute_performance_v0.1` | performance sidecar | registered | `weather.reporting.research.predawn_weak_slot_repair` | Predawn candidate ten-minute performance. |
-| `runtime_identity_evidence_v0.1` | reconciliation report | registered | `weather.reporting.runtime_identity_evidence` | Runtime identity evidence across model/trading artifacts. |
+| `runtime_identity_evidence_v0.1` | reconciliation report | registered | `weather.reporting.serving_gates.runtime_identity_evidence` | Runtime identity evidence across model/trading artifacts. |
 | `snapshot_core_sidecar_backfill_batch_v0.1` | batch repair report | registered | `weather.collection.snapshot_store` | Snapshot core sidecar backfill batch. |
 | `snapshot_core_sidecar_backfill_v0.1` | repair report | registered | `weather.collection.snapshot_store` | Snapshot core sidecar backfill. |
 | `snapshot_explanation_backfill_batch_v0.1` | batch repair report | registered | `weather.collection.snapshot_store` | Snapshot explanation backfill batch. |

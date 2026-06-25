@@ -3,7 +3,7 @@ from unittest import mock
 from streamlit.testing.v1 import AppTest
 
 
-@mock.patch("weather.reporting.roadmap_backlog.summarize_roadmap_status")
+@mock.patch("weather.reporting.roadmap.roadmap_backlog.summarize_roadmap_status")
 def test_app_roadmap_query_param_rendering(mock_summary):
     mock_summary.return_value = {
         "generated_at_utc": "2026-06-22T00:00:00+00:00",

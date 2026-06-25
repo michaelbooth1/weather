@@ -1,4 +1,4 @@
-from weather.reporting.june23_location_bias_repair import build_payload, render_report
+from weather.reporting.location_analysis.june23_location_bias_repair import build_payload, render_report
 
 
 def _snapshot_rows(

@@ -21,7 +21,7 @@ def _open_item_rows(items):
 
 
 def render_roadmap_page():
-    from weather.reporting.roadmap_backlog import summarize_roadmap_status
+    from weather.reporting.roadmap.roadmap_backlog import summarize_roadmap_status
 
     @st.cache_data(ttl=30, show_spinner=False)
     def cached_summary():

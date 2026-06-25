@@ -18,7 +18,7 @@ from weather.reporting.hourly.candidate_hourly_performance import (
 )
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.reporting.hourly.hourly_model_scoring import HOUR_REGIME_LABELS, hour_regime
-from weather.reporting.variant_registry import (
+from weather.reporting.candidate_lifecycle.variant_registry import (
     DEFAULT_REGISTRY_PATH as DEFAULT_VARIANT_REGISTRY_PATH,
     load_registry as load_variant_registry,
     variant_export_contract,

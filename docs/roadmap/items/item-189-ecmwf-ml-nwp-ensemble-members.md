@@ -68,7 +68,7 @@ runs without expanding providers or retraining active artifacts.
 - historical backfill planner support via source
   `open_meteo_global_models`.
 
-`weather.reporting.source_family_inventory` now reports global-model archive
+`weather.reporting.source_gates.source_family_inventory` now reports global-model archive
 coverage for the `multi_model_guidance` family as
 `historical_global_model_archive_available`,
 `partial_historical_global_model_archive`, or
@@ -98,7 +98,7 @@ then a predawn/morning settlement gate.
 
 ## 2026-06-22 Global-Model Gate Artifact
 
-Added `weather.reporting.global_model_guidance_gate`, schema
+Added `weather.reporting.source_gates.global_model_guidance_gate`, schema
 `global_model_guidance_gate_v0.1`, with generated evidence at:
 
 - `data/backtest/item189_global_model_guidance_gate.json`

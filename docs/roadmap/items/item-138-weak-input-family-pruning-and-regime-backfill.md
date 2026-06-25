@@ -51,7 +51,7 @@ queued for targeted backfill.
 
 ## 2026-06-18 implementation update
 
-Added `weather.reporting.weak_input_family_disposition`, schema
+Added `weather.reporting.source_gates.weak_input_family_disposition`, schema
 `weak_input_family_disposition_v0.1`. The report reads the June 18
 input-significance family permutation and coverage artifacts plus
 `data/backtest/source_family_inventory.json`, then emits per-family
@@ -104,7 +104,7 @@ by positive regime-specific settlement evidence.
 Regenerated the weak-family disposition report:
 
 ```powershell
-python -m weather.reporting.weak_input_family_disposition --out data\backtest\item138_weak_input_family_disposition.json --report data\backtest\item138_weak_input_family_disposition_report.md
+python -m weather.reporting.source_gates.weak_input_family_disposition --out data\backtest\item138_weak_input_family_disposition.json --report data\backtest\item138_weak_input_family_disposition_report.md
 ```
 
 Added `weather.reporting.research.item138_weak_input_family_gate`, schema

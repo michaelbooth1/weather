@@ -19,7 +19,7 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.multi_variant_shadow import (
+from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
     comparison,
     daily_first_comparison,
     grouped_comparison,

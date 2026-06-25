@@ -57,7 +57,7 @@ Added a quarantined `no_market_extra_locations` track to
 similarity-weighted variants marked shadow-only and excluded from ordinary
 no-market headline selection.
 
-`weather.reporting.multi_variant_shadow` now accepts extra-location provenance
+`weather.reporting.candidate_lifecycle.multi_variant_shadow` now accepts extra-location provenance
 columns on every long-table row:
 
 - `used_extra_location_labels`
@@ -69,7 +69,7 @@ columns on every long-table row:
 
 The report now has a `No-Market Extra-Location Shadow Lane` section and blocks
 or shadows the lane independently from item 50/current no-market promotion
-selection. `weather.reporting.variant_evidence_growth` also reports
+selection. `weather.reporting.candidate_lifecycle.variant_evidence_growth` also reports
 extra-location label rows and independent extra-location days so row
 multiplication cannot count as new labels.
 
@@ -85,5 +85,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-18 - SHADOW LANE QUARANTINED`.
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 

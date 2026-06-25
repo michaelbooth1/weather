@@ -6,7 +6,7 @@ schema bump does not permanently strand the artifact set or cap the training
 corpus.
 
 Source: 2026-06-25 gate audit (prompted by the observation that gate-building was
-becoming a substitute for hard model work). `weather.reporting.per_location_artifact_quarantine`
+becoming a substitute for hard model work). `weather.reporting.data_quality.per_location_artifact_quarantine`
 marks per-location artifacts `historical-only` by schema family, and the active
 pooled-F artifact is stamped `toronto_feature_store_v1.13` while runtime is
 `v1.14`/`v1.15` - so the broad retrain/location gate stays BLOCK and the

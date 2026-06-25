@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.physical_feature_family_ratchet import build_ratchet, render_report, write_outputs
+from weather.reporting.source_gates.physical_feature_family_ratchet import build_ratchet, render_report, write_outputs
 
 
 def _family_row(

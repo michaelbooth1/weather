@@ -13,7 +13,7 @@ from typing import Any
 from weather.calibration.pooled_feature_model import DEFAULT_BAND_ARTIFACT
 from weather.paths import data_path, docs_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
-from weather.reporting.pooled_f_retrain_location_gate import artifact_summary
+from weather.reporting.location_analysis.pooled_f_retrain_location_gate import artifact_summary
 from weather.schema_registry import schema_version
 
 

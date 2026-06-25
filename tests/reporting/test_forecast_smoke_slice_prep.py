@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from weather.reporting.forecast_smoke_slice_prep import (
+from weather.reporting.source_gates.forecast_smoke_slice_prep import (
     SCHEMA_VERSION,
     build_payload,
     daily_smoke_slice_rows,

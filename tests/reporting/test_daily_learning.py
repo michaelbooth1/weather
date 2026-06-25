@@ -932,7 +932,7 @@ class TestDailyLearning(unittest.TestCase):
                             "status": "BLOCK",
                             "blocked_family_count": 2,
                             "blocked_families": ["nws_grid", "clob_microstructure"],
-                            "inventory_command": "python -m weather.reporting.source_family_inventory",
+                            "inventory_command": "python -m weather.reporting.source_gates.source_family_inventory",
                             "ablation_command": "python -m weather.backtesting.replay_ablation --json-out data/backtest/source_family_ablation.json",
                         },
                     }
@@ -1941,7 +1941,7 @@ class TestDailyLearning(unittest.TestCase):
                                 "clearance_rule": "protect winners",
                                 "status": "eligible",
                                 "priority": "P1",
-                                "command": ["python", "-m", "weather.reporting.june23_location_bias_repair"],
+                                "command": ["python", "-m", "weather.reporting.location_analysis.june23_location_bias_repair"],
                             }
                         ],
                     }

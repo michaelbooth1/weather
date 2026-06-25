@@ -211,7 +211,7 @@ to pass the repaired predawn variant into promotion refresh without relabeling
 the old active replay artifact:
 
 ```powershell
-python -m weather.reporting.candidate_variant_replay_summary --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --source-candidate-json data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md
+python -m weather.reporting.candidate_lifecycle.candidate_variant_replay_summary --variant-rows data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_rows.csv --source-candidate-json data\backtest\pooled_candidate_replay_latest.json --json-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --report-out data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md
 python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary.json --precomputed-candidate-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_replay_summary_report.md --candidate-hourly-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\pooled_f_candidate_miami_current_fallback_predawn_repair_ten_minute_performance.json --skip-serving-gauntlet --disable-long-job-guard --out data\backtest\f_family_promotion_refresh_predawn_repair.json --report data\backtest\f_family_promotion_refresh_predawn_repair_report.md --incomplete-manifest data\backtest\f_family_promotion_refresh_predawn_repair_incomplete.json
 ```
 
@@ -253,7 +253,7 @@ evidence.
 
 ## 2026-06-22 Serving Ordinal Smoothing Gate
 
-Added `weather.reporting.serving_ordinal_smoothing_gate` with schema
+Added `weather.reporting.serving_gates.serving_ordinal_smoothing_gate` with schema
 `serving_ordinal_smoothing_gate_v0.1`.
 
 Artifacts:
@@ -263,7 +263,7 @@ Artifacts:
 
 Command:
 
-`python -m weather.reporting.serving_ordinal_smoothing_gate --out data\backtest\serving_ordinal_smoothing_gate.json --report data\backtest\serving_ordinal_smoothing_gate_report.md`
+`python -m weather.reporting.serving_gates.serving_ordinal_smoothing_gate --out data\backtest\serving_ordinal_smoothing_gate.json --report data\backtest\serving_ordinal_smoothing_gate_report.md`
 
 Result: **BLOCK** with 3 remaining validation blockers, but the original
 ordinal smoothing train/serve skew is now explicitly separated and marked fixed.

@@ -179,7 +179,7 @@ before returning rows. For fallbacks, provenance reports
 `active_or_future_target_date`, `missing_archive_manifest`,
 `archive_disabled`, or `parquet_family_unavailable`.
 
-`weather.reporting.source_family_inventory` is the first high-byte report
+`weather.reporting.source_gates.source_family_inventory` is the first high-byte report
 migrated to this boundary. Its JSON and Markdown outputs include
 `historical_reader_summary` / "Historical Reader Sources" so operators can see
 which artifact families came from validated Parquet versus fallback text.

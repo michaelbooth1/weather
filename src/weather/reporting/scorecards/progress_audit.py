@@ -22,7 +22,7 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.reporting.scorecards.model_history import build_history_payload
-from weather.reporting.runtime_identity_evidence import build_runtime_identity_evidence
+from weather.reporting.serving_gates.runtime_identity_evidence import build_runtime_identity_evidence
 from weather.scoring.metrics import daily_first_score
 
 

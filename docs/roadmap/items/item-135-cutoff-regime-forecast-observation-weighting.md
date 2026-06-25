@@ -47,7 +47,7 @@ family weights by cutoff regime with market-day-clustered validation evidence.
 
 ## 2026-06-18 implementation update
 
-Added `weather.reporting.cutoff_regime_weighting`, schema
+Added `weather.reporting.candidate_lifecycle.cutoff_regime_weighting`, schema
 `cutoff_regime_weighting_v0.1`. The report reads
 `data/backtest/input_variable_significance_2026_06_18_family_permutation.csv`
 and derives explicit family weights for `early`, `midday`, `late`, and

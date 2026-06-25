@@ -105,7 +105,7 @@ On or after 2026-07-18:
 | `src/historical_coverage.py` | `weather.sources.historical_coverage` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/historical_schema.py` | `weather.sources.historical_schema` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/intraday_calibration.py` | `weather.calibration.intraday_calibration` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/location_trust.py` | `weather.reporting.location_trust` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/location_trust.py` | `weather.reporting.location_analysis.location_trust` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/market_config.py` | `weather.market.market_config` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/market_day_labels.py` | `weather.market.market_day_labels` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/market_making_daily_roll.py` | `weather.operations.market_making_daily_roll` | External/local legacy commands only | No first-party callers for one migration window |
@@ -128,7 +128,7 @@ On or after 2026-07-18:
 | `src/model_identity.py` | `weather.model.model_identity` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_presentation.py` | `weather.model.model_presentation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/model_sources.py` | `weather.model.model_sources` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/multi_variant_shadow.py` | `weather.reporting.multi_variant_shadow` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/multi_variant_shadow.py` | `weather.reporting.candidate_lifecycle.multi_variant_shadow` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/nightly_retrain.py` | `weather.operations.nightly_retrain` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/noaa_ghcnh_history.py` | `weather.sources.noaa_ghcnh_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/observation_trigger.py` | `weather.operations.observation_trigger` | External/local legacy commands only | No first-party callers for one migration window |
@@ -152,15 +152,15 @@ On or after 2026-07-18:
 | `src/settled_days.py` | `weather.backtesting.settled_days` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/settlement_lag_model.py` | `weather.calibration.settlement_lag_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/settlement_ledger.py` | `weather.backtesting.settlement_ledger` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/shadow_ab_monitor.py` | `weather.reporting.shadow_ab_monitor` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/shadow_ab_monitor.py` | `weather.reporting.candidate_lifecycle.shadow_ab_monitor` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/snapshot_analytics.py` | `weather.backtesting.snapshot_analytics` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/snapshot_evaluation.py` | `weather.reporting.scorecards.snapshot_evaluation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/snapshot_tracker.py` | `weather.collection.snapshot_tracker` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/source_redundancy.py` | `weather.reporting.source_redundancy` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/source_redundancy.py` | `weather.reporting.source_gates.source_redundancy` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/supplemental_station_validation.py` | `weather.sources.supplemental_station_validation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/supplemental_stations.py` | `weather.sources.supplemental_stations` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/tape_backup.py` | `weather.operations.tape_backup` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/toronto_model.py` | `weather.model.toronto_model` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/variant_evidence_growth.py` | `weather.reporting.variant_evidence_growth` | External/local legacy commands only | No first-party callers for one migration window |
+| `src/variant_evidence_growth.py` | `weather.reporting.candidate_lifecycle.variant_evidence_growth` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/wu_history.py` | `weather.sources.wu_history` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/wu_max_since_7_validation.py` | `weather.reporting.validation.wu_max_since_7_validation` | External/local legacy commands only | No first-party callers for one migration window |

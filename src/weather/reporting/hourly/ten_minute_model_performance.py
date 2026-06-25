@@ -33,7 +33,7 @@ from weather.reporting.hourly.hourly_model_performance import (
     score_folder,
     summarize_rows,
 )
-from weather.reporting.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
+from weather.reporting.serving_gates.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 from weather.schema_registry import schema_version
 from weather.scoring.metrics import (
     binary_log_loss,

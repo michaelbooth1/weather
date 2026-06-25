@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from weather.reporting.source_redundancy import (  # noqa: E402
+from weather.reporting.source_gates.source_redundancy import (  # noqa: E402
     build_payload,
     forecast_ensemble_features,
     supplemental_source_key,

@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.per_location_artifact_quarantine import build_payload, render_report
+from weather.reporting.data_quality.per_location_artifact_quarantine import build_payload, render_report
 
 
 class PerLocationArtifactQuarantineTests(unittest.TestCase):

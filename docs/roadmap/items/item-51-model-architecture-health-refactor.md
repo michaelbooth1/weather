@@ -72,7 +72,7 @@ slice now uses package imports instead of mutating `sys.path` inside package
 modules. `weather.reporting.promotion_refresh`,
 `weather.backtesting.replay_backtest`,
 `weather.calibration.pooled_candidate_replay`, and
-`weather.reporting.shadow_ab_monitor` now import internal modules through
+`weather.reporting.candidate_lifecycle.shadow_ab_monitor` now import internal modules through
 `weather.*` package paths, while the top-level `src/*.py` wrappers remain thin
 user-facing compatibility shims. `tests/operations/test_import_architecture.py`
 ratchets this migrated slice so these modules, plus the daily/nightly
@@ -301,5 +301,5 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - `ROADMAP.md` and this item file both mark the item `COMPLETE` with status text `COMPLETE 2026-06-15 - REPLAY BASELINED + NATIVE CLEANUP`.
 - The file contains 6 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
-- Future validation should rerun `python -m weather.reporting.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
+- Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 

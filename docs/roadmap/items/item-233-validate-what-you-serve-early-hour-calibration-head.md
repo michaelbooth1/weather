@@ -37,7 +37,7 @@ that users and trading systems actually receive.
 
 ## Progress 2026-06-22
 
-Added `weather.reporting.served_distribution_calibration_contract` with schema
+Added `weather.reporting.serving_gates.served_distribution_calibration_contract` with schema
 `served_distribution_calibration_contract_v0.1`.
 
 Artifacts:
@@ -47,7 +47,7 @@ Artifacts:
 
 Command:
 
-`python -m weather.reporting.served_distribution_calibration_contract --out data\backtest\served_distribution_calibration_contract.json --report data\backtest\served_distribution_calibration_contract_report.md`
+`python -m weather.reporting.serving_gates.served_distribution_calibration_contract --out data\backtest\served_distribution_calibration_contract.json --report data\backtest\served_distribution_calibration_contract_report.md`
 
 Result: **BLOCK** with 5 blockers. The contract is now explicit and
 fail-closed, but no served-distribution calibration head is approved.

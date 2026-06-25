@@ -34,7 +34,7 @@ def render_single_market_page(market_id, live_refresh_seconds):
 
     @st.cache_data(ttl=1800, show_spinner=False)
     def cached_trust_score(market_id):
-        from weather.reporting.location_trust import score_market
+        from weather.reporting.location_analysis.location_trust import score_market
         return score_market(market_id)
 
 

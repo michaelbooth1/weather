@@ -1,6 +1,6 @@
 import unittest
 
-from weather.reporting.no_market_location_transfer import build_payload, render_report
+from weather.reporting.location_analysis.no_market_location_transfer import build_payload, render_report
 
 
 def _row(location, day, actual, forecast, year_hour=7, **extra):

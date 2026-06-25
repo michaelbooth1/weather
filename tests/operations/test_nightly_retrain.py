@@ -178,7 +178,7 @@ class TestNightlyRetrain(unittest.TestCase):
                                     "hypothesis": "repair seattle cold miss",
                                     "artifact_path": "data/backtest/june23_location_bias_repair_packet.json",
                                     "clearance_rule": "protect winners",
-                                    "command": ["python", "-m", "weather.reporting.june23_location_bias_repair"],
+                                    "command": ["python", "-m", "weather.reporting.location_analysis.june23_location_bias_repair"],
                                 }
                             ],
                         },
@@ -199,7 +199,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(results["schema_version"], "experiment_queue_results_v0.1")
         self.assertEqual(results["executed_count"], 1)
         self.assertEqual(results["results"][0]["queue_id"], "item301:2026-06-23:seattle:cold_miss")
-        self.assertTrue(any("weather.reporting.june23_location_bias_repair" in command for command in calls))
+        self.assertTrue(any("weather.reporting.location_analysis.june23_location_bias_repair" in command for command in calls))
 
     def test_no_retrain_recommendation_can_skip_expensive_steps_without_disabling_default_schedule(self):
         calls = []

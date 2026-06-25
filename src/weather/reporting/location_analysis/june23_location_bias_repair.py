@@ -371,7 +371,7 @@ def _repair_manifests(
             "command": [
                 "python",
                 "-m",
-                "weather.reporting.june23_location_bias_repair",
+                "weather.reporting.location_analysis.june23_location_bias_repair",
                 "--target-date",
                 target_date,
                 "--json-out",
