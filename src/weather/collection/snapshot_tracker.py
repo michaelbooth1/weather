@@ -27,7 +27,12 @@ from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CAC
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 from weather.operations.power import keep_system_awake
-from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.runtime_identity import (
+    current_identity_for,
+    format_runtime_identity,
+    get_runtime_identity,
+    identities_match,
+)
 from weather.operations.supervisor import (
     SupervisorSpec,
     age_minutes,
@@ -413,7 +418,7 @@ def runtime_identity_status(process_identity, current_identity=None):
             "current_runtime_identity": current_identity,
             "detail": "no runtime identity recorded",
         }
-    current_identity = current_identity or get_runtime_identity()
+    current_identity = current_identity or current_identity_for(process_identity)
     matches = identities_match(process_identity, current_identity)
     return {
         "runtime_code_state": "current" if matches else "stale_code",
@@ -579,7 +584,7 @@ def start_loop_detached(interval_minutes=10.0, now=None):
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,

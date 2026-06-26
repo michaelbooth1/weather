@@ -477,6 +477,332 @@ def _loss_usdc(values):
     return -sum(min(0.0, float(value)) for value in values if value is not None and math.isfinite(float(value)))
 
 
+def select_run_folders_for_paper(
+    candidate_run_folders,
+    *,
+    explicit_run_folders=False,
+    target_date=None,
+    latest_n=None,
+    evidence_mode=None,
+):
+    if latest_n is not None and int(latest_n) <= 0:
+        raise ValueError("run_folder_latest_n must be a positive integer when provided")
+    rows = []
+    for folder in candidate_run_folders or []:
+        row = _run_folder_freshness_row(folder)
+        rows.append({**row, "_path": Path(folder)})
+
+    filtered = rows
+    if target_date:
+        filtered = [row for row in filtered if str(row.get("target_date") or "") == str(target_date)]
+    if evidence_mode:
+        filtered = [row for row in filtered if str(row.get("evidence_mode") or "") == str(evidence_mode)]
+    filtered = sorted(filtered, key=_run_freshness_sort_key)
+    if latest_n is not None:
+        filtered = filtered[-int(latest_n):]
+
+    bounded = bool(explicit_run_folders or target_date or latest_n is not None or evidence_mode)
+    if explicit_run_folders and (target_date or latest_n is not None or evidence_mode):
+        mode = "explicit_filtered"
+    elif explicit_run_folders:
+        mode = "explicit"
+    elif bounded:
+        mode = "bounded"
+    else:
+        mode = "full"
+
+    selected = [row["_path"] for row in filtered]
+    selected_rows = []
+    for row in filtered:
+        selected_rows.append({
+            key: value
+            for key, value in row.items()
+            if key != "_path"
+        })
+    selection = {
+        "schema_version": "mm_paper_run_folder_selection_v0.1",
+        "mode": mode,
+        "bounded": bounded,
+        "warning": "diagnostic_selection_not_full_corpus" if bounded else None,
+        "explicit_run_folders": bool(explicit_run_folders),
+        "target_date": target_date,
+        "evidence_mode": evidence_mode,
+        "latest_n": int(latest_n) if latest_n is not None else None,
+        "available_run_folders_before_selection": len(rows),
+        "candidate_run_folders_after_selection": len(selected),
+        "selected_run_folders": [str(path) for path in selected],
+        "selected_runs": selected_rows,
+    }
+    return selected, selection
+
+
+def _first_finite_value(row, *keys):
+    for key in keys:
+        value = finite_float(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _reward_score_inputs(snapshot_payload, exchange_gate):
+    snapshot_payload = snapshot_payload or {}
+    rewards = snapshot_payload.get("liquidity_rewards") or {}
+    rules = snapshot_payload.get("market_rules") or {}
+    return {
+        "platform": snapshot_payload.get("platform") or (exchange_gate or {}).get("platform"),
+        "formula": rewards.get("formula") or snapshot_payload.get("reward_formula") or "",
+        "discount_factor": finite_float(
+            rewards.get("discount_factor_default")
+            or rewards.get("discount_factor")
+            or rewards.get("discountFactor")
+        ),
+        "target_size": finite_float(
+            rewards.get("target_size_default_contracts")
+            or rewards.get("target_size")
+            or rewards.get("targetSize")
+        ),
+        "campaign_pool_usdc": finite_float(
+            rewards.get("default_category_daily_reward_usd")
+            or rewards.get("daily_reward_usd")
+            or rewards.get("campaign_pool_usdc")
+            or rewards.get("campaignPoolUsd")
+        ),
+        "min_payout_usdc": finite_float(
+            rewards.get("min_payout_usd")
+            or rewards.get("min_payout_usdc")
+            or rewards.get("minimum_payout_usd")
+        ),
+        "tick_size": finite_float(rules.get("tick_size") or snapshot_payload.get("tick_size")),
+        "min_order_size": finite_float(rules.get("min_order_size") or snapshot_payload.get("min_order_size")),
+    }
+
+
+def _estimated_best_price_for_leg(row, side):
+    side = str(side or "").upper()
+    if side == "YES_BID":
+        explicit = _first_finite_value(row, "best_bid_price", "book_best_bid", "best_bid")
+        if explicit is not None:
+            return explicit
+    elif side == "YES_ASK":
+        explicit = _first_finite_value(row, "best_ask_price", "book_best_ask", "best_ask")
+        if explicit is not None:
+            return explicit
+    mid = _first_finite_value(row, "market_mid")
+    spread = _first_finite_value(row, "book_spread")
+    if mid is None or spread is None:
+        return None
+    half_spread = max(0.0, float(spread) / 2.0)
+    if side == "YES_BID":
+        return max(0.0, float(mid) - half_spread)
+    if side == "YES_ASK":
+        return min(1.0, float(mid) + half_spread)
+    return None
+
+
+def _us_reward_score_for_leg(leg, inputs):
+    row = leg.get("quote_row") or leg
+    tick_size = _first_finite_value(row, "tick_size") or inputs.get("tick_size")
+    min_order_size = _first_finite_value(row, "min_order_size") or inputs.get("min_order_size") or 0.0
+    discount = inputs.get("discount_factor")
+    price = finite_float(leg.get("quote_price"))
+    size = finite_float(leg.get("quote_size"), 0.0) or 0.0
+    if tick_size is None or tick_size <= 0:
+        return None, "missing_tick_size", None
+    if discount is None or discount <= 0:
+        return None, "missing_discount_factor", None
+    if price is None:
+        return None, "missing_quote_price", None
+    if size <= 0:
+        return 0.0, "zero_quote_size", None
+    if size < min_order_size:
+        return 0.0, "below_min_order_size", None
+    best_price = _estimated_best_price_for_leg(row, leg.get("side"))
+    if best_price is None:
+        return None, "missing_best_price_or_book_spread", None
+    side = str(leg.get("side") or "").upper()
+    if side == "YES_BID":
+        ticks_from_best = max(0.0, (float(best_price) - float(price)) / float(tick_size))
+    elif side == "YES_ASK":
+        ticks_from_best = max(0.0, (float(price) - float(best_price)) / float(tick_size))
+    else:
+        return None, "unsupported_side", None
+    tick_count = int(math.ceil(max(0.0, ticks_from_best - 1e-9)))
+    return float(size) * (float(discount) ** tick_count), None, tick_count
+
+
+def build_reward_score_diagnostics(quote_rows, legs, exchange_gate=None, economics_snapshot=None, config=None):
+    quote_rows = quote_rows or []
+    legs = legs or []
+    exchange_gate = exchange_gate or {}
+    economics_snapshot = economics_snapshot or {}
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    inputs = _reward_score_inputs(economics_snapshot, exchange_gate)
+    formula = str(inputs.get("formula") or "")
+    supported = (
+        str(inputs.get("platform") or "") == "polymarket_us"
+        and "discount_factor" in formula
+    )
+    blocker_counts = Counter()
+    no_quote_reason_counts = Counter(
+        row.get("reason_code") or "NO_QUOTE_UNKNOWN"
+        for row in quote_rows
+        if not quote_permission(row)
+    )
+    leg_rows = []
+    score_groups = defaultdict(lambda: {
+        "reward_score": 0.0,
+        "quoted_legs": 0,
+        "quote_size": 0.0,
+    })
+    score_sum = 0.0
+    positive_legs = 0
+    zero_legs = 0
+    if not supported:
+        blocker_counts["unsupported_or_missing_reward_formula"] = len(legs)
+    for leg in legs:
+        row = leg.get("quote_row") or leg
+        if not supported:
+            score = None
+            blocker = "unsupported_or_missing_reward_formula"
+            ticks = None
+        else:
+            score, blocker, ticks = _us_reward_score_for_leg(leg, inputs)
+        if blocker:
+            blocker_counts[blocker] += 1
+        if score is not None:
+            score_sum += max(0.0, float(score))
+            if score > 0:
+                positive_legs += 1
+            else:
+                zero_legs += 1
+        group_key = (
+            row.get("market_id") or leg.get("market_id") or "",
+            row.get("range_label") or leg.get("range_label") or "",
+            hour_bucket(row.get("generated_at_utc") or row.get("captured_at_utc") or leg.get("quote_time")),
+            leg.get("side") or "",
+        )
+        group = score_groups[group_key]
+        group["reward_score"] += max(0.0, float(score or 0.0))
+        group["quoted_legs"] += 1
+        group["quote_size"] += finite_float(leg.get("quote_size"), 0.0) or 0.0
+        leg_rows.append({
+            "run_folder": row.get("_run_folder") or leg.get("run_folder"),
+            "run_id": row.get("run_id") or leg.get("run_id"),
+            "target_date": row.get("target_date") or leg.get("target_date"),
+            "market_id": row.get("market_id") or leg.get("market_id"),
+            "range_label": row.get("range_label") or leg.get("range_label"),
+            "side": leg.get("side"),
+            "quote_price": compact_float(leg.get("quote_price")),
+            "quote_size": compact_float(leg.get("quote_size")),
+            "ticks_from_best_price": ticks,
+            "reward_score": compact_float(score),
+            "blocker": blocker,
+            "reason_code": row.get("reason_code") or leg.get("reason_code"),
+            "known_edge_permission": row.get("known_edge_permission") or leg.get("known_edge_permission"),
+            "promotion_state": row.get("promotion_state") or leg.get("promotion_state"),
+        })
+    target_size = inputs.get("target_size")
+    campaign_pool = (
+        inputs.get("campaign_pool_usdc")
+        if inputs.get("campaign_pool_usdc") is not None
+        else finite_float(config.get("reward_campaign_pool_usdc"))
+    )
+    min_payout = (
+        inputs.get("min_payout_usdc")
+        if inputs.get("min_payout_usdc") is not None
+        else finite_float(config.get("reward_min_payout_usdc"), 0.0)
+    )
+    competitor_score = finite_float(config.get("reward_competitor_q"), 0.0)
+    counterfactual_share = None
+    counterfactual_before_min = None
+    counterfactual_reward = None
+    if campaign_pool is not None and competitor_score is not None and score_sum > 0:
+        denominator = score_sum + max(0.0, competitor_score)
+        counterfactual_share = score_sum / denominator if denominator > 0 else 0.0
+        counterfactual_before_min = campaign_pool * counterfactual_share
+        counterfactual_reward = (
+            counterfactual_before_min
+            if counterfactual_before_min >= (min_payout or 0.0)
+            else 0.0
+        )
+    top_groups = []
+    for (market_id, range_label, hour_utc, side), row in score_groups.items():
+        group_score = row["reward_score"]
+        group_share = group_score / score_sum if score_sum > 0 else 0.0
+        top_groups.append({
+            "market_id": market_id,
+            "range_label": range_label,
+            "hour_utc": hour_utc,
+            "side": side,
+            "quoted_legs": row["quoted_legs"],
+            "quote_size": compact_float(row["quote_size"]),
+            "reward_score": compact_float(group_score),
+            "share_of_own_score": compact_float(group_share, digits=8),
+            "counterfactual_reward_usdc": compact_float(
+                (counterfactual_reward or 0.0) * group_share
+                if counterfactual_reward is not None
+                else None
+            ),
+        })
+    top_groups = sorted(
+        top_groups,
+        key=lambda row: (
+            -(finite_float(row.get("reward_score"), 0.0) or 0.0),
+            row.get("market_id") or "",
+            row.get("range_label") or "",
+            row.get("side") or "",
+        ),
+    )[:25]
+    return {
+        "schema_version": "mm_reward_score_diagnostics_v0.1",
+        "status": "PASS" if supported and exchange_gate.get("ok") else "WARN",
+        "score_basis": "polymarket_us_discount_factor_ticks_from_best" if supported else "unsupported",
+        "exchange_economics_status": exchange_gate.get("status"),
+        "exchange_economics_snapshot_id": exchange_gate.get("snapshot_id"),
+        "platform": inputs.get("platform"),
+        "formula": formula,
+        "discount_factor": compact_float(inputs.get("discount_factor")),
+        "tick_size": compact_float(inputs.get("tick_size")),
+        "min_order_size": compact_float(inputs.get("min_order_size")),
+        "target_size_contracts": compact_float(target_size),
+        "campaign_pool_usdc": compact_float(campaign_pool),
+        "min_payout_usdc": compact_float(min_payout),
+        "assumed_competitor_score": compact_float(competitor_score),
+        "assumed_competitor_score_source": "paper_config_reward_competitor_q",
+        "quote_rows": len(quote_rows),
+        "quote_permission_rows": sum(1 for row in quote_rows if quote_permission(row)),
+        "no_quote_rows": sum(1 for row in quote_rows if not quote_permission(row)),
+        "quoted_legs": len(legs),
+        "positive_score_legs": positive_legs,
+        "zero_score_legs": zero_legs,
+        "unscored_legs": sum(1 for row in leg_rows if row.get("reward_score") is None),
+        "total_reward_score": compact_float(score_sum),
+        "score_to_target_size_fraction": compact_float(
+            score_sum / target_size if target_size and target_size > 0 else None,
+            digits=8,
+        ),
+        "score_at_or_above_target_size": (
+            bool(target_size and score_sum >= target_size)
+            if target_size is not None
+            else None
+        ),
+        "counterfactual_score_share": compact_float(counterfactual_share, digits=8),
+        "counterfactual_reward_before_min_payout_usdc": compact_float(counterfactual_before_min),
+        "counterfactual_reward_usdc": compact_float(counterfactual_reward),
+        "counterfactual_reward_status": (
+            "COUNTERFACTUAL_ONLY"
+            if counterfactual_reward is not None
+            else "MISSING_POOL_OR_SCORE"
+        ),
+        "actual_payout_evidence": False,
+        "does_not_change_pnl": True,
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "no_quote_reason_counts": dict(sorted(no_quote_reason_counts.items())),
+        "score_attribution_top_groups": top_groups,
+        "scored_legs": leg_rows[:50],
+    }
+
+
 def _guardrail_quote_exposure(quote_rows, config):
     exposure = {
         "quote_rows": len(quote_rows),
@@ -718,6 +1044,130 @@ def quote_uptime_summary(quote_rows, legs):
     }
 
 
+def quote_blocker_diagnostics(quote_rows, legs, limit=25):
+    quoted_ids = {leg["quote_id"] for leg in legs or []}
+    blocked_rows = [
+        row for row in quote_rows or []
+        if row.get("_quote_id") not in quoted_ids
+    ]
+
+    def text(row, key, default=""):
+        value = row.get(key)
+        if value is None or value == "":
+            return default
+        return str(value)
+
+    def top_counter(counter, keys):
+        rows = []
+        for key, count in counter.most_common(limit):
+            if not isinstance(key, tuple):
+                key = (key,)
+            row = {name: value for name, value in zip(keys, key)}
+            row["rows"] = count
+            rows.append(row)
+        return rows
+
+    market_reason = Counter(
+        (
+            text(row, "market_id", "unknown"),
+            text(row, "reason_code", "NO_QUOTE_UNKNOWN"),
+        )
+        for row in blocked_rows
+    )
+    known_edge = Counter(
+        (
+            text(row, "known_edge_reason", "unknown"),
+            text(row, "known_edge_permission", "unknown"),
+            text(row, "promotion_state", "unknown"),
+        )
+        for row in blocked_rows
+    )
+    event_gate = Counter(
+        (
+            text(row, "event_gate_status", "unknown"),
+            text(row, "event_gate_action", "unknown"),
+            text(row, "event_gate_reason_code", "unknown"),
+            text(row, "event_gate_event_class", "unknown"),
+        )
+        for row in blocked_rows
+        if (
+            text(row, "event_gate_status")
+            or text(row, "event_gate_action")
+            or text(row, "event_gate_reason_code")
+            or text(row, "event_gate_event_class")
+        )
+    )
+    cells = Counter(
+        (
+            text(row, "market_id", "unknown"),
+            text(row, "range_label", "unknown"),
+            text(row, "reason_code", "NO_QUOTE_UNKNOWN"),
+            text(row, "known_edge_reason", "unknown"),
+            text(row, "promotion_state", "unknown"),
+        )
+        for row in blocked_rows
+    )
+    reason_counts = Counter(text(row, "reason_code", "NO_QUOTE_UNKNOWN") for row in blocked_rows)
+    known_edge_permission_blocked_rows = sum(
+        1 for row in blocked_rows
+        if text(row, "reason_code") == "NO_QUOTE_KNOWN_EDGE_PERMISSION"
+    )
+    known_edge_allowed_false_rows = sum(
+        1 for row in blocked_rows
+        if text(row, "known_edge_allowed").lower() == "false"
+    )
+    known_edge_state_rows = sum(
+        1 for row in blocked_rows
+        if (
+            text(row, "known_edge_reason")
+            or text(row, "known_edge_permission")
+            or text(row, "promotion_state")
+            or text(row, "known_edge_allowed")
+        )
+    )
+    event_gate_suppressed_rows = sum(
+        1 for row in blocked_rows
+        if text(row, "event_gate_action") == "suppress"
+        or text(row, "reason_code") == "NO_QUOTE_INFORMATION_EVENT"
+    )
+    harvest_only_suppressed_by_other_gate_rows = sum(
+        1 for row in blocked_rows
+        if text(row, "known_edge_permission") == "harvest_only"
+        and text(row, "reason_code") != "NO_QUOTE_KNOWN_EDGE_PERMISSION"
+        and (
+            text(row, "event_gate_action") == "suppress"
+            or text(row, "reason_code") == "NO_QUOTE_INFORMATION_EVENT"
+        )
+    )
+    return {
+        "schema_version": "mm_quote_blocker_diagnostics_v0.2",
+        "quote_rows": len(quote_rows or []),
+        "quote_permission_rows": len(quoted_ids),
+        "blocked_rows": len(blocked_rows),
+        "blocked_fraction": compact_float(len(blocked_rows) / len(quote_rows or []) if quote_rows else 0.0),
+        "known_edge_blocked_rows": known_edge_permission_blocked_rows,
+        "known_edge_permission_blocked_rows": known_edge_permission_blocked_rows,
+        "known_edge_allowed_false_rows": known_edge_allowed_false_rows,
+        "known_edge_state_rows": known_edge_state_rows,
+        "harvest_only_suppressed_by_other_gate_rows": harvest_only_suppressed_by_other_gate_rows,
+        "event_gate_suppressed_rows": event_gate_suppressed_rows,
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "top_market_reasons": top_counter(market_reason, ["market_id", "reason_code"]),
+        "top_known_edge_states": top_counter(
+            known_edge,
+            ["known_edge_reason", "known_edge_permission", "promotion_state"],
+        ),
+        "top_event_gate_states": top_counter(
+            event_gate,
+            ["event_gate_status", "event_gate_action", "event_gate_reason_code", "event_gate_event_class"],
+        ),
+        "top_blocked_cells": top_counter(
+            cells,
+            ["market_id", "range_label", "reason_code", "known_edge_reason", "promotion_state"],
+        ),
+    }
+
+
 def model_variant_paper_bakeoff_summary(
     variant_quote_rows,
     variant_legs,
@@ -825,6 +1275,90 @@ def model_variant_paper_bakeoff_summary(
         "model_variant_by_policy": rows,
         "clustered_promotion_gate": promotion_gate,
         "promotion_gate": promotion_gate,
+    }
+
+
+def skipped_model_variant_paper_bakeoff_summary(reason="skip_model_variants"):
+    return {
+        "schema_version": "mm_model_variant_paper_bakeoff_v0.1",
+        "status": "SKIPPED",
+        "reason": reason,
+        "score_basis": "not_run",
+        "quote_rows": 0,
+        "quote_legs": 0,
+        "conservative_fills": 0,
+        "queue_estimated_fill_legs": 0,
+        "policy_pair_count": 0,
+        "model_variant_by_policy": [],
+        "clustered_promotion_gate": {
+            "status": "SKIPPED",
+            "method": "not_run",
+            "reason": reason,
+            "pair_count": 0,
+            "pass_pair_count": 0,
+            "pairs": [],
+        },
+        "promotion_gate": {
+            "status": "SKIPPED",
+            "method": "not_run",
+            "reason": reason,
+            "pair_count": 0,
+            "pass_pair_count": 0,
+            "pairs": [],
+        },
+    }
+
+
+def skipped_fill_simulation_diagnostics(legs, reason="skip_fill_simulation"):
+    event_slugs = sorted({leg.get("event_slug") for leg in legs or [] if leg.get("event_slug")})
+    return {
+        event_slug: {
+            "status": "SKIPPED",
+            "reason": reason,
+            "trade_rows": 0,
+            "missing_size_trade_rows": 0,
+            "book_rows": 0,
+            "mark_rows": 0,
+            "settlement_available": False,
+        }
+        for event_slug in event_slugs
+    }
+
+
+def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
+    return {
+        "schema_version": "mm_fill_evidence_completeness_v0.1",
+        "status": "SKIPPED",
+        "reason": reason,
+        "promotion_grade": False,
+        "blockers": ["fill_simulation_skipped"],
+        "quote_legs": len(legs or []),
+        "strict_trade_through_fill_count": 0,
+        "strict_trade_through_filled_shares": 0.0,
+        "queue_status_counts": {},
+        "missing_size_trade_rows": 0,
+        "missing_book_queue_legs": 0,
+        "missing_trade_size_queue_legs": 0,
+        "unresolved_resting_quote_count": len(legs or []),
+        "events_without_trade_rows": sorted({leg.get("event_slug") for leg in legs or [] if leg.get("event_slug")}),
+        "events_without_book_rows": sorted({leg.get("event_slug") for leg in legs or [] if leg.get("event_slug")}),
+        "clob_recon_book_rows": 0,
+        "clob_recon_slice_rows": 0,
+        "clob_recon_coverage_source": reason,
+        "by_market_hour_token": [],
+        "event_diagnostics": [
+            {
+                "event_slug": event_slug,
+                "status": "SKIPPED",
+                "reason": reason,
+                "trade_rows": 0,
+                "missing_size_trade_rows": 0,
+                "book_rows": 0,
+                "mark_rows": 0,
+                "settlement_available": False,
+            }
+            for event_slug in sorted({leg.get("event_slug") for leg in legs or [] if leg.get("event_slug")})
+        ],
     }
 
 
@@ -1017,6 +1551,9 @@ def build_paper_payload(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     backtest_root=DEFAULT_BACKTEST_ROOT,
     run_folders=None,
+    run_folder_target_date=None,
+    run_folder_latest_n=None,
+    run_folder_evidence_mode=None,
     casebook_path=DEFAULT_CASEBOOK,
     promotion_refresh=DEFAULT_PROMOTION_REFRESH,
     config=None,
@@ -1027,40 +1564,80 @@ def build_paper_payload(
     exchange_economics_target_date=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    include_model_variants=True,
+    include_fill_simulation=True,
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
     generated_at = generated_at_iso(now)
-    candidate_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
+    discovered_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
+    candidate_run_folders, run_folder_selection = select_run_folders_for_paper(
+        discovered_run_folders,
+        explicit_run_folders=bool(run_folders),
+        target_date=run_folder_target_date,
+        latest_n=run_folder_latest_n,
+        evidence_mode=run_folder_evidence_mode,
+    )
     run_folders, eligibility_by_folder, excluded_run_folders = split_run_folders_by_eligibility(candidate_run_folders)
     quote_rows, run_configs = load_quote_rows(run_folders, eligibility_by_folder=eligibility_by_folder)
-    model_variant_quote_rows, _model_variant_run_configs = load_model_variant_quote_rows(
-        run_folders,
-        eligibility_by_folder=eligibility_by_folder,
-    )
     legs = quote_legs(quote_rows, config)
-    model_variant_legs = quote_legs(model_variant_quote_rows, config)
-    casebook_index = load_casebook_index(casebook_path)
-    fill_rows, queue_rows, diagnostics, leg_fill_sizes = simulate_conservative_fills(
-        legs,
-        snapshots_root,
-        casebook_index,
-        config,
-        ledger_root=ledger_root,
+    model_variant_quote_rows = []
+    model_variant_legs = []
+    if include_model_variants and include_fill_simulation:
+        model_variant_quote_rows, _model_variant_run_configs = load_model_variant_quote_rows(
+            run_folders,
+            eligibility_by_folder=eligibility_by_folder,
+        )
+        model_variant_legs = quote_legs(model_variant_quote_rows, config)
+    casebook_event_slugs = {
+        leg.get("event_slug")
+        for leg in [*(legs or []), *(model_variant_legs or [])]
+        if leg.get("event_slug")
+    }
+    casebook_index = (
+        load_casebook_index(casebook_path, event_slugs=casebook_event_slugs)
+        if include_fill_simulation
+        else {}
     )
-    model_variant_fill_rows, model_variant_queue_rows, model_variant_diagnostics, _model_variant_leg_fill_sizes = simulate_conservative_fills(
-        model_variant_legs,
-        snapshots_root,
-        casebook_index,
-        config,
-        ledger_root=ledger_root,
-    )
-    model_variant_bakeoff = model_variant_paper_bakeoff_summary(
-        model_variant_quote_rows,
-        model_variant_legs,
-        model_variant_fill_rows,
-        model_variant_queue_rows,
-        config=config,
-    )
+    if include_fill_simulation:
+        fill_rows, queue_rows, diagnostics, leg_fill_sizes = simulate_conservative_fills(
+            legs,
+            snapshots_root,
+            casebook_index,
+            config,
+            ledger_root=ledger_root,
+        )
+    else:
+        fill_rows = []
+        queue_rows = []
+        diagnostics = skipped_fill_simulation_diagnostics(legs)
+        leg_fill_sizes = Counter()
+    if include_model_variants and include_fill_simulation:
+        (
+            model_variant_fill_rows,
+            model_variant_queue_rows,
+            model_variant_diagnostics,
+            _model_variant_leg_fill_sizes,
+        ) = simulate_conservative_fills(
+            model_variant_legs,
+            snapshots_root,
+            casebook_index,
+            config,
+            ledger_root=ledger_root,
+        )
+        model_variant_bakeoff = model_variant_paper_bakeoff_summary(
+            model_variant_quote_rows,
+            model_variant_legs,
+            model_variant_fill_rows,
+            model_variant_queue_rows,
+            config=config,
+        )
+    else:
+        model_variant_fill_rows = []
+        model_variant_queue_rows = []
+        model_variant_diagnostics = {}
+        model_variant_bakeoff = skipped_model_variant_paper_bakeoff_summary(
+            "skip_model_variants" if not include_model_variants else "skip_fill_simulation"
+        )
     queue_summary = Counter(row.get("status") for row in queue_rows)
     slices = build_markout_slices(fill_rows, config)
     early_hour_guardrail_shadow = build_early_hour_guardrail_shadow(
@@ -1071,22 +1648,36 @@ def build_paper_payload(
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
     active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
-    clob_recon = load_or_build_clob_recon(
-        clob_recon_path,
-        snapshots_root,
-        active_event_slugs,
-        now=now,
-    )
-    decisive_resting = decisive_resting_check(legs, diagnostics)
-    fill_evidence_completeness = fill_evidence_completeness_summary(
-        legs,
-        fill_rows,
-        queue_rows,
-        diagnostics,
-        decisive_resting,
-        clob_recon,
-        config,
-    )
+    if include_fill_simulation:
+        clob_recon = load_or_build_clob_recon(
+            clob_recon_path,
+            snapshots_root,
+            active_event_slugs,
+            now=now,
+        )
+        decisive_resting = decisive_resting_check(legs, diagnostics)
+        fill_evidence_completeness = fill_evidence_completeness_summary(
+            legs,
+            fill_rows,
+            queue_rows,
+            diagnostics,
+            decisive_resting,
+            clob_recon,
+            config,
+        )
+    else:
+        clob_recon = {
+            "schema_version": "clob_book_recon_v0.1",
+            "coverage_source": "skip_fill_simulation",
+            "summary": {},
+        }
+        decisive_resting = {
+            "status": "SKIPPED",
+            "reason": "skip_fill_simulation",
+            "unresolved_resting_quote_count": len(legs),
+            "unresolved_resting_quotes": [],
+        }
+        fill_evidence_completeness = skipped_fill_evidence_completeness(legs)
     per_market_evidence_credits = [
         row
         for item in eligibility_by_folder.values()
@@ -1116,6 +1707,18 @@ def build_paper_payload(
         now=now or generated_at,
         required=exchange_gate_required,
     )
+    economics_snapshot = read_json(
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
+        {},
+    ) or {}
+    reward_score_diagnostics = build_reward_score_diagnostics(
+        quote_rows,
+        legs,
+        exchange_gate=exchange_gate,
+        economics_snapshot=economics_snapshot,
+        config=config,
+    )
+    blocker_diagnostics = quote_blocker_diagnostics(quote_rows, legs)
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     for row in fill_rows:
         row.update({
@@ -1138,9 +1741,21 @@ def build_paper_payload(
     summary = {
         "run_folders": len(run_folders),
         "candidate_run_folders": len(candidate_run_folders),
+        "available_run_folders_before_selection": len(discovered_run_folders),
+        "bounded_run_selection": run_folder_selection.get("bounded"),
+        "run_folder_selection_mode": run_folder_selection.get("mode"),
+        "run_folder_selection_warning": run_folder_selection.get("warning"),
+        "run_folder_selection": run_folder_selection,
         "excluded_run_folders": len(excluded_run_folders),
         "quote_rows": len(quote_rows),
         "quote_legs": len(legs),
+        "fill_simulation_included": bool(include_fill_simulation),
+        "fill_simulation_status": "RUN" if include_fill_simulation else "SKIPPED",
+        "fill_simulation_reason": None if include_fill_simulation else "skip_fill_simulation",
+        "model_variant_scoring_included": model_variant_bakeoff.get("status") != "SKIPPED",
+        "model_variant_scoring_requested": bool(include_model_variants),
+        "model_variant_scoring_status": model_variant_bakeoff.get("status"),
+        "model_variant_scoring_reason": model_variant_bakeoff.get("reason"),
         "model_variant_quote_rows": len(model_variant_quote_rows),
         "model_variant_quote_legs": len(model_variant_legs),
         "conservative_fills": len(fill_rows),
@@ -1185,11 +1800,19 @@ def build_paper_payload(
         **exchange_fields,
         "per_market_live_forward_evidence": per_market_evidence_summary,
         "quote_uptime": quote_uptime_summary(quote_rows, legs),
+        "quote_blocker_diagnostics": blocker_diagnostics,
         "event_gate_score": event_gate_score,
+        "reward_score_diagnostics": {
+            key: value
+            for key, value in reward_score_diagnostics.items()
+            if key != "scored_legs"
+        },
         "clob_recon": clob_recon.get("summary") or {},
         "decisive_resting_audit": decisive_resting,
         "model_variant_bakeoff": {
             "status": model_variant_bakeoff.get("status"),
+            "reason": model_variant_bakeoff.get("reason"),
+            "score_basis": model_variant_bakeoff.get("score_basis"),
             "quote_rows": model_variant_bakeoff.get("quote_rows", 0),
             "conservative_fills": model_variant_bakeoff.get("conservative_fills", 0),
             "policy_pair_count": model_variant_bakeoff.get("policy_pair_count", 0),
@@ -1209,6 +1832,7 @@ def build_paper_payload(
         "runs_root": str(runs_root),
         "snapshots_root": str(snapshots_root),
         "backtest_root": str(backtest_root),
+        "run_folder_selection": run_folder_selection,
         "promotion_refresh": str(promotion_refresh),
         "casebook_path": str(casebook_path),
         "exchange_economics_snapshot_path": str(exchange_economics_snapshot_path) if exchange_economics_snapshot_path else None,
@@ -1218,6 +1842,8 @@ def build_paper_payload(
         "summary": summary,
         "clob_recon": clob_recon,
         "fill_evidence_completeness": fill_evidence_completeness,
+        "reward_score_diagnostics": reward_score_diagnostics,
+        "quote_blocker_diagnostics": blocker_diagnostics,
         "event_diagnostics": diagnostics,
         "run_configs": run_configs,
         "run_folder_eligibility": eligibility_by_folder,
@@ -1308,6 +1934,24 @@ def build_arg_parser():
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--run-folder", action="append", default=[], help="Explicit run folder; may be passed more than once.")
+    parser.add_argument(
+        "--run-target-date",
+        "--target-date",
+        dest="run_target_date",
+        default=None,
+        help="Score only run folders whose run summary/config target_date matches this date.",
+    )
+    parser.add_argument(
+        "--latest-n",
+        type=int,
+        default=None,
+        help="Score only the latest N run folders after any target-date/evidence-mode filter.",
+    )
+    parser.add_argument(
+        "--evidence-mode",
+        default=None,
+        help="Score only run folders with this evidence_mode, for example active_day_live_forward.",
+    )
     parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK))
     parser.add_argument("--promotion-refresh", default=str(DEFAULT_PROMOTION_REFRESH))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
@@ -1320,6 +1964,16 @@ def build_arg_parser():
     parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
     parser.add_argument("--exchange-economics-target-date", default=None)
     parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
+    parser.add_argument(
+        "--skip-model-variants",
+        action="store_true",
+        help="Skip model-variant bakeoff scoring for faster diagnostic reports; not promotion-grade.",
+    )
+    parser.add_argument(
+        "--skip-fill-simulation",
+        action="store_true",
+        help="Skip conservative/queue fill simulation for quote/reward diagnostics; not promotion-grade.",
+    )
     parser.add_argument("--config", action="append", default=[], help="Paper config override, key=value.")
     return parser
 
@@ -1334,6 +1988,9 @@ def main(argv=None):
         snapshots_root=Path(args.snapshots_root),
         backtest_root=backtest_root,
         run_folders=args.run_folder,
+        run_folder_target_date=args.run_target_date,
+        run_folder_latest_n=args.latest_n,
+        run_folder_evidence_mode=args.evidence_mode,
         casebook_path=Path(args.casebook),
         promotion_refresh=Path(args.promotion_refresh),
         config=config,
@@ -1342,6 +1999,8 @@ def main(argv=None):
         exchange_economics_snapshot_path=Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
         exchange_economics_target_date=args.exchange_economics_target_date,
         exchange_economics_platform=args.exchange_economics_platform,
+        include_model_variants=not args.skip_model_variants,
+        include_fill_simulation=not args.skip_fill_simulation,
     )
     payload, _known_edge = write_outputs(
         payload,

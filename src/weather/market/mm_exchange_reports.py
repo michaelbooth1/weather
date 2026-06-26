@@ -29,6 +29,14 @@ def build_reconciliation_report(payload):
         f"- Ready plans: `{(payload.get('adapter_request_diagnostics') or {}).get('ready_plan_count')}`",
         f"- Blocked plans: `{(payload.get('adapter_request_diagnostics') or {}).get('blocked_plan_count')}`",
         "",
+        "## Live Readiness Notes",
+        "",
+        *[
+            f"- `{row.get('code')}`: `{row.get('severity')}` - {row.get('detail')}"
+            for row in (payload.get("adapter_request_diagnostics") or {}).get("live_readiness_notes") or []
+        ],
+        "" if (payload.get("adapter_request_diagnostics") or {}).get("live_readiness_notes") else "- No platform-specific notes recorded.",
+        "",
         "## Reconciliation",
         "",
         f"- Local live orders: `{payload.get('local_live_order_count')}`",
@@ -60,14 +68,56 @@ def _probe_detail(probe_evidence, name, fallback):
     return fallback
 
 
+def _open_order_count_after_cancel(value):
+    if not isinstance(value, dict):
+        return None
+    for key in ("open_order_count_after", "open_orders_count_after", "post_cancel_open_order_count"):
+        if key in value:
+            count = maybe_float(value.get(key))
+            return None if count is None else int(count)
+    for key in ("open_orders_after_cancel_all", "open_orders_after"):
+        rows = value.get(key)
+        if isinstance(rows, list):
+            return len(rows)
+    return None
+
+
+def _cancel_all_probe_status(probe_evidence):
+    value = (probe_evidence or {}).get("cancel_all_verification")
+    fallback = "requires cancel-all command plus zero open-order confirmation"
+    if not isinstance(value, dict):
+        return {
+            "status": "pending",
+            "detail": fallback,
+        }
+    open_count = _open_order_count_after_cancel(value)
+    zero_confirmed = bool_value(value.get("zero_open_orders_confirmed"), False) or open_count == 0
+    request_observed = (
+        bool_value(value.get("cancel_all_sent") or value.get("cancel_all_requested"), False)
+        or value.get("cancel_all_response") not in (None, "", {})
+        or value.get("canceled_order_ids") is not None
+    )
+    if _probe_observed(probe_evidence, "cancel_all_verification") and zero_confirmed and request_observed:
+        return {
+            "status": "observed",
+            "detail": _probe_detail(probe_evidence, "cancel_all_verification", "cancel-all verified with zero open orders"),
+        }
+    if _probe_observed(probe_evidence, "cancel_all_verification") and not zero_confirmed:
+        return {
+            "status": "pending_zero_open_order_confirmation",
+            "detail": "cancel-all evidence is present but does not prove zero open orders afterward",
+        }
+    return {
+        "status": "pending",
+        "detail": _probe_detail(probe_evidence, "cancel_all_verification", fallback),
+    }
+
+
 def mm2_probe_status(payload, probe_evidence=None):
     probe_evidence = probe_evidence or {}
     events = payload.get("user_stream_lifecycle_events") or []
     event_types = Counter(row.get("transition") for row in events)
-    cancel_observed = bool(event_types.get("canceled")) or _probe_observed(
-        probe_evidence,
-        "cancel_all_verification",
-    )
+    cancel_all = _cancel_all_probe_status(probe_evidence)
     return {
         "heartbeat_dead_man": {
             "status": "observed" if _probe_observed(probe_evidence, "heartbeat_dead_man") else "pending_real_probe",
@@ -90,12 +140,8 @@ def mm2_probe_status(payload, probe_evidence=None):
             "detail": "requires two matched local/exchange order records for one band",
         },
         "cancel_all_verification": {
-            "status": "observed" if cancel_observed else "pending",
-            "detail": _probe_detail(
-                probe_evidence,
-                "cancel_all_verification",
-                "requires cancel-all command plus zero open-order confirmation",
-            ),
+            "status": cancel_all["status"],
+            "detail": cancel_all["detail"],
         },
         "user_stream_lifecycle": {
             "status": "observed" if event_types else "pending",

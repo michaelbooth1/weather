@@ -129,11 +129,86 @@ def source_tree_fingerprint(repo_root=None):
     }
 
 
-def get_runtime_identity(repo_root=None):
+def _module_source_files(repo_root):
+    """Repo source files currently imported in this process (``sys.modules``).
+
+    This is the code a long-running loop actually depends on. Scoping the source
+    fingerprint to these files means a commit to an unrelated module (e.g. a
+    reporting or calibration module a collection loop never imports) does not
+    flip the loop to stale and tear down collection cadence. Only changes to code
+    the loop runs trigger a current-code re-adoption.
+    """
+    repo_root = Path(repo_root).resolve()
+    # Restrict to the project's own source files (the same set the whole-tree
+    # fingerprint covers). This excludes third-party dependencies under venv/
+    # site-packages, which live inside the repo root and would otherwise dwarf
+    # the scope and never change anyway.
+    source_set = set()
+    for path in _source_files(repo_root):
+        try:
+            source_set.add(path.resolve())
+        except OSError:
+            continue
+    rels = set()
+    for module in list(sys.modules.values()):
+        file_attr = getattr(module, "__file__", None)
+        if not file_attr:
+            continue
+        try:
+            path = Path(file_attr).resolve()
+        except OSError:
+            continue
+        if path not in source_set:
+            continue
+        rels.add(path.relative_to(repo_root).as_posix())
+    return sorted(rels)
+
+
+def _fingerprint_relpaths(repo_root, rel_paths):
+    repo_root = Path(repo_root)
+    digest = hashlib.sha256()
+    count = 0
+    for rel in sorted(set(rel_paths)):
+        path = repo_root / rel
+        try:
+            with path.open("rb") as handle:
+                digest.update(rel.encode("utf-8"))
+                digest.update(b"\0")
+                for chunk in iter(lambda: handle.read(65536), b""):
+                    digest.update(chunk)
+                digest.update(b"\0")
+                count += 1
+        except OSError:
+            # A scoped file that vanished is itself a change; fold its name in so
+            # deletion is detected rather than silently ignored.
+            digest.update(rel.encode("utf-8"))
+            digest.update(b"\1")
+    return {"fingerprint": digest.hexdigest()[:16], "file_count": count}
+
+
+def get_runtime_identity(repo_root=None, scope_files=None):
+    """Capture runtime code identity.
+
+    ``scope_files`` controls the source fingerprint scope:
+
+    * ``None`` (default): the whole source tree, unchanged for all existing
+      consumers (taker, soak gates, fleet, etc.).
+    * ``"loaded"``: only the repo source files this process has imported.
+    * an explicit iterable of repo-relative paths: re-fingerprint exactly those
+      files (used to recompute a comparable "current" identity for a recorded,
+      scoped identity).
+    """
     repo_root = Path(repo_root or REPO_ROOT)
     branch, commit = _git_head_identity(repo_root)
-    source = source_tree_fingerprint(repo_root)
-    return {
+    scope = None
+    scope_list = None
+    if scope_files is None:
+        source = source_tree_fingerprint(repo_root)
+    else:
+        scope = "loaded_modules"
+        scope_list = _module_source_files(repo_root) if scope_files == "loaded" else sorted(set(scope_files))
+        source = _fingerprint_relpaths(repo_root, scope_list)
+    identity = {
         "schema_version": IDENTITY_SCHEMA_VERSION,
         "captured_at_utc": utc_now_iso(),
         "repo_root": str(repo_root),
@@ -146,6 +221,25 @@ def get_runtime_identity(repo_root=None):
         "identity_source": "git_filesystem",
         "python_version": sys.version.split()[0],
     }
+    if scope is not None:
+        identity["source_scope"] = scope
+        identity["source_scope_files"] = scope_list
+    return identity
+
+
+def current_identity_for(recorded, repo_root=None):
+    """Build a 'current' identity comparable to ``recorded``'s fingerprint scope.
+
+    If ``recorded`` was captured with a scoped (loaded-modules) fingerprint, the
+    current identity is re-fingerprinted over exactly the same recorded file set,
+    so the comparison reflects only changes to that code. Legacy whole-tree
+    identities fall back to the whole-tree fingerprint, preserving behaviour.
+    """
+    root = repo_root or (recorded or {}).get("repo_root") or REPO_ROOT
+    scope_files = (recorded or {}).get("source_scope_files")
+    if scope_files:
+        return get_runtime_identity(root, scope_files=scope_files)
+    return get_runtime_identity(root)
 
 
 def identity_key(identity):

@@ -43,7 +43,12 @@ from weather.model.feature_store import (
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
-from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.runtime_identity import (
+    current_identity_for,
+    format_runtime_identity,
+    get_runtime_identity,
+    identities_match,
+)
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 DEFAULT_MARKET_CONFIG = config_for_date()
@@ -59,7 +64,11 @@ REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
 REPLAY_RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
-PROCESS_RUNTIME_IDENTITY = get_runtime_identity()
+# Scope the long-running collection process identity to the code it actually
+# imports, so a commit to an unrelated module (reporting/promotion/calibration a
+# collection loop never imports) does not flip the loop to stale and tear down
+# capture cadence. Only changes to imported code trigger a current-code re-adopt.
+PROCESS_RUNTIME_IDENTITY = get_runtime_identity(scope_files="loaded")
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
     "open_meteo_air_quality",
@@ -1204,7 +1213,7 @@ class SnapshotStore:
 
     def runtime_identity_guard(self, current_identity=None, process_identity=None):
         process_identity = process_identity or PROCESS_RUNTIME_IDENTITY
-        current_identity = current_identity or get_runtime_identity()
+        current_identity = current_identity or current_identity_for(process_identity)
         ok = identities_match(process_identity, current_identity)
         state = "current" if ok else "stale_code"
         return {

@@ -80,6 +80,41 @@ class TestMMExchangeReports(unittest.TestCase):
         self.assertIn("# MM-2 Pilot Report", markdown)
         self.assertIn("heartbeat_dead_man", reconciliation_markdown)
 
+    def test_cancel_all_probe_requires_zero_open_order_confirmation(self):
+        pending = reports.mm2_probe_status(
+            {
+                "matched_order_count": 2,
+                "user_stream_lifecycle_events": [{"transition": "canceled"}],
+            },
+            probe_evidence={
+                "cancel_all_verification": {
+                    "passed": True,
+                    "cancel_all_sent": True,
+                    "cancel_all_response": {"canceledOrderIds": ["ex-1"]},
+                },
+            },
+        )
+        observed = reports.mm2_probe_status(
+            {
+                "matched_order_count": 2,
+                "user_stream_lifecycle_events": [{"transition": "canceled"}],
+            },
+            probe_evidence={
+                "cancel_all_verification": {
+                    "passed": True,
+                    "cancel_all_sent": True,
+                    "cancel_all_response": {"canceledOrderIds": ["ex-1"]},
+                    "open_orders_after_cancel_all": [],
+                },
+            },
+        )
+
+        self.assertEqual(
+            pending["cancel_all_verification"]["status"],
+            "pending_zero_open_order_confirmation",
+        )
+        self.assertEqual(observed["cancel_all_verification"]["status"], "observed")
+
 
 if __name__ == "__main__":
     unittest.main()

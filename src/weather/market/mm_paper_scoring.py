@@ -388,12 +388,21 @@ def quote_legs(quote_rows, config):
             "market_id": row.get("market_id") or "",
             "target_date": row.get("target_date") or (row.get("_run_config") or {}).get("target_date") or "",
             "range_label": row.get("range_label") or "",
+            "generated_at_utc": row.get("generated_at_utc") or row.get("captured_at_utc") or "",
+            "reason_code": row.get("reason_code") or "",
+            "known_edge_permission": row.get("known_edge_permission") or "",
+            "promotion_state": row.get("promotion_state") or "",
             "bin_kind": row.get("bin_kind") or "",
             "bin_value": row.get("bin_value") or row.get("bin_value_c") or "",
             "bin_value_hi": row.get("bin_value_hi") or "",
             "clob_token_id": row.get("clob_token_id") or row.get("asset_id") or "",
             "quote_time": quote_time,
             "market_mid": market_mid,
+            "book_spread": finite_float(row.get("book_spread")),
+            "best_bid": finite_float(row.get("best_bid_price") or row.get("book_best_bid") or row.get("best_bid")),
+            "best_ask": finite_float(row.get("best_ask_price") or row.get("book_best_ask") or row.get("best_ask")),
+            "tick_size": finite_float(row.get("tick_size")),
+            "min_order_size": finite_float(row.get("min_order_size")),
             "fair_probability": fair_probability,
             "edge": edge,
             "capture_hour_utc": guardrail.get("capture_hour_utc"),
@@ -478,6 +487,8 @@ def quote_legs(quote_rows, config):
             legs.append(leg)
     attach_expiry(legs, config)
     attach_reward_estimates(legs, config)
+    for leg in legs:
+        leg.pop("quote_row", None)
     return legs
 
 
@@ -684,19 +695,35 @@ def load_book_rows(folder):
     return rows
 
 
+class TimeIndexedRows(list):
+    __slots__ = ("times",)
+
+    def rebuild_time_index(self):
+        self.times = [row["time"] for row in self]
+        return self
+
+
+def _time_index_for_rows(rows):
+    times = getattr(rows, "times", None)
+    if times is None or len(times) != len(rows):
+        times = [row["time"] for row in rows]
+    return times
+
+
 def group_by_token(rows):
-    grouped = defaultdict(list)
+    grouped = defaultdict(TimeIndexedRows)
     for row in rows:
         grouped[row["clob_token_id"]].append(row)
     for values in grouped.values():
         values.sort(key=lambda row: row["time"])
+        values.rebuild_time_index()
     return grouped
 
 
 def nearest_row_before(rows, timestamp):
     if not rows or timestamp is None:
         return None
-    times = [row["time"] for row in rows]
+    times = _time_index_for_rows(rows)
     pos = bisect.bisect_right(times, timestamp)
     return rows[pos - 1] if pos > 0 else None
 
@@ -704,7 +731,7 @@ def nearest_row_before(rows, timestamp):
 def rows_between(rows, start, end):
     if not rows:
         return []
-    times = [row["time"] for row in rows]
+    times = _time_index_for_rows(rows)
     lo = bisect.bisect_right(times, start)
     hi = bisect.bisect_right(times, end)
     return rows[lo:hi]
@@ -844,7 +871,7 @@ def mark_at(mark_by_token, token, target_time):
     rows = mark_by_token.get(str(token)) or []
     if not rows:
         return None
-    times = [row["time"] for row in rows]
+    times = _time_index_for_rows(rows)
     pos = bisect.bisect_left(times, target_time)
     if pos < len(rows):
         return rows[pos]
@@ -875,11 +902,73 @@ def settlement_outcome_for_leg(leg, settlement):
         return 1.0 if resolve_outcome(kind, value, bucket, value_hi) else 0.0
 
 
-def load_casebook_index(path):
-    payload = read_json(path, {}) or {}
+def iter_casebook_cases(path):
+    path = Path(path)
+    if not path.exists():
+        return
+    seeking_cases = True
+    seeking_array = False
+    depth = 0
+    in_string = False
+    escape = False
+    object_chars = []
+    with path.open("r", encoding="utf-8-sig") as handle:
+        for line in handle:
+            if seeking_cases:
+                if '"cases"' not in line:
+                    continue
+                seeking_cases = False
+                if "[" in line:
+                    line = line.split("[", 1)[1]
+                else:
+                    seeking_array = True
+                    continue
+            if seeking_array:
+                if "[" not in line:
+                    continue
+                seeking_array = False
+                line = line.split("[", 1)[1]
+            for char in line:
+                if depth == 0:
+                    if char == "{":
+                        object_chars = ["{"]
+                        depth = 1
+                        in_string = False
+                        escape = False
+                    elif char == "]":
+                        return
+                    continue
+                object_chars.append(char)
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif char == "\\":
+                        escape = True
+                    elif char == '"':
+                        in_string = False
+                    continue
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            yield json.loads("".join(object_chars))
+                        except json.JSONDecodeError:
+                            pass
+                        object_chars = []
+
+
+def load_casebook_index(path, event_slugs=None):
+    wanted_events = {str(event) for event in event_slugs or [] if event}
+    restrict_events = bool(wanted_events)
     index = defaultdict(list)
-    for case in payload.get("cases") or []:
+    for case in iter_casebook_cases(path) or []:
         event_slug = case.get("event_slug") or ""
+        if restrict_events and event_slug not in wanted_events:
+            continue
         market_id = case.get("market_id") or ""
         label = case.get("range_label") or ""
         key = (event_slug, market_id, label)

@@ -2,7 +2,8 @@
 
 Status: live-pilot gate design. This does not authorize live orders.
 
-Sources checked on 2026-06-16:
+Sources checked on 2026-06-16 and tightened on 2026-06-26 after the US
+private-stream, cancel-all, and latency-stopgap API-readiness review:
 
 - Polymarket global authentication:
   https://docs.polymarket.com/api-reference/authentication
@@ -20,7 +21,7 @@ Sources checked on 2026-06-16:
 ## Required Artifact
 
 `docs/research/mm_platform_verification_template.json` is the tracked
-fail-closed template for `mm_platform_verification_v0.1`. Copy its structure
+fail-closed template for `mm_platform_verification_v0.2`. Copy its structure
 to the ignored runtime path `data/backtest/mm_platform_verification.json` and
 fill it with current operator-owned evidence before live-pilot. A live-pilot
 run must pass `--platform-verification` before preflight can pass.
@@ -30,7 +31,20 @@ match the target date. It records the exact operating surface
 (`polymarket_global` or `polymarket_us`), account jurisdiction, eligibility,
 API base URL, CLOB host, wallet type, signature type/funder address, allowance
 and balance checks, current fee/rebate/reward rules, order/cancel/tick/min-size
-semantics, user WebSocket, cancel-all path, and isolated pilot wallet cap.
+semantics, user WebSocket/private stream, cancel-all path, and isolated pilot
+wallet cap.
+
+The v0.2 artifact also requires structured API-lifecycle evidence:
+
+- `maker_only_order_field` must match the platform (`participateDontInitiate`
+  for `polymarket_us`, `postOnly` for `polymarket_global`) and
+  `maker_only_order_field_verified` must be true.
+- `private_user_stream` must prove connection, order snapshot, order update,
+  fill event, and final-state reconciliation.
+- `cancel_all` must prove both a cancel-all request and zero open orders after
+  the request.
+- For `polymarket_us`, `latency_stopgap` must prove order-reject handling,
+  book refresh before retry, and pure-cancel exemption behavior.
 
 The artifact must not contain private keys, API secrets, mnemonics, passwords,
 or seed phrases. The gate rejects files containing those exact secret fields.
@@ -44,6 +58,7 @@ or seed phrases. The gate rejects files containing those exact secret fields.
 - `data_layer_live_gate`: current active-day CLOB tokens, condition IDs,
   CLOB feature rows, and book-available rows from the latest data-layer audit.
 - `platform_verification_gate`: current platform/account/fee/reward/API
-  evidence from the JSON artifact described above.
+  evidence from the JSON artifact described above, including structured
+  private-stream, cancel-all, maker-only, and US latency-stopgap proofs.
 
 Shadow and paper-live-forward runs do not require this artifact.

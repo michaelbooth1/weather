@@ -86,8 +86,9 @@ The account/platform verification checkbox remained open because it depended on
 the actual operating account, jurisdiction, wallet type, API base URL,
 allowances, fee/reward settings, and live-key semantics immediately before use.
 
-Platform verification gate update (2026-06-16 UTC): `market_making_run` now
-requires a current `mm_platform_verification_v0.1` artifact for `live-pilot`.
+Platform verification gate update (2026-06-16 UTC, tightened 2026-06-26 UTC):
+`market_making_run` now requires a current `mm_platform_verification_v0.2`
+artifact for `live-pilot`.
 The default `data/backtest/mm_platform_verification.json` is a fail-closed
 runtime artifact path, with tracked template
 `docs/research/mm_platform_verification_template.json`; operators must refresh
@@ -96,8 +97,11 @@ pass. The gate validates platform surface
 (`polymarket_global` versus `polymarket_us`), account jurisdiction, eligibility,
 API base URL, CLOB host, wallet type, signature type/funder, allowances,
 balance, fee parameters, rebate/reward rules, order/cancel/tick/min-size
-semantics, user WebSocket, cancel-all, isolated wallet cap, backend-only
-signing, secret hygiene, and source URLs. It emits a
+semantics, maker-only order field, private user-stream lifecycle/fill/final
+state reconciliation, cancel-all zero-open-order confirmation, isolated wallet
+cap, backend-only signing, secret hygiene, and source URLs. For
+`polymarket_us`, it also requires latency-stopgap order-reject handling, book
+refresh before retry, and pure-cancel exemption proof. It emits a
 `platform_verification_gate` blocker and `platform_verification_gate_blocked`
 remediation incident when missing, stale, target-mismatched, incomplete, or
 containing exact secret fields. Shadow and paper-live-forward remain keyless and

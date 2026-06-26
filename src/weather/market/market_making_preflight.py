@@ -150,6 +150,21 @@ def supported_signature_type(payload):
         return False
 
 
+def dict_value(payload, key):
+    value = payload.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def maker_only_order_field_supported(payload):
+    expected = {
+        "polymarket_us": "participateDontInitiate",
+        "polymarket_global": "postOnly",
+    }.get(payload.get("platform"))
+    if expected is None:
+        return False
+    return str(payload.get("maker_only_order_field") or "").strip() == expected
+
+
 def load_platform_verification_gate(path, target_date, mode, now=None):
     required = mode == "live-pilot"
     if not required:
@@ -184,6 +199,10 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         fee_model.get("maker_rebate_rate")
         or payload.get("maker_rebate_rate")
     )
+    private_stream = dict_value(payload, "private_user_stream")
+    cancel_all = dict_value(payload, "cancel_all")
+    latency_stopgap = dict_value(payload, "latency_stopgap")
+    is_us_platform = payload.get("platform") == "polymarket_us"
     checks = {
         "schema_version_supported": payload.get("schema_version") == PLATFORM_VERIFICATION_SCHEMA_VERSION,
         "target_date_matches": evidence_target == target_text,
@@ -204,13 +223,34 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "reward_rules_verified": bool_value(payload.get("reward_rules_verified"), False),
         "rebate_rules_verified": bool_value(payload.get("rebate_rules_verified"), False),
         "order_semantics_verified": bool_value(payload.get("order_semantics_verified"), False),
+        "maker_only_order_field_supported": maker_only_order_field_supported(payload),
+        "maker_only_order_field_verified": bool_value(payload.get("maker_only_order_field_verified"), False),
         "limit_order_semantics_verified": bool_value(payload.get("limit_order_semantics_verified"), False),
         "market_order_semantics_verified": bool_value(payload.get("market_order_semantics_verified"), False),
         "cancel_semantics_verified": bool_value(payload.get("cancel_semantics_verified"), False),
         "tick_size_verified": bool_value(payload.get("tick_size_verified"), False),
         "min_order_size_verified": bool_value(payload.get("min_order_size_verified"), False),
         "user_websocket_verified": bool_value(payload.get("user_websocket_verified"), False),
+        "private_user_stream_connection_verified": bool_value(private_stream.get("connection_verified"), False),
+        "private_user_stream_order_snapshot_verified": bool_value(private_stream.get("order_snapshot_verified"), False),
+        "private_user_stream_order_update_verified": bool_value(private_stream.get("order_update_verified"), False),
+        "private_user_stream_fill_event_verified": bool_value(private_stream.get("fill_event_verified"), False),
+        "private_user_stream_final_state_reconciliation_verified": bool_value(
+            private_stream.get("final_state_reconciliation_verified"),
+            False,
+        ),
         "cancel_all_verified": bool_value(payload.get("cancel_all_verified"), False),
+        "cancel_all_request_verified": bool_value(cancel_all.get("request_verified"), False),
+        "cancel_all_zero_open_orders_verified": bool_value(cancel_all.get("zero_open_orders_verified"), False),
+        "latency_stopgap_order_reject_handling_verified": (
+            not is_us_platform or bool_value(latency_stopgap.get("order_reject_handling_verified"), False)
+        ),
+        "latency_stopgap_book_refresh_before_retry_verified": (
+            not is_us_platform or bool_value(latency_stopgap.get("book_refresh_before_retry_verified"), False)
+        ),
+        "latency_stopgap_cancel_exemption_verified": (
+            not is_us_platform or bool_value(latency_stopgap.get("cancel_exemption_verified"), False)
+        ),
         "isolated_pilot_wallet": bool_value(payload.get("isolated_pilot_wallet"), False),
         "pilot_wallet_cap_recorded": pilot_wallet_cap is not None and pilot_wallet_cap > 0,
         "backend_only_signing": bool_value(payload.get("backend_only_signing"), False),
@@ -237,6 +277,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "signature_type_id": payload.get("signature_type_id"),
         "api_base_url": payload.get("api_base_url"),
         "clob_host": payload.get("clob_host"),
+        "maker_only_order_field": payload.get("maker_only_order_field"),
         "pilot_wallet_max_funding_usdc": pilot_wallet_cap,
         "checks": checks,
         "missing": missing,

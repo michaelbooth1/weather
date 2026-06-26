@@ -256,7 +256,42 @@ Validation:
 
 Remaining for closure: the final checklist item (a clean active-day soak within
 budget with zero snapshot coverage gaps) still needs one full clean current-code
-day now that the breaker no longer goes dark on commit bursts. A deeper follow-up
-is to avoid exiting the loop on every commit at all (only re-adopt for changes to
-files the loop actually imports), so capture cadence is not interrupted by
-unrelated commits.
+day now that the breaker no longer goes dark on commit bursts.
+
+## 2026-06-26 Cadence-preserving fix: scope stale-code detection to imported files
+
+Eliminated the per-commit teardown itself, not just its budget accounting. The
+runtime identity now supports a scoped source fingerprint over only the repo
+files a process actually imports (`sys.modules`, intersected with the project
+source set so third-party `venv` dependencies are excluded). The collection
+loops capture a scoped identity (`get_runtime_identity(scope_files="loaded")`,
+stored as `source_scope`/`source_scope_files`), and every staleness comparison -
+the loop self-check (`snapshot_tracker.runtime_identity_status`), the CLOB check
+(`market_microstructure.clob_runtime_matches_current`), and the fleet
+(`fleet_observability_loops._runtime_code_state`) - now recomputes the current
+fingerprint over the recorded scope via `runtime_identity.current_identity_for`.
+Legacy whole-tree identities (no recorded scope) fall back to the existing
+whole-tree comparison, so taker/soak/other consumers are unchanged.
+
+Effect: the snapshot loop's scope is `62` source files (collection, the model
+feature/source code it imports, operations/supervisor, runtime_identity) out of
+`507`. The churn-heavy modules a collection loop never imports - pooled-feature
+model retrain, promotion refresh, fleet rendering, daily_refresh steps,
+repair_integration, settlement_ledger - are out of scope, so commits to them no
+longer flip the loop to stale or interrupt capture cadence. A commit to a file
+the loop does import still triggers a clean current-code re-adoption.
+
+Code/tests:
+
+- `src/weather/runtime_identity.py` (`_module_source_files`, `_fingerprint_relpaths`,
+  `get_runtime_identity(scope_files=...)`, `current_identity_for`).
+- `src/weather/collection/snapshot_store.py` (scoped `PROCESS_RUNTIME_IDENTITY`),
+  `snapshot_tracker.py`, `market_microstructure.py`, `observation_trigger.py`,
+  `reporting/fleet/fleet_observability_loops.py` + `_inventory.py`.
+- `tests/operations/test_runtime_identity.py`: out-of-scope change stays current,
+  in-scope change goes stale, deleted scope file goes stale, legacy whole-tree
+  fallback preserved. `131` tests pass across runtime-identity, supervisor,
+  collection, and fleet-observability suites.
+
+Verified live: after restart the snapshot loop captured `source_scope=loaded_modules`
+with `62` scoped files, `runtime_code_state=current`, and resumed fresh captures.

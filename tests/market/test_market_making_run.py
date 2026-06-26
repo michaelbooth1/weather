@@ -13,6 +13,7 @@ from weather.market.market_making_run import (
     load_data_layer_live_gate,
     load_open_lifecycle_orders,
     load_platform_verification_gate,
+    runtime_identity_snapshot,
     utc_now,
 )
 from weather.market.live_forward_gate import build_live_forward_gate
@@ -24,6 +25,7 @@ from weather.market.market_making_run_support import classify_zero_trade_root_ca
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
+from weather.runtime_identity import get_runtime_identity
 
 
 NOW = "2026-06-14T16:00:00+00:00"
@@ -405,13 +407,14 @@ def write_data_layer_audit(path, ok=True, raw_clob_artifacts=None):
     return path
 
 
-def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified_at=NOW):
+def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified_at=NOW, platform="polymarket_us"):
+    maker_only_field = "participateDontInitiate" if platform == "polymarket_us" else "postOnly"
     payload = {
-        "schema_version": "mm_platform_verification_v0.1",
+        "schema_version": "mm_platform_verification_v0.2",
         "verified_at_utc": verified_at,
         "docs_checked_at_utc": verified_at,
         "verified_for_target_date": target_date,
-        "platform": "polymarket_us",
+        "platform": platform,
         "account_jurisdiction": "US-test",
         "eligibility_verified": True,
         "api_base_url": "https://example.polymarket.us",
@@ -430,13 +433,31 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         "reward_rules_verified": True,
         "rebate_rules_verified": True,
         "order_semantics_verified": True,
+        "maker_only_order_field": maker_only_field,
+        "maker_only_order_field_verified": True,
         "limit_order_semantics_verified": True,
         "market_order_semantics_verified": True,
         "cancel_semantics_verified": True,
         "tick_size_verified": True,
         "min_order_size_verified": True,
         "user_websocket_verified": True,
+        "private_user_stream": {
+            "connection_verified": True,
+            "order_snapshot_verified": True,
+            "order_update_verified": True,
+            "fill_event_verified": True,
+            "final_state_reconciliation_verified": True,
+        },
         "cancel_all_verified": True,
+        "cancel_all": {
+            "request_verified": True,
+            "zero_open_orders_verified": True,
+        },
+        "latency_stopgap": {
+            "order_reject_handling_verified": True,
+            "book_refresh_before_retry_verified": True,
+            "cancel_exemption_verified": True,
+        },
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 25.0,
         "backend_only_signing": True,
@@ -455,6 +476,41 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
 
 
 class TestMarketMakingRun(unittest.TestCase):
+    def test_runtime_identity_snapshot_uses_recorded_scope_for_loop_status(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source_dir = root / "src" / "weather"
+            source_dir.mkdir(parents=True)
+            scoped_file = source_dir / "loaded.py"
+            unrelated_file = source_dir / "unrelated.py"
+            scoped_file.write_text("VALUE = 1\n", encoding="utf-8")
+            unrelated_file.write_text("VALUE = 'before'\n", encoding="utf-8")
+
+            recorded = get_runtime_identity(root, scope_files=["src/weather/loaded.py"])
+            unrelated_file.write_text("VALUE = 'after'\n", encoding="utf-8")
+
+            snapshots_root = root / "data" / "snapshots"
+            snapshots_root.mkdir(parents=True)
+            observation_status = root / "data" / "observation_trigger_status.json"
+            observation_status.parent.mkdir(parents=True, exist_ok=True)
+            status_payload = {"pid": 123, "runtime_identity": recorded}
+            for path in (
+                snapshots_root / "loop_status.json",
+                snapshots_root / "clob_loop_status.json",
+                observation_status,
+            ):
+                path.write_text(json.dumps(status_payload), encoding="utf-8")
+
+            payload = runtime_identity_snapshot(observation_status, snapshots_root)
+            self.assertEqual(payload["drift_count"], 0)
+            self.assertTrue(all(row["runtime_identity_matches_current"] for row in payload["loops"]))
+
+            scoped_file.write_text("VALUE = 2\n", encoding="utf-8")
+
+            stale_payload = runtime_identity_snapshot(observation_status, snapshots_root)
+            self.assertEqual(stale_payload["drift_count"], 3)
+            self.assertTrue(all(row["runtime_identity_matches_current"] is False for row in stale_payload["loops"]))
+
     def test_useful_work_liveness_blocks_all_market_active_day_stale_work(self):
         now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
         preflight_rows = [{
@@ -760,6 +816,51 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertFalse(wrong_date_gate["ok"])
         self.assertIn("target_date_matches", wrong_date_gate["missing"])
         self.assertFalse(load_platform_verification_gate(good, TARGET_DATE, "shadow", now=NOW)["required"])
+
+    def test_platform_verification_gate_rejects_legacy_api_lifecycle_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_platform_verification(root / "platform_legacy.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["schema_version"] = "mm_platform_verification_v0.1"
+            payload.pop("maker_only_order_field", None)
+            payload.pop("maker_only_order_field_verified", None)
+            payload.pop("private_user_stream", None)
+            payload.pop("cancel_all", None)
+            payload.pop("latency_stopgap", None)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(path, TARGET_DATE, "live-pilot", now=NOW)
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("schema_version_supported", gate["missing"])
+        self.assertIn("maker_only_order_field_supported", gate["missing"])
+        self.assertIn("private_user_stream_final_state_reconciliation_verified", gate["missing"])
+        self.assertIn("cancel_all_zero_open_orders_verified", gate["missing"])
+        self.assertIn("latency_stopgap_order_reject_handling_verified", gate["missing"])
+
+    def test_platform_verification_gate_requires_structured_live_api_proofs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_platform_verification(root / "platform_unproven_api.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["maker_only_order_field_verified"] = False
+            payload["private_user_stream"]["fill_event_verified"] = False
+            payload["private_user_stream"]["final_state_reconciliation_verified"] = False
+            payload["cancel_all"]["zero_open_orders_verified"] = False
+            payload["latency_stopgap"]["book_refresh_before_retry_verified"] = False
+            payload["latency_stopgap"]["cancel_exemption_verified"] = False
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(path, TARGET_DATE, "live-pilot", now=NOW)
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("maker_only_order_field_verified", gate["missing"])
+        self.assertIn("private_user_stream_fill_event_verified", gate["missing"])
+        self.assertIn("private_user_stream_final_state_reconciliation_verified", gate["missing"])
+        self.assertIn("cancel_all_zero_open_orders_verified", gate["missing"])
+        self.assertIn("latency_stopgap_book_refresh_before_retry_verified", gate["missing"])
+        self.assertIn("latency_stopgap_cancel_exemption_verified", gate["missing"])
 
     def test_platform_verification_gate_rejects_secret_material(self):
         with tempfile.TemporaryDirectory() as tmp:

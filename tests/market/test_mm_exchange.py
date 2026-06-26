@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from weather.market.mm_exchange import (  # noqa: E402
     PolymarketGlobalHTTPAdapter,
@@ -12,6 +13,7 @@ from weather.market.mm_exchange import (  # noqa: E402
     build_adapter_request_plan,
     build_exchange_reconciliation,
     credential_diagnostics,
+    lifecycle_events_from_user_events,
 )
 from weather.market.market_making_run_support import load_open_lifecycle_orders  # noqa: E402
 
@@ -164,7 +166,13 @@ class TestMMExchange(unittest.TestCase):
                 "probe_evidence": {
                     "heartbeat_dead_man": {"passed": True, "detail": "throwaway order canceled by heartbeat lapse"},
                     "min_size_tick_post_only": {"passed": True, "detail": "preview rejected invalid tick and post-only cross"},
-                    "cancel_all_verification": {"passed": True, "detail": "open-order query returned zero after cancel-all"},
+                    "cancel_all_verification": {
+                        "passed": True,
+                        "cancel_all_sent": True,
+                        "cancel_all_response": {"canceledOrderIds": ["ex-1"]},
+                        "open_order_count_after": 0,
+                        "detail": "open-order query returned zero after cancel-all",
+                    },
                 },
             })
 
@@ -193,6 +201,7 @@ class TestMMExchange(unittest.TestCase):
                 if line.strip()
             ]
             report_exists = Path(payload["report_path"]).exists()
+            report_text = Path(payload["report_path"]).read_text(encoding="utf-8")
             probe = json.loads(Path(payload["mm2_probe_status_path"]).read_text(encoding="utf-8"))
             pilot_report = json.loads(Path(payload["pilot_report_json_path"]).read_text(encoding="utf-8"))
             pilot_report_exists = Path(payload["pilot_report_path"]).exists()
@@ -200,10 +209,23 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(payload["status"], "PASS")
         self.assertEqual(payload["matched_order_count"], 1)
         self.assertEqual(payload["user_stream_event_count"], 1)
-        self.assertIn("create_post_only", payload["adapter_request_diagnostics"]["capability_matrix"]["supported_actions"])
+        request_diagnostics = payload["adapter_request_diagnostics"]
+        capability = request_diagnostics["capability_matrix"]
+        note_codes = {row["code"] for row in request_diagnostics["live_readiness_notes"]}
+        self.assertIn("create_post_only", capability["supported_actions"])
+        self.assertEqual(capability["maker_only_order_field"], "participateDontInitiate")
+        self.assertTrue(capability["requires_private_user_stream_for_final_order_state"])
+        self.assertTrue(capability["requires_cancel_all_zero_open_orders_verification"])
+        self.assertTrue(capability["batched_order_results_require_stream_confirmation"])
+        self.assertTrue(capability["latency_stopgap_rejects_order_submit"])
+        self.assertTrue(capability["latency_stopgap_cancel_exempt"])
+        self.assertIn("private_user_stream_required", note_codes)
+        self.assertIn("cancel_all_requires_zero_open_orders_confirmation", note_codes)
+        self.assertIn("latency_stopgap_reject_handling_required", note_codes)
         self.assertGreater(payload["adapter_request_diagnostics"]["blocked_plan_count"], 0)
         self.assertEqual(probe["probe_status"]["heartbeat_dead_man"]["status"], "observed")
         self.assertEqual(probe["probe_status"]["min_size_tick_post_only"]["status"], "observed")
+        self.assertEqual(probe["probe_status"]["cancel_all_verification"]["status"], "observed")
         self.assertTrue(pilot_report["evidence_complete"])
         self.assertAlmostEqual(float(pilot_report["markout_30m_mean"]), 0.02)
         self.assertTrue(pilot_report["financial_reconciliation_complete"])
@@ -219,6 +241,88 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(budget_events[0]["event"], "exchange_filled")
         self.assertTrue(any(row.get("category") == "exchange_reconciliation" for row in risk_events))
         self.assertTrue(report_exists)
+        self.assertIn("## Live Readiness Notes", report_text)
+        self.assertIn("private_user_stream_required", report_text)
+        self.assertIn("latency_stopgap_reject_handling_required", report_text)
+
+    def test_polymarket_us_private_ws_events_map_to_lifecycle_rows(self):
+        now = datetime.fromisoformat(NOW)
+        base_order = {
+            "id": "ex-1",
+            "clientOrderId": "life-1",
+            "marketSlug": "highest-temperature-in-atlanta-on-june-14-2026",
+            "marketMetadata": {"eventSlug": "highest-temperature-in-atlanta-on-june-14-2026"},
+            "intent": "ORDER_INTENT_BUY_LONG",
+            "price": {"value": "0.49", "currency": "USD"},
+            "quantity": "5.0",
+        }
+        messages = [
+            {
+                "generated_at_utc": "2026-06-14T16:00:30+00:00",
+                "subscriptionType": "SUBSCRIPTION_TYPE_ORDER",
+                "orderSubscriptionUpdate": {
+                    "execution": {
+                        "id": "exec-fill",
+                        "order": base_order,
+                        "lastShares": "2.5",
+                        "lastPx": {"value": "0.49", "currency": "USD"},
+                        "type": "EXECUTION_TYPE_PARTIAL_FILL",
+                        "tradeId": "trade-1",
+                    },
+                },
+            },
+            {
+                "generated_at_utc": "2026-06-14T16:01:00+00:00",
+                "subscriptionType": "SUBSCRIPTION_TYPE_ORDER",
+                "orderSubscriptionUpdate": {
+                    "execution": {
+                        "id": "exec-cancel",
+                        "order": {**base_order, "clientOrderId": "life-2"},
+                        "type": "EXECUTION_TYPE_CANCELED",
+                    },
+                },
+            },
+            {
+                "generated_at_utc": "2026-06-14T16:01:30+00:00",
+                "subscriptionType": "SUBSCRIPTION_TYPE_ORDER",
+                "orderSubscriptionUpdate": {
+                    "execution": {
+                        "id": "exec-reject",
+                        "order": {**base_order, "clientOrderId": "life-3"},
+                        "type": "EXECUTION_TYPE_REJECTED",
+                        "text": "post-only cross",
+                    },
+                },
+            },
+            {
+                "generated_at_utc": "2026-06-14T16:02:00+00:00",
+                "subscriptionType": "SUBSCRIPTION_TYPE_ORDER",
+                "orderSubscriptionUpdate": {
+                    "execution": {
+                        "id": "exec-replace",
+                        "order": {**base_order, "clientOrderId": "life-4"},
+                        "type": "EXECUTION_TYPE_REPLACE",
+                    },
+                },
+            },
+        ]
+
+        events, fills = lifecycle_events_from_user_events(messages, now)
+
+        self.assertEqual([row["transition"] for row in events], ["filled", "canceled", "rejected", "replaced"])
+        self.assertEqual(events[0]["lifecycle_key"], "life-1")
+        self.assertEqual(events[0]["source"], "polymarket_us_private_ws")
+        self.assertEqual(events[0]["exchange_execution_type"], "EXECUTION_TYPE_PARTIAL_FILL")
+        self.assertEqual(events[0]["trade_id"], "trade-1")
+        self.assertEqual(events[0]["side"], "YES_BID")
+        self.assertAlmostEqual(events[0]["fill_price"], 0.49)
+        self.assertAlmostEqual(events[0]["fill_size"], 2.5)
+        self.assertEqual(events[1]["lifecycle_key"], "life-2")
+        self.assertEqual(events[2]["reason"], "post-only cross")
+        self.assertEqual(events[3]["lifecycle_key"], "life-4")
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["simulator"], "polymarket_us_private_ws")
+        self.assertEqual(fills[0]["notes"], "EXECUTION_TYPE_PARTIAL_FILL")
 
     def test_live_execution_blocks_without_explicit_enablement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -370,6 +474,87 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(request["headers"]["X-PM-Access-Key"], "key-id")
         self.assertEqual(request["headers"]["X-PM-Signature"], "ZmFrZS11cy1zaWduYXR1cmU=")
         self.assertTrue(request["json_body"]["participateDontInitiate"])
+
+    def test_polymarket_us_latency_stopgap_order_reject_is_not_rate_limit_backoff(self):
+        transport = RecordingTransport(responses=[{
+            "status": 429,
+            "message": "Global Rate Limit Exceeded",
+        }])
+        adapter = PolymarketUSHTTPAdapter(
+            key_id="key-id",
+            signer=lambda message: b"fake-us-signature",
+            transport=transport,
+            base_url="https://api.polymarket.us",
+        )
+
+        response = adapter.place_order({
+            "lifecycle_key": "life-1",
+            "event_slug": "weather-market",
+            "side": "YES_BID",
+            "price": 0.49,
+            "size": 5.0,
+        })
+
+        self.assertFalse(response["success"])
+        self.assertEqual(response["status"], "rejected")
+        self.assertEqual(response["reject_class"], "latency_stopgap")
+        self.assertEqual(response["order_acceptance"], "not_accepted")
+        self.assertFalse(response["rate_limit_backoff_required"])
+        self.assertTrue(response["must_refresh_book_before_retry"])
+        self.assertIn("refresh book", response["retry_guidance"])
+
+    def test_polymarket_us_latency_stopgap_on_cancel_is_live_readiness_blocker(self):
+        transport = RecordingTransport(responses=[{
+            "status": 429,
+            "message": "Global Rate Limit Exceeded",
+        }])
+        adapter = PolymarketUSHTTPAdapter(
+            key_id="key-id",
+            signer=lambda message: b"fake-us-signature",
+            transport=transport,
+            base_url="https://api.polymarket.us",
+        )
+
+        response = adapter.cancel_all()
+
+        self.assertFalse(response["success"])
+        self.assertEqual(response["status"], "unexpected_cancel_reject")
+        self.assertEqual(response["reject_class"], "unexpected_latency_stopgap_on_cancel")
+        self.assertTrue(response["live_readiness_blocker"])
+        self.assertIn("verify open orders", response["retry_guidance"])
+
+    def test_polymarket_us_latency_stopgap_http_exception_is_classified(self):
+        class FakeResponse:
+            status_code = 429
+
+            def json(self):
+                return {"message": "Global Rate Limit Exceeded"}
+
+        class FakeHTTPError(Exception):
+            response = FakeResponse()
+
+        class RaisingTransport:
+            def request(self, *_args, **_kwargs):
+                raise FakeHTTPError("429 Global Rate Limit Exceeded")
+
+        adapter = PolymarketUSHTTPAdapter(
+            key_id="key-id",
+            signer=lambda message: b"fake-us-signature",
+            transport=RaisingTransport(),
+            base_url="https://api.polymarket.us",
+        )
+
+        response = adapter.place_order({
+            "lifecycle_key": "life-1",
+            "event_slug": "weather-market",
+            "side": "YES_BID",
+            "price": 0.49,
+            "size": 5.0,
+        })
+
+        self.assertEqual(response["http_status"], 429)
+        self.assertEqual(response["reject_class"], "latency_stopgap")
+        self.assertTrue(response["must_refresh_book_before_retry"])
 
     def test_polymarket_global_http_adapter_requires_presigned_order_for_live_submit(self):
         transport = RecordingTransport(responses=[{"status": "ok"}, {"success": True, "orderID": "0x1"}])

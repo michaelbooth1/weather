@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from weather.market import exchange_economics
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.mm_paper import (
     build_known_edge_map,
@@ -14,6 +15,7 @@ from weather.market.mm_paper import (
     run_folder_eligibility,
     write_outputs,
 )
+from weather.market.mm_paper_scoring import load_casebook_index
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -31,6 +33,12 @@ def write_csv(path, fieldnames, rows):
 def read_csv(path):
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def write_promotion(path):
@@ -129,6 +137,45 @@ def write_casebook(path):
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_casebook_index_streams_and_filters_event_slugs():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "casebook.json"
+        payload = {
+            "cases": [
+                {
+                    "case_id": "case-keep",
+                    "event_slug": EVENT,
+                    "market_id": "atlanta",
+                    "range_label": "80-81 F",
+                    "start_time_utc": "2026-06-14T16:00:00+00:00",
+                    "end_time_utc": "2026-06-14T16:05:00+00:00",
+                    "taxonomy": "market_lead",
+                    "nested": {"event_slug": "not-the-filter-key", "note": "brace { in string }"},
+                },
+                {
+                    "case_id": "case-drop",
+                    "event_slug": "highest-temperature-in-chicago-on-june-14-2026",
+                    "market_id": "chicago",
+                    "range_label": "80-81 F",
+                    "start_time_utc": "2026-06-14T16:00:00+00:00",
+                    "end_time_utc": "2026-06-14T16:05:00+00:00",
+                    "taxonomy": "other_market",
+                },
+            ],
+            "config": {"unrelated": True},
+        }
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        filtered = load_casebook_index(path, event_slugs={EVENT})
+        unfiltered = load_casebook_index(path)
+
+    self_key = (EVENT, "atlanta", "80-81 F")
+    other_key = ("highest-temperature-in-chicago-on-june-14-2026", "chicago", "80-81 F")
+    assert filtered[self_key][0]["case_id"] == "case-keep"
+    assert other_key not in filtered
+    assert unfiltered[other_key][0]["case_id"] == "case-drop"
 
 
 def write_run_fixture(root):
@@ -567,6 +614,253 @@ class TestMMPaper(unittest.TestCase):
         self.assertEqual(freshness["live_forward_day_count"], 2)
         self.assertIn("Paper-score freshness", report)
         self.assertIn("PASS", report)
+
+    def test_bounded_latest_n_selection_records_diagnostic_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, old_run = write_minimal_run(root, "old-active", "mm_run_v0.2", "2026-06-18")
+            _runs_root, mid_run = write_minimal_run(root, "mid-active", "mm_run_v0.2", "2026-06-19")
+            _runs_root, new_run = write_minimal_run(root, "new-active", "mm_run_v0.2", "2026-06-20")
+            mark_active_day(old_run)
+            mark_active_day(mid_run)
+            mark_active_day(new_run)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folder_latest_n=2,
+            )
+            payload, _known = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        selection = payload["summary"]["run_folder_selection"]
+        self.assertEqual(payload["summary"]["available_run_folders_before_selection"], 3)
+        self.assertEqual(payload["summary"]["candidate_run_folders"], 2)
+        self.assertTrue(payload["summary"]["bounded_run_selection"])
+        self.assertEqual(selection["mode"], "bounded")
+        self.assertEqual(selection["latest_n"], 2)
+        self.assertEqual(selection["warning"], "diagnostic_selection_not_full_corpus")
+        self.assertEqual(
+            [Path(path).name for path in selection["selected_run_folders"]],
+            ["mid-active", "new-active"],
+        )
+        self.assertIn("Run-folder selection", report)
+        self.assertIn("diagnostic_selection_not_full_corpus", report)
+
+    def test_target_date_and_evidence_mode_selection_filters_runs_before_scoring(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, active_run = write_minimal_run(root, "active", "mm_run_v0.2", "2026-06-19")
+            _runs_root, post_run = write_minimal_run(root, "post", "mm_run_v0.2", "2026-06-19")
+            _runs_root, other_run = write_minimal_run(root, "other-date", "mm_run_v0.2", "2026-06-20")
+            mark_active_day(active_run)
+            mark_active_day(other_run)
+            post_summary = json.loads((post_run / "run_summary.json").read_text(encoding="utf-8"))
+            post_summary["evidence_mode"] = "post_settlement_evaluation"
+            post_summary["generated_at_utc"] = "2026-06-20T02:00:00+00:00"
+            (post_run / "run_summary.json").write_text(json.dumps(post_summary), encoding="utf-8")
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folder_target_date="2026-06-19",
+                run_folder_evidence_mode="active_day_live_forward",
+            )
+
+        selection = payload["summary"]["run_folder_selection"]
+        self.assertEqual(payload["summary"]["available_run_folders_before_selection"], 3)
+        self.assertEqual(payload["summary"]["candidate_run_folders"], 1)
+        self.assertEqual(selection["mode"], "bounded")
+        self.assertEqual(selection["target_date"], "2026-06-19")
+        self.assertEqual(selection["evidence_mode"], "active_day_live_forward")
+        self.assertEqual([Path(path).name for path in selection["selected_run_folders"]], ["active"])
+
+    def test_reward_score_diagnostics_use_polymarket_us_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            quote_rows = read_csv(run_folder / "quote_intents_long.csv")
+            quote_rows[0]["book_spread"] = "0.02"
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_rows[0].keys()), quote_rows)
+            snapshot = exchange_economics.build_snapshot_payload(
+                target_date=TARGET_DATE,
+                verified_at_utc="2026-06-14T17:00:00+00:00",
+                tick_size=0.01,
+                min_order_size=1.0,
+                reward_formula="score = discount_factor ** ticks_from_best_price * order_size",
+            )
+            snapshot["liquidity_rewards"]["discount_factor_default"] = 0.3
+            snapshot["liquidity_rewards"]["target_size_default_contracts"] = 100.0
+            snapshot["liquidity_rewards"]["default_category_daily_reward_usd"] = 1000.0
+            snapshot["liquidity_rewards"]["min_payout_usd"] = 1.0
+            snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", snapshot)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                exchange_economics_snapshot_path=snapshot_path,
+                exchange_economics_target_date=TARGET_DATE,
+                exchange_economics_platform="polymarket_us",
+                exchange_economics_required=True,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        diagnostics = payload["reward_score_diagnostics"]
+        self.assertEqual(diagnostics["status"], "PASS")
+        self.assertEqual(diagnostics["score_basis"], "polymarket_us_discount_factor_ticks_from_best")
+        self.assertEqual(diagnostics["positive_score_legs"], 2)
+        self.assertEqual(diagnostics["total_reward_score"], 10.0)
+        self.assertEqual(diagnostics["score_to_target_size_fraction"], 0.1)
+        self.assertFalse(diagnostics["score_at_or_above_target_size"])
+        self.assertEqual(diagnostics["assumed_competitor_score"], 100.0)
+        self.assertAlmostEqual(diagnostics["counterfactual_score_share"], 0.09090909)
+        self.assertAlmostEqual(diagnostics["counterfactual_reward_usdc"], 90.909091)
+        self.assertEqual(diagnostics["counterfactual_reward_status"], "COUNTERFACTUAL_ONLY")
+        self.assertFalse(diagnostics["actual_payout_evidence"])
+        self.assertTrue(diagnostics["does_not_change_pnl"])
+        self.assertTrue(diagnostics["score_attribution_top_groups"])
+        self.assertIn("## Reward Score Diagnostics", report)
+        self.assertIn("Counterfactual reward USDC", report)
+        self.assertIn("polymarket_us_discount_factor_ticks_from_best", report)
+
+    def test_skip_model_variants_records_non_promotion_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            variant_row = read_csv(run_folder / "quote_intents_long.csv")[0]
+            variant_row.update({
+                "model_variant_id": "candidate_shadow",
+                "model_variant_family": "dynamic_source_freshness",
+                "model_variant_role": "shadow",
+                "model_variant_counterfactual": "True",
+            })
+            write_csv(
+                run_folder / "model_variant_quote_intents_long.csv",
+                list(variant_row.keys()),
+                [variant_row],
+            )
+            backtest_root = root / "backtest"
+            promotion = backtest_root / "promotion.json"
+            casebook = backtest_root / "casebook.json"
+            write_promotion(promotion)
+            write_casebook(casebook)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=backtest_root,
+                run_folders=[run_folder],
+                casebook_path=casebook,
+                promotion_refresh=promotion,
+                include_model_variants=False,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=backtest_root / "mm_paper_report.json",
+                report_out=backtest_root / "mm_paper_report.md",
+                fills_out=backtest_root / "mm_paper_fills_long.csv",
+                known_edge_out=backtest_root / "mm_known_edge_map.json",
+                known_edge_report_out=backtest_root / "mm_known_edge_map.md",
+                promotion_refresh=promotion,
+            )
+            report = (backtest_root / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(payload["summary"]["quote_rows"], 1)
+        self.assertEqual(payload["summary"]["quote_legs"], 2)
+        self.assertFalse(payload["summary"]["model_variant_scoring_included"])
+        self.assertEqual(payload["summary"]["model_variant_scoring_status"], "SKIPPED")
+        self.assertEqual(payload["summary"]["model_variant_scoring_reason"], "skip_model_variants")
+        self.assertEqual(payload["summary"]["model_variant_quote_rows"], 0)
+        self.assertEqual(payload["summary"]["model_variant_quote_legs"], 0)
+        self.assertEqual(payload["summary"]["model_variant_bakeoff"]["status"], "SKIPPED")
+        self.assertEqual(payload["model_variant_bakeoff"]["promotion_gate"]["status"], "SKIPPED")
+        self.assertEqual(payload["model_variant_fills"], [])
+        self.assertEqual(payload["model_variant_queue_companion"], [])
+        self.assertIn("Model-variant scoring", report)
+        self.assertIn("skip_model_variants", report)
+
+    def test_skip_fill_simulation_records_summary_only_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            variant_row = read_csv(run_folder / "quote_intents_long.csv")[0]
+            variant_row.update({
+                "model_variant_id": "candidate_shadow",
+                "model_variant_family": "dynamic_source_freshness",
+                "model_variant_role": "shadow",
+                "model_variant_counterfactual": "True",
+            })
+            write_csv(
+                run_folder / "model_variant_quote_intents_long.csv",
+                list(variant_row.keys()),
+                [variant_row],
+            )
+            backtest_root = root / "backtest"
+            promotion = backtest_root / "promotion.json"
+            casebook = backtest_root / "casebook.json"
+            write_promotion(promotion)
+            write_casebook(casebook)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "missing_snapshots",
+                backtest_root=backtest_root,
+                run_folders=[run_folder],
+                casebook_path=casebook,
+                promotion_refresh=promotion,
+                include_fill_simulation=False,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=backtest_root / "mm_paper_report.json",
+                report_out=backtest_root / "mm_paper_report.md",
+                fills_out=backtest_root / "mm_paper_fills_long.csv",
+                known_edge_out=backtest_root / "mm_known_edge_map.json",
+                known_edge_report_out=backtest_root / "mm_known_edge_map.md",
+                promotion_refresh=promotion,
+            )
+            report = (backtest_root / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        self.assertEqual(payload["summary"]["quote_rows"], 1)
+        self.assertEqual(payload["summary"]["quote_legs"], 2)
+        self.assertFalse(payload["summary"]["fill_simulation_included"])
+        self.assertEqual(payload["summary"]["fill_simulation_status"], "SKIPPED")
+        self.assertEqual(payload["summary"]["fill_simulation_reason"], "skip_fill_simulation")
+        self.assertEqual(payload["summary"]["conservative_fills"], 0)
+        self.assertEqual(payload["summary"]["queue_estimated_fill_legs"], 0)
+        self.assertEqual(payload["fill_evidence_completeness"]["status"], "SKIPPED")
+        self.assertFalse(payload["fill_evidence_completeness"]["promotion_grade"])
+        self.assertIn("fill_simulation_skipped", payload["fill_evidence_completeness"]["blockers"])
+        self.assertFalse(payload["summary"]["model_variant_scoring_included"])
+        self.assertTrue(payload["summary"]["model_variant_scoring_requested"])
+        self.assertEqual(payload["model_variant_bakeoff"]["reason"], "skip_fill_simulation")
+        self.assertEqual(payload["model_variant_bakeoff"]["promotion_gate"]["status"], "SKIPPED")
+        self.assertEqual(payload["fills"], [])
+        self.assertEqual(payload["queue_companion"], [])
+        self.assertIn("Fill simulation", report)
+        self.assertIn("skip_fill_simulation", report)
 
     def test_paper_score_freshness_from_report_blocks_stale_standard_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1091,6 +1385,10 @@ class TestMMPaper(unittest.TestCase):
                 "event_gate_action": "suppress",
                 "event_gate_event_class": "metar_print_window",
                 "event_gate_reason_code": "INFO_EVENT_METAR_PRINT",
+                "known_edge_allowed": "False",
+                "known_edge_permission": "harvest_only",
+                "known_edge_reason": "awaiting_paper_markouts",
+                "promotion_state": "SHADOW",
             }
             write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
 
@@ -1115,8 +1413,21 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(score["suppressed_rows"], 1)
             self.assertAlmostEqual(score["suppressed_opportunity_cost_usdc"], 0.2)
             self.assertEqual(score["narrowing_gate"], "NEEDS_MARKOUT_EVIDENCE")
+            blockers = payload["summary"]["quote_blocker_diagnostics"]
+            self.assertEqual(blockers["blocked_rows"], 1)
+            self.assertEqual(blockers["event_gate_suppressed_rows"], 1)
+            self.assertEqual(blockers["known_edge_permission_blocked_rows"], 0)
+            self.assertEqual(blockers["known_edge_blocked_rows"], 0)
+            self.assertEqual(blockers["known_edge_allowed_false_rows"], 1)
+            self.assertEqual(blockers["known_edge_state_rows"], 1)
+            self.assertEqual(blockers["harvest_only_suppressed_by_other_gate_rows"], 1)
+            self.assertEqual(blockers["reason_counts"]["NO_QUOTE_INFORMATION_EVENT"], 1)
+            self.assertEqual(blockers["top_market_reasons"][0]["market_id"], "atlanta")
+            self.assertEqual(blockers["top_event_gate_states"][0]["event_gate_reason_code"], "INFO_EVENT_METAR_PRINT")
             report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
             self.assertIn("## Information Event Gate", report)
+            self.assertIn("## Quote Blocker Diagnostics", report)
+            self.assertIn("NO_QUOTE_INFORMATION_EVENT", report)
 
     def test_clob_recon_summary_feeds_paper_report_and_known_edge_map(self):
         with tempfile.TemporaryDirectory() as tmp:

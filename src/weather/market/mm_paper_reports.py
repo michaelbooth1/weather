@@ -70,6 +70,9 @@ def render_paper_report(payload):
     clob_recon = summary.get("clob_recon") or {}
     live_forward_evidence = summary.get("per_market_live_forward_evidence") or {}
     fill_evidence = payload.get("fill_evidence_completeness") or summary.get("fill_evidence_completeness") or {}
+    selection = summary.get("run_folder_selection") or payload.get("run_folder_selection") or {}
+    reward_score = payload.get("reward_score_diagnostics") or summary.get("reward_score_diagnostics") or {}
+    quote_blockers = payload.get("quote_blocker_diagnostics") or summary.get("quote_blocker_diagnostics") or {}
     model_variant = payload.get("model_variant_bakeoff") or {}
     model_variant_summary = summary.get("model_variant_bakeoff") or {}
     lines = [
@@ -85,11 +88,24 @@ def render_paper_report(payload):
         [
             ["Run folders", summary.get("run_folders")],
             ["Candidate run folders", summary.get("candidate_run_folders")],
+            ["Available before selection", summary.get("available_run_folders_before_selection")],
+            ["Run-folder selection", selection.get("mode") or "full"],
+            ["Selection warning", selection.get("warning") or "-"],
             ["Excluded run folders", summary.get("excluded_run_folders")],
             ["Quote rows / legs", f"{summary.get('quote_rows')} / {summary.get('quote_legs')}"],
             [
+                "Fill simulation",
+                f"{summary.get('fill_simulation_status') or '-'}"
+                f" ({summary.get('fill_simulation_reason') or 'included'})",
+            ],
+            [
                 "Model-variant quote rows / legs",
                 f"{summary.get('model_variant_quote_rows', 0)} / {summary.get('model_variant_quote_legs', 0)}",
+            ],
+            [
+                "Model-variant scoring",
+                f"{summary.get('model_variant_scoring_status') or '-'}"
+                f" ({summary.get('model_variant_scoring_reason') or 'included'})",
             ],
             ["Conservative fills", summary.get("conservative_fills")],
             ["Conservative filled shares", fmt_num(summary.get("conservative_filled_shares"), 3)],
@@ -127,6 +143,165 @@ def render_paper_report(payload):
             ["Net after fees/incentives", fmt_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4)],
         ],
     ))
+    if reward_score:
+        lines.extend([
+            "",
+            "## Reward Score Diagnostics",
+            "",
+            "Reward score is reported separately from expected reward dollars. Bounded or incomplete reports remain diagnostic.",
+            "",
+        ])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", reward_score.get("status") or "-"],
+                ["Score basis", reward_score.get("score_basis") or "-"],
+                ["Platform", reward_score.get("platform") or "-"],
+                ["Exchange economics", reward_score.get("exchange_economics_status") or "-"],
+                ["Discount factor", fmt_num(reward_score.get("discount_factor"), 4)],
+                ["Tick size", fmt_num(reward_score.get("tick_size"), 4)],
+                ["Min order size", fmt_num(reward_score.get("min_order_size"), 4)],
+                ["Target size contracts", fmt_num(reward_score.get("target_size_contracts"), 2)],
+                ["Campaign pool USDC", fmt_num(reward_score.get("campaign_pool_usdc"), 2)],
+                ["Min payout USDC", fmt_num(reward_score.get("min_payout_usdc"), 2)],
+                ["Assumed competitor score", fmt_num(reward_score.get("assumed_competitor_score"), 4)],
+                ["Quote permission rows", reward_score.get("quote_permission_rows", 0)],
+                ["Quoted legs", reward_score.get("quoted_legs", 0)],
+                ["Positive-score legs", reward_score.get("positive_score_legs", 0)],
+                ["Unscored legs", reward_score.get("unscored_legs", 0)],
+                ["Total reward score", fmt_num(reward_score.get("total_reward_score"), 6)],
+                ["Score / target-size", fmt_num(reward_score.get("score_to_target_size_fraction"), 8)],
+                ["Target size met", reward_score.get("score_at_or_above_target_size")],
+                ["Counterfactual score share", fmt_num(reward_score.get("counterfactual_score_share"), 8)],
+                [
+                    "Counterfactual reward before min payout",
+                    fmt_num(reward_score.get("counterfactual_reward_before_min_payout_usdc"), 4),
+                ],
+                ["Counterfactual reward USDC", fmt_num(reward_score.get("counterfactual_reward_usdc"), 4)],
+                ["Counterfactual status", reward_score.get("counterfactual_reward_status") or "-"],
+                ["Actual payout evidence", reward_score.get("actual_payout_evidence")],
+                ["Changes P&L", not reward_score.get("does_not_change_pnl", True)],
+            ],
+        ))
+        groups = reward_score.get("score_attribution_top_groups") or []
+        if groups:
+            lines.extend(["", "### Reward Score Attribution", ""])
+            lines.extend(markdown_table(
+                ["Market", "Range", "Hour", "Side", "Legs", "Score", "Own-score share", "Counterfactual USDC"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("range_label"),
+                        row.get("hour_utc"),
+                        row.get("side"),
+                        row.get("quoted_legs", 0),
+                        fmt_num(row.get("reward_score"), 6),
+                        fmt_num(row.get("share_of_own_score"), 8),
+                        fmt_num(row.get("counterfactual_reward_usdc"), 4),
+                    ]
+                    for row in groups[:10]
+                ],
+            ))
+        blocker_counts = reward_score.get("blocker_counts") or {}
+        if blocker_counts:
+            lines.extend(["", "### Reward Score Blockers", ""])
+            lines.extend(markdown_table(
+                ["Blocker", "Count"],
+                [[key, value] for key, value in sorted(blocker_counts.items())],
+            ))
+        no_quote_counts = reward_score.get("no_quote_reason_counts") or {}
+        if no_quote_counts:
+            lines.extend(["", "### No-Quote Reasons", ""])
+            lines.extend(markdown_table(
+                ["Reason", "Rows"],
+                [[key, value] for key, value in sorted(no_quote_counts.items())],
+            ))
+    if quote_blockers:
+        lines.extend([
+            "",
+            "## Quote Blocker Diagnostics",
+            "",
+            "Blocked rows are quote-intent rows that did not produce a quoted leg. This section is diagnostic and does not relax policy gates.",
+            "",
+        ])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Quote rows", quote_blockers.get("quote_rows", 0)],
+                ["Quote-permission rows", quote_blockers.get("quote_permission_rows", 0)],
+                ["Blocked rows", quote_blockers.get("blocked_rows", 0)],
+                ["Blocked fraction", fmt_num(quote_blockers.get("blocked_fraction"), 6)],
+                ["Known-edge permission-blocked rows", quote_blockers.get(
+                    "known_edge_permission_blocked_rows",
+                    quote_blockers.get("known_edge_blocked_rows", 0),
+                )],
+                ["Known-edge state rows", quote_blockers.get("known_edge_state_rows", 0)],
+                ["Known-edge allowed=false rows", quote_blockers.get("known_edge_allowed_false_rows", 0)],
+                ["Harvest-only suppressed by other gate rows", quote_blockers.get(
+                    "harvest_only_suppressed_by_other_gate_rows",
+                    0,
+                )],
+                ["Event-gate suppressed rows", quote_blockers.get("event_gate_suppressed_rows", 0)],
+            ],
+        ))
+        market_reasons = quote_blockers.get("top_market_reasons") or []
+        if market_reasons:
+            lines.extend(["", "### Top Market Reasons", ""])
+            lines.extend(markdown_table(
+                ["Market", "Reason", "Rows"],
+                [
+                    [row.get("market_id"), row.get("reason_code"), row.get("rows", 0)]
+                    for row in market_reasons[:12]
+                ],
+            ))
+        known_edge_rows = quote_blockers.get("top_known_edge_states") or []
+        if known_edge_rows:
+            lines.extend(["", "### Top Known-Edge States", ""])
+            lines.extend(markdown_table(
+                ["Known-edge reason", "Permission", "Promotion", "Rows"],
+                [
+                    [
+                        row.get("known_edge_reason"),
+                        row.get("known_edge_permission"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in known_edge_rows[:12]
+                ],
+            ))
+        event_rows = quote_blockers.get("top_event_gate_states") or []
+        if event_rows:
+            lines.extend(["", "### Top Event-Gate States", ""])
+            lines.extend(markdown_table(
+                ["Status", "Action", "Reason", "Class", "Rows"],
+                [
+                    [
+                        row.get("event_gate_status"),
+                        row.get("event_gate_action"),
+                        row.get("event_gate_reason_code"),
+                        row.get("event_gate_event_class"),
+                        row.get("rows", 0),
+                    ]
+                    for row in event_rows[:12]
+                ],
+            ))
+        blocked_cells = quote_blockers.get("top_blocked_cells") or []
+        if blocked_cells:
+            lines.extend(["", "### Top Blocked Cells", ""])
+            lines.extend(markdown_table(
+                ["Market", "Range", "Reason", "Known-edge reason", "Promotion", "Rows"],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("range_label"),
+                        row.get("reason_code"),
+                        row.get("known_edge_reason"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in blocked_cells[:20]
+                ],
+            ))
     if model_variant:
         gate = model_variant.get("promotion_gate") or {}
         lines.extend([
@@ -140,6 +315,8 @@ def render_paper_report(payload):
             ["Metric", "Value"],
             [
                 ["Status", model_variant.get("status") or "-"],
+                ["Reason", model_variant.get("reason") or "-"],
+                ["Score basis", model_variant.get("score_basis") or "-"],
                 ["Quote rows", model_variant.get("quote_rows", 0)],
                 ["Conservative fills", model_variant.get("conservative_fills", 0)],
                 ["Policy pairs", model_variant.get("policy_pair_count", 0)],
@@ -150,7 +327,7 @@ def render_paper_report(payload):
                 ["Min market-day clusters", gate.get("min_market_day_clusters") or "-"],
             ],
         ))
-        if gate:
+        if gate.get("pairs"):
             lines.extend([
                 "",
                 "| Variant | Policy | Gate | Scope | Clusters | Days | Markets | Fills | Delta net mean | Delta net lower | Failed gates |",
@@ -168,19 +345,21 @@ def render_paper_report(payload):
                     f"{fmt_num(delta_net.get('mean'), 4)} | {fmt_num(delta_net.get('mean_lower'), 4)} | "
                     f"{', '.join(row.get('failed_gates') or []) or '-'} |"
                 )
-        lines.extend([
-            "",
-            "| Variant | Policy | Quote rows | Fills | Net P&L | Delta net vs served | Settlement P&L |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
-        ])
-        for row in model_variant.get("model_variant_by_policy") or []:
-            lines.append(
-                f"| {row.get('model_variant_id')} | {row.get('policy_id')} | "
-                f"{row.get('quote_rows', 0)} | {row.get('conservative_fills', 0)} | "
-                f"{fmt_num(row.get('net_pnl_after_fees_incentives_usdc'), 4)} | "
-                f"{fmt_num(row.get('delta_net_pnl_vs_served_current_usdc'), 4)} | "
-                f"{fmt_num(row.get('settlement_pnl_usdc'), 4)} |"
-            )
+        variant_rows = model_variant.get("model_variant_by_policy") or []
+        if variant_rows:
+            lines.extend([
+                "",
+                "| Variant | Policy | Quote rows | Fills | Net P&L | Delta net vs served | Settlement P&L |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ])
+            for row in variant_rows:
+                lines.append(
+                    f"| {row.get('model_variant_id')} | {row.get('policy_id')} | "
+                    f"{row.get('quote_rows', 0)} | {row.get('conservative_fills', 0)} | "
+                    f"{fmt_num(row.get('net_pnl_after_fees_incentives_usdc'), 4)} | "
+                    f"{fmt_num(row.get('delta_net_pnl_vs_served_current_usdc'), 4)} | "
+                    f"{fmt_num(row.get('settlement_pnl_usdc'), 4)} |"
+                )
     lines.extend([
         "",
         "## Early-Hour Market-Aware Guardrail",

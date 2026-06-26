@@ -301,7 +301,14 @@ def _runtime_code_state(status, current_identity):
     runtime_identity = (status or {}).get("runtime_identity") or {}
     if not runtime_identity:
         return "unknown"
-    return "current" if identities_match(runtime_identity, current_identity) else "stale_code"
+    # Scoped loop identities re-adopt only for changes to code the loop imports,
+    # so compare each against a current identity over its own recorded scope.
+    # Legacy whole-tree identities keep using the shared whole-tree current.
+    if runtime_identity.get("source_scope_files"):
+        comparison_identity = current_identity_for(runtime_identity)
+    else:
+        comparison_identity = current_identity
+    return "current" if identities_match(runtime_identity, comparison_identity) else "stale_code"
 
 
 def _status_writer_matches(row):

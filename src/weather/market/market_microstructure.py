@@ -22,7 +22,7 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.model.model_sources import request_with_retries
 from weather.operations.power import keep_system_awake
-from weather.runtime_identity import get_runtime_identity, identities_match
+from weather.runtime_identity import current_identity_for, get_runtime_identity, identities_match
 from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
@@ -615,7 +615,7 @@ def stop_clob_loop_processes(process_rows=None, keep_pids=(), terminate_fn=termi
 def clob_runtime_matches_current(status, current_identity=None):
     if not status or not status.get("runtime_identity"):
         return True
-    current_identity = current_identity or get_runtime_identity()
+    current_identity = current_identity or current_identity_for(status.get("runtime_identity"))
     return identities_match(status.get("runtime_identity"), current_identity)
 
 
@@ -897,7 +897,7 @@ def start_clob_loop_detached(
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "market_id": market_id,
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
@@ -1088,7 +1088,7 @@ def run_book_loop(
     status = {
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "power_request": power_request,
         "market_id": market_id,
         "outcomes": outcomes,

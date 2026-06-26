@@ -125,6 +125,7 @@ from weather.market.market_making_evidence import (
     classify_market_making_evidence,
 )
 from weather.runtime_identity import (  # noqa: E402
+    current_identity_for,
     format_runtime_identity,
     get_runtime_identity,
     identities_match,
@@ -205,11 +206,12 @@ def _event_metadata_gate_for_market(validation_state, market_id):
 
 
 def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
-    current = get_runtime_identity()
+    fallback_current = get_runtime_identity()
 
     def loop_row(name, path):
         status = read_json(path, {}) or {}
         process = status.get("runtime_identity") or {}
+        current = current_identity_for(process) if process else fallback_current
         if process:
             matches = identities_match(process, current)
             code_state = "current" if matches else "different"
@@ -237,8 +239,8 @@ def runtime_identity_snapshot(observation_status_path=DEFAULT_OBSERVATION_STATUS
     ]
     return {
         "schema_version": SCHEMA_VERSION,
-        "current_identity": current,
-        "current_identity_text": format_runtime_identity(current),
+        "current_identity": fallback_current,
+        "current_identity_text": format_runtime_identity(fallback_current),
         "loops": loops,
         "drift_count": sum(1 for row in loops if row.get("runtime_identity_matches_current") is False),
     }

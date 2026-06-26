@@ -62,7 +62,11 @@ No live-pilot order may be attempted unless all of these are true:
 - The `platform_verification_gate` proves the current target date has fresh
   platform/account eligibility, jurisdiction, wallet/signature/funder,
   allowance/balance, fee/rebate/reward, order/cancel/tick/min-size, user
-  WebSocket, cancel-all, and isolated-wallet evidence.
+  WebSocket/private-stream, cancel-all, maker-only order field, isolated-wallet,
+  and platform-specific API-lifecycle evidence. The active template is
+  `mm_platform_verification_v0.2`; for `polymarket_us`, it must include
+  `participateDontInitiate`, private-stream final-state reconciliation,
+  cancel-all zero-open-order confirmation, and latency-stopgap handling proof.
 - Fleet SLO is pass/fresh for weather snapshots, CLOB book capture, and the
   observation-trigger watcher.
 - The dedicated pilot wallet is funded only with isolated risk capital.

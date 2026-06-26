@@ -97,6 +97,10 @@ US_ACTIONS = {
     "redemption_status",
 }
 
+US_LATENCY_STOPGAP_TEXT = "global rate limit exceeded"
+US_LATENCY_STOPGAP_ORDER_ACTIONS = {"create_post_only"}
+US_CANCEL_ACTIONS = {"cancel_order", "cancel_all"}
+
 
 def read_json(path, default=None):
     path = Path(path)
@@ -110,6 +114,84 @@ def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return str(path)
+
+
+def payload_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        parts = []
+        for key in ("message", "error", "errorMsg", "text", "detail", "status"):
+            if value.get(key) not in (None, ""):
+                parts.append(str(value.get(key)))
+        if not parts:
+            parts.extend(payload_text(child) for child in value.values())
+        return " ".join(part for part in parts if part)
+    if isinstance(value, (list, tuple)):
+        return " ".join(payload_text(child) for child in value)
+    return str(value)
+
+
+def is_us_latency_stopgap_payload(value):
+    return US_LATENCY_STOPGAP_TEXT in payload_text(value).lower()
+
+
+def classify_polymarket_us_response(action, payload, http_status=None):
+    if not is_us_latency_stopgap_payload(payload):
+        return payload
+    status_code = http_status
+    if status_code is None and isinstance(payload, dict):
+        status_code = payload.get("status") or payload.get("status_code")
+    base = {
+        "success": False,
+        "platform": "polymarket_us",
+        "action": action,
+        "http_status": status_code,
+        "exchange_message": payload_text(payload),
+        "raw_response": payload,
+    }
+    if action in US_LATENCY_STOPGAP_ORDER_ACTIONS:
+        return {
+            **base,
+            "status": "rejected",
+            "reject_class": "latency_stopgap",
+            "order_acceptance": "not_accepted",
+            "rate_limit_backoff_required": False,
+            "must_refresh_book_before_retry": True,
+            "retry_guidance": "treat as stale-price protection; refresh book and recompute quote before any new order",
+        }
+    if action in US_CANCEL_ACTIONS:
+        return {
+            **base,
+            "status": "unexpected_cancel_reject",
+            "reject_class": "unexpected_latency_stopgap_on_cancel",
+            "live_readiness_blocker": True,
+            "retry_guidance": "pure cancels should not be blocked by the latency stopgap; verify open orders and escalate",
+        }
+    return {
+        **base,
+        "status": "rejected",
+        "reject_class": "latency_stopgap_unknown_action",
+        "live_readiness_blocker": True,
+        "retry_guidance": "verify action semantics before retrying",
+    }
+
+
+def classify_polymarket_us_exception(action, exc):
+    response = getattr(exc, "response", None)
+    payload = None
+    status_code = None
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        try:
+            payload = response.json()
+        except Exception:
+            payload = getattr(response, "text", None)
+    if payload is None:
+        payload = str(exc)
+    if not is_us_latency_stopgap_payload(payload):
+        return None
+    return classify_polymarket_us_response(action, payload, http_status=status_code)
 
 
 def read_csv_rows(path):
@@ -145,7 +227,98 @@ def contains_secret_material(value):
 
 
 def _lifecycle_key(row):
-    return row.get("lifecycle_key") or row.get("client_order_id") or row.get("order_key") or ""
+    return row.get("lifecycle_key") or row.get("client_order_id") or row.get("clientOrderId") or row.get("order_key") or ""
+
+
+def money_value(value):
+    if isinstance(value, dict):
+        return value.get("value")
+    return value
+
+
+def us_private_ws_side(order):
+    intent = str((order or {}).get("intent") or "").upper()
+    side = str((order or {}).get("side") or "").upper()
+    if intent == "ORDER_INTENT_SELL_LONG":
+        return "YES_ASK"
+    if intent == "ORDER_INTENT_BUY_SHORT":
+        return "NO_BID"
+    if intent == "ORDER_INTENT_SELL_SHORT":
+        return "NO_ASK"
+    if side == "ORDER_SIDE_SELL":
+        return "YES_ASK"
+    return "YES_BID"
+
+
+def us_private_ws_event_type(execution_type):
+    execution_type = str(execution_type or "").upper()
+    if execution_type in {"EXECUTION_TYPE_PARTIAL_FILL", "EXECUTION_TYPE_FILL"}:
+        return "fill"
+    if execution_type == "EXECUTION_TYPE_CANCELED":
+        return "canceled"
+    if execution_type == "EXECUTION_TYPE_REPLACE":
+        return "replaced"
+    if execution_type == "EXECUTION_TYPE_REJECTED":
+        return "rejected"
+    if execution_type in {"EXECUTION_TYPE_EXPIRED", "EXECUTION_TYPE_DONE_FOR_DAY"}:
+        return "expired"
+    return ""
+
+
+def normalize_us_private_ws_user_event(raw):
+    update = (raw or {}).get("orderSubscriptionUpdate") or (raw or {}).get("order_subscription_update")
+    if not isinstance(update, dict):
+        return []
+    execution = update.get("execution") or {}
+    if not isinstance(execution, dict):
+        return []
+    order = execution.get("order") or {}
+    if not isinstance(order, dict):
+        order = {}
+    event_type = us_private_ws_event_type(execution.get("type"))
+    if not event_type:
+        return []
+    market_metadata = order.get("marketMetadata") or order.get("market_metadata") or {}
+    market_slug = order.get("marketSlug") or order.get("market_slug")
+    order_id = order.get("id") or execution.get("orderId") or execution.get("order_id")
+    generated_at = (
+        raw.get("generated_at_utc")
+        or execution.get("transactTime")
+        or execution.get("transact_time")
+        or order.get("transactTime")
+        or order.get("transact_time")
+        or order.get("updateTime")
+        or order.get("update_time")
+    )
+    normalized = {
+        "event_type": event_type,
+        "generated_at_utc": generated_at,
+        "lifecycle_key": order.get("clientOrderId") or order.get("client_order_id") or raw.get("clientOrderId"),
+        "order_key": order.get("clientOrderId") or order.get("client_order_id") or raw.get("clientOrderId"),
+        "order_id": order_id,
+        "exchange_execution_id": execution.get("id"),
+        "exchange_execution_type": execution.get("type"),
+        "trade_id": execution.get("tradeId") or execution.get("trade_id"),
+        "market_slug": market_slug,
+        "event_slug": market_metadata.get("eventSlug") or market_metadata.get("event_slug") or market_slug,
+        "clob_token_id": order.get("tokenId") or order.get("token_id"),
+        "side": us_private_ws_side(order),
+        "fill_price": money_value(execution.get("lastPx") or execution.get("last_px")),
+        "fill_size": execution.get("lastShares") or execution.get("last_shares"),
+        "price": money_value(order.get("price")),
+        "size": order.get("quantity"),
+        "reason": execution.get("text") or order.get("text") or execution.get("type"),
+        "source": "polymarket_us_private_ws",
+    }
+    return [normalized]
+
+
+def normalize_user_event(raw):
+    if not isinstance(raw, dict):
+        return []
+    if raw.get("orderSubscriptionUpdate") or raw.get("order_subscription_update"):
+        return normalize_us_private_ws_user_event(raw)
+    return [raw]
 
 
 def run_context(run_folder):
@@ -456,16 +629,75 @@ def build_adapter_request_plan(platform, action, leg=None, metadata=None, signer
 
 def adapter_capability_matrix(platform):
     actions = US_ACTIONS if platform == "polymarket_us" else GLOBAL_ACTIONS if platform == "polymarket_global" else set()
+    is_us = platform == "polymarket_us"
+    is_global = platform == "polymarket_global"
     return {
         "platform": platform,
         "supported_actions": sorted(actions),
         "post_only_supported": "create_post_only" in actions,
+        "maker_only_order_field": "participateDontInitiate" if is_us else "postOnly" if is_global else None,
         "cancel_all_supported": "cancel_all" in actions,
-        "heartbeat_supported": platform == "polymarket_global",
+        "heartbeat_supported": is_global,
         "private_user_stream_supported": platform in {"polymarket_global", "polymarket_us"},
+        "requires_private_user_stream_for_final_order_state": platform in {"polymarket_global", "polymarket_us"},
+        "requires_cancel_all_zero_open_orders_verification": platform in {"polymarket_global", "polymarket_us"},
+        "batched_order_results_require_stream_confirmation": is_us,
+        "latency_stopgap_rejects_order_submit": is_us,
+        "latency_stopgap_cancel_exempt": is_us,
         "requires_external_secret_storage": True,
         "direct_secret_values_allowed": False,
     }
+
+
+def platform_live_readiness_notes(platform):
+    if platform == "polymarket_us":
+        return [
+            {
+                "code": "private_user_stream_required",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "US order, cancel, and modify outcomes must be reconciled from the private WebSocket order stream before live-pilot scale.",
+            },
+            {
+                "code": "cancel_all_requires_zero_open_orders_confirmation",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "US cancel-all responses are not sufficient by themselves; verify zero open orders after cancel-all.",
+            },
+            {
+                "code": "latency_stopgap_reject_handling_required",
+                "severity": "BLOCK_UNTIL_IMPLEMENTED",
+                "detail": "US order and cancel-replace requests can receive latency stopgap rejects that should be treated as transient stale-price protection, while pure cancels remain allowed.",
+            },
+            {
+                "code": "api_key_platform_eligibility_required",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "US trading requires account/API-key eligibility outside the repo; local diagnostics must not read or print secret values.",
+            },
+        ]
+    if platform == "polymarket_global":
+        return [
+            {
+                "code": "heartbeat_dead_man_required",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "Global CLOB heartbeat/dead-man cancel behavior must be observed with a harmless probe before live-pilot scale.",
+            },
+            {
+                "code": "private_user_stream_required",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "Global CLOB user-stream order and trade events must reconcile lifecycle state before live-pilot scale.",
+            },
+            {
+                "code": "cancel_all_requires_zero_open_orders_confirmation",
+                "severity": "BLOCK_UNTIL_OBSERVED",
+                "detail": "Cancel-all must be followed by zero open-order confirmation.",
+            },
+        ]
+    return [
+        {
+            "code": "unsupported_platform",
+            "severity": "BLOCK_UNTIL_CONFIGURED",
+            "detail": f"Unsupported platform {platform!r}; no live adapter readiness assumptions are valid.",
+        }
+    ]
 
 
 def build_adapter_request_diagnostics(platform, local_orders, platform_gate=None):
@@ -492,6 +724,7 @@ def build_adapter_request_diagnostics(platform, local_orders, platform_gate=None
                 plans.append({"platform": platform, "action": action, "ready": False, "blockers": [str(exc)]})
     return {
         "capability_matrix": adapter_capability_matrix(platform),
+        "live_readiness_notes": platform_live_readiness_notes(platform),
         "request_plans": plans,
         "ready_plan_count": sum(1 for plan in plans if plan.get("ready")),
         "blocked_plan_count": sum(1 for plan in plans if not plan.get("ready")),
@@ -664,12 +897,19 @@ class PolymarketUSHTTPAdapter(NullExchangeAdapter):
             raise RuntimeError("Polymarket US API key id is required")
         if not plan["ready"]:
             raise RuntimeError("; ".join(plan["blockers"]))
-        return self.transport.request(
-            plan["method"],
-            plan["url"],
-            headers=self._headers(plan),
-            json_body=plan.get("body"),
-        )
+        try:
+            payload = self.transport.request(
+                plan["method"],
+                plan["url"],
+                headers=self._headers(plan),
+                json_body=plan.get("body"),
+            )
+        except Exception as exc:
+            classified = classify_polymarket_us_exception(action, exc)
+            if classified is not None:
+                return classified
+            raise
+        return classify_polymarket_us_response(action, payload)
 
     def open_orders(self):
         payload = self._request("open_orders")
@@ -862,62 +1102,76 @@ def match_exchange_orders(local_orders, exchange_orders):
 def lifecycle_events_from_user_events(user_events, now):
     events = []
     fill_rows = []
-    for raw in user_events:
-        event_type = str(raw.get("event_type") or raw.get("type") or "").lower()
-        key = _lifecycle_key(raw)
-        if not key:
-            continue
-        if event_type in {"fill", "filled", "trade"}:
-            event = {
-                "schema_version": RUN_SCHEMA_VERSION,
-                "generated_at_utc": raw.get("generated_at_utc") or raw.get("filled_at_utc") or now.isoformat(),
-                "transition": "filled",
-                "lifecycle_key": key,
-                "order_key": raw.get("order_key"),
-                "exchange_order_id": raw.get("order_id") or raw.get("id"),
-                "market_id": raw.get("market_id"),
-                "event_slug": raw.get("event_slug"),
-                "clob_token_id": raw.get("clob_token_id"),
-                "side": raw.get("side"),
-                "fill_price": maybe_float(raw.get("fill_price") or raw.get("price")),
-                "fill_size": maybe_float(raw.get("fill_size") or raw.get("size")),
-                "source": "exchange_user_stream",
-            }
-            events.append(event)
-            fill_rows.append({
-                "run_id": raw.get("run_id"),
-                "generated_at_utc": event["generated_at_utc"],
-                "mode": "live-pilot",
-                "market_id": raw.get("market_id"),
-                "event_slug": raw.get("event_slug"),
-                "snapshot_id": raw.get("snapshot_id"),
-                "range_label": raw.get("range_label"),
-                "clob_token_id": raw.get("clob_token_id"),
-                "side": raw.get("side"),
-                "intended_price": raw.get("intended_price"),
-                "intended_size": raw.get("intended_size"),
-                "fill_status": "filled",
-                "fill_price": event["fill_price"],
-                "fill_size": event["fill_size"],
-                "markout_30m": raw.get("markout_30m") or raw.get("markout_30m_usdc"),
-                "simulator": "exchange_user_stream",
-                "notes": raw.get("notes") or "",
-            })
-        elif event_type in {"cancel", "canceled", "cancelled", "rejected"}:
-            events.append({
-                "schema_version": RUN_SCHEMA_VERSION,
-                "generated_at_utc": raw.get("generated_at_utc") or now.isoformat(),
-                "transition": "rejected" if event_type == "rejected" else "canceled",
-                "lifecycle_key": key,
-                "order_key": raw.get("order_key"),
-                "exchange_order_id": raw.get("order_id") or raw.get("id"),
-                "market_id": raw.get("market_id"),
-                "event_slug": raw.get("event_slug"),
-                "clob_token_id": raw.get("clob_token_id"),
-                "side": raw.get("side"),
-                "reason": raw.get("reason") or f"exchange_{event_type}",
-                "source": "exchange_user_stream",
-            })
+    for source_raw in user_events:
+        for raw in normalize_user_event(source_raw):
+            event_type = str(raw.get("event_type") or raw.get("type") or "").lower()
+            key = _lifecycle_key(raw)
+            if not key:
+                continue
+            if event_type in {"fill", "filled", "trade"}:
+                event = {
+                    "schema_version": RUN_SCHEMA_VERSION,
+                    "generated_at_utc": raw.get("generated_at_utc") or raw.get("filled_at_utc") or now.isoformat(),
+                    "transition": "filled",
+                    "lifecycle_key": key,
+                    "order_key": raw.get("order_key"),
+                    "exchange_order_id": raw.get("order_id") or raw.get("id"),
+                    "exchange_execution_id": raw.get("exchange_execution_id"),
+                    "exchange_execution_type": raw.get("exchange_execution_type"),
+                    "trade_id": raw.get("trade_id"),
+                    "market_id": raw.get("market_id"),
+                    "event_slug": raw.get("event_slug"),
+                    "clob_token_id": raw.get("clob_token_id"),
+                    "side": raw.get("side"),
+                    "fill_price": maybe_float(raw.get("fill_price") or raw.get("price")),
+                    "fill_size": maybe_float(raw.get("fill_size") or raw.get("size")),
+                    "source": raw.get("source") or "exchange_user_stream",
+                }
+                events.append(event)
+                fill_rows.append({
+                    "run_id": raw.get("run_id"),
+                    "generated_at_utc": event["generated_at_utc"],
+                    "mode": "live-pilot",
+                    "market_id": raw.get("market_id"),
+                    "event_slug": raw.get("event_slug"),
+                    "snapshot_id": raw.get("snapshot_id"),
+                    "range_label": raw.get("range_label"),
+                    "clob_token_id": raw.get("clob_token_id"),
+                    "side": raw.get("side"),
+                    "intended_price": raw.get("intended_price"),
+                    "intended_size": raw.get("intended_size"),
+                    "fill_status": "filled",
+                    "fill_price": event["fill_price"],
+                    "fill_size": event["fill_size"],
+                    "markout_30m": raw.get("markout_30m") or raw.get("markout_30m_usdc"),
+                    "simulator": raw.get("source") or "exchange_user_stream",
+                    "notes": raw.get("notes") or raw.get("exchange_execution_type") or "",
+                })
+            elif event_type in {"cancel", "canceled", "cancelled", "rejected", "replace", "replaced", "expired", "done_for_day"}:
+                transition = {
+                    "cancel": "canceled",
+                    "cancelled": "canceled",
+                    "replaced": "replaced",
+                    "replace": "replaced",
+                    "done_for_day": "expired",
+                }.get(event_type, event_type)
+                events.append({
+                    "schema_version": RUN_SCHEMA_VERSION,
+                    "generated_at_utc": raw.get("generated_at_utc") or now.isoformat(),
+                    "transition": transition,
+                    "lifecycle_key": key,
+                    "order_key": raw.get("order_key"),
+                    "exchange_order_id": raw.get("order_id") or raw.get("id"),
+                    "exchange_execution_id": raw.get("exchange_execution_id"),
+                    "exchange_execution_type": raw.get("exchange_execution_type"),
+                    "trade_id": raw.get("trade_id"),
+                    "market_id": raw.get("market_id"),
+                    "event_slug": raw.get("event_slug"),
+                    "clob_token_id": raw.get("clob_token_id"),
+                    "side": raw.get("side"),
+                    "reason": raw.get("reason") or f"exchange_{event_type}",
+                    "source": raw.get("source") or "exchange_user_stream",
+                })
     return events, fill_rows
 
 

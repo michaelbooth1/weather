@@ -659,7 +659,7 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "last_poll_at_utc": now.astimezone(timezone.utc).isoformat(),
         "interval_seconds": getattr(args, "interval_seconds", DEFAULT_INTERVAL_SECONDS),
         "stale_after_seconds": getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "last_poll_results": poll_results,
         "last_trigger_count": trigger_count,
         "paused": PAUSE_FLAG_PATH.exists(),
@@ -835,7 +835,7 @@ def start_watcher_detached(
         "last_error": None,
         "markets": {},
         "latest_triggered": {},
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "started_by": "supervisor",
         "paused": PAUSE_FLAG_PATH.exists(),
     })
@@ -956,7 +956,7 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "iterations": 0,
         "consecutive_errors": 0,
         "last_error": None,
-        "runtime_identity": get_runtime_identity(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
     })
     attach_status_writer(status, writer_lock)
     write_status(status, args.status_out)
