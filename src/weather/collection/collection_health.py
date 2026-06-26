@@ -15,7 +15,7 @@ import csv
 import json
 import sys
 from collections import Counter
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 
 from weather.paths import data_path
@@ -29,6 +29,8 @@ DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 # Settlement-decisive window: a clean day should span at least this local range.
 AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
+EARLY_HOUR_START_HOUR = 0
+EARLY_HOUR_END_HOUR = 8
 OPEN_METEO_SOURCE_FAMILY = {
     "open_meteo",
     "open_meteo_multimodel",
@@ -140,6 +142,13 @@ def local_window(target_date, tzinfo=None):
     )
 
 
+def early_hour_window(target_date, tzinfo=None):
+    return (
+        datetime.combine(target_date, dt_time(EARLY_HOUR_START_HOUR, tzinfo=tzinfo)),
+        datetime.combine(target_date, dt_time(EARLY_HOUR_END_HOUR, tzinfo=tzinfo)),
+    )
+
+
 def _iso(value):
     if isinstance(value, datetime):
         return value.isoformat()
@@ -227,6 +236,105 @@ def snapshot_cadence_proof(
             "single writer lock owner",
             "snapshot_coverage_gap blocked markets 0 after rerun",
         ],
+    }
+
+
+def early_hour_coverage_summary(
+    times,
+    interval_minutes,
+    tolerance=1.5,
+    *,
+    target_date=None,
+    as_of=None,
+):
+    """Serializable 00:00-08:00 local snapshot coverage proof for active-day evidence."""
+    times = sorted(times or [])
+    tzinfo = (times[-1].tzinfo if times else None) if times else (as_of.tzinfo if as_of is not None else None)
+    if as_of is not None:
+        if tzinfo is None and as_of.tzinfo is not None:
+            as_of = as_of.replace(tzinfo=None)
+        elif tzinfo is not None and as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=tzinfo)
+        elif tzinfo is not None:
+            as_of = as_of.astimezone(tzinfo)
+    if target_date is None:
+        target_date = times[0].date() if times else (as_of.date() if as_of is not None else None)
+    if target_date is None:
+        return {
+            "schema_version": "early_hour_coverage_v0.1",
+            "status": "MISSING",
+            "counts_toward_early_hour_evidence": False,
+            "target_date": None,
+            "reason": "target date is unavailable",
+            "snapshot_count": 0,
+            "expected_snapshot_count": 0,
+            "minimum_snapshot_count": 0,
+            "gap_count": 0,
+            "gap_windows": [],
+            "status_command": SNAPSHOT_STATUS_COMMAND,
+            "repair_command": SNAPSHOT_RESTART_COMMAND,
+            "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+        }
+
+    window_start, window_end = early_hour_window(target_date, tzinfo)
+    window_minutes = (window_end - window_start).total_seconds() / 60.0
+    expected_count = int(window_minutes // float(interval_minutes)) + 1
+    minimum_count = max(1, int(window_minutes // float(interval_minutes)))
+    freshness_limit = float(interval_minutes) * float(tolerance)
+    as_of = as_of or datetime.now(tzinfo)
+    window_times = [ts for ts in times if window_start <= ts <= window_end]
+    gaps = detect_gaps(window_times, interval_minutes, tolerance) if len(window_times) >= 2 else []
+    gap_windows = _gap_windows(gaps)
+    first = window_times[0] if window_times else None
+    last = window_times[-1] if window_times else None
+    enough_snapshots = len(window_times) >= minimum_count
+    covers_window = bool(
+        first
+        and last
+        and first <= window_start + timedelta(minutes=freshness_limit)
+        and last >= window_end - timedelta(minutes=freshness_limit)
+    )
+
+    reasons = []
+    if as_of < window_end:
+        status = "PENDING"
+        reasons.append(f"early-hour window closes at {window_end:%H:%M}")
+    else:
+        if not enough_snapshots:
+            reasons.append(f"{len(window_times)}/{minimum_count} minimum early-hour snapshots")
+        if not covers_window:
+            if first and last:
+                reasons.append(f"early-hour window not fully covered (captured {first:%H:%M}-{last:%H:%M})")
+            else:
+                reasons.append("no early-hour captures")
+        if gaps:
+            max_gap = max(float(row.get("gap_minutes") or 0.0) for row in gap_windows)
+            reasons.append(f"{len(gaps)} early-hour gap(s), max {max_gap:.0f} min")
+        status = "PASS" if not reasons else "BLOCK"
+
+    return {
+        "schema_version": "early_hour_coverage_v0.1",
+        "status": status,
+        "counts_toward_early_hour_evidence": status == "PASS",
+        "target_date": target_date.isoformat(),
+        "window_start": _iso(window_start),
+        "window_end": _iso(window_end),
+        "snapshot_count": len(window_times),
+        "expected_snapshot_count": expected_count,
+        "minimum_snapshot_count": minimum_count,
+        "missing_snapshot_count": max(0, minimum_count - len(window_times)),
+        "coverage_ratio": (len(window_times) / expected_count) if expected_count else 0.0,
+        "first_snapshot_at_local": _iso(first),
+        "last_snapshot_at_local": _iso(last),
+        "covers_window": covers_window,
+        "enough_snapshots": enough_snapshots,
+        "gap_count": len(gap_windows),
+        "max_gap_minutes": max((row.get("gap_minutes") for row in gap_windows), default=None),
+        "gap_windows": gap_windows,
+        "reason": "; ".join(reasons) if reasons else "early-hour snapshot coverage is countable",
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
     }
 
 
@@ -339,6 +447,13 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
         latest_snapshot_id=snapshot_meta.get("snapshot_id"),
         latest_snapshot_at_utc=snapshot_meta.get("captured_at_utc"),
         latest_snapshot_at_local=snapshot_meta.get("captured_at_local"),
+    )
+    summary["early_hour_coverage"] = early_hour_coverage_summary(
+        times,
+        interval_minutes,
+        tolerance,
+        target_date=target_date,
+        as_of=as_of,
     )
     return summary
 
@@ -998,6 +1113,47 @@ def fleet_snapshot_cadence_proof_summary(markets):
     }
 
 
+def fleet_early_hour_coverage_summary(markets):
+    rows = [row.get("early_hour_coverage") or {} for row in markets]
+    blocked = [row for row in rows if row.get("status") != "PASS"]
+    gap_rows = [row for row in rows if int(row.get("gap_count") or 0) > 0]
+    max_gaps = [
+        float(row.get("max_gap_minutes"))
+        for row in rows
+        if row.get("max_gap_minutes") is not None
+    ]
+    status_counts = Counter(row.get("status") or "MISSING" for row in rows)
+    first_blocker = next((row for row in rows if row.get("status") != "PASS"), {})
+    return {
+        "status": "PASS" if not blocked else "BLOCK",
+        "market_count": len(rows),
+        "countable_market_count": sum(
+            1 for row in rows if row.get("counts_toward_early_hour_evidence")
+        ),
+        "blocked_market_count": len(blocked),
+        "early_hour_coverage_blocked_market_count": len(blocked),
+        "status_counts": dict(sorted(status_counts.items())),
+        "total_snapshot_count": sum(int(row.get("snapshot_count") or 0) for row in rows),
+        "expected_snapshot_count": sum(int(row.get("expected_snapshot_count") or 0) for row in rows),
+        "minimum_snapshot_count": sum(int(row.get("minimum_snapshot_count") or 0) for row in rows),
+        "total_missing_snapshot_count": sum(int(row.get("missing_snapshot_count") or 0) for row in rows),
+        "total_gap_count": sum(int(row.get("gap_count") or 0) for row in rows),
+        "gap_market_count": len(gap_rows),
+        "max_gap_minutes": max(max_gaps) if max_gaps else None,
+        "first_blocking_market": first_blocker.get("market_id"),
+        "first_blocking_reason": first_blocker.get("reason"),
+        "counts_toward_early_hour_evidence": not blocked,
+        "next_unblock_action": (
+            "none"
+            if not blocked
+            else "collect next active day with countable 00:00-08:00 snapshot coverage"
+        ),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+    }
+
+
 def fleet_collection_health(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -1021,6 +1177,12 @@ def fleet_collection_health(
                 missing_summary,
                 freshness_sla_minutes=freshness_sla,
             )
+            early_hour_coverage = early_hour_coverage_summary(
+                [],
+                interval_minutes,
+                tolerance,
+                as_of=as_of,
+            )
             markets.append({
                 "market_id": spec.id,
                 "city": spec.city_label,
@@ -1032,6 +1194,7 @@ def fleet_collection_health(
                 "reason": "no snapshot tape found",
                 "snapshots": 0,
                 "snapshot_cadence_proof": cadence_proof,
+                "early_hour_coverage": early_hour_coverage,
             })
             continue
         summary = summarize_folder(
@@ -1065,12 +1228,14 @@ def fleet_collection_health(
             "latest_snapshot_at_utc": summary.get("latest_snapshot_at_utc"),
             "latest_snapshot_at_local": summary.get("latest_snapshot_at_local"),
             "snapshot_cadence_proof": summary.get("snapshot_cadence_proof") or {},
+            "early_hour_coverage": summary.get("early_hour_coverage") or {},
             "source_family_degradation": source_degradation,
             "variant_prediction_tape": variant_prediction_tape,
         })
     source_family_summary = fleet_source_family_degradation_summary(markets)
     variant_tape_summary = fleet_variant_prediction_tape_summary(markets)
     cadence_summary = fleet_snapshot_cadence_proof_summary(markets)
+    early_hour_summary = fleet_early_hour_coverage_summary(markets)
     source_status_markets = [source_status_market_proof(row) for row in markets]
     return {
         "schema_version": "fleet_collection_health_v0.1",
@@ -1091,6 +1256,22 @@ def fleet_collection_health(
                 for row in markets
             ],
         },
+        "early_hour_coverage_proof": {
+            "schema_version": "fleet_early_hour_coverage_proof_v0.1",
+            "summary": early_hour_summary,
+            "markets": [
+                {
+                    "market_id": row.get("market_id"),
+                    "event_slug": row.get("event_slug"),
+                    "target_date": row.get("target_date"),
+                    **(row.get("early_hour_coverage") or {}),
+                }
+                for row in markets
+            ],
+            "status_command": SNAPSHOT_STATUS_COMMAND,
+            "repair_command": SNAPSHOT_RESTART_COMMAND,
+            "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+        },
         "source_status_proof": {
             "schema_version": "source_status_proof_v0.1",
             "summary": source_family_summary,
@@ -1109,6 +1290,7 @@ def fleet_collection_health(
             "source_status_proof": source_family_summary,
             "variant_prediction_tape": variant_tape_summary,
             "snapshot_cadence_proof": cadence_summary,
+            "early_hour_coverage_proof": early_hour_summary,
         },
     }
 

@@ -28,8 +28,8 @@ countable evidence collection.
 
 - [ ] Rerun fleet observability after the next active window completes with
   current-code loops left running through restart-budget aging.
-- [ ] Add early-hour coverage counts to the clean-day proof.
-- [ ] Surface clean-day countability in promotion refresh, daily learning, and
+- [x] Add early-hour coverage counts to the clean-day proof.
+- [x] Surface clean-day countability in promotion refresh, daily learning, and
   progress audit.
 - [ ] Record the first clean active day that passes snapshot cadence, CLOB
   freshness, source status, and current-code soak.
@@ -60,3 +60,15 @@ Current blocker cascade:
 No early-hour production proof should be counted from June 25. Keep this item
 open until the next active day passes both live-forward cadence and current-code
 soak.
+
+## 2026-06-26 Implementation Wiring Refresh
+
+Fleet observability now emits a strict `clean_active_day_countability` object
+with 00:00-08:00 local early-hour coverage counts. Promotion refresh consumes
+that object in `early_hour_promotion_blocker`, and daily learning plus progress
+audit now surface the same countability state instead of inferring it from broad
+live-forward status alone.
+
+This does not close the item: the first actual clean active day still needs to
+be collected and recorded after snapshot cadence, CLOB freshness, source status,
+current-code soak, and early-hour coverage all pass.

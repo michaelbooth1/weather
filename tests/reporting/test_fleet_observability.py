@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from weather.collection.collection_health import (  # noqa: E402
+    early_hour_coverage_summary,
     fleet_collection_health,
     fleet_source_family_degradation_summary,
     source_family_degradation,
@@ -25,6 +26,7 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     clob_alerts,
     cleanup_deletion_gate_summary,
     current_code_soak_summary,
+    clean_active_day_countability,
     live_forward_slo_gate,
     loop_integrity_alerts,
     mm_evidence_starvation_summary,
@@ -109,6 +111,69 @@ class TestFleetObservability(unittest.TestCase):
             payload["snapshot_cadence_proof"]["summary"]["blocked_market_count"],
             11,
         )
+
+    def test_early_hour_coverage_counts_midnight_to_eight_snapshots(self):
+        target_date = datetime(2026, 6, 26).date()
+        start = datetime(2026, 6, 26, 0, 0)
+        times = [start + timedelta(minutes=10 * idx) for idx in range(49)]
+
+        proof = early_hour_coverage_summary(
+            times,
+            10.0,
+            target_date=target_date,
+            as_of=datetime(2026, 6, 26, 12, 0),
+        )
+
+        self.assertEqual(proof["status"], "PASS")
+        self.assertTrue(proof["counts_toward_early_hour_evidence"])
+        self.assertEqual(proof["snapshot_count"], 49)
+        self.assertEqual(proof["minimum_snapshot_count"], 48)
+        self.assertEqual(proof["gap_count"], 0)
+
+    def test_clean_active_day_countability_requires_early_hour_coverage(self):
+        collection = {
+            "markets": [{"market_id": "toronto", "target_date": "2026-06-26"}],
+            "source_status_proof": {
+                "summary": {
+                    "promotion_readiness_allowed": True,
+                    "promotion_readiness_blocked_market_count": 0,
+                },
+            },
+            "early_hour_coverage_proof": {
+                "summary": {
+                    "status": "PASS",
+                    "counts_toward_early_hour_evidence": True,
+                    "countable_market_count": 1,
+                    "total_snapshot_count": 49,
+                },
+            },
+        }
+        clob = {"books": {"ok": True, "markets": [{"market_id": "toronto", "ok": True}]}}
+        live_slo = {
+            "status": "PASS",
+            "ok": True,
+            "counts_toward_live_forward_gate": True,
+            "snapshot_cadence_proof": {
+                "summary": {
+                    "status": "PASS",
+                    "snapshot_coverage_gap_blocked_market_count": 0,
+                },
+            },
+        }
+        current_soak = {"status": "PASS", "counts_toward_active_day": True}
+
+        proof = clean_active_day_countability(collection, clob, live_slo, current_soak)
+        collection["early_hour_coverage_proof"]["summary"] = {
+            "status": "BLOCK",
+            "counts_toward_early_hour_evidence": False,
+            "reason": "12/48 minimum early-hour snapshots",
+        }
+        blocked = clean_active_day_countability(collection, clob, live_slo, current_soak)
+
+        self.assertEqual(proof["status"], "PASS")
+        self.assertTrue(proof["counts_toward_early_hour_evidence"])
+        self.assertEqual(blocked["status"], "BLOCK")
+        self.assertEqual(blocked["first_blocker"]["name"], "early_hour_coverage")
 
     def test_source_family_provider_cooldown_is_nonblocking_with_fresh_family_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:

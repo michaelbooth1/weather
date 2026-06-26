@@ -1018,6 +1018,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     )
 
     live_slo = fleet.get("live_forward_slo") or {}
+    clean_day_countability = fleet.get("clean_active_day_countability") or {}
     mm_paper_evidence = fleet.get("mm_paper_evidence") or {}
     model_review_evidence = ((mm_paper_evidence.get("by_class") or {}).get("model_review_evidence") or {})
     if model_review_evidence.get("countable_market_count"):
@@ -1095,6 +1096,33 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             "Fleet observability has critical alerts.",
             "Do not count live-forward evidence until critical fleet-observability alerts are repaired.",
             evidence=fleet,
+            blocker=True,
+        ))
+
+    if clean_day_countability and clean_day_countability.get("counts_toward_early_hour_evidence") is False:
+        first_clean_blocker = clean_day_countability.get("first_blocker") or {}
+        clean_blocker_detail = " ".join(
+            str(value)
+            for value in [
+                first_clean_blocker.get("name") or clean_day_countability.get("status") or "-",
+                first_clean_blocker.get("detail") or "",
+            ]
+            if value not in (None, "")
+        )
+        learnings.append(_learning(
+            "P0",
+            "clean_active_day_countability",
+            "fleet_observability",
+            (
+                "Clean active day is not countable for early-hour evidence: "
+                f"{clean_blocker_detail}"
+            ),
+            (
+                "Collect the next active day with live-forward SLO PASS, zero snapshot coverage-gap "
+                "blocked markets, fresh CLOB/source-status proof, current-code soak PASS, and "
+                "countable 00:00-08:00 snapshot coverage."
+            ),
+            evidence=clean_day_countability,
             blocker=True,
         ))
 
@@ -1493,6 +1521,10 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root, experiment_qu
         evidence_allows_broad_promotion = True
     live_slo = ((scorecard.get("fleet") or {}).get("live_forward_slo") or {})
     broad_slo_counts = live_slo.get("counts_toward_live_forward_gate")
+    clean_day_countability = ((scorecard.get("fleet") or {}).get("clean_active_day_countability") or {})
+    clean_day_counts = clean_day_countability.get("counts_toward_early_hour_evidence")
+    if clean_day_counts is None:
+        clean_day_counts = True
     first_blocker = blockers[0] if blockers else None
     data_fail = scorecard["data_layer_audit"]["gate_status"] == "FAIL"
     ingest_fail = scorecard["ingest_quality_gate"]["status"] == "FAIL"
@@ -1511,6 +1543,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root, experiment_qu
         and not data_fail
         and not ingest_fail
         and broad_slo_counts is not False
+        and clean_day_counts is not False
     )
     promotion_checks = {
         "training_ready": bool(training_ready),
@@ -1523,6 +1556,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root, experiment_qu
         "no_missing_candidate_rows": safe_int(candidate.get("missing_candidate_rows")) == 0,
         "broad_promotion_evidence_allowed": bool(evidence_allows_broad_promotion),
         "labels_promotion_countable": bool(labels_promotion_countable),
+        "clean_active_day_countable": bool(clean_day_counts),
     }
     promotion_ready_reasons = [
         name for name, passed in promotion_checks.items()
@@ -1565,6 +1599,7 @@ def _retrain_plan(scorecard, learnings, artifacts, snapshots_root, experiment_qu
             "rerun_command": live_slo.get("rerun_command"),
             "summary": live_slo.get("summary") or {},
         },
+        "clean_active_day_countability": clean_day_countability,
         "variant_learning_gate": scorecard.get("variant_learning_gate") or {},
         "label_countability": label_countability,
         "training_inputs": {

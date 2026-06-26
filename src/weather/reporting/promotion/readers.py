@@ -567,6 +567,13 @@ def _read_fleet_observability(path):
     tape = payload.get("tape_backup") or {}
     capacity = tape.get("capacity_preflight") or {}
     live_slo = payload.get("live_forward_slo") or {}
+    collection = payload.get("collection") or {}
+    clean_day = payload.get("clean_active_day_countability") or {}
+    early_hour = (
+        clean_day.get("early_hour_coverage_proof")
+        or collection.get("early_hour_coverage_proof")
+        or {}
+    )
     clob = payload.get("clob") or {}
     clob_books = clob.get("books") or {}
     return {
@@ -576,12 +583,16 @@ def _read_fleet_observability(path):
         "generated_at_utc": payload.get("generated_at_utc"),
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
+        "clean_active_day_countability": clean_day,
+        "early_hour_coverage_proof": early_hour,
         "live_forward_slo": {
             "status": "PASS" if live_slo.get("ok") else "BLOCK",
             "counts_toward_live_forward_gate": live_slo.get("counts_toward_live_forward_gate"),
             "reason": live_slo.get("reason"),
             "first_blocker": live_slo.get("first_blocker") or {},
+            "snapshot_cadence_proof": live_slo.get("snapshot_cadence_proof") or {},
         },
+        "current_code_soak": payload.get("current_code_soak") or {},
         "clob_books": {
             "status": "PASS" if clob_books.get("ok") else "BLOCK",
             "generated_at_utc": clob_books.get("generated_at_utc"),

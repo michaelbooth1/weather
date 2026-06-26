@@ -500,6 +500,12 @@ def build_observability_payload(
     )
     live_forward_slo = live_forward_slo_gate(collection, clob, observation, event_metadata)
     current_code_soak = current_code_soak_summary(loop_integrity, live_forward_slo)
+    clean_day_countability = clean_active_day_countability(
+        collection,
+        clob,
+        live_forward_slo,
+        current_code_soak,
+    )
     mm_paper_evidence = mm_paper_evidence_summary()
     mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
     trading_evidence = build_trading_evidence_summary(
@@ -553,6 +559,7 @@ def build_observability_payload(
         "observation_trigger": observation,
         "loop_integrity": loop_integrity,
         "current_code_soak": current_code_soak,
+        "clean_active_day_countability": clean_day_countability,
         "live_forward_slo": live_forward_slo,
         "mm_paper_evidence": mm_paper_evidence,
         "mm_evidence_starvation": mm_starvation,
@@ -568,6 +575,24 @@ def build_observability_payload(
             "critical_alerts": sum(1 for row in alerts if row.get("severity") == "critical"),
             "warning_alerts": sum(1 for row in alerts if row.get("severity") == "warning"),
             "live_forward_slo_status": live_forward_slo.get("status"),
+            "clean_active_day_countability_status": clean_day_countability.get("status"),
+            "clean_active_day_counts_toward_early_hour_evidence": (
+                clean_day_countability.get("counts_toward_early_hour_evidence")
+            ),
+            "clean_active_day_operational_blocker_count": (
+                clean_day_countability.get("operational_blocker_count")
+            ),
+            "early_hour_coverage_status": (
+                ((collection.get("early_hour_coverage_proof") or {}).get("summary") or {}).get("status")
+            ),
+            "early_hour_coverage_countable_markets": (
+                ((collection.get("early_hour_coverage_proof") or {}).get("summary") or {})
+                .get("countable_market_count")
+            ),
+            "early_hour_coverage_total_snapshots": (
+                ((collection.get("early_hour_coverage_proof") or {}).get("summary") or {})
+                .get("total_snapshot_count")
+            ),
             "event_metadata_validation_status": event_metadata.get("status"),
             "event_metadata_validation_hash": event_metadata.get("validation_hash"),
             "mm_paper_model_review_countable_markets": (

@@ -213,6 +213,14 @@ class TestProgressAudit(unittest.TestCase):
                     "gate": "snapshot_coverage_gap",
                 },
             },
+            "clean_active_day_countability": {
+                "status": "BLOCK",
+                "counts_toward_early_hour_evidence": False,
+                "first_blocker": {
+                    "name": "early_hour_coverage",
+                    "detail": "12/48 minimum early-hour snapshots",
+                },
+            },
         }
         variant = {
             "delta_vs_baseline": {
@@ -244,6 +252,9 @@ class TestProgressAudit(unittest.TestCase):
         self.assertIn("need 3 positive-skill comparable days; have 1", claim["threshold_failures"])
         self.assertTrue(
             any("live-forward SLO" in failure for failure in claim["threshold_failures"])
+        )
+        self.assertTrue(
+            any("clean active day is not countable" in failure for failure in claim["threshold_failures"])
         )
         self.assertTrue(
             any("market=toronto" in failure for failure in claim["threshold_failures"])
@@ -307,6 +318,8 @@ class TestProgressAudit(unittest.TestCase):
                 "early_hour_promotion_status": "BLOCK",
                 "early_hour_promotion_allowed": False,
                 "early_hour_promotion_blocker_count": 2,
+                "early_hour_clean_day_countability_status": "PASS",
+                "early_hour_counts_toward_clean_day": True,
                 "early_hour_promotion_blocker": {
                     "status": "BLOCK",
                     "promotion_allowed": False,
@@ -322,6 +335,9 @@ class TestProgressAudit(unittest.TestCase):
                     "production_readiness": {
                         "live_forward_slo": {"status": "BLOCK"},
                         "current_code_soak": {"status": "PASS"},
+                        "clean_active_day_countability_status": "PASS",
+                        "counts_toward_early_hour_evidence": True,
+                        "early_hour_coverage_status": "PASS",
                     },
                     "blockers": [
                         {
@@ -351,7 +367,12 @@ class TestProgressAudit(unittest.TestCase):
                 },
             },
             "promotion_gauntlet_latest": {},
-            "fleet_observability": {},
+            "fleet_observability": {
+                "clean_active_day_countability": {
+                    "status": "PASS",
+                    "counts_toward_early_hour_evidence": True,
+                },
+            },
             "frozen_baseline_replay_trend": {
                 "exists": True,
                 "independent_baseline_status": "PRESENT",
@@ -377,6 +398,8 @@ class TestProgressAudit(unittest.TestCase):
         self.assertIn("03:00, 03:10", report)
         self.assertIn("10-minute weak-slot model Brier trails market", report)
         self.assertIn("### Early-Hour Promotion Blocker", report)
+        self.assertIn("Early-hour clean-day countability", report)
+        self.assertIn("Clean active-day countability", report)
         self.assertIn("candidate hourly gate must PASS", report)
 
 

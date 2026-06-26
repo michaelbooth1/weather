@@ -416,6 +416,14 @@ def load_promotion_refresh(path):
         "early_hour_promotion_status": early_hour_blocker.get("status"),
         "early_hour_promotion_allowed": early_hour_blocker.get("promotion_allowed"),
         "early_hour_promotion_blocker_count": early_hour_blocker.get("blocker_count"),
+        "early_hour_clean_day_countability_status": (
+            (early_hour_blocker.get("production_readiness") or {})
+            .get("clean_active_day_countability_status")
+        ),
+        "early_hour_counts_toward_clean_day": (
+            (early_hour_blocker.get("production_readiness") or {})
+            .get("counts_toward_early_hour_evidence")
+        ),
     }
 
 
@@ -530,6 +538,7 @@ def load_fleet_observability(path):
     collection = payload.get("collection") or {}
     collection_summary = collection.get("summary") or {}
     clob = payload.get("clob") or {}
+    clean_day = payload.get("clean_active_day_countability") or {}
     return {
         "path": str(path),
         "exists": True,
@@ -543,6 +552,11 @@ def load_fleet_observability(path):
         "clob_books_ok": (clob.get("books") or {}).get("ok"),
         "clob_market_count": len(((clob.get("books") or {}).get("markets") or [])),
         "live_forward_slo": payload.get("live_forward_slo") or {},
+        "clean_active_day_countability": clean_day,
+        "early_hour_coverage_proof": (
+            clean_day.get("early_hour_coverage_proof")
+            or (collection.get("early_hour_coverage_proof") or {})
+        ),
     }
 
 
@@ -591,6 +605,11 @@ def _trend_collection_blockers(fleet):
             "fleet observability is CRITICAL"
             + (f"; critical_alerts={critical}" if critical is not None else "")
         )
+    clean_day = fleet.get("clean_active_day_countability") or {}
+    if clean_day and clean_day.get("counts_toward_early_hour_evidence") is False:
+        first = clean_day.get("first_blocker") or {}
+        detail = first.get("detail") or clean_day.get("status") or "inspect clean_active_day_countability"
+        blockers.append(f"clean active day is not countable for early-hour evidence: {detail}")
     return blockers
 
 
@@ -827,6 +846,8 @@ def _trend_next_action(failure):
         return "Finalize more complete/manual-override labels for full-market days."
     if "live-forward SLO" in failure or "fleet observability" in failure:
         return "Repair live-forward collection health before using active-day evidence in the trend claim."
+    if "clean active day" in failure:
+        return "Collect the next active day with clean operational countability and 00:00-08:00 snapshot coverage."
     if "scored rows increased" in failure or "independent-evidence" in failure:
         return "Add independent settled observations, not only row-multiplied variant scores."
     if "mixed runtime" in failure or "runtime identity" in failure:
@@ -1376,6 +1397,13 @@ def render_report(payload):
                     f"blockers={refresh.get('early_hour_promotion_blocker_count', '-')}"
                 ),
             ],
+            [
+                "Early-hour clean-day countability",
+                (
+                    f"{refresh.get('early_hour_clean_day_countability_status') or '-'}; "
+                    f"counts={refresh.get('early_hour_counts_toward_clean_day')}"
+                ),
+            ],
             ["Gauntlet regression", f"{gauntlet.get('regression_status', '-')} - {gauntlet.get('regression_message', '-')}"],
             ["Promotion corpus", f"{fmt_count(refresh.get('corpus_market_days'))} market-days, {fmt_count(refresh.get('corpus_snapshots'))} snapshots, {fmt_count(refresh.get('corpus_band_rows'))} band rows"],
             ["Exact identity settled records", fmt_count(refresh.get("identity_record_count"))],
@@ -1389,19 +1417,33 @@ def render_report(payload):
         candidate_gates = early_hour.get("candidate_gates") or {}
         broad_replay = early_hour.get("broad_replay") or {}
         production = early_hour.get("production_readiness") or {}
+        current_hourly_status = current_gates.get("hourly_status") or (current_gates.get("hourly") or {}).get("status")
+        current_ten_minute_status = (
+            current_gates.get("ten_minute_status")
+            or (current_gates.get("ten_minute") or {}).get("status")
+        )
+        live_forward_status = production.get("live_forward_slo_status") or (
+            production.get("live_forward_slo") or {}
+        ).get("status")
+        current_soak_status = production.get("current_code_soak_status") or (
+            production.get("current_code_soak") or {}
+        ).get("status")
         lines.extend(["", "### Early-Hour Promotion Blocker", ""])
         lines.extend(markdown_table(
             ["Field", "Value"],
             [
                 ["Status", early_hour.get("status") or "-"],
                 ["Promotion allowed", early_hour.get("promotion_allowed")],
-                ["Current hourly gate", (current_gates.get("hourly") or {}).get("status") or "-"],
-                ["Current 10-minute gate", (current_gates.get("ten_minute") or {}).get("status") or "-"],
+                ["Current hourly gate", current_hourly_status or "-"],
+                ["Current 10-minute gate", current_ten_minute_status or "-"],
                 ["Candidate hourly gate", (candidate_gates.get("hourly") or {}).get("gate_status") or "-"],
                 ["Candidate 10-minute gate", (candidate_gates.get("ten_minute") or {}).get("gate_status") or "-"],
                 ["Broad replay within tolerance", broad_replay.get("within_market_tolerance")],
-                ["Live-forward SLO", (production.get("live_forward_slo") or {}).get("status") or "-"],
-                ["Current-code soak", (production.get("current_code_soak") or {}).get("status") or "-"],
+                ["Live-forward SLO", live_forward_status or "-"],
+                ["Current-code soak", current_soak_status or "-"],
+                ["Clean active-day countability", production.get("clean_active_day_countability_status") or "-"],
+                ["Counts toward early-hour evidence", production.get("counts_toward_early_hour_evidence")],
+                ["Early-hour coverage", production.get("early_hour_coverage_status") or "-"],
             ],
         ))
         blocker_rows = [
@@ -1429,6 +1471,14 @@ def render_report(payload):
             ["Market-day ledger", f"{labels.get('rows', 0)} labels: {labels.get('quality_counts', {})}"],
             ["Location trust", f"{trust.get('market_count', 0)} markets, avg trust {fmt_num(trust.get('avg_trust_score'), 1)}"],
             ["Fleet observability", f"status {fleet.get('status', '-')}; summary {fleet.get('summary', {})}; collection states {fleet.get('collection_states', {})}"],
+            [
+                "Clean active-day countability",
+                (
+                    f"{(fleet.get('clean_active_day_countability') or {}).get('status') or '-'}; "
+                    f"early_hour_counts="
+                    f"{(fleet.get('clean_active_day_countability') or {}).get('counts_toward_early_hour_evidence')}"
+                ),
+            ],
             ["Weather/model loop", f"{snapshot_loop.get('state')} / errors {snapshot_loop.get('consecutive_errors')} / heartbeat age {fmt_num((snapshot_loop.get('heartbeat_age_seconds') or 0) / 60.0, 1)} min"],
             ["CLOB book loop", f"{clob_loop.get('state')} / mode {clob_loop.get('last_mode')} / errors {clob_loop.get('consecutive_errors')} / heartbeat age {fmt_num(clob_loop.get('heartbeat_age_seconds'), 1)} sec"],
         ],

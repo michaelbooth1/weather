@@ -1278,6 +1278,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "summary": fleet.get("summary") or {},
             "live_forward_slo": fleet.get("live_forward_slo") or {},
             "current_code_soak": fleet.get("current_code_soak") or {},
+            "clean_active_day_countability": fleet.get("clean_active_day_countability") or {},
             "source_status_proof": ((fleet.get("collection") or {}).get("source_status_proof") or {}),
             "tape_backup": fleet.get("tape_backup") or {},
             "mm_paper_evidence": fleet.get("mm_paper_evidence") or {},

@@ -210,3 +210,53 @@ The refreshed canonical proof generated at `2026-06-25T18:47:03Z` is still
 Conclusion: the proof is runnable and current, but June 25 is non-countable.
 Closure still requires the next active day to hold zero snapshot coverage gaps
 and pass the restart-budget soak.
+
+## 2026-06-26 Dominant restart cause identified and fixed: stale-code churn burns the crash budget
+
+Root-caused the recurring blown restart budgets to a specific interaction, not a
+crash loop. The snapshot loop runs a runtime guard that exits cleanly whenever
+its process code identity differs from the working source tree. Development
+commits land in bursts (11 commits to master between 08:36-15:00 on 2026-06-25),
+so every commit makes the live loop detect stale code and exit, and the
+supervisor relaunches it on current code. Those benign current-code re-adoptions
+were counted as crash restarts: the 6 budget-consuming events in the snapshot
+window were `{STALE_CODE: 4, DEAD: 2}`. The 4 stale-code re-adoptions plus 2 real
+restarts hit the budget of 6, tripped the circuit breaker, and - because the
+breaker is a 24h window with no recovery when the cause clears - left the
+snapshot loop dark from 14:54 onward even though HEAD was stable after 15:00.
+That dark window is the direct cause of the 2026-06-24 settlement label outage
+(capture_ratio median 0.51, 8.5h max gap, all 12 markets `low_capture_ratio` and
+non-promotion-countable, which in turn blocks `settled_day_analysis_barrier` ->
+`promotion_refresh`).
+
+Fix: `weather.operations.supervisor._recovery_event` now excludes restarts whose
+`restart_cause` is a benign current-code re-adoption (`stale_code`) from the
+crash circuit-breaker budget. Crash restarts (`DEAD`, malformed line, etc.) still
+count. This both prevents a normal commit burst from tripping the breaker and
+auto-recovers an already-tripped breaker on the next ensure, because the recount
+drops below budget once stale-code re-adoptions no longer count. The supervisor's
+own per-minute ensure cadence still bounds how often a stale-code relaunch can
+occur. All three collection loops share this primitive, so the fix applies to
+snapshot, CLOB, and observation-trigger.
+
+Evidence:
+
+- Live recount after the fix: snapshot `recent_recovery_count` dropped from `6`
+  to `2` (crash-only), guard `allowed=true`, `within_restart_budget`.
+- The snapshot loop relaunched and is healthy on current code: new pid,
+  `runtime_code_state=current`, fresh captures resuming after a ~6h dark window.
+- CLOB and observation-trigger loops confirmed running.
+
+Validation:
+
+- `python -m pytest tests/operations/test_supervisor.py tests/collection/test_loop_supervisor.py -q` (27 passed),
+  including a new regression test
+  `test_stale_code_restarts_do_not_consume_crash_budget` proving a 4-stale-code +
+  2-crash burst keeps the breaker closed.
+
+Remaining for closure: the final checklist item (a clean active-day soak within
+budget with zero snapshot coverage gaps) still needs one full clean current-code
+day now that the breaker no longer goes dark on commit bursts. A deeper follow-up
+is to avoid exiting the loop on every commit at all (only re-adopt for changes to
+files the loop actually imports), so capture cadence is not interrupted by
+unrelated commits.

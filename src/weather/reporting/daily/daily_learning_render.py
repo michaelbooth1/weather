@@ -48,6 +48,8 @@ def _scorecard_rows(scorecard):
     live_slo_summary = live_slo.get("summary") or {}
     current_soak = fleet.get("current_code_soak") or {}
     current_soak_summary = current_soak.get("summary") or {}
+    clean_day = fleet.get("clean_active_day_countability") or {}
+    early_hour_summary = ((clean_day.get("early_hour_coverage_proof") or {}).get("summary") or {})
     source_status = fleet.get("source_status_proof") or {}
     source_status_summary = source_status.get("summary") or {}
     trading = scorecard.get("trading_evidence") or {}
@@ -139,6 +141,15 @@ def _scorecard_rows(scorecard):
                 f"counts={live_slo.get('counts_toward_live_forward_gate')}; "
                 f"first={live_slo_summary.get('first_blocking_market') or '-'}:"
                 f"{live_slo_summary.get('first_blocking_gate') or '-'}"
+            ),
+        ],
+        [
+            "Clean active-day countability",
+            (
+                f"{clean_day.get('status') or '-'}; "
+                f"early_hour_counts={clean_day.get('counts_toward_early_hour_evidence')}; "
+                f"markets={early_hour_summary.get('countable_market_count')}; "
+                f"snapshots={early_hour_summary.get('total_snapshot_count')}"
             ),
         ],
         [
@@ -744,6 +755,37 @@ def render_report(payload):
                     ],
                     cadence_rows,
                 )
+    clean_day = (
+        retrain.get("clean_active_day_countability")
+        or ((scorecard.get("fleet") or {}).get("clean_active_day_countability") or {})
+    )
+    if clean_day:
+        early_hour_summary = ((clean_day.get("early_hour_coverage_proof") or {}).get("summary") or {})
+        clean_first = clean_day.get("first_blocker") or {}
+        lines += ["", "## Clean Active-Day Countability", ""]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", clean_day.get("status") or "-"],
+                ["Target date", clean_day.get("target_date") or "-"],
+                ["Counts toward clean active day", clean_day.get("counts_toward_clean_active_day")],
+                ["Counts toward early-hour evidence", clean_day.get("counts_toward_early_hour_evidence")],
+                ["Operational blockers", clean_day.get("operational_blocker_count")],
+                ["First blocker", clean_first.get("name") or "-"],
+                ["First blocker detail", clean_first.get("detail") or "-"],
+                ["Early-hour coverage", early_hour_summary.get("status") or "-"],
+                ["Early-hour countable markets", early_hour_summary.get("countable_market_count")],
+                ["Early-hour snapshots", early_hour_summary.get("total_snapshot_count")],
+                ["Early-hour missing snapshots", early_hour_summary.get("total_missing_snapshot_count")],
+                ["Early-hour gaps", early_hour_summary.get("total_gap_count")],
+            ],
+        )
+        clean_gate_rows = [
+            [row.get("name"), row.get("status"), row.get("ok"), row.get("detail") or "-"]
+            for row in clean_day.get("gates") or []
+        ]
+        if clean_gate_rows:
+            lines += markdown_table(["Gate", "Status", "OK", "Detail"], clean_gate_rows)
     current_soak = ((scorecard.get("fleet") or {}).get("current_code_soak") or {})
     if current_soak:
         soak_summary = current_soak.get("summary") or {}

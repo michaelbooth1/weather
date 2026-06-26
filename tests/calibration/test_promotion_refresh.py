@@ -58,6 +58,35 @@ def _candidate_gate_report(gate_key, *, status="PASS", variant_id="candidate_v1"
     }
 
 
+def _clean_fleet():
+    return {
+        "summary": {
+            "live_forward_slo_status": "PASS",
+            "current_code_soak_status": "PASS",
+            "clean_active_day_countability_status": "PASS",
+            "clean_active_day_counts_toward_early_hour_evidence": True,
+            "early_hour_coverage_status": "PASS",
+            "early_hour_coverage_countable_markets": 12,
+            "early_hour_coverage_total_snapshots": 588,
+        },
+        "live_forward_slo": {"status": "PASS", "counts_toward_live_forward_gate": True},
+        "current_code_soak": {"status": "PASS", "counts_toward_active_day": True},
+        "clean_active_day_countability": {
+            "status": "PASS",
+            "counts_toward_clean_active_day": True,
+            "counts_toward_early_hour_evidence": True,
+            "operational_blocker_count": 0,
+            "early_hour_coverage_proof": {
+                "summary": {
+                    "status": "PASS",
+                    "countable_market_count": 12,
+                    "total_snapshot_count": 588,
+                },
+            },
+        },
+    }
+
+
 class TestPromotionRefresh(unittest.TestCase):
     def test_family_decisions_promote_only_passing_family_markets(self):
         specs = [
@@ -849,12 +878,43 @@ class TestPromotionRefresh(unittest.TestCase):
             candidate_hourly_performance=_candidate_gate_report("candidate_hourly_gate"),
             ten_minute_performance={"ten_minute_performance_gate": {"status": "BLOCK"}},
             candidate_ten_minute_performance=_candidate_gate_report("candidate_ten_minute_gate"),
-            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            fleet_observability=_clean_fleet(),
             now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
         )
 
         self.assertEqual(blocker["status"], "PASS")
         self.assertTrue(blocker["promotion_allowed"])
+        self.assertEqual(blocker["production_readiness"]["clean_active_day_countability_status"], "PASS")
+        self.assertTrue(blocker["production_readiness"]["counts_toward_early_hour_evidence"])
+
+    def test_early_hour_blocker_requires_clean_active_day_countability(self):
+        fleet = _clean_fleet()
+        fleet["clean_active_day_countability"] = {
+            "status": "BLOCK",
+            "counts_toward_clean_active_day": False,
+            "counts_toward_early_hour_evidence": False,
+            "first_blocker": {
+                "name": "early_hour_coverage",
+                "detail": "12/48 minimum early-hour snapshots",
+            },
+        }
+        fleet["summary"]["clean_active_day_countability_status"] = "BLOCK"
+        fleet["summary"]["clean_active_day_counts_toward_early_hour_evidence"] = False
+
+        blocker = build_early_hour_promotion_blocker(
+            candidate=_early_hour_candidate(),
+            hourly_performance={"hourly_performance_gate": {"status": "PASS"}},
+            candidate_hourly_performance=None,
+            ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
+            candidate_ten_minute_performance=None,
+            fleet_observability=fleet,
+            now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
+        )
+
+        categories = {row["category"] for row in blocker["blockers"]}
+        self.assertEqual(blocker["status"], "BLOCK")
+        self.assertIn("clean_active_day_countability", categories)
+        self.assertFalse(blocker["production_readiness"]["counts_toward_early_hour_evidence"])
 
     def test_early_hour_blocker_fails_closed_on_mismatched_variant(self):
         blocker = build_early_hour_promotion_blocker(
@@ -863,7 +923,7 @@ class TestPromotionRefresh(unittest.TestCase):
             candidate_hourly_performance=_candidate_gate_report("candidate_hourly_gate", variant_id="other"),
             ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
             candidate_ten_minute_performance=None,
-            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            fleet_observability=_clean_fleet(),
             now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
         )
 
@@ -882,7 +942,7 @@ class TestPromotionRefresh(unittest.TestCase):
             ),
             ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
             candidate_ten_minute_performance=None,
-            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            fleet_observability=_clean_fleet(),
             now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
             max_candidate_report_age_hours=72,
         )
@@ -897,7 +957,7 @@ class TestPromotionRefresh(unittest.TestCase):
             candidate_hourly_performance=None,
             ten_minute_performance={"ten_minute_performance_gate": {"status": "BLOCK"}},
             candidate_ten_minute_performance=None,
-            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            fleet_observability=_clean_fleet(),
             now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
         )
 
@@ -915,7 +975,7 @@ class TestPromotionRefresh(unittest.TestCase):
             candidate_hourly_performance=None,
             ten_minute_performance={"ten_minute_performance_gate": {"status": "PASS"}},
             candidate_ten_minute_performance=None,
-            fleet_observability={"summary": {"live_forward_slo_status": "PASS", "current_code_soak_status": "PASS"}},
+            fleet_observability=_clean_fleet(),
             now=datetime(2026, 6, 22, 13, 0, tzinfo=timezone.utc),
         )
 
@@ -1679,6 +1739,11 @@ class TestPromotionRefresh(unittest.TestCase):
                 "production_readiness": {
                     "live_forward_slo_status": "BLOCK",
                     "current_code_soak_status": "BLOCK",
+                    "clean_active_day_countability_status": "BLOCK",
+                    "counts_toward_early_hour_evidence": False,
+                    "early_hour_coverage_status": "BLOCK",
+                    "early_hour_coverage_countable_markets": 0,
+                    "early_hour_coverage_total_snapshots": 12,
                 },
                 "blockers": [
                     {
@@ -1711,6 +1776,8 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("Evidence freshness: settled_day_freshness", text)
         self.assertIn("Per-location artifact quarantine", text)
         self.assertIn("Early-hour promotion blocker", text)
+        self.assertIn("Clean active-day countability", text)
+        self.assertIn("Counts toward early-hour evidence", text)
         self.assertIn("Source/missingness location gate", text)
         self.assertIn("## Early-Hour Promotion Blocker", text)
         self.assertIn("## F-Family Promotion Allowlist", text)

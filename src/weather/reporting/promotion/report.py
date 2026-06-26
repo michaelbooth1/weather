@@ -244,6 +244,7 @@ def write_report(path, payload, min_free_bytes=0):
         )
     early_hour_blocker = payload.get("early_hour_promotion_blocker") or {}
     if early_hour_blocker:
+        production = early_hour_blocker.get("production_readiness") or {}
         lines += [
             "",
             "## Early-Hour Promotion Blocker",
@@ -273,7 +274,23 @@ def write_report(path, payload, min_free_bytes=0):
                 ],
                 [
                     "Current-code soak",
-                    (early_hour_blocker.get("production_readiness") or {}).get("current_code_soak_status") or "-",
+                    production.get("current_code_soak_status") or "-",
+                ],
+                [
+                    "Clean active-day countability",
+                    production.get("clean_active_day_countability_status") or "-",
+                ],
+                [
+                    "Counts toward early-hour evidence",
+                    production.get("counts_toward_early_hour_evidence"),
+                ],
+                [
+                    "Early-hour coverage",
+                    (
+                        f"{production.get('early_hour_coverage_status') or '-'}; "
+                        f"markets={production.get('early_hour_coverage_countable_markets')}; "
+                        f"snapshots={production.get('early_hour_coverage_total_snapshots')}"
+                    ),
                 ],
             ],
         )

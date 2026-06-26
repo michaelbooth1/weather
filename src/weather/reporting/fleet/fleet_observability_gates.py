@@ -731,6 +731,169 @@ def live_forward_slo_gate(collection, clob, observation, event_metadata=None):
         "summary": _broad_slo_summary(recovery_rows),
     }
 
+
+def _target_date_from_collection(collection):
+    dates = [
+        str(row.get("target_date"))
+        for row in (collection or {}).get("markets") or []
+        if row.get("target_date")
+    ]
+    if not dates:
+        return None
+    counts = Counter(dates)
+    return sorted(counts.items(), key=lambda pair: (pair[1], pair[0]), reverse=True)[0][0]
+
+
+def _clean_day_gate(name, status, ok, detail, *, evidence=None):
+    status = status or "MISSING"
+    return {
+        "name": name,
+        "status": status,
+        "ok": bool(ok),
+        "detail": detail,
+        "evidence": evidence or {},
+    }
+
+
+def clean_active_day_countability(collection, clob, live_forward_slo, current_code_soak):
+    """Fail-closed active-day operational countability for early-hour evidence."""
+    collection = collection or {}
+    clob = clob or {}
+    live_forward_slo = live_forward_slo or {}
+    current_code_soak = current_code_soak or {}
+    cadence = (
+        live_forward_slo.get("snapshot_cadence_proof")
+        or collection.get("snapshot_cadence_proof")
+        or {}
+    )
+    cadence_summary = cadence.get("summary") or {}
+    early_hour = collection.get("early_hour_coverage_proof") or {}
+    early_summary = early_hour.get("summary") or {}
+    source_status = collection.get("source_status_proof") or {}
+    source_summary = (
+        source_status.get("summary")
+        or ((collection.get("summary") or {}).get("source_status_proof") or {})
+        or ((collection.get("summary") or {}).get("source_family_degradation") or {})
+    )
+    clob_books = clob.get("books") or {}
+    clob_rows = clob_books.get("markets") or []
+    snapshot_gap_blocked = int(cadence_summary.get("snapshot_coverage_gap_blocked_market_count") or 0)
+    early_hour_status = early_summary.get("status")
+    early_hour_counts = early_summary.get("counts_toward_early_hour_evidence")
+    if early_hour_counts is None:
+        early_hour_counts = early_hour_status == "PASS" if early_summary else False
+    source_blocked = int(source_summary.get("promotion_readiness_blocked_market_count") or 0)
+    source_known = bool(source_summary)
+    source_allowed = source_summary.get("promotion_readiness_allowed")
+    if source_allowed is None:
+        source_allowed = source_known and source_blocked == 0
+    clob_ok = clob_books.get("ok")
+    if clob_ok is None and clob_rows:
+        clob_ok = all(row.get("ok") for row in clob_rows)
+    clob_blocked_markets = [
+        row.get("market_id")
+        for row in clob_rows
+        if not row.get("ok")
+    ]
+
+    gates = [
+        _clean_day_gate(
+            "live_forward_slo",
+            live_forward_slo.get("status"),
+            live_forward_slo.get("counts_toward_live_forward_gate") is True
+            or live_forward_slo.get("ok") is True,
+            live_forward_slo.get("reason") or "live-forward SLO must pass",
+            evidence={
+                "first_blocker": live_forward_slo.get("first_blocker") or {},
+                "summary": live_forward_slo.get("summary") or {},
+            },
+        ),
+        _clean_day_gate(
+            "snapshot_coverage_gap",
+            "PASS" if snapshot_gap_blocked == 0 and cadence_summary.get("status") == "PASS" else "BLOCK",
+            snapshot_gap_blocked == 0 and cadence_summary.get("status") == "PASS",
+            f"snapshot_coverage_gap blocked markets={snapshot_gap_blocked}",
+            evidence=cadence_summary,
+        ),
+        _clean_day_gate(
+            "clob_book_freshness",
+            "PASS" if clob_ok else "BLOCK",
+            clob_ok is True,
+            (
+                "CLOB books are fresh for every active market"
+                if clob_ok
+                else f"CLOB blocked markets={', '.join(m for m in clob_blocked_markets if m) or '-'}"
+            ),
+            evidence={
+                "blocked_markets": clob_blocked_markets,
+                "market_count": len(clob_rows),
+                "max_gap_seconds_threshold": clob_books.get("max_gap_seconds_threshold"),
+            },
+        ),
+        _clean_day_gate(
+            "source_status_proof",
+            "PASS" if source_allowed else "BLOCK",
+            source_allowed is True and source_blocked == 0,
+            (
+                "source status allows promotion-readiness evidence for every active market"
+                if source_allowed and source_blocked == 0
+                else f"promotion-readiness source-status blocked markets={source_blocked}"
+            ),
+            evidence=source_summary,
+        ),
+        _clean_day_gate(
+            "current_code_soak",
+            current_code_soak.get("status"),
+            current_code_soak.get("counts_toward_active_day") is True
+            and current_code_soak.get("status") in {"PASS", "OK"},
+            (
+                current_code_soak.get("cadence_slo_reason")
+                or ((current_code_soak.get("summary") or {}).get("first_blocking_reason"))
+                or "current-code soak must pass"
+            ),
+            evidence={
+                "summary": current_code_soak.get("summary") or {},
+                "verification_command": current_code_soak.get("verification_command"),
+            },
+        ),
+        _clean_day_gate(
+            "early_hour_coverage",
+            early_hour_status,
+            early_hour_counts is True,
+            (
+                early_summary.get("reason")
+                or "00:00-08:00 snapshot coverage must be countable"
+            ),
+            evidence=early_summary,
+        ),
+    ]
+    blockers = [gate for gate in gates if not gate.get("ok")]
+    return {
+        "schema_version": "clean_active_day_countability_v0.1",
+        "target_date": _target_date_from_collection(collection),
+        "status": "PASS" if not blockers else "BLOCK",
+        "counts_toward_clean_active_day": not blockers,
+        "counts_toward_early_hour_evidence": not blockers,
+        "model_skill_blockers_separate": True,
+        "operational_blocker_count": len(blockers),
+        "gates": gates,
+        "first_blocker": blockers[0] if blockers else None,
+        "blockers": blockers,
+        "snapshot_cadence_proof": cadence,
+        "early_hour_coverage_proof": early_hour,
+        "policy": {
+            "requires": [
+                "live-forward SLO PASS",
+                "snapshot_coverage_gap blocked markets 0",
+                "fresh CLOB books",
+                "source-status promotion-readiness allowed",
+                "current-code soak PASS",
+                "countable 00:00-08:00 snapshot coverage",
+            ],
+            "model_skill_blockers_are_not_masked": True,
+        },
+    }
+
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]

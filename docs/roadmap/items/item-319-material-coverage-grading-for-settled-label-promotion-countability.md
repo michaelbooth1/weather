@@ -104,7 +104,9 @@ from intraday-coverage completeness.
   promotion-countable while a day with a decisive afternoon gap is not, and that
   the barrier reaches `promotion_refresh` once materially-complete labels count.
 
-## Completion 2026-06-25
+## Completion Notes
+
+Completed on 2026-06-25.
 
 Implemented material coverage as an additive label contract in
 `weather.backtesting.settlement_ledger`: strict `quality_grade` remains

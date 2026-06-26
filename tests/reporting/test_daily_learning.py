@@ -241,8 +241,25 @@ def write_daily_artifacts(root, *, blocked=False):
                 "status": "OK",
                 "summary": {},
                 "live_forward_slo": {
+                    "status": "PASS",
                     "counts_toward_live_forward_gate": True,
                     "reason": "all collection loops fresh",
+                },
+                "clean_active_day_countability": {
+                    "status": "PASS",
+                    "target_date": "2026-06-16",
+                    "counts_toward_clean_active_day": True,
+                    "counts_toward_early_hour_evidence": True,
+                    "operational_blocker_count": 0,
+                    "early_hour_coverage_proof": {
+                        "summary": {
+                            "status": "PASS",
+                            "countable_market_count": 12,
+                            "total_snapshot_count": 588,
+                            "total_missing_snapshot_count": 0,
+                            "total_gap_count": 0,
+                        },
+                    },
                 },
             }
         ),
@@ -1437,6 +1454,48 @@ class TestDailyLearning(unittest.TestCase):
             learning["evidence"]["by_class"]["live_trade_permission_evidence"]["countable_market_count"],
             0,
         )
+
+    def test_build_learning_payload_surfaces_clean_active_day_countability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            fleet = json.loads((backtest_root / "fleet_observability.json").read_text(encoding="utf-8"))
+            fleet["clean_active_day_countability"] = {
+                "status": "BLOCK",
+                "target_date": "2026-06-16",
+                "counts_toward_clean_active_day": False,
+                "counts_toward_early_hour_evidence": False,
+                "operational_blocker_count": 1,
+                "first_blocker": {
+                    "name": "early_hour_coverage",
+                    "detail": "12/48 minimum early-hour snapshots",
+                },
+                "early_hour_coverage_proof": {
+                    "summary": {
+                        "status": "BLOCK",
+                        "countable_market_count": 0,
+                        "total_snapshot_count": 12,
+                        "total_missing_snapshot_count": 36,
+                        "total_gap_count": 0,
+                    },
+                },
+            }
+            (backtest_root / "fleet_observability.json").write_text(json.dumps(fleet), encoding="utf-8")
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            report = render_report(payload)
+            learning = next(
+                row for row in payload["learnings"]
+                if row["category"] == "clean_active_day_countability"
+            )
+
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertFalse(payload["retrain_plan"]["training_ready"])
+        self.assertFalse(payload["retrain_plan"]["clean_active_day_countability"]["counts_toward_early_hour_evidence"])
+        self.assertTrue(learning["blocker"])
+        self.assertIn("early_hour_coverage", learning["signal"])
+        self.assertIn("## Clean Active-Day Countability", report)
+        self.assertIn("12/48 minimum early-hour snapshots", report)
 
     def test_build_learning_payload_blocks_on_current_code_soak(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -270,6 +270,39 @@ def write_markdown(path, payload):
         for row in snapshot_cadence.get("markets") or []
     ]
     first_slo_blocker = live_forward_slo.get("first_blocker") or {}
+    clean_day = payload.get("clean_active_day_countability") or {}
+    clean_first_blocker = clean_day.get("first_blocker") or {}
+    early_hour_proof = (
+        clean_day.get("early_hour_coverage_proof")
+        or collection.get("early_hour_coverage_proof")
+        or {}
+    )
+    early_hour_summary = early_hour_proof.get("summary") or {}
+    clean_gate_rows = [
+        [
+            row.get("name"),
+            row.get("status"),
+            row.get("ok"),
+            row.get("detail") or "-",
+        ]
+        for row in clean_day.get("gates") or []
+    ]
+    early_hour_rows = [
+        [
+            row.get("market_id"),
+            row.get("status"),
+            row.get("snapshot_count"),
+            row.get("minimum_snapshot_count"),
+            row.get("expected_snapshot_count"),
+            row.get("coverage_ratio"),
+            row.get("gap_count"),
+            row.get("max_gap_minutes"),
+            row.get("first_snapshot_at_local") or "-",
+            row.get("last_snapshot_at_local") or "-",
+            row.get("reason") or "-",
+        ]
+        for row in early_hour_proof.get("markets") or []
+    ]
     lines += [
         "",
         "## Live-Forward SLO Gate",
@@ -346,6 +379,57 @@ def write_markdown(path, payload):
         ["Market", "Component", "Gate", "Owner", "Before", "Repair Command", "Verification", "After"],
         recovery_rows,
     )
+    if clean_day:
+        lines += [
+            "",
+            "## Clean Active-Day Countability",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", clean_day.get("status") or "-"],
+                ["Target date", clean_day.get("target_date") or "-"],
+                ["Counts toward clean active day", clean_day.get("counts_toward_clean_active_day")],
+                [
+                    "Counts toward early-hour evidence",
+                    clean_day.get("counts_toward_early_hour_evidence"),
+                ],
+                ["Operational blockers", clean_day.get("operational_blocker_count")],
+                ["First blocker", clean_first_blocker.get("name") or "-"],
+                ["First blocker detail", clean_first_blocker.get("detail") or "-"],
+                ["Model-skill blockers separate", clean_day.get("model_skill_blockers_separate")],
+            ],
+        )
+        if clean_gate_rows:
+            lines += markdown_table(["Gate", "Status", "OK", "Detail"], clean_gate_rows)
+        lines += [
+            "",
+            "### Early-Hour Coverage Proof",
+            "",
+        ]
+        lines += markdown_table(
+            ["Field", "Value"],
+            [
+                ["Status", early_hour_summary.get("status") or "-"],
+                ["Countable markets", early_hour_summary.get("countable_market_count")],
+                ["Blocked markets", early_hour_summary.get("blocked_market_count")],
+                ["Total snapshots", early_hour_summary.get("total_snapshot_count")],
+                ["Minimum snapshots", early_hour_summary.get("minimum_snapshot_count")],
+                ["Missing snapshots", early_hour_summary.get("total_missing_snapshot_count")],
+                ["Total gaps", early_hour_summary.get("total_gap_count")],
+                ["Max gap minutes", early_hour_summary.get("max_gap_minutes")],
+                ["Next unblock action", early_hour_summary.get("next_unblock_action") or "-"],
+            ],
+        )
+        if early_hour_rows:
+            lines += markdown_table(
+                [
+                    "Market", "Status", "Snaps", "Min", "Expected", "Coverage",
+                    "Gaps", "Max Gap min", "First", "Last", "Reason",
+                ],
+                early_hour_rows,
+            )
     mm_paper = payload.get("mm_paper_evidence") or {}
     mm_classes = mm_paper.get("by_class") or {}
     if mm_classes:

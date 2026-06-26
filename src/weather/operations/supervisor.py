@@ -404,11 +404,26 @@ def _event_time(event: dict[str, Any]) -> datetime | None:
     return None
 
 
+# Restart causes that are benign current-code re-adoption rather than crash
+# recovery. These must not consume the crash circuit-breaker budget. When code is
+# committed, every running collection loop detects that its process identity
+# differs from the source tree, exits cleanly, and is relaunched on current code.
+# Counting those clean re-adoptions as crash restarts means a normal burst of
+# commits exhausts the small restart budget, trips the breaker, and leaves
+# collection dark for the whole 24h window -- the root cause of the 2026-06-24/25
+# snapshot outages (capture ratio 0.51, 8.5h gap). The supervisor's own ensure
+# cadence still bounds how often a stale-code relaunch can occur.
+_BENIGN_RESTART_CAUSES = {"stale_code"}
+
+
 def _recovery_event(event: dict[str, Any]) -> bool:
-    return (
-        str(event.get("supervisor") or "").lower() == "ensure"
-        and str(event.get("action") or "").lower() in {"start", "restart"}
-    )
+    if str(event.get("supervisor") or "").lower() != "ensure":
+        return False
+    if str(event.get("action") or "").lower() not in {"start", "restart"}:
+        return False
+    if str(event.get("restart_cause") or "").lower() in _BENIGN_RESTART_CAUSES:
+        return False
+    return True
 
 
 def _looks_like_recovery_event_line(line: str) -> bool:

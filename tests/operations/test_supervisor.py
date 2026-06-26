@@ -193,6 +193,56 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(circuit["action"], "circuit_open")
         self.assertEqual(circuit["recent_recovery_count"], 2)
 
+    def test_stale_code_restarts_do_not_consume_crash_budget(self):
+        # A burst of commits makes every collection loop detect stale code and
+        # exit cleanly; those benign current-code re-adoptions must not trip the
+        # crash breaker. This is the 2026-06-24/25 snapshot-outage root cause:
+        # 4 stale-code + 2 crash restarts hit the budget of 6 and went dark.
+        now = datetime(2026, 6, 25, 18, 54, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="snapshot",
+                module="weather.example",
+                status_path=root / "status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "console.log",
+                restart_budget=6,
+                restart_backoff_base_seconds=60,
+            )
+            events = [
+                {
+                    "time": (now - timedelta(minutes=minutes)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "STALE_CODE",
+                    "restart_cause": "STALE_CODE",
+                }
+                for minutes in (50, 40, 30, 20)
+            ] + [
+                {
+                    "time": (now - timedelta(minutes=minutes)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }
+                for minutes in (15, 10)
+            ]
+            diagnostics_path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            guard = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+
+        # Only the 2 crash restarts count toward the budget of 6; the 4 stale-code
+        # re-adoptions are excluded, so the breaker stays closed and a relaunch is
+        # allowed instead of going dark for the 24h window.
+        self.assertEqual(guard["recent_recovery_count"], 2)
+        self.assertTrue(guard["allowed"])
+        self.assertNotEqual(guard["action"], "circuit_open")
+
     def test_circuit_open_diagnostic_emits_once_per_breaker_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -874,6 +874,13 @@ def build_early_hour_promotion_blocker(
     }
     fleet_summary = (fleet_observability or {}).get("summary") or {}
     live_forward_slo = (fleet_observability or {}).get("live_forward_slo") or {}
+    clean_day_countability = (fleet_observability or {}).get("clean_active_day_countability") or {}
+    early_hour_coverage = (
+        (fleet_observability or {}).get("early_hour_coverage_proof")
+        or clean_day_countability.get("early_hour_coverage_proof")
+        or {}
+    )
+    early_hour_summary = early_hour_coverage.get("summary") or {}
     production_readiness = {
         "live_forward_slo_status": (
             live_forward_slo.get("status")
@@ -885,6 +892,29 @@ def build_early_hour_promotion_blocker(
             or ((fleet_observability or {}).get("current_code_soak") or {}).get("status")
             or "MISSING"
         ),
+        "clean_active_day_countability_status": (
+            clean_day_countability.get("status")
+            or fleet_summary.get("clean_active_day_countability_status")
+            or "MISSING"
+        ),
+        "counts_toward_early_hour_evidence": (
+            clean_day_countability.get("counts_toward_early_hour_evidence")
+            if clean_day_countability
+            else fleet_summary.get("clean_active_day_counts_toward_early_hour_evidence")
+        ),
+        "early_hour_coverage_status": early_hour_summary.get("status") or fleet_summary.get("early_hour_coverage_status"),
+        "early_hour_coverage_countable_markets": (
+            early_hour_summary.get("countable_market_count")
+            if early_hour_summary
+            else fleet_summary.get("early_hour_coverage_countable_markets")
+        ),
+        "early_hour_coverage_total_snapshots": (
+            early_hour_summary.get("total_snapshot_count")
+            if early_hour_summary
+            else fleet_summary.get("early_hour_coverage_total_snapshots")
+        ),
+        "clean_active_day_countability": clean_day_countability,
+        "early_hour_coverage_proof": early_hour_coverage,
     }
 
     blockers = []
@@ -957,6 +987,21 @@ def build_early_hour_promotion_blocker(
             (
                 "current-code soak remains a production-readiness blocker, "
                 f"status={production_readiness['current_code_soak_status']}"
+            ),
+            evidence=production_readiness,
+        )
+    if (
+        production_readiness["clean_active_day_countability_status"] not in {"PASS", "OK"}
+        or production_readiness["counts_toward_early_hour_evidence"] is not True
+    ):
+        first_clean_blocker = (clean_day_countability.get("first_blocker") or {})
+        _append_blocker(
+            blockers,
+            "clean_active_day_countability",
+            (
+                "clean active day is not countable for early-hour evidence, "
+                f"status={production_readiness['clean_active_day_countability_status']}; "
+                f"first_blocker={first_clean_blocker.get('name') or '-'}"
             ),
             evidence=production_readiness,
         )
