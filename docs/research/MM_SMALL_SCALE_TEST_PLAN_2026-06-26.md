@@ -19,7 +19,7 @@ Prepare a small-scale market-making test where the first measurable objective is
 
 Do these before any new paper-live-forward evidence is interpreted.
 
-Use the active daily-roll target date, not UTC tomorrow or a manually guessed date. In this pass the active target date was `2026-06-25`; future-date drills for `2026-06-26` were useful, but they did not have snapshot/CLOB folders yet and should not be treated as active-day readiness proof.
+Use the active daily-roll target date, not UTC tomorrow or a manually guessed date. Earlier in this pass the active target date was `2026-06-25`; a later June 26 shadow tick had current CLOB, event metadata, and exchange economics, but still blocked on stale model snapshots and known-edge permission. Do not treat any `shadow` operator drill as countable live-forward evidence.
 
 1. Refresh target-date event metadata:
 
@@ -33,6 +33,7 @@ Acceptance:
 - `data/backtest/event_metadata_validation.json` is `PASS`.
 - The target-date event slug exists for every selected market.
 - Token maps, condition IDs, and outcome labels match live discovery.
+- The accepted exchange-economics snapshot is verified for the same target date selected for the run. Bounded paper reports must show this target date explicitly.
 
 2. Refresh exchange economics:
 
@@ -80,7 +81,10 @@ Current pass result:
 - Latest stable drill `data/mm_runs/2026-06-25/20260626T020148684548Z` had 1 quote-permission row, 0 live-trade-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION` rows, and 10 `NO_QUOTE_MISSING_BOOK` rows.
 - The one quote was Dallas `92-93 F`, post-settlement only, with expected reward score 1.0.
 - The restarted daily roll is post-settlement evidence and does not count toward live-forward gates.
-- Therefore Phase 2 should not be treated as satisfied until the Dallas quote and any future quote permissions are observed during the next active window and can be scored with markouts.
+- Earlier current-date June 26 shadow drill `data/mm_runs/2026-06-26/20260626T132648384687Z` had 132 no-quote rows, 0 quote-permission rows, 0 live-trade-permission rows, 121 `NO_QUOTE_STALE_INPUT` rows, and 11 `NO_QUOTE_KNOWN_EDGE_PERMISSION` rows.
+- Latest current-date June 26 shadow drill `data/mm_runs/2026-06-26/20260626T134201734227Z` had preflight `PASS`, 9 Dallas harvest-only quote-permission rows, 123 no-quote rows, 0 live-trade-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION` rows, and 2 `NO_QUOTE_DISAGREEMENT_SHADOW` rows.
+- Daily-roll status later showed stale/pid-missing. Repair that before collecting countable paper-live-forward evidence.
+- Therefore Phase 2 should not be treated as satisfied until daily roll is healthy, quote permissions are observed during an active paper-live-forward window, fill evidence is complete enough for promotion, and the run can be scored with markouts and settlement/resting-quote resolution.
 
 ## Phase 2: Countable Paper-Live-Forward
 
@@ -114,19 +118,21 @@ Commands:
 
 Current caveat:
 
-- In this pass, full promotion-grade `weather.market.mm_paper` timed out after 300 seconds on the historical corpus.
+- Full-corpus standard model-variant scoring now writes `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json` after the streamed-casebook, compact-leg, and quote-row release runtime fixes. The result is still not promotion-grade because fill evidence is `BLOCK` and model-variant promotion is `BLOCK`.
+- Current fill-evidence blockers are specific enough to target before any live pilot: 8,893 missing-size trade rows, 2,182 missing-book queue legs, and 26 missing-trade-size queue legs. The largest missing-size event gaps are Dallas June 25, Denver June 23, Denver June 21, Austin June 23, Atlanta June 21, and Houston June 21. The largest missing-book queue gaps are early-hour `YES_ASK` slices, led by Los Angeles `70-71 F` at `02:00Z`, Houston `88-89 F` at `02:00Z`, and Dallas `92-93 F` at `02:00Z`.
 - A bounded score for `data/mm_runs/2026-06-25/20260626T020148684548Z` completed and wrote `data/backtest/mm_paper_quote_starvation_20260626T020148684548Z.json`, but that result is diagnostic only because it is one post-settlement run.
 - `weather.market.mm_paper` now also supports target-date/latest-N bounded scoring:
   `.\venv\Scripts\python.exe -m weather.market.mm_paper --target-date <ACTIVE_TARGET_DATE> --evidence-mode active_day_live_forward --latest-n <N> --json-out data\backtest\mm_paper_bounded_<label>.json --report-out data\backtest\mm_paper_bounded_<label>.md --fills-out data\backtest\mm_paper_bounded_<label>_fills.csv --known-edge-out data\backtest\mm_known_edge_bounded_<label>.json --known-edge-report-out data\backtest\mm_known_edge_bounded_<label>.md`
 - Add `--skip-model-variants` only for faster operational diagnostics. A skip report must show model-variant scoring `SKIPPED (skip_model_variants)` and cannot be used as model-promotion evidence.
 - Add `--skip-fill-simulation --skip-model-variants` only for full-corpus quote/no-quote and reward-score diagnostics. A skip-fill report must show fill evidence `SKIPPED (skip_fill_simulation)` and cannot be used for P&L, fill evidence, known-edge promotion, or model-variant promotion.
 - The latest bounded active-day promotion-grade score selected `data/mm_runs/2026-06-25/20260626T015448206993Z`, completed in 2.2 seconds after quote-blocker diagnostics were added, and found 132 quote rows, 0 quote legs, 0 quote-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 11 `NO_QUOTE_INFORMATION_EVENT`, and reward score 0. Quote-blocker diagnostics show overlapping blockers: all 132 rows were event-gate suppressed, 121 rows were known-edge permission-blocked, and 11 harvest-only rows were suppressed by the event gate. This is the current active-day blocker; fill evidence `PASS` on this run only means there were no quoted legs to evaluate.
-- Before any live pilot, either full scoring must complete on current artifacts or bounded scoring must explicitly cover every countable active-window run selected for promotion and disclose the selected scope.
+- The latest bounded June 26 shadow score selected `data/mm_runs/2026-06-26/20260626T134201734227Z`, completed in 5.0 seconds, and found 132 quote rows, 18 quote legs, 9 quote-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`, reward score 12.26505, counterfactual reward 109.2508 USDC, and exchange economics target-date match for `2026-06-26`. This is diagnostic only because it is `shadow`, freshness is `NO_ACTIVE_DAY`, fill evidence is `BLOCK`, and active-day resting quotes are unresolved until settlement evidence exists.
+- Before any live pilot, full standard scoring must pass on current artifacts. Bounded scoring is useful for targeted diagnosis only unless it explicitly covers every countable active-window run selected for promotion and all live-pilot gates still pass.
 
 Acceptance:
 
-- `mm_paper_report.json` freshness is `PASS`.
-- Fill evidence completeness improves or remains explicitly blocked with understood reasons.
+- The latest full standard paper report freshness is `PASS`.
+- Fill evidence completeness is `PASS`; an explicitly understood `BLOCK` is useful for diagnosis but does not satisfy live-pilot acceptance.
 - Conservative fills and queue-estimated fills are reported separately.
 - Adverse-selection markout is not hidden by rebate/reward estimates.
 - Reward estimate is calculated using the current operating platform formula.

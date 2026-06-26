@@ -8,7 +8,7 @@ Scope: repo-grounded audit for small-scale market-making preparation and liquidi
 
 The market-making stack is built with the right safety shape for a future small pilot: policy is separate from execution, exchange signing is injected, stale data fails closed, live mode is gated, and paper scoring separates conservative fills from queue-estimated fills.
 
-The current evidence is still not ready for live reward farming. After refreshing same-day metadata and exchange economics for the active daily-roll date, the 2026-06-25 shadow tick reached `preflight_status = PASS` but produced 0 quote-permission rows. After scoped-runtime fixes and supervisor restarts, a later stable post-settlement drill produced 1 non-countable Dallas harvest quote. The remaining blocker is policy/evidence coverage, not basic discovery.
+The current evidence is still not ready for live reward farming. After refreshing same-day metadata and exchange economics for the prior active daily-roll date, the 2026-06-25 shadow tick reached `preflight_status = PASS` but produced 0 quote-permission rows. After scoped-runtime fixes and supervisor restarts, a later stable post-settlement drill produced 1 non-countable Dallas harvest quote. An early 2026-06-26 shadow tick had current event metadata, CLOB, and exchange economics, but still produced 0 quote-permission rows because model snapshots were stale across 11 markets and Toronto lacked known-edge permission. After the snapshot/model loop caught up, the latest 2026-06-26 shadow tick passed preflight and produced 9 Dallas harvest-only quote permissions with 0 live-trade permissions. The remaining blockers are known-edge coverage, fill-evidence completeness, active-day settlement/resting-quote resolution, daily-roll health, and countable live-forward paper evidence, not basic market discovery.
 
 The immediate objective should be quote-starvation diagnosis under fresh active-day data, not live order placement.
 
@@ -21,7 +21,7 @@ Commands and results from this pass:
   - Result: 89 passed, 5 subtests passed.
 - Focused maker/exchange/platform-verification suite after v0.2 gate tightening:
   `.\venv\Scripts\python.exe -m pytest tests\market\test_mm_policy.py tests\market\test_mm_risk.py tests\market\test_mm_paper.py tests\market\test_market_making_run.py tests\market\test_mm_exchange.py tests\market\test_mm_exchange_reports.py tests\operations\test_runtime_identity.py -q`
-  - Result: 109 passed, 5 subtests passed.
+  - Result after the latest shadow-score/doc refresh: 111 passed, 5 subtests passed.
 - Runtime/snapshot identity tests after the scoped runtime guard fix:
   `.\venv\Scripts\python.exe -m pytest tests\operations\test_runtime_identity.py tests\collection\test_loop_supervisor.py tests\collection\test_collection_robustness.py -q`
   - Result: 44 passed.
@@ -45,7 +45,30 @@ Commands and results from this pass:
   - Root cause class: `policy_no_edge`.
   - Reason counts: `NO_QUOTE_KNOWN_EDGE_PERMISSION = 121`, `NO_QUOTE_MISSING_BOOK = 10`, `NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED = 1`.
 
-The 2026-06-26 shadow tick is useful as a future-date drill, but not as active-day proof. It had event metadata and exchange economics `PASS`, yet all 12 markets blocked on missing active current market rows, missing snapshot/model rows, empty CLOB token files, missing CLOB books/features, and missing reward metadata because no June 26 snapshot folders existed while the active loops were still on June 25.
+The initial 2026-06-26 shadow tick was useful as a future-date drill, but not as active-day proof. It had event metadata and exchange economics `PASS`, yet all 12 markets blocked on missing active current market rows, missing snapshot/model rows, empty CLOB token files, missing CLOB books/features, and missing reward metadata because no June 26 snapshot folders existed while the active loops were still on June 25.
+
+The earlier 2026-06-26 current-date shadow tick `data/mm_runs/2026-06-26/20260626T132648384687Z` showed the next blocker after CLOB and economics recovered:
+
+- CLOB status/audit: `RUNNING`, strict audit `ok: true`.
+- Event metadata validation: `PASS`.
+- Exchange economics: `PASS`, accepted for `2026-06-26`.
+- Preflight status: `WARN`.
+- Quote rows / quote permissions / live-trade permissions: 132 / 0 / 0.
+- First failing gate: `model_freshness`.
+- No-quote reasons: 121 `NO_QUOTE_STALE_INPUT`, 11 `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+- Bounded paper score: 0 quote legs, 0 conservative fills, 0 queue-estimated fills, reward score 0, freshness `NO_ACTIVE_DAY`.
+
+The latest 2026-06-26 current-date shadow tick `data/mm_runs/2026-06-26/20260626T134201734227Z` shows model freshness can clear without weakening gates:
+
+- CLOB status/audit: `RUNNING`, strict audit `ok: true`.
+- Event metadata validation: `PASS`.
+- Exchange economics: `PASS`, accepted for `2026-06-26`.
+- Preflight status: `PASS`.
+- Quote rows / quote permissions / live-trade permissions: 132 / 9 / 0.
+- Quoted cells: 9 Dallas harvest-only two-sided rows, 18 paper-posted lifecycle legs, 15.3055 USDC reserved shadow risk.
+- No-quote reasons: 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`.
+- Bounded paper score: 18 quote legs, 0 conservative fills, 0 queue-estimated fills, reward score 12.26505, counterfactual reward 109.2508 USDC, freshness `NO_ACTIVE_DAY`, fill evidence `BLOCK`.
+- Fill blockers in the bounded score: 784 missing-size trade rows and 18 unresolved resting quotes because active-day settlement evidence was not available.
 
 ## Architecture Map
 
@@ -108,8 +131,8 @@ Relevant roadmap items are consistent with the current audit result:
 Verified or strongly evidenced:
 
 - Shadow mode did not emit live-trade permission: the active-date run had `live_trade_permission_rows = 0`.
-- Policy fail-closed behavior is working: missing future-date artifacts produced 12 no-quote rows and no permissions; active-date policy uncertainty initially produced 132 no-quote rows and no permissions; later post-settlement evidence produced only 1 non-countable quote and no live permission.
-- Exchange economics is target-date gated: the snapshot now validates for active date `2026-06-25` and platform `polymarket_us`.
+- Policy fail-closed behavior is working: missing future-date artifacts produced 12 no-quote rows and no permissions; stale current-date model snapshots produced 132 no-quote rows and no permissions; prior active-date policy uncertainty produced 132 no-quote rows and no permissions; later post-settlement evidence produced only 1 non-countable quote and no live permission.
+- Exchange economics is target-date gated: the snapshot now validates for target date `2026-06-26` and platform `polymarket_us`.
 - Event metadata is target-date gated: active-date validation is now `PASS`.
 - CLOB strict audit passed at check time across 12 markets.
 - Exchange signing remains external/injected through request-plan and adapter boundaries.
@@ -119,8 +142,8 @@ Verified or strongly evidenced:
 
 Still blocked:
 
-- Quote permissions are zero under active-day fresh preflight.
-- The daily roll status still reported all-market active-day useful-work liveness `BLOCK` in the operator report.
+- Quote permissions remain sparse and non-countable: the latest current-date `shadow` run produced 9 Dallas harvest-only quote permissions, but no active-window paper-live-forward evidence counted.
+- The daily roll status later reported `pid_missing` / `blocked_restart_required`, so active-window paper-live-forward collection is not healthy yet.
 - The standard paper report has `fill_evidence_completeness.status = BLOCK`.
 - Standard reward estimate remains 0, so reward-farming economics are not yet measured in a useful way.
 - Model variant promotion remains blocked by evidence gates.
@@ -138,9 +161,9 @@ Still blocked:
 
    The active run had 10 `NO_QUOTE_MISSING_BOOK` rows and 1 `NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED` row. Those are infrastructure/data-quality blockers mixed into an otherwise policy-driven no-quote day.
 
-3. Future-date validation can pass while data folders are absent.
+3. Future-date validation can pass while data folders are absent, and later model freshness can recover without weakening gates.
 
-   The June 26 shadow tick showed event metadata and economics can validate for the future target date, but the market-making preflight still correctly blocks when snapshots, source-status rows, token files, books, features, and reward metadata are not present.
+   The first June 26 shadow tick showed event metadata and economics can validate for the target date, while preflight correctly blocked when snapshots, source-status rows, token files, books, features, and reward metadata were not present. The next June 26 shadow tick showed CLOB and economics recovered, but model freshness still blocked 11 markets. The latest June 26 shadow tick then passed preflight and emitted only 9 Dallas harvest-only quote permissions, proving the stale-model gate can clear while known-edge and evidence gates still prevent broader quoting.
 
 4. The economics snapshot is not a live API readiness proof.
 
@@ -194,10 +217,12 @@ Bounded paper-score follow-up:
 - Reward-score diagnostics were added to `weather.market.mm_paper` and the paper report. The bounded smoke report scored 52 quoted legs under the Polymarket US discount-factor/ticks formula, with total reward score 141.7, score/target-size 0.01417, and counterfactual reward 586.263964 USDC under campaign-pool 1000 and competitor-score 100 assumptions.
 - `--skip-model-variants` was added for faster operational paper diagnostics. A skip-variant smoke report completed in 3.9 seconds at smoke-check time, selected the same growing post-settlement run, and disclosed model-variant scoring `SKIPPED (skip_model_variants)` with 5,148 quote rows, 62 quote legs, 7 conservative fills, freshness `NO_ACTIVE_DAY`, fill evidence `BLOCK`, and net -0.013636 USDC.
 - `--skip-fill-simulation` was added for full-corpus quote/no-quote/reward diagnostics. A full summary-only report completed in about 176 seconds with 36 included run folders, 628,481 quote rows, 71,828 quote legs, 35,914 quote-permission rows, reward score 165,800.676275, counterfactual reward 999.39723 USDC, paper freshness `PASS`, fill evidence `SKIPPED`, and model-variant scoring `SKIPPED`.
-- `mm_paper_scoring.py` now caches per-token timestamp indexes for trade, book, and mark rows, but full-corpus promotion-grade scoring with `--skip-model-variants` still timed out after 300 seconds and wrote no outputs.
+- `mm_paper_scoring.py` now caches per-token timestamp indexes, streams the large disagreement casebook, drops full quote-row references from quote legs after reward estimates are attached, and releases the full quote-row corpus before fill simulation. A full-corpus standard report with model variants enabled now wrote `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json`: 636,005 quote rows, 71,836 quote legs, 44 conservative fills, 13,045 queue-estimated fill legs, freshness `PASS`, fill evidence `BLOCK`, reward score 165,822.476275, model-variant scoring `PASS`, 39,534 model-variant quote rows, 264 model-variant quote legs, 32 model-variant conservative fills, and model-variant promotion `BLOCK`.
+- The standard report now renders focused fill-evidence blockers. Current fill blockers are 8,893 missing-size trade rows, 2,182 missing-book queue legs, and 26 missing-trade-size queue legs. The largest missing-size events are Dallas June 25, Denver June 23, Denver June 21, Austin June 23, Atlanta June 21, and Houston June 21. The largest missing-book queue slices are early-hour `YES_ASK` rows, led by Los Angeles `70-71 F` at `02:00Z`, Houston `88-89 F` at `02:00Z`, and Dallas `92-93 F` at `02:00Z`.
 - Bounded latest active-day promotion-grade scoring selected `data/mm_runs/2026-06-25/20260626T015448206993Z`: 132 quote rows, 0 quote legs, 0 quote-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 11 `NO_QUOTE_INFORMATION_EVENT`, freshness `PASS`, fill evidence `PASS` only because no quotes existed, reward score 0.
 - Paper reports now include quote-blocker diagnostics. The latest active-day report shows overlapping blockers: 132 event-gate suppressed rows, 121 known-edge permission-blocked rows, 132 known-edge state rows, 132 known-edge allowed=false rows, 11 harvest-only rows suppressed by the event gate, top event-gate state `PULL/suppress/INFO_EVENT_METAR_PRINT`, and top known-edge states 66 `promotion_block/no_quote/BLOCK`, 33 `missing_known_edge_record/no_quote/SHADOW`, 22 `missing_known_edge_record/no_quote/BLOCK`, 11 `awaiting_paper_markouts/harvest_only/SHADOW`.
-- The full historical promotion-grade `weather.market.mm_paper` path still timed out after 300 seconds, so fill/queue/markout scoring still needs further runtime work before it can be relied on during live-prep cycles.
+- Bounded paper scoring now enforces the selected run's target date for exchange-economics gates when no completed active-day freshness date exists. The June 26 shadow report proves economics target-date match for `2026-06-26` instead of silently checking with no target date.
+- The full historical fill/queue/markout path can now produce a standard model-variant report on current artifacts, but it is still not promotion-grade live-prep evidence because fill evidence is `BLOCK`, locked policy params are false, live-forward paper days are only 2, and model-variant promotion is `BLOCK`.
 
 ## Go / No-Go
 
@@ -219,18 +244,20 @@ PASS:
 WARN:
 
 - CLOB and daily-roll processes can look alive while useful-work liveness is blocked.
-- Paper P&L is small and 30-minute adverse selection is negative in the existing standard report.
+- Paper P&L is small and 30-minute adverse selection is negative in the current standard report.
 - Queue-estimated fills are much larger than conservative fills and remain diagnostic, not promotion-grade.
 - Bounded post-settlement scoring is now fast, but it is diagnostic-only unless it exactly covers the intended countable evidence set.
-- Skip-model-variants scoring is faster, but it omits model-promotion evidence by design.
+- Standard model-variant scoring now runs, but promotion remains blocked by insufficient independent target-day evidence and no positive lower-bound net-P&L delta versus served current.
 - Skip-fill-simulation scoring makes full-corpus quote/reward inspection possible, but omits conservative fills, queue companion, markouts, P&L, and fill-evidence gates by design.
 - Reward-score and counterfactual payout diagnostics are present, but actual payout and competitor-score calibration remain unproven.
 
 BLOCK:
 
-- Zero quote-permission rows on the active-date shadow tick.
+- Sparse, non-countable quote permissions: 9 Dallas harvest-only rows appeared in the latest `shadow` drill, but 121 rows still emitted `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+- Current-date bounded score still has fill evidence `BLOCK`: 784 missing-size trade rows and 18 unresolved resting quotes.
+- Daily-roll status is stale/pid-missing and still needs repair before countable live-forward evidence resumes.
 - Missing-book and snapshot-cadence no-quote reasons.
-- Fill evidence completeness.
+- Fill evidence completeness: missing trade sizes and missing book snapshots are still too large for promotion-grade queue/fill confidence.
 - Reward-score simulation and reward P&L measurement.
 - Model/policy promotion.
 - Live account/platform verification and live lifecycle evidence.

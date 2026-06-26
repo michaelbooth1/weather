@@ -684,6 +684,35 @@ class TestMMPaper(unittest.TestCase):
         self.assertEqual(selection["evidence_mode"], "active_day_live_forward")
         self.assertEqual([Path(path).name for path in selection["selected_run_folders"]], ["active"])
 
+    def test_bounded_run_uses_selected_target_date_for_exchange_economics_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            stale_snapshot = exchange_economics.build_snapshot_payload(
+                target_date="2026-06-13",
+                verified_at_utc="2026-06-14T17:00:00+00:00",
+            )
+            snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", stale_snapshot)
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                exchange_economics_snapshot_path=snapshot_path,
+                exchange_economics_platform="polymarket_us",
+                exchange_economics_required=True,
+                include_fill_simulation=False,
+                now="2026-06-14T17:00:00+00:00",
+            )
+
+        gate = payload["exchange_economics_gate"]
+        self.assertEqual(gate["target_date"], TARGET_DATE)
+        self.assertEqual(gate["verified_for_target_date"], "2026-06-13")
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertFalse(gate["checks"]["target_date_matches"])
+        self.assertIn("target_date_matches", gate["missing"])
+
     def test_reward_score_diagnostics_use_polymarket_us_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1045,6 +1074,8 @@ class TestMMPaper(unittest.TestCase):
             self.assertGreater(fill_gate["clob_recon_book_rows"], 0)
             self.assertGreater(fill_gate["clob_recon_slice_rows"], 0)
             self.assertTrue(fill_gate["by_market_hour_token"])
+            self.assertIn("range_label", fill_gate["by_market_hour_token"][0])
+            self.assertIn("side", fill_gate["by_market_hour_token"][0])
             fill = payload["fills"][0]
             self.assertEqual(fill["side"], "YES_BID")
             self.assertEqual(float(fill["fill_price"]), 0.49)
@@ -1072,6 +1103,9 @@ class TestMMPaper(unittest.TestCase):
             report = Path(files["report"]).read_text(encoding="utf-8")
             self.assertIn("## Model-Variant Bakeoff", report)
             self.assertIn("## Fill Evidence Completeness", report)
+            self.assertIn("### Top Event Data Gaps", report)
+            self.assertIn("### Top Incomplete Market Data Slices", report)
+            self.assertIn("YES_BID", report)
             self.assertIn("external_dynamic", report)
 
             permissions = {(row["market_id"], row["permission"]) for row in known_edge["records"]}

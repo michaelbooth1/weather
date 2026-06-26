@@ -32,6 +32,21 @@ The one quoted row:
 
 Interpretation: this is useful as a paper target for the next active window, but it does not justify live capital.
 
+## Current-Date Addendum
+
+Latest current-date shadow drill: `data/mm_runs/2026-06-26/20260626T134201734227Z`.
+
+- Preflight: `PASS`.
+- Quote-permission rows: 9.
+- Live-trade-permission rows: 0.
+- No-quote rows: 123.
+- No-quote reasons: 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`.
+- Quoted rows: Dallas `87 F or below`, `88-89 F`, `90-91 F`, `96-97 F`, `98-99 F`, `100-101 F`, `102-103 F`, `104-105 F`, and `106 F or higher`.
+- Quote type: two-sided `QUOTE_HARVEST_MID`, `harvest_only`, capped to 1.75 shares per side by the early-hour guardrail.
+- Bounded score: `data/backtest/mm_paper_shadow_20260626T134201734227Z_20260626.json` found 18 quote legs, 0 conservative fills, 0 queue-estimated fills, reward score 12.26505, counterfactual reward 109.2508 USDC, and fill evidence `BLOCK`.
+
+Interpretation: model freshness can now clear, but known-edge coverage still blocks 121 of 132 current-date rows. The Dallas current-date quotes are useful shadow targets for markout collection; they are not live authorization and not promotion-grade evidence.
+
 ## Blocker Map
 
 | Market | Rows | Status | Action |
@@ -72,7 +87,7 @@ These missing-book rows should not be forced into quotes. They should be diagnos
 
 ## One-Run Paper Score
 
-The full promotion-grade `weather.market.mm_paper` command still timed out after 300 seconds on the full historical corpus. The explicit one-run score completed quickly:
+Before the streamed-casebook and compact-leg runtime fixes, the full promotion-grade `weather.market.mm_paper` command timed out after 300 seconds on the full historical corpus. The explicit one-run score completed quickly:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_paper --run-folder data\mm_runs\2026-06-25\20260626T020148684548Z --json-out data\backtest\mm_paper_quote_starvation_20260626T020148684548Z.json --report-out data\backtest\mm_paper_quote_starvation_20260626T020148684548Z.md --fills-out data\backtest\mm_paper_quote_starvation_fills_20260626T020148684548Z.csv --known-edge-out data\backtest\mm_known_edge_quote_starvation_20260626T020148684548Z.json --known-edge-report-out data\backtest\mm_known_edge_quote_starvation_20260626T020148684548Z.md
@@ -103,9 +118,9 @@ The one-run known-edge map produced 217 records: 176 `harvest_only`, 38 `no_quot
 - `data/mm_runs/2026-06-21/20260621T153607128252Z`: about 83 MB of quote tape.
 - `data/mm_runs/2026-06-24/20260624T233003009128Z`: about 82 MB of quote tape.
 - `data/mm_runs/2026-06-22/20260622T233019900796Z`: about 14 MB of quote tape.
-- Ongoing post-settlement roll `20260626T015632370043Z`: growing while the scorer runs.
+- Post-settlement roll `20260626T015632370043Z`: useful for bounded diagnostics, not countable active-window evidence.
 
-Bounded and summary-only scoring are now available for diagnostics, but full-corpus promotion-grade runtime remains a blocker for standard reporting:
+Bounded and summary-only scoring are available for diagnostics, and full-corpus standard model-variant scoring now writes a current report. It remains blocked for promotion because fill evidence is incomplete and model-variant promotion is blocked:
 
 - explicit `--run-folder` for current diagnostics,
 - `--latest-n` for recent runs,
@@ -114,13 +129,24 @@ Bounded and summary-only scoring are now available for diagnostics, but full-cor
 - bounded reports that disclose `diagnostic_selection_not_full_corpus`,
 - `--skip-model-variants` for faster operational diagnostics, with model-variant bakeoff disclosed as `SKIPPED (skip_model_variants)`,
 - `--skip-fill-simulation --skip-model-variants` for full-corpus quote/no-quote and reward-score diagnostics, with fill evidence disclosed as `SKIPPED (skip_fill_simulation)`,
+- streamed casebook loading, compact quote legs, and quote-row release reduce memory pressure enough for the current full-corpus standard model-variant report to write,
 - cached CLOB/trade joins for queue companion scoring remain useful follow-up work.
 
 The full summary-only run completed in about 176 seconds with 628,481 quote rows, 71,828 quote legs, 35,914 quote-permission rows, reward score 165,800.676275, paper freshness `PASS`, fill evidence `SKIPPED`, and model-variant scoring `SKIPPED`. Its known-edge map had only 17 records and is diagnostic only.
 
-Skip-model-variant reports are not model-promotion evidence, and skip-fill reports are not fill, P&L, or known-edge promotion evidence. Until promotion-grade full-corpus scoring is fast enough, use explicit `--run-folder` or bounded target-date scoring for targeted diagnosis and do not treat bounded or summary-only known-edge maps as the standard map.
+The later full-corpus fill/queue/markout run with `--skip-model-variants` wrote `data/backtest/mm_paper_full_promotion_skip_variants_compact_legs_20260626.json`: 636,005 quote rows, 71,836 quote legs, 44 conservative fills, 13,045 queue-estimated fill legs, paper freshness `PASS`, fill evidence `BLOCK`, reward score 165,822.476275, counterfactual reward 999.397309 USDC, and model-variant scoring `SKIPPED`.
+
+The later standard full-corpus model-variant run wrote `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json`: 636,005 quote rows, 71,836 quote legs, 44 conservative fills, 13,045 queue-estimated fill legs, paper freshness `PASS`, fill evidence `BLOCK`, model-variant scoring `PASS`, 39,534 model-variant quote rows, 264 model-variant quote legs, 32 model-variant conservative fills, and model-variant promotion `BLOCK`.
+
+The regenerated standard report now exposes the fill-evidence blocker surface directly: 8,893 missing-size trade rows, 2,182 missing-book queue legs, 26 missing-trade-size queue legs, and 0 unresolved resting quotes. The top missing-size events are Dallas June 25, Denver June 23, Denver June 21, Austin June 23, Atlanta June 21, and Houston June 21; the largest missing-book queue gaps are early-hour `YES_ASK` slices. Until those gaps close, the known-edge map is useful for harvest-only/no-quote research but not for live reward-farming promotion.
+
+Skip-model-variant reports are not model-promotion evidence, and skip-fill reports are not fill, P&L, or known-edge promotion evidence. Until model-variant promotion and fill evidence both pass, use explicit `--run-folder` or bounded target-date scoring for targeted diagnosis and do not treat bounded, summary-only, or skip-variant known-edge maps as the standard map.
 
 The latest bounded active-day promotion-grade score selected `data/mm_runs/2026-06-25/20260626T015448206993Z` and found 132 quote rows, 0 quote legs, 0 quote-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 11 `NO_QUOTE_INFORMATION_EVENT`, and reward score 0. Quote-blocker diagnostics show all 132 rows were event-gate suppressed, 121 were known-edge permission-blocked, and 11 harvest-only rows were suppressed by the event gate, with top known-edge states 66 `promotion_block/no_quote/BLOCK`, 33 `missing_known_edge_record/no_quote/SHADOW`, 22 `missing_known_edge_record/no_quote/BLOCK`, and 11 `awaiting_paper_markouts/harvest_only/SHADOW`. That active-day result is the countable blocker; the Dallas harvest quote remains post-settlement only.
+
+The earlier June 26 shadow drill selected `data/mm_runs/2026-06-26/20260626T132648384687Z` and found 132 quote rows, 0 quote legs, 0 quote-permission rows, 121 `NO_QUOTE_STALE_INPUT`, 11 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, and reward score 0. That was a stale-model diagnostic, not the current quote-permission state.
+
+The latest June 26 shadow drill selected `data/mm_runs/2026-06-26/20260626T134201734227Z` and found 132 quote rows, 18 quote legs, 9 quote-permission rows, 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`, reward score 12.26505, and fill evidence `BLOCK`. This makes the current known-edge blocker actionable again: the model-freshness gate cleared, but most markets/bands still lack permission or promotion evidence.
 
 ## Go / No-Go Impact
 
@@ -142,6 +168,5 @@ BLOCK:
 - Known-edge coverage missing for five markets.
 - Promotion blocks across six markets.
 - Dallas missing-book rows.
-- Full-corpus `mm_paper` runtime.
-- Full-corpus promotion-grade fill/queue/markout scoring runtime.
+- Model-variant promotion and fill-evidence completeness.
 - Live capital.

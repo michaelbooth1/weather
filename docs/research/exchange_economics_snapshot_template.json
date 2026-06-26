@@ -4,7 +4,7 @@
   "platform_surface": "retail_api_and_exchange_clob",
   "effective_date": "2026-04-03",
   "max_age_hours": 24,
-  "source_checked_at_utc": "2026-06-24T00:00:00+00:00",
+  "source_checked_at_utc": "2026-06-26T13:25:00+00:00",
   "source_urls": [
     "https://docs.polymarket.us/fees",
     "https://docs.polymarket.us/api-reference/orders/overview",
@@ -13,16 +13,16 @@
     "https://docs.polymarket.us/institutional/fix-api/fix-order-entry-overview",
     "https://docs.polymarket.us/changelog"
   ],
-  "source_hash": "9ca10e5517a9d4be486414dcb9162a3a",
+  "source_hash": "85aa79fefa832f611d43ca6aa47b7197",
   "source_metadata": {
     "source_hash_algorithm": "sha256 over normalized source_urls, sources, source_metadata excluding source_hash fields, source_evidence, and source_verification",
-    "source_hash": "9ca10e5517a9d4be486414dcb9162a3a",
+    "source_hash": "85aa79fefa832f611d43ca6aa47b7197",
     "operator_note": "Refresh this template from official Polymarket US documentation before accepting any material rule change."
   },
   "source_verification": {
     "verification_owner": "operator",
     "verification_scope": "Polymarket US fee, rebate, liquidity-incentive, tick-size, minimum-quantity, and order-semantics rules used by paper and shadow evidence",
-    "source_checked_date": "2026-06-24",
+    "source_checked_date": "2026-06-26",
     "runtime_publish_command": "python -m weather.market.exchange_economics publish --target-date <YYYY-MM-DD>",
     "accept_baseline_command": "python -m weather.market.exchange_economics accept --target-date <YYYY-MM-DD>"
   },

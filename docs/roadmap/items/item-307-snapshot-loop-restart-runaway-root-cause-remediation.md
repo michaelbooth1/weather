@@ -295,3 +295,19 @@ Code/tests:
 
 Verified live: after restart the snapshot loop captured `source_scope=loaded_modules`
 with `62` scoped files, `runtime_code_state=current`, and resumed fresh captures.
+
+## 2026-06-26 12h audit follow-up: extend benign-cause exclusion to the CLOB loop
+
+A 12-hour stability review found the snapshot loop healthy (no circuit trips,
+capture ratio 0.89-1.29 across markets vs 0.51 on 2026-06-24) but the CLOB loop
+circuit-broken with a 30-minute dark window. Root cause: the
+snapshot loop labels benign current-code re-adoption `stale_code`, but the
+CLOB/microstructure loop labels the same condition `runtime_identity`
+(`restart_cause = "runtime_identity" if not runtime_matches_current`). The
+circuit-breaker exclusion only covered `stale_code`, so the CLOB loop's benign
+re-adoptions still consumed its budget and tripped the breaker
+(`restart_budget_exceeded=12>=12`, repeating every ~40 min). Extended
+`_BENIGN_RESTART_CAUSES` to `{"stale_code", "runtime_identity"}`; the live CLOB
+recovery count dropped from `12` to `0`, the breaker closed, and the loop
+relaunched on current code with a scoped `35`-file identity. Regression test
+`test_stale_code_restarts_do_not_consume_crash_budget` now covers both labels.

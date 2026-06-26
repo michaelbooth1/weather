@@ -413,7 +413,12 @@ def _event_time(event: dict[str, Any]) -> datetime | None:
 # collection dark for the whole 24h window -- the root cause of the 2026-06-24/25
 # snapshot outages (capture ratio 0.51, 8.5h gap). The supervisor's own ensure
 # cadence still bounds how often a stale-code relaunch can occur.
-_BENIGN_RESTART_CAUSES = {"stale_code"}
+#
+# Different loops label this same benign re-adoption differently: the snapshot
+# loop uses health state "stale_code", while the CLOB/microstructure loop uses
+# "runtime_identity" (set when runtime_matches_current is False). Both mean the
+# loop is being relaunched on current code, not crash-looping, so both are benign.
+_BENIGN_RESTART_CAUSES = {"stale_code", "runtime_identity"}
 
 
 def _recovery_event(event: dict[str, Any]) -> bool:

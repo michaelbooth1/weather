@@ -145,7 +145,7 @@ Quoted row:
 
 ## One-Run Paper Score
 
-The latest stable run was scored with a bounded paper command because full-corpus promotion-grade `weather.market.mm_paper` timed out after 300 seconds in this pass.
+The latest stable run was scored with a bounded paper command before the streamed-casebook, compact-leg, and quote-row release runtime fixes. A later full-corpus standard model-variant run wrote `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json`, but it remains blocked because fill evidence is `BLOCK` and model-variant promotion is `BLOCK`. The standard report now identifies the fill-evidence gaps directly: 8,893 missing-size trade rows, 2,182 missing-book queue legs, and 26 missing-trade-size queue legs.
 
 Command:
 
@@ -193,6 +193,37 @@ The latest bounded active-day promotion-grade score selected `data/mm_runs/2026-
 
 Interpretation: the active-day run is countable for freshness but provides no reward-farming evidence because policy emitted no quotes. Blockers overlap: the METAR event gate suppressed every row, while known-edge/promotion state still blocked 121 emitted rows and Dallas remained information-event blocked. The post-settlement Dallas quote is useful for diagnosis, but it is not countable active-window evidence.
 
+## Earlier June 26 Shadow Score
+
+After June 26 CLOB, event metadata, and exchange economics were current, the keyless shadow drill `data/mm_runs/2026-06-26/20260626T132648384687Z` still produced no quote permissions:
+
+- Command output: `MM run: 0 quote rows, 132 no-quote rows, preflight WARN`.
+- Preflight first failing gate: `model_freshness`.
+- Per-market preflight: 11 markets `STALE` on model freshness; Toronto `PASS`.
+- No-quote reasons: 121 `NO_QUOTE_STALE_INPUT`, 11 `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+- Bounded paper score: `data/backtest/mm_paper_shadow_20260626T132648384687Z_20260626.json`.
+- Paper score result: 132 quote rows, 0 quote legs, 0 conservative fills, 0 queue-estimated fill legs, reward score 0, fill evidence `PASS` only because there were no quoted legs.
+- Exchange-economics gate: `PASS`, target date `2026-06-26`, verified-for target date `2026-06-26`.
+
+Interpretation: this June 26 blocker was not missing CLOB or economics anymore. It was stale model snapshots across 11 markets plus missing known-edge permission for Toronto.
+
+## Latest June 26 Shadow Score
+
+After the snapshot/model loop caught up, the keyless shadow drill `data/mm_runs/2026-06-26/20260626T134201734227Z` produced limited Dallas quote permission while still emitting no live-trade permission:
+
+- Command output: `MM run: 9 quote rows, 123 no-quote rows, preflight PASS`.
+- Preflight first failing gate: none.
+- Quote-permission rows: 9.
+- Live-trade-permission rows: 0.
+- Quoted rows: Dallas `87 F or below`, `88-89 F`, `90-91 F`, `96-97 F`, `98-99 F`, `100-101 F`, `102-103 F`, `104-105 F`, and `106 F or higher`; all were two-sided `QUOTE_HARVEST_MID` rows capped by the early-hour guardrail to 1.75 shares per side.
+- No-quote reasons: 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`.
+- Bounded paper score: `data/backtest/mm_paper_shadow_20260626T134201734227Z_20260626.json`.
+- Paper score result: 132 quote rows, 18 quote legs, 0 conservative fills, 0 queue-estimated fill legs, reward score 12.26505, counterfactual reward 109.2508 USDC, fill evidence `BLOCK`.
+- Fill blockers: 784 missing-size trade rows and 18 unresolved resting quotes because active-day settlement evidence was not available.
+- Exchange-economics gate: `PASS`, target date `2026-06-26`, verified-for target date `2026-06-26`.
+
+Interpretation: stale model snapshots are no longer the immediate current-date blocker. The current blocker is sparse, non-countable quote permission, mostly driven by known-edge coverage. The bounded score is useful only as shadow diagnostics until the daily roll is healthy, active-window paper-live-forward evidence exists, and fill/settlement evidence resolves.
+
 ## Liveness Fixes From This Pass
 
 Two scoped runtime-identity fixes were made because all-market useful-work liveness was reporting stale runtime identity even when individual supervisor status checks were scoped and current:
@@ -237,7 +268,7 @@ This is the correct capital-preservation posture. Reward farming should not proc
    - decide which keys should collect shadow evidence;
    - keep Dallas missing-book rows separate from true policy no-edge rows.
 2. For promotion-blocked markets, inspect the paper report and model-variant bakeoff evidence that drives `promotion_state = BLOCK`.
-3. For Dallas, collect countable active-window paper evidence for the `92-93 F` harvest quote and inspect the 10 missing-book no-quote rows.
+3. For current-date operation, repair daily-roll health first; then collect countable active-window paper evidence for any resulting harvest quote and inspect residual known-edge, disagreement, and missing-book no-quote rows.
 4. Extend the new reward-score diagnostics into payout/share simulation: target-size occupancy, competitor score, score share, and reward-dollar attribution by market/band/hour.
-5. Use bounded `weather.market.mm_paper --target-date ... --latest-n ...` for targeted active-window diagnostics and `--skip-fill-simulation --skip-model-variants` for full-corpus quote/reward diagnostics. Continue improving promotion-grade full-corpus fill/queue/markout scoring because the standard path still timed out after 300 seconds in this pass.
+5. Use bounded `weather.market.mm_paper --target-date ... --latest-n ...` for targeted active-window diagnostics, use the full-corpus standard model-variant report for current fill/queue/markout and model-variant diagnostics, and use `--skip-fill-simulation --skip-model-variants` only for quote/reward diagnostics. Continue improving fill-evidence blockers and collecting independent target days before treating the standard path as promotion-grade.
 6. Do not run live-pilot. The current state remains no-go for live capital.

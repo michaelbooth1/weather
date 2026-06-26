@@ -47,6 +47,13 @@ def fmt_num(value, digits=4):
         return str(value)
 
 
+def short_id(value, prefix=10, suffix=6):
+    text = str(value or "")
+    if len(text) <= prefix + suffix + 3:
+        return text
+    return f"{text[:prefix]}...{text[-suffix:]}"
+
+
 def markdown_table(headers, rows):
     lines = [
         "| " + " | ".join(headers) + " |",
@@ -421,17 +428,60 @@ def render_paper_report(payload):
             ["CLOB recon source", fill_evidence.get("clob_recon_coverage_source") or "-"],
         ],
     ))
-    if fill_evidence.get("by_market_hour_token"):
+    event_gap_rows = sorted(
+        fill_evidence.get("event_diagnostics") or [],
+        key=lambda row: (
+            int(row.get("missing_size_trade_rows") or 0),
+            1 if int(row.get("trade_rows") or 0) == 0 else 0,
+            1 if int(row.get("book_rows") or 0) == 0 else 0,
+            row.get("event_slug") or "",
+        ),
+        reverse=True,
+    )
+    if event_gap_rows:
+        lines.extend(["", "### Top Event Data Gaps", ""])
+        lines.extend(markdown_table(
+            ["Event", "Trades", "Missing size", "Books", "Marks", "Settlement"],
+            [
+                [
+                    row.get("event_slug"),
+                    row.get("trade_rows", 0),
+                    row.get("missing_size_trade_rows", 0),
+                    row.get("book_rows", 0),
+                    row.get("mark_rows", 0),
+                    row.get("settlement_available"),
+                ]
+                for row in event_gap_rows[:12]
+            ],
+        ))
+    slice_gap_rows = sorted(
+        fill_evidence.get("by_market_hour_token") or [],
+        key=lambda row: (
+            int(row.get("missing_book_queue_legs") or 0) + int(row.get("missing_trade_size_queue_legs") or 0),
+            finite_float(row.get("incomplete_market_data_leg_fraction"), 0.0) or 0.0,
+            int(row.get("quote_legs") or 0),
+            row.get("market_id") or "",
+            row.get("range_label") or "",
+            row.get("hour_utc") or "",
+            row.get("side") or "",
+        ),
+        reverse=True,
+    )
+    if slice_gap_rows:
         lines.extend([
             "",
-            "| Market | Hour | Token | Quote legs | Strict fills | Missing book | Missing size | Queue fill legs | No touch | Incomplete frac |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "### Top Incomplete Market Data Slices",
+            "",
+            "| Market | Range | Hour | Side | Token | Quote legs | Quoted shares | Strict fills | Missing book | Missing trade size | Queue fills | No touch | Incomplete frac |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ])
-        for row in (fill_evidence.get("by_market_hour_token") or [])[:30]:
+        for row in slice_gap_rows[:30]:
             lines.append(
-                f"| {row.get('market_id')} | {row.get('hour_utc')} | {row.get('clob_token_id')} | "
-                f"{row.get('quote_legs', 0)} | {row.get('strict_trade_through_fills', 0)} | "
-                f"{row.get('missing_book_queue_legs', 0)} | {row.get('missing_trade_size_queue_legs', 0)} | "
+                f"| {row.get('market_id')} | {row.get('range_label')} | {row.get('hour_utc')} | "
+                f"{row.get('side')} | {short_id(row.get('clob_token_id'))} | "
+                f"{row.get('quote_legs', 0)} | {fmt_num(row.get('quoted_shares'), 4)} | "
+                f"{row.get('strict_trade_through_fills', 0)} | {row.get('missing_book_queue_legs', 0)} | "
+                f"{row.get('missing_trade_size_queue_legs', 0)} | "
                 f"{row.get('queue_estimated_fill_legs', 0)} | {row.get('no_touch_queue_legs', 0)} | "
                 f"{fmt_num(row.get('incomplete_market_data_leg_fraction'), 3)} |"
             )

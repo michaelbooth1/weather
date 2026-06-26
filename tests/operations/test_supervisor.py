@@ -217,9 +217,16 @@ class TestSupervisorPrimitives(unittest.TestCase):
                     "supervisor": "ensure",
                     "action": "restart",
                     "state": "STALE_CODE",
-                    "restart_cause": "STALE_CODE",
+                    "restart_cause": cause,
                 }
-                for minutes in (50, 40, 30, 20)
+                # Both benign re-adoption labels: snapshot uses STALE_CODE, the
+                # CLOB/microstructure loop uses runtime_identity. Neither counts.
+                for minutes, cause in (
+                    (50, "STALE_CODE"),
+                    (40, "STALE_CODE"),
+                    (30, "runtime_identity"),
+                    (20, "runtime_identity"),
+                )
             ] + [
                 {
                     "time": (now - timedelta(minutes=minutes)).isoformat(),

@@ -148,10 +148,27 @@ Future-date shadow drill:
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-26 --budget-usdc 500 --mode shadow --markets all --once
 ```
 
-Result:
+Initial result before June 26 snapshot/CLOB folders were current:
 
 ```text
 MM run: 0 quote rows, 12 no-quote rows, preflight BLOCK -> data/mm_runs/2026-06-26/20260626T013844852296Z
+```
+
+Later current-date shadow drill after CLOB/event/economics evidence existed:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.event_metadata_validation --target-date 2026-06-26 --markets all
+.\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-26 --platform polymarket_us --accept
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-26 --budget-usdc 500 --mode shadow --markets all --once
+```
+
+Result:
+
+```text
+Event metadata validation: PASS
+Exchange economics snapshot: PASS
+Accepted baseline: PASS
+MM run: 0 quote rows, 132 no-quote rows, preflight WARN -> data/mm_runs/2026-06-26/20260626T132648384687Z
 ```
 
 Stable post-settlement quote-starvation drill:
@@ -169,28 +186,26 @@ MM run: 1 quote rows, 131 no-quote rows, preflight PASS -> data/mm_runs/2026-06-
 
 ## Current Paper Report
 
-Source: `data/backtest/mm_paper_report.json`.
+Source: `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json`.
 
 Summary:
 
-- Candidate run folders: 30.
-- Anti-overfit run count: 29.
-- Quote rows: 626,069.
-- Quote legs: 71,756.
-- Conservative fills: 35.
-- Conservative filled shares: 175.
+- Quote rows: 636,005.
+- Quote legs: 71,836.
+- Conservative fills: 44.
 - Queue-estimated fill legs: 13,045.
 - Paper score freshness: `PASS`.
-- Live-forward day count: 6.
+- Live-forward paper days: 2.
+- Locked policy params: false.
 - Exchange economics status in report: `PASS`.
 - Fill evidence completeness: `BLOCK`.
-- Net P&L after fees/incentives: 2.18671 USDC.
-- Spread capture: 1.75 USDC.
-- Adverse selection at 30 minutes: -5.3925 USDC.
-- Settlement P&L: 2.5625 USDC.
-- Maker fee-equivalent: 0.501057 USDC.
-- Maker rebate estimate: 0.125260 USDC.
-- Flattening fee estimate: 0.501057 USDC.
+- Net P&L after fees/incentives: 2.641678 USDC.
+- Spread capture: 2.2 USDC.
+- Adverse selection at 30 minutes: -5.4025 USDC.
+- Settlement P&L: 3.035 USDC.
+- Maker fee-equivalent: 0.52443 USDC.
+- Maker rebate estimate: 0.131101 USDC.
+- Flattening fee estimate: 0.52443 USDC.
 - Liquidity reward estimate: 0.
 
 Interpretation:
@@ -203,14 +218,31 @@ Interpretation:
 
 ## Fill Evidence Completeness
 
-Source: `data/backtest/mm_paper_report.json`.
+Source: `data/backtest/mm_paper_full_standard_model_variants_release_quotes_20260626.json`.
 
 Current blockers:
 
-- Missing size trade rows: 6,917.
-- Missing book queue legs: 2,142.
+- Missing size trade rows: 8,893.
+- Missing book queue legs: 2,182.
 - Missing trade-size queue legs: 26.
 - Unresolved resting quote count: 0.
+
+Largest missing-size event gaps:
+
+- `highest-temperature-in-dallas-on-june-25-2026`: 7,594 trade rows, 1,976 missing size rows.
+- `highest-temperature-in-denver-on-june-23-2026`: 2,506 trade rows, 1,562 missing size rows.
+- `highest-temperature-in-denver-on-june-21-2026`: 2,236 trade rows, 1,518 missing size rows.
+- `highest-temperature-in-austin-on-june-23-2026`: 2,301 trade rows, 1,391 missing size rows.
+- `highest-temperature-in-atlanta-on-june-21-2026`: 1,914 trade rows, 1,322 missing size rows.
+- `highest-temperature-in-houston-on-june-21-2026`: 1,668 trade rows, 1,124 missing size rows.
+
+Largest missing-book queue slices:
+
+- Los Angeles `70-71 F`, `02:00Z`, `YES_ASK`: 37 quote legs, 37 missing-book legs.
+- Houston `88-89 F`, `02:00Z`, `YES_ASK`: 36 quote legs, 36 missing-book legs.
+- Dallas `92-93 F`, `02:00Z`, `YES_ASK`: 36 quote legs, 36 missing-book legs.
+- Denver `92-93 F`, `02:00Z`, `YES_ASK`: 35 quote legs, 35 missing-book legs.
+- Miami `92-93 F`, `02:00Z`, `YES_ASK`: 34 quote legs, 34 missing-book legs.
 
 Required before scale:
 
@@ -221,18 +253,18 @@ Required before scale:
 
 ## Known-Edge Map
 
-Source: `data/backtest/mm_known_edge_map.json`.
+Source: `data/backtest/mm_known_edge_full_standard_model_variants_release_quotes_20260626.json`.
 
 Summary:
 
 - Record count: 238.
 - Permission counts:
-  - `harvest_only`: 159.
+  - `harvest_only`: 158.
   - `no_quote`: 68.
-  - `edge_research`: 11.
+  - `edge_research`: 12.
 - Promotion market count: 11.
-- Paper fill count: 35.
-- CLOB recon slice count: 21,032.
+- Paper fill count: 44.
+- CLOB recon slice count: 21,560.
 - CLOB overlay blocked taxonomies:
   - `market_lead`.
   - `book_liquidity_artifact`.
@@ -276,7 +308,7 @@ Interpretation:
 - It does not advance live-forward evidence.
 - The next useful simulation must separate true policy no-edge from missing-book and cadence-degraded rows.
 
-## Future-Date 2026-06-26 Shadow Drill
+## 2026-06-26 Shadow Drills
 
 Source: `data/mm_runs/2026-06-26/20260626T013844852296Z/run_summary.json` and `preflight.json`.
 
@@ -302,6 +334,124 @@ Interpretation:
 - Future-date metadata and economics can validate before the data loops have rolled.
 - The preflight correctly blocks because active target-date market data does not exist yet.
 - Do not use a future-date validation pass as active-day readiness proof.
+
+Earlier current-date source: `data/mm_runs/2026-06-26/20260626T132648384687Z/run_summary.json`, `preflight.json`, and `data/backtest/mm_paper_shadow_20260626T132648384687Z_20260626.json`.
+
+Summary:
+
+- Event metadata validation: `PASS` for target date `2026-06-26`.
+- CLOB status/audit at check time: loop `RUNNING`, strict audit `ok: true` across 12 June 26 markets.
+- Exchange economics: `PASS`, accepted snapshot `xecon-036874d19e56c76f`, source hash `85aa79fefa832f611d43ca6aa47b7197`, verified for target date `2026-06-26`.
+- Shadow run: 132 quote-intent rows, 0 quote-permission rows, 0 live-trade-permission rows.
+- Preflight status: `WARN`.
+- First failing gate: `model_freshness`.
+- First failing detail: current model snapshot is stale or timestamp is missing.
+- Per-market preflight: 11 markets `STALE` on `model_freshness`; Toronto `PASS` at preflight.
+- No-quote reasons: 121 `NO_QUOTE_STALE_INPUT`, 11 `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+- Bounded paper score: 132 quote rows, 0 quote legs, 0 conservative fills, 0 queue-estimated fill legs, reward score 0, paper freshness `NO_ACTIVE_DAY`.
+- Fill evidence status: `PASS`, only because no quoted legs existed.
+- Quote-blocker diagnostics: blocked fraction 1.0; top market reason was Toronto `NO_QUOTE_KNOWN_EDGE_PERMISSION` with 11 rows; every other market had 11 `NO_QUOTE_STALE_INPUT` rows.
+
+Interpretation:
+
+- The active blocker moved from missing June 26 market/CLOB/economics artifacts to stale model snapshots and known-edge permission.
+- Bounded paper scoring now enforces the selected run target date for exchange economics. The regenerated bounded report shows economics target date `2026-06-26`, verified-for target date `2026-06-26`, and target-date match `true`.
+- This is not countable live-forward evidence because it was a `shadow` operator drill, daily roll status was stale/pid-missing, and no quotes were emitted.
+
+Latest current-date shadow drill after snapshot/model freshness recovered:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-26 --budget-usdc 500 --mode shadow --markets all --once
+.\venv\Scripts\python.exe -m weather.market.mm_paper --run-folder data\mm_runs\2026-06-26\20260626T134201734227Z --skip-model-variants --json-out data\backtest\mm_paper_shadow_20260626T134201734227Z_20260626.json --report-out data\backtest\mm_paper_shadow_20260626T134201734227Z_20260626.md --fills-out data\backtest\mm_paper_shadow_20260626T134201734227Z_fills_20260626.csv --known-edge-out data\backtest\mm_known_edge_shadow_20260626T134201734227Z_20260626.json --known-edge-report-out data\backtest\mm_known_edge_shadow_20260626T134201734227Z_20260626.md
+```
+
+Result:
+
+```text
+MM run: 9 quote rows, 123 no-quote rows, preflight PASS -> data/mm_runs/2026-06-26/20260626T134201734227Z
+MM paper: 0 conservative fills, 0 queue-estimated fill legs, gate OPEN -> data/backtest/mm_paper_shadow_20260626T134201734227Z_20260626.md
+```
+
+Summary:
+
+- Event metadata validation: `PASS` for target date `2026-06-26`.
+- CLOB status/audit at check time: loop `RUNNING`, strict audit `ok: true` across 12 June 26 markets.
+- Exchange economics: `PASS`, accepted snapshot `xecon-036874d19e56c76f`, verified for target date `2026-06-26`.
+- Shadow run: 132 quote-intent rows, 9 quote-permission rows, 123 no-quote rows, 0 live-trade-permission rows.
+- Preflight status: `PASS`.
+- No-quote reasons: 121 `NO_QUOTE_KNOWN_EDGE_PERMISSION`, 2 `NO_QUOTE_DISAGREEMENT_SHADOW`.
+- Quoted rows: 9 Dallas harvest-only two-sided rows, 18 paper-posted legs, all capped by the early-hour guardrail to 1.75 shares per side.
+- Budget reserved in shadow lifecycle: 15.3055 USDC of a 500 USDC drill budget.
+- Bounded paper score: 132 quote rows, 18 quote legs, 0 conservative fills, 0 queue-estimated fill legs, reward score 12.26505, counterfactual reward 109.2508 USDC, paper freshness `NO_ACTIVE_DAY`.
+- Fill evidence status: `BLOCK`, with 784 missing-size trade rows and 18 unresolved resting quotes because settlement evidence was unavailable for the active day.
+- Queue companion status: 18 `no_touch` legs.
+
+Interpretation:
+
+- The model-freshness blocker cleared without weakening gates.
+- The immediate no-quote blocker is now known-edge coverage, not stale model rows.
+- The 9 Dallas quotes are useful shadow evidence but not countable live-forward evidence. They also are not promotion-grade because the run is a one-tick `shadow` drill, fill evidence is blocked, active-day settlement is unavailable, and daily roll remains unhealthy.
+
+## Active Daily-Roll Repair And Countable Paper Evidence
+
+The daily roll was repaired during the active local evidence window after confirming CLOB strict audit passed and restarting current-code snapshot/observation loops:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --restart
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger restart
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-26 --budget-usdc 500 --mode paper-live-forward --markets all --once
+.\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll start --date 2026-06-26 --budget-usdc 500 --mode paper-live-forward --markets all --force
+```
+
+Results:
+
+- Snapshot tracker restarted on current code.
+- Observation trigger restarted; follow-up inspection found 0 blocked snapshot triggers.
+- One-shot active paper run `data/mm_runs/2026-06-26/20260626T135512615163Z` emitted 132 no-quote rows, 0 quote-permission rows, and 0 live-trade-permission rows. It was not countable because Seattle model freshness was stale and the tick landed in a METAR pull window.
+- Continuous daily roll started for `2026-06-26`, PID 38032, `paper-live-forward`, evidence mode `active_day_live_forward`.
+- `market_making_daily_roll status` then showed `pid_alive = true`, useful-work liveness `PASS`, disk status `PASS`, and `counts_toward_live_forward_gate = true`.
+
+Current countable run folder: `data/mm_runs/2026-06-26/20260626T135556165467Z`.
+
+Run summary after three ticks:
+
+- Mode: `paper-live-forward`.
+- Evidence mode: `active_day_live_forward`.
+- Counts toward live-forward gate: true.
+- Preflight status: `PASS`.
+- Quote rows: 396.
+- Quote-permission rows: 0.
+- Live-trade-permission rows: 0.
+- Cumulative live-trade-permission rows: 0.
+- No-quote reasons: 396 `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+- Event-gate actions: 396 `suppress`.
+- Live-forward gate status: `PASS`.
+
+Bounded score command:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_paper --run-folder data\mm_runs\2026-06-26\20260626T135556165467Z --skip-model-variants --json-out data\backtest\mm_paper_daily_roll_20260626T135556165467Z_20260626.json --report-out data\backtest\mm_paper_daily_roll_20260626T135556165467Z_20260626.md --fills-out data\backtest\mm_paper_daily_roll_20260626T135556165467Z_fills_20260626.csv --known-edge-out data\backtest\mm_known_edge_daily_roll_20260626T135556165467Z_20260626.json --known-edge-report-out data\backtest\mm_known_edge_daily_roll_20260626T135556165467Z_20260626.md
+```
+
+Bounded score result:
+
+- Quote rows / legs: 396 / 0.
+- Conservative fills: 0.
+- Queue-estimated fill legs: 0.
+- Paper-score freshness: `PASS`.
+- Exchange economics: `PASS`, target date `2026-06-26`.
+- Fill evidence completeness: `PASS`, only because there were no quoted legs.
+- Live-forward paper days in bounded selection: 1.
+- Locked policy params: true.
+- Reward score: 0.
+- Suppressed opportunity cost: 96.6872 USDC.
+- Quote blocker diagnostics: 396 known-edge permission-blocked rows and 396 event-gate suppressed rows.
+
+Interpretation:
+
+- The daily roll is no longer the immediate blocker.
+- Countable active-day paper evidence now exists, but it contains no quote legs and no reward score.
+- The current blocker is policy/evidence coverage plus event-window suppression, not live permissions. This remains a live NO-GO.
 
 ## Stable Post-Settlement Quote-Starvation Drill
 
@@ -400,7 +550,7 @@ Validation:
 Result:
 
 ```text
-109 passed, 5 subtests passed in 9.64s
+111 passed, 5 subtests passed in 49.80s
 ```
 
 Bounded smoke command:
@@ -505,7 +655,56 @@ Result:
 
 - Timed out after 300 seconds.
 - No output files were written for the `full_promotion_grade_skip_variants` label.
-- Interpretation: cached per-token timestamp indexes are still useful and covered by tests, but full-corpus promotion-grade fill/queue/markout scoring remains a runtime blocker.
+- Interpretation at that point: cached per-token timestamp indexes were useful and covered by tests, but the full-corpus fill/queue/markout path still needed memory/runtime work.
+
+Promotion-grade full-corpus retry after streamed casebook loading and compact quote legs:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_paper --skip-model-variants --json-out data\backtest\mm_paper_full_promotion_skip_variants_compact_legs_20260626.json --report-out data\backtest\mm_paper_full_promotion_skip_variants_compact_legs_20260626.md --fills-out data\backtest\mm_paper_full_promotion_skip_variants_compact_legs_fills_20260626.csv --known-edge-out data\backtest\mm_known_edge_full_promotion_skip_variants_compact_legs_20260626.json --known-edge-report-out data\backtest\mm_known_edge_full_promotion_skip_variants_compact_legs_20260626.md
+```
+
+Result:
+
+- Output files were written for the `compact_legs` label.
+- Quote rows / legs: 636,005 / 71,836.
+- Conservative fills: 44.
+- Queue-estimated fill legs: 13,045.
+- Paper-score freshness: `PASS`.
+- Fill evidence completeness: `BLOCK`.
+- Fill blockers: `missing_size_trade_rows`, `missing_book_queue_legs`, `missing_trade_size_queue_legs`, and `unresolved_resting_quotes`.
+- Model-variant scoring: `SKIPPED (skip_model_variants)`.
+- Reward score: 165,822.476275.
+- Counterfactual reward: 999.397309 USDC under campaign-pool 1,000 and competitor-score 100 assumptions.
+- Net P&L after fees/incentives: 2.609178 USDC.
+- Interpretation: full-corpus fill/queue/markout scoring can now produce a model-variant-skipped diagnostic report on current artifacts, but it still blocks promotion because fill evidence is incomplete and model-variant evidence is intentionally omitted.
+
+Standard full-corpus retry after releasing quote rows before fill simulation:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_paper --json-out data\backtest\mm_paper_full_standard_model_variants_release_quotes_20260626.json --report-out data\backtest\mm_paper_full_standard_model_variants_release_quotes_20260626.md --fills-out data\backtest\mm_paper_full_standard_model_variants_release_quotes_fills_20260626.csv --known-edge-out data\backtest\mm_known_edge_full_standard_model_variants_release_quotes_20260626.json --known-edge-report-out data\backtest\mm_known_edge_full_standard_model_variants_release_quotes_20260626.md
+```
+
+Result:
+
+- Runtime: about 4.4 minutes.
+- Output files were written for the `release_quotes` label.
+- Quote rows / legs: 636,005 / 71,836.
+- Conservative fills: 44.
+- Queue-estimated fill legs: 13,045.
+- Paper-score freshness: `PASS`.
+- Fill evidence completeness: `BLOCK`.
+- Fill blockers: `missing_size_trade_rows`, `missing_book_queue_legs`, and `missing_trade_size_queue_legs`.
+- Fill blocker detail: 8,893 missing-size trade rows, 2,182 missing-book queue legs, 26 missing-trade-size queue legs, and 0 unresolved resting quotes.
+- The regenerated markdown report includes `Top Event Data Gaps` and `Top Incomplete Market Data Slices` so the next data-quality pass can target exact event slugs and market/hour/range/side cells.
+- Model-variant scoring: `PASS`.
+- Model-variant quote rows / legs: 39,534 / 264.
+- Model-variant conservative fills: 32.
+- Model-variant promotion gate: `BLOCK`, method `clustered_market_day_bootstrap`.
+- Model-variant promotion blockers: broad 12-market pairs have only 1 independent target day and fail positive lower-bound net-P&L delta; one-market pairs also miss independent cluster/market requirements.
+- Reward score: 165,822.476275.
+- Counterfactual reward: 999.397309 USDC under campaign-pool 1,000 and competitor-score 100 assumptions.
+- Net P&L after fees/incentives: 2.641678 USDC.
+- Interpretation: the scorer now produces standard full-corpus model-variant evidence, but the result is still a live NO-GO because fill evidence and model promotion are blocked.
 
 Bounded latest active-day promotion-grade command:
 
@@ -577,7 +776,8 @@ Current snapshot:
 - Platform: `polymarket_us`.
 - Platform surface: `retail_api_and_exchange_clob`.
 - Snapshot id: `xecon-036874d19e56c76f`.
-- Verified for target date: `2026-06-25`.
+- Verified for target date: `2026-06-26`.
+- Source hash: `85aa79fefa832f611d43ca6aa47b7197`.
 - Effective date: `2026-04-03`.
 - Taker fee rate: 0.05.
 - Maker fee rate: 0.0.
@@ -591,9 +791,9 @@ Current snapshot:
 Interpretation:
 
 - Economics assumptions are internally plausible for Polymarket US.
-- The default snapshot is current for the active daily-roll date at this pass.
-- A 2026-06-26 future-date drill can validate economics separately, but the default accepted snapshot was restored to the active date after the drill.
+- The default snapshot is current for target date `2026-06-26` after the continuation publish/accept.
 - Official US docs were rechecked again on 2026-06-26. No material fee/reward formula drift was found versus the accepted snapshot, but live API readiness remains outside the economics proof.
+- `weather.market.mm_paper` now falls back to the selected run's single target date when a bounded report has no completed active-day freshness date; this keeps exchange-economics target-date matching active for shadow/operator-drill reports.
 - The next paper report should be regenerated after current active-day paper-live-forward evidence is collected.
 
 ## Continuation Status And Platform API Recheck
@@ -609,10 +809,9 @@ Safe commands rerun during the continuation:
 
 Results:
 
-- Daily roll target date remained `2026-06-25`.
-- Daily roll was alive with fresh post-settlement artifacts under `data/mm_runs/2026-06-25/20260626T015632370043Z`.
-- Useful-work liveness remained `SKIPPED`, reason `not all-market active-day paper-live-forward evidence`.
-- Latest daily-roll operator report still had 132 quote rows and 0 quote-permission rows.
+- Earlier daily roll target date remained `2026-06-25` with post-settlement artifacts under `data/mm_runs/2026-06-25/20260626T015632370043Z`.
+- Latest `market_making_daily_roll status` returned `pid_missing` / `blocked_restart_required`; the stale process had been stopped after a superseded-code restart path and no current countable daily-roll loop was alive.
+- Latest daily-roll status still pointed at `2026-06-25`, so June 26 evidence was collected with a keyless one-shot `shadow` command instead of starting a continuous maker loop.
 - CLOB loop state was `RUNNING`.
 - Strict CLOB audit was `ok: true` across 12 markets, with post-restart startup gaps ignored by policy.
 - Exchange adapter/report tests passed after latency-stopgap classification, US private WebSocket fixture normalization, and stricter cancel-all proof: 15 tests.
@@ -643,11 +842,12 @@ Interpretation:
 ## Next Simulation Work
 
 1. Diagnose active-date quote starvation by market, band, side, known-edge state, model variant, promotion state, and CLOB recon taxonomy.
-2. Repair or explain the 10 `NO_QUOTE_MISSING_BOOK` rows and 1 `NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED` row from the active-date run.
-3. Run paper-live-forward only when active-date metadata, exchange economics, CLOB audit, snapshot freshness, and useful-work liveness are all passing.
-4. Regenerate `mm_paper_report.json` after current active-day evidence is collected.
-5. Extend reward-score diagnostics into stronger payout evidence:
+2. Repair or explain known-edge permission gaps. In the latest June 26 shadow run, 121 of 132 rows still emitted `NO_QUOTE_KNOWN_EDGE_PERMISSION`.
+3. Repair daily roll `pid_missing` / `blocked_restart_required` status before trying to collect countable active-window paper-live-forward evidence.
+4. Run paper-live-forward only when active-date metadata, exchange economics, CLOB audit, snapshot/model freshness, and useful-work liveness are all passing.
+5. Regenerate the full standard paper report after current active-day evidence is collected; do not rely on the legacy `mm_paper_report.json` if a dated standard artifact is newer.
+6. Extend reward-score diagnostics into stronger payout evidence:
    - US: calibrate competitor score/share from CLOB reward competition, not just the default `reward_competitor_q` assumption.
    - International: add Q-one/Q-two/Q-min scoring with `c = 3.0` and midpoint edge cases if the operating surface changes.
    - Reconcile predicted reward payout against actual payout artifacts before live scaling.
-6. Compare reward score against adverse-selection markouts, not against resting time alone.
+7. Compare reward score against adverse-selection markouts, not against resting time alone.

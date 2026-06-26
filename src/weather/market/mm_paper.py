@@ -17,6 +17,7 @@ accounting, queue simulation, and P&L scoring belong in
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import math
 import random
@@ -843,7 +844,7 @@ def _guardrail_quote_exposure(quote_rows, config):
     }
 
 
-def build_early_hour_guardrail_shadow(fill_rows, quote_rows=None, config=None):
+def build_early_hour_guardrail_shadow(fill_rows, quote_rows=None, config=None, quote_exposure=None):
     config = {**DEFAULT_CONFIG, **(config or {})}
     rows = []
     base_nets = []
@@ -895,7 +896,7 @@ def build_early_hour_guardrail_shadow(fill_rows, quote_rows=None, config=None):
             "base_markout_30m_usdc": compact_float(markout_30m_usdc),
         })
 
-    quote_exposure = _guardrail_quote_exposure(quote_rows or [], config)
+    quote_exposure = quote_exposure or _guardrail_quote_exposure(quote_rows or [], config)
     base_net_sum = _sum_non_null(base_nets)
     capped_net_sum = _sum_non_null(capped_nets)
     market_net_sum = _sum_non_null(market_nets)
@@ -1168,6 +1169,38 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
     }
 
 
+def selected_economics_target_date(run_configs, quote_rows):
+    dates = set()
+    for config in (run_configs or {}).values():
+        target = str((config or {}).get("target_date") or "").strip()
+        if target:
+            dates.add(target)
+    for row in quote_rows or []:
+        target = str((row or {}).get("target_date") or "").strip()
+        if target:
+            dates.add(target)
+    return next(iter(dates)) if len(dates) == 1 else None
+
+
+def complete_event_gate_score(quote_score, fill_rows):
+    quote_score = dict(quote_score or {})
+    exception_rows = [
+        row for row in fill_rows or []
+        if (row.get("event_gate_action") or "") == "allow_exception"
+    ]
+    negative_markouts = 0
+    exception_net = 0.0
+    for row in exception_rows:
+        markout = finite_float(row.get("markout_30m_per_share"))
+        if markout is not None and markout < 0:
+            negative_markouts += 1
+        exception_net += finite_float(row.get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0
+    quote_score["exception_fill_rows"] = len(exception_rows)
+    quote_score["exception_negative_markout_fills"] = negative_markouts
+    quote_score["exception_net_pnl_after_fees_incentives_usdc"] = compact_float(exception_net)
+    return quote_score
+
+
 def model_variant_paper_bakeoff_summary(
     variant_quote_rows,
     variant_legs,
@@ -1422,6 +1455,7 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
     unresolved_count = int((decisive_resting or {}).get("unresolved_resting_quote_count") or 0)
     by_slice = defaultdict(lambda: {
         "quote_legs": 0,
+        "quoted_shares": 0.0,
         "strict_trade_through_fills": 0,
         "strict_trade_through_filled_shares": 0.0,
         "missing_book_queue_legs": 0,
@@ -1437,15 +1471,18 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         hour = f"{quote_time.hour:02d}:00Z" if quote_time else "unknown"
         return (
             leg.get("market_id") or "",
+            leg.get("range_label") or "",
             hour,
             leg.get("clob_token_id") or "",
+            leg.get("side") or "",
         )
 
     for leg in legs or []:
         key = key_for_leg(leg)
         item = by_slice[key]
-        item["market_id"], item["hour_utc"], item["clob_token_id"] = key
+        item["market_id"], item["range_label"], item["hour_utc"], item["clob_token_id"], item["side"] = key
         item["quote_legs"] += 1
+        item["quoted_shares"] += finite_float(leg.get("quote_size"), 0.0) or 0.0
         queue = queue_by_leg.get(leg.get("leg_id")) or {}
         status = queue.get("status") or "unknown"
         estimated = finite_float(queue.get("estimated_fill_size"), 0.0) or 0.0
@@ -1465,16 +1502,18 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         fill_hour = hour_bucket(fill.get("fill_time_utc"))
         key = (
             fill.get("market_id") or "",
+            fill.get("range_label") or "",
             fill_hour,
             fill.get("clob_token_id") or "",
+            fill.get("side") or "",
         )
         item = by_slice[key]
-        item["market_id"], item["hour_utc"], item["clob_token_id"] = key
+        item["market_id"], item["range_label"], item["hour_utc"], item["clob_token_id"], item["side"] = key
         item["strict_trade_through_fills"] += 1
         item["strict_trade_through_filled_shares"] += finite_float(fill.get("fill_size"), 0.0) or 0.0
 
     slice_rows = []
-    for key, row in sorted(by_slice.items()):
+    for _, row in sorted(by_slice.items()):
         quote_legs = int(row.get("quote_legs") or 0)
         incomplete = (
             int(row.get("missing_book_queue_legs") or 0)
@@ -1482,10 +1521,23 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         )
         slice_rows.append({
             **row,
+            "quoted_shares": compact_float(row.get("quoted_shares")),
             "strict_trade_through_filled_shares": compact_float(row.get("strict_trade_through_filled_shares")),
             "queue_estimated_filled_shares": compact_float(row.get("queue_estimated_filled_shares")),
             "incomplete_market_data_leg_fraction": compact_float(incomplete / quote_legs if quote_legs else 0.0),
         })
+    slice_rows.sort(
+        key=lambda row: (
+            int(row.get("missing_book_queue_legs") or 0) + int(row.get("missing_trade_size_queue_legs") or 0),
+            finite_float(row.get("incomplete_market_data_leg_fraction"), 0.0) or 0.0,
+            int(row.get("quote_legs") or 0),
+            row.get("market_id") or "",
+            row.get("range_label") or "",
+            row.get("hour_utc") or "",
+            row.get("side") or "",
+        ),
+        reverse=True,
+    )
 
     event_rows = []
     for event_slug, row in sorted((diagnostics or {}).items()):
@@ -1497,6 +1549,15 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
             "mark_rows": int(row.get("mark_rows") or 0),
             "settlement_available": bool(row.get("settlement_available")),
         })
+    event_rows.sort(
+        key=lambda row: (
+            int(row.get("missing_size_trade_rows") or 0),
+            1 if int(row.get("trade_rows") or 0) == 0 else 0,
+            1 if int(row.get("book_rows") or 0) == 0 else 0,
+            row.get("event_slug") or "",
+        ),
+        reverse=True,
+    )
 
     blockers = []
     if missing_size_trade_rows > int(config.get("fill_evidence_max_missing_size_trade_rows", 0)):
@@ -1588,6 +1649,56 @@ def build_paper_payload(
             eligibility_by_folder=eligibility_by_folder,
         )
         model_variant_legs = quote_legs(model_variant_quote_rows, config)
+    quote_row_count = len(quote_rows)
+    model_variant_quote_row_count = len(model_variant_quote_rows)
+    anti_overfit = anti_overfit_summary(quote_rows, run_configs)
+    quote_uptime = quote_uptime_summary(quote_rows, legs)
+    quote_exposure = _guardrail_quote_exposure(quote_rows, config)
+    event_gate_quote_score = score_event_gate_decisions(quote_rows, fill_rows=[])
+    blocker_diagnostics = quote_blocker_diagnostics(quote_rows, legs)
+    per_market_evidence_credits = [
+        row
+        for item in eligibility_by_folder.values()
+        if item.get("scoreable")
+        for row in item.get("per_market_evidence_credits") or []
+    ]
+    per_market_evidence_summary = summarize_per_market_evidence(per_market_evidence_credits)
+    paper_score_freshness = maker_paper_score_freshness(
+        candidate_run_folders,
+        run_folders,
+        report_generated_at_utc=generated_at,
+    )
+    economics_target_date = (
+        exchange_economics_target_date
+        or paper_score_freshness.get("latest_completed_active_day")
+        or paper_score_freshness.get("latest_covered_active_day")
+        or selected_economics_target_date(run_configs, quote_rows)
+    )
+    exchange_gate_required = (
+        bool(exchange_economics_required)
+        if exchange_economics_required is not None
+        else (Path(backtest_root) == Path(DEFAULT_BACKTEST_ROOT) or exchange_economics_snapshot_path is not None)
+    )
+    exchange_gate = exchange_economics.load_exchange_economics_gate(
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
+        economics_target_date,
+        platform=exchange_economics_platform,
+        now=now or generated_at,
+        required=exchange_gate_required,
+    )
+    economics_snapshot = read_json(
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
+        {},
+    ) or {}
+    reward_score_diagnostics = build_reward_score_diagnostics(
+        quote_rows,
+        legs,
+        exchange_gate=exchange_gate,
+        economics_snapshot=economics_snapshot,
+        config=config,
+    )
+    del quote_rows
+    gc.collect()
     casebook_event_slugs = {
         leg.get("event_slug")
         for leg in [*(legs or []), *(model_variant_legs or [])]
@@ -1642,11 +1753,10 @@ def build_paper_payload(
     slices = build_markout_slices(fill_rows, config)
     early_hour_guardrail_shadow = build_early_hour_guardrail_shadow(
         fill_rows,
-        quote_rows=quote_rows,
+        quote_exposure=quote_exposure,
         config=config,
     )
-    anti_overfit = anti_overfit_summary(quote_rows, run_configs)
-    event_gate_score = score_event_gate_decisions(quote_rows, fill_rows=fill_rows)
+    event_gate_score = complete_event_gate_score(event_gate_quote_score, fill_rows)
     active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
     if include_fill_simulation:
         clob_recon = load_or_build_clob_recon(
@@ -1678,47 +1788,6 @@ def build_paper_payload(
             "unresolved_resting_quotes": [],
         }
         fill_evidence_completeness = skipped_fill_evidence_completeness(legs)
-    per_market_evidence_credits = [
-        row
-        for item in eligibility_by_folder.values()
-        if item.get("scoreable")
-        for row in item.get("per_market_evidence_credits") or []
-    ]
-    per_market_evidence_summary = summarize_per_market_evidence(per_market_evidence_credits)
-    paper_score_freshness = maker_paper_score_freshness(
-        candidate_run_folders,
-        run_folders,
-        report_generated_at_utc=generated_at,
-    )
-    economics_target_date = (
-        exchange_economics_target_date
-        or paper_score_freshness.get("latest_completed_active_day")
-        or paper_score_freshness.get("latest_covered_active_day")
-    )
-    exchange_gate_required = (
-        bool(exchange_economics_required)
-        if exchange_economics_required is not None
-        else (Path(backtest_root) == Path(DEFAULT_BACKTEST_ROOT) or exchange_economics_snapshot_path is not None)
-    )
-    exchange_gate = exchange_economics.load_exchange_economics_gate(
-        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
-        economics_target_date,
-        platform=exchange_economics_platform,
-        now=now or generated_at,
-        required=exchange_gate_required,
-    )
-    economics_snapshot = read_json(
-        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
-        {},
-    ) or {}
-    reward_score_diagnostics = build_reward_score_diagnostics(
-        quote_rows,
-        legs,
-        exchange_gate=exchange_gate,
-        economics_snapshot=economics_snapshot,
-        config=config,
-    )
-    blocker_diagnostics = quote_blocker_diagnostics(quote_rows, legs)
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     for row in fill_rows:
         row.update({
@@ -1747,7 +1816,7 @@ def build_paper_payload(
         "run_folder_selection_warning": run_folder_selection.get("warning"),
         "run_folder_selection": run_folder_selection,
         "excluded_run_folders": len(excluded_run_folders),
-        "quote_rows": len(quote_rows),
+        "quote_rows": quote_row_count,
         "quote_legs": len(legs),
         "fill_simulation_included": bool(include_fill_simulation),
         "fill_simulation_status": "RUN" if include_fill_simulation else "SKIPPED",
@@ -1756,7 +1825,7 @@ def build_paper_payload(
         "model_variant_scoring_requested": bool(include_model_variants),
         "model_variant_scoring_status": model_variant_bakeoff.get("status"),
         "model_variant_scoring_reason": model_variant_bakeoff.get("reason"),
-        "model_variant_quote_rows": len(model_variant_quote_rows),
+        "model_variant_quote_rows": model_variant_quote_row_count,
         "model_variant_quote_legs": len(model_variant_legs),
         "conservative_fills": len(fill_rows),
         "conservative_filled_shares": compact_float(sum_field(fill_rows, "fill_size")),
@@ -1799,7 +1868,7 @@ def build_paper_payload(
         "paper_evidence_basis": exchange_gate.get("evidence_basis"),
         **exchange_fields,
         "per_market_live_forward_evidence": per_market_evidence_summary,
-        "quote_uptime": quote_uptime_summary(quote_rows, legs),
+        "quote_uptime": quote_uptime,
         "quote_blocker_diagnostics": blocker_diagnostics,
         "event_gate_score": event_gate_score,
         "reward_score_diagnostics": {
