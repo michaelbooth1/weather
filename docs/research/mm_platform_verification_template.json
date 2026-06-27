@@ -55,5 +55,12 @@
   "backend_only_signing": false,
   "private_key_storage": null,
   "secrets_not_committed": false,
+  "secret_redaction": {
+    "status_output_verified": false,
+    "source_doc_scan_verified": false,
+    "generated_artifact_scan_verified": false,
+    "no_unredacted_secret_findings": false,
+    "scan_scope": []
+  },
   "source_urls": []
 }

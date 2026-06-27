@@ -31,7 +31,18 @@ from weather.market.clob_recon import (
     load_recon_payload,
 )
 from weather.market import exchange_economics
-from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
+from weather.market.mm_policy import (
+    bool_value,
+    early_hour_guardrail_state,
+    known_edge_record_key,
+    known_edge_row_dimensions,
+    load_known_edge_map,
+    maybe_float,
+    normalize_known_edge_field,
+    normalize_token,
+    parse_time,
+    resolve_known_edge_record,
+)
 from weather.market.mm_paper_evidence import (
     COMPATIBLE_RUN_SCHEMA_VERSIONS,
     LIVE_FORWARD_EVIDENCE_CLASSES,
@@ -631,7 +642,43 @@ def _us_reward_score_for_leg(leg, inputs):
     return float(size) * (float(discount) ** tick_count), None, tick_count
 
 
-def build_reward_score_diagnostics(quote_rows, legs, exchange_gate=None, economics_snapshot=None, config=None):
+def reward_competitor_score_from_inputs(config, clob_recon=None):
+    config = {**DEFAULT_CONFIG, **(config or {})}
+    clob_summary = (clob_recon or {}).get("summary") or {}
+    clob_suggestions = (
+        (clob_recon or {}).get("policy_parameter_suggestions")
+        or clob_summary.get("policy_parameter_suggestions")
+        or {}
+    )
+    recon_score = finite_float(clob_suggestions.get("reward_competitor_q"))
+    if recon_score is not None:
+        return {
+            "score": max(0.0, recon_score),
+            "source": "clob_recon_policy_parameter_suggestions.reward_competitor_q",
+            "source_available": True,
+            "clob_recon_coverage_source": (clob_recon or {}).get("coverage_source"),
+            "clob_recon_book_rows": int(clob_summary.get("book_rows") or 0),
+            "clob_recon_slice_rows": int(clob_summary.get("slice_rows") or 0),
+        }
+    config_score = finite_float(config.get("reward_competitor_q"), 0.0)
+    return {
+        "score": max(0.0, config_score or 0.0),
+        "source": "paper_config_reward_competitor_q",
+        "source_available": False,
+        "clob_recon_coverage_source": (clob_recon or {}).get("coverage_source"),
+        "clob_recon_book_rows": int(clob_summary.get("book_rows") or 0),
+        "clob_recon_slice_rows": int(clob_summary.get("slice_rows") or 0),
+    }
+
+
+def build_reward_score_diagnostics(
+    quote_rows,
+    legs,
+    exchange_gate=None,
+    economics_snapshot=None,
+    config=None,
+    clob_recon=None,
+):
     quote_rows = quote_rows or []
     legs = legs or []
     exchange_gate = exchange_gate or {}
@@ -713,7 +760,8 @@ def build_reward_score_diagnostics(quote_rows, legs, exchange_gate=None, economi
         if inputs.get("min_payout_usdc") is not None
         else finite_float(config.get("reward_min_payout_usdc"), 0.0)
     )
-    competitor_score = finite_float(config.get("reward_competitor_q"), 0.0)
+    competitor = reward_competitor_score_from_inputs(config, clob_recon=clob_recon)
+    competitor_score = competitor["score"]
     counterfactual_share = None
     counterfactual_before_min = None
     counterfactual_reward = None
@@ -755,7 +803,7 @@ def build_reward_score_diagnostics(quote_rows, legs, exchange_gate=None, economi
         ),
     )[:25]
     return {
-        "schema_version": "mm_reward_score_diagnostics_v0.1",
+        "schema_version": "mm_reward_score_diagnostics_v0.2",
         "status": "PASS" if supported and exchange_gate.get("ok") else "WARN",
         "score_basis": "polymarket_us_discount_factor_ticks_from_best" if supported else "unsupported",
         "exchange_economics_status": exchange_gate.get("status"),
@@ -769,7 +817,11 @@ def build_reward_score_diagnostics(quote_rows, legs, exchange_gate=None, economi
         "campaign_pool_usdc": compact_float(campaign_pool),
         "min_payout_usdc": compact_float(min_payout),
         "assumed_competitor_score": compact_float(competitor_score),
-        "assumed_competitor_score_source": "paper_config_reward_competitor_q",
+        "assumed_competitor_score_source": competitor.get("source"),
+        "assumed_competitor_score_has_clob_recon_evidence": bool(competitor.get("source_available")),
+        "assumed_competitor_score_clob_recon_coverage_source": competitor.get("clob_recon_coverage_source"),
+        "assumed_competitor_score_clob_recon_book_rows": competitor.get("clob_recon_book_rows", 0),
+        "assumed_competitor_score_clob_recon_slice_rows": competitor.get("clob_recon_slice_rows", 0),
         "quote_rows": len(quote_rows),
         "quote_permission_rows": sum(1 for row in quote_rows if quote_permission(row)),
         "no_quote_rows": sum(1 for row in quote_rows if not quote_permission(row)),
@@ -1027,7 +1079,22 @@ def anti_overfit_summary(quote_rows, run_configs):
 
 def quote_uptime_summary(quote_rows, legs):
     quoted_ids = {leg["quote_id"] for leg in legs}
+    quoted_rows = [
+        row for row in quote_rows
+        if row.get("_quote_id") in quoted_ids
+    ]
     no_quote_reasons = Counter(row.get("reason_code") or "unknown" for row in quote_rows if row["_quote_id"] not in quoted_ids)
+    quote_permission_markets = Counter(row.get("market_id") or "unknown" for row in quoted_rows)
+    quote_permission_cells = Counter(
+        (
+            row.get("market_id") or "unknown",
+            row.get("range_label") or "unknown",
+            row.get("known_edge_permission") or "unknown",
+            row.get("promotion_state") or "unknown",
+            row.get("reason_code") or "QUOTE",
+        )
+        for row in quoted_rows
+    )
     quote_times = [parse_time(row.get("generated_at_utc")) for row in quote_rows]
     quote_times = [ts for ts in quote_times if ts is not None]
     uptime = len(quoted_ids) / len(quote_rows) if quote_rows else 0.0
@@ -1042,15 +1109,35 @@ def quote_uptime_summary(quote_rows, legs):
             + no_quote_reasons.get("NO_QUOTE_STALE_MODEL", 0)
             + no_quote_reasons.get("NO_QUOTE_STALE_WATCHER", 0),
         "no_quote_reason_counts": dict(sorted(no_quote_reasons.items())),
+        "quote_permission_market_counts": dict(sorted(quote_permission_markets.items())),
+        "top_quote_permission_cells": [
+            {
+                "market_id": market_id,
+                "range_label": range_label,
+                "known_edge_permission": known_edge_permission,
+                "promotion_state": promotion_state,
+                "reason_code": reason_code,
+                "rows": count,
+            }
+            for (
+                market_id,
+                range_label,
+                known_edge_permission,
+                promotion_state,
+                reason_code,
+            ), count in quote_permission_cells.most_common(25)
+        ],
     }
 
 
-def quote_blocker_diagnostics(quote_rows, legs, limit=25):
+def quote_blocker_diagnostics(quote_rows, legs, limit=25, known_edge_records=None, known_edge_map_diag=None):
     quoted_ids = {leg["quote_id"] for leg in legs or []}
     blocked_rows = [
         row for row in quote_rows or []
         if row.get("_quote_id") not in quoted_ids
     ]
+    known_edge_records = list(known_edge_records or [])
+    known_edge_map_diag = dict(known_edge_map_diag or {})
 
     def text(row, key, default=""):
         value = row.get(key)
@@ -1067,6 +1154,94 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
             row["rows"] = count
             rows.append(row)
         return rows
+
+    def inferred_known_edge_dimensions(row):
+        dimensions = known_edge_row_dimensions(row)
+        inferred_band_distance = dimensions.get("band_distance_bucket") or band_distance_bucket(row)
+        inferred_book_bucket = dimensions.get("book_imbalance_bucket") or book_imbalance_bucket(
+            row.get("book_imbalance_1pct")
+        )
+        return {
+            **dimensions,
+            "band_distance_bucket": inferred_band_distance or "",
+            "book_imbalance_bucket": inferred_book_bucket or "",
+            "casebook_taxonomy": dimensions.get("casebook_taxonomy") or "",
+        }
+
+    def inferred_known_edge_row(row):
+        dimensions = inferred_known_edge_dimensions(row)
+        out = dict(row)
+        for key, value in dimensions.items():
+            if value:
+                out[key] = value
+        return out
+
+    def diagnostic_wildcard(field, value):
+        token = normalize_known_edge_field(field, value)
+        if token in {"", "*", "any", "all"}:
+            return True
+        return field == "cutoff" and token == "paper_slice"
+
+    def nearest_known_edge_record_gap(dimensions):
+        market_id = dimensions.get("market_id") or ""
+        same_market = [
+            record for record in known_edge_records
+            if normalize_token(record.get("market_id")) == market_id
+        ]
+        wildcard_market = [
+            record for record in known_edge_records
+            if normalize_token(record.get("market_id")) in {"", "*", "any", "all"}
+        ]
+        candidates = same_market or wildcard_market
+        if not candidates:
+            return {
+                "record": None,
+                "matched_dimension_count": 0,
+                "mismatched_dimension_count": 1,
+                "mismatched_dimensions": "market_id",
+                "record_key": "",
+                "record_permission": "",
+                "record_reason": "no_market_record",
+            }
+        fields = (
+            "cutoff",
+            "hour_utc",
+            "band_distance_bucket",
+            "band_type",
+            "casebook_taxonomy",
+            "regime",
+            "source_fresh",
+            "source_freshness_state",
+            "book_imbalance_bucket",
+        )
+        best = None
+        for record in candidates:
+            matched = 0
+            mismatches = []
+            concrete = 0
+            for field in fields:
+                record_value = normalize_known_edge_field(field, record.get(field))
+                if diagnostic_wildcard(field, record_value):
+                    continue
+                concrete += 1
+                row_value = dimensions.get(field) or ""
+                if row_value and row_value == record_value:
+                    matched += 1
+                    continue
+                mismatches.append(f"{field}:{row_value or '(missing)'}!={record_value or '(missing)'}")
+            score = (matched, -len(mismatches), concrete)
+            if best is None or score > best["score"]:
+                best = {
+                    "score": score,
+                    "record": record,
+                    "matched_dimension_count": matched,
+                    "mismatched_dimension_count": len(mismatches),
+                    "mismatched_dimensions": "; ".join(mismatches[:6]),
+                    "record_key": known_edge_record_key(record),
+                    "record_permission": record.get("permission") or "no_quote",
+                    "record_reason": record.get("reason") or "",
+                }
+        return best or {}
 
     market_reason = Counter(
         (
@@ -1098,6 +1273,17 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
             or text(row, "event_gate_event_class")
         )
     )
+    blocker_overlap = Counter(
+        (
+            text(row, "reason_code", "NO_QUOTE_UNKNOWN"),
+            text(row, "event_gate_action", "unknown"),
+            text(row, "event_gate_reason_code", "unknown"),
+            text(row, "known_edge_permission", "unknown"),
+            text(row, "known_edge_reason", "unknown"),
+            text(row, "promotion_state", "unknown"),
+        )
+        for row in blocked_rows
+    )
     cells = Counter(
         (
             text(row, "market_id", "unknown"),
@@ -1108,10 +1294,140 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
         )
         for row in blocked_rows
     )
+    missing_known_edge_dimensions = Counter()
+    for row in blocked_rows:
+        if text(row, "known_edge_reason") != "missing_known_edge_record":
+            continue
+        dimensions = known_edge_row_dimensions(row)
+        missing_known_edge_dimensions[(
+            text(row, "market_id", "unknown"),
+            dimensions.get("hour_utc") or "(missing)",
+            dimensions.get("band_distance_bucket") or "(missing)",
+            dimensions.get("band_type") or "(missing)",
+            dimensions.get("casebook_taxonomy") or "(missing)",
+            dimensions.get("regime") or "(missing)",
+            dimensions.get("source_freshness_state") or "(missing)",
+            dimensions.get("book_imbalance_bucket") or "(missing)",
+            text(row, "promotion_state", "unknown"),
+        )] += 1
+    inferred_missing_known_edge_dimensions = Counter()
+    inferred_known_edge_record_matches = Counter()
+    inferred_known_edge_record_misses = Counter()
+    inferred_known_edge_nearest_record_gaps = Counter()
+    known_edge_coverage_action_items = Counter()
+    known_edge_required_actions = Counter()
+    nearest_gap_cache = {}
+    inferred_known_edge_record_match_rows = 0
+    inferred_known_edge_record_miss_rows = 0
+    for row in blocked_rows:
+        if text(row, "reason_code") == "NO_QUOTE_KNOWN_EDGE_PERMISSION":
+            dimensions = inferred_known_edge_dimensions(row)
+            dimension_key = (
+                text(row, "market_id", "unknown"),
+                dimensions.get("hour_utc") or "(missing)",
+                dimensions.get("band_distance_bucket") or "(missing)",
+                dimensions.get("band_type") or "(missing)",
+                dimensions.get("casebook_taxonomy") or "(missing)",
+                dimensions.get("regime") or "(missing)",
+                dimensions.get("source_freshness_state") or "(missing)",
+                dimensions.get("book_imbalance_bucket") or "(missing)",
+                text(row, "known_edge_reason", "unknown"),
+                text(row, "known_edge_permission", "unknown"),
+                text(row, "promotion_state", "unknown"),
+            )
+            known_edge_reason = dimension_key[8]
+            if known_edge_reason == "missing_known_edge_record":
+                inferred_record = (
+                    resolve_known_edge_record(inferred_known_edge_row(row), known_edge_records)
+                    if known_edge_records
+                    else None
+                )
+                if inferred_record is not None:
+                    required_action = "populate_policy_match_dimensions_then_retest"
+                    gap = {
+                        "record_permission": inferred_record.get("permission") or "no_quote",
+                        "record_reason": inferred_record.get("reason") or "",
+                        "record_key": known_edge_record_key(inferred_record),
+                    }
+                else:
+                    required_action = "collect_countable_markouts_before_map_change"
+                    gap = nearest_gap_cache.get(dimension_key)
+                    if gap is None:
+                        gap = nearest_known_edge_record_gap(dimensions) if known_edge_records else {}
+                        nearest_gap_cache[dimension_key] = gap
+            elif known_edge_reason == "promotion_block":
+                required_action = "keep_blocked_until_promotion_gate_passes"
+                gap = {}
+            elif text(row, "known_edge_permission") == "no_quote":
+                required_action = "keep_no_quote_until_evidence_upgrade"
+                gap = {}
+            else:
+                required_action = "review_known_edge_permission_blocker"
+                gap = {}
+            known_edge_required_actions[(
+                required_action,
+                text(row, "known_edge_reason", "unknown"),
+                text(row, "known_edge_permission", "unknown"),
+                text(row, "promotion_state", "unknown"),
+            )] += 1
+            known_edge_coverage_action_items[(
+                *dimension_key,
+                required_action,
+                gap.get("record_permission") or "",
+                gap.get("record_reason") or "",
+                gap.get("mismatched_dimensions") or "",
+                gap.get("record_key") or "",
+            )] += 1
+        if text(row, "known_edge_reason") != "missing_known_edge_record":
+            continue
+        dimensions = inferred_known_edge_dimensions(row)
+        dimension_key = (
+            text(row, "market_id", "unknown"),
+            dimensions.get("hour_utc") or "(missing)",
+            dimensions.get("band_distance_bucket") or "(missing)",
+            dimensions.get("band_type") or "(missing)",
+            dimensions.get("casebook_taxonomy") or "(missing)",
+            dimensions.get("regime") or "(missing)",
+            dimensions.get("source_freshness_state") or "(missing)",
+            dimensions.get("book_imbalance_bucket") or "(missing)",
+            text(row, "promotion_state", "unknown"),
+        )
+        inferred_missing_known_edge_dimensions[dimension_key] += 1
+        if not known_edge_records:
+            continue
+        record = resolve_known_edge_record(inferred_known_edge_row(row), known_edge_records)
+        if record is None:
+            inferred_known_edge_record_misses[dimension_key] += 1
+            inferred_known_edge_record_miss_rows += 1
+            gap = nearest_gap_cache.get(dimension_key)
+            if gap is None:
+                gap = nearest_known_edge_record_gap(dimensions)
+                nearest_gap_cache[dimension_key] = gap
+            inferred_known_edge_nearest_record_gaps[(
+                *dimension_key,
+                gap.get("record_permission") or "",
+                gap.get("record_reason") or "",
+                str(gap.get("matched_dimension_count") or 0),
+                str(gap.get("mismatched_dimension_count") or 0),
+                gap.get("mismatched_dimensions") or "",
+                gap.get("record_key") or "",
+            )] += 1
+            continue
+        inferred_known_edge_record_match_rows += 1
+        inferred_known_edge_record_matches[(
+            *dimension_key,
+            record.get("permission") or "no_quote",
+            record.get("reason") or "",
+            known_edge_record_key(record),
+        )] += 1
     reason_counts = Counter(text(row, "reason_code", "NO_QUOTE_UNKNOWN") for row in blocked_rows)
     known_edge_permission_blocked_rows = sum(
         1 for row in blocked_rows
         if text(row, "reason_code") == "NO_QUOTE_KNOWN_EDGE_PERMISSION"
+    )
+    stale_input_blocked_rows = sum(
+        1 for row in blocked_rows
+        if text(row, "reason_code") == "NO_QUOTE_STALE_INPUT"
     )
     known_edge_allowed_false_rows = sum(
         1 for row in blocked_rows
@@ -1126,32 +1442,48 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
             or text(row, "known_edge_allowed")
         )
     )
-    event_gate_suppressed_rows = sum(
+
+    def event_gate_is_primary_blocker(row):
+        reason = text(row, "reason_code")
+        if reason == "NO_QUOTE_INFORMATION_EVENT":
+            return True
+        return reason in {"", "NO_QUOTE_UNKNOWN"} and text(row, "event_gate_action") == "suppress"
+
+    contextual_event_gate_suppressed_rows = sum(
         1 for row in blocked_rows
         if text(row, "event_gate_action") == "suppress"
-        or text(row, "reason_code") == "NO_QUOTE_INFORMATION_EVENT"
     )
+    event_gate_suppressed_rows = sum(1 for row in blocked_rows if event_gate_is_primary_blocker(row))
     harvest_only_suppressed_by_other_gate_rows = sum(
         1 for row in blocked_rows
         if text(row, "known_edge_permission") == "harvest_only"
         and text(row, "reason_code") != "NO_QUOTE_KNOWN_EDGE_PERMISSION"
-        and (
-            text(row, "event_gate_action") == "suppress"
-            or text(row, "reason_code") == "NO_QUOTE_INFORMATION_EVENT"
-        )
+        and event_gate_is_primary_blocker(row)
     )
     return {
-        "schema_version": "mm_quote_blocker_diagnostics_v0.2",
+        "schema_version": "mm_quote_blocker_diagnostics_v0.8",
         "quote_rows": len(quote_rows or []),
         "quote_permission_rows": len(quoted_ids),
         "blocked_rows": len(blocked_rows),
         "blocked_fraction": compact_float(len(blocked_rows) / len(quote_rows or []) if quote_rows else 0.0),
+        "known_edge_coverage_map": {
+            "path": known_edge_map_diag.get("path"),
+            "exists": bool(known_edge_map_diag.get("exists")),
+            "schema_version": known_edge_map_diag.get("schema_version"),
+            "record_count": int(known_edge_map_diag.get("record_count") or 0),
+            "diagnostic_only": True,
+        },
         "known_edge_blocked_rows": known_edge_permission_blocked_rows,
         "known_edge_permission_blocked_rows": known_edge_permission_blocked_rows,
         "known_edge_allowed_false_rows": known_edge_allowed_false_rows,
         "known_edge_state_rows": known_edge_state_rows,
+        "stale_input_blocked_rows": stale_input_blocked_rows,
+        "stale_input_rows": stale_input_blocked_rows,
+        "inferred_known_edge_record_match_rows": inferred_known_edge_record_match_rows,
+        "inferred_known_edge_record_miss_rows": inferred_known_edge_record_miss_rows,
         "harvest_only_suppressed_by_other_gate_rows": harvest_only_suppressed_by_other_gate_rows,
         "event_gate_suppressed_rows": event_gate_suppressed_rows,
+        "contextual_event_gate_suppressed_rows": contextual_event_gate_suppressed_rows,
         "reason_counts": dict(sorted(reason_counts.items())),
         "top_market_reasons": top_counter(market_reason, ["market_id", "reason_code"]),
         "top_known_edge_states": top_counter(
@@ -1162,9 +1494,129 @@ def quote_blocker_diagnostics(quote_rows, legs, limit=25):
             event_gate,
             ["event_gate_status", "event_gate_action", "event_gate_reason_code", "event_gate_event_class"],
         ),
+        "top_blocker_overlaps": top_counter(
+            blocker_overlap,
+            [
+                "reason_code",
+                "event_gate_action",
+                "event_gate_reason_code",
+                "known_edge_permission",
+                "known_edge_reason",
+                "promotion_state",
+            ],
+        ),
         "top_blocked_cells": top_counter(
             cells,
             ["market_id", "range_label", "reason_code", "known_edge_reason", "promotion_state"],
+        ),
+        "top_missing_known_edge_dimensions": top_counter(
+            missing_known_edge_dimensions,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "promotion_state",
+            ],
+        ),
+        "top_inferred_missing_known_edge_dimensions": top_counter(
+            inferred_missing_known_edge_dimensions,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "promotion_state",
+            ],
+        ),
+        "top_inferred_known_edge_record_matches": top_counter(
+            inferred_known_edge_record_matches,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "promotion_state",
+                "record_permission",
+                "record_reason",
+                "record_key",
+            ],
+        ),
+        "top_inferred_known_edge_record_misses": top_counter(
+            inferred_known_edge_record_misses,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "promotion_state",
+            ],
+        ),
+        "top_inferred_known_edge_nearest_record_gaps": top_counter(
+            inferred_known_edge_nearest_record_gaps,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "promotion_state",
+                "nearest_record_permission",
+                "nearest_record_reason",
+                "matched_dimension_count",
+                "mismatched_dimension_count",
+                "mismatched_dimensions",
+                "nearest_record_key",
+            ],
+        ),
+        "top_known_edge_required_actions": top_counter(
+            known_edge_required_actions,
+            [
+                "required_action",
+                "known_edge_reason",
+                "known_edge_permission",
+                "promotion_state",
+            ],
+        ),
+        "top_known_edge_coverage_action_items": top_counter(
+            known_edge_coverage_action_items,
+            [
+                "market_id",
+                "hour_utc",
+                "band_distance_bucket",
+                "band_type",
+                "casebook_taxonomy",
+                "regime",
+                "source_freshness_state",
+                "book_imbalance_bucket",
+                "known_edge_reason",
+                "known_edge_permission",
+                "promotion_state",
+                "required_action",
+                "nearest_record_permission",
+                "nearest_record_reason",
+                "mismatched_dimensions",
+                "nearest_record_key",
+            ],
         ),
     }
 
@@ -1359,13 +1811,15 @@ def skipped_fill_simulation_diagnostics(legs, reason="skip_fill_simulation"):
 
 
 def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
+    quote_leg_count = len(legs or [])
     return {
         "schema_version": "mm_fill_evidence_completeness_v0.1",
         "status": "SKIPPED",
         "reason": reason,
         "promotion_grade": False,
         "blockers": ["fill_simulation_skipped"],
-        "quote_legs": len(legs or []),
+        "quote_legs": quote_leg_count,
+        "vacuous": quote_leg_count <= 0,
         "strict_trade_through_fill_count": 0,
         "strict_trade_through_filled_shares": 0.0,
         "queue_status_counts": {},
@@ -1446,6 +1900,7 @@ def load_or_build_clob_recon(clob_recon_path, snapshots_root, event_slugs, now=N
 
 def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics, decisive_resting, clob_recon, config):
     config = {**DEFAULT_CONFIG, **(config or {})}
+    quote_leg_count = len(legs or [])
     queue_by_leg = {row.get("leg_id"): row for row in queue_rows or []}
     queue_counts = Counter(row.get("status") or "unknown" for row in queue_rows or [])
     missing_size_trade_rows = sum(int(row.get("missing_size_trade_rows") or 0) for row in diagnostics.values())
@@ -1560,6 +2015,8 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
     )
 
     blockers = []
+    if quote_leg_count <= 0:
+        blockers.append("no_quote_legs")
     if missing_size_trade_rows > int(config.get("fill_evidence_max_missing_size_trade_rows", 0)):
         blockers.append("missing_size_trade_rows")
     if missing_book_queue_legs > int(config.get("fill_evidence_max_missing_book_queue_legs", 0)):
@@ -1583,7 +2040,9 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         "status": "PASS" if not blockers else "BLOCK",
         "promotion_grade": not blockers,
         "blockers": blockers,
-        "quote_legs": len(legs or []),
+        "quote_legs": quote_leg_count,
+        "vacuous": quote_leg_count <= 0,
+        "reason": "no_quote_legs" if quote_leg_count <= 0 else None,
         "strict_trade_through_fill_count": len(fill_rows or []),
         "strict_trade_through_filled_shares": compact_float(sum_field(fill_rows or [], "fill_size")),
         "queue_status_counts": dict(sorted(queue_counts.items())),
@@ -1625,6 +2084,7 @@ def build_paper_payload(
     exchange_economics_target_date=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    known_edge_coverage_map=None,
     include_model_variants=True,
     include_fill_simulation=True,
 ):
@@ -1650,12 +2110,27 @@ def build_paper_payload(
         )
         model_variant_legs = quote_legs(model_variant_quote_rows, config)
     quote_row_count = len(quote_rows)
+    quote_permission_row_count = sum(1 for row in quote_rows if quote_permission(row))
+    live_trade_permission_row_count = sum(
+        1 for row in quote_rows if bool_value(row.get("live_trade_permission"), False)
+    )
     model_variant_quote_row_count = len(model_variant_quote_rows)
     anti_overfit = anti_overfit_summary(quote_rows, run_configs)
     quote_uptime = quote_uptime_summary(quote_rows, legs)
     quote_exposure = _guardrail_quote_exposure(quote_rows, config)
     event_gate_quote_score = score_event_gate_decisions(quote_rows, fill_rows=[])
-    blocker_diagnostics = quote_blocker_diagnostics(quote_rows, legs)
+    known_edge_coverage_map_path = (
+        Path(known_edge_coverage_map)
+        if known_edge_coverage_map
+        else Path(backtest_root) / DEFAULT_KNOWN_EDGE_OUT.name
+    )
+    known_edge_coverage_records, known_edge_coverage_diag = load_known_edge_map(known_edge_coverage_map_path)
+    blocker_diagnostics = quote_blocker_diagnostics(
+        quote_rows,
+        legs,
+        known_edge_records=known_edge_coverage_records,
+        known_edge_map_diag=known_edge_coverage_diag,
+    )
     per_market_evidence_credits = [
         row
         for item in eligibility_by_folder.values()
@@ -1690,12 +2165,27 @@ def build_paper_payload(
         exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         {},
     ) or {}
+    active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
+    if include_fill_simulation:
+        clob_recon = load_or_build_clob_recon(
+            clob_recon_path,
+            snapshots_root,
+            active_event_slugs,
+            now=now,
+        )
+    else:
+        clob_recon = {
+            "schema_version": "clob_book_recon_v0.1",
+            "coverage_source": "skip_fill_simulation",
+            "summary": {},
+        }
     reward_score_diagnostics = build_reward_score_diagnostics(
         quote_rows,
         legs,
         exchange_gate=exchange_gate,
         economics_snapshot=economics_snapshot,
         config=config,
+        clob_recon=clob_recon,
     )
     del quote_rows
     gc.collect()
@@ -1757,14 +2247,7 @@ def build_paper_payload(
         config=config,
     )
     event_gate_score = complete_event_gate_score(event_gate_quote_score, fill_rows)
-    active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
     if include_fill_simulation:
-        clob_recon = load_or_build_clob_recon(
-            clob_recon_path,
-            snapshots_root,
-            active_event_slugs,
-            now=now,
-        )
         decisive_resting = decisive_resting_check(legs, diagnostics)
         fill_evidence_completeness = fill_evidence_completeness_summary(
             legs,
@@ -1776,11 +2259,6 @@ def build_paper_payload(
             config,
         )
     else:
-        clob_recon = {
-            "schema_version": "clob_book_recon_v0.1",
-            "coverage_source": "skip_fill_simulation",
-            "summary": {},
-        }
         decisive_resting = {
             "status": "SKIPPED",
             "reason": "skip_fill_simulation",
@@ -1817,6 +2295,15 @@ def build_paper_payload(
         "run_folder_selection": run_folder_selection,
         "excluded_run_folders": len(excluded_run_folders),
         "quote_rows": quote_row_count,
+        "quote_permission_rows": quote_permission_row_count,
+        "no_quote_rows": max(0, quote_row_count - quote_permission_row_count),
+        "quote_permission_rate": compact_float(
+            quote_permission_row_count / quote_row_count if quote_row_count else 0.0
+        ),
+        "live_trade_permission_rows": live_trade_permission_row_count,
+        "live_trade_permission_rate": compact_float(
+            live_trade_permission_row_count / quote_row_count if quote_row_count else 0.0
+        ),
         "quote_legs": len(legs),
         "fill_simulation_included": bool(include_fill_simulation),
         "fill_simulation_status": "RUN" if include_fill_simulation else "SKIPPED",
@@ -1838,10 +2325,23 @@ def build_paper_payload(
                 key for key, row in diagnostics.items() if row.get("trade_rows", 0) == 0
             ),
         },
+        "fill_evidence_completeness_status": fill_evidence_completeness.get("status"),
+        "fill_evidence_promotion_grade": fill_evidence_completeness.get("promotion_grade"),
+        "fill_evidence_blockers": fill_evidence_completeness.get("blockers") or [],
+        "fill_evidence_vacuous": fill_evidence_completeness.get("vacuous"),
+        "fill_evidence_reason": fill_evidence_completeness.get("reason"),
+        "missing_size_trade_rows": fill_evidence_completeness.get("missing_size_trade_rows", 0),
+        "missing_book_queue_legs": fill_evidence_completeness.get("missing_book_queue_legs", 0),
+        "unresolved_resting_quote_count": fill_evidence_completeness.get(
+            "unresolved_resting_quote_count",
+            0,
+        ),
         "fill_evidence_completeness": {
             "status": fill_evidence_completeness.get("status"),
             "promotion_grade": fill_evidence_completeness.get("promotion_grade"),
             "blockers": fill_evidence_completeness.get("blockers") or [],
+            "vacuous": fill_evidence_completeness.get("vacuous"),
+            "reason": fill_evidence_completeness.get("reason"),
             "missing_size_trade_rows": fill_evidence_completeness.get("missing_size_trade_rows", 0),
             "missing_book_queue_legs": fill_evidence_completeness.get("missing_book_queue_legs", 0),
             "missing_trade_size_queue_legs": fill_evidence_completeness.get(
@@ -1871,6 +2371,12 @@ def build_paper_payload(
         "quote_uptime": quote_uptime,
         "quote_blocker_diagnostics": blocker_diagnostics,
         "event_gate_score": event_gate_score,
+        "total_reward_score": reward_score_diagnostics.get("total_reward_score"),
+        "counterfactual_reward_usdc": reward_score_diagnostics.get("counterfactual_reward_usdc"),
+        "counterfactual_reward_status": reward_score_diagnostics.get("counterfactual_reward_status"),
+        "counterfactual_score_share": reward_score_diagnostics.get("counterfactual_score_share"),
+        "score_at_or_above_target_size": reward_score_diagnostics.get("score_at_or_above_target_size"),
+        "actual_payout_evidence": reward_score_diagnostics.get("actual_payout_evidence"),
         "reward_score_diagnostics": {
             key: value
             for key, value in reward_score_diagnostics.items()
@@ -1894,6 +2400,9 @@ def build_paper_payload(
         },
         "gate_status": gate_status,
         "gate_status_without_exchange_economics": base_gate_status,
+        "gate_status_scope": "paper_day_collection_and_exchange_economics_not_live_capital",
+        "live_capital_gate_status": "NOT_EVALUATED_BY_MM_PAPER",
+        "live_capital_gate_reason": "use weather.market.market_making_readiness; fill evidence, live-forward countability, operator, and platform gates remain separate",
     }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -2028,6 +2537,14 @@ def build_arg_parser():
     parser.add_argument("--fills-out", default=str(DEFAULT_FILLS_OUT))
     parser.add_argument("--known-edge-out", default=str(DEFAULT_KNOWN_EDGE_OUT))
     parser.add_argument("--known-edge-report-out", default=str(DEFAULT_KNOWN_EDGE_REPORT_OUT))
+    parser.add_argument(
+        "--known-edge-coverage-map",
+        default=None,
+        help=(
+            "Existing known-edge map used only for quote-blocker coverage diagnostics; "
+            "defaults to <backtest-root>/mm_known_edge_map.json."
+        ),
+    )
     parser.add_argument("--ledger-root", default=None)
     parser.add_argument("--now", default=None)
     parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT))
@@ -2068,6 +2585,7 @@ def main(argv=None):
         exchange_economics_snapshot_path=Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None,
         exchange_economics_target_date=args.exchange_economics_target_date,
         exchange_economics_platform=args.exchange_economics_platform,
+        known_edge_coverage_map=Path(args.known_edge_coverage_map) if args.known_edge_coverage_map else None,
         include_model_variants=not args.skip_model_variants,
         include_fill_simulation=not args.skip_fill_simulation,
     )
@@ -2085,7 +2603,8 @@ def main(argv=None):
         "MM paper: "
         f"{summary['conservative_fills']} conservative fills, "
         f"{summary['queue_estimated_fill_legs']} queue-estimated fill legs, "
-        f"gate {summary['gate_status']} -> {args.report_out}"
+        f"paper-day gate {summary['gate_status']}, "
+        f"live-capital gate {summary['live_capital_gate_status']} -> {args.report_out}"
     )
     return payload
 

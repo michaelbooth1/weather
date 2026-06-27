@@ -105,6 +105,11 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(toronto_cadence["latest_snapshot_id"], "s48")
         self.assertEqual(toronto_cadence["gap_count"], 0)
         fleet_sources = payload["summary"]["source_family_degradation"]
+        self.assertEqual(payload["source_status_proof"]["schema_version"], "source_status_proof_v0.2")
+        self.assertEqual(payload["source_status_proof"]["status"], "BLOCK")
+        self.assertEqual(payload["source_status_proof"]["root_cause_class"], "missing_source_status")
+        self.assertEqual(fleet_sources["status"], "BLOCK")
+        self.assertEqual(fleet_sources["root_cause_class"], "missing_source_status")
         self.assertEqual(fleet_sources["affected_market_count"], 1)
         self.assertEqual(fleet_sources["fallback_source_count"], 1)
         self.assertEqual(
@@ -235,38 +240,94 @@ class TestFleetObservability(unittest.TestCase):
 
     def test_source_family_degradation_flags_multi_market_settlement_auth_outage(self):
         markets = []
-        for market_id in ("atlanta", "nyc"):
-            with tempfile.TemporaryDirectory() as tmp:
-                folder = Path(tmp)
-                pd.DataFrame([
-                    {
-                        "snapshot_id": "s1",
-                        "captured_at_utc": "2026-06-19T22:00:00+00:00",
-                        "captured_at_local": "2026-06-19T18:00:00-04:00",
-                        "source": "wu_history",
-                        "ok": False,
-                        "stale": False,
-                        "status": "settlement_source_auth_failure",
-                        "cache_status": "auth_failure",
-                        "source_family": "wu_history",
-                        "degradation_state": "settlement_source_auth_failure",
-                        "http_status": "403",
-                    },
-                ]).to_csv(folder / "source_status_long.csv", index=False)
-                markets.append({
-                    "market_id": market_id,
-                    "source_family_degradation": source_family_degradation(folder),
-                })
+        with patch.dict(os.environ, {"WEATHER_COM_API_KEY": "", "WEATHER_COM_KEY": ""}, clear=False):
+            for market_id in ("atlanta", "nyc"):
+                with tempfile.TemporaryDirectory() as tmp:
+                    folder = Path(tmp)
+                    pd.DataFrame([
+                        {
+                            "snapshot_id": "s1",
+                            "captured_at_utc": "2026-06-19T22:00:00+00:00",
+                            "captured_at_local": "2026-06-19T18:00:00-04:00",
+                            "source": "wu_history",
+                            "ok": False,
+                            "stale": False,
+                            "status": "settlement_source_auth_failure",
+                            "cache_status": "auth_failure",
+                            "source_family": "wu_history",
+                            "degradation_state": "settlement_source_auth_failure",
+                            "http_status": "403",
+                        },
+                    ]).to_csv(folder / "source_status_long.csv", index=False)
+                    markets.append({
+                        "market_id": market_id,
+                        "source_family_degradation": source_family_degradation(folder),
+                    })
+            summary = fleet_source_family_degradation_summary(markets)
 
         first = markets[0]["source_family_degradation"]["families"]["wu_history"]
-        summary = fleet_source_family_degradation_summary(markets)
 
         self.assertEqual(first["status"], "settlement_source_auth_failure")
         self.assertTrue(first["trading_blocking"])
         self.assertEqual(first["settlement_auth_failure_sources"], ["wu_history"])
+        self.assertFalse(markets[0]["source_family_degradation"]["weather_com_credential_present"])
+        self.assertEqual(
+            markets[0]["source_family_degradation"]["weather_com_credential_present_by_var"],
+            {"WEATHER_COM_API_KEY": False, "WEATHER_COM_KEY": False},
+        )
+        self.assertTrue(
+            markets[0]["source_family_degradation"]["weather_com_credential_values_redacted"]
+        )
         self.assertEqual(summary["settlement_source_auth_failure_market_count"], 2)
         self.assertTrue(summary["settlement_source_auth_failure_fleet_blocker"])
         self.assertEqual(summary["settlement_auth_failure_source_count"], 2)
+        self.assertEqual(summary["status"], "BLOCK")
+        self.assertEqual(summary["root_cause_class"], "settlement_source_auth_failure")
+        self.assertFalse(summary["weather_com_credential_present"])
+        self.assertEqual(
+            summary["weather_com_credential_present_by_var"],
+            {"WEATHER_COM_API_KEY": False, "WEATHER_COM_KEY": False},
+        )
+        self.assertTrue(summary["weather_com_credential_values_redacted"])
+
+    def test_source_family_summary_redacts_configured_provider_credentials(self):
+        markets = [
+            {
+                "market_id": market_id,
+                "source_family_degradation": {
+                    "available": True,
+                    "affected_family_count": 1,
+                    "blocking_family_count": 1,
+                    "trading_evidence_allowed": False,
+                    "live_trade_permission_allowed": False,
+                    "promotion_readiness_allowed": False,
+                    "families": {
+                        "wu_history": {
+                            "status": "settlement_source_auth_failure",
+                            "trading_blocking": True,
+                            "settlement_auth_failure_source_count": 1,
+                        }
+                    },
+                },
+            }
+            for market_id in ("atlanta", "nyc")
+        ]
+
+        with patch.dict(
+            os.environ,
+            {"WEATHER_COM_API_KEY": "do-not-render-test-secret", "WEATHER_COM_KEY": ""},
+            clear=False,
+        ):
+            summary = fleet_source_family_degradation_summary(markets)
+
+        self.assertEqual(summary["root_cause_class"], "settlement_source_auth_failure")
+        self.assertTrue(summary["weather_com_credential_present"])
+        self.assertEqual(
+            summary["weather_com_credential_present_by_var"],
+            {"WEATHER_COM_API_KEY": True, "WEATHER_COM_KEY": False},
+        )
+        self.assertTrue(summary["weather_com_credential_values_redacted"])
+        self.assertNotIn("do-not-render-test-secret", json.dumps(summary))
 
     def test_source_family_direct_rate_limit_is_nonblocking_with_fresh_family_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -892,6 +953,71 @@ class TestFleetObservability(unittest.TestCase):
         self.assertTrue(cadence["summary"]["clean_active_day_required"])
         self.assertIn("collect next active day", cadence["summary"]["next_unblock_action"])
 
+    def test_live_forward_slo_source_status_settlement_auth_missing_credentials_has_specific_repair(self):
+        collection = {
+            "markets": [{
+                "market_id": "toronto",
+                "action_required": False,
+                "state": "CLEAN",
+                "reason": "ok",
+                "snapshots": 49,
+                "source_family_degradation": {
+                    "available": True,
+                    "trading_evidence_allowed": False,
+                    "affected_family_count": 1,
+                    "failed_source_count": 0,
+                    "fallback_source_count": 0,
+                    "settlement_auth_failure_source_count": 1,
+                    "provider_credential_environment": {
+                        "provider": "weather.com",
+                        "credential_env_vars": ["WEATHER_COM_API_KEY", "WEATHER_COM_KEY"],
+                        "present_by_var": {
+                            "WEATHER_COM_API_KEY": False,
+                            "WEATHER_COM_KEY": False,
+                        },
+                        "any_present": False,
+                        "values_redacted": True,
+                    },
+                    "weather_com_credential_present": False,
+                    "weather_com_credential_values_redacted": True,
+                    "repair_command": (
+                        "python -m weather.collection.snapshot_tracker --backfill-source-status "
+                        "--overwrite-source-status --source-status-folder data/snapshots/toronto"
+                    ),
+                    "families": {
+                        "wu_history": {
+                            "status": "settlement_source_auth_failure",
+                            "failed_source_count": 0,
+                            "fallback_source_count": 0,
+                            "rate_limited_source_count": 0,
+                            "settlement_auth_failure_source_count": 1,
+                            "settlement_auth_failure_sources": ["wu_history"],
+                        },
+                    },
+                },
+            }]
+        }
+        clob = {"loop": {"state": "RUNNING"}, "books": {"markets": []}}
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 10.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        self.assertFalse(gate["ok"])
+        self.assertEqual(gate["first_blocker"]["component"], "source_status")
+        self.assertEqual(
+            gate["first_blocker"]["root_cause"],
+            "settlement_source_auth_failure_missing_weather_com_credentials",
+        )
+        self.assertEqual(gate["first_blocker"]["owner"], "external Weather.com provider credentials")
+        self.assertFalse(gate["first_blocker"]["recoverable_same_day"])
+        self.assertIn(
+            "configure WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo",
+            gate["first_blocker"]["repair_command"],
+        )
+        self.assertIn("--backfill-source-status", gate["first_blocker"]["repair_command"])
+        self.assertIn("Weather.com credential present=False", gate["first_blocker"]["detail"])
+        self.assertNotIn("secret", json.dumps(gate["first_blocker"]).lower())
+
     def test_live_forward_slo_source_status_provider_fallback_has_specific_repair(self):
         collection = {
             "markets": [{
@@ -1027,6 +1153,9 @@ class TestFleetObservability(unittest.TestCase):
                         "promotion_readiness_blocked_market_count": 1,
                         "top_degraded_family": "open_meteo",
                         "provider_cooldown_source_count": 1,
+                        "settlement_auth_failure_source_count": 1,
+                        "weather_com_credential_present": False,
+                        "weather_com_credential_values_redacted": True,
                     },
                     "repair_command": (
                         "python -m weather.collection.snapshot_tracker "
@@ -1137,7 +1266,11 @@ class TestFleetObservability(unittest.TestCase):
                         "blocked_market_count": 1,
                         "owner": "CLOB book supervisor",
                         "repair_command": "python -m weather.market.market_microstructure ensure",
-                        "messages": ["last book capture is 180s old"],
+                        "messages": [
+                            "last book capture is 180s old",
+                            "last book capture is 180s old",
+                            "second market missing book",
+                        ],
                     }
                 ],
                 "first_blocker": {
@@ -1271,12 +1404,17 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("nyc", text)
         self.assertIn("### Broad Recovery Checklist", text)
         self.assertIn("clob_book_freshness", text)
+        self.assertIn("last book capture is 180s old (x2)", text)
+        self.assertIn("second market missing book", text)
+        self.assertEqual(text.count("last book capture is 180s old"), 1)
         self.assertIn("weather.market.market_microstructure ensure", text)
         self.assertIn("### Snapshot Cadence Proof", text)
         self.assertIn("unknown_snapshot_gap", text)
         self.assertIn("12:00->12:34", text)
         self.assertIn("weather.collection.snapshot_tracker --restart", text)
         self.assertIn("## Source Status Proof", text)
+        self.assertIn("Weather.com credential present: `False`", text)
+        self.assertIn("Weather.com credential values redacted: `True`", text)
         self.assertIn("open_meteo:rate_limited_with_fresh_family_coverage", text)
         self.assertIn("--source-status-folder data/snapshots/nyc", text)
         self.assertIn("## Runtime Identity Evidence", text)

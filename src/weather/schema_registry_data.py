@@ -1111,6 +1111,14 @@ REGISTERED_SCHEMAS = (
         "active",
         "Fleet-level early-hour coverage proof for source freshness and collection readiness.",
     ),
+    SchemaSpec(
+        "fleet_capture_liveness",
+        "fleet_capture_liveness_v0.1",
+        "weather.collection.collection_health",
+        "active",
+        "Fleet capture-liveness alarm: markets stale inside an open capture window "
+        "vs. pending pre-window (timezone-aware; the signal a live monitor alarms on).",
+    ),
     SchemaSpec("mm_known_edge_map", "mm_known_edge_map_v0.2", "weather.market.mm_paper", "active"),
     SchemaSpec("mm_known_edge_map_legacy", "mm_known_edge_map_v0.1", "weather.market.mm_paper", "legacy"),
     SchemaSpec(

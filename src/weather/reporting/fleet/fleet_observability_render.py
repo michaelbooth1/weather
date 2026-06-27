@@ -1,9 +1,26 @@
 """Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
+from collections import Counter
+
 from weather.reporting.fleet.fleet_observability_payload import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+
+def _summarize_messages(messages, limit=3):
+    counts = Counter(str(message) for message in messages if message)
+    if not counts:
+        return "ok"
+    top = counts.most_common(limit)
+    parts = [
+        f"{message} (x{count})" if count > 1 else message
+        for message, count in top
+    ]
+    remaining = sum(counts.values()) - sum(count for _, count in top)
+    if remaining:
+        parts.append(f"{remaining} more message(s)")
+    return "; ".join(parts)
 
 def write_json(path, payload):
     path = Path(path)
@@ -107,6 +124,9 @@ def write_markdown(path, payload):
         f"Live-trade blocked markets: `{source_status_summary.get('live_trade_permission_blocked_market_count')}`",
         f"Top degraded family: `{source_status_summary.get('top_degraded_family') or '-'}`",
         f"Provider-cooldown sources: `{source_status_summary.get('provider_cooldown_source_count')}`",
+        f"Settlement-auth failure sources: `{source_status_summary.get('settlement_auth_failure_source_count')}`",
+        f"Weather.com credential present: `{source_status_summary.get('weather_com_credential_present')}`",
+        f"Weather.com credential values redacted: `{source_status_summary.get('weather_com_credential_values_redacted')}`",
         f"Expected current-day unavailable sources: `{source_status_summary.get('expected_unavailable_source_count')}`",
         f"Repair command: `{source_status_proof.get('repair_command') or SOURCE_STATUS_BACKFILL_COMMAND}`",
         f"Verification command: `{source_status_proof.get('verification_command') or SOURCE_PROVIDER_STATUS_COMMAND}`",
@@ -212,7 +232,7 @@ def write_markdown(path, payload):
             row.get("name"),
             "PASS" if row.get("ok") else "BLOCK",
             row.get("severity"),
-            "; ".join(row.get("messages") or []) or "ok",
+            _summarize_messages(row.get("messages") or []),
         ]
         for row in live_forward_slo.get("gates") or []
     ]
@@ -223,7 +243,7 @@ def write_markdown(path, payload):
             row.get("blocked_market_count"),
             row.get("owner") or "-",
             row.get("repair_command") or "-",
-            "; ".join(row.get("messages") or []) or "ok",
+            _summarize_messages(row.get("messages") or []),
         ]
         for row in live_forward_slo.get("concrete_gates") or []
     ]

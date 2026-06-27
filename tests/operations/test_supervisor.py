@@ -58,6 +58,37 @@ class TestSupervisorPrimitives(unittest.TestCase):
             finally:
                 supervisor.release_file_lock(handle, lock_path)
 
+    def test_file_lock_replaces_fresh_dead_owner_pid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "supervisor.lock"
+            lock_path.write_text("5156", encoding="ascii")
+
+            handle = supervisor.acquire_file_lock(
+                lock_path,
+                attempts=1,
+                stale_after_seconds=120,
+                pid_check=lambda pid: int(pid) != 5156,
+            )
+            try:
+                self.assertIsNotNone(handle)
+                self.assertNotEqual(lock_path.read_text(encoding="ascii"), "5156")
+            finally:
+                supervisor.release_file_lock(handle, lock_path)
+
+    def test_file_lock_keeps_fresh_live_owner_pid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "supervisor.lock"
+            lock_path.write_text("5156", encoding="ascii")
+
+            handle = supervisor.acquire_file_lock(
+                lock_path,
+                attempts=1,
+                stale_after_seconds=120,
+                pid_check=lambda _pid: True,
+            )
+
+        self.assertIsNone(handle)
+
     def test_heartbeat_state_and_age_helpers(self):
         now = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
         status = {
@@ -249,6 +280,43 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(guard["recent_recovery_count"], 2)
         self.assertTrue(guard["allowed"])
         self.assertNotEqual(guard["action"], "circuit_open")
+
+    def test_readoption_debounce_holds_recent_benign_readoption(self):
+        now = datetime(2026, 6, 27, 5, 20, tzinfo=timezone.utc)
+        # Benign re-adoption (stale_code) of a process that started 3 min ago is
+        # held: relaunching again would kill the loop mid-iteration and starve
+        # the tail markets before they are reached.
+        held = supervisor.readoption_debounce(
+            runtime_code_state="stale_code",
+            process_started_at=(now - timedelta(minutes=3)).isoformat(),
+            now=now,
+            debounce_seconds=900.0,
+        )
+        self.assertTrue(held["debounced"])
+        self.assertGreater(held["retry_after_seconds"], 0)
+
+        # Once the window elapses the re-adoption is allowed.
+        allowed = supervisor.readoption_debounce(
+            runtime_code_state="runtime_identity",
+            process_started_at=(now - timedelta(minutes=20)).isoformat(),
+            now=now,
+            debounce_seconds=900.0,
+        )
+        self.assertFalse(allowed["debounced"])
+        self.assertEqual(allowed["reason"], "debounce_window_elapsed")
+
+    def test_readoption_debounce_never_holds_crash_restart(self):
+        now = datetime(2026, 6, 27, 5, 20, tzinfo=timezone.utc)
+        # A genuine crash/hang restart (non-benign cause) is never debounced,
+        # even seconds after the process started.
+        result = supervisor.readoption_debounce(
+            runtime_code_state="DEAD",
+            process_started_at=(now - timedelta(seconds=5)).isoformat(),
+            now=now,
+            debounce_seconds=900.0,
+        )
+        self.assertFalse(result["debounced"])
+        self.assertEqual(result["reason"], "not_benign_readoption")
 
     def test_circuit_open_diagnostic_emits_once_per_breaker_trip(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -17,6 +17,7 @@ from weather.io import (
     read_jsonl,
     write_csv_rows,
 )
+from weather.collection.collection_health import source_family_degradation
 from weather.market.market_config import ensure_date
 from weather.market.market_making_run_constants import (
     DEFAULT_QUOTE_TTL_SECONDS,
@@ -419,6 +420,57 @@ def source_status_is_current(rows):
     )
 
 
+def source_status_degradation_preflight(folder, snapshot_id):
+    payload = source_family_degradation(folder)
+    available = bool(payload.get("available"))
+    payload_snapshot_id = payload.get("snapshot_id")
+    snapshot_matches = bool(available and (not snapshot_id or payload_snapshot_id == snapshot_id))
+    trading_allowed = bool(payload.get("trading_evidence_allowed"))
+    if not available:
+        status = "BLOCK"
+        root_cause = "missing_source_status_row"
+        reason = payload.get("reason") or "source-status proof is unavailable"
+    elif not snapshot_matches:
+        status = "BLOCK"
+        root_cause = "stale_source_status_row"
+        reason = (
+            f"source-status proof snapshot {payload_snapshot_id or '(missing)'} "
+            f"does not match latest snapshot {snapshot_id or '(missing)'}"
+        )
+    elif not trading_allowed:
+        status = "BLOCK"
+        root_cause = "source_status_degradation_blocked"
+        reason = (
+            "source-status degradation blocks trading evidence: "
+            f"blocking_families={payload.get('blocking_family_count', 0)} "
+            f"settlement_auth_failures={payload.get('settlement_auth_failure_source_count', 0)}"
+        )
+    else:
+        status = "PASS"
+        root_cause = "source_status_clean"
+        reason = "source-status degradation allows trading evidence"
+    return {
+        "status": status,
+        "ok": status == "PASS",
+        "root_cause": root_cause,
+        "reason": reason,
+        "available": available,
+        "snapshot_id": payload_snapshot_id,
+        "snapshot_matches": snapshot_matches,
+        "affected_family_count": payload.get("affected_family_count", 0),
+        "blocking_family_count": payload.get("blocking_family_count", 0),
+        "failed_source_count": payload.get("failed_source_count", 0),
+        "fallback_source_count": payload.get("fallback_source_count", 0),
+        "settlement_auth_failure_source_count": payload.get("settlement_auth_failure_source_count", 0),
+        "provider_cooldown_source_count": payload.get("provider_cooldown_source_count", 0),
+        "expected_unavailable_source_count": payload.get("expected_unavailable_source_count", 0),
+        "trading_evidence_allowed": trading_allowed,
+        "live_trade_permission_allowed": bool(payload.get("live_trade_permission_allowed")),
+        "promotion_readiness_allowed": bool(payload.get("promotion_readiness_allowed")),
+        "claim_lane_allowance": payload.get("claim_lane_allowance") or {},
+    }
+
+
 def metadata_from_books(rows):
     min_order_sizes = [maybe_float(row.get("min_order_size")) for row in rows]
     tick_sizes = [maybe_float(row.get("tick_size")) for row in rows]
@@ -483,6 +535,7 @@ def preflight_market(
     blockers = []
     stale = []
     folder = Path(folder)
+    snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
     model_age = (now - latest_capture).total_seconds() if latest_capture else None
     source_status_times = [
@@ -492,6 +545,19 @@ def preflight_market(
     source_status_times = [value for value in source_status_times if value is not None]
     source_status_latest = max(source_status_times) if source_status_times else None
     source_status_fresh = source_status_is_current(source_rows)
+    source_status_degradation = source_status_degradation_preflight(folder, snapshot_id) if source_rows else {
+        "status": "SKIPPED",
+        "ok": True,
+        "root_cause": "source_status_rows_missing",
+        "reason": "source-status degradation gate skipped until source rows exist",
+        "available": False,
+        "snapshot_id": None,
+        "snapshot_matches": False,
+        "trading_evidence_allowed": False,
+        "live_trade_permission_allowed": False,
+        "promotion_readiness_allowed": False,
+        "claim_lane_allowance": {},
+    }
     book_audit = preflight_book_audit(
         folder,
         now=now,
@@ -532,6 +598,13 @@ def preflight_market(
     )
     add_gate("source_status_rows", bool(source_rows), "missing", "missing current source-status rows")
     add_gate("source_status_fresh", source_status_fresh, "stale", "no fresh source-status row for latest snapshot")
+    if source_rows:
+        add_gate(
+            "source_status_degradation",
+            source_status_degradation.get("ok"),
+            "missing",
+            source_status_degradation.get("reason") or "source-status degradation blocks trading evidence",
+        )
     add_gate("clob_discovery", token_discovery.get("ok"), "missing", token_discovery.get("reason"))
     add_gate("clob_tokens", token_count > 0 and condition_count > 0, "missing", "missing CLOB token ids or condition ids")
     add_gate("clob_books", bool(book_rows), "missing", "missing current CLOB book rows")
@@ -616,6 +689,7 @@ def preflight_market(
         "source_status_rows": len(source_rows),
         "source_status_latest_utc": source_status_latest.isoformat() if source_status_latest else None,
         "source_status_fresh": source_status_fresh,
+        "source_status_degradation": source_status_degradation,
         "clob_token_rows": token_count,
         "clob_token_discovery": token_discovery,
         "condition_ids": condition_count,

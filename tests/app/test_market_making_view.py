@@ -7,7 +7,10 @@ from app.views.market_making import (
     _budget_lifecycle_rows,
     _event_gate_rows,
     _gate_progress_rows,
+    _latest_readiness,
     _market_health_rows,
+    _readiness_action_rows,
+    _readiness_summary_rows,
     _runtime_identity_rows,
 )
 from weather.reporting.market.market_making_dashboard import (
@@ -193,6 +196,70 @@ def test_market_making_value_tables_are_arrow_safe_and_runtime_identity_rows_ren
     assert rows[0]["Loop"] == "clob_books"
     assert rows[0]["Code state"] == "different"
     assert rows[0]["Running code"] == "old"
+
+
+def test_market_making_cockpit_surfaces_latest_live_readiness_no_go(tmp_path):
+    older = tmp_path / "mm_live_readiness_old.json"
+    older.write_text(
+        '{"target_date": "2026-06-26", "status": "PASS", "summary": {}}\n',
+        encoding="utf-8",
+    )
+    latest = tmp_path / "mm_live_readiness_current.json"
+    latest.write_text(
+        """
+{
+  "status": "BLOCK",
+  "live_capital_permission": false,
+  "requires_explicit_operator_approval": true,
+  "blocker_count": 11,
+  "target_date": "2026-06-27",
+  "summary": {
+    "evidence_mode": "active_day_live_forward",
+    "current_counts_toward_live_forward_gate": false,
+    "live_forward_gate_status": "BLOCK",
+    "preflight_status": "BLOCK",
+    "latest_tick_first_failing_gate": "source_status_degradation",
+    "latest_tick_quote_permission_rows": 0,
+    "latest_tick_live_trade_permission_rows": 0,
+    "source_status_blocker_root_cause_class": "settlement_source_auth_failure",
+    "source_status_blocked_market_count": 12,
+    "source_status_settlement_auth_failures": 12,
+    "source_status_weather_com_credential_present": false,
+    "source_status_weather_com_credential_values_redacted": true
+  },
+  "next_actions": [
+    {
+      "priority": 10,
+      "gate_id": "latest_preflight_passes",
+      "category": "data_preflight",
+      "safe_next_step": "configure WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo",
+      "detail": "latest selected run preflight is stale or blocked",
+      "evidence": {"status": "BLOCK"}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    path, readiness = _latest_readiness(tmp_path, target_date="2026-06-27")
+    summary_rows = _readiness_summary_rows(readiness)
+    action_rows = _readiness_action_rows(readiness)
+
+    assert path == latest
+    assert readiness["status"] == "BLOCK"
+    assert any(
+        row["Metric"] == "Source-status root cause"
+        and row["Value"] == "settlement_source_auth_failure"
+        for row in summary_rows
+    )
+    assert any(
+        row["Metric"] == "Weather.com credential present"
+        and row["Value"] is False
+        for row in summary_rows
+    )
+    assert action_rows[0]["Gate"] == "latest_preflight_passes"
+    assert "WEATHER_COM_API_KEY" in action_rows[0]["Step"]
 
 
 def test_market_making_mixed_display_columns_are_arrow_safe():

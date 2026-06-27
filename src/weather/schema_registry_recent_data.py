@@ -70,6 +70,46 @@ RECENT_REGISTERED_SCHEMAS = (
         "Proof artifact for source-status freshness and degradation.",
     ),
     SchemaSpec(
+        "source_status_proof",
+        "source_status_proof_v0.2",
+        "weather.collection.collection_health",
+        "active",
+        "Proof artifact for source-status freshness, degradation, and redacted provider credential presence.",
+        supersedes=("source_status_proof_v0.1",),
+        migration_notes=(
+            "Adds provider_credential_environment and weather_com_credential_* boolean fields "
+            "for settlement_source_auth_failure root causes; credential values remain omitted."
+        ),
+    ),
+    SchemaSpec(
+        "mm_live_readiness",
+        "mm_live_readiness_v0.2",
+        "weather.market.market_making_readiness",
+        "active",
+        "Conservative market-making live-readiness summary and sorted no-go gate evidence.",
+    ),
+    SchemaSpec(
+        "mm_quote_blocker_diagnostics",
+        "mm_quote_blocker_diagnostics_v0.8",
+        "weather.market.mm_paper",
+        "active",
+        "Market-making paper quote blocker diagnostics with known-edge and event-gate overlap evidence.",
+    ),
+    SchemaSpec(
+        "mm_quote_intent",
+        "mm_quote_intent_v0.3",
+        "weather.market.mm_policy",
+        "active",
+        "Per-row market-making quote intent and no-quote decision schema.",
+    ),
+    SchemaSpec(
+        "mm_reward_score_diagnostics",
+        "mm_reward_score_diagnostics_v0.2",
+        "weather.market.mm_paper",
+        "active",
+        "Market-making reward score diagnostics including reward-share and competitor-score evidence.",
+    ),
+    SchemaSpec(
         "taker_bot_policy",
         "taker_bot_policy_v0.1",
         "weather.market.taker_bot",

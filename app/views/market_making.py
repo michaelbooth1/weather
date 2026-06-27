@@ -62,6 +62,67 @@ def _permission_rows(permission_counts):
     ]
 
 
+def _latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
+    root = Path(backtest_root)
+    if not root.exists():
+        return None, {}
+    candidates = [
+        path for path in root.glob("mm_live_readiness*.json")
+        if path.is_file()
+    ]
+    if target_date:
+        matching = []
+        for path in candidates:
+            payload = _read_json(path, {}) or {}
+            if str(payload.get("target_date") or "") == str(target_date):
+                matching.append((path, payload))
+        if matching:
+            path, payload = max(matching, key=lambda item: item[0].stat().st_mtime)
+            return path, payload
+    if not candidates:
+        return None, {}
+    path = max(candidates, key=lambda item: item.stat().st_mtime)
+    return path, _read_json(path, {}) or {}
+
+
+def _readiness_summary_rows(readiness):
+    summary = (readiness or {}).get("summary") or {}
+    return [
+        {"Metric": "Readiness status", "Value": (readiness or {}).get("status")},
+        {"Metric": "Live capital permission", "Value": (readiness or {}).get("live_capital_permission")},
+        {"Metric": "Requires explicit approval", "Value": (readiness or {}).get("requires_explicit_operator_approval")},
+        {"Metric": "Blockers", "Value": (readiness or {}).get("blocker_count")},
+        {"Metric": "Target date", "Value": (readiness or {}).get("target_date")},
+        {"Metric": "Evidence mode", "Value": summary.get("evidence_mode")},
+        {"Metric": "Counts toward live-forward", "Value": summary.get("current_counts_toward_live_forward_gate")},
+        {"Metric": "Live-forward gate", "Value": summary.get("live_forward_gate_status")},
+        {"Metric": "Preflight", "Value": summary.get("preflight_status")},
+        {"Metric": "First failing gate", "Value": summary.get("latest_tick_first_failing_gate")},
+        {"Metric": "Latest quote permissions", "Value": summary.get("latest_tick_quote_permission_rows")},
+        {"Metric": "Latest live permissions", "Value": summary.get("latest_tick_live_trade_permission_rows")},
+        {"Metric": "Source-status root cause", "Value": summary.get("source_status_blocker_root_cause_class")},
+        {"Metric": "Source-status blocked markets", "Value": summary.get("source_status_blocked_market_count")},
+        {"Metric": "Settlement auth failures", "Value": summary.get("source_status_settlement_auth_failures")},
+        {"Metric": "Weather.com credential present", "Value": summary.get("source_status_weather_com_credential_present")},
+        {"Metric": "Credential values redacted", "Value": summary.get("source_status_weather_com_credential_values_redacted")},
+    ]
+
+
+def _readiness_action_rows(readiness, limit=8):
+    rows = []
+    for action in ((readiness or {}).get("next_actions") or [])[:limit]:
+        evidence = action.get("evidence") or {}
+        rows.append({
+            "Priority": action.get("priority"),
+            "Gate": action.get("gate_id"),
+            "Category": action.get("category"),
+            "Step": action.get("safe_next_step") or action.get("remediation") or "-",
+            "Status": evidence.get("status") or evidence.get("live_forward_gate_status") or "-",
+            "Detail": action.get("detail") or "-",
+        })
+    return rows
+
+
 def _latest_tick_rows(rows):
     if not rows:
         return []
@@ -280,6 +341,11 @@ def render_market_making_page(refresh_seconds=15):
         summary = paper.get("summary") or {}
         pnl = summary.get("pnl") or {}
         anti = summary.get("anti_overfit") or {}
+        readiness_path, readiness = _latest_readiness(
+            BACKTEST_ROOT,
+            target_date=run_summary.get("target_date"),
+        )
+        readiness_summary = readiness.get("summary") or {}
 
         st.caption("Selected run: " + (_run_label(run_folder) if run_folder else "-"))
 
@@ -299,6 +365,21 @@ def render_market_making_page(refresh_seconds=15):
         score[2].metric("Fills", summary.get("conservative_fills", 0))
         score[3].metric("Net USDC", _format_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4))
         score[4].metric("Gate", summary.get("gate_status") or "-")
+
+        if readiness:
+            st.subheader("Live Readiness")
+            ready = st.columns(5)
+            ready[0].metric("Status", readiness.get("status") or "-")
+            ready[1].metric("Live Capital", readiness.get("live_capital_permission"))
+            ready[2].metric("Blockers", readiness.get("blocker_count", 0))
+            ready[3].metric("Source Root", readiness_summary.get("source_status_blocker_root_cause_class") or "-")
+            ready[4].metric("Credential Present", readiness_summary.get("source_status_weather_com_credential_present"))
+            st.caption(f"Readiness artifact: {readiness_path}")
+            st.dataframe(_df(_readiness_summary_rows(readiness)), width="stretch", hide_index=True)
+            action_rows = _readiness_action_rows(readiness)
+            if action_rows:
+                st.subheader("Readiness Next Actions")
+                st.dataframe(_df(action_rows), width="stretch", hide_index=True)
 
         if run_folder:
             st.caption(f"Latest run folder: {run_folder}")

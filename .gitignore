@@ -14,8 +14,6 @@ env/
 # collector CLIs (e.g. `python -m weather.sources.wu_history backfill`), and normalized
 # hourly/daily artifacts are derived from these.
 data/
-config/
-artifacts/
 
 # --- Runtime / transient state (not source of truth) ---
 *.log

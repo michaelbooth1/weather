@@ -3,6 +3,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -80,7 +81,7 @@ def unlink_with_retry(path, attempts=8, delay=0.5):
 
 
 TORONTO_TZ = ZoneInfo("America/Toronto")
-WEATHER_COM_KEY = "e1f10a1e78da46f5b10a1e78da96f525"
+WEATHER_COM_KEY = os.environ.get("WEATHER_COM_API_KEY") or os.environ.get("WEATHER_COM_KEY", "")
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
@@ -149,9 +150,9 @@ def error_row_treats_as_source_unavailable(row):
 
 
 class WundergroundHistoryClient:
-    def __init__(self, api_key=WEATHER_COM_KEY, timeout=20, sleep_seconds=0.2,
+    def __init__(self, api_key=None, timeout=20, sleep_seconds=0.2,
                  history_id=CYYZ_HISTORY_ID, units="m"):
-        self.api_key = api_key
+        self.api_key = api_key if api_key is not None else WEATHER_COM_KEY
         self.timeout = timeout
         self.sleep_seconds = sleep_seconds
         self.history_id = history_id
@@ -343,9 +344,7 @@ class WundergroundHistoryStore:
                     "wc": obs.get("wc"),
                 })
         
-        # Redact api key for security
-        api_key = WEATHER_COM_KEY
-        redacted_key = api_key[:6] + "..." + api_key[-4:] if len(api_key) > 8 else "..."
+        api_key_status = "<configured>" if WEATHER_COM_KEY else "<missing>"
         
         # Scan partitions and calculate checksums and row counts
         partitions = []
@@ -372,7 +371,7 @@ class WundergroundHistoryStore:
                 "endpoint": WundergroundHistoryClient(history_id=self.history_id).url,
                 "api_params": {
                     "units": self.wu_units,
-                    "apiKey": redacted_key
+                    "apiKey": api_key_status
                 }
             },
             "hourly_record_count": len(hourly_records),

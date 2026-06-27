@@ -45,9 +45,16 @@ The v0.2 artifact also requires structured API-lifecycle evidence:
   the request.
 - For `polymarket_us`, `latency_stopgap` must prove order-reject handling,
   book refresh before retry, and pure-cancel exemption behavior.
+- `secret_redaction` must prove that status output, source/docs scans, and
+  generated artifact scans were run, that the scan scope is recorded, and that
+  no unredacted secret-like query values remain in the evidence set.
 
 The artifact must not contain private keys, API secrets, mnemonics, passwords,
-or seed phrases. The gate rejects files containing those exact secret fields.
+or seed phrases. The gate rejects files containing secret fields such as
+`private_key`, `api_key`, `api_secret`, `access_token`, or `secret_key`, and it
+also rejects unredacted secret-like URL query values such as `apiKey=...` in any
+nested artifact field. Redacted placeholders such as `apiKey=<redacted>` are
+allowed for diagnostics.
 
 ## Gate Behavior
 

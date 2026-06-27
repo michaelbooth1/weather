@@ -35,7 +35,7 @@ from weather.operations.bot_run_liveness import (
     terminal_status_for_inactive_process,
     utc_iso as liveness_utc_iso,
 )
-from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll
+from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll, stop_daily_roll_process
 from weather.operations.supervisor import SupervisorSpec
 from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
@@ -271,7 +271,27 @@ def launch_market_making_process(command, *, repo_root=REPO_ROOT, console_log_pa
     return child.pid
 
 
-def market_making_run_folders(runs_root, target_date):
+def _run_folder_metadata(run_folder):
+    run_folder = Path(run_folder)
+    return read_json(run_folder / "run_summary.json") or read_json(run_folder / "run_config.json") or {}
+
+
+def _run_folder_matches_expected(run_folder, *, expected_mode=None, expected_evidence_mode=None):
+    if not expected_mode and not expected_evidence_mode:
+        return True
+    metadata = _run_folder_metadata(run_folder)
+    if not metadata:
+        return False
+    metadata_mode = str(metadata.get("mode") or "")
+    metadata_evidence_mode = str(metadata.get("evidence_mode") or "")
+    if expected_mode and metadata_mode and metadata_mode != str(expected_mode):
+        return False
+    if expected_evidence_mode and metadata_evidence_mode and metadata_evidence_mode != str(expected_evidence_mode):
+        return False
+    return True
+
+
+def market_making_run_folders(runs_root, target_date, *, expected_mode=None, expected_evidence_mode=None):
     day_root = Path(runs_root) / ensure_date(target_date)
     if not day_root.exists():
         return []
@@ -280,6 +300,12 @@ def market_making_run_folders(runs_root, target_date):
         if not folder.is_dir():
             continue
         if folder.name == QUARANTINE_DIR_NAME or folder.name.startswith("."):
+            continue
+        if not _run_folder_matches_expected(
+            folder,
+            expected_mode=expected_mode,
+            expected_evidence_mode=expected_evidence_mode,
+        ):
             continue
         folders.append(folder)
     return sorted(folders)
@@ -321,8 +347,20 @@ def _run_folder_latest_mtime(run_folder, stat_fn=None):
     return latest
 
 
-def latest_market_making_run_folder(runs_root, target_date, *, stat_fn=None):
-    folders = market_making_run_folders(runs_root, target_date)
+def latest_market_making_run_folder(
+    runs_root,
+    target_date,
+    *,
+    stat_fn=None,
+    expected_mode=None,
+    expected_evidence_mode=None,
+):
+    folders = market_making_run_folders(
+        runs_root,
+        target_date,
+        expected_mode=expected_mode,
+        expected_evidence_mode=expected_evidence_mode,
+    )
     if not folders:
         return None
     return max(
@@ -334,7 +372,7 @@ def latest_market_making_run_folder(runs_root, target_date, *, stat_fn=None):
     )
 
 
-def market_making_activity_paths(runs_root, target_date):
+def market_making_activity_paths(runs_root, target_date, *, expected_mode=None, expected_evidence_mode=None):
     paths = []
     day_root = Path(runs_root) / ensure_date(target_date)
     if day_root.exists():
@@ -342,6 +380,12 @@ def market_making_activity_paths(runs_root, target_date):
             if not run_folder.is_dir():
                 continue
             if run_folder.name == QUARANTINE_DIR_NAME or run_folder.name.startswith("."):
+                continue
+            if not _run_folder_matches_expected(
+                run_folder,
+                expected_mode=expected_mode,
+                expected_evidence_mode=expected_evidence_mode,
+            ):
                 continue
             paths.extend(run_folder / name for name in ACTIVITY_FILENAMES)
     return paths
@@ -369,6 +413,37 @@ def _read_run_summary(run_folder):
     return read_json(Path(run_folder) / "run_summary.json") or {}
 
 
+def _read_live_forward_gate(run_folder):
+    return read_json(Path(run_folder) / "live_forward_gate.json") or {}
+
+
+def _bool_or_none(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _current_live_forward_count(gate, useful_work):
+    explicit = _bool_or_none((gate or {}).get("counts_toward_live_forward_gate"))
+    if explicit is not None:
+        return explicit
+    status = str((gate or {}).get("status") or "").upper()
+    if status == "PASS":
+        return True
+    if status in {"BLOCK", "FAIL", "ERROR"}:
+        return False
+    useful_work_status = str((useful_work or {}).get("status") or "").upper()
+    if useful_work_status in {"BLOCK", "FAIL", "ERROR"}:
+        return False
+    return None
+
+
 def market_making_artifact_health(
     runs_root,
     target_date,
@@ -378,9 +453,16 @@ def market_making_artifact_health(
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     started_at_utc=None,
     stat_fn=None,
+    expected_mode=None,
+    expected_evidence_mode=None,
 ):
     current = parse_utc(now) or datetime.now(timezone.utc)
-    folders = market_making_run_folders(runs_root, target_date)
+    folders = market_making_run_folders(
+        runs_root,
+        target_date,
+        expected_mode=expected_mode,
+        expected_evidence_mode=expected_evidence_mode,
+    )
     startup_age = age_seconds(started_at_utc, now=current)
     in_startup_grace = startup_age is not None and startup_age <= float(startup_grace_seconds)
     if not folders:
@@ -394,7 +476,13 @@ def market_making_artifact_health(
             "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
         }
 
-    latest = latest_market_making_run_folder(runs_root, target_date, stat_fn=stat_fn)
+    latest = latest_market_making_run_folder(
+        runs_root,
+        target_date,
+        stat_fn=stat_fn,
+        expected_mode=expected_mode,
+        expected_evidence_mode=expected_evidence_mode,
+    )
     try:
         files = [path for path in latest.iterdir() if path.is_file()]
     except OSError:
@@ -444,7 +532,21 @@ def market_making_artifact_health(
         ok = status == "PASS"
 
     summary = _read_run_summary(latest) if latest else {}
-    useful_work = summary.get("useful_work_liveness") or (summary.get("live_forward_gate") or {}).get("useful_work_liveness") or {}
+    live_forward_gate = _read_live_forward_gate(latest) if latest else {}
+    if not isinstance(live_forward_gate, dict):
+        live_forward_gate = {}
+    embedded_gate = summary.get("live_forward_gate") or {}
+    if not isinstance(embedded_gate, dict):
+        embedded_gate = {}
+    if not live_forward_gate and isinstance(embedded_gate, dict):
+        live_forward_gate = embedded_gate
+    useful_work = (
+        summary.get("useful_work_liveness")
+        or (live_forward_gate or {}).get("useful_work_liveness")
+        or (embedded_gate or {}).get("useful_work_liveness")
+        or {}
+    )
+    current_counts_toward_live_forward = _current_live_forward_count(live_forward_gate, useful_work)
     report = {
         "latest_run_folder": str(latest) if latest else None,
         "latest_useful_write_path": (latest_useful or {}).get("path"),
@@ -455,6 +557,11 @@ def market_making_artifact_health(
         or (summary.get("latest_tick") or {}).get("quote_permission_rows"),
         "useful_work_liveness_status": useful_work.get("status"),
         "useful_work_liveness_reason": useful_work.get("reason"),
+        "live_forward_gate_status": live_forward_gate.get("status"),
+        "live_forward_gate_counts_toward_live_forward_gate": _bool_or_none(
+            live_forward_gate.get("counts_toward_live_forward_gate")
+        ),
+        "current_counts_toward_live_forward_gate": current_counts_toward_live_forward,
         "restart_recommended": not ok,
         "restart_reason": root_cause,
     }
@@ -469,6 +576,8 @@ def market_making_artifact_health(
         "startup_age_seconds": round(startup_age, 3) if startup_age is not None else None,
         "max_activity_age_seconds": float(max_activity_age_seconds),
         "latest_useful_artifact": latest_useful,
+        "live_forward_gate_status": live_forward_gate.get("status"),
+        "current_counts_toward_live_forward_gate": current_counts_toward_live_forward,
         "operator_report": report,
     }
 
@@ -491,9 +600,34 @@ def enrich_market_making_liveness_status(
         startup_grace_seconds=startup_grace_seconds,
         started_at_utc=payload.get("started_at_utc") or payload.get("generated_at_utc"),
         stat_fn=stat_fn,
+        expected_mode=payload.get("mode"),
+        expected_evidence_mode=payload.get("evidence_mode"),
     )
     payload["artifact_liveness"] = health
     payload["operator_report"] = health.get("operator_report") or {}
+    supervisor = payload.get("daily_roll_supervisor") or {}
+    recovery_guard = supervisor.get("recovery_guard") or {}
+    if supervisor:
+        operator = dict(payload.get("operator_report") or {})
+        supervisor_remediation = supervisor.get("remediation") or recovery_guard.get("remediation")
+        operator.update({
+            "supervisor_state": supervisor.get("state"),
+            "supervisor_action": supervisor.get("action"),
+            "supervisor_intended_action": supervisor.get("intended_action"),
+            "supervisor_restart_cause": supervisor.get("restart_cause"),
+            "supervisor_reason": supervisor.get("reason"),
+            "supervisor_remediation": supervisor_remediation,
+            "supervisor_runtime_identity_matches_current": supervisor.get("runtime_identity_matches_current"),
+            "supervisor_retry_after_seconds": recovery_guard.get("retry_after_seconds"),
+            "supervisor_retry_at_utc": recovery_guard.get("retry_at_utc"),
+        })
+        payload["operator_report"] = operator
+    if health.get("live_forward_gate_status") is not None:
+        payload["live_forward_gate_status"] = health.get("live_forward_gate_status")
+    current_counts_toward_live_forward = health.get("current_counts_toward_live_forward_gate")
+    if current_counts_toward_live_forward is not None:
+        payload["current_counts_toward_live_forward_gate"] = current_counts_toward_live_forward
+        payload["counts_toward_live_forward_gate"] = current_counts_toward_live_forward
     if health.get("ok"):
         return payload
     payload.update({
@@ -520,24 +654,67 @@ def market_making_terminal_status_for_inactive_process(
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     stat_fn=None,
 ):
+    original = dict(payload or {})
+    original_status = original.get("status")
+    original_action = original.get("action")
+    alive = original.get("pid_alive")
+    if pid_alive and original.get("pid"):
+        try:
+            alive = bool(pid_alive(original.get("pid"), target_date or original.get("target_date")))
+        except (OSError, ValueError, TypeError):
+            alive = False
     root = runs_root or (payload or {}).get("runs_root") or DEFAULT_RUNS_ROOT
     target = target_date or (payload or {}).get("target_date")
+    expected_mode = (payload or {}).get("mode")
+    expected_evidence_mode = (payload or {}).get("evidence_mode")
     payload = terminal_status_for_inactive_process(
         payload,
         now=now,
         pid_alive=pid_alive,
-        activity_paths=market_making_activity_paths(root, target or target_date_for_roll(now=now)),
+        activity_paths=market_making_activity_paths(
+            root,
+            target or target_date_for_roll(now=now),
+            expected_mode=expected_mode,
+            expected_evidence_mode=expected_evidence_mode,
+        ),
         max_activity_age_seconds=max_activity_age_seconds,
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
     )
-    return enrich_market_making_liveness_status(
+    payload = enrich_market_making_liveness_status(
         payload,
         now=now,
         max_activity_age_seconds=max_activity_age_seconds,
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
     )
+    health = payload.get("artifact_liveness") or {}
+    if (
+        payload.get("status") == "idle_process"
+        and payload.get("first_failing_gate") == "activity_liveness"
+        and health.get("ok")
+        and alive
+    ):
+        restored_status = original_status if original_status in {"started", "already_running"} else "already_running"
+        restored_action = (
+            original_action
+            if original_status in {"started", "already_running"} and original_action
+            else ("noop" if restored_status == "already_running" else "start")
+        )
+        payload.update({
+            "status": restored_status,
+            "action": restored_action,
+            "terminal": False,
+            "pid_alive": True,
+            "zero_trades_expected": False,
+        })
+        if health.get("root_cause_class"):
+            payload["root_cause_class"] = health.get("root_cause_class")
+        else:
+            payload.pop("root_cause_class", None)
+        for key in ("completed_at_utc", "first_failing_gate", "remediation_command"):
+            payload.pop(key, None)
+    return payload
 
 
 def quarantine_unhealthy_market_making_run_folder(
@@ -757,6 +934,8 @@ def start_for_date(
             startup_grace_seconds=startup_grace_seconds,
             started_at_utc=existing.get("started_at_utc") or existing.get("generated_at_utc"),
             stat_fn=activity_stat_fn,
+            expected_mode=mode,
+            expected_evidence_mode=evidence_classification.get("evidence_mode"),
         )
         forced_run_retirement = quarantine_unhealthy_market_making_run_folder(
             existing.get("runs_root") or runs_root,
@@ -922,6 +1101,37 @@ def ensure_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs
     )
 
 
+def stop_status_file(
+    path=DEFAULT_STATUS_PATH,
+    *,
+    target_date=None,
+    now=None,
+    pid_alive=pid_matches_market_making_run,
+    write_back=True,
+):
+    status = read_json(path) or {"exists": False, "path": str(path)}
+    target = target_date or status.get("target_date")
+    stop_result = stop_daily_roll_process(
+        status,
+        target_date=target,
+        pid_alive=pid_alive,
+        now=parse_datetime(now),
+    )
+    payload = dict(status)
+    payload["exists"] = bool(status.get("exists", True))
+    payload["path"] = str(path)
+    payload["action"] = "stop"
+    payload["stop_result"] = stop_result
+    payload["stop_target_date"] = target
+    payload["stopped_at_utc"] = utc_iso(now) if stop_result.get("stopped") else None
+    if stop_result.get("stopped"):
+        payload["status"] = "stopped"
+        payload["pid_alive"] = False
+    if write_back:
+        write_json(path, payload)
+    return payload
+
+
 def load_status(
     path=DEFAULT_STATUS_PATH,
     *,
@@ -1041,6 +1251,16 @@ def cmd_ensure(args):
     return 0
 
 
+def cmd_stop(args):
+    payload = stop_status_file(
+        args.status_out,
+        target_date=args.date,
+        now=args.now,
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+    return 0 if (payload.get("stop_result") or {}).get("stopped") else 1
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Start the next daily paper market-making run.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1055,6 +1275,11 @@ def build_parser():
     ensure_parser.add_argument("--diagnostics-out", default=str(DEFAULT_DIAGNOSTICS_PATH))
     ensure_parser.add_argument("--start-after-local-time", default=DEFAULT_START_AFTER_LOCAL_TIME)
     ensure_parser.set_defaults(func=cmd_ensure)
+    stop = sub.add_parser("stop", help="Stop the current paper market-making daily-roll process.")
+    stop.add_argument("--date", default=None, help="Expected target date for the process. Defaults to status target_date.")
+    stop.add_argument("--now", default=None, help="Testing timestamp for stopped_at_utc.")
+    stop.add_argument("--status-out", default=str(DEFAULT_STATUS_PATH))
+    stop.set_defaults(func=cmd_stop)
     return parser
 
 

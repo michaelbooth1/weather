@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from weather.market.mm_policy import (
+    QUOTE_COLUMNS,
     apply_known_edge_permission,
     config_with_clob_recon,
     decide_quote,
     hourly_trust_state,
+    known_edge_record_key,
     load_promotion_states,
     resolve_known_edge_record,
     run_policy_snapshot,
@@ -157,6 +159,50 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(quote["reason_code"], "QUOTE_HARVEST_MID")
         self.assertLess(quote["bid_price"], quote["ask_price"])
         self.assertIn(quote["event_gate_status"], {"CLEAR", "WIDEN"})
+
+    def test_high_spread_wide_book_requires_depth_and_spread_bounds(self):
+        wide_but_allowed = decide_quote(
+            fresh_row(
+                fair_probability=0.505,
+                market_mid=0.50,
+                clob_best_bid=0.4605,
+                clob_best_ask=0.5395,
+                clob_spread=0.079,
+                clob_depth_1pct_total=100.0,
+            ),
+            now=NOW,
+        )
+        too_wide = decide_quote(
+            fresh_row(
+                fair_probability=0.505,
+                market_mid=0.50,
+                clob_best_bid=0.4595,
+                clob_best_ask=0.5405,
+                clob_spread=0.081,
+                clob_depth_1pct_total=100.0,
+            ),
+            now=NOW,
+        )
+        too_thin = decide_quote(
+            fresh_row(
+                fair_probability=0.505,
+                market_mid=0.50,
+                clob_best_bid=0.4605,
+                clob_best_ask=0.5395,
+                clob_spread=0.079,
+                clob_depth_1pct_total=0.5,
+            ),
+            now=NOW,
+        )
+
+        self.assertTrue(wide_but_allowed["quote_permission"])
+        self.assertEqual(wide_but_allowed["reason_code"], "QUOTE_HARVEST_MID")
+        self.assertEqual(wide_but_allowed["regime"], "harvest")
+        self.assertEqual(wide_but_allowed["book_spread"], 0.079)
+        self.assertFalse(too_wide["quote_permission"])
+        self.assertEqual(too_wide["reason_code"], "NO_QUOTE_WIDE_SPREAD")
+        self.assertFalse(too_thin["quote_permission"])
+        self.assertEqual(too_thin["reason_code"], "NO_QUOTE_THIN_DEPTH")
 
     def test_default_model_freshness_covers_snapshot_loop_sla(self):
         quote = decide_quote(fresh_row(captured_at_utc="2026-06-14T15:46:00+00:00"), now=NOW)
@@ -491,6 +537,83 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(quote["regime"], "none")
         self.assertEqual(quote["reason_code"], "NO_QUOTE_DISAGREEMENT_SHADOW")
 
+    def test_known_edge_resolution_ignores_diagnostic_match_fields(self):
+        row = fresh_row(
+            known_edge_match_hour_utc="02",
+        )
+        records = [
+            {
+                "market_id": "atlanta",
+                "cutoff": "*",
+                "hour_utc": "02",
+                "band_distance_bucket": "*",
+                "band_type": "*",
+                "casebook_taxonomy": "*",
+                "regime": "*",
+                "source_fresh": "*",
+                "source_freshness_state": "*",
+                "book_imbalance_bucket": "*",
+                "permission": "harvest_only",
+                "reason": "diagnostic_field_should_not_match",
+            },
+            {
+                "market_id": "atlanta",
+                "cutoff": "*",
+                "hour_utc": "15",
+                "band_distance_bucket": "*",
+                "band_type": "*",
+                "casebook_taxonomy": "*",
+                "regime": "*",
+                "source_fresh": "*",
+                "source_freshness_state": "*",
+                "book_imbalance_bucket": "*",
+                "permission": "harvest_only",
+                "reason": "actual_input_dimension",
+            },
+        ]
+
+        record = resolve_known_edge_record(row, records)
+
+        self.assertEqual(record["reason"], "actual_input_dimension")
+
+    def test_known_edge_resolution_canonicalizes_record_hour_utc(self):
+        row = fresh_row()
+        records = [
+            {
+                "market_id": "atlanta",
+                "cutoff": "*",
+                "hour_utc": "16:00Z",
+                "band_distance_bucket": "*",
+                "band_type": "*",
+                "casebook_taxonomy": "*",
+                "regime": "*",
+                "source_fresh": "*",
+                "source_freshness_state": "*",
+                "book_imbalance_bucket": "*",
+                "permission": "harvest_only",
+                "reason": "wrong_hour",
+            },
+            {
+                "market_id": "atlanta",
+                "cutoff": "*",
+                "hour_utc": "15:00Z",
+                "band_distance_bucket": "*",
+                "band_type": "*",
+                "casebook_taxonomy": "*",
+                "regime": "*",
+                "source_fresh": "*",
+                "source_freshness_state": "*",
+                "book_imbalance_bucket": "*",
+                "permission": "harvest_only",
+                "reason": "canonical_same_hour",
+            },
+        ]
+
+        record = resolve_known_edge_record(row, records)
+
+        self.assertEqual(record["reason"], "canonical_same_hour")
+        self.assertIn("|15|", known_edge_record_key(record))
+
     def test_no_quote_known_edge_permission_fails_closed(self):
         quote = decide_quote(
             fresh_row(
@@ -508,6 +631,46 @@ class TestMmPolicy(unittest.TestCase):
         self.assertFalse(quote["known_edge_allowed"])
         self.assertEqual(quote["known_edge_permission"], "no_quote")
         self.assertEqual(quote["reason_code"], "NO_QUOTE_KNOWN_EDGE_PERMISSION")
+
+    def test_known_edge_match_dimensions_are_written_for_diagnostics(self):
+        quote = decide_quote(
+            fresh_row(
+                promotion_state="PASS",
+                known_edge_allowed=True,
+                known_edge_permission="no_quote",
+                known_edge_reason="promotion_block",
+                band_distance_bucket="edge_lt_1c",
+                casebook_taxonomy="unmatched",
+                source_freshness_state="all_fresh",
+                book_imbalance_bucket="bid_heavy",
+                fair_probability=0.70,
+                market_mid=0.50,
+            ),
+            now=NOW,
+        )
+
+        expected_columns = {
+            "known_edge_match_cutoff",
+            "known_edge_match_hour_utc",
+            "known_edge_match_band_distance_bucket",
+            "known_edge_match_band_type",
+            "known_edge_match_casebook_taxonomy",
+            "known_edge_match_regime",
+            "known_edge_match_source_fresh",
+            "known_edge_match_source_freshness_state",
+            "known_edge_match_book_imbalance_bucket",
+        }
+        self.assertTrue(expected_columns.issubset(set(QUOTE_COLUMNS)))
+        self.assertEqual(quote["schema_version"], "mm_quote_intent_v0.3")
+        self.assertEqual(quote["known_edge_match_cutoff"], "")
+        self.assertEqual(quote["known_edge_match_hour_utc"], "15")
+        self.assertEqual(quote["known_edge_match_band_distance_bucket"], "edge_lt_1c")
+        self.assertEqual(quote["known_edge_match_band_type"], "eq")
+        self.assertEqual(quote["known_edge_match_casebook_taxonomy"], "unmatched")
+        self.assertEqual(quote["known_edge_match_regime"], "")
+        self.assertEqual(quote["known_edge_match_source_fresh"], "true")
+        self.assertEqual(quote["known_edge_match_source_freshness_state"], "all_fresh")
+        self.assertEqual(quote["known_edge_match_book_imbalance_bucket"], "bid_heavy")
 
     def test_stale_watcher_fails_closed_before_quote_logic(self):
         quote = decide_quote(fresh_row(heartbeat_ok=False, watcher_age_seconds=999), now=NOW)

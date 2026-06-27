@@ -642,6 +642,7 @@ def adapter_capability_matrix(platform):
         "requires_private_user_stream_for_final_order_state": platform in {"polymarket_global", "polymarket_us"},
         "requires_cancel_all_zero_open_orders_verification": platform in {"polymarket_global", "polymarket_us"},
         "batched_order_results_require_stream_confirmation": is_us,
+        "max_cancel_order_batch_size": 20 if is_us else None,
         "latency_stopgap_rejects_order_submit": is_us,
         "latency_stopgap_cancel_exempt": is_us,
         "requires_external_secret_storage": True,
@@ -661,6 +662,11 @@ def platform_live_readiness_notes(platform):
                 "code": "cancel_all_requires_zero_open_orders_confirmation",
                 "severity": "BLOCK_UNTIL_OBSERVED",
                 "detail": "US cancel-all responses are not sufficient by themselves; verify zero open orders after cancel-all.",
+            },
+            {
+                "code": "cancel_batch_size_limit",
+                "severity": "REQUIRE_IMPLEMENTATION_IF_USED",
+                "detail": "US batched order-cancel requests are capped at 20 orders; returned canceledOrderIds are only an echo/submission record, not final confirmation; any future batch-cancel path must chunk requests and reconcile final state from the private order stream.",
             },
             {
                 "code": "latency_stopgap_reject_handling_required",

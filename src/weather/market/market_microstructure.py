@@ -242,6 +242,23 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
     errors = int(status.get("consecutive_errors") or 0)
     error_markets = status.get("error_markets") or []
     discovery_sanity = clob_discovery_sanity_from_status(status)
+    last_market_results = status.get("last_market_results") or {}
+    last_target_dates_by_market = {
+        market: value.get("target_date")
+        for market, value in last_market_results.items()
+        if isinstance(value, dict) and value.get("target_date")
+    }
+    last_event_slugs_by_market = {
+        market: value.get("event_slug")
+        for market, value in last_market_results.items()
+        if isinstance(value, dict) and value.get("event_slug")
+    }
+    configured_target_date = status.get("target_date")
+    target_date_mismatch_markets = sorted(
+        market
+        for market, target in last_target_dates_by_market.items()
+        if configured_target_date and target != configured_target_date
+    )
     dead_after = max(2 * interval + 30.0, 90.0)
     if status.get("paused"):
         state = "PAUSED"
@@ -249,7 +266,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         state = "DEAD"
     elif errors >= 3:
         state = "ERRORING"
-    elif error_markets or not discovery_sanity.get("ok", True):
+    elif error_markets or target_date_mismatch_markets or not discovery_sanity.get("ok", True):
         state = "DEGRADED"
     else:
         state = "RUNNING"
@@ -268,6 +285,10 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "discovery_sanity": discovery_sanity,
         "started_at": status.get("started_at"),
         "market_id": status.get("market_id"),
+        "target_date": configured_target_date,
+        "date_selection": status.get("date_selection") or (
+            "fixed_target_date" if configured_target_date else "market_local_date"
+        ),
         "interval_seconds": interval,
         "fast_interval_seconds": status.get("fast_interval_seconds"),
         "include_price_history": status.get("include_price_history"),
@@ -275,7 +296,10 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "websocket_message_limit": status.get("websocket_message_limit"),
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
-        "last_market_results": status.get("last_market_results") or {},
+        "last_market_results": last_market_results,
+        "last_event_slugs_by_market": last_event_slugs_by_market,
+        "last_target_dates_by_market": last_target_dates_by_market,
+        "target_date_mismatch_markets": target_date_mismatch_markets,
         "last_raw_books_captured_at": status.get("last_raw_books_captured_at"),
         "last_raw_books_by_market": status.get("last_raw_books_by_market") or {},
         "raw_book_market_ages_seconds": {
@@ -466,6 +490,7 @@ def fleet_book_audit(
     market_id="all",
     snapshots_root=None,
     now=None,
+    target_date=None,
     max_gap_seconds=BOOK_AUDIT_MAX_GAP_SECONDS,
     ignore_gaps_before=None,
     startup_grace_seconds=BOOK_AUDIT_STARTUP_GRACE_SECONDS,
@@ -488,7 +513,7 @@ def fleet_book_audit(
     rows = []
     for item in market_ids:
         spec = spec_for_id(item)
-        config = config_for_date(now.astimezone(spec.tz).date(), item)
+        config = config_for_date(target_date or now.astimezone(spec.tz).date(), item)
         audit = audit_book_tape(
             root / config.event_slug,
             now=now,
@@ -665,6 +690,8 @@ def summarize_loop_results(results):
             summary[market_id] = {"error": f"unexpected result type {type(value).__name__}"}
             continue
         summary[market_id] = {
+            "event_slug": value.get("event_slug"),
+            "target_date": value.get("target_date"),
             "books": value.get("books"),
             "captured_at_utc": value.get("captured_at_utc"),
             "raw_books_captured_at_utc": value.get("raw_books_captured_at_utc"),
@@ -792,6 +819,7 @@ def stop_clob_loop(now=None):
 
 def _clob_loop_command(
     market_id="all",
+    target_date=None,
     interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
     fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
     fast_hours_before_close=4.0,
@@ -828,6 +856,8 @@ def _clob_loop_command(
         "--batch-size",
         str(batch_size),
     ]
+    if target_date:
+        command.extend(["--date", str(target_date)])
     if not include_price_history:
         command.append("--no-price-history")
     if not include_ws_events:
@@ -847,6 +877,7 @@ def _clob_loop_command(
 
 def start_clob_loop_detached(
     market_id="all",
+    target_date=None,
     interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
     fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
     fast_hours_before_close=4.0,
@@ -875,6 +906,7 @@ def start_clob_loop_detached(
     child = launch_detached(
         _clob_loop_command(
             market_id=market_id,
+            target_date=target_date,
             interval_seconds=interval_seconds,
             fast_interval_seconds=fast_interval_seconds,
             fast_hours_before_close=fast_hours_before_close,
@@ -899,6 +931,8 @@ def start_clob_loop_detached(
         "last_heartbeat": now.isoformat(),
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "market_id": market_id,
+        "target_date": target_date,
+        "date_selection": "fixed_target_date" if target_date else "market_local_date",
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
         "fast_interval_seconds": fast_interval_seconds,
@@ -933,6 +967,7 @@ def start_clob_loop_detached(
 
 def ensure_clob_loop(
     market_id="all",
+    target_date=None,
     interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
     fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
     fast_hours_before_close=4.0,
@@ -955,6 +990,10 @@ def ensure_clob_loop(
         return {"action": "locked", "state": "UNKNOWN", "reason": "another CLOB supervisor action is running"}
     try:
         status = read_clob_loop_status()
+        preserved_target_date_from_status = False
+        if target_date is None and (status or {}).get("target_date"):
+            target_date = status.get("target_date")
+            preserved_target_date_from_status = True
         health = clob_loop_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
         loop_processes = running_clob_loop_processes()
@@ -984,6 +1023,7 @@ def ensure_clob_loop(
             "orphan_processes_detected": has_orphans,
             "runtime_identity_matches_current": runtime_matches_current,
             "runtime_identity_before": (status or {}).get("runtime_identity"),
+            "preserved_target_date_from_status": preserved_target_date_from_status,
         }
         guard = supervisor_recovery_guard(spec, action, now=now)
         result["recovery_guard"] = guard
@@ -1005,6 +1045,7 @@ def ensure_clob_loop(
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_clob_loop_detached(
                 market_id=market_id,
+                target_date=target_date,
                 interval_seconds=interval_seconds,
                 fast_interval_seconds=fast_interval_seconds,
                 fast_hours_before_close=fast_hours_before_close,
@@ -1024,6 +1065,7 @@ def ensure_clob_loop(
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_clob_loop_detached(
                 market_id=market_id,
+                target_date=target_date,
                 interval_seconds=interval_seconds,
                 fast_interval_seconds=fast_interval_seconds,
                 fast_hours_before_close=fast_hours_before_close,
@@ -1049,6 +1091,7 @@ def ensure_clob_loop(
 
 def run_book_loop(
     market_id="all",
+    target_date=None,
     interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
     fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
     fast_hours_before_close=4.0,
@@ -1091,6 +1134,8 @@ def run_book_loop(
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "power_request": power_request,
         "market_id": market_id,
+        "target_date": target_date,
+        "date_selection": "fixed_target_date" if target_date else "market_local_date",
         "outcomes": outcomes,
         "interval_seconds": interval_seconds,
         "fast_interval_seconds": fast_interval_seconds,
@@ -1118,7 +1163,10 @@ def run_book_loop(
             status["last_heartbeat"] = loop_started.isoformat()
             status["paused"] = CLOB_PAUSE_FLAG_PATH.exists()
             market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
-            configs = [config_for_date(loop_started.astimezone(spec_for_id(item).tz).date(), item) for item in market_ids]
+            configs = [
+                config_for_date(target_date or loop_started.astimezone(spec_for_id(item).tz).date(), item)
+                for item in market_ids
+            ]
             if status["paused"]:
                 sleep_seconds = interval_seconds
                 status["last_mode"] = "paused"
@@ -1146,6 +1194,7 @@ def run_book_loop(
                         ws_heartbeat_seconds=ws_heartbeat_seconds,
                         ws_connect_timeout=ws_connect_timeout,
                         batch_size=batch_size,
+                        target_date=target_date,
                         progress_callback=progress_callback,
                     )
                     current_midpoints = {}
@@ -1276,6 +1325,7 @@ def _market_choices():
 
 def add_loop_options(parser):
     parser.add_argument("--market", choices=_market_choices(), default="all")
+    parser.add_argument("--date", default=None, help="Fixed target event date YYYY-MM-DD. Defaults to each market's local date.")
     parser.add_argument("--outcomes", default="all")
     parser.add_argument("--interval-seconds", type=float, default=DEFAULT_BOOK_INTERVAL_SECONDS)
     parser.add_argument("--fast-interval-seconds", type=float, default=DEFAULT_FAST_INTERVAL_SECONDS)
@@ -1337,6 +1387,7 @@ def main():
     capture.add_argument("--history-interval", default=None)
     capture.add_argument("--fidelity-minutes", type=int, default=1)
     capture.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    capture.add_argument("--date", default=None, help="Target event date YYYY-MM-DD. Defaults to each market's local date.")
     add_capture_enrichment_options(capture)
 
     raw_refresh = subparsers.add_parser(
@@ -1346,6 +1397,7 @@ def main():
     raw_refresh.add_argument("--market", choices=_market_choices(), default="all")
     raw_refresh.add_argument("--outcomes", default="all", help="'all', 'yes', 'no', or comma-separated outcomes.")
     raw_refresh.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    raw_refresh.add_argument("--date", default=None, help="Target event date YYYY-MM-DD. Defaults to each market's local date.")
     raw_refresh.add_argument("--max-workers", type=int, default=None)
     raw_refresh.add_argument("--per-market-timeout-seconds", type=float, default=30.0)
     raw_refresh.add_argument("--freshness-sla-seconds", type=float, default=120.0)
@@ -1382,6 +1434,7 @@ def main():
     )
     audit.add_argument("--market", choices=_market_choices(), default="all")
     audit.add_argument("--max-gap-seconds", type=float, default=BOOK_AUDIT_MAX_GAP_SECONDS)
+    audit.add_argument("--date", default=None, help="Target event date YYYY-MM-DD. Defaults to each market's local date.")
     audit.add_argument(
         "--strict",
         action="store_true",
@@ -1421,6 +1474,7 @@ def main():
         result = capture_fleet_books(
             market_id=args.market,
             outcomes=args.outcomes,
+            target_date=args.date,
             include_price_history=args.price_history,
             history_minutes=args.history_minutes,
             history_interval=args.history_interval,
@@ -1439,6 +1493,7 @@ def main():
         result = capture_fleet_books_parallel(
             market_id=args.market,
             outcomes=args.outcomes,
+            target_date=args.date,
             batch_size=args.batch_size,
             max_workers=args.max_workers,
             per_market_timeout_seconds=args.per_market_timeout_seconds,
@@ -1455,6 +1510,7 @@ def main():
         configure_json_console_logging()
         run_book_loop(
             market_id=args.market,
+            target_date=args.date,
             interval_seconds=args.interval_seconds,
             fast_interval_seconds=args.fast_interval_seconds,
             fast_hours_before_close=args.fast_hours_before_close,
@@ -1482,6 +1538,7 @@ def main():
         result = fleet_book_audit(
             market_id=args.market,
             max_gap_seconds=args.max_gap_seconds,
+            target_date=args.date,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         if args.strict and not result["ok"]:
@@ -1516,6 +1573,7 @@ def main():
                 return
             print(json.dumps(start_clob_loop_detached(
                 market_id=args.market,
+                target_date=args.date,
                 interval_seconds=args.interval_seconds,
                 fast_interval_seconds=args.fast_interval_seconds,
                 fast_hours_before_close=args.fast_hours_before_close,
@@ -1543,6 +1601,7 @@ def main():
                 "stop": stop_clob_loop(),
                 "start": start_clob_loop_detached(
                     market_id=args.market,
+                    target_date=args.date,
                     interval_seconds=args.interval_seconds,
                     fast_interval_seconds=args.fast_interval_seconds,
                     fast_hours_before_close=args.fast_hours_before_close,
@@ -1565,6 +1624,7 @@ def main():
     if command == "ensure":
         print(json.dumps(ensure_clob_loop(
             market_id=args.market,
+            target_date=args.date,
             interval_seconds=args.interval_seconds,
             fast_interval_seconds=args.fast_interval_seconds,
             fast_hours_before_close=args.fast_hours_before_close,

@@ -9,6 +9,7 @@ from pathlib import Path
 from weather.market.market_making_run import (
     build_useful_work_liveness,
     build_run_once,
+    format_run_cli_summary,
     lifecycle_summary,
     load_data_layer_live_gate,
     load_open_lifecycle_orders,
@@ -56,6 +57,26 @@ def test_support_read_csv_rows_tolerates_legacy_degree_byte():
     assert rows[0]["_csv_encoding_status"] == "legacy_encoding"
     assert rows[0]["_csv_source_encoding"] == "cp1252"
     assert rows[0]["bin_value"] == "94"
+
+
+def test_run_cli_summary_separates_intents_permissions_and_no_quotes():
+    line = format_run_cli_summary(
+        {
+            "quote_intent_rows": 132,
+            "quote_rows": 132,
+            "no_quote_rows": 132,
+            "quote_permission_rows": 0,
+            "live_trade_permission_rows": 0,
+            "preflight_status": "BLOCK",
+            "run_folder": "data/mm_runs/example",
+        }
+    )
+
+    assert "132 quote-intent rows" in line
+    assert "0 quote-permission rows" in line
+    assert "132 no-quote rows" in line
+    assert "0 live-permission rows" in line
+    assert "0 quote rows" not in line
 
 
 def test_preflight_book_audit_uses_clob_startup_gap_policy():
@@ -463,6 +484,19 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         "backend_only_signing": True,
         "private_key_storage": "backend_secret_manager",
         "secrets_not_committed": True,
+        "secret_redaction": {
+            "status_output_verified": True,
+            "source_doc_scan_verified": True,
+            "generated_artifact_scan_verified": True,
+            "no_unredacted_secret_findings": True,
+            "scan_scope": [
+                "snapshot_tracker_status",
+                "src/weather",
+                "docs/research",
+                "data/snapshots",
+                "data/backtest",
+            ],
+        },
         "source_urls": [
             "https://docs.polymarket.com/api-reference/authentication",
             "https://docs.polymarket.us/fees",
@@ -875,6 +909,34 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertFalse(gate["ok"])
         self.assertIn("no_secret_material", gate["missing"])
 
+    def test_platform_verification_gate_requires_secret_redaction_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_platform_verification(root / "platform_redaction_missing.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["secret_redaction"]["generated_artifact_scan_verified"] = False
+            payload["secret_redaction"]["scan_scope"] = []
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(path, TARGET_DATE, "live-pilot", now=NOW)
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("secret_redaction_generated_artifact_scan_verified", gate["missing"])
+        self.assertIn("secret_redaction_scan_scope_recorded", gate["missing"])
+
+    def test_platform_verification_gate_rejects_unredacted_secret_query_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_platform_verification(root / "platform_secret_query.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["redaction_evidence_url"] = "https://example.invalid/status?apiKey=synthetic-secret"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(path, TARGET_DATE, "live-pilot", now=NOW)
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("no_secret_material", gate["missing"])
+
     def test_live_pilot_blocks_when_latest_data_layer_audit_lacks_clob_proof(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -917,6 +979,131 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertFalse(preflight["data_layer_live_gate"]["ok"])
         self.assertFalse(gates["data_layer_live_gate"]["ok"])
         self.assertIn("data-layer audit missing live CLOB proof", gates["data_layer_live_gate"]["detail"])
+
+    def test_preflight_blocks_source_status_degradation_even_when_a_source_is_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            write_csv(
+                folder / "source_status_long.csv",
+                [
+                    "snapshot_id",
+                    "captured_at_utc",
+                    "captured_at_local",
+                    "event_slug",
+                    "model_version",
+                    "source",
+                    "source_family",
+                    "ok",
+                    "status",
+                    "stale",
+                    "http_status",
+                    "degradation_state",
+                    "cache_status",
+                    "fetched_at",
+                    "age_minutes",
+                    "ttl_minutes",
+                    "latency_ms",
+                    "payload_hash",
+                    "row_count",
+                    "source_url",
+                    "error",
+                ],
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": NOW,
+                        "captured_at_local": NOW,
+                        "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                        "model_version": "candidate",
+                        "source": "weather_forecast",
+                        "source_family": "weather_forecast",
+                        "ok": "true",
+                        "status": "fresh",
+                        "stale": "false",
+                        "http_status": "200",
+                        "degradation_state": "healthy",
+                        "cache_status": "fresh",
+                        "fetched_at": NOW,
+                        "age_minutes": "0.5",
+                        "ttl_minutes": "90",
+                        "latency_ms": "10",
+                        "payload_hash": "abc",
+                        "row_count": "1",
+                        "source_url": "",
+                        "error": "",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": NOW,
+                        "captured_at_local": NOW,
+                        "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                        "model_version": "candidate",
+                        "source": "wu_history",
+                        "source_family": "wu_history",
+                        "ok": "false",
+                        "status": "settlement_source_auth_failure",
+                        "stale": "false",
+                        "http_status": "403",
+                        "degradation_state": "settlement_source_auth_failure",
+                        "cache_status": "auth_failure",
+                        "fetched_at": NOW,
+                        "age_minutes": "0.5",
+                        "ttl_minutes": "90",
+                        "latency_ms": "10",
+                        "payload_hash": "def",
+                        "row_count": "0",
+                        "source_url": "https://api.weather.com/v1/history?apiKey=&units=e",
+                        "error": "403 Client Error for url: https://api.weather.com/v1/history?apiKey=&units=e",
+                    },
+                ],
+            )
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="shadow",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="source-degradation-blocked",
+                now=NOW,
+            )
+
+            preflight = json.loads(Path(payload["preflight_path"]).read_text(encoding="utf-8"))
+            gates = {
+                gate["name"]: gate
+                for gate in preflight["markets"][0]["gates"]
+            }
+            remediation = json.loads(Path(payload["preflight_remediation_path"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["preflight_status"], "BLOCK")
+        self.assertEqual(payload["quote_permission_rows"], 0)
+        self.assertEqual(payload["live_trade_permission_rows"], 0)
+        self.assertTrue(gates["source_status_fresh"]["ok"])
+        self.assertFalse(gates["source_status_degradation"]["ok"])
+        self.assertIn("settlement_auth_failures=1", gates["source_status_degradation"]["detail"])
+        self.assertEqual(
+            preflight["markets"][0]["source_status_degradation"]["root_cause"],
+            "source_status_degradation_blocked",
+        )
+        self.assertIn("source_status_degradation_blocked", remediation["root_cause_counts"])
+        source_incidents = [
+            row for row in remediation["incidents"]
+            if row.get("gate") == "source_status_degradation"
+        ]
+        self.assertTrue(source_incidents)
+        self.assertEqual(
+            source_incidents[0]["suggested_command"],
+            "python -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status",
+        )
 
     def test_live_pilot_blocks_without_platform_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1000,9 +1187,23 @@ class TestMarketMakingRun(unittest.TestCase):
             ]:
                 self.assertTrue((run_folder / name).exists(), name)
             self.assertEqual(payload["row_count"], 2)
+            self.assertEqual(payload["quote_intent_rows"], 2)
+            self.assertEqual(payload["quote_rows"], 2)
+            self.assertEqual(payload["no_quote_rows"], 1)
+            self.assertEqual(payload["quote_outcome"]["quote_intent_rows"], 2)
+            self.assertEqual(payload["quote_outcome"]["quote_rows"], 2)
+            self.assertEqual(payload["quote_outcome"]["no_quote_rows"], 1)
+            self.assertEqual(payload["latest_tick"]["quote_intent_rows"], 2)
+            self.assertEqual(payload["latest_tick"]["quote_rows"], 2)
+            self.assertEqual(payload["latest_tick"]["no_quote_rows"], 1)
             self.assertEqual(payload["live_trade_permission_rows"], 0)
             self.assertEqual(payload["reason_counts"]["QUOTE_HARVEST_MID"], 1)
             self.assertEqual(payload["reason_counts"]["NO_QUOTE_BUDGET_EXHAUSTED"], 1)
+            self.assertEqual(payload["known_edge_map"]["path"], str(known_edge))
+            self.assertTrue(payload["known_edge_map"]["exists"])
+            self.assertEqual(payload["known_edge_map"]["schema_version"], "mm_known_edge_map_v0.1")
+            self.assertEqual(payload["known_edge_map"]["record_count"], 1)
+            self.assertFalse(payload["known_edge_map"]["diagnostic_only"])
             self.assertIn("information_event_gate", payload)
             self.assertGreaterEqual(payload["information_event_gate"]["widen_rows"], 1)
             self.assertEqual(payload["tape_integrity"]["status"], "PASS")
@@ -1023,6 +1224,14 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertIn("## Information Event Gate", report)
             self.assertIn("## Model-Variant Bakeoff", report)
             self.assertIn("Quote tape integrity", report)
+            self.assertIn("Latest-tick quote-intent rows: `2`", report)
+            self.assertIn("Latest-tick quote-permission rows: `1`", report)
+            self.assertIn("Latest-tick no-quote rows: `1`", report)
+            self.assertIn("Cumulative quote-intent rows: `2`", report)
+            self.assertIn("Cumulative quote-permission rows: `1`", report)
+            self.assertIn("Cumulative no-quote rows: `1`", report)
+            self.assertNotIn("Latest-tick quote rows:", report)
+            self.assertNotIn("Cumulative quote rows:", report)
             budget_events = [
                 json.loads(line)
                 for line in (run_folder / "budget_ledger.jsonl").read_text(encoding="utf-8").splitlines()
@@ -1489,7 +1698,7 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertIn("161", clob_incidents[0]["roadmap_owner_items"])
             self.assertEqual(
                 clob_incidents[0]["suggested_command"],
-                "python -m weather.market.market_microstructure raw-refresh --market all --strict",
+                f"python -m weather.market.market_microstructure raw-refresh --market all --date {TARGET_DATE} --strict",
             )
             risk_events = [
                 json.loads(line)
@@ -1497,6 +1706,102 @@ class TestMarketMakingRun(unittest.TestCase):
                 if line.strip()
             ]
             self.assertTrue(any(row.get("category") == "preflight_remediation" for row in risk_events))
+
+    def test_preflight_remediation_commands_are_executable_cli_commands(self):
+        now = datetime.fromisoformat(NOW.replace("Z", "+00:00"))
+        payload = build_preflight_remediation(
+            {
+                "run_id": "run-remediation-cli",
+                "target_date": TARGET_DATE,
+                "mode": "shadow",
+                "status": "BLOCK",
+                "markets": [
+                    {
+                        "market_id": "austin",
+                        "event_slug": "",
+                        "status": "BLOCK",
+                        "gates": [
+                            {
+                                "name": "active_event",
+                                "ok": False,
+                                "severity": "block",
+                                "detail": "no active current market rows",
+                            },
+                            {
+                                "name": "clob_tokens",
+                                "ok": False,
+                                "severity": "block",
+                                "detail": "clob_tokens.csv has no rows",
+                            },
+                            {
+                                "name": "source_status_degradation",
+                                "ok": False,
+                                "severity": "block",
+                                "detail": "source-status degradation blocks trading evidence",
+                            },
+                        ],
+                    }
+                ],
+            },
+            now,
+        )
+
+        commands = {row["gate"]: row["suggested_command"] for row in payload["incidents"]}
+        self.assertEqual(
+            commands["active_event"],
+            f"python -m weather.market.market_microstructure capture --market all --date {TARGET_DATE}",
+        )
+        self.assertEqual(
+            commands["clob_tokens"],
+            f"python -m weather.market.market_microstructure capture --market all --date {TARGET_DATE}",
+        )
+        self.assertEqual(
+            commands["source_status_degradation"],
+            "python -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status",
+        )
+        self.assertFalse(any("refresh-tokens" in command for command in commands.values()))
+
+    def test_preflight_remediation_marks_counted_clob_gap_nonrepairable_same_day(self):
+        now = datetime.fromisoformat(NOW.replace("Z", "+00:00"))
+        payload = build_preflight_remediation(
+            {
+                "run_id": "run-clob-gap",
+                "target_date": TARGET_DATE,
+                "mode": "shadow",
+                "status": "WARN",
+                "markets": [
+                    {
+                        "market_id": "austin",
+                        "event_slug": "highest-temperature-in-austin-on-june-14-2026",
+                        "status": "STALE",
+                        "folder": "snapshots/highest-temperature-in-austin-on-june-14-2026",
+                        "book_audit": {
+                            "gaps_over_threshold": 1,
+                            "max_counted_gap_seconds": 1168.7,
+                            "last_capture_utc": "2026-06-14T16:00:00+00:00",
+                        },
+                        "gates": [
+                            {
+                                "name": "clob_freshness",
+                                "ok": False,
+                                "severity": "stale",
+                                "detail": "1 gaps over 177s (max 1168.7s)",
+                            }
+                        ],
+                    }
+                ],
+            },
+            now,
+        )
+
+        incident = payload["incidents"][0]
+        self.assertEqual(incident["root_cause"], "clob_book_tape_gap_over_threshold")
+        self.assertFalse(incident["recoverable_same_day"])
+        self.assertFalse(incident["can_still_count_live_forward_day"])
+        self.assertEqual(
+            incident["suggested_command"],
+            f"python -m weather.market.market_microstructure audit --strict --date {TARGET_DATE}",
+        )
 
     def test_preflight_recovery_closeout_records_commands_and_reruns_mm_preflight(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1549,7 +1854,7 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(closeout["command_results"][0]["action"], "skipped")
             self.assertIn("dry-run closeout", closeout["command_results"][0]["skip_reason"])
             self.assertIn(
-                "python -m weather.market.market_microstructure raw-refresh --market all --strict",
+                f"python -m weather.market.market_microstructure raw-refresh --market all --date {TARGET_DATE} --strict",
                 [row["suggested_command"] for row in closeout["command_results"]],
             )
             self.assertEqual(closeout["post_repair_run"]["preflight_status"], "PASS")
@@ -1683,6 +1988,22 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertEqual(rows[0]["market_id"], "toronto")
             self.assertEqual(rows[0]["event_slug"], "highest-temperature-in-toronto-on-june-14-2026")
             self.assertEqual(rows[0]["reason_code"], "NO_QUOTE_MISSING_PREFLIGHT")
+            diagnostics = payload["preflight_diagnostics"]
+            self.assertEqual(diagnostics["status_counts"], {"BLOCK": 1})
+            self.assertEqual(diagnostics["blocked_market_count"], 1)
+            blocking_reasons = {
+                item["reason"]
+                for item in diagnostics["top_blocking_reasons"]
+            }
+            self.assertIn("no active current market rows", blocking_reasons)
+            self.assertIn("missing current snapshot/model rows", blocking_reasons)
+            failing_gates = {
+                item["gate"]
+                for item in diagnostics["top_failing_gates"]
+            }
+            self.assertIn("active_event", failing_gates)
+            self.assertIn("snapshot_model_rows", failing_gates)
+            self.assertEqual(payload["operator_alert"]["top_preflight_failing_gate"], "active_event")
 
     def test_known_edge_no_quote_record_blocks_orchestrated_quotes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1715,6 +2036,14 @@ class TestMarketMakingRun(unittest.TestCase):
             rows = read_csv(Path(payload["quote_intents_path"]))
             self.assertEqual({row["known_edge_permission"] for row in rows}, {"no_quote"})
             self.assertEqual({row["known_edge_reason"] for row in rows}, {"promotion_block"})
+            self.assertTrue(all("known_edge_match_hour_utc" in row for row in rows))
+            self.assertEqual({row["known_edge_match_hour_utc"] for row in rows}, {"15"})
+            self.assertEqual({row["known_edge_match_band_type"] for row in rows}, {"eq"})
+            self.assertEqual({row["known_edge_match_source_fresh"] for row in rows}, {"true"})
+            self.assertEqual({row["known_edge_match_source_freshness_state"] for row in rows}, {"all_fresh"})
+            self.assertTrue(all("known_edge_match_band_distance_bucket" in row for row in rows))
+            self.assertTrue(all("known_edge_match_casebook_taxonomy" in row for row in rows))
+            self.assertTrue(all("known_edge_match_book_imbalance_bucket" in row for row in rows))
 
 
 if __name__ == "__main__":

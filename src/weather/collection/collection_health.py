@@ -13,6 +13,7 @@ CLI:
 import argparse
 import csv
 import json
+import os
 import sys
 from collections import Counter
 from datetime import datetime, time as dt_time, timedelta
@@ -20,8 +21,9 @@ from pathlib import Path
 
 from weather.paths import data_path
 
+from weather.collection.redaction import redact_sensitive_url_parts
 from weather.collection.live_variant_predictions import active_live_variants
-from weather.market.market_config import date_from_event_slug
+from weather.market.market_config import config_for_date, date_from_event_slug, ensure_date
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 
@@ -51,6 +53,34 @@ SOURCE_STATUS_BULK_REPAIR_COMMAND = (
     "python -m weather.collection.snapshot_tracker "
     "--backfill-source-status --overwrite-source-status"
 )
+SOURCE_STATUS_PROOF_SCHEMA_VERSION = "source_status_proof_v0.2"
+WEATHER_PROVIDER_CREDENTIAL_ENV_VARS = ("WEATHER_COM_API_KEY", "WEATHER_COM_KEY")
+
+
+def weather_provider_credential_environment():
+    present_by_var = {
+        name: bool(os.environ.get(name))
+        for name in WEATHER_PROVIDER_CREDENTIAL_ENV_VARS
+    }
+    return {
+        "provider": "weather.com",
+        "credential_env_vars": list(WEATHER_PROVIDER_CREDENTIAL_ENV_VARS),
+        "present_by_var": present_by_var,
+        "any_present": any(present_by_var.values()),
+        "values_redacted": True,
+    }
+
+
+def weather_provider_credential_fields():
+    provider_credential_environment = weather_provider_credential_environment()
+    return {
+        "provider_credential_environment": provider_credential_environment,
+        "weather_com_credential_present": provider_credential_environment.get("any_present"),
+        "weather_com_credential_present_by_var": (
+            provider_credential_environment.get("present_by_var") or {}
+        ),
+        "weather_com_credential_values_redacted": provider_credential_environment.get("values_redacted"),
+    }
 
 
 def parse_times(iso_strings):
@@ -458,8 +488,11 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     return summary
 
 
-def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT):
+def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date=None):
     root = Path(snapshots_root)
+    if target_date is not None:
+        folder = root / config_for_date(ensure_date(target_date), spec.id).event_slug
+        return folder if (folder / "snapshots_long.csv").exists() else None
     candidates = []
     for tape in root.glob("*/snapshots_long.csv"):
         folder = tape.parent
@@ -564,7 +597,7 @@ def source_status_detail(row, bucket):
         "ttl_minutes": maybe_float(row.get("ttl_minutes")),
         "latency_ms": maybe_float(row.get("latency_ms")),
         "row_count": maybe_float(row.get("row_count")),
-        "error": row.get("error"),
+        "error": redact_sensitive_url_parts(row.get("error")),
     }
 
 
@@ -775,7 +808,7 @@ def source_family_degradation(folder):
             for row in families.values()
         ),
     }
-    return {
+    result = {
         **metadata,
         "families": dict(sorted(families.items())),
         "affected_family_count": affected_family_count,
@@ -794,6 +827,9 @@ def source_family_degradation(folder):
         "repair_command": source_status_repair_command(folder),
         "verification_command": SOURCE_STATUS_VERIFY_COMMAND,
     }
+    if settlement_auth_failure_source_count:
+        result.update(weather_provider_credential_fields())
+    return result
 
 
 def fleet_source_family_degradation_summary(markets):
@@ -840,7 +876,7 @@ def fleet_source_family_degradation_summary(markets):
     top_degraded_family = None
     if affected_by_family:
         top_degraded_family = affected_by_family.most_common(1)[0][0]
-    return {
+    summary = {
         "market_count": len(rows),
         "markets_with_source_status": len(available),
         "unknown_market_count": sum(1 for row in rows if not row.get("available")),
@@ -892,6 +928,42 @@ def fleet_source_family_degradation_summary(markets):
             row.get("promotion_readiness_allowed") for row in available
         ),
     }
+    blocked = (
+        int(summary["source_status_blocked_market_count"] or 0)
+        + int(summary["live_trade_permission_blocked_market_count"] or 0)
+        + int(summary["promotion_readiness_blocked_market_count"] or 0)
+        + int(summary["unknown_market_count"] or 0)
+    )
+    if blocked:
+        if summary["unknown_market_count"]:
+            root_cause = "missing_source_status"
+        elif summary["settlement_source_auth_failure_fleet_blocker"]:
+            root_cause = "settlement_source_auth_failure"
+        elif summary["source_status_blocked_market_count"]:
+            root_cause = "source_status_trading_blocked"
+        elif summary["promotion_readiness_blocked_market_count"]:
+            root_cause = "source_status_promotion_blocked"
+        else:
+            root_cause = "source_status_live_permission_blocked"
+        status = "BLOCK"
+        reason = (
+            f"source status blocked: trading={summary['source_status_blocked_market_count']} "
+            f"live={summary['live_trade_permission_blocked_market_count']} "
+            f"promotion={summary['promotion_readiness_blocked_market_count']} "
+            f"unknown={summary['unknown_market_count']}"
+        )
+    else:
+        root_cause = "source_status_clean"
+        status = "PASS"
+        reason = "source status available and allowed for trading/live/promotion lanes"
+    summary.update({
+        "status": status,
+        "root_cause_class": root_cause,
+        "reason": reason,
+    })
+    if root_cause == "settlement_source_auth_failure":
+        summary.update(weather_provider_credential_fields())
+    return summary
 
 
 def source_status_market_proof(row):
@@ -1154,18 +1226,99 @@ def fleet_early_hour_coverage_summary(markets):
     }
 
 
+def fleet_capture_liveness(markets, interval_minutes=10.0):
+    """Is data flowing right now for every market that *should* be capturing?
+
+    This is the signal a live monitor (heartbeat) must alarm on -- and the one
+    that was missing during the 2026-06-27 false alarm, where a naive
+    fleet-newest-mtime check could neither see a single dark market nor tell a
+    genuine outage from a market that simply has not reached its capture window.
+
+    Two timezone/cadence pitfalls it is built to avoid -- the exact two that
+    produced false reads that day:
+
+      1. Pre-window quiet. A market whose settlement (afternoon) window has not
+         started yet is PENDING -- expected quiet, never an alarm. This is what
+         each western market is in during the pre-dawn UTC hours, when measuring
+         gaps in UTC cried wolf.
+      2. End-of-sleep jitter. The loop captures all markets sequentially then
+         sleeps ~one interval, so right before a new cycle the markets captured
+         early last cycle are legitimately ~1.x intervals old. Alarming at the
+         per-market AT_RISK SLA (1.5x interval) would fire every sleep cycle.
+
+    So a market is only "dark" when its latest capture is older than
+    ``2 * interval + slack`` (it has actually missed multiple cycles), mirroring
+    the loop's own dead-detection threshold. Source-auth and other degradations
+    are reported separately and deliberately do not fire this alarm: this is
+    about capture liveness only.
+    """
+    # Mirror loop_health's dead_after = 2*interval + 2: a market is dark only
+    # once it has missed ~two full capture cycles, not on normal sleep jitter.
+    stale_after = 2.0 * float(interval_minutes) + 2.0
+    pending, healthy, stale = [], [], []
+    # Window-open states from live_coverage_summary: COLLECTING (in-window, on
+    # cadence) and AT_RISK (window started, something off). PENDING is pre-window
+    # and CLEAN/PARTIAL are post-window -- neither is a live "going dark" alarm.
+    open_window_states = {"COLLECTING", "AT_RISK"}
+    for row in markets:
+        state = str(row.get("state") or "").upper()
+        age = row.get("latest_age_minutes")
+        market_id = row.get("market_id")
+        if state == "PENDING":
+            pending.append(market_id)
+            continue
+        if state in open_window_states:
+            is_dark = age is None or age > stale_after
+            if is_dark:
+                stale.append({
+                    "market_id": market_id,
+                    "state": state,
+                    "latest_age_minutes": age,
+                })
+            else:
+                healthy.append(market_id)
+            continue
+        # CLEAN / PARTIAL (post-window), MISSING, or anything else: not a live
+        # capture-liveness alarm. Coverage quality for these is reported by the
+        # cadence and early-hour proofs.
+        healthy.append(market_id)
+    return {
+        "schema_version": "fleet_capture_liveness_v0.1",
+        "status": "OK" if not stale else "STALE",
+        "stale_after_minutes": round(stale_after, 1),
+        "market_count": len(markets),
+        "healthy_market_count": len(healthy),
+        "pending_market_count": len(pending),
+        "stale_market_count": len(stale),
+        "stale_markets": stale,
+        "pending_markets": pending,
+        "reason": (
+            "all in-window markets are capturing on cadence"
+            if not stale
+            else f"{len(stale)} market(s) dark (>{round(stale_after)}min) inside an open "
+            "capture window: " + ", ".join(str(row["market_id"]) for row in stale)
+        ),
+        "status_command": SNAPSHOT_STATUS_COMMAND,
+        "repair_command": SNAPSHOT_RESTART_COMMAND,
+        "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
+    }
+
+
 def fleet_collection_health(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
     tolerance=1.5,
     live=True,
     as_of=None,
+    target_date=None,
 ):
     freshness_sla = float(interval_minutes) * float(tolerance)
+    target_date = ensure_date(target_date) if target_date is not None else None
     markets = []
     for spec in all_specs():
-        folder = latest_market_folder(spec, snapshots_root=snapshots_root)
+        folder = latest_market_folder(spec, snapshots_root=snapshots_root, target_date=target_date)
         if folder is None:
+            expected_config = config_for_date(target_date, spec.id) if target_date is not None else None
             missing_summary = {
                 "state": "MISSING",
                 "action_required": True,
@@ -1181,12 +1334,15 @@ def fleet_collection_health(
                 [],
                 interval_minutes,
                 tolerance,
+                target_date=target_date,
                 as_of=as_of,
             )
             markets.append({
                 "market_id": spec.id,
                 "city": spec.city_label,
                 "unit": spec.display_unit,
+                "event_slug": expected_config.event_slug if expected_config else None,
+                "target_date": expected_config.target_date.isoformat() if expected_config else None,
                 "state": "MISSING",
                 "action_required": True,
                 "snapshot_action_required": True,
@@ -1236,6 +1392,7 @@ def fleet_collection_health(
     variant_tape_summary = fleet_variant_prediction_tape_summary(markets)
     cadence_summary = fleet_snapshot_cadence_proof_summary(markets)
     early_hour_summary = fleet_early_hour_coverage_summary(markets)
+    capture_liveness = fleet_capture_liveness(markets, interval_minutes=interval_minutes)
     source_status_markets = [source_status_market_proof(row) for row in markets]
     return {
         "schema_version": "fleet_collection_health_v0.1",
@@ -1273,7 +1430,10 @@ def fleet_collection_health(
             "verification_command": SNAPSHOT_FLEET_VERIFY_COMMAND,
         },
         "source_status_proof": {
-            "schema_version": "source_status_proof_v0.1",
+            "schema_version": SOURCE_STATUS_PROOF_SCHEMA_VERSION,
+            "status": source_family_summary.get("status"),
+            "root_cause_class": source_family_summary.get("root_cause_class"),
+            "reason": source_family_summary.get("reason"),
             "summary": source_family_summary,
             "markets": source_status_markets,
             "repair_command": SOURCE_STATUS_BULK_REPAIR_COMMAND,
@@ -1291,7 +1451,9 @@ def fleet_collection_health(
             "variant_prediction_tape": variant_tape_summary,
             "snapshot_cadence_proof": cadence_summary,
             "early_hour_coverage_proof": early_hour_summary,
+            "capture_liveness": capture_liveness,
         },
+        "capture_liveness": capture_liveness,
     }
 
 

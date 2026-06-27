@@ -741,6 +741,65 @@ def cumulative_run_summary(run_folder, fallback_quote_rows=None, fallback_lifecy
     }
 
 
+def _top_preflight_items(items, limit=20):
+    ranked = sorted(
+        items.values(),
+        key=lambda item: (-int(item.get("market_count") or 0), str(item.get("reason") or item.get("gate") or "")),
+    )
+    return ranked[:limit]
+
+
+def preflight_diagnostics_summary(preflight_rows, *, limit=20):
+    rows = list(preflight_rows or [])
+    status_counts = Counter(row.get("status") or "-" for row in rows)
+    reason_items = {}
+    stale_items = {}
+    gate_items = {}
+    for row in rows:
+        market_id = row.get("market_id") or "-"
+        for reason in row.get("blocking_reasons") or []:
+            item = reason_items.setdefault(reason, {"reason": reason, "market_count": 0, "markets": []})
+            item["market_count"] += 1
+            item["markets"].append(market_id)
+        for reason in row.get("stale_reasons") or []:
+            item = stale_items.setdefault(reason, {"reason": reason, "market_count": 0, "markets": []})
+            item["market_count"] += 1
+            item["markets"].append(market_id)
+        for gate in row.get("gates") or []:
+            if gate.get("ok"):
+                continue
+            key = (gate.get("name") or "-", gate.get("detail") or "-", gate.get("severity") or "-")
+            item = gate_items.setdefault(key, {
+                "gate": key[0],
+                "detail": key[1],
+                "severity": key[2],
+                "market_count": 0,
+                "markets": [],
+            })
+            item["market_count"] += 1
+            item["markets"].append(market_id)
+    for collection in (reason_items, stale_items, gate_items):
+        for item in collection.values():
+            item["markets"] = sorted(set(item["markets"]))
+    gate_ranked = sorted(
+        gate_items.values(),
+        key=lambda item: (
+            -int(item.get("market_count") or 0),
+            str(item.get("gate") or ""),
+            str(item.get("detail") or ""),
+        ),
+    )
+    return {
+        "status_counts": dict(sorted(status_counts.items())),
+        "blocked_market_count": status_counts.get("BLOCK", 0),
+        "stale_market_count": status_counts.get("STALE", 0),
+        "pass_market_count": status_counts.get("PASS", 0),
+        "top_blocking_reasons": _top_preflight_items(reason_items, limit=limit),
+        "top_stale_reasons": _top_preflight_items(stale_items, limit=limit),
+        "top_failing_gates": gate_ranked[:limit],
+    }
+
+
 def build_run_config_payload(
     run_id,
     target_date,
@@ -832,7 +891,9 @@ def build_report(
     model_variant_bakeoff=None,
 ):
     reason_counts = Counter(row.get("reason_code") for row in quote_rows)
-    quote_rows_count = sum(1 for row in quote_rows if row.get("quote_permission"))
+    quote_intent_count = len(quote_rows)
+    quote_permission_count = sum(1 for row in quote_rows if row.get("quote_permission"))
+    no_quote_count = max(0, quote_intent_count - quote_permission_count)
     live_rows = sum(1 for row in quote_rows if row.get("live_trade_permission"))
     lifecycle = lifecycle or {}
     remediation = remediation or {}
@@ -869,7 +930,7 @@ def build_report(
         int(((row.get("csv_encoding") or {}).get("quarantined_row_count")) or 0)
         for row in preflight.get("markets", [])
     )
-    if quote_rows_count:
+    if quote_permission_count:
         quote_outcome = "quoted"
     elif preflight.get("status") in {"BLOCK", "STALE", "WARN"}:
         quote_outcome = "preflight_blocked"
@@ -879,9 +940,12 @@ def build_report(
         quote_outcome = "policy_no_quote"
     zero_trade_diagnosis = classify_zero_trade_root_cause(
         preflight.get("markets") or [],
-        permission_rows=quote_rows_count,
-        output_rows=len(quote_rows),
+        permission_rows=quote_permission_count,
+        output_rows=quote_intent_count,
     )
+    cumulative_quote_intent_rows = int(cumulative.get("row_count", quote_intent_count) or 0)
+    cumulative_quote_permission_rows = int(cumulative.get("quote_permission_rows", quote_permission_count) or 0)
+    cumulative_no_quote_rows = max(0, cumulative_quote_intent_rows - cumulative_quote_permission_rows)
     lines = [
         "# Market-Making Run Report",
         "",
@@ -894,15 +958,18 @@ def build_report(
         "## Summary",
         "",
         f"- Preflight status: `{preflight.get('status')}`",
-        f"- Latest-tick quote rows: `{quote_rows_count}`",
+        f"- Latest-tick quote-intent rows: `{quote_intent_count}`",
+        f"- Latest-tick quote-permission rows: `{quote_permission_count}`",
         f"- Quote outcome: `{quote_outcome}`",
-        f"- Latest-tick no-quote rows: `{len(quote_rows) - quote_rows_count}`",
+        f"- Latest-tick no-quote rows: `{no_quote_count}`",
         f"- Zero-trade root cause: `{zero_trade_diagnosis.get('root_cause_class')}`",
         f"- First failing gate: `{zero_trade_diagnosis.get('first_failing_gate') or '-'}`",
         f"- Zero trades expected: `{str(zero_trade_diagnosis.get('zero_trades_expected')).lower()}`",
         f"- Latest-tick live-trade permission rows: `{live_rows}`",
         f"- Cumulative ticks: `{cumulative.get('tick_count', 1 if quote_rows else 0)}`",
-        f"- Cumulative quote rows: `{cumulative.get('quote_permission_rows', quote_rows_count)}`",
+        f"- Cumulative quote-intent rows: `{cumulative_quote_intent_rows}`",
+        f"- Cumulative quote-permission rows: `{cumulative_quote_permission_rows}`",
+        f"- Cumulative no-quote rows: `{cumulative_no_quote_rows}`",
         f"- Cumulative paper-posted lifecycle legs: `{cumulative.get('paper_posted_count', 0)}`",
         (
             f"- Quote tape integrity: `{tape_integrity.get('status') or '-'}` "
@@ -1501,8 +1568,10 @@ def build_run_once(
     if any(row.get("live_trade_permission") for row in quote_rows) and mode != "live-pilot":
         raise RuntimeError("shadow/paper run attempted to emit live-trade permission")
     event_gate_summary = summarize_event_gate_rows(quote_rows)
+    quote_intent_count = len(quote_rows)
     quote_permission_count = sum(1 for row in quote_rows if row.get("quote_permission"))
     live_trade_permission_count = sum(1 for row in quote_rows if row.get("live_trade_permission"))
+    no_quote_count = max(0, quote_intent_count - quote_permission_count)
     no_quote_status = "quoted"
     no_quote_reason = "quote permissions emitted"
     if not quote_rows:
@@ -1518,8 +1587,11 @@ def build_run_once(
     zero_trade_diagnosis = classify_zero_trade_root_cause(
         preflight_rows,
         permission_rows=quote_permission_count,
-        output_rows=len(quote_rows),
+        output_rows=quote_intent_count,
     )
+    preflight_diagnostics = preflight_diagnostics_summary(preflight_rows)
+    top_preflight_blocker = (preflight_diagnostics.get("top_blocking_reasons") or [{}])[0]
+    top_preflight_gate = (preflight_diagnostics.get("top_failing_gates") or [{}])[0]
 
     quote_path = run_folder / "quote_intents_long.csv"
     model_variant_quote_path = run_folder / "model_variant_quote_intents_long.csv"
@@ -1580,7 +1652,10 @@ def build_run_once(
             "status": no_quote_status,
             "reason": no_quote_reason,
             "quote_permission_rows": quote_permission_count,
-            "row_count": len(quote_rows),
+            "quote_intent_rows": quote_intent_count,
+            "quote_rows": quote_intent_count,
+            "no_quote_rows": no_quote_count,
+            "row_count": quote_intent_count,
             "preflight_status": preflight_status,
             **zero_trade_diagnosis,
         },
@@ -1588,11 +1663,17 @@ def build_run_once(
         "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
         "first_failing_detail": zero_trade_diagnosis.get("first_failing_detail"),
         "zero_trades_expected": zero_trade_diagnosis.get("zero_trades_expected"),
+        "preflight_diagnostics": preflight_diagnostics,
+        "known_edge_map": known_edge_diag,
         "operator_alert": {
             "run_folder": str(run_folder),
             "clob_status_command": "python -m weather.market.market_microstructure status",
             "first_failing_gate": zero_trade_diagnosis.get("first_failing_gate"),
             "root_cause_class": zero_trade_diagnosis.get("root_cause_class"),
+            "top_preflight_blocking_reason": top_preflight_blocker.get("reason"),
+            "top_preflight_blocking_markets": top_preflight_blocker.get("markets") or [],
+            "top_preflight_failing_gate": top_preflight_gate.get("gate"),
+            "top_preflight_failing_gate_detail": top_preflight_gate.get("detail"),
             "remediation_command": (
                 (remediation_payload.get("incidents") or [{}])[0].get("suggested_command")
                 if remediation_payload.get("incidents")
@@ -1609,7 +1690,10 @@ def build_run_once(
         "live_forward_gate_counts_without_evidence_mode": live_forward_gate_payload.get(
             "counts_toward_live_forward_gate_without_evidence_mode"
         ),
-        "row_count": len(quote_rows),
+        "row_count": quote_intent_count,
+        "quote_intent_rows": quote_intent_count,
+        "quote_rows": quote_intent_count,
+        "no_quote_rows": no_quote_count,
         "model_variant_row_count": len(model_variant_quote_rows),
         "quote_permission_rows": quote_permission_count,
         "live_trade_permission_rows": live_trade_permission_count,
@@ -1620,7 +1704,10 @@ def build_run_once(
         "open_order_count": lifecycle.get("current_open_order_count", 0),
         "budget_usdc": float(budget_usdc),
         "latest_tick": {
-            "row_count": len(quote_rows),
+            "row_count": quote_intent_count,
+            "quote_intent_rows": quote_intent_count,
+            "quote_rows": quote_intent_count,
+            "no_quote_rows": no_quote_count,
             "model_variant_row_count": len(model_variant_quote_rows),
             "quote_permission_rows": quote_permission_count,
             "live_trade_permission_rows": live_trade_permission_count,
@@ -1726,6 +1813,21 @@ def run_loop(
     return results[-1] if results else None
 
 
+def format_run_cli_summary(payload):
+    quote_intent_rows = int(payload.get("quote_intent_rows", payload.get("quote_rows", payload.get("row_count", 0))) or 0)
+    quote_permission_rows = int(payload.get("quote_permission_rows", 0) or 0)
+    no_quote_rows = int(payload.get("no_quote_rows", max(0, quote_intent_rows - quote_permission_rows)) or 0)
+    live_permission_rows = int(payload.get("live_trade_permission_rows", 0) or 0)
+    return (
+        "MM run: "
+        f"{quote_intent_rows} quote-intent rows, "
+        f"{quote_permission_rows} quote-permission rows, "
+        f"{no_quote_rows} no-quote rows, "
+        f"{live_permission_rows} live-permission rows, "
+        f"preflight {payload['preflight_status']} -> {payload['run_folder']}"
+    )
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run the date/budget market-making orchestrator.")
     parser.add_argument("--date", required=True, help="Target market date, YYYY-MM-DD.")
@@ -1796,12 +1898,7 @@ def main(argv=None):
     if payload is None:
         print("MM run: no ticks executed")
         return None
-    print(
-        "MM run: "
-        f"{payload['quote_permission_rows']} quote rows, "
-        f"{payload['row_count'] - payload['quote_permission_rows']} no-quote rows, "
-        f"preflight {payload['preflight_status']} -> {payload['run_folder']}"
-    )
+    print(format_run_cli_summary(payload))
     return payload
 
 

@@ -3,23 +3,29 @@ import sys
 import tempfile
 import unittest
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
 import pandas as pd
+from weather.collection.redaction import has_unredacted_sensitive_url_parts, redact_sensitive_url_parts
 import weather.collection.snapshot_tracker as tracker  # noqa: E402
 from weather.model.model_sources import request_with_retries, _is_retryable
 from weather.collection.snapshot_tracker import SnapshotStore, loop_health, run_loop
 from weather.collection.collection_health import (
     detect_gaps,
     coverage_summary,
+    fleet_capture_liveness,
     live_coverage_summary,
+    latest_market_folder,
     parse_times,
+    source_family_degradation,
     summarize_folder,
 )
+from weather.market.market_config import config_for_date
+from weather.market.market_registry import spec_for_id
 
 
 class TestRetries(unittest.TestCase):
@@ -76,6 +82,56 @@ class TestLoopHealth(unittest.TestCase):
     def test_unknown_when_no_status(self):
         self.assertEqual(loop_health(None, self.now)["state"], "UNKNOWN")
 
+    def test_capture_liveness_pending_market_is_not_an_alarm(self):
+        # A western market whose afternoon window has not started is PENDING; it
+        # must not fire a liveness alarm (this is the tz artifact that cried wolf
+        # measuring gaps in UTC during the pre-dawn hours).
+        markets = [
+            {"market_id": "nyc", "state": "COLLECTING", "latest_age_minutes": 4.0,
+             "freshness_sla_minutes": 15.0},
+            {"market_id": "los-angeles", "state": "PENDING", "latest_age_minutes": None,
+             "freshness_sla_minutes": 15.0},
+            {"market_id": "seattle", "state": "CLEAN", "latest_age_minutes": 8.0,
+             "freshness_sla_minutes": 15.0},
+        ]
+        verdict = fleet_capture_liveness(markets)
+        self.assertEqual(verdict["status"], "OK")
+        self.assertEqual(verdict["stale_market_count"], 0)
+        self.assertIn("los-angeles", verdict["pending_markets"])
+
+    def test_capture_liveness_flags_market_dark_inside_window(self):
+        # A market inside its open window whose latest capture has missed
+        # multiple cycles is the real "went dark" signal a monitor must catch.
+        markets = [
+            {"market_id": "nyc", "state": "COLLECTING", "latest_age_minutes": 4.0,
+             "freshness_sla_minutes": 15.0},
+            {"market_id": "denver", "state": "AT_RISK", "latest_age_minutes": 58.0,
+             "freshness_sla_minutes": 15.0},
+            # AT_RISK but latest capture is fresh -> an earlier gap, not a
+            # liveness problem; must NOT alarm.
+            {"market_id": "miami", "state": "AT_RISK", "latest_age_minutes": 6.0,
+             "freshness_sla_minutes": 15.0},
+        ]
+        verdict = fleet_capture_liveness(markets, interval_minutes=10.0)
+        self.assertEqual(verdict["status"], "STALE")
+        self.assertEqual(verdict["stale_market_count"], 1)
+        self.assertEqual(verdict["stale_markets"][0]["market_id"], "denver")
+
+    def test_capture_liveness_ignores_end_of_sleep_jitter(self):
+        # The loop captures markets sequentially then sleeps ~one interval, so a
+        # market legitimately reaches ~1.x intervals old at end-of-sleep. That is
+        # NOT going dark and must not alarm (the exact cry-wolf this replaces). It
+        # only alarms past ~2 intervals + slack.
+        markets = [
+            {"market_id": m, "state": "AT_RISK", "latest_age_minutes": age,
+             "freshness_sla_minutes": 15.0}
+            for m, age in [("dallas", 18.0), ("denver", 17.5), ("seattle", 16.0)]
+        ]
+        verdict = fleet_capture_liveness(markets, interval_minutes=10.0)
+        self.assertEqual(verdict["status"], "OK")
+        self.assertEqual(verdict["stale_market_count"], 0)
+        self.assertEqual(verdict["stale_after_minutes"], 22.0)
+
     def test_running_when_fresh(self):
         self.assertEqual(loop_health(self._status(), self.now, pid_alive=True)["state"], "RUNNING")
 
@@ -130,8 +186,59 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(written["last_snapshot_id"], "atlanta-snapshot")
         self.assertEqual(written["last_market_in_progress"], None)
 
-    def test_run_loop_exits_cleanly_on_stale_runtime_identity(self):
+    def test_run_loop_passes_explicit_target_date_to_capture_fn(self):
         current = datetime(2026, 6, 14, 12, 0)
+        calls = []
+
+        def capture_fn(force=False, market_id="toronto", target_date=None):
+            calls.append({
+                "force": force,
+                "market_id": market_id,
+                "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
+            })
+            return {"written": True, "snapshot_id": f"{market_id}-snapshot"}
+
+        specs = [
+            SimpleNamespace(id="toronto"),
+            SimpleNamespace(id="austin"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "all_specs", lambda: specs), \
+                    patch.object(tracker, "current_fleet_collection_health", lambda **kwargs: {"summary": {}, "markets": []}):
+                run_loop(
+                    force=True,
+                    interval_minutes=10.0,
+                    max_iterations=1,
+                    capture_fn=capture_fn,
+                    now_fn=lambda: current,
+                    target_date="2026-06-27",
+                )
+
+        self.assertEqual(
+            calls,
+            [
+                {"force": True, "market_id": "toronto", "target_date": "2026-06-27"},
+                {"force": True, "market_id": "austin", "target_date": "2026-06-27"},
+            ],
+        )
+
+    def test_run_loop_exits_cleanly_on_stale_runtime_identity(self):
+        # started_at is captured on the first now_fn() call; advance the clock
+        # past the re-adoption debounce window so the stale-code exit fires. The
+        # debounce only holds a re-adoption that happened very recently.
+        base = datetime(2026, 6, 14, 12, 0)
+        after_debounce = base + timedelta(minutes=20)  # > 900s default debounce
+        clock = {"n": 0}
+
+        def now_fn():
+            clock["n"] += 1
+            return base if clock["n"] == 1 else after_debounce
+
         slept = []
         stale_guard = {
             "runtime_code_state": "stale_code",
@@ -152,7 +259,7 @@ class TestLoopHealth(unittest.TestCase):
                     max_iterations=5,
                     capture_fn=capture_fn,
                     sleep_fn=slept.append,
-                    now_fn=lambda: current,
+                    now_fn=now_fn,
                 )
                 diagnostics = [
                     json.loads(line)
@@ -161,9 +268,312 @@ class TestLoopHealth(unittest.TestCase):
 
         self.assertEqual(slept, [])
         self.assertEqual(status["iterations"], 1)
-        self.assertEqual(status["stale_code_exit_requested_at"], current.isoformat())
+        self.assertEqual(status["stale_code_exit_requested_at"], after_debounce.isoformat())
         self.assertEqual(diagnostics[-1]["status"], "stale_code")
         self.assertEqual(diagnostics[-1]["action"], "exit_cleanly")
+
+    def test_run_loop_debounces_recently_readopted_stale_code(self):
+        # Stale code but the process re-adopted moments ago: the loop must NOT
+        # exit mid-flight. It completes a full capture cycle (so a burst of
+        # commits cannot kill it repeatedly and starve the tail markets) and only
+        # re-adopts once the debounce window elapses.
+        base = datetime(2026, 6, 14, 12, 0)  # constant clock -> process age ~0
+        slept = []
+        captured = []
+        stale_guard = {
+            "runtime_code_state": "stale_code",
+            "detail": "running process code identity differs from current source tree",
+        }
+
+        def capture_fn(**kwargs):
+            captured.append(kwargs.get("market_id"))
+            return {"written": False, "snapshot_id": None}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "runtime_identity_status", return_value=stale_guard):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=1,
+                    capture_fn=capture_fn,
+                    sleep_fn=slept.append,
+                    now_fn=lambda: base,
+                )
+                diagnostics = [
+                    json.loads(line)
+                    for line in (tmp_path / "diagnostics.jsonl").read_text(encoding="utf-8").splitlines()
+                ]
+
+        # It captured (did not exit on stale) and recorded the debounce decision.
+        self.assertTrue(captured)
+        self.assertEqual(status["iterations"], 1)
+        self.assertNotIn("stale_code_exit_requested_at", status)
+        self.assertTrue(any(d.get("status") == "stale_code_debounced" for d in diagnostics))
+        self.assertTrue(
+            status["runtime_guard"].get("readoption_debounce", {}).get("debounced")
+        )
+
+    def test_capture_snapshot_uses_explicit_target_date(self):
+        calls = {}
+
+        class FakePolymarketClient:
+            def __init__(self, timeout=10, target_date=None, market_id="toronto"):
+                self.config = config_for_date(target_date, market_id)
+                calls["client"] = {
+                    "market_id": market_id,
+                    "target_date": self.config.target_date.isoformat(),
+                }
+
+            def get_event(self):
+                return {"slug": self.config.event_slug, "markets": []}
+
+        class FakeModelClient:
+            def __init__(self, target_date=None, market_id="toronto"):
+                self.target_date = target_date
+                calls["model"] = {
+                    "market_id": market_id,
+                    "target_date": target_date.isoformat(),
+                }
+
+            def fetch_historical_sources(self):
+                return {}
+
+            def fetch_live_sources(self):
+                return {}
+
+            def build(self, event, historical_sources=None, live_sources=None):
+                calls["built_event_slug"] = event["slug"]
+                return {"ok": True}
+
+        class FakeStore:
+            def __init__(self, event_slug=None):
+                self.event_slug = event_slug
+                calls["store_event_slug"] = event_slug
+
+            def maybe_write(self, event, model, model_client, **kwargs):
+                calls["write"] = {
+                    "event_slug": self.event_slug,
+                    "force": kwargs.get("force"),
+                    "target_date": model_client.target_date.isoformat(),
+                }
+                return {"written": True, "snapshot_id": "snapshot-1", "event_slug": self.event_slug}
+
+        with patch("weather.market.polymarket_client.PolymarketClient", FakePolymarketClient), \
+                patch("weather.model.toronto_model.TorontoHighTempModel", FakeModelClient), \
+                patch("weather.operations.event_metadata_validation.build_validation_payload", return_value={"validation_hash": "hash"}), \
+                patch("weather.operations.event_metadata_validation.gate_for_market", return_value={"ok": True}), \
+                patch.object(tracker, "SnapshotStore", FakeStore):
+            result = tracker.capture_snapshot(force=True, market_id="austin", target_date="2026-06-27")
+
+        expected_slug = config_for_date("2026-06-27", "austin").event_slug
+        self.assertTrue(result["written"])
+        self.assertEqual(calls["client"]["target_date"], "2026-06-27")
+        self.assertEqual(calls["model"], {"market_id": "austin", "target_date": "2026-06-27"})
+        self.assertEqual(calls["store_event_slug"], expected_slug)
+        self.assertEqual(calls["write"]["target_date"], "2026-06-27")
+
+    def test_capture_snapshot_skips_event_ahead_of_local_date(self):
+        # Auto mode (no target_date): the live event resolves to june-27 but it is
+        # still june-26 in the market's local tz -> skip the stray pre-local-day
+        # capture instead of writing a snapshot hours ahead of the active window.
+        class FakePolymarketClient:
+            def __init__(self, timeout=10, target_date=None, market_id="los-angeles"):
+                self.config = config_for_date(target_date, market_id)
+
+            def get_event(self):
+                return {
+                    "slug": "highest-temperature-in-los-angeles-on-june-27-2026",
+                    "markets": [],
+                }
+
+        def boom_store(*args, **kwargs):
+            raise AssertionError("must not write a pre-local-day snapshot")
+
+        with patch("weather.market.polymarket_client.PolymarketClient", FakePolymarketClient), \
+                patch.object(tracker, "default_target_date", return_value=date(2026, 6, 26)), \
+                patch.object(tracker, "SnapshotStore", boom_store):
+            result = tracker.capture_snapshot(market_id="los-angeles")
+
+        self.assertFalse(result["written"])
+        self.assertTrue(result["skipped"])
+        self.assertEqual(result["skipped_reason"], "event_date_ahead_of_local_date")
+        self.assertEqual(result["target_date"], "2026-06-27")
+        self.assertEqual(result["local_date"], "2026-06-26")
+
+    def test_capture_snapshot_captures_when_event_matches_local_date(self):
+        # Auto mode and the event date equals the market's local date -> not a
+        # stray; capture proceeds and writes normally.
+        calls = {}
+
+        class FakePolymarketClient:
+            def __init__(self, timeout=10, target_date=None, market_id="austin"):
+                self.config = config_for_date(target_date, market_id)
+
+            def get_event(self):
+                return {"slug": "highest-temperature-in-austin-on-june-27-2026", "markets": []}
+
+        class FakeModelClient:
+            def __init__(self, target_date=None, market_id="austin"):
+                self.target_date = target_date
+
+            def fetch_historical_sources(self):
+                return {}
+
+            def fetch_live_sources(self):
+                return {}
+
+            def build(self, event, historical_sources=None, live_sources=None):
+                return {"ok": True}
+
+        class FakeStore:
+            def __init__(self, event_slug=None):
+                self.event_slug = event_slug
+
+            def maybe_write(self, event, model, model_client, **kwargs):
+                calls["written"] = True
+                return {"written": True, "snapshot_id": "snap-1", "event_slug": self.event_slug}
+
+        with patch("weather.market.polymarket_client.PolymarketClient", FakePolymarketClient), \
+                patch("weather.model.toronto_model.TorontoHighTempModel", FakeModelClient), \
+                patch("weather.operations.event_metadata_validation.build_validation_payload", return_value={"validation_hash": "h"}), \
+                patch("weather.operations.event_metadata_validation.gate_for_market", return_value={"ok": True}), \
+                patch.object(tracker, "default_target_date", return_value=date(2026, 6, 27)), \
+                patch.object(tracker, "SnapshotStore", FakeStore):
+            result = tracker.capture_snapshot(market_id="austin")
+
+        self.assertTrue(result["written"])
+        self.assertTrue(calls.get("written"))
+
+    def test_latest_market_folder_can_require_explicit_target_date(self):
+        spec = spec_for_id("austin")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            june26 = root / config_for_date("2026-06-26", "austin").event_slug
+            june27 = root / config_for_date("2026-06-27", "austin").event_slug
+            june26.mkdir()
+            june27.mkdir()
+            (june26 / "snapshots_long.csv").write_text("snapshot_id\nold\n", encoding="utf-8")
+            (june27 / "snapshots_long.csv").write_text("snapshot_id\nnew\n", encoding="utf-8")
+
+            self.assertEqual(latest_market_folder(spec, snapshots_root=root), june27)
+            self.assertEqual(
+                latest_market_folder(spec, snapshots_root=root, target_date="2026-06-26"),
+                june26,
+            )
+            self.assertIsNone(latest_market_folder(spec, snapshots_root=root, target_date="2026-06-28"))
+
+
+class TestSourceStatusRedaction(unittest.TestCase):
+    def test_sensitive_query_detector_allows_redacted_values_only(self):
+        raw = "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+        redacted = redact_sensitive_url_parts(raw)
+
+        self.assertTrue(has_unredacted_sensitive_url_parts(raw))
+        self.assertFalse(has_unredacted_sensitive_url_parts(redacted))
+
+    def test_sensitive_query_detector_treats_empty_values_as_unredacted(self):
+        raw = "https://api.weather.com/v1/history?apiKey=&units=e"
+        redacted = redact_sensitive_url_parts(raw)
+
+        self.assertTrue(has_unredacted_sensitive_url_parts(raw))
+        self.assertFalse(has_unredacted_sensitive_url_parts(redacted))
+        self.assertIn("apiKey=<redacted>", redacted)
+        self.assertNotIn("apiKey=&", redacted)
+
+    def test_source_status_rows_redact_secret_query_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=Path(tmp), event_slug="event")
+            rows = store.source_status_rows(
+                {
+                    "wu_history": {
+                        "ok": False,
+                        "status": "failed",
+                        "error": (
+                            "400 Client Error for url: "
+                            "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+                        ),
+                        "data": {
+                            "url": "https://api.weather.com/v1/history?apiKey=secret123&units=e",
+                            "rows": [],
+                        },
+                    }
+                },
+                model_client=SimpleNamespace(source_cache_ttl_minutes=lambda _source: 30),
+                snapshot_id="s1",
+                captured_at=datetime(2026, 6, 27, 5, 0, tzinfo=timezone.utc),
+                model_version="test",
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("secret123", rows[0]["error"])
+        self.assertNotIn("secret123", rows[0]["source_url"])
+        self.assertIn("apiKey=<redacted>", rows[0]["error"])
+        self.assertIn("apiKey=<redacted>", rows[0]["source_url"])
+
+    def test_source_status_rows_redact_empty_secret_query_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=Path(tmp), event_slug="event")
+            rows = store.source_status_rows(
+                {
+                    "wu_history": {
+                        "ok": False,
+                        "status": "failed",
+                        "error": (
+                            "400 Client Error for url: "
+                            "https://api.weather.com/v1/history?apiKey=&units=e"
+                        ),
+                        "data": {
+                            "url": "https://api.weather.com/v1/history?apiKey=&units=e",
+                            "rows": [],
+                        },
+                    }
+                },
+                model_client=SimpleNamespace(source_cache_ttl_minutes=lambda _source: 30),
+                snapshot_id="s1",
+                captured_at=datetime(2026, 6, 27, 5, 0, tzinfo=timezone.utc),
+                model_version="test",
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("apiKey=&", rows[0]["error"])
+        self.assertNotIn("apiKey=&", rows[0]["source_url"])
+        self.assertIn("apiKey=<redacted>", rows[0]["error"])
+        self.assertIn("apiKey=<redacted>", rows[0]["source_url"])
+
+    def test_source_family_degradation_redacts_existing_unredacted_error_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": "2026-06-27T05:00:00+00:00",
+                        "captured_at_local": "2026-06-27T01:00:00-04:00",
+                        "source": "wu_history",
+                        "ok": "False",
+                        "stale": "False",
+                        "status": "failed",
+                        "source_family": "wu_history",
+                        "http_status": "400",
+                        "degradation_state": "failed",
+                        "cache_status": "miss",
+                        "fetched_at": "2026-06-27T01:00:00-04:00",
+                        "error": (
+                            "400 Client Error for url: "
+                            "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+                        ),
+                    }
+                ]
+            ).to_csv(folder / "source_status_long.csv", index=False)
+
+            payload = source_family_degradation(folder)
+
+        detail = payload["families"]["wu_history"]["source_details"][0]
+        self.assertNotIn("secret123", detail["error"])
+        self.assertIn("apiKey=<redacted>", detail["error"])
 
 
 class TestSnapshotStoreRuntimeGuard(unittest.TestCase):

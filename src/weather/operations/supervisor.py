@@ -72,6 +72,12 @@ class SupervisorSpec:
     restart_budget_window_hours: float = 24.0
     restart_backoff_base_seconds: float = 120.0
     restart_backoff_max_seconds: float = 3600.0
+    # Minimum interval between benign current-code re-adoptions (stale_code /
+    # runtime_identity). Benign re-adoptions are excluded from the crash budget,
+    # so without this floor a burst of commits relaunches the loop every ensure
+    # cadence -- repeatedly killing it mid-iteration and starving the markets at
+    # the tail of the capture order. 0 disables the debounce.
+    readoption_debounce_seconds: float = 900.0
 
     def command(self, *args: object, python_executable: str | None = None) -> list[str]:
         return build_module_command(self.module, *args, python_executable=python_executable)
@@ -100,6 +106,7 @@ class SupervisorSpec:
             restart_budget_window_hours=self.restart_budget_window_hours,
             restart_backoff_base_seconds=self.restart_backoff_base_seconds,
             restart_backoff_max_seconds=self.restart_backoff_max_seconds,
+            readoption_debounce_seconds=self.readoption_debounce_seconds,
         )
 
 
@@ -429,6 +436,53 @@ def _recovery_event(event: dict[str, Any]) -> bool:
     if str(event.get("restart_cause") or "").lower() in _BENIGN_RESTART_CAUSES:
         return False
     return True
+
+
+def readoption_debounce(
+    *,
+    runtime_code_state: object,
+    process_started_at: object,
+    now: datetime,
+    debounce_seconds: float,
+) -> dict[str, Any]:
+    """Rate-limit benign current-code re-adoption.
+
+    Benign re-adoptions (relaunching a healthy loop onto current code after a
+    commit) are excluded from the crash budget by :func:`_recovery_event`, so
+    they carry no backoff. Without a floor, a burst of commits relaunches the
+    loop every ensure cadence (1-2 min) -- each relaunch hard-kills the loop
+    mid-iteration and restarts the capture cycle from the top, so the markets at
+    the tail of the order never get reached and silently starve.
+
+    A re-adoption is held when the running process itself re-adopted (started)
+    more recently than ``debounce_seconds`` ago, so the loop re-adopts at most
+    once per window and always runs at least one capture cycle to completion
+    before being relaunched. Genuine crash/hang restarts (non-benign causes) are
+    never debounced -- they fall through immediately.
+    """
+    state = str(runtime_code_state or "").lower()
+    if state not in _BENIGN_RESTART_CAUSES:
+        return {"debounced": False, "reason": "not_benign_readoption"}
+    if not debounce_seconds or float(debounce_seconds) <= 0:
+        return {"debounced": False, "reason": "debounce_disabled"}
+    age = age_seconds(now, process_started_at)
+    if age is None:
+        return {"debounced": False, "reason": "no_process_start_time"}
+    debounce_seconds = float(debounce_seconds)
+    if age >= debounce_seconds:
+        return {
+            "debounced": False,
+            "reason": "debounce_window_elapsed",
+            "process_age_seconds": round(age, 1),
+            "debounce_seconds": debounce_seconds,
+        }
+    return {
+        "debounced": True,
+        "reason": "readoption_debounced",
+        "process_age_seconds": round(age, 1),
+        "debounce_seconds": debounce_seconds,
+        "retry_after_seconds": round(debounce_seconds - age, 1),
+    }
 
 
 def _looks_like_recovery_event_line(line: str) -> bool:
@@ -767,6 +821,44 @@ def file_lock_is_stale(path: str | Path, *, max_age_seconds: float = 120.0) -> b
     return age > max_age_seconds
 
 
+def _file_lock_owner_pid(path: str | Path) -> int | None:
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace").strip()
+    except FileNotFoundError:
+        return None
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return int(payload.get("pid"))
+    except (TypeError, ValueError):
+        return None
+
+
+def file_lock_owner_is_dead(
+    path: str | Path,
+    *,
+    pid_check: Callable[[object], bool] = pid_is_python,
+) -> bool:
+    pid = _file_lock_owner_pid(path)
+    return pid is not None and not pid_check(pid)
+
+
+def _create_file_lock(path: Path) -> int:
+    handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(handle, str(os.getpid()).encode("ascii"))
+    return handle
+
+
 def acquire_file_lock(
     path: str | Path,
     *,
@@ -774,20 +866,26 @@ def acquire_file_lock(
     stale_after_seconds: float = 120.0,
     sleep_seconds: float = 0.1,
     sleep_fn: SleepFn = time.sleep,
+    pid_check: Callable[[object], bool] = pid_is_python,
 ) -> int | None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     attempts = max(1, int(attempts))
     for attempt in range(attempts):
         try:
-            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(handle, str(os.getpid()).encode("ascii"))
-            return handle
+            return _create_file_lock(path)
         except FileExistsError:
-            if file_lock_is_stale(path, max_age_seconds=stale_after_seconds):
+            if file_lock_owner_is_dead(path, pid_check=pid_check) or file_lock_is_stale(
+                path,
+                max_age_seconds=stale_after_seconds,
+            ):
                 try:
                     path.unlink()
                 except FileNotFoundError:
+                    pass
+                try:
+                    return _create_file_lock(path)
+                except FileExistsError:
                     pass
                 continue
             if attempt != attempts - 1:

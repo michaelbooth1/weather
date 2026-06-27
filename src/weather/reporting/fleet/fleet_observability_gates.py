@@ -84,6 +84,14 @@ def _source_status_recovery(source_status):
     if not source_status:
         return None
     repair_command = source_status.get("repair_command") or SOURCE_PROVIDER_STATUS_COMMAND
+    provider_env = source_status.get("provider_credential_environment") or {}
+    credential_vars = provider_env.get("credential_env_vars") or ["WEATHER_COM_API_KEY", "WEATHER_COM_KEY"]
+    credential_setup_command = (
+        "configure "
+        + " or ".join(str(name) for name in credential_vars)
+        + " outside the repo, then run: "
+        + repair_command
+    )
     if source_status.get("available") is False:
         return {
             "detail": source_status.get("reason") or "source_status_long.csv unavailable",
@@ -149,6 +157,19 @@ def _source_status_recovery(source_status):
                     for name, sources in sorted(settlement_auth_sources.items())
                 ]
                 detail += "; " + "; ".join(source_bits)
+                if source_status.get("weather_com_credential_present") is False:
+                    detail += "; Weather.com credential present=False; values_redacted=True"
+                    return {
+                        "detail": detail,
+                        "rule_override": {
+                            "root_cause": (
+                                "settlement_source_auth_failure_missing_weather_com_credentials"
+                            ),
+                            "owner": "external Weather.com provider credentials",
+                            "suggested_command": credential_setup_command,
+                            "recoverable_same_day": False,
+                        },
+                    }
                 return {
                     "detail": detail,
                     "rule_override": {

@@ -11,6 +11,7 @@ import pytest
 from weather import io as weather_io
 from weather import time as weather_time
 from weather.model.calibration_runtime import load_probability_calibration
+from weather.operations import ops_monitor
 from weather.operations.ops_monitor import nightly_retrain_status_rows, scheduled_task_rows
 from weather.operations.supervisor import jsonl_integrity
 from weather.paths import REPO_ROOT, SRC_ROOT
@@ -64,6 +65,47 @@ def test_non_repo_subprocess_imports_weather_with_explicit_package_path(tmp_path
     )
 
     assert Path(result.stdout.strip()) == REPO_ROOT
+
+
+def test_ops_monitor_restart_clob_preserves_status_config(monkeypatch):
+    status = {
+        "market_id": "all",
+        "target_date": "2026-06-27",
+        "interval_seconds": 60.0,
+        "fast_interval_seconds": 15.0,
+        "fast_hours_before_close": 4.0,
+        "fast_after_local_hour": 15.0,
+        "fast_on_mid_change_bps": 500.0,
+        "outcomes": "all",
+        "batch_size": 100,
+        "include_price_history": False,
+        "include_ws_events": False,
+        "websocket_seconds": 1.0,
+        "websocket_message_limit": 5,
+        "websocket_heartbeat_seconds": 10,
+        "websocket_connect_timeout": 5.0,
+    }
+    captured = {}
+    lock = object()
+
+    monkeypatch.setattr(ops_monitor, "read_clob_loop_status", lambda: status)
+    monkeypatch.setattr(ops_monitor, "acquire_clob_supervisor_lock", lambda: lock)
+    monkeypatch.setattr(ops_monitor, "release_clob_supervisor_lock", lambda handle: None)
+    monkeypatch.setattr(ops_monitor, "stop_clob_loop", lambda: {"stopped": True})
+
+    def fake_start(**kwargs):
+        captured.update(kwargs)
+        return {"started": True}
+
+    monkeypatch.setattr(ops_monitor, "start_clob_loop_detached", fake_start)
+
+    result = ops_monitor.restart_clob_loop()
+
+    assert result["stop"]["stopped"] is True
+    assert result["start"]["started"] is True
+    assert captured["target_date"] == "2026-06-27"
+    assert captured["include_price_history"] is False
+    assert captured["include_ws_events"] is False
 
 
 def test_json_helpers_write_tolerantly_read_and_append_jsonl(tmp_path):

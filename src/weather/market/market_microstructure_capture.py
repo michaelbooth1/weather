@@ -887,6 +887,7 @@ def capture_market_books(
     clob_client=None,
     root=None,
     outcomes="all",
+    target_date=None,
     include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     history_minutes=240,
     history_interval=None,
@@ -903,7 +904,7 @@ def capture_market_books(
 ):
     from weather.operations import event_metadata_validation
 
-    event_client = PolymarketClient(market_id=market_id)
+    event_client = PolymarketClient(target_date=target_date, market_id=market_id)
     event = event_client.get_event()
     config = config_from_event(event, fallback_date=event_client.config.target_date)
     validation = event_metadata_validation.build_validation_payload(
@@ -1155,6 +1156,7 @@ def _raw_refresh_market_result(
     capture_fn,
     root,
     outcomes,
+    target_date,
     batch_size,
     started_at,
 ):
@@ -1164,6 +1166,7 @@ def _raw_refresh_market_result(
             market_id,
             root=root,
             outcomes=outcomes,
+            target_date=target_date,
             include_price_history=False,
             include_ws_events=False,
             include_clob_features=False,
@@ -1201,6 +1204,7 @@ def capture_fleet_books_parallel(
     market_id="all",
     root=None,
     outcomes="all",
+    target_date=None,
     batch_size=DEFAULT_BATCH_SIZE,
     max_workers=None,
     per_market_timeout_seconds=30.0,
@@ -1229,6 +1233,7 @@ def capture_fleet_books_parallel(
                 capture_fn=capture_fn,
                 root=root,
                 outcomes=outcomes,
+                target_date=target_date,
                 batch_size=batch_size,
                 started_at=started_at,
             )
@@ -1294,6 +1299,7 @@ def capture_fleet_books(
     clob_client=None,
     root=None,
     outcomes="all",
+    target_date=None,
     include_price_history=DEFAULT_INCLUDE_PRICE_HISTORY,
     history_minutes=240,
     history_interval=None,
@@ -1317,6 +1323,7 @@ def capture_fleet_books(
                 clob_client=clob_client,
                 root=root,
                 outcomes=outcomes,
+                target_date=target_date,
                 include_price_history=include_price_history,
                 history_minutes=history_minutes,
                 history_interval=history_interval,

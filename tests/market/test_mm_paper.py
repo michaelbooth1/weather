@@ -12,6 +12,7 @@ from weather.market.mm_paper import (
     build_paper_payload,
     maker_paper_score_freshness_from_report,
     model_variant_clustered_promotion_gate,
+    quote_blocker_diagnostics,
     run_folder_eligibility,
     write_outputs,
 )
@@ -197,6 +198,7 @@ def write_run_fixture(root):
         "captured_at_utc": "2026-06-14T15:59:30+00:00",
         "policy_hash": "locked-policy",
         "quote_permission": "True",
+        "live_trade_permission": "False",
         "market_id": "atlanta",
         "event_slug": EVENT,
         "range_label": "80-81 F",
@@ -755,22 +757,132 @@ class TestMMPaper(unittest.TestCase):
             report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
 
         diagnostics = payload["reward_score_diagnostics"]
+        summary = payload["summary"]
+        self.assertEqual(summary["quote_rows"], 1)
+        self.assertEqual(summary["quote_permission_rows"], 1)
+        self.assertEqual(summary["no_quote_rows"], 0)
+        self.assertEqual(summary["quote_permission_rate"], 1.0)
+        self.assertEqual(summary["quote_uptime"]["quote_permission_market_counts"], {"atlanta": 1})
+        self.assertEqual(summary["quote_uptime"]["top_quote_permission_cells"][0]["market_id"], "atlanta")
+        self.assertEqual(summary["quote_uptime"]["top_quote_permission_cells"][0]["range_label"], "80-81 F")
+        self.assertEqual(summary["quote_uptime"]["top_quote_permission_cells"][0]["reason_code"], "QUOTE_HARVEST_MID")
+        self.assertEqual(summary["quote_uptime"]["top_quote_permission_cells"][0]["rows"], 1)
+        self.assertEqual(summary["live_trade_permission_rows"], 0)
+        self.assertEqual(summary["live_trade_permission_rate"], 0.0)
+        self.assertEqual(
+            summary["gate_status_scope"],
+            "paper_day_collection_and_exchange_economics_not_live_capital",
+        )
+        self.assertEqual(summary["live_capital_gate_status"], "NOT_EVALUATED_BY_MM_PAPER")
+        self.assertIn("market_making_readiness", summary["live_capital_gate_reason"])
         self.assertEqual(diagnostics["status"], "PASS")
         self.assertEqual(diagnostics["score_basis"], "polymarket_us_discount_factor_ticks_from_best")
         self.assertEqual(diagnostics["positive_score_legs"], 2)
         self.assertEqual(diagnostics["total_reward_score"], 10.0)
+        self.assertEqual(summary["total_reward_score"], diagnostics["total_reward_score"])
         self.assertEqual(diagnostics["score_to_target_size_fraction"], 0.1)
         self.assertFalse(diagnostics["score_at_or_above_target_size"])
+        self.assertFalse(summary["score_at_or_above_target_size"])
         self.assertEqual(diagnostics["assumed_competitor_score"], 100.0)
+        self.assertEqual(diagnostics["assumed_competitor_score_source"], "paper_config_reward_competitor_q")
+        self.assertFalse(diagnostics["assumed_competitor_score_has_clob_recon_evidence"])
         self.assertAlmostEqual(diagnostics["counterfactual_score_share"], 0.09090909)
+        self.assertAlmostEqual(summary["counterfactual_score_share"], 0.09090909)
         self.assertAlmostEqual(diagnostics["counterfactual_reward_usdc"], 90.909091)
+        self.assertAlmostEqual(summary["counterfactual_reward_usdc"], 90.909091)
         self.assertEqual(diagnostics["counterfactual_reward_status"], "COUNTERFACTUAL_ONLY")
+        self.assertEqual(summary["counterfactual_reward_status"], "COUNTERFACTUAL_ONLY")
         self.assertFalse(diagnostics["actual_payout_evidence"])
+        self.assertFalse(summary["actual_payout_evidence"])
         self.assertTrue(diagnostics["does_not_change_pnl"])
         self.assertTrue(diagnostics["score_attribution_top_groups"])
         self.assertIn("## Reward Score Diagnostics", report)
+        self.assertIn("Quote-intent rows / quoted legs", report)
+        self.assertIn("| Quote-intent rows / quoted legs | 1 / 2 |", report)
+        self.assertIn("Quote permissions / live permissions", report)
+        self.assertIn("| Quote permissions / live permissions | 1 / 0 |", report)
+        self.assertIn("Paper-day collection gate", report)
+        self.assertIn("Live-capital gate", report)
+        self.assertIn("NOT_EVALUATED_BY_MM_PAPER", report)
+        self.assertNotIn("| Gate status |", report)
+        self.assertIn("### Quote Permission Markets", report)
+        self.assertIn("| Market | Quote-permission rows |", report)
+        self.assertIn("| atlanta | 1 |", report)
+        self.assertIn("### Top Quote Permission Cells", report)
+        self.assertIn("| atlanta | 80-81 F |", report)
         self.assertIn("Counterfactual reward USDC", report)
+        self.assertIn("Competitor score source", report)
         self.assertIn("polymarket_us_discount_factor_ticks_from_best", report)
+        self.assertNotIn("Quote rows / legs", report)
+        self.assertNotIn("| Market | Quote rows |", report)
+
+    def test_reward_score_diagnostics_use_clob_recon_competitor_score_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            quote_rows = read_csv(run_folder / "quote_intents_long.csv")
+            quote_rows[0]["book_spread"] = "0.02"
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_rows[0].keys()), quote_rows)
+            snapshot = exchange_economics.build_snapshot_payload(
+                target_date=TARGET_DATE,
+                verified_at_utc="2026-06-14T17:00:00+00:00",
+                tick_size=0.01,
+                min_order_size=1.0,
+                reward_formula="score = discount_factor ** ticks_from_best_price * order_size",
+            )
+            snapshot["liquidity_rewards"]["discount_factor_default"] = 0.3
+            snapshot["liquidity_rewards"]["target_size_default_contracts"] = 100.0
+            snapshot["liquidity_rewards"]["default_category_daily_reward_usd"] = 1000.0
+            snapshot["liquidity_rewards"]["min_payout_usd"] = 1.0
+            snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", snapshot)
+            recon = root / "backtest" / "clob_book_recon.json"
+            write_json(recon, {
+                "schema_version": "clob_book_recon_v0.1",
+                "summary": {
+                    "book_rows": 12,
+                    "slice_rows": 3,
+                    "policy_parameter_suggestions": {"reward_competitor_q": 10.0},
+                },
+                "policy_parameter_suggestions": {"reward_competitor_q": 10.0},
+                "slices": [],
+            })
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                clob_recon_path=recon,
+                exchange_economics_snapshot_path=snapshot_path,
+                exchange_economics_target_date=TARGET_DATE,
+                exchange_economics_platform="polymarket_us",
+                exchange_economics_required=True,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+
+        diagnostics = payload["reward_score_diagnostics"]
+        self.assertEqual(diagnostics["total_reward_score"], 10.0)
+        self.assertEqual(diagnostics["assumed_competitor_score"], 10.0)
+        self.assertEqual(
+            diagnostics["assumed_competitor_score_source"],
+            "clob_recon_policy_parameter_suggestions.reward_competitor_q",
+        )
+        self.assertTrue(diagnostics["assumed_competitor_score_has_clob_recon_evidence"])
+        self.assertEqual(diagnostics["assumed_competitor_score_clob_recon_book_rows"], 12)
+        self.assertEqual(diagnostics["assumed_competitor_score_clob_recon_slice_rows"], 3)
+        self.assertAlmostEqual(diagnostics["counterfactual_score_share"], 0.5)
+        self.assertAlmostEqual(diagnostics["counterfactual_reward_usdc"], 500.0)
+        self.assertIn("clob_recon_policy_parameter_suggestions.reward_competitor_q", report)
+        self.assertIn("12 books / 3 slices", report)
 
     def test_skip_model_variants_records_non_promotion_diagnostic(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -880,8 +992,11 @@ class TestMMPaper(unittest.TestCase):
         self.assertEqual(payload["summary"]["conservative_fills"], 0)
         self.assertEqual(payload["summary"]["queue_estimated_fill_legs"], 0)
         self.assertEqual(payload["fill_evidence_completeness"]["status"], "SKIPPED")
+        self.assertEqual(payload["summary"]["fill_evidence_completeness_status"], "SKIPPED")
         self.assertFalse(payload["fill_evidence_completeness"]["promotion_grade"])
+        self.assertFalse(payload["summary"]["fill_evidence_promotion_grade"])
         self.assertIn("fill_simulation_skipped", payload["fill_evidence_completeness"]["blockers"])
+        self.assertIn("fill_simulation_skipped", payload["summary"]["fill_evidence_blockers"])
         self.assertFalse(payload["summary"]["model_variant_scoring_included"])
         self.assertTrue(payload["summary"]["model_variant_scoring_requested"])
         self.assertEqual(payload["model_variant_bakeoff"]["reason"], "skip_fill_simulation")
@@ -1102,11 +1217,15 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(len(csv_rows), 1)
             report = Path(files["report"]).read_text(encoding="utf-8")
             self.assertIn("## Model-Variant Bakeoff", report)
+            self.assertIn("Model-variant quote-intent rows / quoted legs", report)
+            self.assertIn("| Variant | Policy | Quote-intent rows |", report)
             self.assertIn("## Fill Evidence Completeness", report)
             self.assertIn("### Top Event Data Gaps", report)
             self.assertIn("### Top Incomplete Market Data Slices", report)
             self.assertIn("YES_BID", report)
             self.assertIn("external_dynamic", report)
+            self.assertNotIn("Model-variant quote rows / legs", report)
+            self.assertNotIn("| Variant | Policy | Quote rows |", report)
 
             permissions = {(row["market_id"], row["permission"]) for row in known_edge["records"]}
             self.assertIn(("atlanta", "edge_research"), permissions)
@@ -1237,6 +1356,8 @@ class TestMMPaper(unittest.TestCase):
             self.assertAlmostEqual(float(fill["fair_probability"]), 0.52)
             report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
             self.assertIn("## Early-Hour Market-Aware Guardrail", report)
+            self.assertIn("Early-hour quote-permission rows", report)
+            self.assertNotIn("Early-hour quote rows", report)
 
     def test_no_runs_writes_empty_report_and_fail_closed_permissions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1450,6 +1571,7 @@ class TestMMPaper(unittest.TestCase):
             blockers = payload["summary"]["quote_blocker_diagnostics"]
             self.assertEqual(blockers["blocked_rows"], 1)
             self.assertEqual(blockers["event_gate_suppressed_rows"], 1)
+            self.assertEqual(blockers["contextual_event_gate_suppressed_rows"], 1)
             self.assertEqual(blockers["known_edge_permission_blocked_rows"], 0)
             self.assertEqual(blockers["known_edge_blocked_rows"], 0)
             self.assertEqual(blockers["known_edge_allowed_false_rows"], 1)
@@ -1458,10 +1580,446 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(blockers["reason_counts"]["NO_QUOTE_INFORMATION_EVENT"], 1)
             self.assertEqual(blockers["top_market_reasons"][0]["market_id"], "atlanta")
             self.assertEqual(blockers["top_event_gate_states"][0]["event_gate_reason_code"], "INFO_EVENT_METAR_PRINT")
+            overlap = blockers["top_blocker_overlaps"][0]
+            self.assertEqual(overlap["reason_code"], "NO_QUOTE_INFORMATION_EVENT")
+            self.assertEqual(overlap["event_gate_action"], "suppress")
+            self.assertEqual(overlap["event_gate_reason_code"], "INFO_EVENT_METAR_PRINT")
+            self.assertEqual(overlap["known_edge_permission"], "harvest_only")
+            self.assertEqual(overlap["known_edge_reason"], "awaiting_paper_markouts")
+            self.assertEqual(overlap["promotion_state"], "SHADOW")
             report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
             self.assertIn("## Information Event Gate", report)
             self.assertIn("## Quote Blocker Diagnostics", report)
+            self.assertIn("| Quote-intent rows | 1 |", report)
+            self.assertIn("### Top Blocker Overlaps", report)
             self.assertIn("NO_QUOTE_INFORMATION_EVENT", report)
+            self.assertNotIn("| Quote rows | 1 |", report)
+
+    def test_quote_blocker_diagnostics_distinguishes_contextual_event_suppress(self):
+        blockers = quote_blocker_diagnostics(
+            [
+                {
+                    "_quote_id": "preflight-source",
+                    "market_id": "atlanta",
+                    "range_label": "80-81 F",
+                    "reason_code": "NO_QUOTE_MISSING_PREFLIGHT",
+                    "event_gate_action": "suppress",
+                    "event_gate_status": "PULL",
+                    "event_gate_reason_code": "INFO_EVENT_METAR_PRINT",
+                    "known_edge_permission": "harvest_only",
+                    "known_edge_reason": "missing_known_edge_record",
+                    "promotion_state": "SHADOW",
+                }
+            ],
+            legs=[],
+            known_edge_records=[],
+            known_edge_map_diag={},
+        )
+
+        self.assertEqual(blockers["blocked_rows"], 1)
+        self.assertEqual(blockers["reason_counts"]["NO_QUOTE_MISSING_PREFLIGHT"], 1)
+        self.assertEqual(blockers["event_gate_suppressed_rows"], 0)
+        self.assertEqual(blockers["contextual_event_gate_suppressed_rows"], 1)
+        self.assertEqual(blockers["harvest_only_suppressed_by_other_gate_rows"], 0)
+        self.assertEqual(blockers["top_event_gate_states"][0]["event_gate_action"], "suppress")
+
+    def test_no_quote_legs_are_not_promotion_grade_fill_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root = root / "mm_runs"
+            run_folder = runs_root / TARGET_DATE / "no-quote-run"
+            run_folder.mkdir(parents=True)
+            run_config = {
+                "schema_version": "mm_run_v0.2",
+                "run_id": "no-quote-run",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+            }
+            (run_folder / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+            (run_folder / "run_summary.json").write_text(json.dumps({
+                **run_config,
+                "preflight_status": "PASS",
+            }), encoding="utf-8")
+            quote_row = {
+                "run_id": "no-quote-run",
+                "target_date": TARGET_DATE,
+                "run_mode": "paper-live-forward",
+                "generated_at_utc": "2026-06-14T14:05:00+00:00",
+                "captured_at_utc": "2026-06-14T14:04:30+00:00",
+                "policy_hash": "locked-policy",
+                "quote_permission": "False",
+                "live_trade_permission": "False",
+                "reason_code": "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+                "market_id": "dallas",
+                "event_slug": EVENT,
+                "range_label": "92-93 F",
+                "bin_kind": "eq",
+                "regime": "none",
+                "source_fresh": "True",
+                "known_edge_allowed": "False",
+                "known_edge_permission": "no_quote",
+                "known_edge_reason": "missing_known_edge_record",
+                "promotion_state": "SHADOW",
+                "fair_probability": "0.540",
+                "market_mid": "0.535",
+            }
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=root / "backtest",
+                run_folders=[run_folder],
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+
+            fill_gate = payload["fill_evidence_completeness"]
+            self.assertEqual(payload["summary"]["quote_rows"], 1)
+            self.assertEqual(payload["summary"]["quote_permission_rows"], 0)
+            self.assertEqual(payload["summary"]["quote_legs"], 0)
+            self.assertEqual(fill_gate["status"], "BLOCK")
+            self.assertFalse(fill_gate["promotion_grade"])
+            self.assertTrue(fill_gate["vacuous"])
+            self.assertEqual(fill_gate["reason"], "no_quote_legs")
+            self.assertIn("no_quote_legs", fill_gate["blockers"])
+            self.assertEqual(payload["summary"]["fill_evidence_completeness_status"], "BLOCK")
+            self.assertFalse(payload["summary"]["fill_evidence_promotion_grade"])
+            self.assertTrue(payload["summary"]["fill_evidence_vacuous"])
+            self.assertEqual(payload["summary"]["fill_evidence_reason"], "no_quote_legs")
+            self.assertEqual(
+                payload["summary"]["gate_status_scope"],
+                "paper_day_collection_and_exchange_economics_not_live_capital",
+            )
+            self.assertEqual(payload["summary"]["live_capital_gate_status"], "NOT_EVALUATED_BY_MM_PAPER")
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+            self.assertIn("Paper-day collection gate", report)
+            self.assertIn("Live-capital gate", report)
+            self.assertNotIn("| Gate status |", report)
+            self.assertIn("no_quote_legs", report)
+            self.assertIn("| Vacuous | True |", report)
+
+    def test_quote_blocker_diagnostics_exposes_missing_known_edge_dimensions(self):
+        quote_rows = [
+            {
+                "_quote_id": "row-missing-edge",
+                "generated_at_utc": "2026-06-14T14:05:00+00:00",
+                "captured_at_utc": "2026-06-14T14:04:30+00:00",
+                "market_id": "dallas",
+                "range_label": "92-93 F",
+                "reason_code": "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+                "known_edge_allowed": "False",
+                "known_edge_permission": "no_quote",
+                "known_edge_reason": "missing_known_edge_record",
+                "promotion_state": "SHADOW",
+                "bin_kind": "eq",
+                "regime": "none",
+                "source_fresh": "True",
+                "source_freshness_state": "all_fresh",
+                "fair_probability": "0.540",
+                "market_mid": "0.535",
+                "book_imbalance_1pct": "0.30",
+            }
+        ]
+
+        known_edge_records = [
+            {
+                "market_id": "dallas",
+                "hour_utc": "14",
+                "band_distance_bucket": "edge_lt_1c",
+                "band_type": "eq",
+                "casebook_taxonomy": "*",
+                "regime": "none",
+                "source_freshness_state": "all_fresh",
+                "book_imbalance_bucket": "bid_heavy",
+                "permission": "harvest_only",
+                "reason": "diagnostic_candidate",
+            }
+        ]
+
+        blockers = quote_blocker_diagnostics(
+            quote_rows,
+            legs=[],
+            known_edge_records=known_edge_records,
+            known_edge_map_diag={
+                "path": "known-edge-map.json",
+                "exists": True,
+                "schema_version": "mm_known_edge_map_v0.2",
+                "record_count": 1,
+            },
+        )
+
+        self.assertEqual(blockers["schema_version"], "mm_quote_blocker_diagnostics_v0.8")
+        self.assertEqual(blockers["known_edge_permission_blocked_rows"], 1)
+        self.assertEqual(blockers["quote_permission_rows"], 0)
+        self.assertEqual(blockers["inferred_known_edge_record_match_rows"], 1)
+        self.assertEqual(blockers["inferred_known_edge_record_miss_rows"], 0)
+        self.assertEqual(blockers["known_edge_coverage_map"]["record_count"], 1)
+        missing = blockers["top_missing_known_edge_dimensions"][0]
+        self.assertEqual(missing["market_id"], "dallas")
+        self.assertEqual(missing["hour_utc"], "14")
+        self.assertEqual(missing["band_distance_bucket"], "(missing)")
+        self.assertEqual(missing["band_type"], "eq")
+        self.assertEqual(missing["casebook_taxonomy"], "(missing)")
+        self.assertEqual(missing["regime"], "none")
+        self.assertEqual(missing["source_freshness_state"], "all_fresh")
+        self.assertEqual(missing["book_imbalance_bucket"], "(missing)")
+        self.assertEqual(missing["promotion_state"], "SHADOW")
+        self.assertEqual(missing["rows"], 1)
+        inferred = blockers["top_inferred_missing_known_edge_dimensions"][0]
+        self.assertEqual(inferred["market_id"], "dallas")
+        self.assertEqual(inferred["hour_utc"], "14")
+        self.assertEqual(inferred["band_distance_bucket"], "edge_lt_1c")
+        self.assertEqual(inferred["band_type"], "eq")
+        self.assertEqual(inferred["casebook_taxonomy"], "(missing)")
+        self.assertEqual(inferred["regime"], "none")
+        self.assertEqual(inferred["source_freshness_state"], "all_fresh")
+        self.assertEqual(inferred["book_imbalance_bucket"], "bid_heavy")
+        self.assertEqual(inferred["promotion_state"], "SHADOW")
+        self.assertEqual(inferred["rows"], 1)
+        match = blockers["top_inferred_known_edge_record_matches"][0]
+        self.assertEqual(match["market_id"], "dallas")
+        self.assertEqual(match["record_permission"], "harvest_only")
+        self.assertEqual(match["record_reason"], "diagnostic_candidate")
+        self.assertIn("dallas|*", match["record_key"])
+        action = blockers["top_known_edge_coverage_action_items"][0]
+        self.assertEqual(action["market_id"], "dallas")
+        self.assertEqual(action["required_action"], "populate_policy_match_dimensions_then_retest")
+        self.assertEqual(action["nearest_record_permission"], "harvest_only")
+        self.assertEqual(action["nearest_record_reason"], "diagnostic_candidate")
+        self.assertEqual(action["mismatched_dimensions"], "")
+        required_action = blockers["top_known_edge_required_actions"][0]
+        self.assertEqual(
+            required_action["required_action"],
+            "populate_policy_match_dimensions_then_retest",
+        )
+        self.assertEqual(required_action["known_edge_reason"], "missing_known_edge_record")
+        self.assertEqual(required_action["known_edge_permission"], "no_quote")
+        self.assertEqual(required_action["promotion_state"], "SHADOW")
+        self.assertEqual(required_action["rows"], 1)
+
+    def test_quote_blocker_diagnostics_exposes_nearest_known_edge_gap(self):
+        quote_rows = [
+            {
+                "_quote_id": "row-missing-edge",
+                "generated_at_utc": "2026-06-14T15:05:00+00:00",
+                "captured_at_utc": "2026-06-14T15:04:30+00:00",
+                "market_id": "dallas",
+                "range_label": "92-93 F",
+                "reason_code": "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+                "known_edge_allowed": "False",
+                "known_edge_permission": "no_quote",
+                "known_edge_reason": "missing_known_edge_record",
+                "promotion_state": "SHADOW",
+                "bin_kind": "eq",
+                "regime": "none",
+                "source_fresh": "True",
+                "source_freshness_state": "all_fresh",
+                "fair_probability": "0.540",
+                "market_mid": "0.535",
+                "book_imbalance_1pct": "0.30",
+            }
+        ]
+        known_edge_records = [
+            {
+                "market_id": "dallas",
+                "hour_utc": "14",
+                "band_distance_bucket": "edge_lt_1c",
+                "band_type": "eq",
+                "casebook_taxonomy": "*",
+                "regime": "harvest",
+                "source_freshness_state": "all_fresh",
+                "book_imbalance_bucket": "bid_heavy",
+                "permission": "harvest_only",
+                "reason": "diagnostic_candidate",
+            }
+        ]
+
+        blockers = quote_blocker_diagnostics(
+            quote_rows,
+            legs=[],
+            known_edge_records=known_edge_records,
+            known_edge_map_diag={"exists": True, "record_count": 1},
+        )
+
+        self.assertEqual(blockers["schema_version"], "mm_quote_blocker_diagnostics_v0.8")
+        self.assertEqual(blockers["inferred_known_edge_record_match_rows"], 0)
+        self.assertEqual(blockers["inferred_known_edge_record_miss_rows"], 1)
+        gap = blockers["top_inferred_known_edge_nearest_record_gaps"][0]
+        self.assertEqual(gap["market_id"], "dallas")
+        self.assertEqual(gap["hour_utc"], "15")
+        self.assertEqual(gap["nearest_record_permission"], "harvest_only")
+        self.assertEqual(gap["nearest_record_reason"], "diagnostic_candidate")
+        self.assertEqual(gap["matched_dimension_count"], "4")
+        self.assertEqual(gap["mismatched_dimension_count"], "2")
+        self.assertEqual(gap["mismatched_dimensions"], "hour_utc:15!=14; regime:none!=harvest")
+        self.assertIn("dallas|*", gap["nearest_record_key"])
+        action = blockers["top_known_edge_coverage_action_items"][0]
+        self.assertEqual(action["market_id"], "dallas")
+        self.assertEqual(action["required_action"], "collect_countable_markouts_before_map_change")
+        self.assertEqual(action["nearest_record_permission"], "harvest_only")
+        self.assertEqual(action["mismatched_dimensions"], "hour_utc:15!=14; regime:none!=harvest")
+        required_action = blockers["top_known_edge_required_actions"][0]
+        self.assertEqual(
+            required_action["required_action"],
+            "collect_countable_markouts_before_map_change",
+        )
+        self.assertEqual(required_action["known_edge_reason"], "missing_known_edge_record")
+        self.assertEqual(required_action["known_edge_permission"], "no_quote")
+        self.assertEqual(required_action["promotion_state"], "SHADOW")
+        self.assertEqual(required_action["rows"], 1)
+
+    def test_report_renders_missing_known_edge_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root = root / "mm_runs"
+            run_folder = runs_root / TARGET_DATE / "missing-known-edge-run"
+            run_folder.mkdir(parents=True)
+            run_config = {
+                "schema_version": "mm_run_v0.2",
+                "run_id": "missing-known-edge-run",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+            }
+            (run_folder / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+            (run_folder / "run_summary.json").write_text(json.dumps({
+                **run_config,
+                "preflight_status": "PASS",
+            }), encoding="utf-8")
+            quote_row = {
+                "run_id": "missing-known-edge-run",
+                "target_date": TARGET_DATE,
+                "run_mode": "paper-live-forward",
+                "generated_at_utc": "2026-06-14T14:05:00+00:00",
+                "captured_at_utc": "2026-06-14T14:04:30+00:00",
+                "policy_hash": "locked-policy",
+                "quote_permission": "False",
+                "reason_code": "NO_QUOTE_KNOWN_EDGE_PERMISSION",
+                "market_id": "dallas",
+                "event_slug": EVENT,
+                "range_label": "92-93 F",
+                "bin_kind": "eq",
+                "regime": "none",
+                "source_fresh": "True",
+                "source_freshness_state": "all_fresh",
+                "known_edge_allowed": "False",
+                "known_edge_permission": "no_quote",
+                "known_edge_reason": "missing_known_edge_record",
+                "promotion_state": "SHADOW",
+                "fair_probability": "0.540",
+                "market_mid": "0.535",
+                "book_imbalance_1pct": "0.30",
+            }
+            quote_row_miss = {
+                **quote_row,
+                "generated_at_utc": "2026-06-14T15:05:00+00:00",
+                "captured_at_utc": "2026-06-14T15:04:30+00:00",
+                "range_label": "94-95 F",
+                "reason_code": "NO_QUOTE_STALE_INPUT",
+            }
+            write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row, quote_row_miss])
+            backtest_root = root / "backtest"
+            backtest_root.mkdir(parents=True)
+            (backtest_root / "mm_known_edge_map.json").write_text(json.dumps({
+                "schema_version": "mm_known_edge_map_v0.2",
+                "records": [
+                    {
+                        "market_id": "dallas",
+                        "hour_utc": "14",
+                        "band_distance_bucket": "edge_lt_1c",
+                        "band_type": "eq",
+                        "casebook_taxonomy": "*",
+                        "regime": "none",
+                        "source_freshness_state": "all_fresh",
+                        "book_imbalance_bucket": "bid_heavy",
+                        "permission": "harvest_only",
+                        "reason": "diagnostic_candidate",
+                    }
+                ],
+            }), encoding="utf-8")
+
+            payload = build_paper_payload(
+                runs_root=runs_root,
+                snapshots_root=root / "snapshots",
+                backtest_root=backtest_root,
+                run_folders=[run_folder],
+                config={"quote_ttl_seconds": 120.0},
+                now="2026-06-14T17:00:00+00:00",
+            )
+            payload, _known_edge = write_outputs(
+                payload,
+                json_out=root / "backtest" / "mm_paper_report.json",
+                report_out=root / "backtest" / "mm_paper_report.md",
+                fills_out=root / "backtest" / "mm_paper_fills_long.csv",
+                known_edge_out=root / "backtest" / "mm_known_edge_map.json",
+                known_edge_report_out=root / "backtest" / "mm_known_edge_map.md",
+            )
+
+            blockers = payload["summary"]["quote_blocker_diagnostics"]
+            self.assertEqual(blockers["schema_version"], "mm_quote_blocker_diagnostics_v0.8")
+            self.assertEqual(blockers["top_missing_known_edge_dimensions"][0]["market_id"], "dallas")
+            self.assertEqual(blockers["inferred_known_edge_record_match_rows"], 1)
+            self.assertEqual(blockers["inferred_known_edge_record_miss_rows"], 1)
+            self.assertEqual(blockers["quote_permission_rows"], 0)
+            self.assertEqual(blockers["known_edge_permission_blocked_rows"], 1)
+            self.assertEqual(blockers["stale_input_blocked_rows"], 1)
+            self.assertEqual(blockers["stale_input_rows"], 1)
+            report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
+            self.assertIn("| Stale-input blocked rows | 1 |", report)
+            self.assertIn("### Top Missing Known-Edge Dimensions", report)
+            expected_row = (
+                "| dallas | 14 | (missing) | eq | (missing) | none | "
+                "all_fresh | (missing) | SHADOW | 1 |"
+            )
+            self.assertIn(expected_row, report)
+            self.assertIn("### Top Inferred Missing Known-Edge Dimensions", report)
+            expected_inferred_row = (
+                "| dallas | 14 | edge_lt_1c | eq | (missing) | none | "
+                "all_fresh | bid_heavy | SHADOW | 1 |"
+            )
+            self.assertIn(expected_inferred_row, report)
+            self.assertIn("### Known-Edge Coverage Map", report)
+            self.assertIn("### Inferred Known-Edge Record Matches", report)
+            self.assertIn("| dallas | 14 | edge_lt_1c | eq | (missing) | none | all_fresh | bid_heavy | SHADOW | harvest_only | diagnostic_candidate | 1 |", report)
+            self.assertIn("### Inferred Known-Edge Nearest Record Gaps", report)
+            expected_gap_row = (
+                "| dallas | 15 | edge_lt_1c | eq | (missing) | none | all_fresh | bid_heavy | "
+                "SHADOW | harvest_only | diagnostic_candidate | 5 | 1 | hour_utc:15!=14 | 1 |"
+            )
+            self.assertIn(expected_gap_row, report)
+            self.assertIn("### Known-Edge Coverage Action Items", report)
+            self.assertIn("### Known-Edge Required Actions", report)
+            self.assertIn(
+                "| populate_policy_match_dimensions_then_retest | missing_known_edge_record | no_quote | SHADOW | 1 |",
+                report,
+            )
+            self.assertIn("These rows are diagnostic only.", report)
+            self.assertIn(
+                "| dallas | 14 | edge_lt_1c | eq | (missing) | none | all_fresh | bid_heavy | "
+                "missing_known_edge_record | no_quote | SHADOW | "
+                "populate_policy_match_dimensions_then_retest | harvest_only | - | 1 |",
+                report,
+            )
+            self.assertIn("### Top Blocker Overlaps", report)
+            self.assertIn(
+                "| NO_QUOTE_KNOWN_EDGE_PERMISSION | unknown | unknown | no_quote | "
+                "missing_known_edge_record | SHADOW | 1 |",
+                report,
+            )
+            self.assertIn(
+                "| NO_QUOTE_STALE_INPUT | unknown | unknown | no_quote | "
+                "missing_known_edge_record | SHADOW | 1 |",
+                report,
+            )
 
     def test_clob_recon_summary_feeds_paper_report_and_known_edge_map(self):
         with tempfile.TemporaryDirectory() as tmp:

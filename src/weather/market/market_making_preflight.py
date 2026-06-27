@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 
+from weather.collection.redaction import has_unredacted_sensitive_url_parts
 from weather.market.market_config import ensure_date
 from weather.market.market_making_run_constants import (
     PLATFORM_VERIFICATION_SCHEMA_VERSION,
@@ -101,13 +102,20 @@ def load_data_layer_live_gate(path, target_date, mode):
 
 
 SECRET_FIELD_NAMES = {
+    "access_token",
+    "api_key",
     "api_secret",
+    "apikey",
+    "auth_token",
+    "client_secret",
     "mnemonic",
     "password",
     "private_key",
     "secret",
+    "secret_key",
     "seed",
     "seed_phrase",
+    "token",
 }
 SUPPORTED_PLATFORM_IDS = {"polymarket_global", "polymarket_us"}
 SUPPORTED_SIGNATURE_TYPES = {"EOA", "POLY_PROXY", "GNOSIS_SAFE", "POLY_1271"}
@@ -123,6 +131,8 @@ def contains_secret_material(value):
                 return True
     elif isinstance(value, list):
         return any(contains_secret_material(child) for child in value)
+    elif isinstance(value, str):
+        return has_unredacted_sensitive_url_parts(value)
     return False
 
 
@@ -202,6 +212,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
     private_stream = dict_value(payload, "private_user_stream")
     cancel_all = dict_value(payload, "cancel_all")
     latency_stopgap = dict_value(payload, "latency_stopgap")
+    secret_redaction = dict_value(payload, "secret_redaction")
     is_us_platform = payload.get("platform") == "polymarket_us"
     checks = {
         "schema_version_supported": payload.get("schema_version") == PLATFORM_VERIFICATION_SCHEMA_VERSION,
@@ -256,6 +267,23 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "backend_only_signing": bool_value(payload.get("backend_only_signing"), False),
         "private_key_storage_recorded": non_empty_text(payload.get("private_key_storage")),
         "secrets_not_committed": bool_value(payload.get("secrets_not_committed"), False),
+        "secret_redaction_status_output_verified": bool_value(
+            secret_redaction.get("status_output_verified"),
+            False,
+        ),
+        "secret_redaction_source_doc_scan_verified": bool_value(
+            secret_redaction.get("source_doc_scan_verified"),
+            False,
+        ),
+        "secret_redaction_generated_artifact_scan_verified": bool_value(
+            secret_redaction.get("generated_artifact_scan_verified"),
+            False,
+        ),
+        "secret_redaction_no_unredacted_findings": bool_value(
+            secret_redaction.get("no_unredacted_secret_findings"),
+            False,
+        ),
+        "secret_redaction_scan_scope_recorded": bool(secret_redaction.get("scan_scope")),
         "no_secret_material": not contains_secret_material(payload),
         "source_urls_recorded": any(non_empty_text(url) for url in source_urls),
     }
@@ -279,6 +307,13 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "clob_host": payload.get("clob_host"),
         "maker_only_order_field": payload.get("maker_only_order_field"),
         "pilot_wallet_max_funding_usdc": pilot_wallet_cap,
+        "secret_redaction": {
+            "status_output_verified": secret_redaction.get("status_output_verified"),
+            "source_doc_scan_verified": secret_redaction.get("source_doc_scan_verified"),
+            "generated_artifact_scan_verified": secret_redaction.get("generated_artifact_scan_verified"),
+            "no_unredacted_secret_findings": secret_redaction.get("no_unredacted_secret_findings"),
+            "scan_scope": secret_redaction.get("scan_scope") or [],
+        },
         "checks": checks,
         "missing": missing,
         "reason": "ok" if not missing else "platform verification missing live account proof: " + ", ".join(missing),
@@ -289,7 +324,7 @@ REMEDIATION_RULES = {
     "active_event": {
         "root_cause": "missing_active_event",
         "owner": "market registry / Gamma event discovery",
-        "suggested_command": "python -m weather.market.market_microstructure refresh-tokens",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -303,7 +338,7 @@ REMEDIATION_RULES = {
     "snapshot_model_rows": {
         "root_cause": "missing_snapshot_model_rows",
         "owner": "weather snapshot/model loop",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --force --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -311,42 +346,52 @@ REMEDIATION_RULES = {
         "root_cause": "stale_model_row",
         "owner": "weather snapshot/model loop",
         "roadmap_owner_items": ["161", "157"],
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --force --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "source_status_rows": {
         "root_cause": "missing_source_status_row",
         "owner": "snapshot source-status writer",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --force --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "source_status_fresh": {
         "root_cause": "stale_source_status_row",
         "owner": "snapshot source-status writer",
-        "suggested_command": "python -m weather.collection.snapshot_tracker --status",
+        "suggested_command": "python -m weather.collection.snapshot_tracker --force --market all --date <YYYY-MM-DD>",
+        "recoverable_same_day": True,
+        "counts_after_failure": False,
+    },
+    "source_status_degradation": {
+        "root_cause": "source_status_degradation_blocked",
+        "owner": "snapshot source-status writer / external weather provider credentials",
+        "suggested_command": (
+            "python -m weather.collection.snapshot_tracker "
+            "--backfill-source-status --overwrite-source-status"
+        ),
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "clob_tokens": {
         "root_cause": "missing_clob_tokens",
         "owner": "CLOB token discovery",
-        "suggested_command": "python -m weather.market.market_microstructure refresh-tokens",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "clob_discovery": {
         "root_cause": "blank_or_inactive_clob_discovery",
         "owner": "CLOB token discovery / Gamma event discovery",
-        "suggested_command": "python -m weather.market.market_microstructure capture --market all",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
     "clob_books": {
         "root_cause": "missing_clob_book_rows",
         "owner": "CLOB book loop",
-        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --strict",
+        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --date <YYYY-MM-DD> --strict",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -361,7 +406,7 @@ REMEDIATION_RULES = {
         "root_cause": "stale_clob_book_tape",
         "owner": "CLOB book supervisor",
         "roadmap_owner_items": ["161"],
-        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --strict",
+        "suggested_command": "python -m weather.market.market_microstructure raw-refresh --market all --date <YYYY-MM-DD> --strict",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -383,7 +428,7 @@ REMEDIATION_RULES = {
     "reward_metadata": {
         "root_cause": "missing_reward_metadata",
         "owner": "CLOB book/token metadata",
-        "suggested_command": "python -m weather.market.market_microstructure ensure",
+        "suggested_command": "python -m weather.market.market_microstructure capture --market all --date <YYYY-MM-DD>",
         "recoverable_same_day": True,
         "counts_after_failure": False,
     },
@@ -446,6 +491,34 @@ def remediation_last_good_artifact(market_row, gate_name):
     }
 
 
+def remediation_suggested_command(command, target_date):
+    text = str(command or "inspect preflight.json")
+    if "<YYYY-MM-DD>" in text and target_date:
+        text = text.replace("<YYYY-MM-DD>", ensure_date(target_date).isoformat())
+    return text
+
+
+def _positive_number(value):
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def remediation_rule_for_gate(market_row, gate, base_rule):
+    rule = dict(base_rule)
+    if gate.get("name") == "clob_freshness":
+        audit = market_row.get("book_audit") or {}
+        if _positive_number(audit.get("gaps_over_threshold")):
+            rule["root_cause"] = "clob_book_tape_gap_over_threshold"
+            rule["suggested_command"] = (
+                "python -m weather.market.market_microstructure audit --strict --date <YYYY-MM-DD>"
+            )
+            rule["recoverable_same_day"] = False
+            rule["counts_after_failure"] = False
+    return rule
+
+
 def build_preflight_remediation(preflight, now, previous=None):
     previous_by_key = {
         row.get("incident_key"): row
@@ -465,13 +538,14 @@ def build_preflight_remediation(preflight, now, previous=None):
         for gate in market.get("gates") or []:
             if gate.get("ok"):
                 continue
-            rule = REMEDIATION_RULES.get(gate.get("name"), {
+            base_rule = REMEDIATION_RULES.get(gate.get("name"), {
                 "root_cause": gate.get("name") or "unknown_preflight_failure",
                 "owner": "unknown",
                 "suggested_command": "inspect preflight.json",
                 "recoverable_same_day": False,
                 "counts_after_failure": False,
             })
+            rule = remediation_rule_for_gate(market, gate, base_rule)
             detail = gate.get("detail") or ""
             key = "|".join([
                 str(market.get("market_id") or ""),
@@ -495,7 +569,10 @@ def build_preflight_remediation(preflight, now, previous=None):
                 "owner": rule["owner"],
                 "roadmap_owner_items": list(rule.get("roadmap_owner_items") or []),
                 "detail": detail,
-                "suggested_command": rule["suggested_command"],
+                "suggested_command": remediation_suggested_command(
+                    rule["suggested_command"],
+                    preflight.get("target_date"),
+                ),
                 "recoverable_same_day": bool(rule["recoverable_same_day"]),
                 "can_still_count_live_forward_day": bool(rule["counts_after_failure"]),
                 "alert_within_seconds": 60,
@@ -531,7 +608,10 @@ def build_preflight_remediation(preflight, now, previous=None):
                 "owner": blocker.get("owner") or "unknown",
                 "roadmap_owner_items": list(blocker.get("roadmap_owner_items") or []),
                 "detail": detail,
-                "suggested_command": blocker.get("suggested_command") or "inspect preflight.json",
+                "suggested_command": remediation_suggested_command(
+                    blocker.get("suggested_command") or "inspect preflight.json",
+                    preflight.get("target_date"),
+                ),
                 "recoverable_same_day": bool(blocker.get("recoverable_same_day", True)),
                 "can_still_count_live_forward_day": bool(blocker.get("can_still_count_live_forward_day", False)),
                 "alert_within_seconds": 60,

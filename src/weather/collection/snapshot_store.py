@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from weather.paths import data_path
 
+from weather.collection.redaction import redact_sensitive_url_parts
 from weather.collection.snapshot_store_backfill import (
     backfill_explanations,
     backfill_snapshot_cadence_quality,
@@ -820,8 +821,8 @@ class SnapshotStore:
                 "impossible_features": ",".join(physical_state.get("impossible_features") or []),
                 "payload_hash": self.payload_hash(data),
                 "row_count": self.source_row_count(data),
-                "source_url": data.get("url") if isinstance(data, dict) else None,
-                "error": item.get("error"),
+                "source_url": redact_sensitive_url_parts(data.get("url")) if isinstance(data, dict) else None,
+                "error": redact_sensitive_url_parts(item.get("error")),
             })
         return rows
 
@@ -961,7 +962,7 @@ class SnapshotStore:
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),
-                "source_url": data.get("url") or data.get("source_url"),
+                "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
                 "raw_payload_path": str(payload_path),
             }
             rows.append(row)
@@ -1025,7 +1026,7 @@ class SnapshotStore:
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),
-                "source_url": data.get("url") or data.get("source_url"),
+                "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
                 "raw_payload_path": str(payload_path),
             }
             rows.append(row)

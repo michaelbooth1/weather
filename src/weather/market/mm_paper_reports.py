@@ -99,14 +99,19 @@ def render_paper_report(payload):
             ["Run-folder selection", selection.get("mode") or "full"],
             ["Selection warning", selection.get("warning") or "-"],
             ["Excluded run folders", summary.get("excluded_run_folders")],
-            ["Quote rows / legs", f"{summary.get('quote_rows')} / {summary.get('quote_legs')}"],
+            ["Quote-intent rows / quoted legs", f"{summary.get('quote_rows')} / {summary.get('quote_legs')}"],
+            [
+                "Quote permissions / live permissions",
+                f"{summary.get('quote_permission_rows', 0)} / {summary.get('live_trade_permission_rows', 0)}",
+            ],
+            ["Quote permission rate", fmt_num(summary.get("quote_permission_rate"), 6)],
             [
                 "Fill simulation",
                 f"{summary.get('fill_simulation_status') or '-'}"
                 f" ({summary.get('fill_simulation_reason') or 'included'})",
             ],
             [
-                "Model-variant quote rows / legs",
+                "Model-variant quote-intent rows / quoted legs",
                 f"{summary.get('model_variant_quote_rows', 0)} / {summary.get('model_variant_quote_legs', 0)}",
             ],
             [
@@ -118,7 +123,13 @@ def render_paper_report(payload):
             ["Conservative filled shares", fmt_num(summary.get("conservative_filled_shares"), 3)],
             ["Queue-estimated fill legs", summary.get("queue_estimated_fill_legs")],
             ["Queue-estimated shares", fmt_num(summary.get("queue_estimated_filled_shares"), 3)],
-            ["Gate status", summary.get("gate_status")],
+            ["Paper-day collection gate", summary.get("gate_status")],
+            ["Paper gate scope", summary.get("gate_status_scope") or "-"],
+            [
+                "Live-capital gate",
+                f"{summary.get('live_capital_gate_status') or 'NOT_EVALUATED_BY_MM_PAPER'}"
+                f" ({summary.get('live_capital_gate_reason') or 'use weather.market.market_making_readiness'})",
+            ],
             ["Exchange economics", exchange_gate.get("status") or summary.get("exchange_economics_gate_status") or "-"],
             ["Exchange snapshot", summary.get("exchange_economics_snapshot_id") or "-"],
             ["Paper-score freshness", freshness.get("status") or "-"],
@@ -172,6 +183,15 @@ def render_paper_report(payload):
                 ["Campaign pool USDC", fmt_num(reward_score.get("campaign_pool_usdc"), 2)],
                 ["Min payout USDC", fmt_num(reward_score.get("min_payout_usdc"), 2)],
                 ["Assumed competitor score", fmt_num(reward_score.get("assumed_competitor_score"), 4)],
+                ["Competitor score source", reward_score.get("assumed_competitor_score_source") or "-"],
+                ["Competitor score has CLOB recon", reward_score.get("assumed_competitor_score_has_clob_recon_evidence")],
+                [
+                    "Competitor CLOB recon rows",
+                    (
+                        f"{reward_score.get('assumed_competitor_score_clob_recon_book_rows', 0)} books / "
+                        f"{reward_score.get('assumed_competitor_score_clob_recon_slice_rows', 0)} slices"
+                    ),
+                ],
                 ["Quote permission rows", reward_score.get("quote_permission_rows", 0)],
                 ["Quoted legs", reward_score.get("quoted_legs", 0)],
                 ["Positive-score legs", reward_score.get("positive_score_legs", 0)],
@@ -223,6 +243,31 @@ def render_paper_report(payload):
                 ["Reason", "Rows"],
                 [[key, value] for key, value in sorted(no_quote_counts.items())],
             ))
+    quote_uptime = summary.get("quote_uptime") or {}
+    quote_permission_market_counts = quote_uptime.get("quote_permission_market_counts") or {}
+    if quote_permission_market_counts:
+        lines.extend(["", "### Quote Permission Markets", ""])
+        lines.extend(markdown_table(
+            ["Market", "Quote-permission rows"],
+            [[key, value] for key, value in sorted(quote_permission_market_counts.items())],
+        ))
+    top_quote_permission_cells = quote_uptime.get("top_quote_permission_cells") or []
+    if top_quote_permission_cells:
+        lines.extend(["", "### Top Quote Permission Cells", ""])
+        lines.extend(markdown_table(
+            ["Market", "Range", "Permission", "Promotion", "Reason", "Rows"],
+            [
+                [
+                    row.get("market_id"),
+                    row.get("range_label"),
+                    row.get("known_edge_permission"),
+                    row.get("promotion_state"),
+                    row.get("reason_code"),
+                    row.get("rows", 0),
+                ]
+                for row in top_quote_permission_cells[:12]
+            ],
+        ))
     if quote_blockers:
         lines.extend([
             "",
@@ -234,7 +279,7 @@ def render_paper_report(payload):
         lines.extend(markdown_table(
             ["Metric", "Value"],
             [
-                ["Quote rows", quote_blockers.get("quote_rows", 0)],
+                ["Quote-intent rows", quote_blockers.get("quote_rows", 0)],
                 ["Quote-permission rows", quote_blockers.get("quote_permission_rows", 0)],
                 ["Blocked rows", quote_blockers.get("blocked_rows", 0)],
                 ["Blocked fraction", fmt_num(quote_blockers.get("blocked_fraction"), 6)],
@@ -242,15 +287,41 @@ def render_paper_report(payload):
                     "known_edge_permission_blocked_rows",
                     quote_blockers.get("known_edge_blocked_rows", 0),
                 )],
+                ["Stale-input blocked rows", quote_blockers.get("stale_input_blocked_rows", 0)],
                 ["Known-edge state rows", quote_blockers.get("known_edge_state_rows", 0)],
                 ["Known-edge allowed=false rows", quote_blockers.get("known_edge_allowed_false_rows", 0)],
+                ["Inferred known-edge record matches", quote_blockers.get(
+                    "inferred_known_edge_record_match_rows",
+                    0,
+                )],
+                ["Inferred known-edge record misses", quote_blockers.get(
+                    "inferred_known_edge_record_miss_rows",
+                    0,
+                )],
                 ["Harvest-only suppressed by other gate rows", quote_blockers.get(
                     "harvest_only_suppressed_by_other_gate_rows",
                     0,
                 )],
                 ["Event-gate suppressed rows", quote_blockers.get("event_gate_suppressed_rows", 0)],
+                ["Contextual event-gate suppress rows", quote_blockers.get(
+                    "contextual_event_gate_suppressed_rows",
+                    0,
+                )],
             ],
         ))
+        coverage_map = quote_blockers.get("known_edge_coverage_map") or {}
+        if coverage_map:
+            lines.extend(["", "### Known-Edge Coverage Map", ""])
+            lines.extend(markdown_table(
+                ["Field", "Value"],
+                [
+                    ["Path", coverage_map.get("path") or ""],
+                    ["Exists", coverage_map.get("exists")],
+                    ["Schema", coverage_map.get("schema_version") or ""],
+                    ["Records", coverage_map.get("record_count", 0)],
+                    ["Diagnostic only", coverage_map.get("diagnostic_only")],
+                ],
+            ))
         market_reasons = quote_blockers.get("top_market_reasons") or []
         if market_reasons:
             lines.extend(["", "### Top Market Reasons", ""])
@@ -276,6 +347,252 @@ def render_paper_report(payload):
                     for row in known_edge_rows[:12]
                 ],
             ))
+        missing_edge_rows = quote_blockers.get("top_missing_known_edge_dimensions") or []
+        if missing_edge_rows:
+            lines.extend(["", "### Top Missing Known-Edge Dimensions", ""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Promotion",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in missing_edge_rows[:12]
+                ],
+            ))
+        inferred_edge_rows = quote_blockers.get("top_inferred_missing_known_edge_dimensions") or []
+        if inferred_edge_rows:
+            lines.extend(["", "### Top Inferred Missing Known-Edge Dimensions", ""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Promotion",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in inferred_edge_rows[:12]
+                ],
+            ))
+        inferred_match_rows = quote_blockers.get("top_inferred_known_edge_record_matches") or []
+        if inferred_match_rows:
+            lines.extend(["", "### Inferred Known-Edge Record Matches", ""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Promotion",
+                    "Record permission",
+                    "Record reason",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("promotion_state"),
+                        row.get("record_permission"),
+                        row.get("record_reason"),
+                        row.get("rows", 0),
+                    ]
+                    for row in inferred_match_rows[:12]
+                ],
+            ))
+        inferred_miss_rows = quote_blockers.get("top_inferred_known_edge_record_misses") or []
+        if inferred_miss_rows:
+            lines.extend(["", "### Inferred Known-Edge Record Misses", ""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Promotion",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in inferred_miss_rows[:12]
+                ],
+            ))
+        nearest_gap_rows = quote_blockers.get("top_inferred_known_edge_nearest_record_gaps") or []
+        if nearest_gap_rows:
+            lines.extend(["", "### Inferred Known-Edge Nearest Record Gaps", ""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Promotion",
+                    "Nearest permission",
+                    "Nearest reason",
+                    "Matched dims",
+                    "Mismatched dims",
+                    "Mismatch detail",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("promotion_state"),
+                        row.get("nearest_record_permission"),
+                        row.get("nearest_record_reason"),
+                        row.get("matched_dimension_count"),
+                        row.get("mismatched_dimension_count"),
+                        row.get("mismatched_dimensions"),
+                        row.get("rows", 0),
+                    ]
+                    for row in nearest_gap_rows[:12]
+                ],
+            ))
+        coverage_action_rows = quote_blockers.get("top_known_edge_coverage_action_items") or []
+        if coverage_action_rows:
+            required_action_rows = quote_blockers.get("top_known_edge_required_actions") or []
+            if required_action_rows:
+                lines.extend(["", "### Known-Edge Required Actions", ""])
+                lines.append(
+                    "These counts are diagnostic only and do not grant quote permission."
+                )
+                lines.extend([""])
+                lines.extend(markdown_table(
+                    [
+                        "Required action",
+                        "Known-edge reason",
+                        "Permission",
+                        "Promotion",
+                        "Rows",
+                    ],
+                    [
+                        [
+                            row.get("required_action"),
+                            row.get("known_edge_reason"),
+                            row.get("known_edge_permission"),
+                            row.get("promotion_state"),
+                            row.get("rows", 0),
+                        ]
+                        for row in required_action_rows[:12]
+                    ],
+                ))
+            lines.extend(["", "### Known-Edge Coverage Action Items", ""])
+            lines.append(
+                "These rows are diagnostic only. They identify cells that need countable paper evidence or promotion-gate progress before any map or permission change."
+            )
+            lines.extend([""])
+            lines.extend(markdown_table(
+                [
+                    "Market",
+                    "Hour UTC",
+                    "Band distance",
+                    "Band type",
+                    "Taxonomy",
+                    "Regime",
+                    "Freshness state",
+                    "Book bucket",
+                    "Known-edge reason",
+                    "Permission",
+                    "Promotion",
+                    "Required action",
+                    "Nearest permission",
+                    "Mismatch detail",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("market_id"),
+                        row.get("hour_utc"),
+                        row.get("band_distance_bucket"),
+                        row.get("band_type"),
+                        row.get("casebook_taxonomy"),
+                        row.get("regime"),
+                        row.get("source_freshness_state"),
+                        row.get("book_imbalance_bucket"),
+                        row.get("known_edge_reason"),
+                        row.get("known_edge_permission"),
+                        row.get("promotion_state"),
+                        row.get("required_action"),
+                        row.get("nearest_record_permission"),
+                        row.get("mismatched_dimensions"),
+                        row.get("rows", 0),
+                    ]
+                    for row in coverage_action_rows[:12]
+                ],
+            ))
         event_rows = quote_blockers.get("top_event_gate_states") or []
         if event_rows:
             lines.extend(["", "### Top Event-Gate States", ""])
@@ -290,6 +607,32 @@ def render_paper_report(payload):
                         row.get("rows", 0),
                     ]
                     for row in event_rows[:12]
+                ],
+            ))
+        blocker_overlap_rows = quote_blockers.get("top_blocker_overlaps") or []
+        if blocker_overlap_rows:
+            lines.extend(["", "### Top Blocker Overlaps", ""])
+            lines.extend(markdown_table(
+                [
+                    "Reason",
+                    "Event action",
+                    "Event reason",
+                    "Known-edge permission",
+                    "Known-edge reason",
+                    "Promotion",
+                    "Rows",
+                ],
+                [
+                    [
+                        row.get("reason_code"),
+                        row.get("event_gate_action"),
+                        row.get("event_gate_reason_code"),
+                        row.get("known_edge_permission"),
+                        row.get("known_edge_reason"),
+                        row.get("promotion_state"),
+                        row.get("rows", 0),
+                    ]
+                    for row in blocker_overlap_rows[:12]
                 ],
             ))
         blocked_cells = quote_blockers.get("top_blocked_cells") or []
@@ -324,7 +667,7 @@ def render_paper_report(payload):
                 ["Status", model_variant.get("status") or "-"],
                 ["Reason", model_variant.get("reason") or "-"],
                 ["Score basis", model_variant.get("score_basis") or "-"],
-                ["Quote rows", model_variant.get("quote_rows", 0)],
+                ["Quote-intent rows", model_variant.get("quote_rows", 0)],
                 ["Conservative fills", model_variant.get("conservative_fills", 0)],
                 ["Policy pairs", model_variant.get("policy_pair_count", 0)],
                 ["Promotion gate", gate.get("status") or model_variant_summary.get("promotion_gate_status") or "-"],
@@ -356,7 +699,7 @@ def render_paper_report(payload):
         if variant_rows:
             lines.extend([
                 "",
-                "| Variant | Policy | Quote rows | Fills | Net P&L | Delta net vs served | Settlement P&L |",
+                "| Variant | Policy | Quote-intent rows | Fills | Net P&L | Delta net vs served | Settlement P&L |",
                 "| --- | --- | --- | --- | --- | --- | --- |",
             ])
             for row in variant_rows:
@@ -398,7 +741,7 @@ def render_paper_report(payload):
         ["Metric", "Value"],
         [
             ["Quote permission rows", guardrail_exposure.get("quote_permission_rows", 0)],
-            ["Early-hour quote rows", guardrail_exposure.get("early_hour_quote_rows", 0)],
+            ["Early-hour quote-permission rows", guardrail_exposure.get("early_hour_quote_rows", 0)],
             ["Active guardrail rows", guardrail_exposure.get("early_hour_active_guardrail_rows", 0)],
             ["Override rows", guardrail_exposure.get("early_hour_override_rows", 0)],
             ["Market-aware stand-down rows", guardrail_exposure.get("market_aware_standdown_rows", 0)],
@@ -419,6 +762,8 @@ def render_paper_report(payload):
             ["Status", fill_evidence.get("status") or "-"],
             ["Promotion grade", fill_evidence.get("promotion_grade")],
             ["Blockers", ", ".join(fill_evidence.get("blockers") or []) or "-"],
+            ["Vacuous", fill_evidence.get("vacuous")],
+            ["Reason", fill_evidence.get("reason") or "-"],
             ["Missing-size trade rows", fill_evidence.get("missing_size_trade_rows", 0)],
             ["Missing-book queue legs", fill_evidence.get("missing_book_queue_legs", 0)],
             ["Missing-trade-size queue legs", fill_evidence.get("missing_trade_size_queue_legs", 0)],

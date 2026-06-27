@@ -44,7 +44,7 @@ from weather.market.snapshot_cadence_quality import (
 )
 
 
-SCHEMA_VERSION = "mm_quote_intent_v0.2"
+SCHEMA_VERSION = "mm_quote_intent_v0.3"
 POLICY_VERSION = "mm_policy_v0.2"
 EARLY_HOUR_GUARDRAIL_SCHEMA_VERSION = "early_hour_market_guardrail_v0.1"
 DEFAULT_PROMOTION_REFRESH = data_path() / "backtest" / "f_family_promotion_refresh.json"
@@ -181,6 +181,15 @@ QUOTE_COLUMNS = [
     "known_edge_permission",
     "known_edge_reason",
     "known_edge_record_key",
+    "known_edge_match_cutoff",
+    "known_edge_match_hour_utc",
+    "known_edge_match_band_distance_bucket",
+    "known_edge_match_band_type",
+    "known_edge_match_casebook_taxonomy",
+    "known_edge_match_regime",
+    "known_edge_match_source_fresh",
+    "known_edge_match_source_freshness_state",
+    "known_edge_match_book_imbalance_bucket",
     "range_label",
     "bin_kind",
     "bin_value",
@@ -631,6 +640,22 @@ def normalize_token(value):
     return str(value).strip().lower()
 
 
+def normalize_known_edge_field(field, value):
+    token = normalize_token(value)
+    if field != "hour_utc" or token in {"", "*", "any", "all"}:
+        return token
+    hour_token = token[:-1] if token.endswith("z") else token
+    if ":" in hour_token:
+        hour_token = hour_token.split(":", 1)[0]
+    try:
+        hour = int(hour_token)
+    except (TypeError, ValueError):
+        return token
+    if 0 <= hour <= 23:
+        return str(hour)
+    return token
+
+
 def load_known_edge_map(path=DEFAULT_KNOWN_EDGE_MAP):
     path = Path(path) if path else None
     if path is None:
@@ -643,6 +668,7 @@ def load_known_edge_map(path=DEFAULT_KNOWN_EDGE_MAP):
         "path": str(path),
         "exists": True,
         "schema_version": payload.get("schema_version"),
+        "diagnostic_only": bool(payload.get("diagnostic_only", False)),
         "record_count": len(records),
         "summary": payload.get("summary") or {},
     }
@@ -661,38 +687,61 @@ def known_edge_record_key(record):
         "source_freshness_state",
         "book_imbalance_bucket",
     ]
-    return "|".join(normalize_token(record.get(field)) or "*" for field in fields)
+    return "|".join(normalize_known_edge_field(field, record.get(field)) or "*" for field in fields)
 
 
 def _wildcard(value):
     return normalize_token(value) in {"", "*", "any", "all"}
 
 
-def _row_hour_utc(row):
-    value = first_present(row, "hour_utc", "utc_hour")
+def _diagnostic_first_present(row, include_diagnostic, diagnostic_field, *fields):
+    if include_diagnostic:
+        return first_present(row, diagnostic_field, *fields)
+    return first_present(row, *fields)
+
+
+def _row_hour_utc(row, include_diagnostic=True):
+    value = _diagnostic_first_present(row, include_diagnostic, "known_edge_match_hour_utc", "hour_utc", "utc_hour")
     if value not in (None, ""):
-        return normalize_token(value)
+        return normalize_known_edge_field("hour_utc", value)
     parsed = parse_time(first_present(row, "captured_at_utc", "generated_at_utc"))
     if parsed is None:
         return ""
     return str(parsed.hour)
 
 
-def _row_cutoff(row):
-    return normalize_token(first_present(row, "cutoff", "cutoff_hour", "effective_cutoff_hour"))
+def _row_cutoff(row, include_diagnostic=True):
+    return normalize_token(first_present(
+        row,
+        *(("known_edge_match_cutoff",) if include_diagnostic else ()),
+        "cutoff",
+        "cutoff_hour",
+        "effective_cutoff_hour",
+    ))
 
 
-def _row_source_fresh(row):
+def _row_source_fresh(row, include_diagnostic=True):
+    if (
+        include_diagnostic
+        and "known_edge_match_source_fresh" in row
+        and row.get("known_edge_match_source_fresh") not in (None, "")
+    ):
+        return normalize_token(row.get("known_edge_match_source_fresh"))
     if "source_fresh" not in row:
         return ""
     return "true" if bool_value(row.get("source_fresh"), False) else "false"
 
 
-def _row_source_freshness_state(row):
-    value = first_present(row, "source_freshness_state", "known_edge_source_freshness_state")
+def _row_source_freshness_state(row, include_diagnostic=True):
+    value = first_present(
+        row,
+        *(("known_edge_match_source_freshness_state",) if include_diagnostic else ()),
+        "source_freshness_state",
+        "known_edge_source_freshness_state",
+    )
     if value not in (None, ""):
         return normalize_token(value)
-    source_fresh = _row_source_fresh(row)
+    source_fresh = _row_source_fresh(row, include_diagnostic=include_diagnostic)
     if source_fresh == "true":
         return "all_fresh"
     if source_fresh == "false":
@@ -700,18 +749,60 @@ def _row_source_freshness_state(row):
     return ""
 
 
-def known_edge_row_dimensions(row):
+def known_edge_row_dimensions(row, include_diagnostic=True):
     return {
         "market_id": normalize_token(row.get("market_id")),
-        "cutoff": _row_cutoff(row),
-        "hour_utc": _row_hour_utc(row),
-        "band_distance_bucket": normalize_token(row.get("band_distance_bucket")),
-        "band_type": normalize_token(first_present(row, "band_type", "bin_kind", "bin_type")),
-        "casebook_taxonomy": normalize_token(first_present(row, "casebook_taxonomy", "known_edge_taxonomy")),
-        "regime": normalize_token(row.get("regime")),
-        "source_fresh": _row_source_fresh(row),
-        "source_freshness_state": _row_source_freshness_state(row),
-        "book_imbalance_bucket": normalize_token(row.get("book_imbalance_bucket")),
+        "cutoff": _row_cutoff(row, include_diagnostic=include_diagnostic),
+        "hour_utc": _row_hour_utc(row, include_diagnostic=include_diagnostic),
+        "band_distance_bucket": normalize_token(first_present(
+            row,
+            *(("known_edge_match_band_distance_bucket",) if include_diagnostic else ()),
+            "band_distance_bucket",
+        )),
+        "band_type": normalize_token(first_present(
+            row,
+            *(("known_edge_match_band_type",) if include_diagnostic else ()),
+            "band_type",
+            "bin_kind",
+            "bin_type",
+        )),
+        "casebook_taxonomy": normalize_token(first_present(
+            row,
+            *(("known_edge_match_casebook_taxonomy",) if include_diagnostic else ()),
+            "casebook_taxonomy",
+            "known_edge_taxonomy",
+        )),
+        "regime": normalize_token(_diagnostic_first_present(
+            row,
+            include_diagnostic,
+            "known_edge_match_regime",
+            "regime",
+        )),
+        "source_fresh": _row_source_fresh(row, include_diagnostic=include_diagnostic),
+        "source_freshness_state": _row_source_freshness_state(row, include_diagnostic=include_diagnostic),
+        "book_imbalance_bucket": normalize_token(first_present(
+            row,
+            *(("known_edge_match_book_imbalance_bucket",) if include_diagnostic else ()),
+            "book_imbalance_bucket",
+        )),
+    }
+
+
+def known_edge_dimension_fields(row):
+    dimensions = known_edge_row_dimensions(row, include_diagnostic=False)
+    return {
+        f"known_edge_match_{key}": dimensions.get(key) or ""
+        for key in (
+            "cutoff",
+            "hour_utc",
+            "band_distance_bucket",
+            "band_type",
+            "casebook_taxonomy",
+            "regime",
+            "source_fresh",
+            "source_freshness_state",
+            "book_imbalance_bucket",
+        )
     }
 
 
@@ -733,7 +824,7 @@ def _record_matches_dimensions(record, dimensions):
         if _wildcard(record_value):
             continue
         row_value = dimensions.get(field)
-        if not row_value or normalize_token(record_value) != row_value:
+        if not row_value or normalize_known_edge_field(field, record_value) != row_value:
             return False
     cutoff = normalize_token(record.get("cutoff"))
     if cutoff and cutoff not in {"*", "paper_slice"}:
@@ -758,7 +849,7 @@ def _record_specificity(record):
     ]
     score = 0
     for field in fields:
-        value = normalize_token(record.get(field))
+        value = normalize_known_edge_field(field, record.get(field))
         if value and value not in {"*", "paper_slice"}:
             score += 1
     return score
@@ -775,7 +866,7 @@ def _permission_rank(record):
 
 
 def resolve_known_edge_record(row, records):
-    dimensions = known_edge_row_dimensions(row)
+    dimensions = known_edge_row_dimensions(row, include_diagnostic=False)
     matches = [
         record for record in records
         if _record_matches_dimensions(record, dimensions)
@@ -1080,6 +1171,7 @@ def _base_output(row, config, now, reason_code, reason_detail):
         "known_edge_permission": row.get("known_edge_permission") or "",
         "known_edge_reason": row.get("known_edge_reason") or "",
         "known_edge_record_key": row.get("known_edge_record_key") or "",
+        **known_edge_dimension_fields(row),
         "range_label": row.get("range_label") or "",
         "bin_kind": row.get("bin_kind") or row.get("bin_type") or "",
         "bin_value": row.get("bin_value") or row.get("bin_value_c") or "",

@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -105,6 +106,29 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(manifest["quarantined_raw_observations"], 1)
         self.assertEqual(manifest["quarantined_raw_observation_dates"], {"2024-05-20": 1})
         self.assertEqual(manifest["quarantined_raw_observation_samples"][0]["temp"], 160)
+        self.assertIn(manifest["source_details"]["api_params"]["apiKey"], {"<missing>", "<configured>"})
+
+    def test_wu_manifest_does_not_write_partial_api_key_material(self):
+        with tempfile.TemporaryDirectory() as tmp, patch("weather.sources.wu_history.WEATHER_COM_KEY", "super-secret-key"):
+            store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
+            store.write_manifest(hourly_records=[], daily_rows=[], quarantined_records=[])
+
+            manifest = json.loads((Path(tmp) / "manifest.json").read_text())
+
+        self.assertEqual(manifest["source_details"]["api_params"]["apiKey"], "<configured>")
+        self.assertNotIn("super", json.dumps(manifest))
+        self.assertNotIn("secret", json.dumps(manifest))
+
+    def test_weather_com_key_defaults_are_not_embedded_in_source(self):
+        for path in [
+            Path("src/weather/model/model_constants.py"),
+            Path("src/weather/sources/wu_history.py"),
+        ]:
+            text = path.read_text(encoding="utf-8")
+            self.assertIsNone(
+                re.search(r"WEATHER_COM_KEY\s*=\s*['\"][A-Za-z0-9_-]{16,}['\"]", text),
+                f"{path} must not embed a provider key literal",
+            )
 
     def test_fleet_coverage_includes_all_item29_sources(self):
         payload = fleet_coverage(["nyc"])

@@ -14,11 +14,10 @@ DEFAULT_MARKET_CONFIG = config_for_date()
 TORONTO_TZ = ZoneInfo("America/Toronto")
 TARGET_DATE = DEFAULT_MARKET_CONFIG.target_date
 TARGET_DATE_STR = DEFAULT_MARKET_CONFIG.target_date_str
-# Weather.com's public web API key. Overridable via env; the default is the
-# widely-published browser key, kept so the app runs without configuration.
-WEATHER_COM_KEY = os.environ.get(
-    "WEATHER_COM_API_KEY", "e1f10a1e78da46f5b10a1e78da96f525"
-)
+# Weather.com credentials must come from the operator environment. Do not keep
+# provider keys in source or status artifacts; missing keys fail closed through
+# the normal source-status gates.
+WEATHER_COM_KEY = os.environ.get("WEATHER_COM_API_KEY") or os.environ.get("WEATHER_COM_KEY", "")
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 CYYZ_ICAO = "CYYZ"
 PEARSON_LAT = 43.6767

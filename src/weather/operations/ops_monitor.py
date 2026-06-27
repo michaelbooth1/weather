@@ -26,8 +26,15 @@ from weather.market.market_microstructure import (
     CLOB_LOOP_CONSOLE_LOG_PATH,
     CLOB_LOOP_STATUS_PATH,
     CLOB_PAUSE_FLAG_PATH,
+    DEFAULT_BATCH_SIZE,
     DEFAULT_BOOK_INTERVAL_SECONDS,
     DEFAULT_FAST_INTERVAL_SECONDS,
+    DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
+    DEFAULT_LOOP_INCLUDE_WS_EVENTS,
+    DEFAULT_WS_CONNECT_TIMEOUT,
+    DEFAULT_WS_HEARTBEAT_SECONDS,
+    DEFAULT_WS_MESSAGE_LIMIT,
+    DEFAULT_WS_SECONDS,
     acquire_clob_supervisor_lock,
     clob_loop_health,
     ensure_clob_loop,
@@ -210,14 +217,47 @@ def set_clob_paused(paused):
 
 
 def start_all_loops():
+    clob_kwargs = _clob_loop_start_kwargs_from_status()
     return {
         "weather": ensure_loop(),
-        "clob": ensure_clob_loop(
-            market_id="all",
-            interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
-            fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
-        ),
+        "clob": ensure_clob_loop(**clob_kwargs),
         "observation_trigger": ensure_watcher_loop(),
+    }
+
+
+def _status_value(status, key, default):
+    value = (status or {}).get(key)
+    return default if value is None else value
+
+
+def _status_bool(status, key, default):
+    if status and key in status:
+        return bool(status.get(key))
+    return default
+
+
+def _clob_loop_start_kwargs_from_status(status=None):
+    status = read_clob_loop_status() if status is None else status
+    return {
+        "market_id": _status_value(status, "market_id", "all"),
+        "target_date": _status_value(status, "target_date", None),
+        "interval_seconds": _status_value(status, "interval_seconds", DEFAULT_BOOK_INTERVAL_SECONDS),
+        "fast_interval_seconds": _status_value(status, "fast_interval_seconds", DEFAULT_FAST_INTERVAL_SECONDS),
+        "fast_hours_before_close": _status_value(status, "fast_hours_before_close", 4.0),
+        "fast_after_local_hour": _status_value(status, "fast_after_local_hour", 15.0),
+        "fast_on_mid_change_bps": _status_value(status, "fast_on_mid_change_bps", 500.0),
+        "outcomes": _status_value(status, "outcomes", "all"),
+        "batch_size": _status_value(status, "batch_size", DEFAULT_BATCH_SIZE),
+        "include_price_history": _status_bool(
+            status, "include_price_history", DEFAULT_LOOP_INCLUDE_PRICE_HISTORY
+        ),
+        "include_ws_events": _status_bool(status, "include_ws_events", DEFAULT_LOOP_INCLUDE_WS_EVENTS),
+        "ws_seconds": _status_value(status, "websocket_seconds", DEFAULT_WS_SECONDS),
+        "ws_message_limit": _status_value(status, "websocket_message_limit", DEFAULT_WS_MESSAGE_LIMIT),
+        "ws_heartbeat_seconds": _status_value(
+            status, "websocket_heartbeat_seconds", DEFAULT_WS_HEARTBEAT_SECONDS
+        ),
+        "ws_connect_timeout": _status_value(status, "websocket_connect_timeout", DEFAULT_WS_CONNECT_TIMEOUT),
     }
 
 
@@ -226,11 +266,7 @@ def ensure_weather_loop():
 
 
 def ensure_clob_book_loop():
-    return ensure_clob_loop(
-        market_id="all",
-        interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
-        fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
-    )
+    return ensure_clob_loop(**_clob_loop_start_kwargs_from_status())
 
 
 def ensure_observation_trigger_loop():
@@ -246,13 +282,10 @@ def restart_clob_loop():
     if lock_handle is None:
         return {"restarted": False, "reason": "another CLOB supervisor action is running"}
     try:
+        clob_kwargs = _clob_loop_start_kwargs_from_status()
         return {
             "stop": stop_clob_loop(),
-            "start": start_clob_loop_detached(
-                market_id="all",
-                interval_seconds=DEFAULT_BOOK_INTERVAL_SECONDS,
-                fast_interval_seconds=DEFAULT_FAST_INTERVAL_SECONDS,
-            ),
+            "start": start_clob_loop_detached(**clob_kwargs),
         }
     finally:
         release_clob_supervisor_lock(lock_handle)

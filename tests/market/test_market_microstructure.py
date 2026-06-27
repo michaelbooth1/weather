@@ -260,6 +260,73 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
 
+    def test_capture_market_books_uses_explicit_target_date(self):
+        calls = {}
+
+        class FakeEventClient:
+            def __init__(self, timeout=10, target_date=None, market_id="toronto"):
+                calls["target_date"] = target_date
+                calls["market_id"] = market_id
+                self.config = config_for_date(target_date, market_id)
+
+            def get_event(self):
+                event = sample_event()
+                event["slug"] = self.config.event_slug
+                return event
+
+        def fake_validation_payload(target_date, markets, live_events, fetch_live):
+            calls["validation_target_date"] = target_date.isoformat()
+            calls["validation_markets"] = list(markets)
+            calls["validation_fetch_live"] = fetch_live
+            return {"validation_hash": "hash"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("weather.market.market_microstructure_capture.PolymarketClient", FakeEventClient), \
+                    patch(
+                        "weather.operations.event_metadata_validation.build_validation_payload",
+                        side_effect=fake_validation_payload,
+                    ), \
+                    patch(
+                        "weather.operations.event_metadata_validation.gate_for_market",
+                        return_value={"ok": True},
+                    ):
+                result = mm.capture_market_books(
+                    "austin",
+                    target_date="2026-06-27",
+                    clob_client=FakeClobClient(),
+                    root=tmp,
+                    include_price_history=False,
+                    include_ws_events=False,
+                    include_clob_features=False,
+                )
+
+        self.assertEqual(calls["target_date"], "2026-06-27")
+        self.assertEqual(calls["market_id"], "austin")
+        self.assertEqual(calls["validation_target_date"], "2026-06-27")
+        self.assertEqual(calls["validation_markets"], ["austin"])
+        self.assertFalse(calls["validation_fetch_live"])
+        self.assertEqual(result["event_slug"], "highest-temperature-in-austin-on-june-27-2026")
+
+    def test_parallel_raw_refresh_passes_explicit_target_date(self):
+        seen = {}
+
+        def fake_capture(market_id, **kwargs):
+            seen[market_id] = kwargs.get("target_date")
+            return {
+                "market_id": market_id,
+                "books": 1,
+                "captured_at_utc": "2026-06-27T04:00:00+00:00",
+            }
+
+        payload = capture_fleet_books_parallel(
+            market_id="toronto",
+            target_date="2026-06-27",
+            capture_fn=fake_capture,
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(seen, {"toronto": "2026-06-27"})
+
     def test_capture_event_books_writes_failure_status_before_reraising(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -689,6 +756,23 @@ class TestMarketMicrostructure(unittest.TestCase):
         }
         self.assertEqual(clob_loop_health(zero_capture, now=now)["state"], "DEGRADED")
         self.assertEqual(clob_loop_health(zero_capture, now=now)["discovery_sanity"]["status"], "BLOCK")
+        target_mismatch = {
+            **base,
+            "target_date": "2026-06-27",
+            "date_selection": "fixed_target_date",
+            "last_market_results": {
+                "los-angeles": {
+                    "event_slug": "highest-temperature-in-los-angeles-on-june-26-2026",
+                    "target_date": "2026-06-26",
+                    "books": 22,
+                    "captured_tokens": 22,
+                },
+            },
+        }
+        target_health = clob_loop_health(target_mismatch, now=now)
+        self.assertEqual(target_health["state"], "DEGRADED")
+        self.assertEqual(target_health["target_date_mismatch_markets"], ["los-angeles"])
+        self.assertEqual(target_health["last_target_dates_by_market"]["los-angeles"], "2026-06-26")
         self.assertEqual(clob_loop_health({**base, "consecutive_errors": 3}, now=now)["state"], "ERRORING")
         stale = {**base, "last_heartbeat": (now - timedelta(seconds=181)).isoformat()}
         self.assertEqual(clob_loop_health(stale, now=now)["state"], "DEAD")
@@ -751,6 +835,54 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(result["restart_cause"], "runtime_identity")
         stop_loop.assert_not_called()
         start_loop.assert_not_called()
+
+    def test_ensure_clob_loop_preserves_fixed_target_date_when_restarting(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 4321,
+                    "last_heartbeat": now.isoformat(),
+                    "interval_seconds": 60,
+                    "consecutive_errors": 0,
+                    "runtime_identity": {"source_fingerprint": "old"},
+                    "target_date": "2026-06-27",
+                    "date_selection": "fixed_target_date",
+                    "last_market_results": {
+                        "austin": {
+                            "books": 1,
+                            "captured_tokens": 2,
+                            "target_date": "2026-06-27",
+                        },
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", root / "clob_loop_console.log"), \
+                    patch.object(mm, "CLOB_PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(mm, "CLOB_SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(mm, "acquire_clob_supervisor_lock", return_value=object()), \
+                    patch.object(mm, "release_clob_supervisor_lock"), \
+                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                    patch.object(mm, "clob_runtime_matches_current", return_value=False), \
+                    patch.object(mm, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch.object(mm, "loop_file_offsets", return_value={}), \
+                    patch.object(mm, "quarantine_malformed_loop_lines", return_value={"quarantined": 0}), \
+                    patch.object(mm, "stop_clob_loop", return_value={"stopped": True}) as stop_loop, \
+                    patch.object(mm, "start_clob_loop_detached", return_value={"started": True}) as start_loop:
+                result = mm.ensure_clob_loop(now=now)
+
+        self.assertEqual(result["action"], "restart")
+        self.assertTrue(result["preserved_target_date_from_status"])
+        stop_loop.assert_called_once()
+        start_loop.assert_called_once()
+        self.assertEqual(start_loop.call_args.kwargs["target_date"], "2026-06-27")
 
     def test_ensure_clob_loop_noop_does_not_scan_log_offsets(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
@@ -825,10 +957,13 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         def capture_fn(**kwargs):
             self.assertEqual(kwargs["market_id"], "toronto")
+            self.assertEqual(kwargs["target_date"], "2026-06-27")
             self.assertTrue(kwargs["include_price_history"])
             self.assertTrue(kwargs["include_ws_events"])
             return {
                 "toronto": {
+                    "event_slug": "highest-temperature-in-toronto-on-june-27-2026",
+                    "target_date": "2026-06-27",
                     "books": 2,
                     "captured_at_utc": now.isoformat(),
                     "raw_books_captured_at_utc": now.isoformat(),
@@ -849,6 +984,7 @@ class TestMarketMicrostructure(unittest.TestCase):
                     patch.object(mm, "CLOB_PAUSE_FLAG_PATH", tmp_path / "clob_loop_pause.flag"):
                 status = run_book_loop(
                     market_id="toronto",
+                    target_date="2026-06-27",
                     interval_seconds=60,
                     fast_interval_seconds=15,
                     max_iterations=1,
@@ -860,6 +996,13 @@ class TestMarketMicrostructure(unittest.TestCase):
                 diagnostics = (tmp_path / "clob_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()
 
         self.assertEqual(status["iterations"], 1)
+        self.assertEqual(written["target_date"], "2026-06-27")
+        self.assertEqual(written["date_selection"], "fixed_target_date")
+        self.assertEqual(
+            written["last_market_results"]["toronto"]["event_slug"],
+            "highest-temperature-in-toronto-on-june-27-2026",
+        )
+        self.assertEqual(written["last_market_results"]["toronto"]["target_date"], "2026-06-27")
         self.assertEqual(written["last_market_results"]["toronto"]["books"], 2)
         self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 4)
         self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 1)
@@ -1058,6 +1201,24 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(row["event_slug"], config.event_slug)
         self.assertTrue(row["ok"])
 
+    def test_fleet_book_audit_can_use_explicit_target_date_before_local_midnight(self):
+        now = datetime(2026, 6, 27, 4, 30, tzinfo=timezone.utc)
+        times = [now - timedelta(seconds=90), now - timedelta(seconds=30)]
+        with tempfile.TemporaryDirectory() as tmp:
+            config = config_for_date("2026-06-27", "austin")
+            folder = Path(tmp) / config.event_slug
+            folder.mkdir(parents=True)
+            self._write_summary_tape(folder, times)
+            result = fleet_book_audit(
+                market_id="austin",
+                snapshots_root=tmp,
+                now=now,
+                target_date="2026-06-27",
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["markets"][0]["event_slug"], "highest-temperature-in-austin-on-june-27-2026")
+
     def test_fleet_book_audit_missing_folder_not_ok(self):
         now = datetime(2026, 6, 12, 18, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1082,6 +1243,7 @@ class TestMarketMicrostructure(unittest.TestCase):
                     patch.object(mm.subprocess, "Popen", fake_popen):
                 result = start_clob_loop_detached(
                     market_id="toronto",
+                    target_date="2026-06-27",
                     interval_seconds=30,
                     fast_interval_seconds=10,
                     now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
@@ -1091,8 +1253,12 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertTrue(result["started"])
         self.assertEqual(status["pid"], 4321)
         self.assertEqual(status["market_id"], "toronto")
+        self.assertEqual(status["target_date"], "2026-06-27")
+        self.assertEqual(status["date_selection"], "fixed_target_date")
         self.assertIn("weather.market.market_microstructure", calls["command"])
         self.assertIn("loop", calls["command"])
+        self.assertIn("--date", calls["command"])
+        self.assertIn("2026-06-27", calls["command"])
         self.assertIn("--interval-seconds", calls["command"])
 
     def test_start_clob_loop_detached_removes_dead_writer_lock_before_launch(self):

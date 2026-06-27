@@ -37,6 +37,27 @@ def test_exchange_economics_snapshot_passes_when_current(tmp_path):
     assert gate["snapshot_hash"]
 
 
+def test_snapshot_payload_defaults_match_current_polymarket_us_rules():
+    payload = _snapshot()
+
+    assert payload["platform"] == "polymarket_us"
+    assert payload["platform_surface"] == "retail_api_and_exchange_clob"
+    assert payload["source_urls"] == [
+        "https://docs.polymarket.us/fees",
+        "https://docs.polymarket.us/incentives/liquidity",
+    ]
+    assert payload["fee_model"]["taker_fee_rate"] == 0.05
+    assert payload["fee_model"]["maker_fee_rate"] == 0.0
+    assert payload["maker_rebate"]["pool_share"] == 0.25
+    assert payload["maker_rebate"]["theta_equivalent"] == 0.0125
+    assert payload["liquidity_rewards"]["formula"] == "score = discount_factor ** ticks_from_best_price * order_size"
+    assert payload["liquidity_rewards"]["discount_factor_default"] == 0.3
+    assert payload["liquidity_rewards"]["target_size_default_contracts"] == 10000
+    assert payload["market_rules"]["tick_size"] == 0.005
+    assert payload["market_rules"]["min_order_size"] == 0.01
+    assert payload["market_rules"]["market_specific_fields_required"] is True
+
+
 def test_stale_snapshot_fails_closed(tmp_path):
     path = _write(
         tmp_path / "exchange.json",
@@ -98,7 +119,7 @@ def test_template_prepares_current_source_verified_snapshot():
 
     assert gate["status"] == "PASS"
     assert gate["evidence_basis"] == exchange_economics.CURRENT_EVIDENCE_BASIS
-    assert payload["source_hash"] == "9ca10e5517a9d4be486414dcb9162a3a"
+    assert payload["source_hash"] == template["source_hash"]
     assert payload["fee_model"]["taker_fee_rate"] == 0.05
     assert payload["fee_model"]["taker_fee_model"] == "polymarket_symmetric_price_v1"
 

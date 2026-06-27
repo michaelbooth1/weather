@@ -211,16 +211,24 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(payload["user_stream_event_count"], 1)
         request_diagnostics = payload["adapter_request_diagnostics"]
         capability = request_diagnostics["capability_matrix"]
+        cancel_batch_note = next(
+            row for row in request_diagnostics["live_readiness_notes"]
+            if row["code"] == "cancel_batch_size_limit"
+        )
         note_codes = {row["code"] for row in request_diagnostics["live_readiness_notes"]}
         self.assertIn("create_post_only", capability["supported_actions"])
         self.assertEqual(capability["maker_only_order_field"], "participateDontInitiate")
         self.assertTrue(capability["requires_private_user_stream_for_final_order_state"])
         self.assertTrue(capability["requires_cancel_all_zero_open_orders_verification"])
         self.assertTrue(capability["batched_order_results_require_stream_confirmation"])
+        self.assertEqual(capability["max_cancel_order_batch_size"], 20)
         self.assertTrue(capability["latency_stopgap_rejects_order_submit"])
         self.assertTrue(capability["latency_stopgap_cancel_exempt"])
         self.assertIn("private_user_stream_required", note_codes)
         self.assertIn("cancel_all_requires_zero_open_orders_confirmation", note_codes)
+        self.assertIn("cancel_batch_size_limit", note_codes)
+        self.assertIn("20 orders", cancel_batch_note["detail"])
+        self.assertIn("private order stream", cancel_batch_note["detail"])
         self.assertIn("latency_stopgap_reject_handling_required", note_codes)
         self.assertGreater(payload["adapter_request_diagnostics"]["blocked_plan_count"], 0)
         self.assertEqual(probe["probe_status"]["heartbeat_dead_man"]["status"], "observed")

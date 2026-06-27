@@ -11,7 +11,10 @@ from weather.operations.market_making_daily_roll import (  # noqa: E402
     build_market_making_command,
     ensure_for_date,
     load_status,
+    market_making_activity_paths,
+    market_making_artifact_health,
     start_for_date,
+    stop_status_file,
     target_date_for_roll,
 )
 
@@ -41,7 +44,15 @@ def _write_status(path, tmp, *, started_at="2026-06-16T23:00:00+00:00", pid=4321
     }), encoding="utf-8")
 
 
-def _write_run_artifacts(run_folder, *, timestamp, summary=None, include_quote=True, include_run_summary=True):
+def _write_run_artifacts(
+    run_folder,
+    *,
+    timestamp,
+    summary=None,
+    live_forward_gate=None,
+    include_quote=True,
+    include_run_summary=True,
+):
     run_folder.mkdir(parents=True, exist_ok=True)
     if include_quote:
         quote = run_folder / "quote_intents_long.csv"
@@ -55,6 +66,10 @@ def _write_run_artifacts(run_folder, *, timestamp, summary=None, include_quote=T
         run_summary = run_folder / "run_summary.json"
         run_summary.write_text(json.dumps(summary or {"row_count": 1}), encoding="utf-8")
         os.utime(run_summary, (timestamp, timestamp))
+    if live_forward_gate is not None:
+        gate = run_folder / "live_forward_gate.json"
+        gate.write_text(json.dumps(live_forward_gate), encoding="utf-8")
+        os.utime(gate, (timestamp, timestamp))
 
 
 class TestMarketMakingDailyRoll(unittest.TestCase):
@@ -307,6 +322,204 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertEqual(saved["status"], "idle_process")
         self.assertEqual(calls, [])
 
+    def test_saved_activity_idle_restores_when_latest_artifacts_are_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            saved.update({
+                "status": "idle_process",
+                "action": "blocked_restart_required",
+                "terminal": True,
+                "first_failing_gate": "activity_liveness",
+                "root_cause_class": "idle_process_no_recent_tape_or_log_activity",
+                "completed_at_utc": "2026-06-16T23:15:00+00:00",
+                "remediation_command": "inspect the console log and run tape freshness, then restart the daily roll with --force",
+                "activity_liveness": {
+                    "status": "STALE_ACTIVITY",
+                    "ok": False,
+                    "latest_activity_age_seconds": 900.0,
+                },
+            })
+            status_path.write_text(json.dumps(saved), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "mm_runs" / "2026-06-16" / "mm-fresh",
+                timestamp=_ts("2026-06-16T23:19:30+00:00"),
+                summary={"row_count": 1, "quote_permission_rows": 0},
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-16T23:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertEqual(payload["status"], "already_running")
+        self.assertEqual(payload["action"], "noop")
+        self.assertTrue(payload["pid_alive"])
+        self.assertEqual(payload["artifact_liveness"]["status"], "PASS")
+        self.assertNotIn("first_failing_gate", payload)
+        self.assertNotIn("remediation_command", payload)
+
+    def test_live_forward_gate_block_overrides_current_countable_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            saved.update({
+                "mode": "paper-live-forward",
+                "evidence_mode": "active_day_live_forward",
+                "counts_toward_live_forward_gate": True,
+                "evidence_classification": {
+                    "counts_toward_live_forward_gate": True,
+                    "evidence_mode": "active_day_live_forward",
+                },
+            })
+            status_path.write_text(json.dumps(saved), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "mm_runs" / "2026-06-16" / "mm-blocked",
+                timestamp=_ts("2026-06-16T23:19:30+00:00"),
+                summary={
+                    "mode": "paper-live-forward",
+                    "evidence_mode": "active_day_live_forward",
+                    "row_count": 132,
+                    "quote_permission_rows": 0,
+                    "useful_work_liveness": {
+                        "status": "BLOCK",
+                        "reason": "all-market active-day useful-write SLA blocked",
+                    },
+                },
+                live_forward_gate={
+                    "status": "BLOCK",
+                    "counts_toward_live_forward_gate": False,
+                    "summary": {"run_level_ok": False},
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-16T23:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertEqual(payload["status"], "started")
+        self.assertEqual(payload["artifact_liveness"]["status"], "PASS")
+        self.assertEqual(payload["live_forward_gate_status"], "BLOCK")
+        self.assertFalse(payload["counts_toward_live_forward_gate"])
+        self.assertFalse(payload["current_counts_toward_live_forward_gate"])
+        self.assertTrue(payload["evidence_classification"]["counts_toward_live_forward_gate"])
+        self.assertEqual(
+            payload["operator_report"]["useful_work_liveness_status"],
+            "BLOCK",
+        )
+        self.assertFalse(
+            payload["operator_report"]["current_counts_toward_live_forward_gate"],
+        )
+
+    def test_operator_report_exposes_supervisor_backoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            saved["daily_roll_supervisor"] = {
+                "state": "STALE_CODE",
+                "action": "backoff",
+                "intended_action": "restart",
+                "restart_cause": "superseded_code",
+                "reason": "restart_backoff_active=300.0s",
+                "runtime_identity_matches_current": False,
+                "recovery_guard": {
+                    "remediation": "wait for the supervisor backoff window",
+                    "retry_after_seconds": 300.0,
+                    "retry_at_utc": "2026-06-16T23:25:00+00:00",
+                },
+            }
+            status_path.write_text(json.dumps(saved), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "mm_runs" / "2026-06-16" / "mm-current",
+                timestamp=_ts("2026-06-16T23:19:30+00:00"),
+                summary={
+                    "mode": "paper-live-forward",
+                    "evidence_mode": "active_day_live_forward",
+                    "row_count": 132,
+                    "quote_permission_rows": 0,
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-16T23:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        report = payload["operator_report"]
+        self.assertEqual(report["supervisor_state"], "STALE_CODE")
+        self.assertEqual(report["supervisor_action"], "backoff")
+        self.assertEqual(report["supervisor_intended_action"], "restart")
+        self.assertEqual(report["supervisor_restart_cause"], "superseded_code")
+        self.assertFalse(report["supervisor_runtime_identity_matches_current"])
+        self.assertEqual(report["supervisor_remediation"], "wait for the supervisor backoff window")
+        self.assertEqual(report["supervisor_retry_after_seconds"], 300.0)
+        self.assertEqual(report["supervisor_retry_at_utc"], "2026-06-16T23:25:00+00:00")
+
+    def test_daily_roll_health_ignores_newer_shadow_probe_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            runs_root = tmp / "mm_runs"
+            daily_folder = runs_root / "2026-06-16" / "daily-paper"
+            shadow_folder = runs_root / "2026-06-16" / "shadow-probe"
+            _write_run_artifacts(
+                daily_folder,
+                timestamp=_ts("2026-06-16T23:00:00+00:00"),
+                summary={
+                    "mode": "paper-live-forward",
+                    "evidence_mode": "active_day_live_forward",
+                    "row_count": 1,
+                    "quote_permission_rows": 0,
+                },
+            )
+            _write_run_artifacts(
+                shadow_folder,
+                timestamp=_ts("2026-06-16T23:19:30+00:00"),
+                summary={
+                    "mode": "shadow",
+                    "evidence_mode": "operator_drill",
+                    "row_count": 1,
+                    "quote_permission_rows": 0,
+                },
+            )
+
+            paths = market_making_activity_paths(
+                runs_root,
+                "2026-06-16",
+                expected_mode="paper-live-forward",
+                expected_evidence_mode="active_day_live_forward",
+            )
+            health = market_making_artifact_health(
+                runs_root,
+                "2026-06-16",
+                now="2026-06-16T23:20:00+00:00",
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+                expected_mode="paper-live-forward",
+                expected_evidence_mode="active_day_live_forward",
+            )
+
+        self.assertTrue(paths)
+        self.assertTrue(all("daily-paper" in str(path) for path in paths))
+        self.assertEqual(health["latest_run_folder"], str(daily_folder))
+        self.assertEqual(health["operator_report"]["latest_run_folder"], str(daily_folder))
+        self.assertEqual(health["status"], "STALE_HEARTBEAT_METADATA")
+
     def test_ensure_restarts_stale_market_making_run_summary(self):
         calls = []
 
@@ -356,6 +569,66 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertFalse(run_folder.exists())
         self.assertEqual(len(calls), 1)
         self.assertEqual(diagnostics[-1]["restart_cause"], "stale_heartbeat_metadata")
+
+    def test_ensure_persists_start_time_gate_during_scheduled_wait(self):
+        def launcher(command, repo_root, console_log_path):
+            raise AssertionError("scheduled wait must not launch a new roll")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+
+            payload = ensure_for_date(
+                "2026-06-17",
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "mm_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-17T06:18:00+00:00",
+                start_after_local_time="19:30",
+                launcher=launcher,
+                pid_alive=lambda pid, target_date=None: True,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["action"], "scheduled_wait")
+        supervisor = saved["daily_roll_supervisor"]
+        self.assertEqual(supervisor["state"], "SCHEDULED_WAIT")
+        self.assertEqual(supervisor["target_date"], "2026-06-16")
+        self.assertEqual(supervisor["expected_target_date"], "2026-06-17")
+        self.assertFalse(supervisor["start_time_gate"]["allowed"])
+        self.assertEqual(supervisor["start_time_gate"]["start_after_local_time"], "19:30")
+        self.assertEqual(supervisor["start_time_gate"]["reason"], "before_daily_start_time")
+
+    def test_stop_status_file_stops_matching_paper_roll(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00", pid=4321)
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                return_value={"pid": 4321, "stopped": True},
+            ) as terminate:
+                payload = stop_status_file(
+                    status_path,
+                    target_date="2026-06-16",
+                    now="2026-06-16T23:30:00+00:00",
+                    pid_alive=lambda pid, target_date=None: int(pid or 0) == 4321 and target_date == "2026-06-16",
+                )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "stopped")
+        self.assertFalse(payload["pid_alive"])
+        self.assertEqual(payload["stop_target_date"], "2026-06-16")
+        self.assertEqual(payload["stop_result"]["pid"], 4321)
+        self.assertTrue(payload["stop_result"]["stopped"])
+        self.assertEqual(saved["status"], "stopped")
+        terminate.assert_called_once()
 
 
 if __name__ == "__main__":

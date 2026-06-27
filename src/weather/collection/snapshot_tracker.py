@@ -20,8 +20,8 @@ from weather.collection.forecast_archive import (
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
-from weather.market.market_config import config_for_date, config_from_event
-from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_slug
+from weather.market.market_config import config_for_date, config_from_event, default_target_date, ensure_date
+from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
 from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
@@ -46,6 +46,7 @@ from weather.operations.supervisor import (
     loop_file_offsets,
     pid_is_python,
     quarantine_malformed_loop_lines,
+    readoption_debounce,
     read_writer_lock,
     read_json_file,
     release_writer_lock,
@@ -71,14 +72,41 @@ from weather.collection.snapshot_store import (  # noqa: E402
 )
 
 
-def capture_snapshot(force=False, market_id=DEFAULT_MARKET_ID, cadence="scheduled", trigger_context=None):
+def capture_snapshot(
+    force=False,
+    market_id=DEFAULT_MARKET_ID,
+    cadence="scheduled",
+    trigger_context=None,
+    target_date=None,
+):
     from weather.market.polymarket_client import PolymarketClient
     from weather.model.toronto_model import TorontoHighTempModel
     from weather.operations import event_metadata_validation
 
-    market_client = PolymarketClient(market_id=market_id)
+    target_date = ensure_date(target_date) if target_date is not None else None
+    market_client = PolymarketClient(market_id=market_id, target_date=target_date)
     event = market_client.get_event()
     event_config = config_from_event(event, fallback_date=market_client.config.target_date)
+    # Pre-local-day guard. In auto mode (no explicit target_date) do not capture a
+    # market's event for a date that is still in the future in that market's own
+    # local timezone. At the day boundary the live gamma event can resolve to the
+    # *next* day's market before that day has begun locally; persisting it writes
+    # a stray snapshot hours ahead of the active window. Those strays were the
+    # 2026-06-27 western-market "gaps" -- a UTC-measured artifact, not lost data.
+    # An explicit target_date (backfill, --date) deliberately bypasses the guard.
+    if target_date is None:
+        local_today = default_target_date(spec_for_id(market_id).tz)
+        if event_config.target_date > local_today:
+            return {
+                "written": False,
+                "snapshot_id": None,
+                "skipped": True,
+                "skipped_reason": "event_date_ahead_of_local_date",
+                "market_id": market_id,
+                "event_slug": event_config.event_slug,
+                "target_date": event_config.target_date.isoformat(),
+                "local_date": local_today.isoformat(),
+            }
     validation = event_metadata_validation.build_validation_payload(
         target_date=event_config.target_date,
         markets=[market_id],
@@ -474,9 +502,9 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_a
     }
 
 
-def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
+def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5, target_date=None):
     now = now or datetime.now(TORONTO_TZ)
-    config = config_for_date(now.date())
+    config = config_for_date(target_date or now.date())
     folder = SNAPSHOT_DATA_ROOT / config.event_slug
     summary = summarize_folder(
         folder,
@@ -488,7 +516,7 @@ def current_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
     return serialize_summary(summary)
 
 
-def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1.5):
+def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1.5, target_date=None):
     now = now or datetime.now(TORONTO_TZ)
     return fleet_collection_health(
         snapshots_root=SNAPSHOT_DATA_ROOT,
@@ -496,6 +524,7 @@ def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1
         tolerance=tolerance,
         live=True,
         as_of=now,
+        target_date=target_date,
     )
 
 
@@ -645,6 +674,23 @@ def ensure_loop(interval_minutes=10.0, now=None):
         else:
             result["diagnostic_suppressed"] = True
         return result
+    if action == "restart" and health["state"] == "STALE_CODE":
+        debounce = readoption_debounce(
+            runtime_code_state=health.get("runtime_code_state"),
+            process_started_at=(status or {}).get("started_at"),
+            now=now,
+            debounce_seconds=spec.readoption_debounce_seconds,
+        )
+        result["readoption_debounce"] = debounce
+        if debounce.get("debounced"):
+            # The running loop is on slightly-stale code but re-adopted very
+            # recently. Let it finish at least one full capture cycle before
+            # relaunching, so a burst of commits cannot starve the tail markets.
+            result["intended_action"] = action
+            result["action"] = "noop"
+            result["reason"] = debounce.get("reason")
+            append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+            return result
     if action == "restart":
         result["stop"] = stop_loop(now=now)
         result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
@@ -686,12 +732,14 @@ def run_loop(
     capture_fn=None,
     sleep_fn=time.sleep,
     now_fn=None,
+    target_date=None,
 ):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
     heartbeat + diagnostics record is written every iteration."""
     now_fn = now_fn or (lambda: datetime.now(TORONTO_TZ))
     capture_fn = capture_fn or capture_snapshot
+    target_date = ensure_date(target_date) if target_date is not None else None
     writer_lock = acquire_writer_lock(
         LOOP_STATUS_PATH,
         owner={"loop": SNAPSHOT_SUPERVISOR.name, "module": SNAPSHOT_SUPERVISOR.module},
@@ -731,7 +779,18 @@ def run_loop(
             status["paused"] = PAUSE_FLAG_PATH.exists()
             runtime = runtime_identity_status(status.get("runtime_identity"))
             status["runtime_guard"] = runtime
-            if runtime.get("runtime_code_state") == "stale_code":
+            stale_code = runtime.get("runtime_code_state") == "stale_code"
+            readopt = (
+                readoption_debounce(
+                    runtime_code_state=runtime.get("runtime_code_state"),
+                    process_started_at=status.get("started_at"),
+                    now=now,
+                    debounce_seconds=SNAPSHOT_SUPERVISOR.readoption_debounce_seconds,
+                )
+                if stale_code
+                else None
+            )
+            if stale_code and not (readopt or {}).get("debounced"):
                 status["last_error"] = runtime.get("detail")
                 status["consecutive_errors"] += 1
                 status["stale_code_exit_requested_at"] = now.isoformat()
@@ -754,6 +813,17 @@ def run_loop(
                 append_diagnostic({"time": now.isoformat(), "status": "paused"})
                 print(json.dumps({"status": "paused", "time": now.isoformat()}), flush=True)
             else:
+                if stale_code:
+                    # Debounced benign re-adoption: keep collecting on
+                    # slightly-stale code this cycle so a commit burst can't kill
+                    # the loop mid-iteration and starve the tail markets. The loop
+                    # re-adopts once the debounce window elapses.
+                    status["runtime_guard"] = {**runtime, "readoption_debounce": readopt}
+                    append_diagnostic({
+                        "time": now.isoformat(),
+                        "status": "stale_code_debounced",
+                        "readoption_debounce": readopt,
+                    })
                 # Capture every registered market each tick; one market's failure is
                 # isolated so it never kills the loop or the other markets.
                 market_results = {}
@@ -762,7 +832,10 @@ def run_loop(
                         status["last_market_in_progress"] = spec.id
                         status["last_heartbeat"] = now_fn().isoformat()
                         write_loop_status(status)
-                        result = capture_fn(force=force, market_id=spec.id)
+                        if target_date is None:
+                            result = capture_fn(force=force, market_id=spec.id)
+                        else:
+                            result = capture_fn(force=force, market_id=spec.id, target_date=target_date)
                         market_results[spec.id] = result
                         progress_now = now_fn()
                         status["last_heartbeat"] = progress_now.isoformat()
@@ -851,6 +924,18 @@ def main():
         help="Write even if the 10-minute interval has not elapsed.",
     )
     parser.add_argument(
+        "--date",
+        "--target-date",
+        dest="target_date",
+        default="",
+        help="Explicit target market date, YYYY-MM-DD. Defaults to each market's current local date.",
+    )
+    parser.add_argument(
+        "--market",
+        default=DEFAULT_MARKET_ID,
+        help="Market id for one-shot capture, or 'all' to capture every configured market.",
+    )
+    parser.add_argument(
         "--loop",
         action="store_true",
         help="Run continuously and check for due snapshots every interval.",
@@ -930,16 +1015,19 @@ def main():
         help="Overwrite existing forecast_payloads_long.csv/jsonl during --backfill-forecast-payloads.",
     )
     args = parser.parse_args()
+    target_date = ensure_date(args.target_date) if args.target_date else None
 
     if args.status:
         health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
         health["collection"] = current_collection_health(
             interval_minutes=args.interval_minutes,
             tolerance=args.status_tolerance,
+            target_date=target_date,
         )
         health["fleet_collection"] = current_fleet_collection_health(
             interval_minutes=args.interval_minutes,
             tolerance=args.status_tolerance,
+            target_date=target_date,
         )
         print(json.dumps(health, indent=2, sort_keys=True, default=str))
         return
@@ -985,11 +1073,40 @@ def main():
         ))
         return
     if not args.loop:
-        print(json.dumps(capture_snapshot(force=args.force), indent=2, sort_keys=True))
+        if str(args.market).lower() == "all":
+            results = {
+                spec.id: capture_snapshot(
+                    force=args.force,
+                    market_id=spec.id,
+                    target_date=target_date,
+                )
+                for spec in all_specs()
+            }
+            print(json.dumps({
+                "market": "all",
+                "target_date": target_date.isoformat() if target_date else None,
+                "markets": results,
+                "written_markets": sum(1 for result in results.values() if result.get("written")),
+                "blocked_markets": [
+                    market_id
+                    for market_id, result in results.items()
+                    if result.get("blocked") or result.get("status") == "BLOCK"
+                ],
+                "error_markets": [
+                    market_id for market_id, result in results.items() if result.get("error")
+                ],
+            }, indent=2, sort_keys=True, default=str))
+            return
+        print(json.dumps(
+            capture_snapshot(force=args.force, market_id=args.market, target_date=target_date),
+            indent=2,
+            sort_keys=True,
+            default=str,
+        ))
         return
 
     configure_json_console_logging()
-    run_loop(force=args.force, interval_minutes=args.interval_minutes)
+    run_loop(force=args.force, interval_minutes=args.interval_minutes, target_date=target_date)
 
 
 if __name__ == "__main__":
