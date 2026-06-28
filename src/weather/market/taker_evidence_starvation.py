@@ -316,16 +316,33 @@ def classify_taker_evidence_starvation(summary=None, *, markets=None, payload=No
     policy_guardrail_count = _reason_total(reason_counts, POLICY_GUARDRAIL_REASONS)
     risk_clean_count = _reason_total(reason_counts, RISK_CLEAN_REASONS)
 
+    # A first-failing dependency of "clob"/"snapshot" is not on its own evidence
+    # of collection infra starvation. The upstream check flags the dependency for
+    # *any* failing gate in its family -- including market-availability gates like
+    # `clob_discovery` -- so an order book that was read but has no ask-side
+    # liquidity (NO_TRADE_NO_ASK_SIZE) or an out-of-range price
+    # (NO_TRADE_PRICE_OUT_OF_RANGE) maps the dependency to "clob" even though the
+    # CLOB collection loop is healthy and the book data is fresh. Those are
+    # RISK_CLEAN reasons: the taker successfully read the book and correctly did
+    # not trade. Only treat the dependency as starved when the no-trade evidence
+    # actually carries that dependency's infra reasons (stale/missing book or
+    # model/source). When the no-trade is clean (risk-clean reasons, no infra
+    # reasons for that dependency), fall through to the clean/no-edge
+    # classification so a no-liquidity day is countable rather than mislabeled
+    # as infra starvation.
+    clob_evidence_clean = risk_clean_count > 0 and clob_reason_count == 0
+    snapshot_evidence_clean = risk_clean_count > 0 and snapshot_reason_count == 0
+
     if root == "crashed_before_scoring" or first_gate == "scoring":
         classification = "scoring_crash"
         detail = "run summary reports a scoring failure before latest-tick rows were emitted"
     elif latest_rows_present and latest_rows <= 0:
         classification = "latest_tick_empty"
         detail = "latest-tick scoring emitted zero rows"
-    elif dependency == "clob" and latest_fills <= 0:
+    elif dependency == "clob" and latest_fills <= 0 and not clob_evidence_clean:
         classification = "infra_starved_clob"
         detail = "CLOB dependency is blocking or dead for the latest taker run"
-    elif dependency == "snapshot" and latest_fills <= 0:
+    elif dependency == "snapshot" and latest_fills <= 0 and not snapshot_evidence_clean:
         classification = "infra_starved_snapshot"
         detail = "snapshot/source-status dependency is blocking or dead for the latest taker run"
     elif root in {"blocked_by_clob_books", "stale_book_input"} or clob_reason_count:

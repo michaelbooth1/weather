@@ -28,6 +28,7 @@ from weather.operations.bot_run_liveness import (
     DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
     DEFAULT_STARTUP_GRACE_SECONDS,
+    activity_liveness_preflight,
     age_seconds,
     disk_capacity_preflight,
     disk_full_status,
@@ -658,22 +659,96 @@ def taker_terminal_status_for_inactive_process(
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
     )
+    # The shared activity preflight only runs for RUNNING_STATUSES, so a status
+    # that is *already* persisted as idle_process arrives here with no
+    # activity_liveness reading. Compute it for a live pid so a taker that has
+    # since recovered (alive + writing fresh artifacts) can be restored instead
+    # of staying stuck terminal across reads.
+    if alive and not payload.get("activity_liveness"):
+        payload["activity_liveness"] = activity_liveness_preflight(
+            taker_activity_paths(root, target or target_date_for_roll(now=now)),
+            now=now,
+            max_activity_age_seconds=max_activity_age_seconds,
+            startup_grace_seconds=startup_grace_seconds,
+            started_at_utc=payload.get("started_at_utc") or payload.get("generated_at_utc"),
+            stat_fn=stat_fn,
+        )
     health = payload.get("artifact_liveness") or {}
-    if (
-        payload.get("status") == "idle_process"
+    activity = payload.get("activity_liveness") or {}
+    # `blocked_restart_required` should only be emitted when restarting the taker
+    # is the appropriate remediation -- i.e. the process is dead (pid_missing) or
+    # hung (alive but writing nothing: activity.ok False). A process that is alive
+    # and still writing fresh run artifacts (the shared activity preflight PASSES)
+    # is not idle/hung, so latest-tick *content/upstream* classifications must be
+    # reported as a non-terminal advisory rather than a dead process needing a
+    # bounce. Two such cases reach here for a live taker:
+    #   (a) the shared activity gate tripped but the taker's own artifacts are
+    #       healthy (first_failing_gate=activity_liveness, health.ok); and
+    #   (b) the latest scoring tick is quiet or input-starved -- an empty tick
+    #       (LATEST_TICK_EMPTY) or no fills attributed to snapshot/CLOB input
+    #       (INFRA_STARVED_*). Restarting a live, active taker fixes none of
+    #       these: an empty/no-edge tick has nothing to restart, and missing
+    #       snapshot/CLOB input is an upstream-collection problem surfaced and
+    #       repaired by the snapshot/CLOB monitors, not by bouncing the taker.
+    # Genuine idle still latches terminal: a dead pid (pid_missing), no recent
+    # writes at all (activity.ok False -> not live_and_active), a scoring crash
+    # (SCORING_CRASH, where a restart can clear a wedged process), and stale or
+    # missing taker artifacts (the taker's own output stopped, which also trips
+    # the activity gate). These are deliberately left blocking.
+    content_only_liveness_statuses = {
+        "LATEST_TICK_EMPTY",
+        "INFRA_STARVED_CLOB",
+        "INFRA_STARVED_SNAPSHOT",
+    }
+    # live_and_active requires the shared activity preflight to PASS, which means
+    # the process is writing fresh artifacts; that alone excludes the genuine
+    # idle/hung case (stale activity -> activity.ok False). The health status
+    # being a content classification is the discriminator; which gate enrich
+    # attributed it to (latest_tick_scoring_liveness vs artifact_liveness, an
+    # incidental of scoring_liveness) does not matter.
+    live_and_active = bool(alive and activity.get("ok"))
+    live_content_only = (
+        live_and_active
+        and str(health.get("status")) in content_only_liveness_statuses
+    )
+    activity_gate_false_idle = (
+        alive
         and payload.get("first_failing_gate") == "activity_liveness"
         and health.get("ok")
-        and alive
-    ):
+    )
+    if payload.get("status") == "idle_process" and (live_content_only or activity_gate_false_idle):
         restored_status = original_status if original_status in {"started", "already_running"} else "already_running"
+        # Restoring to a running status must clear any terminal action. A cached
+        # `blocked_restart_required` from a prior persisted idle state must not be
+        # inherited here (the bug this guards against), so derive the action from
+        # the restored status rather than from the original action.
+        non_terminal_action = "noop" if restored_status == "already_running" else "start"
+        restored_action = (
+            original_action
+            if original_action in {"noop", "start", "already_running"}
+            else non_terminal_action
+        )
         payload.update({
             "status": restored_status,
-            "action": original_action or ("noop" if restored_status == "already_running" else "start"),
+            "action": restored_action,
             "terminal": False,
             "pid_alive": True,
-            "zero_trades_expected": health.get("status") == "POLICY_NO_EDGE",
+            "zero_trades_expected": health.get("status") in {"POLICY_NO_EDGE", "LATEST_TICK_EMPTY"},
         })
-        if health.get("root_cause_class"):
+        # Preserve the artifact-content signal as a non-terminal advisory so a
+        # quiet/empty or input-starved latest tick stays visible for operators
+        # (and routes to the upstream collection monitors) without masquerading
+        # as a dead process that needs a restart.
+        if live_content_only:
+            payload["artifact_health_status"] = health.get("status")
+        # Keep the operator report consistent with the non-terminal decision: a
+        # live, active taker is not a restart candidate.
+        operator_report = payload.get("operator_report")
+        if isinstance(operator_report, dict) and operator_report.get("restart_recommended"):
+            operator_report = dict(operator_report)
+            operator_report["restart_recommended"] = False
+            payload["operator_report"] = operator_report
+        if health.get("ok") and health.get("root_cause_class"):
             payload["root_cause_class"] = health.get("root_cause_class")
         else:
             payload.pop("root_cause_class", None)

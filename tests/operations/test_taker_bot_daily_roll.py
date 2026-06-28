@@ -483,11 +483,18 @@ class TestTakerBotDailyRoll(unittest.TestCase):
                 startup_grace_seconds=60,
             )
 
-        self.assertEqual(payload["status"], "idle_process")
-        self.assertEqual(payload["root_cause_class"], "infra_starved_clob")
+        # The stale-book no-fill is classified specifically as infra_starved_clob
+        # (not a generic root cause). On a live + active taker that is now a
+        # non-terminal advisory rather than idle_process/blocked_restart_required:
+        # restarting the taker cannot refresh upstream CLOB books.
+        self.assertIn(payload["status"], {"started", "already_running"})
+        self.assertFalse(payload["terminal"])
+        self.assertNotEqual(payload.get("action"), "blocked_restart_required")
         self.assertEqual(payload["artifact_liveness"]["status"], "INFRA_STARVED_CLOB")
+        self.assertEqual(payload["artifact_health_status"], "INFRA_STARVED_CLOB")
         self.assertEqual(payload["latest_tick_scoring_liveness"]["classification"], "infra_starved_clob")
         self.assertEqual(payload["operator_report"]["latest_candidate_rows"], 100)
+        self.assertFalse(payload["operator_report"]["restart_recommended"])
 
     def test_latest_tick_scoring_starvation_blocks_alive_pid_with_fresh_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -588,6 +595,126 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(payload["artifact_liveness"]["status"], "POLICY_NO_EDGE")
         self.assertEqual(payload["operator_report"]["restart_recommended"], False)
         self.assertEqual(calls, [])
+
+    def test_live_active_taker_with_empty_latest_tick_is_not_idle(self):
+        # A taker whose process is alive and still writing fresh run artifacts
+        # but whose latest scoring tick emitted zero rows (LATEST_TICK_EMPTY) is a
+        # quiet/no-edge tick, not a dead process. It must report a non-terminal
+        # running status -- not idle_process / blocked_restart_required -- while
+        # keeping the empty-tick signal visible as a non-terminal advisory.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            # Persisted state already cached a terminal idle action from a prior
+            # tick; restoring a live, active taker to running must CLEAR it, not
+            # inherit the cached blocked_restart_required.
+            status_path.write_text(json.dumps({
+                "schema_version": "taker_bot_daily_roll_v0.1",
+                "runner": "taker_bot_daily_roll",
+                "generated_at_utc": "2026-06-18T04:00:00+00:00",
+                "started_at_utc": "2026-06-18T04:00:00+00:00",
+                "target_date": "2026-06-18",
+                "status": "idle_process",
+                "action": "blocked_restart_required",
+                "terminal": True,
+                "pid": 7654,
+                "runs_root": str(tmp / "taker_runs"),
+                "console_log_path": str(tmp / "daily_roll_console.log"),
+                "command": ["python.exe", "-m", "weather.market.taker_bot"],
+            }), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-empty-tick",
+                timestamp=_ts("2026-06-18T04:19:50+00:00"),  # fresh -> activity PASS
+                summary={
+                    "latest_tick_rows": 0,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 100,
+                    "cumulative_filled_orders": 0,
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertIn(payload["status"], {"started", "already_running"})
+        self.assertFalse(payload["terminal"])
+        self.assertIn(payload.get("action"), {"noop", "start"})  # cached terminal action cleared
+        self.assertEqual(payload["activity_liveness"]["status"], "PASS")
+        self.assertEqual(payload["artifact_liveness"]["status"], "LATEST_TICK_EMPTY")
+        # empty-tick signal preserved as a non-terminal advisory, restart fields cleared
+        self.assertEqual(payload["artifact_health_status"], "LATEST_TICK_EMPTY")
+        self.assertNotIn("first_failing_gate", payload)
+        self.assertNotIn("remediation_command", payload)
+
+    def test_live_active_taker_with_clob_input_starvation_is_advisory_not_restart(self):
+        # Live + active taker whose latest tick attributes no fills to stale CLOB
+        # book input: restarting the taker cannot add CLOB data (that is an
+        # upstream-collection problem, monitored separately), so it is a
+        # non-terminal advisory, not blocked_restart_required.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-clob-starved",
+                timestamp=_ts("2026-06-18T04:19:50+00:00"),
+                summary={
+                    "latest_tick_rows": 5,
+                    "latest_tick_filled_orders": 0,
+                    "root_cause_class": "stale_book_input",
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertIn(payload["status"], {"started", "already_running"})
+        self.assertFalse(payload["terminal"])
+        self.assertNotEqual(payload.get("action"), "blocked_restart_required")
+        self.assertEqual(payload["artifact_liveness"]["status"], "INFRA_STARVED_CLOB")
+        self.assertEqual(payload["artifact_health_status"], "INFRA_STARVED_CLOB")
+
+    def test_scoring_crash_still_latches_restart_required_when_live(self):
+        # A scoring crash is the one latest-tick failure where restarting a
+        # (possibly wedged) live process can help, so it must STAY terminal /
+        # blocked_restart_required even when the process is alive and active.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-crash",
+                timestamp=_ts("2026-06-18T04:19:50+00:00"),
+                summary={
+                    "latest_tick_rows": 0,
+                    "root_cause_class": "crashed_before_scoring",
+                    "first_failing_gate": "scoring",
+                },
+            )
+
+            payload = load_status(
+                status_path,
+                now="2026-06-18T04:20:00+00:00",
+                pid_alive=lambda pid, target_date=None: True,
+                max_activity_age_seconds=120,
+                startup_grace_seconds=60,
+            )
+
+        self.assertEqual(payload["status"], "idle_process")
+        self.assertEqual(payload["action"], "blocked_restart_required")
+        self.assertTrue(payload["terminal"])
+        self.assertEqual(payload["artifact_liveness"]["status"], "SCORING_CRASH")
+        self.assertNotIn("artifact_health_status", payload)
 
     def test_force_restart_quarantines_unhealthy_latest_run_folder(self):
         calls = []
