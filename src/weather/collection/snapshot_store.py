@@ -52,6 +52,17 @@ from weather.runtime_identity import (
 )
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
+# The managed loop fires on a period equal to SNAPSHOT_INTERVAL, so every
+# scheduled capture lands right at the due boundary. With a strict
+# `now - last >= interval` predicate, sub-cycle timing jitter makes `now - last`
+# fall a few seconds short on a large share of ticks; that near-miss skips the
+# write and the market waits a whole extra cycle (~2x interval), pulling
+# effective cadence to ~13 min and capture_ratio to ~0.7 even on an on-cadence,
+# outage-free loop (item 320). A small due tolerance (a fraction of the
+# interval) absorbs that jitter so an on-cadence tick is never rejected, without
+# changing the nominal interval or causing cadence creep (the loop period still
+# rate-limits writes to one per tick). See item 320.
+SNAPSHOT_DUE_TOLERANCE = timedelta(seconds=60)
 DEFAULT_MARKET_CONFIG = config_for_date()
 DEFAULT_SNAPSHOT_ROOT = data_path() / "snapshots" / DEFAULT_MARKET_CONFIG.event_slug
 # Fallback used only when a snapshot's model dict carries no model_version.
@@ -294,8 +305,14 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
 
 
 class SnapshotStore:
-    def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None):
+    def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None,
+                 due_tolerance=SNAPSHOT_DUE_TOLERANCE):
         self.interval = interval
+        # A scheduled capture is due once at least `interval - due_tolerance` has
+        # elapsed since the last write, so an on-cadence loop tick is not skipped
+        # for landing a few seconds short of the boundary (item 320). Pass
+        # due_tolerance=timedelta(0) for the strict zero-tolerance behaviour.
+        self.due_tolerance = due_tolerance or timedelta(0)
         self.fixed_root = root is not None
         self._set_paths(Path(root) if root is not None else None, event_slug or DEFAULT_MARKET_CONFIG.event_slug)
 
@@ -683,7 +700,7 @@ class SnapshotStore:
 
     def is_due(self, now, cadence="scheduled"):
         last = self.last_snapshot_time(cadence="scheduled" if cadence == "scheduled" else None)
-        return last is None or now - last >= self.interval
+        return last is None or now - last >= self.interval - self.due_tolerance
 
     def last_snapshot_time(self, cadence=None):
         if not self.long_path.exists():
@@ -707,7 +724,9 @@ class SnapshotStore:
         base = from_time or self.last_snapshot_time(cadence="scheduled" if cadence == "scheduled" else None)
         if base is None:
             return None
-        return (base + self.interval).isoformat()
+        # Consistent with is_due: the next scheduled capture becomes due one
+        # interval minus the due tolerance after the last write (item 320).
+        return (base + self.interval - self.due_tolerance).isoformat()
 
     def source_values(self, sources, model_client, captured_at=None):
         history = model_client.source_data(sources, "wu_history")

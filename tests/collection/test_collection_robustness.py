@@ -676,7 +676,39 @@ class TestGapDetection(unittest.TestCase):
                 datetime(2026, 5, 30, 12, 0),
             )
             self.assertTrue(store.is_due(due_at, cadence="scheduled"))
-            self.assertEqual(store.next_due_at(cadence="scheduled"), "2026-05-30T12:10:00")
+            # Due one interval minus the 60s due tolerance after the last
+            # scheduled write (item 320), so an on-cadence loop tick is not
+            # skipped for landing a few seconds short of the boundary.
+            self.assertEqual(store.next_due_at(cadence="scheduled"), "2026-05-30T12:09:00")
+
+    def test_due_tolerance_absorbs_boundary_jitter(self):
+        # The managed loop fires on a period equal to the interval, so a tick can
+        # land a few seconds short of the boundary. With a strict predicate that
+        # tick is rejected and the market waits a whole extra cycle (~2x
+        # interval), capping cadence/capture-ratio (item 320). The due tolerance
+        # absorbs that jitter.
+        slug = "highest-temperature-in-toronto-on-may-30-2026"
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=tmp, interval=timedelta(minutes=10), event_slug=slug)
+            pd.DataFrame([{
+                "snapshot_id": "scheduled",
+                "captured_at_local": "2026-05-30T12:00:00",
+                "snapshot_cadence": "scheduled",
+            }]).to_csv(store.long_path, index=False)
+
+            # 9m30s after the last write: a hair short of the 10-min interval but
+            # within the 60s tolerance -> due (the on-cadence loop tick).
+            self.assertTrue(store.is_due(datetime(2026, 5, 30, 12, 9, 30), cadence="scheduled"))
+            # Well inside the interval -> not due (no double-write / cadence creep).
+            self.assertFalse(store.is_due(datetime(2026, 5, 30, 12, 5, 0), cadence="scheduled"))
+
+            # A strict store (zero tolerance) still requires a full interval.
+            strict = SnapshotStore(
+                root=tmp, interval=timedelta(minutes=10), event_slug=slug,
+                due_tolerance=timedelta(0),
+            )
+            self.assertFalse(strict.is_due(datetime(2026, 5, 30, 12, 9, 30), cadence="scheduled"))
+            self.assertTrue(strict.is_due(datetime(2026, 5, 30, 12, 10, 0), cadence="scheduled"))
 
     def test_coverage_clean_full_afternoon(self):
         start = datetime(2026, 5, 30, 11, 0)

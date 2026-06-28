@@ -39,6 +39,21 @@ OPEN_METEO_SOURCE_FAMILY = {
     "global_ensemble",
     "eccc_gem",
 }
+PAID_WEATHER_PROVIDER_FAMILIES = {
+    "weather_forecast",
+    "wu_current",
+    "wu_history",
+}
+FREE_REPLACEMENT_REQUIRED_FAMILIES = {"local_history"}
+FREE_REPLACEMENT_OBSERVATION_FAMILIES = {"metar", "eccc_swob"}
+FREE_REPLACEMENT_GUIDANCE_FAMILIES = {
+    "open_meteo",
+    "nws_grid",
+    "nws_hourly",
+    "nbm_probabilistic_tmax",
+    "eccc_citypage",
+}
+FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES = 3
 SETTLEMENT_SOURCE_AUTH_FAILURE = "settlement_source_auth_failure"
 SETTLEMENT_AUTH_FAILURE_BUCKET = "settlement_auth_failure"
 SNAPSHOT_STATUS_COMMAND = "python -m weather.collection.snapshot_tracker --status"
@@ -558,7 +573,7 @@ def source_degradation_bucket(row):
     if (
         status == SETTLEMENT_SOURCE_AUTH_FAILURE
         or degradation == SETTLEMENT_SOURCE_AUTH_FAILURE
-        or (family == "wu_history" and http_status in {"401", "403"})
+        or (family in PAID_WEATHER_PROVIDER_FAMILIES and http_status in {"401", "403"})
     ):
         return SETTLEMENT_AUTH_FAILURE_BUCKET
     if status in {"expected_current_day_unavailable", "expected_unavailable"} or degradation in {
@@ -618,6 +633,70 @@ def family_claim_lane_allowance(summary):
     }
 
 
+def healthy_free_source_families(families):
+    healthy = []
+    for family, summary in families.items():
+        if family in PAID_WEATHER_PROVIDER_FAMILIES:
+            continue
+        affected = (
+            int(summary.get("failed_source_count") or 0)
+            + int(summary.get("fallback_source_count") or 0)
+            + int(summary.get("rate_limited_source_count") or 0)
+            + int(summary.get("settlement_auth_failure_source_count") or 0)
+            + int(summary.get("unknown_source_count") or 0)
+        )
+        if int(summary.get("fresh_source_count") or 0) > 0 and affected == 0:
+            healthy.append(family)
+    return sorted(healthy)
+
+
+def free_source_replacement_proof(families):
+    healthy = set(healthy_free_source_families(families))
+    missing_required = sorted(FREE_REPLACEMENT_REQUIRED_FAMILIES - healthy)
+    has_observation = bool(healthy & FREE_REPLACEMENT_OBSERVATION_FAMILIES)
+    has_guidance = bool(healthy & FREE_REPLACEMENT_GUIDANCE_FAMILIES)
+    allowed = (
+        len(healthy) >= FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES
+        and not missing_required
+        and has_observation
+        and has_guidance
+    )
+    missing = []
+    if missing_required:
+        missing.append("local_history")
+    if not has_observation:
+        missing.append("metar_or_eccc_swob")
+    if not has_guidance:
+        missing.append("free_forecast_guidance")
+    if len(healthy) < FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES:
+        missing.append("minimum_three_healthy_free_families")
+    reason = (
+        "fresh free-source replacement covers local history, observations, and forecast guidance"
+        if allowed
+        else "missing " + ", ".join(missing)
+    )
+    return {
+        "allowed": allowed,
+        "reason": reason,
+        "healthy_free_family_count": len(healthy),
+        "healthy_free_families": sorted(healthy),
+        "required_families": sorted(FREE_REPLACEMENT_REQUIRED_FAMILIES),
+        "observation_families": sorted(FREE_REPLACEMENT_OBSERVATION_FAMILIES),
+        "guidance_families": sorted(FREE_REPLACEMENT_GUIDANCE_FAMILIES),
+        "min_healthy_free_families": FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES,
+    }
+
+
+def paid_provider_auth_only(summary):
+    return bool(
+        int(summary.get("settlement_auth_failure_source_count") or 0) > 0
+        and int(summary.get("failed_source_count") or 0) == 0
+        and int(summary.get("fallback_source_count") or 0) == 0
+        and int(summary.get("rate_limited_source_count") or 0) == 0
+        and int(summary.get("unknown_source_count") or 0) == 0
+    )
+
+
 def latest_source_status_rows(folder):
     path = Path(folder) / "source_status_long.csv"
     if not path.exists():
@@ -662,6 +741,9 @@ def source_family_degradation(folder):
             "settlement_auth_failure_source_count": 0,
             "provider_cooldown_source_count": 0,
             "expected_unavailable_source_count": 0,
+            "free_source_replacement": free_source_replacement_proof({}),
+            "free_source_replacement_allowed": False,
+            "weather_com_required_for_paper_trading": False,
             "claim_lane_allowance": {
                 "model_review": False,
                 "paper_trading": False,
@@ -739,7 +821,8 @@ def source_family_degradation(folder):
     settlement_auth_failure_source_count = 0
     provider_cooldown_source_count = 0
     expected_unavailable_source_count = 0
-    for summary in families.values():
+    free_replacement = free_source_replacement_proof(families)
+    for family, summary in families.items():
         failed_source_count += summary["failed_source_count"]
         fallback_source_count += summary["fallback_source_count"]
         rate_limited_source_count += summary["rate_limited_source_count"]
@@ -762,7 +845,17 @@ def source_family_degradation(folder):
             and summary["unknown_source_count"] == 0
             and summary["rate_limited_source_count"] > 0
         )
-        summary["trading_blocking"] = bool(affected and not nonblocking_rate_limit_with_fresh_coverage)
+        paid_provider_replaced_for_paper = bool(
+            free_replacement["allowed"]
+            and family in PAID_WEATHER_PROVIDER_FAMILIES
+            and paid_provider_auth_only(summary)
+        )
+        summary["free_source_replacement_covered"] = paid_provider_replaced_for_paper
+        summary["trading_blocking"] = bool(
+            affected
+            and not nonblocking_rate_limit_with_fresh_coverage
+            and not paid_provider_replaced_for_paper
+        )
         if summary["settlement_auth_failure_source_count"]:
             summary["status"] = SETTLEMENT_SOURCE_AUTH_FAILURE
         elif nonblocking_rate_limit_with_fresh_coverage:
@@ -819,6 +912,11 @@ def source_family_degradation(folder):
         "settlement_auth_failure_source_count": settlement_auth_failure_source_count,
         "provider_cooldown_source_count": provider_cooldown_source_count,
         "expected_unavailable_source_count": expected_unavailable_source_count,
+        "free_source_replacement": free_replacement,
+        "free_source_replacement_allowed": free_replacement["allowed"],
+        "weather_com_required_for_paper_trading": bool(
+            settlement_auth_failure_source_count and not free_replacement["allowed"]
+        ),
         "claim_lane_allowance": claim_lane_allowance,
         "model_review_allowed": True,
         "trading_evidence_allowed": blocking_family_count == 0,
@@ -903,6 +1001,12 @@ def fleet_source_family_degradation_summary(markets):
             market for market in settlement_auth_markets if market
         ),
         "settlement_source_auth_failure_fleet_blocker": len(settlement_auth_markets) >= 2,
+        "free_source_replacement_allowed_market_count": sum(
+            1 for row in available if row.get("free_source_replacement_allowed")
+        ),
+        "weather_com_required_for_paper_trading_market_count": sum(
+            1 for row in available if row.get("weather_com_required_for_paper_trading")
+        ),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
         "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
         "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
@@ -928,13 +1032,15 @@ def fleet_source_family_degradation_summary(markets):
             row.get("promotion_readiness_allowed") for row in available
         ),
     }
-    blocked = (
+    paper_blocked = (
         int(summary["source_status_blocked_market_count"] or 0)
-        + int(summary["live_trade_permission_blocked_market_count"] or 0)
-        + int(summary["promotion_readiness_blocked_market_count"] or 0)
         + int(summary["unknown_market_count"] or 0)
     )
-    if blocked:
+    strict_blocked = (
+        int(summary["live_trade_permission_blocked_market_count"] or 0)
+        + int(summary["promotion_readiness_blocked_market_count"] or 0)
+    )
+    if paper_blocked:
         if summary["unknown_market_count"]:
             root_cause = "missing_source_status"
         elif summary["settlement_source_auth_failure_fleet_blocker"]:
@@ -952,6 +1058,19 @@ def fleet_source_family_degradation_summary(markets):
             f"promotion={summary['promotion_readiness_blocked_market_count']} "
             f"unknown={summary['unknown_market_count']}"
         )
+    elif strict_blocked:
+        if summary["settlement_source_auth_failure_fleet_blocker"]:
+            root_cause = "settlement_source_auth_failure_paid_provider_optional"
+        elif summary["promotion_readiness_blocked_market_count"]:
+            root_cause = "source_status_promotion_blocked"
+        else:
+            root_cause = "source_status_live_permission_blocked"
+        status = "WARN"
+        reason = (
+            "source status allows paper trading evidence; stricter lanes remain blocked: "
+            f"live={summary['live_trade_permission_blocked_market_count']} "
+            f"promotion={summary['promotion_readiness_blocked_market_count']}"
+        )
     else:
         root_cause = "source_status_clean"
         status = "PASS"
@@ -961,7 +1080,7 @@ def fleet_source_family_degradation_summary(markets):
         "root_cause_class": root_cause,
         "reason": reason,
     })
-    if root_cause == "settlement_source_auth_failure":
+    if summary["settlement_auth_failure_source_count"]:
         summary.update(weather_provider_credential_fields())
     return summary
 
@@ -973,6 +1092,7 @@ def source_status_market_proof(row):
             "family": family,
             "status": family_row.get("status"),
             "trading_blocking": family_row.get("trading_blocking"),
+            "free_source_replacement_covered": family_row.get("free_source_replacement_covered"),
             "claim_lane_allowance": family_row.get("claim_lane_allowance") or {},
             "failed_source_count": family_row.get("failed_source_count"),
             "fallback_source_count": family_row.get("fallback_source_count"),
@@ -1013,6 +1133,9 @@ def source_status_market_proof(row):
         "provider_cooldown_source_count": source_status.get("provider_cooldown_source_count", 0),
         "settlement_auth_failure_source_count": source_status.get("settlement_auth_failure_source_count", 0),
         "expected_unavailable_source_count": source_status.get("expected_unavailable_source_count", 0),
+        "free_source_replacement": source_status.get("free_source_replacement") or {},
+        "free_source_replacement_allowed": source_status.get("free_source_replacement_allowed"),
+        "weather_com_required_for_paper_trading": source_status.get("weather_com_required_for_paper_trading"),
         "top_degraded_family": top_family,
         "affected_families": affected,
         "repair_command": source_status.get("repair_command"),

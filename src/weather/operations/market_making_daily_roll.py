@@ -610,7 +610,8 @@ def enrich_market_making_liveness_status(
     if supervisor:
         operator = dict(payload.get("operator_report") or {})
         supervisor_remediation = supervisor.get("remediation") or recovery_guard.get("remediation")
-        operator.update({
+        start_time_gate = supervisor.get("start_time_gate") or {}
+        flattened_supervisor = {
             "supervisor_state": supervisor.get("state"),
             "supervisor_action": supervisor.get("action"),
             "supervisor_intended_action": supervisor.get("intended_action"),
@@ -620,6 +621,22 @@ def enrich_market_making_liveness_status(
             "supervisor_runtime_identity_matches_current": supervisor.get("runtime_identity_matches_current"),
             "supervisor_retry_after_seconds": recovery_guard.get("retry_after_seconds"),
             "supervisor_retry_at_utc": recovery_guard.get("retry_at_utc"),
+            "expected_target_date": supervisor.get("expected_target_date"),
+            "supervisor_target_date": supervisor.get("target_date"),
+            "start_time_gate_allowed": start_time_gate.get("allowed"),
+            "start_reason": start_time_gate.get("reason"),
+            "start_after_local_time": start_time_gate.get("start_after_local_time"),
+            "start_time_gate_timezone": start_time_gate.get("timezone"),
+        }
+        operator.update({
+            key: value
+            for key, value in flattened_supervisor.items()
+            if value is not None
+        })
+        payload.update({
+            key: value
+            for key, value in flattened_supervisor.items()
+            if value is not None
         })
         payload["operator_report"] = operator
     if health.get("live_forward_gate_status") is not None:

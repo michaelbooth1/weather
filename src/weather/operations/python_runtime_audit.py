@@ -36,7 +36,7 @@ DEFAULT_RUFF_TARGETS = (
 )
 RUFF_EXCLUDES = ("venv", "artifacts", "data")
 DAILY_REFRESH_SMOKE_STEPS = {
-    "reanalysis_recent_refresh": ("utc_now", "ReanalysisClient", "ReanalysisStore", "all_specs"),
+    "reanalysis_recent_refresh": ("time", "utc_now", "ReanalysisClient", "ReanalysisStore", "all_specs"),
     "event_metadata_validation": ("utc_now", "event_metadata_validation"),
 }
 DEFAULT_SIGNATURE_ROUTES = (

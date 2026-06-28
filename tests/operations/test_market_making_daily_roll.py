@@ -434,7 +434,15 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
                 "intended_action": "restart",
                 "restart_cause": "superseded_code",
                 "reason": "restart_backoff_active=300.0s",
+                "target_date": "2026-06-16",
+                "expected_target_date": "2026-06-17",
                 "runtime_identity_matches_current": False,
+                "start_time_gate": {
+                    "allowed": False,
+                    "reason": "before_daily_start_time",
+                    "start_after_local_time": "19:30",
+                    "timezone": "America/Toronto",
+                },
                 "recovery_guard": {
                     "remediation": "wait for the supervisor backoff window",
                     "retry_after_seconds": 300.0,
@@ -470,6 +478,16 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertEqual(report["supervisor_remediation"], "wait for the supervisor backoff window")
         self.assertEqual(report["supervisor_retry_after_seconds"], 300.0)
         self.assertEqual(report["supervisor_retry_at_utc"], "2026-06-16T23:25:00+00:00")
+        self.assertEqual(payload["supervisor_state"], "STALE_CODE")
+        self.assertEqual(payload["supervisor_action"], "backoff")
+        self.assertEqual(payload["supervisor_intended_action"], "restart")
+        self.assertEqual(payload["supervisor_restart_cause"], "superseded_code")
+        self.assertEqual(payload["expected_target_date"], "2026-06-17")
+        self.assertEqual(payload["supervisor_target_date"], "2026-06-16")
+        self.assertFalse(payload["start_time_gate_allowed"])
+        self.assertEqual(payload["start_reason"], "before_daily_start_time")
+        self.assertEqual(payload["start_after_local_time"], "19:30")
+        self.assertEqual(payload["start_time_gate_timezone"], "America/Toronto")
 
     def test_daily_roll_health_ignores_newer_shadow_probe_folder(self):
         with tempfile.TemporaryDirectory() as tmp:

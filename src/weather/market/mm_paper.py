@@ -2200,7 +2200,7 @@ def build_paper_payload(
         else {}
     )
     if include_fill_simulation:
-        fill_rows, queue_rows, diagnostics, leg_fill_sizes = simulate_conservative_fills(
+        fill_rows, queue_rows, diagnostics, _leg_fill_sizes = simulate_conservative_fills(
             legs,
             snapshots_root,
             casebook_index,
@@ -2211,7 +2211,7 @@ def build_paper_payload(
         fill_rows = []
         queue_rows = []
         diagnostics = skipped_fill_simulation_diagnostics(legs)
-        leg_fill_sizes = Counter()
+        _leg_fill_sizes = Counter()
     if include_model_variants and include_fill_simulation:
         (
             model_variant_fill_rows,

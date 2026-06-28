@@ -23,6 +23,7 @@ from weather.market.market_making_model_variants import build_model_variant_quot
 from weather.market.market_making_preflight import build_preflight_remediation
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
 from weather.market.market_making_run_support import classify_zero_trade_root_cause, preflight_market
+from weather.market.market_making_run_support import source_status_degradation_preflight
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
@@ -1104,6 +1105,108 @@ class TestMarketMakingRun(unittest.TestCase):
             source_incidents[0]["suggested_command"],
             "python -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status",
         )
+        self.assertTrue(source_incidents[0]["requires_external_credential"])
+        self.assertIn("Weather.com", source_incidents[0]["external_prerequisite"])
+        credential_env = source_incidents[0]["provider_credential_environment"]
+        self.assertEqual(credential_env["provider"], "weather.com")
+        self.assertTrue(credential_env["values_redacted"])
+        self.assertIn("WEATHER_COM_API_KEY", credential_env["present_by_var"])
+        self.assertIn(source_incidents[0]["suggested_command"], source_incidents[0]["repair_sequence"])
+
+    def test_preflight_allows_paid_weather_auth_failure_with_free_source_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "highest-temperature-in-atlanta-on-june-14-2026"
+            fieldnames = [
+                "snapshot_id",
+                "captured_at_utc",
+                "captured_at_local",
+                "event_slug",
+                "model_version",
+                "source",
+                "source_family",
+                "ok",
+                "status",
+                "stale",
+                "http_status",
+                "degradation_state",
+                "cache_status",
+                "fetched_at",
+                "age_minutes",
+                "ttl_minutes",
+                "latency_ms",
+                "payload_hash",
+                "row_count",
+                "source_url",
+                "error",
+            ]
+
+            def row(source, *, ok=True, status="fresh", http_status="200", degradation_state="healthy"):
+                return {
+                    "snapshot_id": "s2",
+                    "captured_at_utc": NOW,
+                    "captured_at_local": NOW,
+                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                    "model_version": "candidate",
+                    "source": source,
+                    "source_family": source,
+                    "ok": str(ok).lower(),
+                    "status": status,
+                    "stale": "false",
+                    "http_status": http_status,
+                    "degradation_state": degradation_state,
+                    "cache_status": "fresh" if ok else "auth_failure",
+                    "fetched_at": NOW,
+                    "age_minutes": "0.5",
+                    "ttl_minutes": "90",
+                    "latency_ms": "10",
+                    "payload_hash": source,
+                    "row_count": "1" if ok else "0",
+                    "source_url": "",
+                    "error": "",
+                }
+
+            write_csv(
+                folder / "source_status_long.csv",
+                fieldnames,
+                [
+                    row("local_history"),
+                    row("metar"),
+                    row("nws_hourly"),
+                    row(
+                        "weather_forecast",
+                        ok=False,
+                        status="failed",
+                        http_status="401",
+                        degradation_state="failed",
+                    ),
+                    row(
+                        "wu_current",
+                        ok=False,
+                        status="failed",
+                        http_status="401",
+                        degradation_state="failed",
+                    ),
+                    row(
+                        "wu_history",
+                        ok=False,
+                        status="settlement_source_auth_failure",
+                        http_status="401",
+                        degradation_state="settlement_source_auth_failure",
+                    ),
+                ],
+            )
+
+            gate = source_status_degradation_preflight(folder, "s2")
+
+        self.assertEqual(gate["status"], "PASS")
+        self.assertTrue(gate["ok"])
+        self.assertTrue(gate["trading_evidence_allowed"])
+        self.assertFalse(gate["live_trade_permission_allowed"])
+        self.assertFalse(gate["promotion_readiness_allowed"])
+        self.assertTrue(gate["free_source_replacement_allowed"])
+        self.assertFalse(gate["weather_com_required_for_paper_trading"])
+        self.assertEqual(gate["blocking_family_count"], 0)
+        self.assertEqual(gate["settlement_auth_failure_source_count"], 3)
 
     def test_live_pilot_blocks_without_platform_verification(self):
         with tempfile.TemporaryDirectory() as tmp:

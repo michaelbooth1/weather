@@ -18,23 +18,34 @@ The latest available evidence is not promotion grade:
   - 17 records: 7 `harvest_only`, 3 `edge_research`, 7 `no_quote`.
   - 0 paper fills in the generated map report.
   - Promotion markets: 11.
-- Latest active-window all-market paper-live-forward one-shot: `data/mm_runs/2026-06-27/20260627T112944199984Z/run_summary.json`
+- Latest post-snapshot-recovery all-market shadow one-shot: `data/mm_runs/2026-06-27/20260627T150554104648Z/run_summary.json`
+  - mode `shadow`
+  - evidence mode `operator_drill`
+  - preflight `BLOCK`
+  - first failing gate `source_status_degradation`
+  - 132 quote rows, 132 no-quote rows, 0 quote-permission rows, 0 live-trade-permission rows.
+  - `preflight_remediation.root_cause_counts = {source_status_degradation_blocked: 12}`
+  - known-edge map provenance is accepted, non-diagnostic `mm_known_edge_map_v0.2` with 17 records and permission counts `{harvest_only: 7, edge_research: 3, no_quote: 7}`.
+  - matching score: `data/backtest/mm_paper_shadow_20260627T150554_post_snapshot_recovery_source_status_block.json`, with 0 quoted legs, fill evidence `BLOCK` via `no_quote_legs`, reward score 0, exchange economics `PASS`, paper freshness `NO_ACTIVE_DAY`, and no actual payout evidence.
+  - matching readiness: `data/backtest/mm_live_readiness_20260627T150554_post_snapshot_recovery_source_status_block.json`, status `BLOCK`, blocker count 11, `live_capital_permission = false`, and `snapshot_model_source_failing_gate_counts = {source_status_degradation: 12}`.
+- Latest active-window all-market paper-live-forward one-shot: `data/mm_runs/2026-06-27/20260627T135932865534Z/run_summary.json`
   - mode `paper-live-forward`
   - evidence mode `active_day_live_forward`
   - preflight `BLOCK`
   - first failing gate `source_status_degradation`
   - 132 quote-intent rows, 0 quote-permission rows, 0 live-trade-permission rows.
   - `preflight_remediation.root_cause_counts = {source_status_degradation_blocked: 12}`
-  - model freshness and observation-trigger runtime are clear in this run, but all 12 markets remain blocked by source-status degradation before policy/model output can be interpreted.
-  - matching readiness: `data/backtest/mm_live_readiness_20260627T112944_paperlive_active_source_status_block.json`, status `BLOCK`, blocker count 11, `live_capital_permission = false`.
-- Latest active-window model-variant bakeoff: `data/mm_runs/2026-06-27/20260627T112944199984Z/model_variant_bakeoff.json`
+  - it is current active-window paper-forward evidence, but it does not count toward live-forward promotion and all 12 markets remain blocked by source-status degradation before policy/model output can be interpreted.
+  - matching readiness: `data/backtest/mm_live_readiness_20260627T135932_after_clob_recovery_source_status_block.json`, status `BLOCK`, blocker count 11, `live_capital_permission = false`.
+- Latest model-variant bakeoff: `data/mm_runs/2026-06-27/20260627T150554104648Z/model_variant_bakeoff.json`
   - schema `mm_model_variant_bakeoff_v0.1`
   - `status = EMPTY`
   - `score_status = NO_ROWS`
   - `base_input_rows = 0`
   - emitted variants: none.
   - skipped variants: none.
-  - interpretation: preflight blocked before policy counterfactual rows, so this artifact is not model-promotion evidence.
+  - pre-registered variants remain `served_current`, `current_high_trust_retrain`, `dynamic_source_freshness`, `conservative_no_market_baseline`, and `clob_overlay_risk_only`.
+  - interpretation: source-status preflight blocked before policy counterfactual rows, so this artifact is not model-promotion evidence.
 - Latest non-empty moving model-variant bakeoff for historical comparison: `data/mm_runs/2026-06-26/20260627T031938117215Z/model_variant_bakeoff.json`
   - schema `mm_model_variant_bakeoff_v0.1`
   - `status = PASS`

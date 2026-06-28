@@ -1246,20 +1246,41 @@ class TestMarketMicrostructure(unittest.TestCase):
                     target_date="2026-06-27",
                     interval_seconds=30,
                     fast_interval_seconds=10,
+                    include_price_history=False,
+                    include_ws_events=False,
+                    ws_seconds=1.5,
+                    ws_message_limit=7,
                     now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
                 )
                 status = json.loads((tmp_path / "clob_loop_status.json").read_text(encoding="utf-8"))
+                diagnostic = json.loads(
+                    (tmp_path / "clob_diagnostics.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+                )
 
         self.assertTrue(result["started"])
         self.assertEqual(status["pid"], 4321)
         self.assertEqual(status["market_id"], "toronto")
         self.assertEqual(status["target_date"], "2026-06-27")
         self.assertEqual(status["date_selection"], "fixed_target_date")
+        self.assertFalse(status["include_price_history"])
+        self.assertFalse(status["include_ws_events"])
         self.assertIn("weather.market.market_microstructure", calls["command"])
         self.assertIn("loop", calls["command"])
         self.assertIn("--date", calls["command"])
         self.assertIn("2026-06-27", calls["command"])
         self.assertIn("--interval-seconds", calls["command"])
+        self.assertIn("--no-price-history", calls["command"])
+        self.assertIn("--no-websocket-events", calls["command"])
+        self.assertEqual(diagnostic["supervisor"], "start")
+        self.assertEqual(diagnostic["market_id"], "toronto")
+        self.assertEqual(diagnostic["target_date"], "2026-06-27")
+        self.assertEqual(diagnostic["date_selection"], "fixed_target_date")
+        self.assertEqual(diagnostic["interval_seconds"], 30)
+        self.assertEqual(diagnostic["fast_interval_seconds"], 10)
+        self.assertFalse(diagnostic["include_price_history"])
+        self.assertFalse(diagnostic["include_ws_events"])
+        self.assertEqual(diagnostic["websocket_seconds"], 1.5)
+        self.assertEqual(diagnostic["websocket_message_limit"], 7)
 
     def test_start_clob_loop_detached_removes_dead_writer_lock_before_launch(self):
         with tempfile.TemporaryDirectory() as tmp:

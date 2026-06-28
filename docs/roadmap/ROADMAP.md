@@ -398,6 +398,7 @@ infrastructure work remains.
 | 317 | [Marine Water-Contrast Source/Model Boundary Ratchet [COMPLETE 2026-06-25 - SOURCE-LOCAL CUTOFF CONTRACT RESTORES RATCHET]](items/item-317-marine-water-contrast-source-model-boundary-ratchet.md) |
 | 318 | [Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]](items/item-318-post-threshold-large-module-decomposition-refresh.md) |
 | 319 | [Material Coverage Grading For Settled-Label Promotion Countability [COMPLETE 2026-06-25 - MATERIAL COVERAGE COUNTABILITY LIVE]](items/item-319-material-coverage-grading-for-settled-label-promotion-countability.md) |
+| 320 | [Capture-Cadence Due-Boundary Tolerance For Strict-Complete Day Coverage [COMPLETE 2026-06-27 - DUE-BOUNDARY TOLERANCE LIVE]](items/item-320-capture-cadence-due-boundary-tolerance-for-strict-complete-coverage.md) |
 
 ## Maintenance Conventions
 

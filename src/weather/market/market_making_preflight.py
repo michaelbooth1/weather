@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 
+from weather.collection.collection_health import weather_provider_credential_environment
 from weather.collection.redaction import has_unredacted_sensitive_url_parts
 from weather.market.market_config import ensure_date
 from weather.market.market_making_run_constants import (
@@ -519,6 +520,37 @@ def remediation_rule_for_gate(market_row, gate, base_rule):
     return rule
 
 
+def source_status_auth_prerequisite_fields(market_row, gate, suggested_command):
+    if gate.get("name") != "source_status_degradation":
+        return {}
+    degradation = market_row.get("source_status_degradation") or {}
+    settlement_auth_failures = maybe_float(
+        degradation.get("settlement_auth_failure_source_count")
+    )
+    if settlement_auth_failures is None:
+        detail = gate.get("detail") or ""
+        if "settlement_auth_failures=" in detail:
+            marker = detail.split("settlement_auth_failures=", 1)[1].split()[0]
+            settlement_auth_failures = maybe_float(marker)
+    if not _positive_number(settlement_auth_failures):
+        return {}
+    provider_env = weather_provider_credential_environment()
+    if provider_env.get("any_present"):
+        prerequisite = "verify external Weather.com credential validity/provider auth"
+    else:
+        prerequisite = "configure Weather.com credential WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo"
+    return {
+        "requires_external_credential": True,
+        "external_prerequisite": prerequisite,
+        "provider_credential_environment": provider_env,
+        "repair_sequence": [
+            prerequisite,
+            suggested_command,
+            "rerun current-target paper-live-forward/readiness after source status is rebuilt",
+        ],
+    }
+
+
 def build_preflight_remediation(preflight, now, previous=None):
     previous_by_key = {
         row.get("incident_key"): row
@@ -578,6 +610,11 @@ def build_preflight_remediation(preflight, now, previous=None):
                 "alert_within_seconds": 60,
                 "last_good_artifact": remediation_last_good_artifact(market, gate.get("name") or ""),
             }
+            incident.update(source_status_auth_prerequisite_fields(
+                market,
+                gate,
+                incident["suggested_command"],
+            ))
             append_incident(incident)
     useful_work = preflight.get("useful_work_liveness") or {}
     if useful_work.get("enforced"):
