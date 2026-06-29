@@ -125,8 +125,6 @@ def write_markdown(path, payload):
         f"Top degraded family: `{source_status_summary.get('top_degraded_family') or '-'}`",
         f"Provider-cooldown sources: `{source_status_summary.get('provider_cooldown_source_count')}`",
         f"Settlement-auth failure sources: `{source_status_summary.get('settlement_auth_failure_source_count')}`",
-        f"Weather.com credential present: `{source_status_summary.get('weather_com_credential_present')}`",
-        f"Weather.com credential values redacted: `{source_status_summary.get('weather_com_credential_values_redacted')}`",
         f"Expected current-day unavailable sources: `{source_status_summary.get('expected_unavailable_source_count')}`",
         f"Repair command: `{source_status_proof.get('repair_command') or SOURCE_STATUS_BACKFILL_COMMAND}`",
         f"Verification command: `{source_status_proof.get('verification_command') or SOURCE_PROVIDER_STATUS_COMMAND}`",

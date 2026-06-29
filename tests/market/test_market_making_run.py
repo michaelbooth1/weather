@@ -1105,12 +1105,9 @@ class TestMarketMakingRun(unittest.TestCase):
             source_incidents[0]["suggested_command"],
             "python -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status",
         )
-        self.assertTrue(source_incidents[0]["requires_external_credential"])
-        self.assertIn("Weather.com", source_incidents[0]["external_prerequisite"])
-        credential_env = source_incidents[0]["provider_credential_environment"]
-        self.assertEqual(credential_env["provider"], "weather.com")
-        self.assertTrue(credential_env["values_redacted"])
-        self.assertIn("WEATHER_COM_API_KEY", credential_env["present_by_var"])
+        self.assertTrue(source_incidents[0]["optional_provider_auth_failure"])
+        self.assertIn("free-source replacement", source_incidents[0]["external_prerequisite"])
+        self.assertFalse(any("credential" in key for key in source_incidents[0]))
         self.assertIn(source_incidents[0]["suggested_command"], source_incidents[0]["repair_sequence"])
 
     def test_preflight_allows_paid_weather_auth_failure_with_free_source_replacement(self):
@@ -1201,10 +1198,10 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertEqual(gate["status"], "PASS")
         self.assertTrue(gate["ok"])
         self.assertTrue(gate["trading_evidence_allowed"])
-        self.assertFalse(gate["live_trade_permission_allowed"])
-        self.assertFalse(gate["promotion_readiness_allowed"])
+        self.assertTrue(gate["live_trade_permission_allowed"])
+        self.assertTrue(gate["promotion_readiness_allowed"])
         self.assertTrue(gate["free_source_replacement_allowed"])
-        self.assertFalse(gate["weather_com_required_for_paper_trading"])
+        self.assertFalse(any("weather_com" in key for key in gate))
         self.assertEqual(gate["blocking_family_count"], 0)
         self.assertEqual(gate["settlement_auth_failure_source_count"], 3)
 

@@ -223,16 +223,14 @@ def test_market_making_cockpit_surfaces_latest_live_readiness_no_go(tmp_path):
     "latest_tick_live_trade_permission_rows": 0,
     "source_status_blocker_root_cause_class": "settlement_source_auth_failure",
     "source_status_blocked_market_count": 12,
-    "source_status_settlement_auth_failures": 12,
-    "source_status_weather_com_credential_present": false,
-    "source_status_weather_com_credential_values_redacted": true
+    "source_status_settlement_auth_failures": 12
   },
   "next_actions": [
     {
       "priority": 10,
       "gate_id": "latest_preflight_passes",
       "category": "data_preflight",
-      "safe_next_step": "configure WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo",
+      "safe_next_step": "verify free-source replacement coverage and rebuild source status",
       "detail": "latest selected run preflight is stale or blocked",
       "evidence": {"status": "BLOCK"}
     }
@@ -253,13 +251,9 @@ def test_market_making_cockpit_surfaces_latest_live_readiness_no_go(tmp_path):
         and row["Value"] == "settlement_source_auth_failure"
         for row in summary_rows
     )
-    assert any(
-        row["Metric"] == "Weather.com credential present"
-        and row["Value"] is False
-        for row in summary_rows
-    )
+    assert not any("credential present" in str(row["Metric"]).lower() for row in summary_rows)
     assert action_rows[0]["Gate"] == "latest_preflight_passes"
-    assert "WEATHER_COM_API_KEY" in action_rows[0]["Step"]
+    assert "free-source replacement" in action_rows[0]["Step"]
 
 
 def test_market_making_mixed_display_columns_are_arrow_safe():

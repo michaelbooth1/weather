@@ -116,7 +116,6 @@ Environment variables used by operator-facing code:
 | Env var | Purpose |
 | --- | --- |
 | `TORONTO_MARKET_DATE` | Legacy-named target-date override, ISO `YYYY-MM-DD`. Applies to registered markets that use the default date resolver; otherwise defaults to today's date in the market timezone. Restart long-running loops after changing it. |
-| `WEATHER_COM_API_KEY` | Weather.com API key. Defaults to the public browser key baked into the code. |
 | `WEATHER_MARKET_REGISTRY` | Optional path to an external market registry override. |
 | `SETTLEMENT_LEDGER_ROOT` | Optional root for settlement ledgers; defaults to `data/settlements/`. |
 | `WEATHER_TAPE_BACKUP_ROOT` | Optional tape-backup destination; can also be passed with `--backup-root`. |

@@ -74,11 +74,10 @@ RECENT_REGISTERED_SCHEMAS = (
         "source_status_proof_v0.2",
         "weather.collection.collection_health",
         "active",
-        "Proof artifact for source-status freshness, degradation, and redacted provider credential presence.",
+        "Proof artifact for source-status freshness and degradation with optional provider outages.",
         supersedes=("source_status_proof_v0.1",),
         migration_notes=(
-            "Adds provider_credential_environment and weather_com_credential_* boolean fields "
-            "for settlement_source_auth_failure root causes; credential values remain omitted."
+            "Settlement-source auth failures can be covered by the free-source replacement proof."
         ),
     ),
     SchemaSpec(

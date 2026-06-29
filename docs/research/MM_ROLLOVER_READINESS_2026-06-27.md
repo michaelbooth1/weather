@@ -406,7 +406,7 @@ Current supersession note:
 - Later explicit target-date CLOB audit cleared the immediate CLOB-gap blocker, and a forced snapshot/model refresh cleared maker-preflight model freshness.
 - The latest all-market keyless shadow is now `data/mm_runs/2026-06-27/20260627T124837800878Z`, scored by `data/backtest/mm_paper_shadow_20260627T124837_current_source_status_block.json`, with readiness `data/backtest/mm_live_readiness_20260627T124837_current_source_status_block.json`.
 - It remains `BLOCK` with 132 quote-intent rows, 132 no-quote `NO_QUOTE_MISSING_PREFLIGHT` rows, 0 quote-permission rows, 0 live-trade-permission rows, `snapshot_model_source_failing_gate_counts = {source_status_degradation: 12}`, and `model_freshness_failed_market_count = 0`.
-- Therefore this rollover document should be read as historical midnight-repair evidence; the current all-market blocker is persistent source-status/provider-auth evidence plus noncountable paper evidence, not the old CLOB gap.
+- Therefore this rollover document should be read as historical midnight-repair evidence; the current all-market blocker is persistent source-status evidence plus noncountable paper evidence, not the old CLOB gap.
 
 ## Paper Diagnostic
 

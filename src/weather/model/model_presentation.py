@@ -5,7 +5,6 @@ from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
-    WEATHER_COM_KEY,
     CYYZ_HISTORY_ID,
     CYYZ_ICAO,
     PEARSON_LAT,

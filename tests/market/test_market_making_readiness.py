@@ -475,9 +475,7 @@ def test_snapshot_model_source_gate_blocks_source_status_degradation(tmp_path):
     assert all("backfill-source-status" in action["safe_next_step"] for action in source_actions)
 
 
-def test_source_status_blocker_aggregates_settlement_auth_failures(tmp_path, monkeypatch):
-    monkeypatch.delenv("WEATHER_COM_API_KEY", raising=False)
-    monkeypatch.delenv("WEATHER_COM_KEY", raising=False)
+def test_source_status_blocker_aggregates_settlement_auth_failures(tmp_path):
     live_readiness_path = write_json(
         tmp_path / "live_readiness.json",
         {
@@ -524,76 +522,12 @@ def test_source_status_blocker_aggregates_settlement_auth_failures(tmp_path, mon
     assert summary["source_status_settlement_auth_failures"] == 3
     assert summary["source_status_settlement_auth_failures_per_market"] == 1
     assert summary["source_status_settlement_auth_failure_market_count"] == 3
-    assert summary["source_status_weather_com_credential_present"] is False
-    assert summary["source_status_weather_com_credential_present_by_var"] == {
-        "WEATHER_COM_API_KEY": False,
-        "WEATHER_COM_KEY": False,
-    }
-    assert summary["source_status_weather_com_credential_values_redacted"] is True
+    assert not any("credential" in key for key in summary)
     assert summary["source_status_degradation_failed_markets"] == ["austin", "dallas", "houston"]
     assert any(
-        "configure WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo" in action["safe_next_step"]
+        "verify free-source replacement coverage" in action["safe_next_step"]
         for action in payload["next_actions"]
     )
-
-
-def test_source_status_settlement_auth_failure_redacts_configured_provider_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("WEATHER_COM_API_KEY", "do-not-render-test-secret")
-    monkeypatch.delenv("WEATHER_COM_KEY", raising=False)
-    live_readiness_path = write_json(
-        tmp_path / "live_readiness.json",
-        {
-            "account_platform_verified": True,
-            "wallet_ready": True,
-            "allowance_ready": True,
-            "heartbeat_ready": True,
-            "user_websocket_ready": True,
-            "cancel_all_ready": True,
-        },
-    )
-    platform_path = write_json(tmp_path / "platform.json", platform_verification())
-
-    payload = build_readiness_snapshot(
-        status_payload=status_payload(),
-        paper_payload=paper_payload(),
-        latest_run_summary={
-            "preflight_status": "BLOCK",
-            "preflight_diagnostics": {
-                "stale_market_count": 0,
-                "blocked_market_count": 1,
-                "top_failing_gates": [
-                    {
-                        "gate": "source_status_degradation",
-                        "market_count": 1,
-                        "markets": ["dallas"],
-                        "detail": (
-                            "source-status degradation blocks trading evidence: "
-                            "blocking_families=3 settlement_auth_failures=1"
-                        ),
-                    }
-                ],
-            },
-        },
-        preflight_payload=preflight_payload(status="BLOCK", failing_gate="source_status_degradation"),
-        live_readiness_path=live_readiness_path,
-        platform_verification_path=platform_path,
-        now="2026-06-26T17:00:00+00:00",
-    )
-
-    summary = payload["summary"]
-    assert summary["source_status_weather_com_credential_present"] is True
-    assert summary["source_status_weather_com_credential_present_by_var"] == {
-        "WEATHER_COM_API_KEY": True,
-        "WEATHER_COM_KEY": False,
-    }
-    assert summary["source_status_weather_com_credential_values_redacted"] is True
-    assert any(
-        "verify external Weather.com credential validity/provider auth" in action["safe_next_step"]
-        for action in payload["next_actions"]
-    )
-    report = render_readiness_report(payload)
-    assert "do-not-render-test-secret" not in json.dumps(payload)
-    assert "do-not-render-test-secret" not in report
 
 
 def test_snapshot_model_source_summary_counts_gate_failures(tmp_path):
@@ -657,7 +591,7 @@ def test_snapshot_model_source_summary_counts_gate_failures(tmp_path):
                 },
                 "owner_counts": {
                     "observation-trigger supervisor": 1,
-                    "snapshot source-status writer / external weather provider credentials": 2,
+                    "snapshot source-status writer / optional provider source": 2,
                 },
             },
         },

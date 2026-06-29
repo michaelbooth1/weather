@@ -36,7 +36,7 @@ from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
-    WEATHER_COM_KEY,
+    OPTIONAL_WEATHER_PROVIDER_API_KEY,
     CYYZ_HISTORY_ID,
     CYYZ_ICAO,
     PEARSON_LAT,
@@ -723,7 +723,7 @@ class SourceFetchMixin:
             f"{self.spec.wu_history_id}/observations/historical.json"
         )
         params = {
-            "apiKey": WEATHER_COM_KEY,
+            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "units": self.spec.wu_units,
             "startDate": self.target_date_str,
             "endDate": self.target_date_str,
@@ -798,7 +798,7 @@ class SourceFetchMixin:
     def fetch_wu_current(self):
         url = "https://api.weather.com/v3/wx/observations/current"
         data = self.get_json(url, {
-            "apiKey": WEATHER_COM_KEY,
+            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "language": "en-US",
             "units": self.spec.wu_units,
             "format": "json",
@@ -1043,7 +1043,7 @@ class SourceFetchMixin:
     def fetch_weather_com_forecast(self):
         url = "https://api.weather.com/v3/wx/forecast/hourly/15day"
         payload = self.get_json(url, {
-            "apiKey": WEATHER_COM_KEY,
+            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "geocode": f"{self.spec.lat},{self.spec.lon}",
             "units": self.spec.wu_units,
             "language": "en-US",

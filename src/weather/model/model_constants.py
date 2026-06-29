@@ -4,7 +4,6 @@ Split out of toronto_model.py so the concern-specific mixin modules
 (model_*.py) can import these without a circular dependency back to the
 composed ``TorontoHighTempModel`` class.
 """
-import os
 from zoneinfo import ZoneInfo
 
 from weather.market.market_config import config_for_date
@@ -14,10 +13,7 @@ DEFAULT_MARKET_CONFIG = config_for_date()
 TORONTO_TZ = ZoneInfo("America/Toronto")
 TARGET_DATE = DEFAULT_MARKET_CONFIG.target_date
 TARGET_DATE_STR = DEFAULT_MARKET_CONFIG.target_date_str
-# Weather.com credentials must come from the operator environment. Do not keep
-# provider keys in source or status artifacts; missing keys fail closed through
-# the normal source-status gates.
-WEATHER_COM_KEY = os.environ.get("WEATHER_COM_API_KEY") or os.environ.get("WEATHER_COM_KEY", "")
+OPTIONAL_WEATHER_PROVIDER_API_KEY = ""
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 CYYZ_ICAO = "CYYZ"
 PEARSON_LAT = 43.6767

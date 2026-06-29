@@ -13,7 +13,6 @@ CLI:
 import argparse
 import csv
 import json
-import os
 import sys
 from collections import Counter
 from datetime import datetime, time as dt_time, timedelta
@@ -69,33 +68,6 @@ SOURCE_STATUS_BULK_REPAIR_COMMAND = (
     "--backfill-source-status --overwrite-source-status"
 )
 SOURCE_STATUS_PROOF_SCHEMA_VERSION = "source_status_proof_v0.2"
-WEATHER_PROVIDER_CREDENTIAL_ENV_VARS = ("WEATHER_COM_API_KEY", "WEATHER_COM_KEY")
-
-
-def weather_provider_credential_environment():
-    present_by_var = {
-        name: bool(os.environ.get(name))
-        for name in WEATHER_PROVIDER_CREDENTIAL_ENV_VARS
-    }
-    return {
-        "provider": "weather.com",
-        "credential_env_vars": list(WEATHER_PROVIDER_CREDENTIAL_ENV_VARS),
-        "present_by_var": present_by_var,
-        "any_present": any(present_by_var.values()),
-        "values_redacted": True,
-    }
-
-
-def weather_provider_credential_fields():
-    provider_credential_environment = weather_provider_credential_environment()
-    return {
-        "provider_credential_environment": provider_credential_environment,
-        "weather_com_credential_present": provider_credential_environment.get("any_present"),
-        "weather_com_credential_present_by_var": (
-            provider_credential_environment.get("present_by_var") or {}
-        ),
-        "weather_com_credential_values_redacted": provider_credential_environment.get("values_redacted"),
-    }
 
 
 def parse_times(iso_strings):
@@ -644,11 +616,16 @@ def family_claim_lane_allowance(summary):
         + int(summary.get("unknown_source_count") or 0)
     )
     paper_trading = not bool(summary.get("trading_blocking"))
+    optional_paid_provider_auth = bool(
+        summary.get("free_source_replacement_covered")
+        and paid_provider_auth_only(summary)
+    )
+    strict_lane_allowed = not affected or optional_paid_provider_auth
     return {
         "model_review": True,
         "paper_trading": paper_trading,
-        "live_trade_permission": not affected,
-        "promotion_readiness": not affected,
+        "live_trade_permission": strict_lane_allowed,
+        "promotion_readiness": strict_lane_allowed,
     }
 
 
@@ -762,7 +739,6 @@ def source_family_degradation(folder):
             "expected_unavailable_source_count": 0,
             "free_source_replacement": free_source_replacement_proof({}),
             "free_source_replacement_allowed": False,
-            "weather_com_required_for_paper_trading": False,
             "claim_lane_allowance": {
                 "model_review": False,
                 "paper_trading": False,
@@ -933,9 +909,6 @@ def source_family_degradation(folder):
         "expected_unavailable_source_count": expected_unavailable_source_count,
         "free_source_replacement": free_replacement,
         "free_source_replacement_allowed": free_replacement["allowed"],
-        "weather_com_required_for_paper_trading": bool(
-            settlement_auth_failure_source_count and not free_replacement["allowed"]
-        ),
         "claim_lane_allowance": claim_lane_allowance,
         "model_review_allowed": True,
         "trading_evidence_allowed": blocking_family_count == 0,
@@ -944,8 +917,6 @@ def source_family_degradation(folder):
         "repair_command": source_status_repair_command(folder),
         "verification_command": SOURCE_STATUS_VERIFY_COMMAND,
     }
-    if settlement_auth_failure_source_count:
-        result.update(weather_provider_credential_fields())
     return result
 
 
@@ -1032,9 +1003,6 @@ def fleet_source_family_degradation_summary(markets):
         "free_source_replacement_allowed_market_count": sum(
             1 for row in available if row.get("free_source_replacement_allowed")
         ),
-        "weather_com_required_for_paper_trading_market_count": sum(
-            1 for row in available if row.get("weather_com_required_for_paper_trading")
-        ),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
         "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
         "failed_source_count": sum(row_source_count(row, "failed_source_count") for row in available),
@@ -1088,7 +1056,7 @@ def fleet_source_family_degradation_summary(markets):
         )
     elif strict_blocked:
         if summary["settlement_source_auth_failure_fleet_blocker"]:
-            root_cause = "settlement_source_auth_failure_paid_provider_optional"
+            root_cause = "settlement_source_auth_failure_optional_provider"
         elif summary["promotion_readiness_blocked_market_count"]:
             root_cause = "source_status_promotion_blocked"
         else:
@@ -1108,8 +1076,6 @@ def fleet_source_family_degradation_summary(markets):
         "root_cause_class": root_cause,
         "reason": reason,
     })
-    if summary["settlement_auth_failure_source_count"]:
-        summary.update(weather_provider_credential_fields())
     return summary
 
 
@@ -1163,7 +1129,6 @@ def source_status_market_proof(row):
         "expected_unavailable_source_count": source_status.get("expected_unavailable_source_count", 0),
         "free_source_replacement": source_status.get("free_source_replacement") or {},
         "free_source_replacement_allowed": source_status.get("free_source_replacement_allowed"),
-        "weather_com_required_for_paper_trading": source_status.get("weather_com_required_for_paper_trading"),
         "top_degraded_family": top_family,
         "affected_families": affected,
         "repair_command": source_status.get("repair_command"),

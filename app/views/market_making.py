@@ -103,8 +103,6 @@ def _readiness_summary_rows(readiness):
         {"Metric": "Source-status root cause", "Value": summary.get("source_status_blocker_root_cause_class")},
         {"Metric": "Source-status blocked markets", "Value": summary.get("source_status_blocked_market_count")},
         {"Metric": "Settlement auth failures", "Value": summary.get("source_status_settlement_auth_failures")},
-        {"Metric": "Weather.com credential present", "Value": summary.get("source_status_weather_com_credential_present")},
-        {"Metric": "Credential values redacted", "Value": summary.get("source_status_weather_com_credential_values_redacted")},
     ]
 
 
@@ -373,7 +371,7 @@ def render_market_making_page(refresh_seconds=15):
             ready[1].metric("Live Capital", readiness.get("live_capital_permission"))
             ready[2].metric("Blockers", readiness.get("blocker_count", 0))
             ready[3].metric("Source Root", readiness_summary.get("source_status_blocker_root_cause_class") or "-")
-            ready[4].metric("Credential Present", readiness_summary.get("source_status_weather_com_credential_present"))
+            ready[4].metric("Settlement Auth", readiness_summary.get("source_status_settlement_auth_failures"))
             st.caption(f"Readiness artifact: {readiness_path}")
             st.dataframe(_df(_readiness_summary_rows(readiness)), width="stretch", hide_index=True)
             action_rows = _readiness_action_rows(readiness)

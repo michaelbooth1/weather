@@ -7,7 +7,6 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from weather.collection.collection_health import weather_provider_credential_environment
 from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
 from weather.market.market_making_preflight import load_platform_verification_gate
 from weather.market.market_making_run_constants import DEFAULT_PLATFORM_VERIFICATION, DEFAULT_RUNS_ROOT
@@ -723,28 +722,14 @@ def _source_status_blocker_evidence(preflight_evidence, snapshot_source_evidence
         if settlement_auth_failures
         else "source_status_degradation"
     )
-    provider_credential_environment = (
-        weather_provider_credential_environment()
-        if root_cause_class == "settlement_source_auth_failure"
-        else None
-    )
-    if (
-        root_cause_class == "settlement_source_auth_failure"
-        and provider_credential_environment
-        and not provider_credential_environment.get("any_present")
-    ):
+    if root_cause_class == "settlement_source_auth_failure":
         safe_next_step = (
-            "configure WEATHER_COM_API_KEY or WEATHER_COM_KEY outside the repo, rerun snapshot "
-            "collection/source-status backfill, then rerun keyless shadow and readiness"
-        )
-    elif root_cause_class == "settlement_source_auth_failure":
-        safe_next_step = (
-            "verify external Weather.com credential validity/provider auth, then run "
+            "verify free-source replacement coverage, then run "
             f"`{SOURCE_STATUS_REPAIR_COMMAND}`, then rerun keyless shadow and readiness"
         )
     else:
         safe_next_step = (
-            "fix external weather-provider/source-health failures blocking preflight, then run "
+            "fix free-source replacement/source-health failures blocking preflight, then run "
             f"`{SOURCE_STATUS_REPAIR_COMMAND}`, then rerun keyless shadow and readiness"
         )
     return {
@@ -757,7 +742,6 @@ def _source_status_blocker_evidence(preflight_evidence, snapshot_source_evidence
         "settlement_auth_failures": settlement_auth_failures,
         "settlement_auth_failures_per_market": settlement_auth_failures_per_market,
         "settlement_auth_failure_market_count": settlement_auth_failure_market_count,
-        "provider_credential_environment": provider_credential_environment,
         "blocked_market_count": blocked_market_count,
         "blocked_markets": blocked_markets,
         "repair_command": SOURCE_STATUS_REPAIR_COMMAND,
@@ -859,9 +843,6 @@ def build_readiness_snapshot(
     source_status_degradation_failed_markets = (
         source_status_blocker.get("blocked_markets")
         or snapshot_source_failing_markets.get("source_status_degradation", [])
-    )
-    source_provider_credential_environment = (
-        source_status_blocker.get("provider_credential_environment") or {}
     )
     preflight_remediation = latest_run_summary.get("preflight_remediation") or {}
     preflight_remediation_root_cause_counts = preflight_remediation.get("root_cause_counts") or {}
@@ -1248,15 +1229,6 @@ def build_readiness_snapshot(
             "source_status_settlement_auth_failure_market_count": source_status_blocker.get(
                 "settlement_auth_failure_market_count"
             ),
-            "source_status_weather_com_credential_present": (
-                source_provider_credential_environment.get("any_present")
-            ),
-            "source_status_weather_com_credential_present_by_var": (
-                source_provider_credential_environment.get("present_by_var") or {}
-            ),
-            "source_status_weather_com_credential_values_redacted": (
-                source_provider_credential_environment.get("values_redacted")
-            ),
             "source_status_repair_command": source_status_blocker.get("repair_command"),
             "evidence_mode": evidence_mode,
             "current_counts_toward_live_forward_gate": current_counts,
@@ -1376,9 +1348,6 @@ def render_readiness_report(payload):
         "source_status_settlement_auth_failures",
         "source_status_settlement_auth_failures_per_market",
         "source_status_settlement_auth_failure_market_count",
-        "source_status_weather_com_credential_present",
-        "source_status_weather_com_credential_present_by_var",
-        "source_status_weather_com_credential_values_redacted",
         "source_status_repair_command",
         "evidence_mode",
         "current_counts_toward_live_forward_gate",

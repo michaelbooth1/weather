@@ -3,7 +3,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import re
 import sys
 import time
@@ -81,7 +80,7 @@ def unlink_with_retry(path, attempts=8, delay=0.5):
 
 
 TORONTO_TZ = ZoneInfo("America/Toronto")
-WEATHER_COM_KEY = os.environ.get("WEATHER_COM_API_KEY") or os.environ.get("WEATHER_COM_KEY", "")
+DEFAULT_WU_PROVIDER_API_KEY = ""
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
@@ -152,7 +151,7 @@ def error_row_treats_as_source_unavailable(row):
 class WundergroundHistoryClient:
     def __init__(self, api_key=None, timeout=20, sleep_seconds=0.2,
                  history_id=CYYZ_HISTORY_ID, units="m"):
-        self.api_key = api_key if api_key is not None else WEATHER_COM_KEY
+        self.api_key = api_key if api_key is not None else DEFAULT_WU_PROVIDER_API_KEY
         self.timeout = timeout
         self.sleep_seconds = sleep_seconds
         self.history_id = history_id
@@ -344,7 +343,7 @@ class WundergroundHistoryStore:
                     "wc": obs.get("wc"),
                 })
         
-        api_key_status = "<configured>" if WEATHER_COM_KEY else "<missing>"
+        api_key_status = "<disabled>"
         
         # Scan partitions and calculate checksums and row counts
         partitions = []

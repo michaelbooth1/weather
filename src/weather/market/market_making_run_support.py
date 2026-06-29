@@ -469,9 +469,6 @@ def source_status_degradation_preflight(folder, snapshot_id):
         "promotion_readiness_allowed": bool(payload.get("promotion_readiness_allowed")),
         "free_source_replacement": payload.get("free_source_replacement") or {},
         "free_source_replacement_allowed": bool(payload.get("free_source_replacement_allowed")),
-        "weather_com_required_for_paper_trading": bool(
-            payload.get("weather_com_required_for_paper_trading")
-        ),
         "claim_lane_allowance": payload.get("claim_lane_allowance") or {},
     }
 

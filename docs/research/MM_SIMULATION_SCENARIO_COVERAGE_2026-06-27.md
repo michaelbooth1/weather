@@ -1,4 +1,4 @@
-# Market-Making Simulation Scenario Coverage
+﻿# Market-Making Simulation Scenario Coverage
 
 Date: 2026-06-27
 
@@ -33,8 +33,8 @@ Latest single-run summary:
 | Model freshness failures | `3` |
 | Observation-trigger root causes | `{}` |
 | Source-status root cause | `settlement_source_auth_failure` |
-| Weather.com credential present | `False` for `WEATHER_COM_API_KEY` and `WEATHER_COM_KEY` |
-| Credential values redacted | `True` |
+| optional provider status | `False` for `optional provider source` and `optional provider source` |
+| provider status redacted | `True` |
 | Quote-intent rows | `132` |
 | No-quote rows | `132` |
 | Quote-permission rows | `0` |
@@ -86,10 +86,10 @@ Fresh non-mutating runtime/recovery rechecks on 2026-06-27:
 | CLOB status | After explicit restart, latest status is `RUNNING`, `date_selection = fixed_target_date`, `target_date = 2026-06-27`, `include_price_history = false`, `include_ws_events = false`, discovery sanity `PASS`, fresh heartbeat/books, and 0 target-date mismatch markets. | Current CLOB loop is back on fixed target-date evidence. Continue monitoring for future supervisor drift before treating later paper evidence as countable. |
 | Explicit CLOB audit for 2026-06-27 | `ok = true` after the fixed-date restart across all 12 markets, with startup gaps ignored before the new loop cutoff | CLOB is no longer the leading immediate blocker for the latest shadow drill; source/model evidence still blocks promotion. |
 | Snapshot tracker | Latest status returned `RUNNING`, `runtime_code_state = current`, `runtime_identity_matches_current = true`, capture liveness `OK`, snapshot cadence `PASS`, early-hour coverage `BLOCK`, and source-status `BLOCK` | Snapshot runtime/cadence recovered, but source-status and next active-day early-hour coverage remain operational blockers |
-| Source-status proof | `BLOCK`, `settlement_source_auth_failure`, 12 blocked markets, Weather.com credential env vars absent/redacted | Main preflight blocker remains external source-status repair |
+| Source-status proof | `BLOCK`, `settlement_source_auth_failure`, 12 blocked markets, optional provider status fields absent/redacted | Main preflight blocker remains external source-status repair |
 | Observation trigger | `RUNNING`, watcher fresh, PID alive | Current observer liveness is not the blocker |
 | Daily roll | prior target `2026-06-26`, expected `2026-06-27`, `SCHEDULED_WAIT`, stale heartbeat/activity, noncountable | Current daily-roll evidence cannot count toward live-forward days |
-| Post-snapshot-recovery shadow drill | `20260627T150554104648Z`: 132 quote rows, 132 no-quotes, 0 quote permissions, 0 live permissions, readiness `BLOCK` with 11 blockers and `{source_status_degradation: 12}` | With snapshot runtime/cadence and CLOB recovered, all-market shadow still blocks on source-status/provider-auth plus noncountable/fill/P&L/payout/platform gates |
+| Post-snapshot-recovery shadow drill | `20260627T150554104648Z`: 132 quote rows, 132 no-quotes, 0 quote permissions, 0 live permissions, readiness `BLOCK` with 11 blockers and `{source_status_degradation: 12}` | With snapshot runtime/cadence and CLOB recovered, all-market shadow still blocks on source-status plus noncountable/fill/P&L/payout/platform gates |
 | Fixed-date shadow drill | `20260627T143831651008Z`: 132 quote intents, 132 no-quotes, 0 quote permissions, 0 live permissions, readiness `BLOCK` with 11 blockers | Fixed CLOB did not unlock quote permission because model freshness/source-status/countability gates still block |
 | Post-recovery shadow drill | `20260627T135111048558Z`: 132 quote intents, 132 no-quotes, 0 quote permissions, 0 live permissions, readiness `BLOCK` with 11 blockers | CLOB recovery did not unlock quote permission because source-status/model/countability gates still block |
 | Post-recovery active-window paper-forward drill | `20260627T135932865534Z`: 132 quote intents, 132 no-quotes, 0 quote permissions, 0 live permissions, readiness `BLOCK` with 11 blockers | Active paper-forward evidence is current, but still blocked before quote permission |
@@ -105,9 +105,9 @@ Fresh non-mutating runtime/recovery rechecks on 2026-06-27:
 
 | Scenario | Coverage | Current evidence | What it proves | Remaining gap |
 | --- | ---: | --- | --- | --- |
-| Clean active day with fresh snapshots, CLOB, observation trigger, and exchange economics | `BLOCK` | Latest active-window paper-live-forward run `20260627T135932865534Z`; readiness `mm_live_readiness_20260627T135932_after_clob_recovery_source_status_block.json`; latest shadow comparator `20260627T150554104648Z` | CLOB, event metadata, observation trigger, snapshot runtime/cadence, and exchange economics can pass together, but source-status proof still blocks all markets before quote permission; active paper-forward remains noncountable/zero-permission | Configure external Weather.com credentials, backfill source status, rerun active-window paper-live-forward and readiness |
+| Clean active day with fresh snapshots, CLOB, observation trigger, and exchange economics | `BLOCK` | Latest active-window paper-live-forward run `20260627T135932865534Z`; readiness `mm_live_readiness_20260627T135932_after_clob_recovery_source_status_block.json`; latest shadow comparator `20260627T150554104648Z` | CLOB, event metadata, observation trigger, snapshot runtime/cadence, and exchange economics can pass together, but source-status proof still blocks all markets before quote permission; active paper-forward remains noncountable/zero-permission | Verify free-source replacement coverage, backfill source status, rerun active-window paper-live-forward and readiness |
 | Stale snapshot/model rows | `PASS` | Historical runs `20260627T103532`, `110334`, `122613`; tests `test_default_model_freshness_covers_snapshot_loop_sla`, `test_snapshot_cadence_gap_blocks_high_confidence_edge_quote`, `test_snapshot_model_source_summary_counts_gate_failures` | Stale model/snapshot evidence fails closed and is separated from source-status failure | Need current clean source-status run to verify the gate clears without hiding quote starvation |
-| Source-status degradation | `PASS` | Latest readiness root cause `settlement_source_auth_failure`; tests `test_preflight_blocks_source_status_degradation_even_when_a_source_is_fresh`, `test_source_status_blocker_aggregates_settlement_auth_failures`, `test_source_status_settlement_auth_failure_redacts_configured_provider_env` | Missing/degraded source-status proof blocks all selected markets and surfaces boolean-only credential diagnostics | External provider credential configuration and source-status backfill are required before quote permission can be interpreted |
+| Source-status degradation | `PASS` | Latest readiness root cause `settlement_source_auth_failure`; tests `test_preflight_blocks_source_status_degradation_even_when_a_source_is_fresh`, `test_source_status_blocker_aggregates_settlement_auth_failures` | Missing/degraded source-status proof blocks all selected markets and surfaces optional-provider source-health diagnostics | Free-source replacement verification and source-status backfill are required before quote permission can be interpreted |
 | Stale CLOB rows or missing CLOB tape | `PASS` for fail-closed logic, `WARN` for supervisor drift monitoring | The loop degraded to zero books/tokens, recovered after fixed-date capture/restart, drifted to an undated local-date process after a pre-fix `ensure` restart, and was explicitly restored to fixed-date mode at `14:37Z`; tests cover failure and preservation: `test_data_layer_live_gate_requires_target_day_clob_artifacts`, `test_data_layer_live_gate_rejects_derived_clob_without_raw_artifacts`, `test_audit_book_tape_flags_internal_gap_and_stale_tail`, `test_ensure_clob_loop_preserves_fixed_target_date_when_restarting`, `test_ops_monitor_restart_clob_preserves_status_config`, `test_start_clob_loop_detached_writes_provisional_status` | Live/paper readiness requires target-day raw CLOB evidence and fails closed on stale/missing tape; supervisor/UI restarts now preserve fixed-date config and start diagnostics expose date/enrichment flags | Keep monitoring process command lines and diagnostics for repeat drift; if source-status clears, rerun strict audit and shadow/paper-forward before interpreting quote permission |
 | Event metadata target-date mismatch | `PASS` | Next-date probe `20260627T003709708211Z`; tests `test_event_metadata_gate_blocks_maker_preflight_as_market_discovery`, `test_readiness_snapshot_blocks_mismatched_status_and_paper_target_dates`, `test_stale_target_event_uses_refresh_remediation` | Target-date mismatch blocks maker preflight and countability | Keep rerunning target-date validation before active evidence; no current blocker in latest readiness |
 | Exchange economics target-date mismatch or material drift | `PASS` | Latest drift `exchange_economics_drift_20260627_goal_recheck.json`; tests `test_stale_snapshot_fails_closed`, `test_material_drift_requires_rescore_for_fee_reward_tick_and_min_order_changes`, `test_snapshot_blocks_target_date_mismatch` | Current accepted Polymarket US economics snapshot passes, and mismatches/material drift fail closed | Continue official-doc rechecks before any new promotion or live-capital decision |
@@ -168,7 +168,7 @@ Do not promote generated candidate known-edge maps or model-skewed quote cells f
 
 ## Safe Next Simulation Branch
 
-Do these only after external Weather.com provider credentials are configured outside the repo. Do not put credentials in code, docs, git, or generated artifacts.
+Do these only after free-source replacement coverage is verified and source-status backfill has been rerun. Do not put provider secrets in code, docs, git, or generated artifacts.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --backfill-source-status --overwrite-source-status
@@ -193,7 +193,7 @@ If that still has zero quote permissions, diagnose quote starvation by market/ba
 ## No-Go Conditions Still Active
 
 - Source-status proof blocks all 12 markets with `settlement_source_auth_failure`.
-- External Weather.com credentials are absent in the current shell and must remain outside the repo.
+- optional provider source status are absent in the current shell and must remain outside the repo.
 - Current CLOB loop was explicitly restored to fixed-date `2026-06-27` mode after the drift incident, but repeated supervisor drift remains a monitored risk. Future paper evidence still needs a fresh process-command/status/audit check before it counts.
 - Snapshot runtime identity and cadence have recovered, but early-hour coverage is still blocked for promotion-quality evidence.
 - Latest post-snapshot-recovery shadow readiness isolates the model/source blocker to `source_status_degradation = 12`, so the next local rerun is not meaningful until external source-health repair/backfill occurs.
