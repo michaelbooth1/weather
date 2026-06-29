@@ -291,8 +291,16 @@ def early_hour_coverage_summary(
     *,
     target_date=None,
     as_of=None,
+    native_tz=None,
 ):
     """Serializable 00:00-08:00 local snapshot coverage proof for active-day evidence."""
+    if native_tz is not None:
+        times = [
+            ts.astimezone(native_tz) if ts.tzinfo is not None else ts.replace(tzinfo=native_tz)
+            for ts in (times or [])
+        ]
+        if as_of is not None:
+            as_of = as_of.astimezone(native_tz) if as_of.tzinfo is not None else as_of.replace(tzinfo=native_tz)
     times = sorted(times or [])
     tzinfo = (times[-1].tzinfo if times else None) if times else (as_of.tzinfo if as_of is not None else None)
     if as_of is not None:
@@ -470,9 +478,19 @@ def folder_target_date(folder):
 def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, as_of=None):
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
-    times = snapshot_times(tape) if tape.exists() else []
+    raw_times = snapshot_times(tape) if tape.exists() else []
     freshness_sla = float(interval_minutes) * float(tolerance)
     target_date = folder_target_date(folder)
+    spec = spec_for_slug(folder.name)
+    native_tz = getattr(spec, "tz", None)
+    times = [
+        ts.astimezone(native_tz) if native_tz is not None and ts.tzinfo is not None
+        else ts.replace(tzinfo=native_tz) if native_tz is not None
+        else ts
+        for ts in raw_times
+    ]
+    if as_of is not None and native_tz is not None:
+        as_of = as_of.astimezone(native_tz) if as_of.tzinfo is not None else as_of.replace(tzinfo=native_tz)
     summary = (
         live_coverage_summary(times, interval_minutes, tolerance, as_of=as_of, target_date=target_date)
         if live
@@ -499,6 +517,7 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
         tolerance,
         target_date=target_date,
         as_of=as_of,
+        native_tz=native_tz,
     )
     return summary
 
@@ -974,6 +993,15 @@ def fleet_source_family_degradation_summary(markets):
     top_degraded_family = None
     if affected_by_family:
         top_degraded_family = affected_by_family.most_common(1)[0][0]
+
+    def row_source_count(row, field):
+        if row.get(field) is not None:
+            return int(row.get(field) or 0)
+        return sum(
+            int(family_row.get(field) or 0)
+            for family_row in (row.get("families") or {}).values()
+        )
+
     summary = {
         "market_count": len(rows),
         "markets_with_source_status": len(available),
@@ -1009,17 +1037,17 @@ def fleet_source_family_degradation_summary(markets):
         ),
         "affected_family_count": sum(int(row.get("affected_family_count") or 0) for row in available),
         "blocking_family_count": sum(int(row.get("blocking_family_count") or 0) for row in available),
-        "failed_source_count": sum(int(row.get("failed_source_count") or 0) for row in available),
-        "fallback_source_count": sum(int(row.get("fallback_source_count") or 0) for row in available),
-        "rate_limited_source_count": sum(int(row.get("rate_limited_source_count") or 0) for row in available),
+        "failed_source_count": sum(row_source_count(row, "failed_source_count") for row in available),
+        "fallback_source_count": sum(row_source_count(row, "fallback_source_count") for row in available),
+        "rate_limited_source_count": sum(row_source_count(row, "rate_limited_source_count") for row in available),
         "settlement_auth_failure_source_count": sum(
-            int(row.get("settlement_auth_failure_source_count") or 0) for row in available
+            row_source_count(row, "settlement_auth_failure_source_count") for row in available
         ),
         "expected_unavailable_source_count": sum(
-            int(row.get("expected_unavailable_source_count") or 0) for row in available
+            row_source_count(row, "expected_unavailable_source_count") for row in available
         ),
         "provider_cooldown_source_count": sum(
-            int(row.get("provider_cooldown_source_count") or 0) for row in available
+            row_source_count(row, "provider_cooldown_source_count") for row in available
         ),
         "model_review_allowed": bool(available),
         "trading_evidence_allowed": bool(available) and all(
@@ -1459,6 +1487,7 @@ def fleet_collection_health(
                 tolerance,
                 target_date=target_date,
                 as_of=as_of,
+                native_tz=spec.tz,
             )
             markets.append({
                 "market_id": spec.id,

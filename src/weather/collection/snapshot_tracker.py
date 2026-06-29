@@ -107,6 +107,24 @@ def capture_snapshot(
                 "target_date": event_config.target_date.isoformat(),
                 "local_date": local_today.isoformat(),
             }
+    store = SnapshotStore(event_slug=event_config.event_slug)
+    if (
+        not force
+        and cadence == "scheduled"
+        and hasattr(store, "is_due")
+        and not store.is_due(datetime.now(TORONTO_TZ), cadence=cadence)
+    ):
+        return {
+            "written": False,
+            "snapshot_id": None,
+            "skipped": True,
+            "skipped_reason": "not_due_preflight",
+            "market_id": market_id,
+            "event_slug": event_config.event_slug,
+            "target_date": event_config.target_date.isoformat(),
+            "path": str(store.long_path),
+            "next_due_at": store.next_due_at(cadence=cadence),
+        }
     validation = event_metadata_validation.build_validation_payload(
         target_date=event_config.target_date,
         markets=[market_id],
@@ -133,7 +151,7 @@ def capture_snapshot(
         historical_sources=historical_sources,
         live_sources=live_sources,
     )
-    return SnapshotStore(event_slug=event_config.event_slug).maybe_write(
+    return store.maybe_write(
         event,
         model,
         model_client,
@@ -528,6 +546,44 @@ def current_fleet_collection_health(now=None, interval_minutes=10.0, tolerance=1
     )
 
 
+def _toronto_now(value):
+    if value is None:
+        return datetime.now(TORONTO_TZ)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=TORONTO_TZ)
+    return value.astimezone(TORONTO_TZ)
+
+
+def snapshot_due_state(market_id, target_date=None, now=None):
+    spec = spec_for_id(market_id)
+    effective_date = ensure_date(target_date) if target_date is not None else default_target_date(spec.tz)
+    config = config_for_date(effective_date, market_id)
+    store = SnapshotStore(event_slug=config.event_slug)
+    due_now = _toronto_now(now)
+    last_snapshot = store.last_snapshot_time(cadence="scheduled")
+    return {
+        "market_id": market_id,
+        "event_slug": config.event_slug,
+        "target_date": config.target_date.isoformat(),
+        "due": store.is_due(due_now, cadence="scheduled"),
+        "last_snapshot_at": last_snapshot.isoformat() if last_snapshot else None,
+        "next_due_at": store.next_due_at(cadence="scheduled"),
+    }
+
+
+def ordered_snapshot_specs(specs, *, target_date=None, now=None):
+    rows = [(spec, snapshot_due_state(spec.id, target_date=target_date, now=now)) for spec in specs]
+
+    def sort_key(item):
+        spec, state = item
+        due_rank = 0 if state.get("due") else 1
+        last_snapshot = state.get("last_snapshot_at") or ""
+        next_due = state.get("next_due_at") or ""
+        return (due_rank, last_snapshot, next_due, spec.id)
+
+    return sorted(rows, key=sort_key)
+
+
 def _normalized_pid(value):
     try:
         return int(value)
@@ -738,6 +794,7 @@ def run_loop(
     loop continues, so collection never silently dies on a transient error. A
     heartbeat + diagnostics record is written every iteration."""
     now_fn = now_fn or (lambda: datetime.now(TORONTO_TZ))
+    preflight_due_enabled = capture_fn is None
     capture_fn = capture_fn or capture_snapshot
     target_date = ensure_date(target_date) if target_date is not None else None
     writer_lock = acquire_writer_lock(
@@ -827,12 +884,33 @@ def run_loop(
                 # Capture every registered market each tick; one market's failure is
                 # isolated so it never kills the loop or the other markets.
                 market_results = {}
-                for spec in all_specs():
+                specs = list(all_specs())
+                if preflight_due_enabled:
+                    ordered_rows = ordered_snapshot_specs(specs, target_date=target_date, now=now)
+                else:
+                    ordered_rows = [(spec, None) for spec in specs]
+                for spec, due_state in ordered_rows:
                     try:
                         status["last_market_in_progress"] = spec.id
                         status["last_heartbeat"] = now_fn().isoformat()
                         write_loop_status(status)
-                        if target_date is None:
+                        if (
+                            preflight_due_enabled
+                            and not force
+                            and due_state is not None
+                            and not due_state.get("due")
+                        ):
+                            result = {
+                                "written": False,
+                                "snapshot_id": None,
+                                "skipped": True,
+                                "skipped_reason": "not_due_preflight",
+                                "market_id": spec.id,
+                                "event_slug": due_state.get("event_slug"),
+                                "target_date": due_state.get("target_date"),
+                                "next_due_at": due_state.get("next_due_at"),
+                            }
+                        elif target_date is None:
                             result = capture_fn(force=force, market_id=spec.id)
                         else:
                             result = capture_fn(force=force, market_id=spec.id, target_date=target_date)
@@ -850,6 +928,8 @@ def run_loop(
                             "written": bool(result.get("written")),
                             "snapshot_id": result.get("snapshot_id"),
                             "error": result.get("error"),
+                            "skipped_reason": result.get("skipped_reason"),
+                            "next_due_at": result.get("next_due_at"),
                         }
                         for mid, result in market_results.items()
                     }

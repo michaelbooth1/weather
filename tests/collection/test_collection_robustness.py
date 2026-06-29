@@ -710,6 +710,39 @@ class TestGapDetection(unittest.TestCase):
             self.assertFalse(strict.is_due(datetime(2026, 5, 30, 12, 9, 30), cadence="scheduled"))
             self.assertTrue(strict.is_due(datetime(2026, 5, 30, 12, 10, 0), cadence="scheduled"))
 
+    def test_early_hour_coverage_uses_market_native_timezone(self):
+        # Los Angeles rows are persisted with the process/local -04:00 offset,
+        # but the proof window is the market's 00:00-08:00 local day. A tape
+        # beginning at 03:03 -04:00 is 00:03 Pacific and must count.
+        slug = "highest-temperature-in-los-angeles-on-june-28-2026"
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / slug
+            folder.mkdir()
+            rows = []
+            start = datetime.fromisoformat("2026-06-28T03:03:00-04:00")
+            for index in range(48):
+                captured_at = start + timedelta(minutes=10 * index)
+                rows.append({
+                    "snapshot_id": f"s{index}",
+                    "captured_at_local": captured_at.isoformat(),
+                    "snapshot_cadence": "scheduled",
+                })
+            pd.DataFrame(rows).to_csv(folder / "snapshots_long.csv", index=False)
+
+            summary = summarize_folder(
+                folder,
+                interval_minutes=10.0,
+                tolerance=1.5,
+                live=True,
+                as_of=datetime.fromisoformat("2026-06-28T12:00:00-07:00"),
+            )
+
+        early = summary["early_hour_coverage"]
+        self.assertEqual(early["status"], "PASS")
+        self.assertTrue(early["counts_toward_early_hour_evidence"])
+        self.assertEqual(early["snapshot_count"], 48)
+        self.assertTrue(early["first_snapshot_at_local"].startswith("2026-06-28T00:03:00"))
+
     def test_coverage_clean_full_afternoon(self):
         start = datetime(2026, 5, 30, 11, 0)
         times = [start + timedelta(minutes=10 * i) for i in range(49)]  # 11:00..19:00

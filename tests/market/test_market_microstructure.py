@@ -787,6 +787,7 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(clob_ensure_decision("UNKNOWN", False), "start")
         self.assertEqual(clob_ensure_decision("RUNNING", True, has_orphan_processes=True), "restart")
         self.assertEqual(clob_ensure_decision("RUNNING", True, runtime_matches_current=False), "restart")
+        self.assertEqual(clob_ensure_decision("RUNNING", True, target_mode_mismatch=True), "restart")
 
     def test_ensure_clob_loop_backoff_blocks_repeated_runtime_restart(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
@@ -836,7 +837,7 @@ class TestMarketMicrostructure(unittest.TestCase):
         stop_loop.assert_not_called()
         start_loop.assert_not_called()
 
-    def test_ensure_clob_loop_preserves_fixed_target_date_when_restarting(self):
+    def test_ensure_clob_loop_restarts_fixed_target_date_as_rolling_in_auto_mode(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -879,10 +880,13 @@ class TestMarketMicrostructure(unittest.TestCase):
                 result = mm.ensure_clob_loop(now=now)
 
         self.assertEqual(result["action"], "restart")
-        self.assertTrue(result["preserved_target_date_from_status"])
+        self.assertFalse(result["preserved_target_date_from_status"])
+        self.assertTrue(result["target_mode_mismatch"])
+        self.assertEqual(result["status_target_date"], "2026-06-27")
+        self.assertEqual(result["restart_cause"], "target_date_mode_mismatch")
         stop_loop.assert_called_once()
         start_loop.assert_called_once()
-        self.assertEqual(start_loop.call_args.kwargs["target_date"], "2026-06-27")
+        self.assertIsNone(start_loop.call_args.kwargs["target_date"])
 
     def test_ensure_clob_loop_noop_does_not_scan_log_offsets(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)

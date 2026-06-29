@@ -732,8 +732,11 @@ def clob_ensure_decision(
     pid_alive,
     has_orphan_processes=False,
     runtime_matches_current=True,
+    target_mode_mismatch=False,
 ):
     if has_orphan_processes:
+        return "restart"
+    if target_mode_mismatch and pid_alive:
         return "restart"
     if not runtime_matches_current and health_state in ("RUNNING", "PAUSED", "DEGRADED", "ERRORING") and pid_alive:
         return "restart"
@@ -1005,9 +1008,7 @@ def ensure_clob_loop(
     try:
         status = read_clob_loop_status()
         preserved_target_date_from_status = False
-        if target_date is None and (status or {}).get("target_date"):
-            target_date = status.get("target_date")
-            preserved_target_date_from_status = True
+        target_mode_mismatch = bool(target_date is None and (status or {}).get("target_date"))
         health = clob_loop_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
         loop_processes = running_clob_loop_processes()
@@ -1018,6 +1019,7 @@ def ensure_clob_loop(
             alive,
             has_orphan_processes=has_orphans,
             runtime_matches_current=runtime_matches_current,
+            target_mode_mismatch=target_mode_mismatch,
         )
         result = {
             "action": action,
@@ -1026,6 +1028,8 @@ def ensure_clob_loop(
             "restart_cause": (
                 "orphan_processes"
                 if has_orphans
+                else "target_date_mode_mismatch"
+                if target_mode_mismatch
                 else "runtime_identity"
                 if not runtime_matches_current
                 else health["state"]
@@ -1038,6 +1042,9 @@ def ensure_clob_loop(
             "runtime_identity_matches_current": runtime_matches_current,
             "runtime_identity_before": (status or {}).get("runtime_identity"),
             "preserved_target_date_from_status": preserved_target_date_from_status,
+            "target_mode_mismatch": target_mode_mismatch,
+            "status_target_date": (status or {}).get("target_date"),
+            "requested_target_date": target_date,
         }
         guard = supervisor_recovery_guard(spec, action, now=now)
         result["recovery_guard"] = guard
