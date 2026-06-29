@@ -665,6 +665,15 @@ def reconcile_with_polymarket(event, settlement_bucket, local_winning_band=None)
             "winning_markets": [],
             "local_winning_band": local_winning_band or {},
         }
+    if settlement_bucket is None:
+        return {
+            "status": "local_missing",
+            "event_closed": event_closed,
+            "winning_markets": winners,
+            "matching_winning_markets": [],
+            "local_winning_band": local_winning_band or {},
+            "polymarket_repair_candidate": polymarket_repair_candidate(winners),
+        }
     matches = [
         item for item in winners
         if resolve_outcome(item["kind"], item["value"], settlement_bucket, item["value_hi"])
@@ -675,6 +684,31 @@ def reconcile_with_polymarket(event, settlement_bucket, local_winning_band=None)
         "winning_markets": winners,
         "matching_winning_markets": matches,
         "local_winning_band": local_winning_band or {},
+    }
+
+
+def polymarket_repair_candidate(winning_markets):
+    winners = list(winning_markets or [])
+    if not winners:
+        return {
+            "status": "unavailable",
+            "promotion_countable": False,
+            "reason": "no resolved Polymarket winning band available",
+        }
+    winner = dict(winners[0])
+    label = clean_temperature_label(winner.get("label") or "")
+    return {
+        "status": "available",
+        "source": "polymarket_closed_market",
+        "winning_band": label,
+        "kind": winner.get("kind"),
+        "value": winner.get("value"),
+        "value_hi": winner.get("value_hi"),
+        "condition_id": winner.get("condition_id"),
+        "yes_price": winner.get("yes_price"),
+        "no_price": winner.get("no_price"),
+        "promotion_countable": False,
+        "reason": "Polymarket-only winner is a repair/comparison candidate; independent local settlement is still required for promotion countability",
     }
 
 
@@ -849,6 +883,9 @@ def build_label(
     )
     winning_markets = reconciliation.get("winning_markets") or []
     polymarket_winning_band = winning_markets[0].get("label") if winning_markets else None
+    repair_candidate = reconciliation.get("polymarket_repair_candidate") or polymarket_repair_candidate(
+        winning_markets
+    )
     # Render both bands in one canonical form (degree-symbol -> space, mojibake
     # stripped, e.g. "86-87 F") so our ledger label and Polymarket's resolution
     # label stop *appearing* to disagree when they are the same band. The numeric
@@ -935,6 +972,11 @@ def build_label(
         "polymarket_reconciliation": reconciliation,
         "reconciliation_status": reconciliation.get("status"),
         "polymarket_winning_band": polymarket_winning_band,
+        "polymarket_repair_candidate": repair_candidate,
+        "polymarket_only_repair_candidate": bool(
+            repair_candidate.get("status") == "available"
+            and bucket is None
+        ),
         "note": settlement["note"],
         "finalized_at_utc": finalized_at.isoformat(),
     }

@@ -29,6 +29,7 @@ def render_report(payload):
     counterfactual_no_side_campaign = summary.get("counterfactual_no_side_campaign") or {}
     edge_permission = summary.get("taker_edge_permission_coverage") or {}
     scoring_liveness = summary.get("latest_tick_scoring_liveness") or {}
+    last_nonzero_tick = summary.get("last_nonzero_scored_tick") or scoring_liveness.get("last_nonzero_scored_tick") or {}
     upstream = summary.get("upstream_dependency_status") or {}
     lines = [
         "# Taker Bot Paper Report",
@@ -58,6 +59,8 @@ def render_report(payload):
             ["Next-run policy status", summary.get("next_run_policy_status") or "-"],
             ["Latest tick rows", summary.get("latest_tick_rows")],
             ["New filled buys", summary.get("latest_tick_filled_orders")],
+            ["Last nonzero scored tick rows", last_nonzero_tick.get("row_count") or "-"],
+            ["Last nonzero scored tick generated", last_nonzero_tick.get("generated_at_utc") or "-"],
             ["Edge-permission allowed rows", edge_permission.get("edge_allowed_rows")],
             ["Edge-permission denied/observe rows", edge_permission.get("not_edge_allowed_rows")],
             ["After-cost EV skipped rows", edge_permission.get("after_cost_ev_skipped_rows")],

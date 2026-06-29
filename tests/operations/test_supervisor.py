@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from weather.operations import supervisor
+from weather.operations import bot_daily_roll_supervisor
 
 
 class FakeProcess:
@@ -434,6 +435,78 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(payload["level"], "WARNING")
         self.assertEqual(payload["logger"], "py.warnings")
         self.assertIn("raw warning should be JSON", payload["message"])
+
+    def test_daily_roll_health_does_not_restart_content_only_starvation(self):
+        now = datetime(2026, 6, 18, 4, 20, tzinfo=timezone.utc)
+        status = {
+            "status": "started",
+            "target_date": "2026-06-18",
+            "started_at_utc": "2026-06-18T04:00:00+00:00",
+            "pid": 7654,
+            "artifact_liveness": {
+                "ok": False,
+                "status": "INFRA_STARVED_SNAPSHOT",
+                "root_cause_class": "infra_starved_snapshot",
+                "latest_useful_artifact": {
+                    "path": "run_summary.json",
+                    "modified_at_utc": "2026-06-18T04:19:30+00:00",
+                    "age_seconds": 30,
+                },
+            },
+            "latest_tick_scoring_liveness": {
+                "status": "BLOCK",
+                "classification": "infra_starved_snapshot",
+                "countability_status": "NON_COUNTABLE",
+                "latest_tick_rows": 132,
+                "restart_recommended": False,
+            },
+            "operator_report": {
+                "restart_recommended": False,
+                "evidence_countability_status": "NON_COUNTABLE",
+            },
+        }
+
+        health = bot_daily_roll_supervisor.daily_roll_health(
+            status,
+            target_date="2026-06-18",
+            now=now,
+            pid_alive=lambda pid, target_date=None: True,
+        )
+
+        self.assertEqual(health["state"], "RUNNING")
+        self.assertEqual(health["action"], "noop")
+        self.assertIsNone(health["restart_cause"])
+
+    def test_daily_roll_health_still_restarts_scoring_crash(self):
+        now = datetime(2026, 6, 18, 4, 20, tzinfo=timezone.utc)
+        status = {
+            "status": "started",
+            "target_date": "2026-06-18",
+            "started_at_utc": "2026-06-18T04:00:00+00:00",
+            "pid": 7654,
+            "artifact_liveness": {
+                "ok": False,
+                "status": "SCORING_CRASH",
+                "root_cause_class": "scoring_crash",
+            },
+            "latest_tick_scoring_liveness": {
+                "status": "BLOCK",
+                "classification": "scoring_crash",
+                "root_cause_class": "scoring_crash",
+                "restart_recommended": True,
+            },
+        }
+
+        health = bot_daily_roll_supervisor.daily_roll_health(
+            status,
+            target_date="2026-06-18",
+            now=now,
+            pid_alive=lambda pid, target_date=None: True,
+        )
+
+        self.assertEqual(health["state"], "IDLE")
+        self.assertEqual(health["action"], "restart")
+        self.assertEqual(health["restart_cause"], "scoring_crash")
 
     def test_module_command_and_detached_launch(self):
         with tempfile.TemporaryDirectory() as tmp:

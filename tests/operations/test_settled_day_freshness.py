@@ -192,6 +192,62 @@ class TestSettledDayFreshness(unittest.TestCase):
         self.assertEqual(settlement["settlement_bucket"], 77)
         self.assertEqual(settlement["reconciliation_status"], "match")
 
+    def test_report_surfaces_polymarket_only_repair_candidate_without_promotion_countability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target_date = "2026-06-17"
+            folder = _write_snapshot_tape(root / "snapshots", target_date, high=80)
+            _write_replay_artifacts(folder)
+            slug = event_slug_for_date(target_date, "nyc")
+            label = _label(slug, target_date, bucket=80, source="none", status="mismatch")
+            label.update({
+                "settlement_high": None,
+                "settlement_bucket": None,
+                "winning_band": None,
+                "quality_grade": "missing_settlement",
+                "material_coverage_grade": "missing_settlement",
+                "promotion_countable": False,
+                "promotion_countable_reason": "no settlement bucket available",
+                "polymarket_winning_band": "88-89 F",
+                "polymarket_reconciliation": {
+                    "status": "mismatch",
+                    "event_closed": True,
+                    "winning_markets": [
+                        {
+                            "label": "88-89 F",
+                            "kind": "eq",
+                            "value": 88,
+                            "value_hi": 89,
+                            "yes_price": 1.0,
+                            "no_price": 0.0,
+                            "condition_id": "0xabc",
+                        }
+                    ],
+                },
+            })
+            upsert_ledger_record(label, root / "settlements")
+            write_labels_csv(root / "backtest" / "market_day_labels.csv", [label])
+            (folder / "settlement.json").write_text(json.dumps(label), encoding="utf-8")
+
+            payload = build_freshness_payload(
+                snapshots_root=root / "snapshots",
+                labels_csv=root / "backtest" / "market_day_labels.csv",
+                ledger_root=root / "settlements",
+                target_date=target_date,
+                market_ids=["nyc"],
+            )
+
+        row = payload["markets"][0]
+        self.assertEqual(row["raw_reconciliation_status"], "mismatch")
+        self.assertEqual(row["reconciliation_status"], "local_missing")
+        self.assertEqual(row["polymarket_winning_band"], "88-89 F")
+        self.assertTrue(row["local_settlement_missing_with_polymarket_winner"])
+        self.assertEqual(row["polymarket_repair_candidate"]["status"], "available")
+        self.assertFalse(row["polymarket_repair_candidate"]["promotion_countable"])
+        self.assertFalse(row["promotion_countable"])
+        self.assertEqual(payload["summary"]["local_missing_polymarket_winner_count"], 1)
+        self.assertEqual(payload["summary"]["reconciliation_counts"], {"local_missing": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

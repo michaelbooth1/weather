@@ -306,6 +306,7 @@ def classify_taker_evidence_starvation(summary=None, *, markets=None, payload=No
         summary.get("latest_tick_counterfactual_would_buy_count"),
         int_value(summary.get("cumulative_counterfactual_would_buy_count")),
     )
+    last_nonzero_scored_tick = summary.get("last_nonzero_scored_tick") or {}
     root = summary.get("root_cause_class")
     first_gate = summary.get("first_failing_gate")
     diagnostic = _is_diagnostic(summary, payload)
@@ -365,6 +366,10 @@ def classify_taker_evidence_starvation(summary=None, *, markets=None, payload=No
         detail = "zero-trade result lacks enough settled or policy detail to count as clean evidence"
 
     blocking = classification in BLOCKING_CLASSES and not diagnostic
+    restart_recommended = (
+        classification == "scoring_crash"
+        and not diagnostic
+    )
     remediation = remediation_command_for_dependency(
         "clob" if classification in {"infra_starved_clob", "latest_tick_empty", "scoring_crash"} else
         "snapshot" if classification == "infra_starved_snapshot" else
@@ -395,10 +400,11 @@ def classify_taker_evidence_starvation(summary=None, *, markets=None, payload=No
         "latest_tick_filled_orders": latest_fills,
         "latest_tick_counterfactual_rows": counterfactual_rows,
         "latest_tick_counterfactual_would_buy_count": counterfactual_would_buy,
+        "last_nonzero_scored_tick": last_nonzero_scored_tick,
         "countability_status": counterfactual_countability,
         "blocks_taker_evidence_countability": bool(blocking),
         "countability_blockers": blockers,
-        "restart_recommended": bool(blocking),
+        "restart_recommended": bool(restart_recommended),
         "root_cause_class": root,
         "first_failing_gate": first_gate,
         "first_failing_dependency": upstream.get("first_failing_dependency"),

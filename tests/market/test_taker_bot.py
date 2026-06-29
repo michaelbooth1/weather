@@ -2511,6 +2511,14 @@ class TestTakerBot(unittest.TestCase):
             self.assertEqual(second["summary"]["latest_tick_filled_orders"], 0)
             self.assertEqual(second["summary"]["latest_tick_rows"], 0)
             self.assertEqual(second["summary"]["cumulative_filled_orders"], 1)
+            self.assertEqual(
+                second["summary"]["last_nonzero_scored_tick"]["row_count"],
+                first["summary"]["latest_tick_rows"],
+            )
+            self.assertEqual(
+                second["summary"]["latest_tick_scoring_liveness"]["last_nonzero_scored_tick"]["row_count"],
+                first["summary"]["latest_tick_rows"],
+            )
             self.assertAlmostEqual(second["summary"]["budget_spent_usdc"], 10.2)
             orders = read_csv(Path(second["orders_path"]))
             self.assertEqual(sum(1 for row in orders if row["order_status"] == "FILLED"), 1)

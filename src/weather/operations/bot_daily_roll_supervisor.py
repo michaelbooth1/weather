@@ -124,13 +124,22 @@ def latest_useful_write(status: dict[str, Any] | None) -> dict[str, Any]:
 def _artifact_restart_required(status: dict[str, Any]) -> bool:
     artifact = status.get("artifact_liveness") or {}
     operator = status.get("operator_report") or {}
-    if artifact and artifact.get("ok") is False:
+    non_restartable_content_statuses = {
+        "LATEST_TICK_EMPTY",
+        "INFRA_STARVED_CLOB",
+        "INFRA_STARVED_SNAPSHOT",
+    }
+    if (
+        artifact
+        and artifact.get("ok") is False
+        and artifact.get("status") not in non_restartable_content_statuses
+    ):
         return True
     if operator.get("restart_recommended") is True:
         return True
     for key in ("latest_tick_scoring_liveness", "scoring_liveness", "latest_tick_liveness"):
         liveness = status.get(key) or {}
-        if liveness.get("restart_recommended") is True or liveness.get("status") in {"BLOCK", "FAIL"}:
+        if liveness.get("restart_recommended") is True:
             return True
     return False
 
@@ -140,7 +149,7 @@ def _artifact_restart_cause(status: dict[str, Any]) -> str:
     operator = status.get("operator_report") or {}
     for key in ("latest_tick_scoring_liveness", "scoring_liveness", "latest_tick_liveness"):
         liveness = status.get(key) or {}
-        if liveness.get("restart_recommended") is True or liveness.get("status") in {"BLOCK", "FAIL"}:
+        if liveness.get("restart_recommended") is True:
             return liveness.get("root_cause_class") or key
     return (
         artifact.get("root_cause_class")

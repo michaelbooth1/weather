@@ -307,6 +307,36 @@ def taker_edge_permission_coverage(rows, config=None):
     }
 
 
+def last_nonzero_scored_tick_summary(rows):
+    rows = list(rows or [])
+    if not rows:
+        return {}
+    grouped = {}
+    for index, row in enumerate(rows):
+        key = (
+            row.get("generated_at_utc")
+            or row.get("captured_at_utc")
+            or f"row-{index:06d}"
+        )
+        grouped.setdefault(str(key), []).append(row)
+    if not grouped:
+        return {}
+    latest_key = max(grouped)
+    tick_rows = grouped[latest_key]
+    filled = [row for row in tick_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    reason_counts = Counter(row.get("reason_code") or "unknown" for row in tick_rows)
+    generated_times = sorted({row.get("generated_at_utc") for row in tick_rows if row.get("generated_at_utc")})
+    captured_times = sorted({row.get("captured_at_utc") for row in tick_rows if row.get("captured_at_utc")})
+    return {
+        "generated_at_utc": generated_times[-1] if generated_times else None,
+        "captured_at_utc": captured_times[-1] if captured_times else None,
+        "row_count": len(tick_rows),
+        "filled_order_count": len(filled),
+        "spent_usdc": round(sum_field(filled, "total_spent_usdc"), 6),
+        "reason_counts": dict(sorted(reason_counts.items())),
+    }
+
+
 def build_run_once(
     target_date,
     budget_usdc,
@@ -508,6 +538,7 @@ def build_run_once(
 
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in new_rows)
     latest_filled = [row for row in new_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    last_nonzero_tick = last_nonzero_scored_tick_summary(all_rows)
     weak_slot_rows = [row for row in new_rows if row.get("weak_slot_gate_status") == "blocked"]
     warm_tail_rows = [row for row in new_rows if bool_value(row.get("market_centered_warm_tail"), False)]
     warm_tail_blocked = [
@@ -547,6 +578,7 @@ def build_run_once(
             1 for row in counterfactual_rows
             if str(row.get("order_status") or "").upper() == "FILLED"
         ),
+        "last_nonzero_scored_tick": last_nonzero_tick,
         "cumulative_counterfactual_rows": len(all_counterfactual_rows),
         "cumulative_counterfactual_would_buy_count": sum(
             1 for row in all_counterfactual_rows
@@ -588,6 +620,7 @@ def build_run_once(
             "restart_recommended": evidence_starvation.get("restart_recommended"),
             "countability_status": evidence_starvation.get("countability_status"),
             "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+            "last_nonzero_scored_tick": evidence_starvation.get("last_nonzero_scored_tick"),
             "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
             "remediation_command": evidence_starvation.get("remediation_command"),
         },
@@ -792,6 +825,7 @@ def recover_run_artifacts_from_orders(
 
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in latest_rows)
     latest_filled = [row for row in latest_rows if str(row.get("order_status") or "").upper() == "FILLED"]
+    last_nonzero_tick = last_nonzero_scored_tick_summary(all_rows)
     weak_slot_rows = [row for row in latest_rows if row.get("weak_slot_gate_status") == "blocked"]
     warm_tail_rows = [row for row in latest_rows if bool_value(row.get("market_centered_warm_tail"), False)]
     warm_tail_blocked = [
@@ -835,6 +869,7 @@ def recover_run_artifacts_from_orders(
         "latest_tick_spent_usdc": sum_field(latest_filled, "total_spent_usdc"),
         "latest_tick_counterfactual_rows": 0,
         "latest_tick_counterfactual_would_buy_count": 0,
+        "last_nonzero_scored_tick": last_nonzero_tick,
         "cumulative_counterfactual_rows": len(counterfactual_rows),
         "cumulative_counterfactual_would_buy_count": sum(
             1 for row in counterfactual_rows
@@ -886,6 +921,7 @@ def recover_run_artifacts_from_orders(
             "restart_recommended": evidence_starvation.get("restart_recommended"),
             "countability_status": evidence_starvation.get("countability_status"),
             "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+            "last_nonzero_scored_tick": evidence_starvation.get("last_nonzero_scored_tick"),
             "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
             "remediation_command": evidence_starvation.get("remediation_command"),
         },

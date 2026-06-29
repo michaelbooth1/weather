@@ -14,6 +14,7 @@ from weather.backtesting.settlement_ledger import (
     COMPLETE_DAY_MIN_ROWS,
     DEFAULT_LABELS_CSV,
     DEFAULT_LEDGER_ROOT,
+    clean_temperature_label,
     daily_summary_path_for_spec,
     finalize_folder,
     ledger_path_for_market,
@@ -95,6 +96,73 @@ def ledger_by_slug(ledger_root, specs):
             if slug:
                 rows[slug] = row
     return rows
+
+
+def _local_settlement_missing(label):
+    label = label or {}
+    return label.get("settlement_bucket") in (None, "")
+
+
+def _polymarket_winner_from_label(label):
+    label = label or {}
+    candidate = label.get("polymarket_repair_candidate")
+    if isinstance(candidate, dict) and candidate.get("winning_band"):
+        return {
+            "winning_band": clean_temperature_label(candidate.get("winning_band")),
+            "kind": candidate.get("kind"),
+            "value": candidate.get("value"),
+            "value_hi": candidate.get("value_hi"),
+            "condition_id": candidate.get("condition_id"),
+            "yes_price": candidate.get("yes_price"),
+            "no_price": candidate.get("no_price"),
+            "source": candidate.get("source") or "polymarket_closed_market",
+        }
+    reconciliation = label.get("polymarket_reconciliation")
+    if isinstance(reconciliation, dict):
+        winners = reconciliation.get("winning_markets") or []
+        if winners:
+            winner = dict(winners[0] or {})
+            return {
+                "winning_band": clean_temperature_label(winner.get("label") or ""),
+                "kind": winner.get("kind"),
+                "value": winner.get("value"),
+                "value_hi": winner.get("value_hi"),
+                "condition_id": winner.get("condition_id"),
+                "yes_price": winner.get("yes_price"),
+                "no_price": winner.get("no_price"),
+                "source": "polymarket_closed_market",
+            }
+    if label.get("polymarket_winning_band"):
+        return {
+            "winning_band": clean_temperature_label(label.get("polymarket_winning_band")),
+            "kind": None,
+            "value": None,
+            "value_hi": None,
+            "condition_id": None,
+            "yes_price": None,
+            "no_price": None,
+            "source": "polymarket_closed_market",
+        }
+    return {}
+
+
+def _polymarket_repair_candidate(label):
+    winner = _polymarket_winner_from_label(label)
+    if not winner:
+        return {}
+    return {
+        "status": "available",
+        **winner,
+        "promotion_countable": False,
+        "reason": "Polymarket-only winner can guide local settlement repair but is not independent promotion-countable evidence",
+    }
+
+
+def _effective_reconciliation_status(label):
+    raw = (label or {}).get("reconciliation_status")
+    if _local_settlement_missing(label) and _polymarket_winner_from_label(label):
+        return "local_missing"
+    return raw
 
 
 def merge_labels_csv(path, labels):
@@ -179,6 +247,10 @@ def market_row(spec, target_date, snapshots_root, labels, ledgers, ledger_root):
     label_csv_row = labels.get(slug) or {}
     ledger_row = ledgers.get(slug) or {}
     best_label = ledger_row or folder_label or label_csv_row
+    polymarket_winner = _polymarket_winner_from_label(best_label)
+    polymarket_repair = _polymarket_repair_candidate(best_label)
+    raw_reconciliation_status = best_label.get("reconciliation_status")
+    reconciliation_status = _effective_reconciliation_status(best_label)
     source = best_label.get("settlement_source")
     summary_status = daily_summary_status(spec, target_date)
 
@@ -260,7 +332,16 @@ def market_row(spec, target_date, snapshots_root, labels, ledgers, ledger_root):
         "material_coverage_gap_windows": best_label.get("material_coverage_gap_windows"),
         "promotion_countable": truthy(best_label.get("promotion_countable")),
         "promotion_countable_reason": best_label.get("promotion_countable_reason"),
-        "reconciliation_status": best_label.get("reconciliation_status"),
+        "reconciliation_status": reconciliation_status,
+        "raw_reconciliation_status": raw_reconciliation_status,
+        "polymarket_winning_band": polymarket_winner.get("winning_band"),
+        "polymarket_winning_kind": polymarket_winner.get("kind"),
+        "polymarket_winning_value": polymarket_winner.get("value"),
+        "polymarket_winning_value_hi": polymarket_winner.get("value_hi"),
+        "polymarket_repair_candidate": polymarket_repair,
+        "local_settlement_missing_with_polymarket_winner": bool(
+            _local_settlement_missing(best_label) and polymarket_winner
+        ),
         "daily_summary": summary_status,
         "source_lag_warning": source_lag_warning,
     }
@@ -307,12 +388,15 @@ def summarize_rows(rows):
     source_lag = [row for row in rows if row.get("source_lag_warning")]
     quality_counts = {}
     material_coverage_counts = {}
+    reconciliation_counts = {}
     material_rows = []
     for row in rows:
         grade = row.get("quality_grade") or "missing"
         quality_counts[grade] = quality_counts.get(grade, 0) + 1
         material_grade = row.get("material_coverage_grade") or "missing"
         material_coverage_counts[material_grade] = material_coverage_counts.get(material_grade, 0) + 1
+        reconciliation = row.get("reconciliation_status") or "missing"
+        reconciliation_counts[reconciliation] = reconciliation_counts.get(reconciliation, 0) + 1
         if row.get("material_coverage_grade"):
             material_rows.append(row)
     status = "PASS"
@@ -336,11 +420,18 @@ def summarize_rows(rows):
         "missing_tape_count": sum(1 for row in rows if not row.get("snapshots_long_exists")),
         "source_lag_warning_count": len(source_lag),
         "quality_counts": dict(sorted(quality_counts.items())),
+        "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
         "partial_label_count": quality_counts.get("partial", 0),
         "material_coverage_counts": dict(sorted(material_coverage_counts.items())),
         "promotion_countability_available": bool(material_rows),
         "promotion_countable_label_count": sum(1 for row in material_rows if row.get("promotion_countable")),
         "promotion_blocked_label_count": sum(1 for row in material_rows if row.get("promotion_countable") is False),
+        "settlement_bucket_missing_count": sum(1 for row in rows if row.get("settlement_bucket") in (None, "")),
+        "polymarket_winning_band_count": sum(1 for row in rows if row.get("polymarket_winning_band")),
+        "local_missing_polymarket_winner_count": sum(
+            1 for row in rows
+            if row.get("local_settlement_missing_with_polymarket_winner")
+        ),
     }
 
 
@@ -515,6 +606,10 @@ def render_report(payload):
             ["Missing source status", summary.get("missing_source_status_count")],
             ["Missing tapes", summary.get("missing_tape_count")],
             ["Source-lag warnings", summary.get("source_lag_warning_count")],
+            ["Settlement bucket missing", summary.get("settlement_bucket_missing_count")],
+            ["Polymarket winning bands", summary.get("polymarket_winning_band_count")],
+            ["Local-missing Polymarket winners", summary.get("local_missing_polymarket_winner_count")],
+            ["Reconciliation counts", summary.get("reconciliation_counts")],
             ["Repair command", payload.get("repair_command")],
             ["Replay-status repair command", payload.get("replay_status_repair_command")],
         ],
@@ -530,6 +625,8 @@ def render_report(payload):
             "Source",
             "Daily Summary",
             "Winning Band",
+            "Polymarket Winner",
+            "Reconciliation",
             "Material Coverage",
             "Promotion Countable",
         ],
@@ -543,6 +640,8 @@ def render_report(payload):
                 row.get("settlement_source") or "-",
                 (row.get("daily_summary") or {}).get("status"),
                 row.get("winning_band") or "-",
+                row.get("polymarket_winning_band") or "-",
+                row.get("reconciliation_status") or "-",
                 row.get("material_coverage_grade") or "-",
                 row.get("promotion_countable"),
             ]

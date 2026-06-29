@@ -781,6 +781,148 @@ def _record_recent_elapsed(status, elapsed_minutes):
     status["max_recent_iteration_elapsed_minutes"] = round(max(recent), 3)
 
 
+def _parse_next_due_at(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _seconds_until(target, now):
+    if target.tzinfo is not None and now.tzinfo is not None:
+        now = now.astimezone(target.tzinfo)
+    elif target.tzinfo is not None and now.tzinfo is None:
+        now = now.replace(tzinfo=target.tzinfo)
+    elif target.tzinfo is None and now.tzinfo is not None:
+        target = target.replace(tzinfo=now.tzinfo)
+    return (target - now).total_seconds()
+
+
+def adaptive_loop_sleep_seconds(market_results, *, now, default_sleep_seconds):
+    """Cap loop sleep at the earliest market next_due_at.
+
+    A long iteration can leave tail markets just shy of due at the next loop
+    start. If those markets are skipped by due-preflight and we then sleep the
+    full nominal interval, their actual capture gap becomes nearly two
+    intervals. Sleeping only until the earliest next due keeps per-market
+    cadence from drifting after long passes.
+    """
+    default_sleep_seconds = max(1.0, float(default_sleep_seconds))
+    candidates = []
+    for result in (market_results or {}).values():
+        if not isinstance(result, dict):
+            continue
+        raw_due_at = result.get("next_due_at")
+        parsed = _parse_next_due_at(raw_due_at)
+        if parsed is not None:
+            candidates.append((parsed, raw_due_at))
+    if not candidates:
+        return {
+            "sleep_seconds": default_sleep_seconds,
+            "reason": "interval_elapsed",
+            "next_due_at": None,
+        }
+    next_due, raw_next_due = min(candidates, key=lambda item: item[0])
+    due_sleep = max(1.0, _seconds_until(next_due, now))
+    if due_sleep < default_sleep_seconds:
+        return {
+            "sleep_seconds": due_sleep,
+            "reason": "next_due_at",
+            "next_due_at": raw_next_due,
+        }
+    return {
+        "sleep_seconds": default_sleep_seconds,
+        "reason": "interval_elapsed",
+        "next_due_at": raw_next_due,
+    }
+
+
+def _isoformat(value):
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def market_cadence_attribution(market_id, result, due_state, *, started_at, completed_at):
+    result = result or {}
+    due_state = due_state or {}
+    raw_next_due_at = due_state.get("next_due_at") or result.get("next_due_at")
+    parsed_next_due_at = _parse_next_due_at(raw_next_due_at)
+    due_lag_seconds = None
+    became_due_during_iteration = False
+    if parsed_next_due_at is not None and completed_at is not None:
+        lag = -_seconds_until(parsed_next_due_at, completed_at)
+        due_lag_seconds = round(max(0.0, lag), 3)
+        became_due_during_iteration = bool(
+            not due_state.get("due")
+            and due_lag_seconds > 0.0
+        )
+    elapsed_seconds = None
+    if started_at is not None and completed_at is not None:
+        elapsed_seconds = round(max(0.0, (completed_at - started_at).total_seconds()), 3)
+    skipped_reason = result.get("skipped_reason")
+    skipped_not_due = skipped_reason == "not_due_preflight"
+    return {
+        "market_id": market_id,
+        "event_slug": result.get("event_slug") or due_state.get("event_slug"),
+        "target_date": result.get("target_date") or due_state.get("target_date"),
+        "started_at": _isoformat(started_at),
+        "completed_at": _isoformat(completed_at),
+        "elapsed_seconds": elapsed_seconds,
+        "written": bool(result.get("written")),
+        "snapshot_id": result.get("snapshot_id"),
+        "error": result.get("error"),
+        "skipped_reason": skipped_reason,
+        "skipped_not_due": skipped_not_due,
+        "due_at_loop_start": bool(due_state.get("due")),
+        "last_snapshot_at_loop_start": due_state.get("last_snapshot_at"),
+        "next_due_at_loop_start": raw_next_due_at,
+        "became_due_during_iteration": became_due_during_iteration,
+        "skipped_after_due_at_completion": bool(skipped_not_due and became_due_during_iteration),
+        "due_lag_seconds_at_completion": due_lag_seconds,
+    }
+
+
+def summarize_market_cadence_attribution(market_attribution, *, iteration_elapsed_minutes=None):
+    rows = dict(market_attribution or {})
+    skipped_after_due = [
+        market_id for market_id, row in rows.items()
+        if row.get("skipped_after_due_at_completion")
+    ]
+    skipped_not_due = [
+        market_id for market_id, row in rows.items()
+        if row.get("skipped_not_due")
+    ]
+    due_lags = [
+        float(row.get("due_lag_seconds_at_completion") or 0.0)
+        for row in rows.values()
+        if row.get("due_lag_seconds_at_completion") is not None
+    ]
+    return {
+        "schema_version": "snapshot_cadence_attribution_v0.1",
+        "iteration_elapsed_minutes": (
+            round(float(iteration_elapsed_minutes), 3)
+            if iteration_elapsed_minutes is not None else None
+        ),
+        "market_count": len(rows),
+        "written_count": sum(1 for row in rows.values() if row.get("written")),
+        "error_count": sum(1 for row in rows.values() if row.get("error")),
+        "skipped_not_due_count": len(skipped_not_due),
+        "became_due_during_iteration_count": sum(
+            1 for row in rows.values()
+            if row.get("became_due_during_iteration")
+        ),
+        "skipped_after_due_count": len(skipped_after_due),
+        "skipped_after_due_markets": skipped_after_due,
+        "max_due_lag_seconds_at_completion": round(max(due_lags), 3) if due_lags else None,
+        "markets": rows,
+    }
+
+
 def run_loop(
     force=False,
     interval_minutes=10.0,
@@ -889,10 +1031,12 @@ def run_loop(
                     ordered_rows = ordered_snapshot_specs(specs, target_date=target_date, now=now)
                 else:
                     ordered_rows = [(spec, None) for spec in specs]
+                market_cadence = {}
                 for spec, due_state in ordered_rows:
+                    market_started = now_fn()
                     try:
                         status["last_market_in_progress"] = spec.id
-                        status["last_heartbeat"] = now_fn().isoformat()
+                        status["last_heartbeat"] = market_started.isoformat()
                         write_loop_status(status)
                         if (
                             preflight_due_enabled
@@ -922,7 +1066,15 @@ def run_loop(
                             status["last_snapshot_written_at"] = progress_now.isoformat()
                     except Exception as exc:  # noqa: BLE001 - keep the loop alive
                         market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
-                        status["last_heartbeat"] = now_fn().isoformat()
+                        progress_now = now_fn()
+                        status["last_heartbeat"] = progress_now.isoformat()
+                    market_cadence[spec.id] = market_cadence_attribution(
+                        spec.id,
+                        market_results.get(spec.id) or {},
+                        due_state,
+                        started_at=market_started,
+                        completed_at=progress_now,
+                    )
                     status["last_market_results"] = {
                         mid: {
                             "written": bool(result.get("written")),
@@ -930,6 +1082,7 @@ def run_loop(
                             "error": result.get("error"),
                             "skipped_reason": result.get("skipped_reason"),
                             "next_due_at": result.get("next_due_at"),
+                            "cadence": market_cadence.get(mid),
                         }
                         for mid, result in market_results.items()
                     }
@@ -944,6 +1097,11 @@ def run_loop(
                 status["last_market_in_progress"] = None
                 elapsed_minutes = (now_fn() - iteration_started).total_seconds() / 60.0
                 _record_recent_elapsed(status, elapsed_minutes)
+                cadence_attribution = summarize_market_cadence_attribution(
+                    market_cadence,
+                    iteration_elapsed_minutes=elapsed_minutes,
+                )
+                status["last_cadence_attribution"] = cadence_attribution
                 try:
                     fleet_health = current_fleet_collection_health(
                         now=now_fn(),
@@ -969,14 +1127,24 @@ def run_loop(
                         mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id"), "error": r.get("error")}
                         for mid, r in market_results.items()
                     },
+                    "cadence_attribution": cadence_attribution,
                 })
                 print(json.dumps({
                     "time": now.isoformat(),
                     "markets": {mid: {"written": bool(r.get("written")), "snapshot_id": r.get("snapshot_id")} for mid, r in market_results.items()},
                 }, sort_keys=True), flush=True)
-            elapsed_seconds = (now_fn() - iteration_started).total_seconds()
-            sleep_seconds = max(1.0, interval_minutes * 60.0 - elapsed_seconds)
+            sleep_now = now_fn()
+            elapsed_seconds = (sleep_now - iteration_started).total_seconds()
+            default_sleep_seconds = max(1.0, interval_minutes * 60.0 - elapsed_seconds)
+            sleep_plan = adaptive_loop_sleep_seconds(
+                market_results if not status["paused"] else {},
+                now=sleep_now,
+                default_sleep_seconds=default_sleep_seconds,
+            )
+            sleep_seconds = sleep_plan["sleep_seconds"]
             status["last_sleep_seconds"] = round(sleep_seconds, 1)
+            status["last_sleep_reason"] = sleep_plan["reason"]
+            status["next_due_at"] = sleep_plan["next_due_at"]
             write_loop_status(status)
             if max_iterations is not None and status["iterations"] >= max_iterations:
                 return status

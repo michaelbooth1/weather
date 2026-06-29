@@ -62,6 +62,27 @@ class TestSettlementLedger(unittest.TestCase):
         self.assertEqual(result["status"], "mismatch")
         self.assertEqual(result["winning_markets"][0]["label"], "88-89F")
 
+    def test_polymarket_reconciliation_marks_missing_local_settlement_as_candidate(self):
+        event = {
+            "closed": True,
+            "markets": [
+                {
+                    "groupItemTitle": "88-89F",
+                    "closed": True,
+                    "umaResolutionStatus": "resolved",
+                    "outcomes": json.dumps(["Yes", "No"]),
+                    "outcomePrices": json.dumps(["1", "0"]),
+                },
+            ],
+        }
+
+        result = reconcile_with_polymarket(event, None, {})
+
+        self.assertEqual(result["status"], "local_missing")
+        self.assertEqual(result["polymarket_repair_candidate"]["status"], "available")
+        self.assertEqual(result["polymarket_repair_candidate"]["winning_band"], "88-89F")
+        self.assertFalse(result["polymarket_repair_candidate"]["promotion_countable"])
+
 
 if __name__ == "__main__":
     unittest.main()

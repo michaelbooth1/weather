@@ -186,6 +186,111 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(written["last_snapshot_id"], "atlanta-snapshot")
         self.assertEqual(written["last_market_in_progress"], None)
 
+    def test_run_loop_sleeps_until_earliest_due_market_after_due_preflight_skip(self):
+        current = datetime(2026, 6, 14, 12, 0)
+        specs = [
+            SimpleNamespace(id="toronto"),
+            SimpleNamespace(id="nyc"),
+        ]
+
+        due_rows = [
+            (
+                specs[0],
+                {
+                    "market_id": "toronto",
+                    "event_slug": "highest-temperature-in-toronto-on-june-14-2026",
+                    "target_date": "2026-06-14",
+                    "due": False,
+                    "next_due_at": "2026-06-14T12:02:00",
+                    "last_snapshot_at": "2026-06-14T11:52:00",
+                },
+            ),
+            (
+                specs[1],
+                {
+                    "market_id": "nyc",
+                    "event_slug": "highest-temperature-in-nyc-on-june-14-2026",
+                    "target_date": "2026-06-14",
+                    "due": False,
+                    "next_due_at": "2026-06-14T12:08:00",
+                    "last_snapshot_at": "2026-06-14T11:58:00",
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "all_specs", lambda: specs), \
+                    patch.object(tracker, "ordered_snapshot_specs", lambda specs, target_date=None, now=None: due_rows), \
+                    patch.object(tracker, "current_fleet_collection_health", lambda **kwargs: {"summary": {}, "markets": []}):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=1,
+                    sleep_fn=lambda _seconds: None,
+                    now_fn=lambda: current,
+                )
+                written = json.loads((tmp_path / "loop_status.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(status["last_sleep_seconds"], 120.0)
+        self.assertEqual(status["last_sleep_reason"], "next_due_at")
+        self.assertEqual(status["next_due_at"], "2026-06-14T12:02:00")
+        self.assertEqual(written["last_sleep_seconds"], 120.0)
+        self.assertEqual(written["last_sleep_reason"], "next_due_at")
+
+    def test_run_loop_records_per_market_cadence_attribution_for_skipped_due_drift(self):
+        base = datetime(2026, 6, 14, 12, 0)
+        after_due = datetime(2026, 6, 14, 12, 3)
+        times = [base, base, after_due, after_due, after_due, after_due, after_due]
+
+        def now_fn():
+            if times:
+                return times.pop(0)
+            return after_due
+
+        specs = [SimpleNamespace(id="toronto")]
+        due_rows = [
+            (
+                specs[0],
+                {
+                    "market_id": "toronto",
+                    "event_slug": "highest-temperature-in-toronto-on-june-14-2026",
+                    "target_date": "2026-06-14",
+                    "due": False,
+                    "next_due_at": "2026-06-14T12:02:00",
+                    "last_snapshot_at": "2026-06-14T11:52:00",
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json"), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "all_specs", lambda: specs), \
+                    patch.object(tracker, "ordered_snapshot_specs", lambda specs, target_date=None, now=None: due_rows), \
+                    patch.object(tracker, "current_fleet_collection_health", lambda **kwargs: {"summary": {}, "markets": []}):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=1,
+                    sleep_fn=lambda _seconds: None,
+                    now_fn=now_fn,
+                )
+                diagnostic = json.loads((tmp_path / "diagnostics.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+
+        cadence = status["last_cadence_attribution"]
+        market = cadence["markets"]["toronto"]
+        self.assertEqual(cadence["skipped_not_due_count"], 1)
+        self.assertEqual(cadence["skipped_after_due_count"], 1)
+        self.assertEqual(cadence["skipped_after_due_markets"], ["toronto"])
+        self.assertTrue(market["became_due_during_iteration"])
+        self.assertTrue(market["skipped_after_due_at_completion"])
+        self.assertEqual(market["due_lag_seconds_at_completion"], 60.0)
+        self.assertEqual(diagnostic["cadence_attribution"]["skipped_after_due_count"], 1)
+
     def test_run_loop_passes_explicit_target_date_to_capture_fn(self):
         current = datetime(2026, 6, 14, 12, 0)
         calls = []

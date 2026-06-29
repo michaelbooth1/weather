@@ -358,6 +358,34 @@ def _top_reason_counts(summary, limit=8):
     return dict(sorted(counts.items(), key=lambda item: (-int(item[1] or 0), item[0]))[:limit])
 
 
+def _summary_int(value, default=0):
+    try:
+        if value in (None, ""):
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _last_nonzero_scored_tick(summary):
+    summary = summary or {}
+    candidate = summary.get("last_nonzero_scored_tick")
+    if isinstance(candidate, dict) and _summary_int(candidate.get("row_count")) > 0:
+        return candidate
+    cumulative_rows = _summary_int(summary.get("cumulative_order_rows"))
+    latest_rows = _summary_int(summary.get("latest_tick_rows"))
+    if cumulative_rows > 0 and latest_rows <= 0:
+        return {
+            "row_count": cumulative_rows,
+            "filled_order_count": summary.get("cumulative_filled_orders"),
+            "generated_at_utc": None,
+            "captured_at_utc": None,
+            "reason_counts": _top_reason_counts(summary),
+            "basis": "cumulative_order_rows_fallback",
+        }
+    return {}
+
+
 def _reason_count(summary, code):
     try:
         return int((summary.get("reason_counts") or {}).get(code) or 0)
@@ -505,6 +533,10 @@ def taker_artifact_health(
 
     summary = summary or (_read_run_summary(latest) if latest else {})
     evidence_starvation = evidence_starvation or classify_taker_evidence_starvation(summary)
+    last_nonzero_scored_tick = (
+        evidence_starvation.get("last_nonzero_scored_tick")
+        or _last_nonzero_scored_tick(summary)
+    )
     latest_tick_scoring_liveness = {
         "status": evidence_starvation.get("status"),
         "classification": evidence_starvation.get("classification"),
@@ -517,6 +549,7 @@ def taker_artifact_health(
         "latest_tick_counterfactual_would_buy_count": evidence_starvation.get(
             "latest_tick_counterfactual_would_buy_count"
         ),
+        "last_nonzero_scored_tick": last_nonzero_scored_tick,
         "first_failing_gate": evidence_starvation.get("first_failing_gate"),
         "first_failing_dependency": evidence_starvation.get("first_failing_dependency"),
         "remediation_command": evidence_starvation.get("remediation_command"),
@@ -532,6 +565,11 @@ def taker_artifact_health(
         "latest_fill_count": summary.get("cumulative_filled_orders") or summary.get("latest_tick_filled_orders"),
         "latest_top_reason_counts": _top_reason_counts(summary),
         "latest_tick_rows": evidence_starvation.get("latest_tick_rows"),
+        "last_nonzero_scored_tick_rows": last_nonzero_scored_tick.get("row_count"),
+        "last_nonzero_scored_tick_filled_orders": last_nonzero_scored_tick.get("filled_order_count"),
+        "last_nonzero_scored_tick_generated_at_utc": last_nonzero_scored_tick.get("generated_at_utc"),
+        "last_nonzero_scored_tick_captured_at_utc": last_nonzero_scored_tick.get("captured_at_utc"),
+        "last_nonzero_scored_tick": last_nonzero_scored_tick,
         "latest_tick_counterfactual_rows": evidence_starvation.get("latest_tick_counterfactual_rows"),
         "latest_tick_counterfactual_would_buy_count": evidence_starvation.get(
             "latest_tick_counterfactual_would_buy_count"

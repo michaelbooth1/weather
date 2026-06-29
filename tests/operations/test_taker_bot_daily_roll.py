@@ -550,6 +550,11 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(payload["latest_tick_scoring_liveness"]["status"], "BLOCK")
         self.assertEqual(payload["latest_tick_scoring_liveness"]["countability_status"], "NON_COUNTABLE")
         self.assertEqual(payload["operator_report"]["latest_tick_rows"], 0)
+        self.assertEqual(payload["operator_report"]["last_nonzero_scored_tick_rows"], 19184)
+        self.assertEqual(
+            payload["latest_tick_scoring_liveness"]["last_nonzero_scored_tick"]["basis"],
+            "cumulative_order_rows_fallback",
+        )
         self.assertEqual(payload["operator_report"]["first_failing_dependency"], "clob")
         self.assertEqual(
             payload["remediation_command"],
