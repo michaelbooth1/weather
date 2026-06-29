@@ -39,9 +39,14 @@ def export_backup(
 ):
     source_root = Path(source_root)
     backup_root = Path(backup_root)
-    manifest = build_backup_manifest(source_root)
+    # Reuse the prior manifest's sha256 for source files whose size+mtime are
+    # unchanged, so we do not re-hash ~200k files every run (the reason the
+    # backup never completed). Changed files are re-hashed and re-copied.
+    prior_manifest, _ = load_backup_manifest(backup_root)
+    manifest = build_backup_manifest(source_root, prior_manifest=prior_manifest)
     latest_root = backup_root / LATEST_DIR
     copied = 0
+    copied_paths = set()
     skipped = 0
     preflight = None
     if not dry_run:
@@ -69,18 +74,28 @@ def export_backup(
         if dry_run:
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if _same_backup_file(dst, entry["sha256"]):
+        if backup_copy_unchanged(dst, entry):
             skipped += 1
             continue
         shutil.copy2(src, dst)
         copied += 1
+        copied_paths.add(entry["path"])
     if not dry_run:
+        # Record the backup manifest from the backed-up copies. Files copied this
+        # run are re-hashed from the destination so the entry reflects the actual
+        # backed-up bytes even if the source changed between manifest build and
+        # copy. Files that were skipped (size+mtime unchanged) are byte-identical
+        # to their source entry -- whose sha256 was itself reused from the prior
+        # manifest -- so reuse it rather than re-hashing every untouched file.
         backed_up_entries = []
         for entry in manifest["files"]:
             dst = latest_root / entry["path"]
             if not dst.exists():
                 continue
-            backed_up_entries.append(file_entry(dst, entry["path"], entry.get("classes") or []))
+            if entry["path"] in copied_paths:
+                backed_up_entries.append(file_entry(dst, entry["path"], entry.get("classes") or []))
+            else:
+                backed_up_entries.append(entry)
         manifest["files"] = backed_up_entries
         manifest["class_summaries"] = class_summaries(backed_up_entries)
         manifest["storage_class_summaries"] = summarize_storage_class_entries(backed_up_entries)

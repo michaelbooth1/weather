@@ -849,6 +849,21 @@ def build_label(
     )
     winning_markets = reconciliation.get("winning_markets") or []
     polymarket_winning_band = winning_markets[0].get("label") if winning_markets else None
+    # Render both bands in one canonical form (degree-symbol -> space, mojibake
+    # stripped, e.g. "86-87 F") so our ledger label and Polymarket's resolution
+    # label stop *appearing* to disagree when they are the same band. The numeric
+    # winning_band_value/kind fields below are unchanged, so scoring (which keys
+    # off the numerics) is unaffected; this is presentation only.
+    winning_band_label = (
+        clean_temperature_label(winning.get("label"))
+        if winning.get("label") not in (None, "")
+        else winning.get("label")
+    )
+    polymarket_winning_band = (
+        clean_temperature_label(polymarket_winning_band)
+        if polymarket_winning_band not in (None, "")
+        else polymarket_winning_band
+    )
     ledger_path = ledger_path_for_market(spec.id, ledger_root)
     material = material_coverage_grade(
         snapshot_count,
@@ -875,7 +890,7 @@ def build_label(
         "settlement_high": settlement["high"],
         "settlement_bucket": bucket,
         "settlement_unit": spec.display_unit,
-        "winning_band": winning.get("label"),
+        "winning_band": winning_band_label,
         "winning_band_kind": winning.get("kind"),
         "winning_band_value": winning.get("value"),
         "winning_band_value_hi": winning.get("value_hi"),

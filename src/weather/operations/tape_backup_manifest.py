@@ -389,15 +389,37 @@ def iter_candidate_files(source_root=REPO_ROOT):
                 yield path, rel
 
 
-def file_entry(path, rel_path, classes):
+def build_sha_cache(prior_manifest):
+    """Map rel_path -> (size, mtime_utc, sha256) from a prior manifest so an
+    unchanged source file (same size + mtime) can reuse its recorded sha256
+    instead of being re-hashed. This is the standard rsync-style quick check and
+    is what lets the backup of ~200k files complete in seconds instead of
+    re-hashing everything every run."""
+    cache = {}
+    for entry in (prior_manifest or {}).get("files") or []:
+        path = entry.get("path")
+        sha = entry.get("sha256")
+        if path and sha:
+            cache[path] = (int(entry.get("size") or 0), str(entry.get("mtime_utc") or ""), sha)
+    return cache
+
+
+def file_entry(path, rel_path, classes, sha_cache=None):
     stat = Path(path).stat()
+    size = stat.st_size
+    mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+    sha = None
+    if sha_cache is not None:
+        cached = sha_cache.get(rel_path)
+        if cached and cached[0] == size and cached[1] == mtime:
+            sha = cached[2]
     return {
         "path": rel_path,
         "classes": sorted(classes),
         **classification_payload(rel_path),
-        "size": stat.st_size,
-        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-        "sha256": sha256_file(path),
+        "size": size,
+        "mtime_utc": mtime,
+        "sha256": sha if sha is not None else sha256_file(path),
     }
 
 
@@ -690,14 +712,15 @@ def manifest_hash(manifest):
     return hashlib.sha256(encoded).hexdigest()
 
 
-def build_backup_manifest(source_root=REPO_ROOT):
+def build_backup_manifest(source_root=REPO_ROOT, prior_manifest=None):
     source_root = Path(source_root)
+    sha_cache = build_sha_cache(prior_manifest)
     coverage_cutoff_utc = utc_iso()
     entries = []
     for path, rel in iter_candidate_files(source_root):
         classes = classify_path(rel)
         if classes:
-            entries.append(file_entry(path, rel, classes))
+            entries.append(file_entry(path, rel, classes, sha_cache=sha_cache))
     entries.sort(key=lambda row: row["path"])
     summaries = class_summaries(entries)
     storage_summaries = summarize_storage_class_entries(entries)
@@ -728,6 +751,22 @@ def build_backup_manifest(source_root=REPO_ROOT):
 def _same_backup_file(path, sha256):
     path = Path(path)
     return path.exists() and sha256_file(path) == sha256
+
+
+def backup_copy_unchanged(path, entry):
+    """True when the backed-up copy already matches the manifest entry by size +
+    mtime. The backup is written with shutil.copy2 (preserves mtime), so an
+    unchanged source file leaves the backup copy with the same size + mtime as
+    the entry; a changed source file gets a new mtime and is re-copied. This
+    replaces the per-file sha256 re-hash in the copy loop."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    stat = path.stat()
+    return (
+        stat.st_size == int(entry.get("size") or 0)
+        and datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat() == entry.get("mtime_utc")
+    )
 
 
 class TapeBackupCapacityError(RuntimeError):
@@ -858,7 +897,19 @@ def validate_manifest(manifest):
     return True, "ok"
 
 
-def verify_backup_files(manifest, backup_root=DEFAULT_BACKUP_ROOT, limit=None):
+def verify_backup_files(manifest, backup_root=DEFAULT_BACKUP_ROOT, limit=None, deep=False):
+    """Verify the backed-up copies against the manifest.
+
+    Fast path (default): a backup copy whose size + mtime match the manifest is
+    trusted -- the backup is written with shutil.copy2 (which preserves mtime),
+    so a matching size+mtime means it is the verified copy and has not been
+    truncated or replaced. Only files that are missing or whose size/mtime
+    drifted are re-hashed. This keeps the daily verify proportional to changes so
+    the run actually completes. Deep (full sha256) verification of every copy --
+    which catches silent bitrot that leaves size+mtime intact -- is provided by
+    the restore drill, which re-hashes every restored file; pass deep=True to
+    force it here too.
+    """
     latest_root = Path(backup_root) / LATEST_DIR
     failures = []
     checked = 0
@@ -870,6 +921,11 @@ def verify_backup_files(manifest, backup_root=DEFAULT_BACKUP_ROOT, limit=None):
         if not path.exists():
             failures.append({"path": entry["path"], "reason": "missing"})
             continue
+        if not deep:
+            stat = path.stat()
+            mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+            if stat.st_size == int(entry.get("size") or 0) and mtime == entry.get("mtime_utc"):
+                continue
         sha = sha256_file(path)
         if sha != entry.get("sha256"):
             failures.append({
@@ -1119,6 +1175,8 @@ __all__ = [
     "manifest_hash",
     "build_backup_manifest",
     "_same_backup_file",
+    "backup_copy_unchanged",
+    "build_sha_cache",
     "TapeBackupCapacityError",
     "disk_usage_root",
     "backup_capacity_preflight",

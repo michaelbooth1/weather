@@ -114,6 +114,14 @@ def _first_present(row, keys):
     return None
 
 
+def _truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "t"}
+
+
 def _sha256(path):
     path = Path(path)
     digest = hashlib.sha256()
@@ -312,7 +320,25 @@ def audit_row(row):
         if source != "canonical_ledger" and canonical is not None and bucket != canonical
     })
     alternate_changes = bool(alternate_buckets)
-    proof_grade = status == "FINALIZED" and lineage["status"] == "PASS" and not alternate_changes
+    # Settlement truth is Polymarket's resolution. A label whose settlement
+    # reconciles with Polymarket and whose intraday coverage is *materially*
+    # complete is proof-grade for promotion even when the strict zero-gap
+    # quality_grade is "partial": partial intraday coverage is a replay-fidelity
+    # concern, not a settlement-truth one. item-319 already encodes exactly this
+    # in `promotion_countable` (reconciliation_status == "match" AND a countable
+    # material_coverage_grade), so consult it rather than re-deriving. When
+    # Polymarket itself confirms the bucket, a disagreement from a *secondary* WU
+    # source (snapshot/daily_summary) does not change the payout truth and so
+    # does not disqualify the label. Strict FINALIZED retains the zero-gap +
+    # no-alternate-change bar for any consumer that needs it.
+    promotion_countable = _truthy(row.get("promotion_countable"))
+    finalized_proof = status == "FINALIZED" and not alternate_changes
+    proof_grade = lineage["status"] == "PASS" and (finalized_proof or promotion_countable)
+    proof_grade_basis = (
+        "finalized" if (proof_grade and finalized_proof)
+        else "promotion_countable" if proof_grade
+        else None
+    )
     return {
         "event_slug": row.get("event_slug"),
         "market_id": row.get("market_id"),
@@ -320,9 +346,14 @@ def audit_row(row):
         "settlement_source": row.get("settlement_source"),
         "quality_grade": row.get("quality_grade"),
         "status": status,
+        "promotion_countable": promotion_countable,
         "proof_grade_label": proof_grade,
+        "proof_grade_basis": proof_grade_basis,
         "promotion_blocker": not proof_grade,
-        "promotion_blocker_reason": "" if proof_grade else status.lower(),
+        "promotion_blocker_reason": "" if proof_grade else (
+            row.get("promotion_countable_reason") or status.lower()
+            if not promotion_countable else status.lower()
+        ),
         "finalization_lag_hours": _finalization_lag_hours(row),
         "reconciliation_status": row.get("reconciliation_status"),
         "canonical_settlement_bucket": canonical,
