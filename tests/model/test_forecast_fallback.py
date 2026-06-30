@@ -24,7 +24,7 @@ class TestResolveForecastHigh(unittest.TestCase):
 
     def test_one_busted_source_cannot_own_the_feature(self):
         # The 2026-06-09 Toronto shape: Open-Meteo stale at 27.6 while
-        # Weather.com had already dropped to 24. OM-first served 27.6 all
+        # disabled paid-provider had already dropped to 24. OM-first served 27.6 all
         # afternoon; the median stays anchored by the sane sources.
         value, _ = self.m.resolve_forecast_high(
             {"day_max_c": 27.6},
@@ -55,7 +55,7 @@ class TestResolveForecastHigh(unittest.TestCase):
     def test_consensus_when_open_meteo_missing(self):
         value, source = self.m.resolve_forecast_high(
             {},                                  # OM down (502)
-            {"rows": [{"temp_c": 29.0}]},        # Weather.com 29
+            {"rows": [{"temp_c": 29.0}]},        # disabled paid-provider 29
             {"forecast_high_c": 30.0},           # ECCC 30
         )
         self.assertEqual(value, 29.5)            # median(29, 30)
@@ -67,7 +67,7 @@ class TestResolveForecastHigh(unittest.TestCase):
         self.assertEqual(source, "none")
 
     def test_extract_features_recovers_forecast_during_outage(self):
-        # The June-4 shape: Open-Meteo 502, ECCC/Weather.com present. The HGB
+        # The June-4 shape: Open-Meteo 502, ECCC/disabled paid-provider present. The HGB
         # must not go forecast-blind.
         sources = {
             "wu_history": {"ok": True, "data": {"rows": [

@@ -92,7 +92,7 @@ class TestHistoricalBackfillRunner(unittest.TestCase):
             self.assertFalse(state.exists())
 
     def test_output_tail_redacts_weather_api_key_query_param(self):
-        text = "failed url https://api.weather.com/v1/history?apiKey=secret123&units=e"
+        text = "failed url https://example.invalid/v1/history?apiKey=secret123&units=e"
 
         redacted = tail_text(text)
 

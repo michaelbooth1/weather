@@ -486,7 +486,7 @@ def resolution_spec_for(spec):
         "event_slug_prefix": spec.slug_prefix,
         "market_unit": spec.display_unit,
         "resolution_source_type": "wunderground_history",
-        "resolution_source_name": "Weather.com/Wunderground historical observations",
+        "resolution_source_name": "Weather Underground historical observations",
         "wu_history_id": spec.wu_history_id,
         "station_icao": spec.icao,
         "timezone": spec.timezone,
@@ -860,7 +860,8 @@ def build_label(
     band_count = int(frame["range_label"].nunique()) if "range_label" in frame else 0
     core_columns = list(CORE_PROB_COLUMNS)
     high_column = next((column for column in SNAPSHOT_HIGH_COLUMNS if column in frame), None)
-    core_columns.append(high_column or SNAPSHOT_HIGH_COLUMNS[-1])
+    if settlement["source"] in {"snapshot_high", "none"} or "sparse" in str(settlement["source"]):
+        core_columns.append(high_column or SNAPSHOT_HIGH_COLUMNS[-1])
     missing_core = missing_fraction(frame, core_columns)
     coverage = coverage_summary(captured_times(frame), interval_minutes, gap_tolerance, target_date=target_date)
     coverage_clean = bool(coverage.get("clean"))

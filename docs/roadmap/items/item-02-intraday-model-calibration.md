@@ -18,7 +18,7 @@ Detailed design (implemented 2026-05-28):
   `19 C or below`, exact `20 C` through `28 C`, and `29 C or higher`.
 - Use a non-leaky historical cap proxy during calibration until the forecast
   archive has enough multi-day history; map the learned cap weight onto the
-  live Weather.com/Open-Meteo/ECCC forecast cap in production.
+  live disabled paid-provider/Open-Meteo/ECCC forecast cap in production.
 - Write `artifacts/calibration/calibrated_weights.json` with metadata, raw and normalized
   weights, component availability, optimizer status, and metrics.
 - Write `data/wunderground/cyyz/analysis/calibration_report.md` with the

@@ -61,7 +61,7 @@ SOURCE_ROOTS = {
     "reanalysis": data_path() / "reanalysis",
 }
 SOURCE_LABELS = {
-    "wu": "Weather.com/WU primary",
+    "wu": "WU primary",
     "metar": "METAR/ASOS station",
     "swob": "ECCC SWOB station",
     "ghcnh": "NOAA GHCNh station",

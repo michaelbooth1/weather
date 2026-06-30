@@ -1,33 +1,34 @@
 # Wunderground CYYZ History Data Layer
 
 This project treats Wunderground's Toronto Pearson history page as the market's
-resolution source. The page is backed by Weather.com historical observations for
-`CYYZ:9:CA`, so the local history layer stores that data as our closest
-machine-readable proxy for settlement.
+resolution source. The local history layer stores Weather Underground-derived
+raw/hourly/daily artifacts as the closest machine-readable proxy for settlement.
+
+Paid-provider weather access is not a supported path. Do not add credentials,
+env vars, paid-provider fetch commands, or recommendations that depend on
+paid-provider access. The legacy paid-provider adapter in
+`weather.sources.wu_history` is intentionally disabled; WU collection uses the
+public Weather Underground page-backed collector with explicit provenance.
 
 ## Collection
 
-Use the collector CLI:
+The current CLI can collect, audit, rebuild, and recover local WU artifacts:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.sources.wu_history backfill --start 2026-05-20 --end 2026-05-27
+.\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto public-backfill --start 2026-06-29 --end 2026-06-29 --skip-existing
+.\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto audit
 ```
 
-For a larger backfill, use a wider date range and keep the default chunking:
-
-```powershell
-.\venv\Scripts\python.exe -m weather.sources.wu_history backfill --start 2015-01-01 --end 2026-05-27 --chunk-days 14
-```
-
-The collector fetches historical observations in chunks, writes raw daily
-payloads, rebuilds normalized hourly partitions, and derives daily summaries.
+`public-backfill` fetches the public WU history page first, derives page-backed
+history access from that response at runtime, persists source payloads, rebuilds
+normalized hourly partitions, and derives daily summaries in the existing
+schema.
 
 ## Failure Classes And Recovery
 
-Weather.com/WU history uses the baked-in public Weather.com browser key in
-`weather.sources.wu_history`. Treat that key as a known single point of failure
-for canonical settlement history: `401`/`403` means auth failure, `429` means
-rate limit, and `5xx`/timeouts are transient provider failures.
+The old paid-provider backfill path is disabled before network access. A missing
+WU day is a public collection/data-availability problem, not a credential
+problem.
 
 Backfill errors are written to `backfill_errors.jsonl` with `failure_class`.
 Only `permanent_no_data` rows (`400`/`404`) are allowed to populate
@@ -41,9 +42,8 @@ source-unavailable, repair it per market:
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto recover-unavailable
 ```
 
-Use `--dry-run` to preview recovered ranges. After repairing the key or provider
-outage, rerun the normal `backfill --skip-existing` command for the affected
-window.
+Use `--dry-run` to preview recovered ranges. After repairing public WU
+collection, rerun `public-backfill` for the affected window.
 
 ## Local Layout
 
@@ -63,7 +63,7 @@ model features. The daily CSV is the fast path for climatology and backtests.
 
 ## Core Daily Fields
 
-- `max_temp_c`: highest printed Wunderground/Weather.com observation for the day.
+- `max_temp_c`: highest printed Weather Underground observation for the day.
 - `max_temp_bucket_c`: whole-degree C bucket using half-up rounding.
 - `max_temp_times`: local times where the high appeared.
 - `has_non_hourly_rows`: whether WU returned observations away from exact hours.

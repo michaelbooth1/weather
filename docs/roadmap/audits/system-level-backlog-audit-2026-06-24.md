@@ -7,7 +7,7 @@ ROADMAP maintenance conventions.
 
 Already covered: items 20, 23, 25, 28, 64, 93, 120, 153, 164, 193, 197, 201,
 203, 208, 213, 265, and 281 cover settlement-scored evaluation, canonical
-Weather.com/Wunderground truth, source-role separation, finalization freshness,
+Weather Underground truth, source-role separation, finalization freshness,
 revision audits, and failure/backfill poisoning guards.
 
 Overlaps: item 28 owns the ledger, item 64 owns canonical-vs-supplemental source

@@ -128,7 +128,8 @@ class FeatureModelMixin:
         historical training archive contains exactly one source (Open-Meteo),
         and the median of one value is that value -- so the training-side
         construction is unchanged and the checked-in artifacts already match
-        this definition. Live, the median spans Open-Meteo, Weather.com, and
+        this definition. Live, the median spans Open-Meteo, the disabled
+        paid-provider forecast family, and
         ECCC, so no single busted source can own the feature: the 2026-06-09
         ablation replays measured Open-Meteo-first at ~zero net value (hurt 22
         of 51 days) because its stale-forecast tail (NYC 6/8, Seattle and

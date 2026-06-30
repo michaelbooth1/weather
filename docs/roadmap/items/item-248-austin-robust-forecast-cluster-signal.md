@@ -1,7 +1,7 @@
 # 248. Austin Robust Forecast-Cluster Signal [COMPLETE 2026-06-22 - ROBUST FORECAST CLUSTER HARD-SLICE GATE LIVE]
 
 Goal: Replace or cap the feature-path forecast-cluster `max()` signal so a lone warm source cannot dominate the live distribution near a settlement boundary.
-Source: 2026-06-22 Austin weather-model disagreement audit. At roughly 14:57 CDT, Weather.com was 94F, Open-Meteo was 93F, NWS was near 95F, and the global ensemble was 95.9F; the feature path converted the warmest input into a rounded 96F signal and left `96-97F` at 85.4% while independent fair value favored `94-95F`.
+Source: 2026-06-22 Austin weather-model disagreement audit. At roughly 14:57 CDT, disabled paid-provider was 94F, Open-Meteo was 93F, NWS was near 95F, and the global ensemble was 95.9F; the feature path converted the warmest input into a rounded 96F signal and left `96-97F` at 85.4% while independent fair value favored `94-95F`.
 Why this matters: The fallback path already has correlated-source clustering, but the feature model can still overreact to the maximum of a mixed forecast cluster. This creates concentrated warm-side exposure exactly when the robust center is lower and the market is closer to settlement reality.
 
 ## Design

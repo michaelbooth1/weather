@@ -30,7 +30,7 @@ follow-ons unless a stable no-key or already-authorized provider path is added.
 
 Source: `docs/roadmap/high-temperature-projection-research-audit-2026-06-20.md`,
 section 4. The model's forecast ensemble (Open-Meteo multimodel, NWS grid, ECCC
-GEM, Weather.com, global-ensemble spread) lacked ECMWF and ML-model guidance.
+GEM, disabled paid-provider, global-ensemble spread) lacked ECMWF and ML-model guidance.
 
 Why this matters: the new members are cheap and additive. They feed the existing
 `forecast_high`, `forecast_disagreement`, and per-model-delta surfaces without

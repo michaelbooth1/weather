@@ -6,7 +6,7 @@ Findings fixed:
 
 - Production feature extraction was not aligned with training cutoffs. The HGB
   and late-day paths were trained on top-of-hour historical rows, but live
-  inference could use Weather.com current/current-hour rows inside that hour.
+  inference could use disabled paid-provider current/current-hour rows inside that hour.
   `src/toronto_model.py` now builds feature, late-day, and analog inputs from
   WU history rows at or before the active cutoff hour.
 - The analog search used latest live/current observations instead of the

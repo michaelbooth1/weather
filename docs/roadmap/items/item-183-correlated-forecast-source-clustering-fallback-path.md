@@ -40,7 +40,7 @@ unweighted empirical fallback path instead of five independent forecast bumps.
 The cluster uses the median forecast-family high as the consensus center, a
 source-count cap of 2.40 once at least two forecast sources are present, and the
 existing forecast-agreement spread penalty. Independent observation signals
-remain separate: WU history, Weather.com current, same-day current max, ECCC
+remain separate: WU history, disabled paid-provider current, same-day current max, ECCC
 SWOB, and METAR keep their own signal slots. The calibrated empirical path
 remains minimal and unchanged.
 

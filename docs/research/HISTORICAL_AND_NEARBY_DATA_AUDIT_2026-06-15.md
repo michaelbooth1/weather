@@ -34,7 +34,7 @@ in `src.weather.reporting.data_quality.data_layer_audit`.
 - Remaining Toronto GHCNh composite target-season misses are the 2013 handoff
   window plus current NOAA source lag.
 - US pre-2015 WU full-year coverage remains about 49.8-49.9%. The latest
-  alternate Weather.com ID probe found no available ICAO:9:US candidates, so
+  alternate disabled paid-provider ID probe found no available ICAO:9:US candidates, so
   this should be treated as provider-unavailable for full-year training. Target
   season WU is strong enough for high-temperature markets.
 - Reanalysis has no normalizable raw-only days after the current refresh; the

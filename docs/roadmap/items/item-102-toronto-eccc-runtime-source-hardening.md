@@ -23,7 +23,7 @@ reporting boundaries:
    `TorontoHighTempModel.fetch_eccc_swob`) in a focused test with mocked SWOB
    directory/XML responses. This locks in the runtime import boundary that
    previously missed `ThreadPoolExecutor`.
-2. Keep ECCC SWOB, ECCC citypage, ECCC GEM, Weather.com, and Open-Meteo as
+2. Keep ECCC SWOB, ECCC citypage, ECCC GEM, disabled paid-provider, and Open-Meteo as
    separate source adapter rows. A failure in one source must produce its own
    `source_status` row and must not collapse the rest of the fetch group.
 3. Add a Toronto official-source health gate over `eccc_swob`,
@@ -43,7 +43,7 @@ reporting boundaries:
 - [x] Fix the missing runtime import/dependency boundary that produces
   `ThreadPoolExecutor` failures.
 - [x] Add per-source failure isolation so ECCC SWOB, ECCC citypage, ECCC GEM,
-  Weather.com, and Open-Meteo failures are reported separately and do not mask
+  disabled paid-provider, and Open-Meteo failures are reported separately and do not mask
   each other.
 - [x] Add Toronto source-health gates that warn when official Canadian sources
   are missing during late-day lock-in windows.

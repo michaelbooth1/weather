@@ -7,7 +7,7 @@ weather-market model, compare them against what the repo already uses, smoke-tes
 the promising ones, and record candidates worth integrating.
 
 This audit is intentionally source-first. It does not promote any source into
-settlement truth. WU/Weather.com history remains the settlement proxy unless a
+settlement truth. WU history remains the settlement proxy unless a
 market's resolution source changes. Candidate sources should be treated as
 features, redundancy checks, source-trust signals, or backfill aids.
 
@@ -17,8 +17,8 @@ Implemented live or historical sources already present in the repo:
 
 | Source | Current use | Main files |
 | :--- | :--- | :--- |
-| Weather.com/Wunderground history | Settlement-proxy intraday and daily highs | `weather.model.model_sources`, `weather.sources.wu_history` |
-| Weather.com current and hourly forecast | Live current max/current temp and one forecast source | `weather.model.model_sources` |
+| Weather Underground history | Settlement-proxy intraday and daily highs | `weather.model.model_sources`, `weather.sources.wu_history` |
+| disabled paid-provider current and hourly forecast | Live current max/current temp and one forecast source | `weather.model.model_sources` |
 | ECCC citypage | Toronto current/forecast high | `weather.model.model_sources` |
 | ECCC SWOB | Toronto official leading observation stream | `weather.model.model_sources`, `weather.sources.eccc_swob_history` |
 | AviationWeather METAR | Live airport observation | `weather.model.model_sources` |
@@ -120,7 +120,7 @@ forecast complement to the current NWS hourly period feed.
 
 Recommended features:
 
-- NWS maxTemperature vs WU/Weather.com/Open-Meteo consensus.
+- NWS maxTemperature vs WU/Open-Meteo consensus.
 - Raw-grid sky/POP/QPF after cutoff.
 - Dewpoint/RH and wind changes by valid period.
 - Weather hazard/precip interruption flags.

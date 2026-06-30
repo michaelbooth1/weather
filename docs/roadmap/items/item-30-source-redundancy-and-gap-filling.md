@@ -35,7 +35,7 @@ gaps remain unfillable.
 
 Forecast result: feature schema `toronto_feature_store_v0.4` adds
 `forecast_source_count` and `forecast_disagreement`. Live extraction computes
-them from Weather.com, Open-Meteo, ECCC, NWS hourly (US markets), and the
+them from disabled paid-provider, Open-Meteo, ECCC, NWS hourly (US markets), and the
 Open-Meteo GFS global ensemble where available; `src.forecast_archive`,
 `src.snapshot_tracker`, `src.forecast_tracker`, and the forecast-error
 component now carry those sources forward. The new forecast ensemble CSV
@@ -50,7 +50,7 @@ redundant fill days, 0 all-source missing days, and 17 disagreement alerts. The
 history has not printed yet; they are not promoted to clean WU settlements.
 Forecast ensemble extraction covered 8,193 snapshots; almost every F-market
 snapshot has two forecast sources, while Toronto averages 2.13 sources because
-ECCC joins Weather.com/Open-Meteo.
+ECCC joins disabled paid-provider/Open-Meteo.
 
 Truth-table upgrade (2026-06-15): `source_truth_daily.csv` now uses
 `daily_source_truth_v0.2`, adds consensus high/bucket/source-count fields, and

@@ -351,7 +351,7 @@ def detect_observation_triggers(previous, current, support_margin=DEFAULT_SUPPOR
             current,
             previous,
             observed_at=cur_values.get("wu_history_latest_time"),
-            detail="WU/Weather.com printed high increased.",
+            detail="WU printed high increased.",
         ))
 
     boundary_sources = (

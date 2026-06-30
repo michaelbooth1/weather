@@ -13,7 +13,7 @@ through the full engine -- feature extraction, forecast fallbacks, live
 signals, floors, pull, lock-in -- this measures what the source is worth to
 the system, not to one component slot.
 
-``all_forecasts`` knocks out Open-Meteo + Weather.com + ECCC citypage together:
+``all_forecasts`` knocks out Open-Meteo + disabled paid-provider + ECCC citypage together:
 single-source forecast ablations are cushioned by fallback to the remaining
 forecasts, so the combined variant is the honest value of the forecast layer.
 

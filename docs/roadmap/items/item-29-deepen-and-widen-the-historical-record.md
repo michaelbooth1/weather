@@ -60,7 +60,7 @@ What changed:
   fleet command can drive all item-29 historical sources.
 - `src.historical_backfill_plan` writes a compact market/source execution queue
   to `data/backtest/historical_backfill_plan.json`; WU queue items include
-  `--continue-on-error` so Weather.com source-unavailable dates are logged
+  `--continue-on-error` so disabled paid-provider source-unavailable dates are logged
   rather than killing the whole fleet run. Chunk-level accounting remains
   available with `--queue-mode chunk` and is written to
   `data/backtest/historical_backfill_plan_chunks.json` for audit detail.
@@ -75,12 +75,12 @@ What changed:
 Current WU depth snapshot from the audit:
 
 - Toronto/CYYZ: 1982-01-01 through 2026-06-06, all months except
-  Weather.com 2020-11-08, which returned HTTP 400 and is now logged in
+  disabled paid-provider 2020-11-08, which returned HTTP 400 and is now logged in
   `data/wunderground/cyyz/backfill_errors.jsonl` as source-unavailable.
 - Atlanta/KATL: 2015-01-01 through 2026-06-06, all months except
-  Weather.com 2020-11-08, now logged as source-unavailable.
+  disabled paid-provider 2020-11-08, now logged as source-unavailable.
 - NYC/KLGA, Austin/KAUS, Chicago/KORD: 2015-01-01 through 2026-06-06,
-  all months except Weather.com 2020-11-08, now logged per station as
+  all months except disabled paid-provider 2020-11-08, now logged per station as
   source-unavailable. Manifest audits passed after the wide rebuilds.
 - Dallas/KDAL, Denver/KBKF, Houston/KHOU, Los Angeles/KLAX, San Francisco/KSFO,
   Seattle/KSEA: 2019-05-01 through 2025-06-30, May-June only, plus
@@ -104,9 +104,9 @@ Current WU depth snapshot from the audit:
   across all 11 US markets. Expected target-season days per market: 840.
 - NYC, Atlanta, Chicago, Dallas, Denver, Houston, Los Angeles, Miami,
   San Francisco, and Seattle each have 832 covered days plus 8
-  source-unavailable Weather.com days (`2000-06-01` through `2000-06-08`),
+  source-unavailable disabled paid-provider days (`2000-06-01` through `2000-06-08`),
   with seasonal `missing=0`.
-- Austin has 748 covered days plus 92 source-unavailable Weather.com days
+- Austin has 748 covered days plus 92 source-unavailable disabled paid-provider days
   (`1995-05-20` through `1995-06-30`, `1996-05-20` through `1996-06-30`,
   and `2000-06-01` through `2000-06-08`), with seasonal `missing=0`.
 - WU manifest audits passed after the widened rebuilds: 178 partitions for
@@ -119,7 +119,7 @@ coverage into `data/backtest/data_layer_audit.json` and
 `data/backtest/data_layer_audit_report.md`. The audit confirms WU is now strong
 for the target season: Toronto has `1312/1326` May-20-through-June-30 days
 covered from 1995-2026, most F markets have `1313/1326`, and Austin has
-`1229/1326` because early Weather.com days are source-unavailable. The
+`1229/1326` because early disabled paid-provider days are source-unavailable. The
 remaining historical gap is redundant-source depth, not primary WU: normalized
 METAR daily coverage is only `13/1326` target-season days per market, while
 GHCNh and reanalysis are about `36%` target-season coverage. Next Item 29 work
@@ -150,10 +150,10 @@ Validation results for this increment:
   run; wrote 466,582 hourly rows and 16,167 daily rows, and restored manifest
   audit consistency.
 - `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources ghcnh --max-items 132 --fail-fast`: recorded 30 GHCNh successes, exposed a Windows file-lock rebuild failure, then after the shared writer retry fix the resumed runner recorded the remaining 102 successes; regenerated plan has GHCNh queue=0.
-- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets atlanta --max-items 1 --fail-fast`: classified Atlanta/KATL 2020-11-08 as Weather.com HTTP 400 source-unavailable.
-- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets nyc --max-items 1 --fail-fast`: widened NYC/KLGA WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market nyc audit` passed across 138 partitions.
-- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets austin --max-items 1 --fail-fast`: widened Austin/KAUS WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market austin audit` passed across 138 partitions.
-- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets chicago --max-items 1 --fail-fast`: widened Chicago/KORD WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as Weather.com HTTP 400 source-unavailable; `src.wu_history --market chicago audit` passed across 138 partitions.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets atlanta --max-items 1 --fail-fast`: classified Atlanta/KATL 2020-11-08 as disabled paid-provider HTTP 400 source-unavailable.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets nyc --max-items 1 --fail-fast`: widened NYC/KLGA WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as disabled paid-provider HTTP 400 source-unavailable; `src.wu_history --market nyc audit` passed across 138 partitions.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets austin --max-items 1 --fail-fast`: widened Austin/KAUS WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as disabled paid-provider HTTP 400 source-unavailable; `src.wu_history --market austin audit` passed across 138 partitions.
+- `.\venv\Scripts\python.exe -m src.historical_backfill_runner run --sources wu --markets chicago --max-items 1 --fail-fast`: widened Chicago/KORD WU to 2015-01-01 through 2026-06-06, then a one-day retry classified 2020-11-08 as disabled paid-provider HTTP 400 source-unavailable; `src.wu_history --market chicago audit` passed across 138 partitions.
 - `.\venv\Scripts\python.exe -m src.wu_history --market nyc coverage --start 2019-05-01 --end 2019-05-05`: reported 5 expected days, 0 missing, unit F.
 - `.\venv\Scripts\python.exe backfill_all.py --markets nyc --sources wu,ghcnh,reanalysis --start 2026-06-01 --end 2026-06-02 --dry-run`: printed resumable commands for all three sources.
 - `.\venv\Scripts\python.exe backfill_all.py --markets nyc,austin,chicago,dallas,denver,houston,los-angeles,san-francisco,seattle --sources wu --start 2026-06-01 --end 2026-06-02 --between-markets-sleep 0 --sleep 0.1`: fetched and rebuilt the current-window WU gaps for the 9 US markets missing those days.
@@ -179,7 +179,7 @@ Item 29 policy plan
 `queue_count=0`. It records `source_limited_count=11` WU market/source windows
 against the June 14 alternate-ID probe
 (`data/backtest/source_alternate_probe_2026-06-14.json`), which found zero
-available US Weather.com ICAO:9:US alternate candidates.
+available US disabled paid-provider ICAO:9:US alternate candidates.
 
 The closure probes removed the last effort-limited gaps. The reanalysis batch
 runner succeeded for all 12 market items
@@ -191,15 +191,15 @@ re-enter the executable backfill queue. The WU runner retried Toronto's 60-day
 2000 gap and the five remaining 2020-11-08 gaps
 (`data/backtest/item29_historical_backfill_toronto_wu_run_summary.json`,
 `data/backtest/item29_historical_backfill_policy_wu_run_summary.json`);
-Weather.com returned HTTP 400 and those dates are logged as
-source-unavailable. WU and runner error artifacts now redact Weather.com
+disabled paid-provider returned HTTP 400 and those dates are logged as
+source-unavailable. WU and runner error artifacts now redact disabled paid-provider
 `apiKey` query strings before writing summaries.
 
 The final dashboard
 (`data/backtest/item29_historical_coverage_2000_2026_dashboard.md`) keeps the
 residual source limits explicit: GHCNh is OK for all 12 canonical markets; WU
 is OK for Toronto and WARN for the 11 US markets only because pre-2015
-full-year Weather.com history is provider-unavailable; reanalysis is WARN for
+full-year disabled paid-provider history is provider-unavailable; reanalysis is WARN for
 the latest three archive-lag days per market while freshness remains inside
 SLA; and the old Toronto supplemental GHCNh row remains non-canonical evidence
 tracked by the supplemental-station items. The training archive is therefore

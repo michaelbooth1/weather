@@ -28,7 +28,6 @@ from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
     SourceProviderRateLimited,
-    SourceSettlementAuthFailure,
     fetch_source_group as run_source_adapter_group,
     retry_after_seconds as response_retry_after_seconds,
 )
@@ -36,7 +35,7 @@ from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
     TARGET_DATE,
     TARGET_DATE_STR,
-    OPTIONAL_WEATHER_PROVIDER_API_KEY,
+    PAID_WEATHER_PROVIDER_ACCESS_ENABLED,
     CYYZ_HISTORY_ID,
     CYYZ_ICAO,
     PEARSON_LAT,
@@ -84,6 +83,22 @@ TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_gem": "official_gridded_forecast",
 }
 TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
+
+
+def paid_weather_provider_disabled(source_family, fallback_source=None):
+    if PAID_WEATHER_PROVIDER_ACCESS_ENABLED:
+        return
+    raise SourceExpectedUnavailable(
+        (
+            "Paid-provider weather endpoints are disabled by project policy; "
+            "use free/local sources or a public WU collector."
+        ),
+        status="paid_provider_disabled",
+        source_family=source_family,
+        degradation_state="paid_provider_disabled",
+        cache_status="expected_unavailable",
+        fallback_source=fallback_source,
+    )
 
 
 def _is_retryable(exc):
@@ -440,11 +455,12 @@ class SourceFetchMixin:
         return "stale_cache"
 
     def source_degradation_state(self, status, item):
-        if status in {"expected_current_day_unavailable", "expected_unavailable"}:
+        if status in {"expected_current_day_unavailable", "expected_unavailable", "paid_provider_disabled"}:
             return status
         if item.get("degradation_state") in {
             "expected_current_day_unavailable",
             "expected_unavailable",
+            "paid_provider_disabled",
             "settlement_source_auth_failure",
         }:
             return item.get("degradation_state")
@@ -502,6 +518,7 @@ class SourceFetchMixin:
                 if failure_status in {
                     "expected_current_day_unavailable",
                     "expected_unavailable",
+                    "paid_provider_disabled",
                     "settlement_source_auth_failure",
                 }:
                     output = {
@@ -517,7 +534,11 @@ class SourceFetchMixin:
                     output.update(self.source_metadata_fields(item, name))
                     output["ttl_minutes"] = ttl_minutes
                     output["degradation_state"] = self.source_degradation_state(failure_status, item)
-                    if failure_status in {"expected_current_day_unavailable", "expected_unavailable"}:
+                    if failure_status in {
+                        "expected_current_day_unavailable",
+                        "expected_unavailable",
+                        "paid_provider_disabled",
+                    }:
                         output.setdefault("cache_status", "expected_unavailable")
                         output.setdefault("fallback_source", item.get("fallback_source") or "current_live_sources")
                     else:
@@ -718,12 +739,12 @@ class SourceFetchMixin:
         }
 
     def fetch_wu_history(self):
-        url = (
-            "https://api.weather.com/v1/location/"
-            f"{self.spec.wu_history_id}/observations/historical.json"
+        paid_weather_provider_disabled(
+            "wu_history",
+            fallback_source="metar,eccc_swob,current_high_ledger",
         )
+        url = "paid_provider_legacy_endpoint_disabled"
         params = {
-            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "units": self.spec.wu_units,
             "startDate": self.target_date_str,
             "endDate": self.target_date_str,
@@ -733,11 +754,6 @@ class SourceFetchMixin:
         except requests.HTTPError as exc:
             response = getattr(exc, "response", None)
             status_code = getattr(response, "status_code", None)
-            if status_code in {401, 403}:
-                raise SourceSettlementAuthFailure(
-                    "WU history settlement source authentication failed",
-                    http_status=status_code,
-                ) from exc
             today = datetime.now(self.spec.tz).date()
             if status_code == 400 and self.target_date == today:
                 raise SourceExpectedUnavailable(
@@ -796,9 +812,12 @@ class SourceFetchMixin:
         }
 
     def fetch_wu_current(self):
-        url = "https://api.weather.com/v3/wx/observations/current"
+        paid_weather_provider_disabled(
+            "wu_current",
+            fallback_source="metar,eccc_swob,current_high_ledger",
+        )
+        url = "paid_provider_legacy_endpoint_disabled"
         data = self.get_json(url, {
-            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "language": "en-US",
             "units": self.spec.wu_units,
             "format": "json",
@@ -1041,9 +1060,12 @@ class SourceFetchMixin:
         }
 
     def fetch_weather_com_forecast(self):
-        url = "https://api.weather.com/v3/wx/forecast/hourly/15day"
+        paid_weather_provider_disabled(
+            "weather_forecast",
+            fallback_source="open_meteo,nws_hourly,eccc_citypage,eccc_gem,global_ensemble",
+        )
+        url = "paid_provider_legacy_endpoint_disabled"
         payload = self.get_json(url, {
-            "apiKey": OPTIONAL_WEATHER_PROVIDER_API_KEY,
             "geocode": f"{self.spec.lat},{self.spec.lon}",
             "units": self.spec.wu_units,
             "language": "en-US",

@@ -227,7 +227,7 @@ class PresentationMixin:
             "Model role": "Confirms table trend",
         })
         rows.append({
-            "Source": f"Weather.com current {self.spec.icao}",
+            "Source": f"disabled paid-provider current {self.spec.icao}",
             "Signal": "Current / max since 7 AM",
             "Value": (
                 f"{self.format_temp(self.row_temp_native(current))} / "
@@ -339,7 +339,7 @@ class PresentationMixin:
             impact_key: impact,
         })
 
-        # 2. Weather.com Current
+        # 2. Disabled paid-provider current
         curr_temp = self.row_temp_native(current)
         max_7am = self.row_max_since_7am_native(current)
         if max_7am is not None and max_7am >= kb:
@@ -349,7 +349,7 @@ class PresentationMixin:
         else:
             impact = f"Current temp is {self.format_temp(curr_temp)}; max since 7 AM is {self.format_temp(max_7am)}."
         rows.append({
-            "Question": "What does Weather.com current say?",
+            "Question": "What does disabled paid-provider current say?",
             "Answer": f"current {self.format_temp(curr_temp)}, max since 7 AM {self.format_temp(max_7am)}",
             impact_key: impact,
         })
@@ -371,7 +371,7 @@ class PresentationMixin:
             impact_key: impact,
         })
 
-        # 4. Weather.com hourly forecast
+        # 4. Disabled paid-provider hourly forecast
         fc_max = self.max_row_temp(weather_forecast.get("rows"))
         if fc_max is not None and fc_max >= kb:
             impact = f"Bullish. Hourly forecast projects high will reach {self.format_temp(fc_max)}."
@@ -380,7 +380,7 @@ class PresentationMixin:
         else:
             impact = "No forecast data available."
         rows.append({
-            "Question": "What does Weather.com forecast for remaining hours?",
+            "Question": "What does disabled paid-provider forecast say?",
             "Answer": self.format_temp(fc_max),
             impact_key: impact,
         })
@@ -610,7 +610,7 @@ class PresentationMixin:
         weather = self.source_data(sources, "weather_forecast")
         for row in weather.get("rows", [])[:8]:
             rows.append({
-                "Source": "Weather.com forecast",
+                "Source": "disabled paid-provider forecast",
                 "Time": row.get("time"),
                 "Temp": self.format_temp(self.row_temp_native(row)),
                 "Cloud": self.format_pct_number(row.get("cloud_cover")),
@@ -644,7 +644,7 @@ class PresentationMixin:
                 f"that Wunderground history prints for {self.spec.icao} on {self.config.display_date}."
             ),
             (
-                "Wunderground/Weather.com history rows are the strongest input; "
+                "Weather Underground history rows are the strongest input; "
                 "current max fields are discounted until they appear in history."
             ),
         ]
@@ -667,7 +667,7 @@ class PresentationMixin:
         current_max_native = self.row_max_since_7am_native(current)
         if current_max_native is not None:
             notes.append(
-                "Weather.com current says max since 7 AM is "
+                "Disabled paid-provider current says max since 7 AM is "
                 f"{self.format_temp(current_max_native)}."
             )
         eccc_max_native = self.row_same_day_max_native(eccc)
@@ -680,7 +680,7 @@ class PresentationMixin:
         forecast_max = self.max_row_temp(weather_forecast.get("rows"))
         if forecast_max is not None:
             notes.append(
-                f"Weather.com remaining-hour forecast max is {self.format_temp(forecast_max)}."
+                f"Disabled paid-provider remaining-hour forecast max is {self.format_temp(forecast_max)}."
             )
         eccc_forecast_native = self.row_forecast_high_native(eccc_city)
         if eccc_forecast_native is not None:

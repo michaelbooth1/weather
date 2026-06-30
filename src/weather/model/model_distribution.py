@@ -1306,7 +1306,7 @@ class DistributionMixin(DistributionSignalMixin):
             else:
                 peak_cluster_weight = min(1.6, max(1.1, forecast_cluster_signal[1]))
             return [
-                # Current max, Weather.com forecast, and Open-Meteo often share
+                # Current max, forecast sources, and Open-Meteo often share
                 # the same weather-family signal. Treat them as one robust peak
                 # cluster so a lone warm source cannot own the feature path.
                 (peak_cluster_signal, peak_cluster_weight, 1.0),
@@ -1335,7 +1335,7 @@ class DistributionMixin(DistributionSignalMixin):
         return [
             (history_max, self.history_signal_weight(hour), 0.65),
             (current_temp, 1.8, 0.65),
-            # Weather.com's 24h max can include the previous afternoon. For this
+            # The disabled paid-provider 24h max can include the previous afternoon. For this
             # market we only use the same-day max-since-7am field.
             (current_max_live_signal, 2.3, 0.75),
             (

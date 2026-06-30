@@ -18,7 +18,7 @@ when market prices are absent.
 The same audit found an early-hour source-state risk. Before noon, seven
 markets had `wu_max_since_7am` at least 10 native degrees above WU history high
 while the same-day high had not caught up yet: Austin, Dallas, Denver, Houston,
-Miami, San Francisco, and Seattle. That field can carry Weather.com current
+Miami, San Francisco, and Seattle. That field can carry disabled paid-provider current
 page state across the pre-7 AM boundary or otherwise disagree sharply with
 same-day WU history. It should remain a weak/support signal until validated as
 same-day evidence, not an implicit early-day floor.

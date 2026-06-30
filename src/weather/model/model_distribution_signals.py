@@ -254,7 +254,7 @@ class DistributionSignalMixin:
         return max(LIVE_FLOOR_HEDGE_MIN, min(LIVE_FLOOR_HEDGE_MAX, 1.0 - catchup_probability))
 
     def validated_current_max_floor_bucket(self, current_max, history_max=None):
-        """Market-scoped hard floor for Weather.com max-since-7am validation.
+        """Market-scoped hard floor for validated WU current max-since-7am data.
 
         Most markets still use max-since-7am only as soft support because the
         pinned validation found over-final rows. Miami's pinned source check had

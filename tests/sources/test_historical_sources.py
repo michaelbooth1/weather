@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 import requests
 from weather.collection.historical_backfill_plan import build_plan, split_ranges
-from weather.market.market_registry import NYC, TORONTO
+from weather.market.market_registry import ATLANTA, NYC, TORONTO
 from weather.sources.historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
 from weather.sources.forecast_history import (
     FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
@@ -34,8 +34,11 @@ from weather.sources.supplemental_stations import SupplementalStationRegistryErr
 from weather.sources.wu_history import (
     AUTH_FAILURE,
     PERMANENT_NO_DATA,
+    PUBLIC_WU_HISTORY_SOURCE,
     RATE_LIMITED,
     TRANSIENT_FAILURE,
+    PublicWundergroundHistoryClient,
+    WundergroundHistoryClient,
     WundergroundHistoryStore,
     normalize_observation,
     redact_api_key,
@@ -106,21 +109,28 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(manifest["quarantined_raw_observations"], 1)
         self.assertEqual(manifest["quarantined_raw_observation_dates"], {"2024-05-20": 1})
         self.assertEqual(manifest["quarantined_raw_observation_samples"][0]["temp"], 160)
-        self.assertEqual(manifest["source_details"]["api_params"]["apiKey"], "<disabled>")
+        self.assertEqual(
+            manifest["source_details"]["public_collector"]["credential_policy"],
+            "no_user_paid_provider_credentials",
+        )
+        self.assertEqual(
+            manifest["source_details"]["legacy_paid_provider"]["credential_policy"],
+            "paid_provider_disabled_by_project_policy",
+        )
 
-    def test_wu_manifest_does_not_write_partial_api_key_material(self):
-        with tempfile.TemporaryDirectory() as tmp, patch(
-            "weather.sources.wu_history.DEFAULT_WU_PROVIDER_API_KEY",
-            "super-secret-key",
-        ):
+    def test_wu_manifest_does_not_write_credential_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
             store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
             store.write_manifest(hourly_records=[], daily_rows=[], quarantined_records=[])
 
             manifest = json.loads((Path(tmp) / "manifest.json").read_text())
 
-        self.assertEqual(manifest["source_details"]["api_params"]["apiKey"], "<disabled>")
-        self.assertNotIn("super", json.dumps(manifest))
-        self.assertNotIn("secret", json.dumps(manifest))
+        rendered = json.dumps(manifest)
+        self.assertNotIn("secret", rendered.lower())
+        self.assertEqual(
+            manifest["source_details"]["public_collector"]["credential_policy"],
+            "no_user_paid_provider_credentials",
+        )
 
     def test_provider_key_defaults_are_not_embedded_in_source(self):
         for path in [
@@ -132,6 +142,111 @@ class TestHistoricalSources(unittest.TestCase):
                 re.search(r"PROVIDER_API_KEY\s*=\s*['\"][A-Za-z0-9_-]{16,}['\"]", text),
                 f"{path} must not embed a provider key literal",
             )
+
+    def test_wu_paid_provider_fetch_path_is_disabled(self):
+        client = WundergroundHistoryClient(history_id="KLGA:9:US")
+
+        with self.assertRaisesRegex(RuntimeError, "disabled by project policy"):
+            client.fetch_range(date(2026, 6, 29), date(2026, 6, 29))
+
+    def test_public_wu_client_fetches_page_backed_history_without_stored_credential(self):
+        class FakeResponse:
+            def __init__(self, *, text="", payload=None, status_code=200):
+                self.text = text
+                self._payload = payload
+                self.status_code = status_code
+                self.url = "https://example.invalid/redacted"
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise requests.HTTPError(f"{self.status_code} Client Error")
+
+            def json(self):
+                return self._payload
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, **kwargs):
+                self.calls.append((url, kwargs))
+                if len(self.calls) == 1:
+                    return FakeResponse(
+                        text=(
+                            'window.__state__={"u":"https://public.example.test/v3/current?'
+                            'apiKey=page-token&format=json"}'
+                        )
+                    )
+                return FakeResponse(payload={
+                    "metadata": {"location_id": "KATL:9:US", "units": "e"},
+                    "observations": [{
+                        "key": "KATL",
+                        "obs_id": "KATL",
+                        "obs_name": "Atlanta",
+                        "valid_time_gmt": int(datetime(2026, 6, 29, 16, 52, tzinfo=timezone.utc).timestamp()),
+                        "temp": 94,
+                        "dewPt": 72,
+                        "heat_index": 99,
+                        "wc": 94,
+                    }],
+                })
+
+        session = FakeSession()
+        client = PublicWundergroundHistoryClient(
+            history_id="KATL:9:US",
+            station_icao="KATL",
+            units="e",
+            session=session,
+            page_base="https://www.wunderground.com",
+        )
+
+        payload = client.fetch_range(date(2026, 6, 29), date(2026, 6, 29))
+
+        self.assertEqual(len(payload["observations"]), 1)
+        self.assertEqual(payload["_wu_collector_provenance"]["source"], PUBLIC_WU_HISTORY_SOURCE)
+        self.assertEqual(session.calls[0][0], "https://www.wunderground.com/history/daily/KATL/date/2026-6-29")
+        self.assertEqual(session.calls[1][0], "https://public.example.test/v1/location/KATL:9:US/observations/historical.json")
+        self.assertEqual(session.calls[1][1]["params"]["apiKey"], "page-token")
+        self.assertEqual(session.calls[1][1]["params"]["units"], "e")
+        self.assertEqual(session.calls[1][1]["params"]["startDate"], "20260629")
+
+    def test_public_wu_payload_writes_public_provenance_and_rebuilds_daily(self):
+        payload = {
+            "_wu_collector_provenance": {
+                "source": PUBLIC_WU_HISTORY_SOURCE,
+                "source_page_url": "https://www.wunderground.com/history/daily/KATL/date/2026-6-29",
+                "endpoint_kind": "public_wu_page_backed_history",
+                "retrieved_at_utc": "2026-06-30T00:00:00+00:00",
+            },
+            "observations": [{
+                "key": "KATL",
+                "obs_id": "KATL",
+                "obs_name": "Atlanta",
+                "valid_time_gmt": int(datetime(2026, 6, 29, 16, 52, tzinfo=timezone.utc).timestamp()),
+                "temp": 94,
+                "dewPt": 72,
+                "heat_index": 99,
+                "wc": 94,
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(
+                tmp,
+                station_icao="KATL",
+                station_name="Atlanta",
+                history_id="KATL:9:US",
+                tz=ATLANTA.tz,
+                unit="F",
+                wu_units="e",
+            )
+            store.write_payload(date(2026, 6, 29), date(2026, 6, 29), payload)
+            _hourly, daily = store.rebuild_normalized_files()
+            raw = json.loads((Path(tmp) / "raw" / "year=2026" / "month=06" / "2026-06-29.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(raw["source"], PUBLIC_WU_HISTORY_SOURCE)
+        self.assertEqual(raw["endpoint_kind"], "public_wu_page_backed_history")
+        self.assertEqual(daily[0]["local_date"], "2026-06-29")
+        self.assertEqual(daily[0]["max_temp_bucket"], 94)
 
     def test_fleet_coverage_includes_all_item29_sources(self):
         payload = fleet_coverage(["nyc"])
@@ -489,8 +604,7 @@ class TestHistoricalSources(unittest.TestCase):
     def test_wu_error_redaction_removes_api_key_from_url_text(self):
         text = (
             "400 Client Error for url: "
-            "https://api.weather.com/v1/location/KLGA:9:US/observations/"
-            "historical.json?apiKey=secret123&units=e"
+            "https://example.invalid/history?apiKey=secret123&units=e"
         )
 
         redacted = redact_api_key(text)
@@ -501,7 +615,7 @@ class TestHistoricalSources(unittest.TestCase):
     def wu_http_error(self, status_code):
         response = requests.Response()
         response.status_code = status_code
-        response.url = f"https://api.weather.com/v1/location/KLGA:9:US/history?apiKey=secret123&status={status_code}"
+        response.url = f"https://example.invalid/history?apiKey=secret123&status={status_code}"
         error = requests.HTTPError(f"{status_code} Client Error")
         error.response = response
         return error

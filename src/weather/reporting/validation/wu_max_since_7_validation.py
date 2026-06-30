@@ -1,4 +1,4 @@
-"""Validate captured Weather.com max-since-7 AM against settlement labels."""
+"""Validate captured WU current max-since-7 AM against settlement labels."""
 from __future__ import annotations
 
 import argparse
@@ -452,7 +452,7 @@ def write_json(payload, path=DEFAULT_JSON_OUT):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Validate captured Weather.com max-since-7 AM against settlement labels."
+        description="Validate captured WU current max-since-7 AM against settlement labels."
     )
     parser.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))

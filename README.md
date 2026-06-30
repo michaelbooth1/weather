@@ -1,10 +1,10 @@
 # Weather Market Platform
 
 Research, collection, model validation, and operations tooling for Polymarket
-daily high-temperature markets. The platform ingests Weather.com/Wunderground
-settlement-proxy history, live observations, forecasts, Polymarket market data,
-CLOB order books, and model artifacts, then serves probability distributions and
-operator health views in a Streamlit dashboard.
+daily high-temperature markets. The platform ingests local Weather Underground
+settlement-proxy history, free live observations, forecasts, Polymarket market
+data, CLOB order books, and model artifacts, then serves probability
+distributions and operator health views in a Streamlit dashboard.
 
 This is no longer a Toronto-only project. Toronto remains the canonical Celsius
 market, while the built-in registry also supports eleven Fahrenheit U.S.
@@ -26,11 +26,17 @@ markets:
 | `seattle` | Seattle | F | `KSEA` | `America/Los_Angeles` |
 
 Market settlement is modeled as the highest whole-degree value printed by the
-configured Weather.com/Wunderground history source for the market's local target
+configured Weather Underground history source for the market's local target
 date. Supporting sources such as METAR/ASOS, ECCC, NWS, Open-Meteo, reanalysis,
-marine context, and current Weather.com observations are signals; they are not
-hard settlement truth unless the code explicitly labels them as settlement
-evidence.
+and marine context are signals; they are not hard settlement truth unless the
+code explicitly labels them as settlement evidence.
+
+Paid-provider weather access is not a supported operating path for this repo.
+Do not add credentials, env vars, paid-provider fetch commands, or roadmap
+recommendations that depend on paid-provider access. WU settlement labels must
+come from existing local `data/wunderground/<station>/` artifacts, the public
+Weather Underground page-backed collector, or an explicit manual-override
+policy decision.
 
 ## Setup
 
@@ -129,8 +135,10 @@ Run commands from the repository root with the venv interpreter.
 ### Registry, History, And Source Data
 
 ```powershell
-# Wunderground/Weather.com settlement-proxy history.
-.\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto backfill --start 2015-01-01 --end 2026-06-22 --skip-existing --continue-on-error
+# Weather Underground settlement-proxy history.
+# The legacy paid-provider backfill path is disabled. Use public-backfill for
+# public WU page-backed collection, then audit/rebuild/recover as needed.
+.\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto public-backfill --start 2026-06-29 --end 2026-06-29 --skip-existing
 .\venv\Scripts\python.exe -m weather.sources.wu_history --market toronto audit
 
 # METAR/ASOS redundant observation history.
@@ -393,7 +401,7 @@ and new docs should use `python -m weather...`.
 - [docs/operations/OPERATIONS_DESIGN.md](docs/operations/OPERATIONS_DESIGN.md) -
   durable loop, dashboard, and Task Scheduler design.
 - [docs/operations/HISTORY_DATA_DESIGN.md](docs/operations/HISTORY_DATA_DESIGN.md) -
-  Wunderground/Weather.com history data layer.
+  Weather Underground history data layer.
 - [docs/operations/config-inventory.md](docs/operations/config-inventory.md) -
   config ownership and freshness policy.
 - [docs/operations/path-policy.md](docs/operations/path-policy.md) -

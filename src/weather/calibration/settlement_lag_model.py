@@ -1,6 +1,6 @@
 """WU settlement lag and catch-up model.
 
-WU/Weather.com history is the settlement proxy. Other observations can lead it,
+Weather Underground history is the settlement proxy. Other observations can lead it,
 but they should only move probability through a learned catch-up rate, never a
 hard floor. This module trains that catch-up artifact from historical METAR vs
 WU hourly rows and from settled snapshot tapes that include SWOB/current highs.

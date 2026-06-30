@@ -1,6 +1,6 @@
 # 265. Settlement-Source Revision And Truth-Label Audit [COMPLETE 2026-06-23 - TRUTH-LABEL AUDIT AND BLOCKER LIVE]
 
-Goal: measure how often WU final high, Weather.com max-since-7, market
+Goal: measure how often WU final high, disabled paid-provider max-since-7, market
 resolution labels, and the canonical settlement ledger disagree or revise after
 close.
 
@@ -12,7 +12,7 @@ post-close truth-label audit that compares source revisions and finalization
 lag across the sources used to score promotion and trading evidence.
 
 Why this matters: promotion gates, backtests, and taker PnL all depend on the
-truth label. If a source revises after close, if WU final and Weather.com
+truth label. If a source revises after close, if WU final and disabled paid-provider
 max-since-7 diverge, or if a manual override hides disagreement, the system can
 learn a false edge or reject a valid signal.
 
@@ -27,7 +27,7 @@ learn a false edge or reject a valid signal.
 3. Classify each label as `PROVISIONAL`, `FINALIZED`, `SOURCE_STALE`,
    `SOURCE_REVISION`, `SOURCE_DISAGREEMENT`, `MANUAL_OVERRIDE`, or
    `UNRECONCILED`.
-4. Compare WU final high, Weather.com max-since-7, settlement-normalized live
+4. Compare WU final high, disabled paid-provider max-since-7, settlement-normalized live
    high, canonical ledger label, and market resolution label after the
    finalization window.
 5. Rescore affected backtest/trading rows under alternate plausible labels
@@ -64,7 +64,7 @@ Completed on 2026-06-23:
   `UNRECONCILED`; records finalization lag by market/date; records source
   bucket disagreements; and stores raw lineage hashes or explicit
   missing-payload reasons for WU daily summary, snapshot tape, settlement
-  ledger, Weather.com max-since-7, and market resolution evidence.
+  ledger, disabled paid-provider max-since-7, and market resolution evidence.
 - Alternate-label sensitivity now marks rows where another plausible source
   bucket would change the result, and the target-date gate blocks
   promotion-grade/trading evidence when settled target dates have provisional,

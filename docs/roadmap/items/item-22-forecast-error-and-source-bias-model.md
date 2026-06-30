@@ -2,7 +2,7 @@
 
 Goal: replace heuristic forecast caps/floors with learned error distributions.
 
-- [x] Score Weather.com, Open-Meteo, and ECCC forecast archives by horizon,
+- [x] Score disabled paid-provider, Open-Meteo, and ECCC forecast archives by horizon,
   source, time of day, wind/cloud regime, and target-season window.
 - [x] Learn source-specific bias, MAE/RMSE, and tail miss rates against WU final
   highs.
@@ -20,7 +20,7 @@ artifact-backed forecast component. `src/forecast_error_model.py` now trains
 `data/backtest/forecast_error_report.md` from the historical Open-Meteo daily
 forecast archive plus settled snapshot forecast tapes. It learns source-level
 observed-minus-forecast bias, MAE/RMSE, within-1 C rate, and >=2 C tail miss
-rates for Open-Meteo, Weather.com, and ECCC city-page forecasts. Live inference
+rates for Open-Meteo, disabled paid-provider, and ECCC city-page forecasts. Live inference
 loads the artifact in `src/toronto_model.py`, and `src/model_distribution.py`
 uses the learned forecast-error distribution in the existing `forecast_cap`
 component slot so calibrated empirical weights remain compatible while the

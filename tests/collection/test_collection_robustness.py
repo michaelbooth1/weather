@@ -573,14 +573,14 @@ class TestLoopHealth(unittest.TestCase):
 
 class TestSourceStatusRedaction(unittest.TestCase):
     def test_sensitive_query_detector_allows_redacted_values_only(self):
-        raw = "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+        raw = "https://example.invalid/v1/history?apiKey=secret123&units=e"
         redacted = redact_sensitive_url_parts(raw)
 
         self.assertTrue(has_unredacted_sensitive_url_parts(raw))
         self.assertFalse(has_unredacted_sensitive_url_parts(redacted))
 
     def test_sensitive_query_detector_treats_empty_values_as_unredacted(self):
-        raw = "https://api.weather.com/v1/history?apiKey=&units=e"
+        raw = "https://example.invalid/v1/history?apiKey=&units=e"
         redacted = redact_sensitive_url_parts(raw)
 
         self.assertTrue(has_unredacted_sensitive_url_parts(raw))
@@ -598,10 +598,10 @@ class TestSourceStatusRedaction(unittest.TestCase):
                         "status": "failed",
                         "error": (
                             "400 Client Error for url: "
-                            "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+                            "https://example.invalid/v1/history?apiKey=secret123&units=e"
                         ),
                         "data": {
-                            "url": "https://api.weather.com/v1/history?apiKey=secret123&units=e",
+                            "url": "https://example.invalid/v1/history?apiKey=secret123&units=e",
                             "rows": [],
                         },
                     }
@@ -628,10 +628,10 @@ class TestSourceStatusRedaction(unittest.TestCase):
                         "status": "failed",
                         "error": (
                             "400 Client Error for url: "
-                            "https://api.weather.com/v1/history?apiKey=&units=e"
+                            "https://example.invalid/v1/history?apiKey=&units=e"
                         ),
                         "data": {
-                            "url": "https://api.weather.com/v1/history?apiKey=&units=e",
+                            "url": "https://example.invalid/v1/history?apiKey=&units=e",
                             "rows": [],
                         },
                     }
@@ -668,7 +668,7 @@ class TestSourceStatusRedaction(unittest.TestCase):
                         "fetched_at": "2026-06-27T01:00:00-04:00",
                         "error": (
                             "400 Client Error for url: "
-                            "https://api.weather.com/v1/history?apiKey=secret123&units=e"
+                            "https://example.invalid/v1/history?apiKey=secret123&units=e"
                         ),
                     }
                 ]

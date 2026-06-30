@@ -3,10 +3,10 @@
 Goal: learn how Wunderground history catches up to physical observations and
 when non-resolution sources should move probability.
 
-- [x] Measure lag between SWOB/METAR/Weather.com current highs and WU history
+- [x] Measure lag between SWOB/METAR/disabled paid-provider current highs and WU history
   printed highs across historical and captured days.
 - [x] Estimate probability that WU will later print a bucket already observed
-  by SWOB or current Weather.com.
+  by SWOB or current disabled paid-provider.
 - [x] Measure end-of-day and next-day WU revision frequency.
 - [x] Replace ad-hoc soft floors with a learned catch-up probability curve.
 - [x] Keep a hard floor only for WU history itself.
@@ -17,7 +17,7 @@ probabilities without repeating the v0.4.8 hard-floor bug.
 Codex implementation status (2026-05-31): complete for the item-23 scope.
 `src/settlement_lag_model.py` now trains `artifacts/calibration/settlement_lag_model.json` and
 `data/backtest/settlement_lag_report.md` from historical METAR/WU hourly rows
-plus settled snapshot tapes containing SWOB and Weather.com current highs. The
+plus settled snapshot tapes containing SWOB and disabled paid-provider current highs. The
 artifact learns catch-up rates by source, cutoff hour, and source-minus-WU
 bucket gap, and WU revision-up rates by cutoff hour. `src/toronto_model.py`
 loads the artifact, and `src/model_distribution.py` uses it when SWOB leads WU:
@@ -34,7 +34,7 @@ Validation results:
 - Training produced 9045 lag/revision rows: 369 non-resolution lead rows and
   8676 WU revision rows. Global catch-up was 63.7%; source-level rates were
   99.3% for SWOB on the tiny settled snapshot sample, 66.5% for historical
-  METAR leads, and 40.9% for Weather.com current highs.
+  METAR leads, and 40.9% for disabled paid-provider current highs.
 - WU revision-up rates now show the expected intraday decay: about 91.9% at
   10:00, 55.7% at 14:00, 16.3% at 16:00, and 0.3% at 20:00.
 - A full-suite regression initially caught over-suppression of the WU floor

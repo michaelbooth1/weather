@@ -1055,8 +1055,8 @@ class TestMarketMakingRun(unittest.TestCase):
                         "latency_ms": "10",
                         "payload_hash": "def",
                         "row_count": "0",
-                        "source_url": "https://api.weather.com/v1/history?apiKey=&units=e",
-                        "error": "403 Client Error for url: https://api.weather.com/v1/history?apiKey=&units=e",
+                        "source_url": "https://example.invalid/v1/history?apiKey=&units=e",
+                        "error": "403 Client Error for url: https://example.invalid/v1/history?apiKey=&units=e",
                     },
                 ],
             )

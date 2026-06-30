@@ -6,7 +6,7 @@ learned morning skepticism), who is right -- the forecast, the model, or the
 market?
 
 For each settled day, at one or more morning cutoffs, it captures:
-  * the forecast high per source (Open-Meteo / Weather.com / ECCC) and consensus,
+  * the forecast high per source (Open-Meteo / disabled paid-provider / ECCC) and consensus,
   * the model's and market's probability of *reaching* the forecast, and the
     model's / market's median bucket,
   * the realized WU settlement,

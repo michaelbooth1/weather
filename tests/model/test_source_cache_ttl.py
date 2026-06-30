@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from weather.model.model_sources import request_with_retries
+from weather.model.source_adapters import SourceExpectedUnavailable
 import weather.model.toronto_model as toronto_model
 from weather.model.toronto_model import TorontoHighTempModel
 
@@ -446,25 +447,23 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertIn("max_air_temp_pst1hr", payload["raw_payload"]["files"][0]["text"])
         self.assertEqual(payload["raw_payload"]["skipped_missing_files"], ["2026-06-19-2300-CYYZ-MAN-swob.xml"])
 
-    def test_wu_current_carries_raw_payload_for_observation_sidecar(self):
+    def test_wu_current_paid_provider_path_is_disabled_before_network(self):
         model = TorontoHighTempModel(target_date="2026-06-24", market_id="atlanta")
-        raw = {
-            "validTimeLocal": "2026-06-24T10:00:00-0400",
-            "temperature": 82,
-            "temperatureMax24Hour": 84,
-            "temperatureMaxSince7Am": 83,
-            "temperatureDewPoint": 70,
-            "relativeHumidity": 66,
-            "cloudCover": 25,
-            "wxPhraseLong": "Partly Cloudy",
-            "windSpeed": 8,
-        }
-        model.get_json = lambda _url, _params: raw
+        called = False
 
-        payload = model.fetch_wu_current()
+        def fail_get_json(_url, _params):
+            nonlocal called
+            called = True
+            raise AssertionError("disabled paid-provider path must not call get_json")
 
-        self.assertEqual(payload["temp_native"], 82)
-        self.assertEqual(payload["raw_payload"], raw)
+        model.get_json = fail_get_json
+
+        with self.assertRaises(SourceExpectedUnavailable) as raised:
+            model.fetch_wu_current()
+
+        self.assertFalse(called)
+        self.assertEqual(raised.exception.status, "paid_provider_disabled")
+        self.assertEqual(raised.exception.cache_status, "expected_unavailable")
 
     def test_metar_carries_raw_payload_for_observation_sidecar(self):
         model = TorontoHighTempModel(target_date="2026-06-24", market_id="atlanta")

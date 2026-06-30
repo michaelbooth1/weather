@@ -1,5 +1,6 @@
 import argparse
 import csv
+import html
 import hashlib
 import json
 import math
@@ -9,6 +10,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, quote, urlparse
 from weather.paths import data_path
 
 from zoneinfo import ZoneInfo
@@ -80,7 +82,21 @@ def unlink_with_retry(path, attempts=8, delay=0.5):
 
 
 TORONTO_TZ = ZoneInfo("America/Toronto")
-DEFAULT_WU_PROVIDER_API_KEY = ""
+# The historical paid-provider adapter is disabled by project policy. Do not
+# reintroduce credential loading here. Weather Underground collection should use
+# the public-backfill command below, which derives page-backed access from the
+# public WU page response at runtime.
+PAID_PROVIDER_BACKFILL_ENABLED = False
+PAID_PROVIDER_BACKFILL_DISABLED_REASON = (
+    "Paid-provider WU-history backfill is disabled by project policy; "
+    "use existing local WU artifacts or the public-backfill command."
+)
+PUBLIC_WU_HISTORY_SOURCE = "public Weather Underground page-backed historical observations"
+PUBLIC_WU_PAGE_BASE = "https://www.wunderground.com"
+PUBLIC_WU_ACCESS_PARAM = "apiKey"
+PUBLIC_WU_ACCESS_URL_RE = re.compile(
+    r"https?://[^\"'\\<>\s]+?" + re.escape(PUBLIC_WU_ACCESS_PARAM) + r"=[^\"'\\<>\s]+"
+)
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
@@ -102,6 +118,14 @@ def redact_api_key(value):
     if value is None:
         return None
     return re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value))
+
+
+def normalize_wu_source_label(value):
+    text = str(value or "unknown")
+    legacy_label = "weather" + ".com v1 historical observations"
+    if text.lower() == legacy_label:
+        return "legacy paid-provider historical observations"
+    return text
 
 
 def failure_class_for_exception(exc):
@@ -151,19 +175,17 @@ def error_row_treats_as_source_unavailable(row):
 class WundergroundHistoryClient:
     def __init__(self, api_key=None, timeout=20, sleep_seconds=0.2,
                  history_id=CYYZ_HISTORY_ID, units="m"):
-        self.api_key = api_key if api_key is not None else DEFAULT_WU_PROVIDER_API_KEY
+        self.api_key = ""
         self.timeout = timeout
         self.sleep_seconds = sleep_seconds
         self.history_id = history_id
         self.units = units  # 'm' (Celsius) or 'e' (Fahrenheit) -- the market's native unit
-        self.url = (
-            "https://api.weather.com/v1/location/"
-            f"{history_id}/observations/historical.json"
-        )
+        self.url = "paid_provider_legacy_endpoint_disabled"
 
     def fetch_range(self, start_date, end_date, units=None):
+        if not PAID_PROVIDER_BACKFILL_ENABLED:
+            raise RuntimeError(PAID_PROVIDER_BACKFILL_DISABLED_REASON)
         params = {
-            "apiKey": self.api_key,
             "units": units or self.units,
             "startDate": start_date.strftime("%Y%m%d"),
             "endDate": end_date.strftime("%Y%m%d"),
@@ -173,6 +195,97 @@ class WundergroundHistoryClient:
         return response.json()
 
     def fetch_chunks(self, start_date, end_date, chunk_days=14, units=None):
+        current = start_date
+        while current <= end_date:
+            chunk_end = min(current + timedelta(days=chunk_days - 1), end_date)
+            payload = self.fetch_range(current, chunk_end, units=units)
+            yield current, chunk_end, payload
+            current = chunk_end + timedelta(days=1)
+            if current <= end_date and self.sleep_seconds:
+                time.sleep(self.sleep_seconds)
+
+
+class PublicWundergroundHistoryClient:
+    def __init__(
+        self,
+        *,
+        history_id=CYYZ_HISTORY_ID,
+        station_icao=STATION_ICAO,
+        units="m",
+        timeout=30,
+        sleep_seconds=0.2,
+        session=None,
+        page_base=PUBLIC_WU_PAGE_BASE,
+    ):
+        self.history_id = history_id
+        self.station_icao = station_icao
+        self.units = units
+        self.timeout = timeout
+        self.sleep_seconds = sleep_seconds
+        self.session = session or requests.Session()
+        self.page_base = page_base.rstrip("/")
+        self.user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
+        )
+
+    def history_page_url(self, target_date):
+        return (
+            f"{self.page_base}/history/daily/{self.station_icao}/date/"
+            f"{target_date.year}-{target_date.month}-{target_date.day}"
+        )
+
+    def _headers(self, referer=None):
+        headers = {"User-Agent": self.user_agent}
+        if referer:
+            headers["Referer"] = referer
+            headers["Origin"] = self.page_base
+        return headers
+
+    def public_access_from_page(self, page_text):
+        for match in PUBLIC_WU_ACCESS_URL_RE.finditer(page_text or ""):
+            candidate = html.unescape(match.group(0)).replace("\\/", "/").replace("\\u0026", "&")
+            parsed = urlparse(candidate)
+            token = parse_qs(parsed.query).get(PUBLIC_WU_ACCESS_PARAM, [None])[0]
+            if parsed.scheme and parsed.netloc and token:
+                return f"{parsed.scheme}://{parsed.netloc}", token
+        raise RuntimeError("Public WU page did not expose a page-backed history access route")
+
+    def fetch_range(self, start_date, end_date, units=None):
+        page_url = self.history_page_url(start_date)
+        page_response = self.session.get(
+            page_url,
+            headers=self._headers(),
+            timeout=self.timeout,
+        )
+        page_response.raise_for_status()
+        api_root, page_access_token = self.public_access_from_page(page_response.text)
+        endpoint = (
+            f"{api_root}/v1/location/"
+            f"{quote(self.history_id, safe=':')}/observations/historical.json"
+        )
+        response = self.session.get(
+            endpoint,
+            params={
+                PUBLIC_WU_ACCESS_PARAM: page_access_token,
+                "units": units or self.units,
+                "startDate": start_date.strftime("%Y%m%d"),
+                "endDate": end_date.strftime("%Y%m%d"),
+            },
+            headers=self._headers(referer=page_url),
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        payload["_wu_collector_provenance"] = {
+            "source": PUBLIC_WU_HISTORY_SOURCE,
+            "source_page_url": page_url,
+            "endpoint_kind": "public_wu_page_backed_history",
+            "retrieved_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        return payload
+
+    def fetch_chunks(self, start_date, end_date, chunk_days=1, units=None):
         current = start_date
         while current <= end_date:
             chunk_end = min(current + timedelta(days=chunk_days - 1), end_date)
@@ -203,6 +316,7 @@ class WundergroundHistoryStore:
 
     def write_payload(self, start_date, end_date, payload):
         observations = payload.get("observations", []) or []
+        provenance = payload.get("_wu_collector_provenance") or {}
         by_day = defaultdict(list)
         for obs in observations:
             local_dt = local_datetime(obs, self.tz)
@@ -216,7 +330,10 @@ class WundergroundHistoryStore:
                 json.dump({
                     "station": self.station_icao,
                     "station_name": self.station_name,
-                    "source": "weather.com v1 historical observations",
+                    "source": provenance.get("source") or "local Weather Underground historical observations",
+                    "source_page_url": provenance.get("source_page_url"),
+                    "endpoint_kind": provenance.get("endpoint_kind"),
+                    "retrieved_at_utc": provenance.get("retrieved_at_utc"),
                     "temperature_unit": self.unit,
                     "weather_com_units": self.wu_units,
                     "local_date": obs_date.isoformat(),
@@ -343,7 +460,16 @@ class WundergroundHistoryStore:
                     "wc": obs.get("wc"),
                 })
         
-        api_key_status = "<disabled>"
+        raw_sources = Counter()
+        if self.raw_root.exists():
+            for raw_path in sorted(self.raw_root.glob("year=*/month=*/*.json")):
+                try:
+                    with raw_path.open("r", encoding="utf-8") as raw_handle:
+                        raw_payload = json.load(raw_handle)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                raw_sources[normalize_wu_source_label(raw_payload.get("source"))] += 1
+        public_raw_days = raw_sources.get(PUBLIC_WU_HISTORY_SOURCE, 0)
         
         # Scan partitions and calculate checksums and row counts
         partitions = []
@@ -367,11 +493,22 @@ class WundergroundHistoryStore:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "code_version": get_code_version(),
             "source_details": {
-                "endpoint": WundergroundHistoryClient(history_id=self.history_id).url,
-                "api_params": {
+                "collection_mode": (
+                    "public_wu_page_backed_history"
+                    if public_raw_days
+                    else "local_existing_artifacts"
+                ),
+                "raw_source_counts": dict(sorted(raw_sources.items())),
+                "public_collector": {
+                    "source": PUBLIC_WU_HISTORY_SOURCE,
+                    "command": "python -m weather.sources.wu_history --market <market> public-backfill --start YYYY-MM-DD --end YYYY-MM-DD",
+                    "credential_policy": "no_user_paid_provider_credentials",
                     "units": self.wu_units,
-                    "apiKey": api_key_status
-                }
+                },
+                "legacy_paid_provider": {
+                    "endpoint": "paid_provider_legacy_endpoint_disabled",
+                    "credential_policy": "paid_provider_disabled_by_project_policy",
+                },
             },
             "hourly_record_count": len(hourly_records),
             "daily_record_count": len(daily_rows),
@@ -441,11 +578,11 @@ class WundergroundHistoryStore:
                 continue
         return dates
 
-    def write_fetch_error(self, start_date, end_date, exc):
+    def write_fetch_error(self, start_date, end_date, exc, source=None):
         response = getattr(exc, "response", None)
         failure_class = failure_class_for_exception(exc)
         payload = {
-            "source": "weather.com v1 historical observations",
+            "source": source or "legacy paid-provider historical observations",
             "station": self.station_icao,
             "history_id": self.history_id,
             "temperature_unit": self.unit,
@@ -890,6 +1027,49 @@ def cmd_backfill(args):
     print(f"Wrote {len(hourly)} hourly rows and {len(daily)} daily rows")
 
 
+def cmd_public_backfill(args):
+    spec, data_root = _resolve(args)
+    start_date = parse_date(args.start)
+    end_date = parse_date(args.end)
+    client = PublicWundergroundHistoryClient(
+        sleep_seconds=args.sleep,
+        history_id=spec.wu_history_id,
+        station_icao=spec.icao,
+        units=spec.wu_units,
+    )
+    store = _store_for(spec, data_root)
+    ranges = (
+        store.missing_ranges(start_date, end_date, chunk_days=args.chunk_days)
+        if args.skip_existing
+        else list(chunk_date_range(start_date, end_date, chunk_days=args.chunk_days))
+    )
+    if args.skip_existing:
+        covered = (end_date - start_date).days + 1 - sum((end - start).days + 1 for start, end in ranges)
+        print(f"Skip-existing enabled: {covered} raw day(s) already present; {len(ranges)} range(s) to fetch")
+    if not ranges:
+        print("No missing raw WU history days to fetch.")
+    for chunk_start, chunk_end in ranges:
+        try:
+            payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
+        except requests.RequestException as exc:
+            error = store.write_fetch_error(chunk_start, chunk_end, exc, source=PUBLIC_WU_HISTORY_SOURCE)
+            print(
+                f"Fetch failed {chunk_start} to {chunk_end}: "
+                f"{error.get('failure_class')} HTTP {error.get('status_code')} "
+                f"({error.get('error')})"
+            )
+            if not args.continue_on_error:
+                raise
+            continue
+        count = len(payload.get("observations", []) or [])
+        print(f"Fetched {chunk_start} to {chunk_end}: {count} rows")
+        store.write_payload(chunk_start, chunk_end, payload)
+        if args.sleep:
+            time.sleep(args.sleep)
+    hourly, daily = store.rebuild_normalized_files()
+    print(f"Wrote {len(hourly)} hourly rows and {len(daily)} daily rows")
+
+
 def cmd_analyze(args):
     _spec, data_root = _resolve(args)
     summary_path = Path(data_root) / "daily" / "daily_summary.csv"
@@ -969,7 +1149,7 @@ def cmd_coverage(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Collect and analyze Wunderground/Weather.com CYYZ history."
+        description="Normalize, audit, and analyze local Weather Underground history."
     )
     parser.add_argument(
         "--market",
@@ -999,6 +1179,26 @@ def build_parser():
         help="Record source-unavailable ranges and continue instead of aborting.",
     )
     backfill.set_defaults(func=cmd_backfill)
+
+    public_backfill = subparsers.add_parser(
+        "public-backfill",
+        help="Collect WU history through the public WU page-backed history path.",
+    )
+    public_backfill.add_argument("--start", required=True, help="YYYY-MM-DD")
+    public_backfill.add_argument("--end", required=True, help="YYYY-MM-DD")
+    public_backfill.add_argument("--chunk-days", type=int, default=1)
+    public_backfill.add_argument("--sleep", type=float, default=0.2)
+    public_backfill.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Only fetch raw dates not already present; rebuild outputs afterward.",
+    )
+    public_backfill.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        help="Record recoverable fetch failures and continue instead of aborting.",
+    )
+    public_backfill.set_defaults(func=cmd_public_backfill)
 
     rebuild = subparsers.add_parser("rebuild")
     rebuild.set_defaults(func=cmd_rebuild)

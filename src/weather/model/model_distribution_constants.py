@@ -94,7 +94,7 @@ BUCKET_TRANSITION_BLEND_MAX = 0.12
 
 # --- Live-observed floors ---------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall
-# for hours. Non-resolution observations (SWOB, Weather.com current, METAR) can
+# for hours. Non-resolution observations (SWOB, METAR, ASOS) can
 # lead it, so a higher observed bucket suppresses mass below it -- but ONLY as a
 # hedged floor sized by the learned WU catch-up rate for that source
 # (settlement_lag_model), clamped so it can never become a hard settlement
@@ -112,7 +112,7 @@ METAR_LIVE_SIGNAL_SIGMA = 0.90
 WU_FLOOR_LIVE_SUPPORT_MIN_RESIDUAL = 0.001
 
 # --- Current-max boundary over-lock guard ----------------------------------
-# WU/Weather.com max-since-7am is support evidence outside validated markets:
+# WU same-day max support evidence outside validated markets:
 # it can imply the final high may have reached at least that bucket, but when
 # WU history is still one bucket lower and official observations do not confirm
 # the higher bucket, it must not become exact-band lock-in by itself.

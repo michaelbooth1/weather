@@ -180,7 +180,7 @@ def classify_source_limited_items(items, backtest_root=DEFAULT_BACKTEST_ROOT):
     source_limited = []
     executable = []
     wu_unavailable_reason = (
-        "pre-2015 US Weather.com full-history gap is provider-unavailable; "
+        "pre-2015 US paid-provider full-history gap is provider-unavailable; "
         "alternate-ID probe found no available ICAO:9:US candidates"
     )
     for item in items:

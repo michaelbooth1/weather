@@ -29,7 +29,7 @@ class FakeWuHistoryModel(SourceFetchMixin):
     def get_json(self, _url, _params):
         response = requests.Response()
         response.status_code = self.status_code
-        response.url = "https://api.weather.com/v1/location/history"
+        response.url = "https://example.invalid/legacy-paid-provider/history"
         error = requests.HTTPError(f"{self.status_code} Client Error")
         error.response = response
         raise error
@@ -50,7 +50,7 @@ def write_rows(path, rows):
         writer.writerows(rows)
 
 
-def test_current_day_wu_history_400_is_expected_degradation_for_toronto_and_us_ids():
+def test_wu_history_paid_provider_path_is_expected_unavailable_for_all_ids():
     for history_id in ("CYYZ:9:CA", "KATL:9:US"):
         model = FakeWuHistoryModel(history_id)
 
@@ -62,14 +62,14 @@ def test_current_day_wu_history_400_is_expected_degradation_for_toronto_and_us_i
         blended = model.blend_with_last_good({name: payload})
 
         row = blended["wu_history"]
-        assert payload["status"] == "expected_current_day_unavailable"
-        assert payload["http_status"] == 400
-        assert payload["fallback_source"] == "wu_current,metar,eccc_swob,current_high_ledger"
-        assert row["status"] == "expected_current_day_unavailable"
-        assert row["degradation_state"] == "expected_current_day_unavailable"
+        assert payload["status"] == "paid_provider_disabled"
+        assert payload.get("http_status") is None
+        assert payload["fallback_source"] == "metar,eccc_swob,current_high_ledger"
+        assert row["status"] == "paid_provider_disabled"
+        assert row["degradation_state"] == "paid_provider_disabled"
         assert row["cache_status"] == "expected_unavailable"
         assert not row["ok"]
-        assert row["fallback_source"] == "wu_current,metar,eccc_swob,current_high_ledger"
+        assert row["fallback_source"] == "metar,eccc_swob,current_high_ledger"
 
 
 def test_expected_current_day_wu_history_source_status_is_not_failed(tmp_path):
@@ -110,7 +110,7 @@ def test_expected_current_day_wu_history_source_status_is_not_failed(tmp_path):
     assert family["source_details"][0]["fallback_source"] == "wu_current,metar,eccc_swob,current_high_ledger"
 
 
-def test_wu_history_auth_failure_is_typed_and_not_cached_as_expected_unavailable():
+def test_wu_history_paid_provider_disablement_is_not_cached_as_success():
     model = FakeWuHistoryModel("KATL:9:US", status_code=403)
 
     name, payload = fetch_source(
@@ -121,10 +121,10 @@ def test_wu_history_auth_failure_is_typed_and_not_cached_as_expected_unavailable
     blended = model.blend_with_last_good({name: payload})
 
     row = blended["wu_history"]
-    assert payload["status"] == "settlement_source_auth_failure"
-    assert payload["http_status"] == 403
-    assert row["status"] == "settlement_source_auth_failure"
-    assert row["degradation_state"] == "settlement_source_auth_failure"
-    assert row["cache_status"] == "auth_failure"
+    assert payload["status"] == "paid_provider_disabled"
+    assert payload.get("http_status") is None
+    assert row["status"] == "paid_provider_disabled"
+    assert row["degradation_state"] == "paid_provider_disabled"
+    assert row["cache_status"] == "expected_unavailable"
     assert row["source_family"] == "wu_history"
     assert not row["ok"]

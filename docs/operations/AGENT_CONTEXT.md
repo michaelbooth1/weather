@@ -35,14 +35,20 @@ benchmark constraints, not solved problems.
 ## Settlement Model
 
 The modeled resolution source is the highest whole-degree Celsius value printed
-by Wunderground/Weather.com history for Toronto Pearson CYYZ on the target date.
-The code uses half-up rounding for Celsius buckets.
+by Weather Underground history for Toronto Pearson CYYZ on the target date. The
+code uses half-up rounding for Celsius buckets.
+
+Paid-provider weather access is out of scope. Do not add credentials, env vars,
+paid-provider fetch commands, or recommendations that depend on paid-provider
+access. WU settlement labels must come from existing local WU artifacts, a
+public Weather Underground page-backed collector, or an explicit manual-override
+policy decision.
 
 Important distinction:
 
 - Wunderground history (`wu_history`) is the settlement proxy and can create a
   hard observed floor.
-- ECCC SWOB, METAR, Weather.com current, Open-Meteo, and forecasts are useful
+- ECCC SWOB, METAR, Open-Meteo, NWS, and ECCC forecasts are useful
   signals, but they are not the settlement source. Do not let them force a hard
   final bucket unless the code is explicitly modeling a soft support signal.
 - SWOB often leads WU history, so it can suppress lower buckets softly through
@@ -99,7 +105,7 @@ Key tracked data:
 
 ```text
 data/wunderground/cyyz/
-  hourly/               # normalized WU/Weather.com observations
+  hourly/               # normalized local WU observations
   daily/daily_summary.csv
   manifest.json
 
@@ -268,9 +274,10 @@ ad-hoc live scripts that may hit the network.
   lead versus WU, emits provenance-safe gap-fill candidates/refetch commands,
   and records forecast ensemble/disagreement features from archived forecast
   tapes. `weather.sources.metar_history` backfills registered market stations from IEM ASOS
-  into the same native-unit hourly/daily schema. Live forecast extraction now
-  includes Weather.com, Open-Meteo, ECCC where available, NWS hourly for US
-  markets, and Open-Meteo GFS global ensemble.
+  into the same native-unit hourly/daily schema. Live forecast extraction should
+  rely on Open-Meteo, ECCC where available, NWS hourly for US markets, and
+  Open-Meteo GFS global ensemble; older tapes may still carry disabled
+  paid-provider columns for replay compatibility.
 - `src/weather/calibration/model_ensemble.py` is the item-26 research harness. It reads strict
   quality-filtered settled tapes, joins future `components_long.csv` rows,
   reports standalone candidate performance by cutoff/bin type, and keeps

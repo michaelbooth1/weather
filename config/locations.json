@@ -16,7 +16,7 @@
     "core_forecast_sources_to_evaluate": [
       "settlement source history/current",
       "METAR or national obs",
-      "Weather.com forecast",
+      "free/public forecast sources",
       "Open-Meteo",
       "local national weather service where available"
     ]
@@ -1845,7 +1845,7 @@
     }
   ],
   "event_metadata": {
-    "last_refreshed_at_utc": "2026-06-29T22:00:02.051853+00:00",
+    "last_refreshed_at_utc": "2026-06-30T16:00:03.837916+00:00",
     "path": "config/location_market_events.json",
     "schema_version": "location_market_events_v0.1"
   }

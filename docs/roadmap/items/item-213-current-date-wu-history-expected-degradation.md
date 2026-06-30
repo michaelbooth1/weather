@@ -39,7 +39,7 @@ know when this is an expected current-date limitation and degrade cleanly to
 ## Completion Notes
 
 Added typed expected-unavailable source metadata for current-target-date
-`wu_history` 400s. `fetch_wu_history` now converts current-day Weather.com/WU
+`wu_history` 400s. `fetch_wu_history` now converts current-day WU
 history 400 responses into `expected_current_day_unavailable` with
 `http_status=400`, `cache_status=expected_unavailable`, and
 `fallback_source=wu_current,metar,eccc_swob,current_high_ledger`.

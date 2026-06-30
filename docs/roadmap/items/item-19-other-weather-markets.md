@@ -2,7 +2,7 @@
 
 - [x] Add support for other stations only after Toronto is solid.
 - [x] Define each market's resolution source and station mapping explicitly.
-- [x] Avoid assuming WU/Weather.com behavior transfers across locations.
+- [x] Avoid assuming WU behavior transfers across locations.
 
 Implementation update (2026-06-15): complete. The registry now covers the
 temperature-market expansion set with per-market station, timezone, unit,

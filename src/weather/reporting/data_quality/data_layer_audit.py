@@ -533,7 +533,7 @@ def source_inventory():
             },
             {
                 "source": "wu_current",
-                "role": "current Weather.com station reading and since-7am max",
+                "role": "disabled paid-provider current station reading and since-7am max",
                 "utility": "high; useful live support but not a hard settlement source",
             },
             {
@@ -790,7 +790,7 @@ def build_gates(snapshot, historical, thresholds=None):
         threshold="< 2 markets with settlement_source_auth_failure",
         action=(
             "Treat multi-market WU auth failures as a fail-closed settlement-source outage; "
-            "verify the Weather.com key, rerun source-status capture, and run "
+            "run or repair public WU collection, rerun source-status capture, and run "
             "`python -m weather.sources.wu_history recover-unavailable` before resuming backfills."
         ),
     ))
@@ -1076,7 +1076,7 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
                 + (f": {', '.join(auth_markets[:8])}." if auth_markets else ".")
             ),
             (
-                "Verify or rotate the Weather.com/WU key, rerun source-status capture, then run "
+                "Run or repair public WU collection, rerun source-status capture, then run "
                 "`python -m weather.sources.wu_history recover-unavailable` so any poisoned backfill "
                 "error-log rows become re-fetchable."
             ),
@@ -1186,14 +1186,14 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
     if us_wu_low and not us_wu_candidates and historical_gap_investigation.get("exists"):
         recs.append(recommendation(
             "P2",
-            "Treat pre-2015 US Weather.com history as provider-unavailable",
+            "Treat pre-2015 US WU history as provider-unavailable",
             (
                 f"{len(us_wu_low)} US markets have long-period WU coverage below 95%, and the latest alternate-ID probe "
                 "found no available ICAO:9:US candidates."
             ),
             (
                 "Keep WU as the settlement-style primary where available, but train older US years from METAR/GHCNh/reanalysis "
-                "with explicit source provenance instead of retrying known-unavailable Weather.com IDs."
+                "with explicit source provenance instead of retrying known-unavailable paid-provider IDs."
             ),
             "Items 6, 29",
         ))

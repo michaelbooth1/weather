@@ -55,10 +55,10 @@ NUMERIC_COLUMNS = [
 
 WEATHER_MARKERS = [
     ("wu_history_high_c", "WU printed high"),
-    ("wu_current_c", "Weather.com current"),
-    ("wu_max_since_7am_c", "Weather.com max since 7 AM"),
+    ("wu_current_c", "disabled paid-provider current"),
+    ("wu_max_since_7am_c", "disabled paid-provider max since 7 AM"),
     ("eccc_swob_max_c", "ECCC SWOB max"),
-    ("weather_forecast_max_c", "Weather.com forecast max"),
+    ("weather_forecast_max_c", "disabled paid-provider forecast max"),
     ("open_meteo_max_c", "Open-Meteo forecast max"),
     ("eccc_forecast_high_c", "ECCC forecast high"),
 ]

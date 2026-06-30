@@ -1,7 +1,7 @@
 # 52. Miami Current-Serving Replay Regression Triage [COMPLETE 2026-06-15 - MIAMI SERVING BLOCK CLEARED]
 
 Goal: resolve the one remaining current-serving gauntlet `BLOCK` market without
-turning a live Weather.com support signal into an unverified settlement floor.
+turning a live disabled paid-provider support signal into an unverified settlement floor.
 
 Source: `data/backtest/promotion_gauntlet_latest_report.md` is now
 `PASS_WITH_SHADOWS`: corpus pin, fidelity, and regression gates pass, and no

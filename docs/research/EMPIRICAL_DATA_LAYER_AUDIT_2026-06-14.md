@@ -60,7 +60,7 @@ Open-Meteo historical forecasts are now richer by source and issue-time basis, b
 
 Model value: separates true forecast changes from provider update lag and stale-source behavior.
 
-Next best action: persist raw forecast payload hashes/files plus provider-issued timestamps for Weather.com, NWS, ECCC, and Open-Meteo captures.
+Next best action: persist raw forecast payload hashes/files plus provider-issued timestamps for disabled paid-provider, NWS, ECCC, and Open-Meteo captures.
 
 ### 6. Legacy CLOB Microstructure Cannot Be Fully Reconstructed
 

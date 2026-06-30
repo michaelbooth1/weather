@@ -107,7 +107,7 @@ Medium-term (integration + storage hygiene):
   item.
   Reconciled 2026-06-16: `data/backtest/item39_data_layer_audit_closure_report.md`
   shows 2000-2026 US GHCNh and reanalysis target-season coverage at about 99.6%
-  for the 11 US markets, while pre-2015 Weather.com history remains explicitly
+  for the 11 US markets, while pre-2015 disabled paid-provider history remains explicitly
   provider-unavailable and owned by item 29.
 - [x] Add historical METAR for the 11 US cities -> per-city settlement-lag models.
   Done 2026-06-16: IEM ASOS/METAR history now covers the 2000-2026 target

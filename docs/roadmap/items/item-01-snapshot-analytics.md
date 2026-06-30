@@ -2,7 +2,7 @@
 
 - [x] Build a notebook or CLI report over `data/snapshots/.../snapshots_long.csv`.
 - [x] Plot model probability, market yes price, and edge over time for each bucket.
-- [x] Add realized weather markers: WU printed high, Weather.com current max, ECCC SWOB max, and forecast max.
+- [x] Add realized weather markers: WU printed high, disabled paid-provider current max, ECCC SWOB max, and forecast max.
 - [x] Add summary tables for max positive edge, edge persistence, market movement, and model movement.
 
 Detailed design (implemented 2026-05-28):

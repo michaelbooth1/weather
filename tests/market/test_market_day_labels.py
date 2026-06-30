@@ -104,6 +104,33 @@ class TestMarketDayLabels(unittest.TestCase):
             self.assertEqual(ledger_rows[0]["resolution_station"], "CYYZ")
             self.assertEqual(resolution_specs["schema_version"], "resolution_spec_v1")
 
+    def test_daily_summary_label_is_countable_without_live_snapshot_high_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-toronto-on-may-27-2026"
+            folder.mkdir()
+            _write_toronto_tape(folder)
+            tape = folder / "snapshots_long.csv"
+            frame = pd.read_csv(tape).drop(columns=["wu_history_high_c"])
+            frame.to_csv(tape, index=False)
+            daily = root / "daily.csv"
+            daily.write_text(
+                "local_date,row_count,max_temp_bucket_c\n2026-05-27,24,25\n",
+                encoding="utf-8",
+            )
+
+            label = build_label(
+                folder,
+                daily_summary_path=daily,
+                reconcile_polymarket=True,
+                polymarket_event=_resolved_event("25 C"),
+            )
+
+        self.assertEqual(label["settlement_source"], "daily_summary")
+        self.assertEqual(label["quality_grade"], "complete")
+        self.assertEqual(label["material_coverage_grade"], "strict_complete")
+        self.assertTrue(label["promotion_countable"])
+
     def test_minor_gap_partial_label_is_material_promotion_countable_when_reconciled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

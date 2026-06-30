@@ -1,7 +1,7 @@
 # 281. Settlement-Source Authentication And Transient-Failure Typing And Backfill Poisoning Guard [COMPLETE 2026-06-24 - FAILURE TYPING, RECOVERY, AND FLEET BLOCKERS LANDED]
 
 Goal: stop authentication and transient failures of the canonical
-Weather.com/Wunderground settlement source from being silently recorded as
+Weather Underground settlement source from being silently recorded as
 permanent "unavailable" history, and surface a multi-market settlement-source
 auth outage as a fail-closed data-layer blocker instead of per-location noise.
 
@@ -12,36 +12,35 @@ records the failed date range, and `unavailable_dates()` then feeds
 `missing_dates`/`missing_ranges`, which both the `wu_history backfill
 --skip-existing` path and `weather.collection.historical_backfill_plan` use to
 decide what to re-fetch. There is no failure classification: a `401`/`403`
-(revoked or rotated Weather.com key), a `429` (rate limit), or a `5xx`/timeout
+(disabled legacy paid-provider access), a `429` (rate limit), or a `5xx`/timeout
 during a backfill window is treated identically to a true "no data for this
 historical date" `400`/`404`. `history_coverage` then reports those days as
 legitimate `source_unavailable_days`. The only existing typed handling, item
 213, deliberately scopes to current-target-date `400`s as expected degradation
 and does not cover historical auth/transient failures.
 
-Why this matters: the Weather.com/WU history source is the canonical settlement
-truth for all twelve markets, and the API key defaults to a single baked-in
-public browser key. If that key is rotated or rate-limited during an unattended
-backfill, every affected historical day is permanently appended to the
-per-station unavailable set and is then skipped forever by `--skip-existing`
-backfills and the resumable backfill plan, silently capping settlement-truth and
-training-corpus depth with recoverable days that look "unavailable." A
-fleet-wide auth failure is also a true single point of failure that should be a
-P0 blocker, not 12 per-location failure counts that look like ordinary current-
-day 400 noise.
+Why this matters: the WU history source is the canonical settlement
+truth for all twelve markets. When the legacy paid-provider path fails during
+an unattended backfill, every affected historical day can be permanently
+appended to the per-station unavailable set and then skipped forever by
+`--skip-existing` backfills and the resumable backfill plan, silently capping
+settlement-truth and training-corpus depth with recoverable days that look
+"unavailable." A fleet-wide auth failure is also a true single point of failure
+that should be a P0 blocker, not 12 per-location failure counts that look like
+ordinary current-day 400 noise.
 
 Why it is not already covered: item 213 types only current-date `400`s as
 expected and does not touch the backfill error log, `unavailable_dates()`, or
 auth/transient classification. Item 100 owns Open-Meteo rate-limit/fallback
 resilience, and item 102 owns Toronto ECCC runtime hardening; neither covers the
-Weather.com/WU settlement backfill path or the permanent-skip poisoning hazard.
+WU settlement backfill path or the permanent-skip poisoning hazard.
 Items 29/30/64/265 own historical depth, redundancy, provenance, and settlement
 revision audit, but none own failure-class typing for settlement-source fetch
 errors or recovery of poisoned unavailable entries.
 
 ## Design
 
-1. Classify Weather.com/WU history fetch failures into an explicit
+1. Classify WU history fetch failures into an explicit
    `failure_class` in `write_fetch_error`: `permanent_no_data` (true historical
    `400`/`404` with empty observations), `auth_failure` (`401`/`403`),
    `rate_limited` (`429`), and `transient` (`5xx`, timeouts, connection errors).
@@ -68,8 +67,8 @@ errors or recovery of poisoned unavailable entries.
 5. Surface auth/rate-limited/transient settlement-source failures separately
    from expected current-day degradation in `weather.collection.collection_health`,
    `weather.reporting.data_layer_audit`, and `weather.reporting.fleet_observability`,
-   and document the baked-in public key as a known single point of failure with
-   the recovery command in the settlement runbook.
+   and document legacy paid-provider access as disabled project policy with the
+   recovery command in the settlement runbook.
 
 - [x] Add `failure_class` typing to `write_fetch_error` and gate
   `treated_as_source_unavailable` on `permanent_no_data` only.
@@ -82,8 +81,8 @@ errors or recovery of poisoned unavailable entries.
 - [x] Add fixtures covering `401`/`403` auth, `429` rate-limit, `5xx`/timeout
   transient, true `400` no-data, and a legacy-poisoned error log that the
   rescan recovers.
-- [x] Document the baked-in Weather.com key single point of failure and the
-  recovery command in the settlement-source operations doc.
+- [x] Document disabled legacy paid-provider access and the recovery command in
+  the settlement-source operations doc.
 
 Completion note (2026-06-24): `weather.sources.wu_history` now writes
 `failure_class`, filters `unavailable_dates()` to permanent no-data rows, and
@@ -91,7 +90,7 @@ provides `recover-unavailable`. Live WU auth failures surface as
 `settlement_source_auth_failure`; collection health, fleet observability, and
 data-layer audit payloads now expose multi-market settlement auth blockers.
 
-Acceptance: a `401`/`403`/`429`/`5xx`/timeout failure on the Weather.com/WU
+Acceptance: a `401`/`403`/`429`/`5xx`/timeout failure on the WU
 settlement source during backfill is typed by `failure_class`, is not added to
 the permanent `unavailable_dates()` skip set, and is re-attempted on the next
 `--skip-existing` backfill and backfill-plan run; auth failures across two or

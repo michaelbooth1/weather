@@ -33,7 +33,7 @@ Feature strategy:
 - Add Toronto live-only ECCC gridded columns to the shared feature schema with
   historical defaults of `None`.
 - Derive GEM/HRDPS high forecast, model high spread, deltas versus the existing
-  forecast consensus/Open-Meteo/Weather.com/ECCC citypage, remaining gust,
+  forecast consensus/Open-Meteo/disabled paid-provider/ECCC citypage, remaining gust,
   cloud, precipitation, RH, vertical temperature profile, 500 hPa height, and a
   lake-breeze wind-shift flag.
 - Preserve provider generation/runtime metadata when available; leave run age
@@ -84,7 +84,7 @@ Completed implementation slice on 2026-06-16:
 - [x] Archive run time, forecast hour, valid time, grid/domain, source URL,
   payload hash, and fetch lag for every HRDPS/GEM row.
 - [x] Add Toronto-specific features for HRDPS high forecast, lake-breeze wind
-  shift, HRDPS minus Weather.com/Open-Meteo/ECCC citypage forecast deltas, and
+  shift, HRDPS minus disabled paid-provider/Open-Meteo/ECCC citypage forecast deltas, and
   official Canadian model run age.
 - [x] Score these features separately for Toronto before considering Canadian
   expansion markets.

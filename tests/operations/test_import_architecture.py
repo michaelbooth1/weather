@@ -818,6 +818,33 @@ def test_active_docs_use_canonical_weather_commands():
     assert offenders == {}
 
 
+def test_paid_provider_weather_policy_terms_do_not_regress():
+    forbidden_terms = [
+        "Weather" + ".com",
+        "api" + ".weather" + ".com",
+        "DEFAULT_WU_PROVIDER" + "_API_KEY",
+        "OPTIONAL_WEATHER_PROVIDER" + "_API_KEY",
+    ]
+    scan_roots = [Path("README.md"), Path("app"), Path("config"), Path("docs"), Path("src"), Path("tests")]
+    offenders = {}
+    for root in scan_roots:
+        paths = [root] if root.is_file() else root.rglob("*")
+        for path in paths:
+            if not path.is_file():
+                continue
+            if "__pycache__" in path.parts:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            matches = [term for term in forbidden_terms if term in text]
+            if matches:
+                offenders[str(path)] = matches
+
+    assert offenders == {}
+
+
 def test_tests_do_not_depend_on_repo_root_data_tree():
     offenders = {}
     for path in Path("tests").rglob("*.py"):

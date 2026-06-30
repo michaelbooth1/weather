@@ -13,7 +13,10 @@ DEFAULT_MARKET_CONFIG = config_for_date()
 TORONTO_TZ = ZoneInfo("America/Toronto")
 TARGET_DATE = DEFAULT_MARKET_CONFIG.target_date
 TARGET_DATE_STR = DEFAULT_MARKET_CONFIG.target_date_str
-OPTIONAL_WEATHER_PROVIDER_API_KEY = ""
+# Paid-provider weather endpoints are intentionally disabled. Do not add
+# credential loading here; Weather Underground settlement evidence must come
+# from local WU history artifacts or a public WU collector.
+PAID_WEATHER_PROVIDER_ACCESS_ENABLED = False
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 CYYZ_ICAO = "CYYZ"
 PEARSON_LAT = 43.6767
@@ -106,7 +109,7 @@ SOURCE_CACHE_TTL_MINUTES = {
 # (seeded, today-cache): hours outside 12-14 byte-identical, hour 14 -0.0088,
 # hour 13 -0.0020, zero regression elsewhere; aggregate 0.0410 -> 0.0405.
 # v0.5.9: Miami-only validation-gated WU max-since-7am hard floor. The pinned
-# corpus validation found Miami's Weather.com max-since-7am never exceeded the
+# corpus validation found Miami's WU current max-since-7am never exceeded the
 # final WU settlement high (555/555 comparable rows safe), while the full
 # F-family had many over-final rows. Only markets in
 # VALIDATED_WU_MAX_HARD_FLOOR_MARKETS may promote that same-day value from soft

@@ -32,7 +32,7 @@ class MarketSpec:
     slug_prefix: str              # Polymarket event-slug prefix
     timezone: str                 # IANA tz name
     display_unit: str             # "C" or "F" -- the market's band/settlement unit
-    wu_history_id: str            # Weather.com history location id
+    wu_history_id: str            # Weather Underground history station id
     icao: str                     # METAR / WU-current station
     lat: float
     lon: float
@@ -66,7 +66,7 @@ class MarketSpec:
 
     @property
     def wu_units(self):
-        """Weather.com units param: 'e' (English/F) or 'm' (metric/C)."""
+        """Legacy WU units token: 'e' (English/F) or 'm' (metric/C)."""
         return "e" if self.is_fahrenheit else "m"
 
     @property
@@ -124,7 +124,7 @@ NYC = MarketSpec(
     icao="KLGA",
     lat=40.7769,
     lon=-73.8740,
-    # No ECCC/SWOB (Canadian); Open-Meteo + Weather.com cover NYC forecasts and
+    # No ECCC/SWOB (Canadian); Open-Meteo plus the disabled paid-provider family cover NYC forecasts and
     # METAR/WU-current KLGA cover the leading-observation role SWOB plays up north.
     sources=("wu_history", "wu_current", "metar", "weather_forecast", "open_meteo",
              "nws_hourly", "nws_grid", "mrms_precip", "global_ensemble", "open_meteo_multimodel",

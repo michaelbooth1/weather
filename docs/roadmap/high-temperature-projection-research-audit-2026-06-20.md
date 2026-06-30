@@ -47,7 +47,7 @@ ensemble**, which is most of what short-lead Tmax post-processing usually uses:
   of [Delle Monache et al. 2013](https://journals.ametsoc.org/mwr/article/141/10/3498/71598/Probabilistic-Weather-Prediction-with-an-Analog).
 - **Forecast ensemble (strong):** Open-Meteo (incl. multi-model GFS/HRRR/NBM/NAM),
   NWS grid, ECCC GEM/HRDPS, a global ensemble with member spread + p10/p90,
-  Weather.com, and ECCC city-page — distilled into `forecast_high`,
+  disabled paid-provider, and ECCC city-page — distilled into `forecast_high`,
   `forecast_gap`, `forecast_disagreement`, per-model deltas, run-age, and
   run-to-run change. This is a richer forecast-feature set than most published
   EMOS/QRF studies use.

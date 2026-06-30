@@ -35,7 +35,7 @@ class TestUnfalsifiedForecasts(unittest.TestCase):
         votes = self.m.unfalsified_forecasts(
             [24.0, 27.6, 26.0], history, self._now(14, 30)
         )
-        # OM 27.6 and ECCC 26 are benched (> 24 + 1); Weather.com 24 survives.
+        # OM 27.6 and ECCC 26 are benched (> 24 + 1); disabled paid-provider 24 survives.
         self.assertEqual(votes, [24.0])
 
     def test_no_bench_in_the_morning(self):

@@ -210,11 +210,11 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 
             source_display_names = {
                 "wu_history": "Wunderground History",
-                "wu_current": f"Weather.com Current {spec_for_id(market_id).icao}",
+                "wu_current": f"Disabled paid-provider current {spec_for_id(market_id).icao}",
                 "eccc_citypage": "ECCC Citypage Forecast",
                 "eccc_swob": f"ECCC SWOB Live {spec_for_id(market_id).icao}",
                 "metar": f"METAR Aviation {spec_for_id(market_id).icao}",
-                "weather_forecast": "Weather.com Hourly Forecast",
+                "weather_forecast": "Disabled paid-provider hourly forecast",
                 "open_meteo": "Open-Meteo Hourly Forecast",
                 "marine_context": "Marine/Lake-Breeze Context",
             }

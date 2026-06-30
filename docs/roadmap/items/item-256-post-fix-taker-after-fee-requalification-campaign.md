@@ -293,7 +293,7 @@ replay closures below.
 
 ## 2026-06-23 Settlement-Complete Label Refresh
 
-Backfilled Weather.com/Wunderground daily summaries for all registered markets
+Backfilled Weather Underground daily summaries for all registered markets
 from `2026-06-19` through `2026-06-22`, then regenerated the settlement ledger
 and campaign bakeoffs. The generic market-day label quality remains `partial`
 because the snapshot tapes still have collection gaps, but each refreshed

@@ -1,8 +1,8 @@
 # Research Questions
 
-- Does WU final high usually equal Weather.com max-since-7 once history settles?
+- Does WU final high usually equal disabled paid-provider max-since-7 once history settles?
 - How often does WU history revise after the live day ends?
-- Which source best predicts WU final high by noon: Weather.com, Open-Meteo,
+- Which source best predicts WU final high by noon: disabled paid-provider, Open-Meteo,
   Environment Canada, or empirical intraday analogs?
 - Are market prices systematically too sticky around psychologically salient
   buckets like 25 C?
