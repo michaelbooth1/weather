@@ -598,8 +598,6 @@ class ObservationTriggerTests(unittest.TestCase):
 
             result = backfill_forecast_payloads(root, overwrite=True)
             rows = list(csv.DictReader((folder / "forecast_payloads_long.csv").open(encoding="utf-8", newline="")))
-            payload_path = Path(rows[0]["raw_payload_path"])
-            payload = json.loads(payload_path.read_text(encoding="utf-8"))
 
         self.assertEqual(result["written_folders"], 1)
         self.assertEqual(result["rows"], 1)
@@ -608,10 +606,12 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "fresh")
         self.assertEqual(rows[0]["age_minutes"], "8.0")
         self.assertEqual(rows[0]["ttl_minutes"], "90")
-        self.assertIn("reconstructed", payload_path.name)
-        self.assertEqual(payload["rows"][0]["temp_c"], 21.0)
+        self.assertTrue(rows[0]["payload_hash"])
+        self.assertGreater(int(rows[0]["payload_bytes"]), 0)
+        self.assertEqual(rows[0]["raw_payload_path"], "")
+        self.assertFalse((folder / "forecast_payloads").exists())
 
-    def test_snapshot_store_persists_raw_forecast_payload_and_strips_replay_blob(self):
+    def test_snapshot_store_persists_forecast_payload_manifest_and_strips_replay_blob(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             store = SnapshotStore(root=root, event_slug="highest-temperature-in-toronto-on-june-13-2026")
@@ -638,14 +638,14 @@ class ObservationTriggerTests(unittest.TestCase):
             result = store.write(event, model, FakeModelClient(), captured_at)
             manifest_rows = list(csv.DictReader((root / "forecast_payloads_long.csv").open(encoding="utf-8", newline="")))
             replay = json.loads((root / "replay_inputs.jsonl").read_text(encoding="utf-8").strip())
-            raw_path = Path(manifest_rows[0]["raw_payload_path"])
-            self.assertTrue(raw_path.exists())
-            raw_payload = json.loads(raw_path.read_text(encoding="utf-8"))
 
         self.assertEqual(result["forecast_payload_rows"], 1)
         self.assertEqual(manifest_rows[0]["source"], "weather_forecast")
         self.assertEqual(manifest_rows[0]["provider_issue_time"], "2026-06-13T15:45:00+00:00")
-        self.assertEqual(raw_payload["provider"], "weather")
+        self.assertTrue(manifest_rows[0]["payload_hash"])
+        self.assertGreater(int(manifest_rows[0]["payload_bytes"]), 0)
+        self.assertEqual(manifest_rows[0]["raw_payload_path"], "")
+        self.assertFalse((root / "forecast_payloads").exists())
         self.assertNotIn("raw_payload", replay["sources"]["weather_forecast"]["data"])
         self.assertEqual(
             replay["sources"]["weather_forecast"]["data"]["provider_update_time"],

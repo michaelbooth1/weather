@@ -2147,6 +2147,40 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("## Daily Rollup Freshness", report)
         self.assertIn("progress_audit", report)
 
+    def test_target_date_aligned_artifacts_do_not_fail_on_newer_current_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            for filename in (
+                "daily_refresh_status.json",
+                "snapshot_evaluation.json",
+                "fleet_observability.json",
+                "data_layer_audit.json",
+            ):
+                rewrite_json(
+                    backtest_root / filename,
+                    lambda payload: payload.update({"generated_at_utc": "2026-06-20T00:00:00+00:00"}),
+                )
+            rewrite_json(
+                backtest_root / "f_family_promotion_refresh.json",
+                lambda payload: payload["corpus"].update({"date_max": "2026-06-16"}),
+            )
+
+            payload = build_learning_payload(
+                backtest_root=backtest_root,
+                run_date="2026-06-16",
+                input_max_skew_hours=1.0,
+            )
+            freshness = payload["input_gate"]["freshness"]
+            rows = {row["name"]: row for row in freshness["rows"]}
+
+        self.assertNotIn("promotion_refresh", freshness["critical_stale_inputs"])
+        self.assertNotIn("event_metadata_validation", freshness["critical_stale_inputs"])
+        self.assertNotIn("settled_day_analysis_barrier", freshness["critical_stale_inputs"])
+        self.assertNotIn("model_market_disagreement_analysis", freshness["critical_stale_inputs"])
+        self.assertTrue(rows["promotion_refresh"]["target_date_aligned"])
+        self.assertEqual(rows["promotion_refresh"]["freshness_status"], "PASS")
+
     def test_build_learning_payload_checks_active_variant_shadow_freshness(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

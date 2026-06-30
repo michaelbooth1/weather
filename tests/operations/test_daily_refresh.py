@@ -28,12 +28,14 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
     run_june23_location_bias_repair_step,
+    run_market_day_labels_finalize,
     run_maker_paper_score_step,
     run_market_beating_objective_scoreboard_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
+    run_public_wu_settlement_restore_step,
     run_proper_scoring_reliability_scorecard_step,
     run_reanalysis_recent_refresh_step,
     run_daily_roll_log_hygiene_step,
@@ -105,6 +107,12 @@ def _args(tmp, **overrides):
         "variant_evidence_per_shadow_market_min_days": 4,
         "skip_ingest_quality_gate": False,
         "ingest_quality_years": "",
+        "skip_public_wu_settlement_restore": False,
+        "wu_settlement_restore_markets": "all",
+        "wu_settlement_restore_sleep": 0.0,
+        "wu_settlement_restore_timeout": 30.0,
+        "wu_settlement_restore_skip_existing": True,
+        "wu_settlement_restore_continue_on_error": True,
         "skip_reanalysis_refresh": False,
         "reanalysis_lag_days": 10,
         "reanalysis_chunk_days": 5,
@@ -283,6 +291,43 @@ def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
         writer.writeheader()
         writer.writerow(quote_row)
     return run
+
+
+def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_after_finalize=False):
+    restore_step = {
+        "name": "public_wu_settlement_restore",
+        "status": "ok",
+        "result": {"status": "PASS", "target_date": target_date},
+    }
+    finalize_step = {
+        "name": "market_day_labels_finalize",
+        "status": "ok",
+        "result": {"label_count": 0},
+    }
+    steps = []
+    if restore and not restore_after_finalize:
+        steps.append(restore_step)
+    steps.append(finalize_step)
+    if restore and restore_after_finalize:
+        steps.append(restore_step)
+    steps.extend([
+        {
+            "name": "exchange_economics_rule_drift",
+            "status": "ok",
+            "result": {"status": "PASS", "target_date": target_date},
+        },
+        {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "ten_minute_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "price_free_model_learning", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "model_market_disagreement_rehydration", "status": "ok", "result": {"status": "SKIPPED"}},
+    ])
+    return steps
 
 
 class TestDailyRefresh(unittest.TestCase):
@@ -527,6 +572,11 @@ class TestDailyRefresh(unittest.TestCase):
                 markets="nyc",
             )
             args._daily_refresh_steps_so_far = [
+                {
+                    "name": "public_wu_settlement_restore",
+                    "status": "ok",
+                    "result": {"status": "PASS", "target_date": target_date},
+                },
                 {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 0}},
                 {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -608,6 +658,11 @@ class TestDailyRefresh(unittest.TestCase):
                 markets="nyc",
             )
             args._daily_refresh_steps_so_far = [
+                {
+                    "name": "public_wu_settlement_restore",
+                    "status": "ok",
+                    "result": {"status": "PASS", "target_date": target_date},
+                },
                 {
                     "name": "market_day_labels_finalize",
                     "status": "ok",
@@ -715,6 +770,8 @@ class TestDailyRefresh(unittest.TestCase):
         names = [name for name, _runner in DEFAULT_RUNNERS]
 
         self.assertLess(names.index("ingest_quality_gate"), names.index("event_metadata_validation"))
+        self.assertLess(names.index("event_metadata_validation"), names.index("public_wu_settlement_restore"))
+        self.assertLess(names.index("public_wu_settlement_restore"), names.index("market_day_labels_finalize"))
         self.assertLess(names.index("event_metadata_validation"), names.index("market_day_labels_finalize"))
         self.assertLess(names.index("event_metadata_validation"), names.index("trading_evidence"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("replay_status_backfill"))
@@ -765,6 +822,125 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("active_variant_shadow"), names.index("proper_scoring_reliability_scorecard"))
         self.assertLess(names.index("proper_scoring_reliability_scorecard"), names.index("frozen_baseline_replay_trend"))
         self.assertLess(names.index("frozen_baseline_replay_trend"), names.index("model_variant_evidence_growth"))
+
+    def test_public_wu_settlement_restore_fetches_missing_raw_and_rebuilds_outputs(self):
+        target_date = "2026-06-19"
+        target = date.fromisoformat(target_date)
+        calls = []
+
+        class FakeClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            def fetch_range(self, start, end, units=None):
+                calls.append((start, end, units))
+                return {"observations": [{"valid_time_gmt": 1, "temp": 77}]}
+
+        class FakeStore:
+            def __init__(self, root, **_kwargs):
+                self.root = Path(root)
+                self.daily_root = self.root / "daily"
+                self._raw = set()
+
+            def raw_dates(self):
+                return set(self._raw)
+
+            def missing_ranges(self, start, end, chunk_days=1):
+                return [] if start in self._raw else [(start, end)]
+
+            def write_payload(self, start, _end, _payload):
+                self._raw.add(start)
+
+            def rebuild_normalized_files(self):
+                return (
+                    [{"local_date": target_date}],
+                    [{"local_date": target_date, "row_count": "24", "max_temp_bucket_native": "77"}],
+                )
+
+            def write_fetch_error(self, *_args, **_kwargs):
+                raise AssertionError("restore should not record errors")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("weather.operations.daily_refresh_steps.all_specs", return_value=[
+                    SimpleNamespace(
+                        id="nyc",
+                        icao="KLGA",
+                        city_label="NYC",
+                        wu_history_id="KLGA:9:US",
+                        tz="America/New_York",
+                        display_unit="F",
+                        wu_units="e",
+                        data_root=Path(tmp) / "wunderground" / "klga",
+                    )
+                ]), \
+                patch("weather.operations.daily_refresh_steps.PublicWundergroundHistoryClient", FakeClient), \
+                patch("weather.operations.daily_refresh_steps.WundergroundHistoryStore", FakeStore):
+            result = run_public_wu_settlement_restore_step(
+                _args(tmp, settled_analysis_target_date=target_date, wu_settlement_restore_markets="nyc")
+            )
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [(target, target, "e")])
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["target_date"], target_date)
+        self.assertEqual(result["restored_market_count"], 1)
+        self.assertEqual(result["fetched_range_count"], 1)
+        self.assertEqual(payload["markets"][0]["daily_summary_bucket"], "77")
+
+    def test_market_day_label_finalization_blocks_when_wu_restore_did_not_pass(self):
+        target_date = "2026-06-19"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date=target_date)
+            args._daily_refresh_steps_so_far = [
+                {
+                    "name": "public_wu_settlement_restore",
+                    "status": "ok",
+                    "result": {
+                        "status": "BLOCK",
+                        "target_date": target_date,
+                        "blocked_markets": ["nyc"],
+                    },
+                }
+            ]
+
+            result = run_market_day_labels_finalize(args)
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["reason"], "public_wu_settlement_restore_not_passed")
+        self.assertEqual(result["restore_status"], "BLOCK")
+
+    def test_settled_day_barrier_requires_wu_restore_step_before_labels(self):
+        target_date = "2026-06-19"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date=target_date)
+            args._daily_refresh_steps_so_far = _settled_barrier_dependency_steps(
+                target_date,
+                restore=False,
+            )
+
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+
+        blockers = raised.exception.payload["blockers"]
+        self.assertIn("public_wu_settlement_restore", {row["component"] for row in blockers})
+
+    def test_settled_day_barrier_blocks_wu_restore_after_label_finalization(self):
+        target_date = "2026-06-19"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date=target_date)
+            args._daily_refresh_steps_so_far = _settled_barrier_dependency_steps(
+                target_date,
+                restore_after_finalize=True,
+            )
+
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+
+        details = {row["detail"] for row in raised.exception.payload["blockers"]}
+        self.assertIn(
+            "step_order_violation=public_wu_settlement_restore_after_market_day_labels_finalize",
+            details,
+        )
 
     def test_runtime_identity_reconciliation_step_uses_settled_target_date(self):
         with tempfile.TemporaryDirectory() as tmp, \

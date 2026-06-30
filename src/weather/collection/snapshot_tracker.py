@@ -60,6 +60,7 @@ from weather.collection.snapshot_store import (  # noqa: E402
     DEFAULT_MARKET_CONFIG,
     DEFAULT_SNAPSHOT_ROOT,
     FORECAST_PAYLOAD_COLUMNS,
+    FORECAST_RAW_PAYLOAD_RETENTION_ENV,
     LONG_COLUMNS,
     MODEL_VERSION,
     PROCESS_RUNTIME_IDENTITY,
@@ -323,7 +324,12 @@ def backfill_source_status_for_folder(folder, overwrite=False):
     return {"folder": str(folder), "rows": len(rows), "path": str(status_path)}
 
 
-def backfill_forecast_payloads_for_folder(folder, overwrite=False):
+def retain_raw_forecast_payloads_enabled():
+    value = os.environ.get(FORECAST_RAW_PAYLOAD_RETENTION_ENV, "")
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def backfill_forecast_payloads_for_folder(folder, overwrite=False, retain_raw_payloads=False):
     folder = Path(folder)
     payload_path = folder / "forecast_payloads_long.csv"
     if payload_path.exists() and not overwrite:
@@ -364,11 +370,14 @@ def backfill_forecast_payloads_for_folder(folder, overwrite=False):
             payload = data.get("raw_payload") if "raw_payload" in data else data
             raw_text = json.dumps(payload, sort_keys=True, default=str)
             payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
-            suffix = "raw" if "raw_payload" in data else "reconstructed"
-            filename = f"{snapshot_id}_{store.safe_filename_part(source)}_{payload_hash[:12]}_{suffix}.json"
-            raw_payload_path = folder / "forecast_payloads" / filename
-            raw_payload_path.parent.mkdir(parents=True, exist_ok=True)
-            raw_payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            raw_payload_path = ""
+            if retain_raw_payloads:
+                suffix = "raw" if "raw_payload" in data else "reconstructed"
+                filename = f"{snapshot_id}_{store.safe_filename_part(source)}_{payload_hash[:12]}_{suffix}.json"
+                raw_path = folder / "forecast_payloads" / filename
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_path.write_text(raw_text + "\n", encoding="utf-8")
+                raw_payload_path = str(raw_path)
             age_minutes = item.get("cache_age_minutes")
             if age_minutes is None:
                 age_minutes = store.source_age_minutes(item.get("fetched_at"), captured_at, None)
@@ -397,7 +406,7 @@ def backfill_forecast_payloads_for_folder(folder, overwrite=False):
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": store.source_row_count(data),
                 "source_url": data.get("url"),
-                "raw_payload_path": str(raw_payload_path),
+                "raw_payload_path": raw_payload_path,
             })
 
     if not rows:
@@ -425,10 +434,23 @@ def backfill_source_status(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
     }
 
 
-def backfill_forecast_payloads(snapshots_root=SNAPSHOT_DATA_ROOT, overwrite=False):
+def backfill_forecast_payloads(
+    snapshots_root=SNAPSHOT_DATA_ROOT,
+    overwrite=False,
+    retain_raw_payloads=None,
+):
     root = Path(snapshots_root)
+    retain_raw_payloads = (
+        retain_raw_forecast_payloads_enabled()
+        if retain_raw_payloads is None
+        else bool(retain_raw_payloads)
+    )
     results = [
-        backfill_forecast_payloads_for_folder(folder, overwrite=overwrite)
+        backfill_forecast_payloads_for_folder(
+            folder,
+            overwrite=overwrite,
+            retain_raw_payloads=retain_raw_payloads,
+        )
         for folder in sorted(path for path in root.iterdir() if path.is_dir())
     ]
     return {
@@ -1238,7 +1260,7 @@ def main():
         "--backfill-forecast-payloads",
         action="store_true",
         help=(
-            "Rebuild forecast_payloads_long.csv/jsonl and reconstructed payload JSON files "
+            "Rebuild forecast_payloads_long.csv/jsonl "
             "from replay_inputs.jsonl or replay_inputs_reconstructed.jsonl under --snapshots-root."
         ),
     )
@@ -1261,6 +1283,14 @@ def main():
         "--overwrite-forecast-payloads",
         action="store_true",
         help="Overwrite existing forecast_payloads_long.csv/jsonl during --backfill-forecast-payloads.",
+    )
+    parser.add_argument(
+        "--retain-raw-forecast-payloads",
+        action="store_true",
+        help=(
+            "Opt in to writing raw forecast payload JSON files during forecast-payload backfill. "
+            f"By default they are omitted; {FORECAST_RAW_PAYLOAD_RETENTION_ENV}=1 also enables this."
+        ),
     )
     args = parser.parse_args()
     target_date = ensure_date(args.target_date) if args.target_date else None
@@ -1314,7 +1344,11 @@ def main():
         return
     if args.backfill_forecast_payloads:
         print(json.dumps(
-            backfill_forecast_payloads(args.snapshots_root, overwrite=args.overwrite_forecast_payloads),
+            backfill_forecast_payloads(
+                args.snapshots_root,
+                overwrite=args.overwrite_forecast_payloads,
+                retain_raw_payloads=args.retain_raw_forecast_payloads or None,
+            ),
             indent=2,
             sort_keys=True,
             default=str,

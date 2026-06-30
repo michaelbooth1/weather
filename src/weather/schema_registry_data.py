@@ -143,6 +143,13 @@ REGISTERED_SCHEMAS = (
         "Fail-closed daily-refresh gate for active-variant shadow freshness and independent evidence growth.",
     ),
     SchemaSpec(
+        "public_wu_settlement_restore",
+        "public_wu_settlement_restore_v0.1",
+        "weather.operations.daily_refresh_steps",
+        "active",
+        "Completed-day WU raw restoration and normalized hourly/daily settlement summary rebuild.",
+    ),
+    SchemaSpec(
         "settled_day_analysis_barrier",
         "settled_day_analysis_barrier_v0.1",
         "weather.operations.daily_refresh_steps",

@@ -7,6 +7,7 @@ STEP_ORDER = (
     "reanalysis_recent_refresh",
     "ingest_quality_gate",
     "event_metadata_validation",
+    "public_wu_settlement_restore",
     "market_day_labels_finalize",
     "exchange_economics_rule_drift",
     "taker_finalization_watchdog",

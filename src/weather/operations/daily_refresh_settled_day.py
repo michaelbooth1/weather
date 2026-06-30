@@ -13,6 +13,13 @@ from weather.schema_registry import schema_version
 
 SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
     {
+        "step": "public_wu_settlement_restore",
+        "phase": "settlement_source_restoration",
+        "critical": True,
+        "target_date_fields": ("target_date",),
+        "skippable_as_non_critical": False,
+    },
+    {
         "step": "market_day_labels_finalize",
         "phase": "label_finalization",
         "critical": True,
@@ -143,6 +150,8 @@ def _dependency_status(step, dependency, target_date):
         blocker = step.get("error") or "step_error"
     elif result_status == "SKIPPED" and dependency.get("skippable_as_non_critical"):
         non_critical = True
+    elif result_status == "SKIPPED" and dependency.get("critical"):
+        blocker = "step_skipped"
     elif result_status in {"BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
         blocker = f"step_result_status={result_status}"
 
@@ -337,6 +346,20 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
                 "phase": dependency.get("phase"),
                 "resume_command": _settled_day_resume_command(args),
             })
+    step_order = {
+        step.get("name"): index
+        for index, step in enumerate(steps_so_far or [])
+        if step.get("name")
+    }
+    restore_index = step_order.get("public_wu_settlement_restore")
+    finalize_index = step_order.get("market_day_labels_finalize")
+    if restore_index is not None and finalize_index is not None and restore_index > finalize_index:
+        blockers.append({
+            "component": "public_wu_settlement_restore",
+            "detail": "step_order_violation=public_wu_settlement_restore_after_market_day_labels_finalize",
+            "phase": "settlement_source_restoration",
+            "resume_command": _settled_day_resume_command(args),
+        })
     finalize = (steps_by_name.get("market_day_labels_finalize") or {}).get("result") or {}
     countability = _label_countability_from_freshness(freshness_payload, finalize)
     status = "BLOCK" if blockers else ("DIAGNOSTIC_ONLY" if countability.get("diagnostic_only") else "PASS")

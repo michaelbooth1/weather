@@ -371,6 +371,19 @@ def _artifact_record(name, path, payload):
             status = raw_status.get("status")
         else:
             status = raw_status
+    target_date = None
+    if isinstance(payload, dict):
+        corpus = payload.get("corpus") or {}
+        liveness = payload.get("scoring_liveness") or {}
+        rehydration = payload.get("rehydration") or {}
+        candidates = (
+            payload.get("target_date"),
+            payload.get("run_date"),
+            corpus.get("date_max"),
+            liveness.get("last_scored_target_date"),
+            rehydration.get("target_date"),
+        )
+        target_date = next((str(value)[:10] for value in candidates if value not in (None, "")), None)
     return {
         "name": name,
         "path": str(path),
@@ -378,6 +391,7 @@ def _artifact_record(name, path, payload):
         "schema_version": payload.get("schema_version") if isinstance(payload, dict) else None,
         "generated_at_utc": payload.get("generated_at_utc") if isinstance(payload, dict) else None,
         "status": status,
+        "target_date": target_date,
     }
 
 
@@ -542,6 +556,8 @@ def _freshness_rows(artifacts, *, run_date, max_skew_hours, critical_inputs):
         exists = bool(record.get("exists"))
         generated_raw = record.get("generated_at_utc")
         generated_dt = _parse_timestamp(generated_raw)
+        artifact_target_day = _parse_run_date(record.get("target_date"))
+        target_date_aligned = bool(run_day is not None and artifact_target_day == run_day)
         reasons = []
         skew_hours = None
         run_date_delta_days = None
@@ -564,7 +580,7 @@ def _freshness_rows(artifacts, *, run_date, max_skew_hours, critical_inputs):
                     reasons.append("generated_before_run_date")
             if newest_dt is not None:
                 skew_hours = round((newest_dt - generated_dt).total_seconds() / 3600.0, 3)
-                if skew_hours > max_skew_hours:
+                if skew_hours > max_skew_hours and not target_date_aligned:
                     reasons.append("older_than_newest_input_threshold")
             if reasons:
                 status = "STALE"
@@ -580,6 +596,8 @@ def _freshness_rows(artifacts, *, run_date, max_skew_hours, critical_inputs):
             "exists": exists,
             "generated_at_utc": generated_raw,
             "generated_date": generated_dt.date().isoformat() if generated_dt is not None else None,
+            "target_date": artifact_target_day.isoformat() if artifact_target_day is not None else None,
+            "target_date_aligned": target_date_aligned,
             "freshness_status": status,
             "severity": severity,
             "reasons": reasons,

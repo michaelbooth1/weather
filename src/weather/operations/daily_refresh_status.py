@@ -56,6 +56,7 @@ def pipeline_summary(steps):
     by_name = {step["name"]: step for step in steps}
     ingest = ((by_name.get("ingest_quality_gate") or {}).get("result") or {})
     event_metadata = ((by_name.get("event_metadata_validation") or {}).get("result") or {})
+    wu_restore = ((by_name.get("public_wu_settlement_restore") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
     taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
@@ -115,6 +116,17 @@ def pipeline_summary(steps):
             "validation_hash": event_metadata.get("validation_hash"),
             "summary": event_metadata.get("summary") or {},
             "first_blocker": event_metadata.get("first_blocker") or {},
+        },
+        "public_wu_settlement_restore": {
+            "status": wu_restore.get("status"),
+            "target_date": wu_restore.get("target_date"),
+            "market_count": wu_restore.get("market_count"),
+            "restored_market_count": wu_restore.get("restored_market_count"),
+            "reused_raw_market_count": wu_restore.get("reused_raw_market_count"),
+            "fetched_range_count": wu_restore.get("fetched_range_count"),
+            "error_count": wu_restore.get("error_count"),
+            "blocked_market_count": wu_restore.get("blocked_market_count"),
+            "blocked_markets": wu_restore.get("blocked_markets") or [],
         },
         "taker_finalization_watchdog": {
             "status": taker_finalization.get("status"),

@@ -85,6 +85,11 @@ from weather.reporting.candidate_lifecycle import variant_evidence_growth
 from weather.reporting.scorecards import winner_rank_parity
 from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
+from weather.sources.wu_history import (
+    PUBLIC_WU_HISTORY_SOURCE,
+    PublicWundergroundHistoryClient,
+    WundergroundHistoryStore,
+)
 
 
 def _truthy(value):
@@ -93,6 +98,197 @@ def _truthy(value):
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _market_ids(value):
+    if value in (None, "", "all"):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def _restore_specs(value):
+    specs = list(all_specs())
+    requested = _market_ids(value)
+    if not requested:
+        return specs
+    by_id = {spec.id: spec for spec in specs}
+    missing = [market_id for market_id in requested if market_id not in by_id]
+    if missing:
+        raise ValueError(f"unknown WU settlement restore market(s): {', '.join(missing)}")
+    return [by_id[market_id] for market_id in requested]
+
+
+def _daily_row_for_target(daily_rows, target_date):
+    target = target_date.isoformat()
+    for row in daily_rows or []:
+        if str(row.get("local_date") or "") == target:
+            return row
+    return None
+
+
+def _daily_row_has_settlement_value(row):
+    if not row:
+        return False
+    row_count = _daily_row_count(row)
+    bucket = (
+        row.get("max_temp_bucket_native")
+        or row.get("max_temp_bucket")
+        or row.get("max_temp_bucket_c")
+    )
+    return row_count > 0 and bucket not in (None, "")
+
+
+def _daily_row_count(row):
+    try:
+        return int(float((row or {}).get("row_count") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _store_for_wu_restore(spec):
+    return WundergroundHistoryStore(
+        spec.data_root,
+        station_icao=spec.icao,
+        station_name=spec.city_label,
+        history_id=spec.wu_history_id,
+        tz=spec.tz,
+        unit=spec.display_unit,
+        wu_units=spec.wu_units,
+    )
+
+
+def run_public_wu_settlement_restore_step(args):
+    if getattr(args, "skip_public_wu_settlement_restore", False):
+        return {"status": "SKIPPED", "reason": "skip_public_wu_settlement_restore"}
+
+    target = settled_analysis_target_date(args)
+    market_specs = _restore_specs(getattr(args, "wu_settlement_restore_markets", "all"))
+    sleep_seconds = getattr(args, "wu_settlement_restore_sleep", 0.2)
+    timeout = getattr(args, "wu_settlement_restore_timeout", 30)
+    skip_existing = getattr(args, "wu_settlement_restore_skip_existing", True)
+    continue_on_error = getattr(args, "wu_settlement_restore_continue_on_error", True)
+
+    rows = []
+    fetched_range_count = 0
+    error_count = 0
+    restored_count = 0
+    reused_raw_count = 0
+    for spec in market_specs:
+        store = _store_for_wu_restore(spec)
+        had_raw_before = target in store.raw_dates()
+        ranges = (
+            store.missing_ranges(target, target, chunk_days=1)
+            if skip_existing
+            else [(target, target)]
+        )
+        market_errors = []
+        fetched_ranges = []
+        if ranges:
+            client = PublicWundergroundHistoryClient(
+                sleep_seconds=sleep_seconds,
+                timeout=timeout,
+                history_id=spec.wu_history_id,
+                station_icao=spec.icao,
+                units=spec.wu_units,
+            )
+            for chunk_start, chunk_end in ranges:
+                try:
+                    payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
+                except Exception as exc:  # noqa: BLE001 - record source failures and continue by default.
+                    error_count += 1
+                    error = store.write_fetch_error(
+                        chunk_start,
+                        chunk_end,
+                        exc,
+                        source=PUBLIC_WU_HISTORY_SOURCE,
+                    )
+                    market_errors.append(error)
+                    if not continue_on_error:
+                        raise
+                    continue
+                store.write_payload(chunk_start, chunk_end, payload)
+                fetched_range_count += 1
+                fetched_ranges.append({
+                    "start": chunk_start.isoformat(),
+                    "end": chunk_end.isoformat(),
+                    "observation_count": len(payload.get("observations", []) or []),
+                })
+
+        hourly_rows, daily_rows = store.rebuild_normalized_files()
+        daily_row = _daily_row_for_target(daily_rows, target)
+        raw_exists = target in store.raw_dates()
+        daily_ready = _daily_row_has_settlement_value(daily_row)
+        target_hourly_count = sum(
+            1 for row in hourly_rows
+            if str(row.get("local_date") or "") == target.isoformat()
+        )
+        if daily_ready:
+            restored_count += 1
+        if had_raw_before and raw_exists and not fetched_ranges:
+            reused_raw_count += 1
+        status = "PASS" if raw_exists and daily_ready and not market_errors else "BLOCK"
+        rows.append({
+            "market_id": spec.id,
+            "station": spec.icao,
+            "history_id": spec.wu_history_id,
+            "data_root": as_path(store.root),
+            "target_date": target.isoformat(),
+            "status": status,
+            "raw_existed_before": had_raw_before,
+            "raw_exists_after": raw_exists,
+            "fetched_ranges": fetched_ranges,
+            "fetched_range_count": len(fetched_ranges),
+            "target_hourly_row_count": target_hourly_count,
+            "daily_summary_path": as_path(store.daily_root / "daily_summary.csv"),
+            "daily_summary_row_present": bool(daily_row),
+            "daily_summary_row_count": _daily_row_count(daily_row),
+            "daily_summary_bucket": (
+                (daily_row or {}).get("max_temp_bucket_native")
+                or (daily_row or {}).get("max_temp_bucket")
+                or (daily_row or {}).get("max_temp_bucket_c")
+            ),
+            "error_count": len(market_errors),
+            "errors": market_errors,
+        })
+
+    blocked = [row for row in rows if row.get("status") != "PASS"]
+    payload = {
+        "schema_version": schema_version("public_wu_settlement_restore"),
+        "generated_at_utc": utc_iso(),
+        "status": "PASS" if not blocked else "BLOCK",
+        "target_date": target.isoformat(),
+        "source": PUBLIC_WU_HISTORY_SOURCE,
+        "market_count": len(rows),
+        "restored_market_count": restored_count,
+        "reused_raw_market_count": reused_raw_count,
+        "fetched_range_count": fetched_range_count,
+        "error_count": error_count,
+        "blocked_market_count": len(blocked),
+        "blocked_markets": [row.get("market_id") for row in blocked],
+        "skip_existing": bool(skip_existing),
+        "continue_on_error": bool(continue_on_error),
+        "markets": rows,
+    }
+    json_out = write_json(backtest_path(args, "public_wu_settlement_restore.json"), payload)
+    detail_json_out = write_json(
+        backtest_path(args, f"public_wu_settlement_restore_{target.isoformat()}.json"),
+        payload,
+    )
+    return {
+        "status": payload.get("status"),
+        "target_date": payload.get("target_date"),
+        "json_out": as_path(json_out),
+        "detail_json_out": as_path(detail_json_out),
+        "market_count": payload.get("market_count"),
+        "restored_market_count": payload.get("restored_market_count"),
+        "reused_raw_market_count": payload.get("reused_raw_market_count"),
+        "fetched_range_count": payload.get("fetched_range_count"),
+        "error_count": payload.get("error_count"),
+        "blocked_market_count": payload.get("blocked_market_count"),
+        "blocked_markets": payload.get("blocked_markets") or [],
+    }
 
 
 def summarize_labels(labels):
@@ -411,6 +607,20 @@ def run_event_metadata_validation_step(args):
 
 
 def run_market_day_labels_finalize(args):
+    steps_so_far = getattr(args, "_daily_refresh_steps_so_far", None)
+    if steps_so_far is not None:
+        restore_step = next(
+            (step for step in steps_so_far if step.get("name") == "public_wu_settlement_restore"),
+            None,
+        )
+        restore_status = ((restore_step or {}).get("result") or {}).get("status")
+        if restore_step is not None and restore_status != "PASS":
+            return {
+                "status": "BLOCK",
+                "reason": "public_wu_settlement_restore_not_passed",
+                "restore_status": restore_status,
+                "target_date": ((restore_step.get("result") or {}).get("target_date")),
+            }
     folders = [Path(folder) for folder in args.folders] if args.folders else discover_default_folders(args.snapshots_root)
     labels = finalize_folders(
         folders,
@@ -1990,6 +2200,7 @@ DEFAULT_RUNNERS = (
     ("reanalysis_recent_refresh", run_reanalysis_recent_refresh_step),
     ("ingest_quality_gate", run_ingest_quality_gate_step),
     ("event_metadata_validation", run_event_metadata_validation_step),
+    ("public_wu_settlement_restore", run_public_wu_settlement_restore_step),
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("exchange_economics_rule_drift", run_exchange_economics_rule_drift_step),
     ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),

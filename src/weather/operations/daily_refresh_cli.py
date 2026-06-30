@@ -442,6 +442,40 @@ def build_run_parser(parser, dependencies=None):
         type=float,
         default=event_metadata_validation.DEFAULT_MAX_AGE_HOURS,
     )
+    parser.add_argument("--skip-public-wu-settlement-restore", action="store_true")
+    parser.add_argument(
+        "--wu-settlement-restore-markets",
+        default="all",
+        help="Comma-separated market IDs for completed-day WU settlement restore; default all.",
+    )
+    parser.add_argument("--wu-settlement-restore-sleep", type=float, default=0.2)
+    parser.add_argument("--wu-settlement-restore-timeout", type=float, default=30.0)
+    parser.set_defaults(wu_settlement_restore_skip_existing=True)
+    parser.add_argument(
+        "--wu-settlement-restore-skip-existing",
+        dest="wu_settlement_restore_skip_existing",
+        action="store_true",
+        help="Reuse existing target-date raw WU payloads and rebuild normalized outputs.",
+    )
+    parser.add_argument(
+        "--wu-settlement-restore-refetch",
+        dest="wu_settlement_restore_skip_existing",
+        action="store_false",
+        help="Fetch target-date WU payloads even when local raw payloads already exist.",
+    )
+    parser.set_defaults(wu_settlement_restore_continue_on_error=True)
+    parser.add_argument(
+        "--wu-settlement-restore-continue-on-error",
+        dest="wu_settlement_restore_continue_on_error",
+        action="store_true",
+        help="Record per-market WU restore failures and continue through remaining markets.",
+    )
+    parser.add_argument(
+        "--wu-settlement-restore-stop-on-error",
+        dest="wu_settlement_restore_continue_on_error",
+        action="store_false",
+        help="Abort the restore step on the first WU restore failure.",
+    )
     parser.add_argument("--skip-reanalysis-refresh", action="store_true")
     parser.add_argument("--reanalysis-lag-days", type=int, default=10)
     parser.add_argument("--reanalysis-chunk-days", type=int, default=5)

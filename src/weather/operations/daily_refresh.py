@@ -140,6 +140,7 @@ from weather.operations.daily_refresh_steps import (
     run_proper_scoring_reliability_scorecard_step,
     run_progress_audit_step,
     run_promotion_refresh_step,
+    run_public_wu_settlement_restore_step,
     run_reanalysis_recent_refresh_step,
     run_replay_status_backfill_step,
     run_runtime_identity_reconciliation_step,
@@ -215,7 +216,12 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
-            if name in {"settled_day_analysis_barrier", "daily_learning", "daily_flow_analysis"}:
+            if name in {
+                "market_day_labels_finalize",
+                "settled_day_analysis_barrier",
+                "daily_learning",
+                "daily_flow_analysis",
+            }:
                 setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
             try:
                 step = run_step(name, runner, args)

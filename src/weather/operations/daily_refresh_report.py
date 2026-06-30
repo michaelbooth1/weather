@@ -23,8 +23,22 @@ def render_report(payload):
         result = step.get("result") or {}
         if step.get("status") == "error":
             detail = step.get("error") or "-"
+        elif step.get("name") == "public_wu_settlement_restore":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; target {result.get('target_date')}; "
+                    f"restored {result.get('restored_market_count')}/{result.get('market_count')}; "
+                    f"reused_raw {result.get('reused_raw_market_count')}; "
+                    f"fetched {result.get('fetched_range_count')}; "
+                    f"blocked {result.get('blocked_market_count')}"
+                )
         elif step.get("name") == "market_day_labels_finalize":
-            detail = f"labels {result.get('label_count')} {result.get('quality_counts')}"
+            if result.get("status") == "BLOCK":
+                detail = f"BLOCK; {result.get('reason') or '-'}; restore {result.get('restore_status') or '-'}"
+            else:
+                detail = f"labels {result.get('label_count')} {result.get('quality_counts')}"
         elif step.get("name") == "replay_status_backfill":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"

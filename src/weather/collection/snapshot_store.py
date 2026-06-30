@@ -89,6 +89,7 @@ OPEN_METEO_SOURCE_FAMILY = {
     "global_ensemble",
     "eccc_gem",
 }
+FORECAST_RAW_PAYLOAD_RETENTION_ENV = "WEATHER_RETAIN_RAW_FORECAST_PAYLOADS"
 
 
 RUNTIME_IDENTITY_COLUMNS = [
@@ -305,14 +306,25 @@ SNAPSHOT_EXPLANATION_COLUMNS = [
 
 
 class SnapshotStore:
-    def __init__(self, root=None, interval=SNAPSHOT_INTERVAL, event_slug=None,
-                 due_tolerance=SNAPSHOT_DUE_TOLERANCE):
+    def __init__(
+        self,
+        root=None,
+        interval=SNAPSHOT_INTERVAL,
+        event_slug=None,
+        due_tolerance=SNAPSHOT_DUE_TOLERANCE,
+        retain_raw_forecast_payloads=None,
+    ):
         self.interval = interval
         # A scheduled capture is due once at least `interval - due_tolerance` has
         # elapsed since the last write, so an on-cadence loop tick is not skipped
         # for landing a few seconds short of the boundary (item 320). Pass
         # due_tolerance=timedelta(0) for the strict zero-tolerance behaviour.
         self.due_tolerance = due_tolerance or timedelta(0)
+        self.retain_raw_forecast_payloads = (
+            self.raw_forecast_payload_retention_enabled()
+            if retain_raw_forecast_payloads is None
+            else bool(retain_raw_forecast_payloads)
+        )
         self.fixed_root = root is not None
         self._set_paths(Path(root) if root is not None else None, event_slug or DEFAULT_MARKET_CONFIG.event_slug)
 
@@ -952,11 +964,14 @@ class SnapshotStore:
                 ttl_minutes = self.source_ttl_minutes(source)
             raw_text = json.dumps(payload, sort_keys=True, default=str)
             payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
-            safe_source = self.safe_filename_part(source)
-            filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
-            payload_path = self.forecast_payload_dir / filename
-            self.forecast_payload_dir.mkdir(parents=True, exist_ok=True)
-            payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            raw_payload_path = ""
+            if self.retain_raw_forecast_payloads:
+                safe_source = self.safe_filename_part(source)
+                filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
+                payload_path = self.forecast_payload_dir / filename
+                self.forecast_payload_dir.mkdir(parents=True, exist_ok=True)
+                payload_path.write_text(raw_text + "\n", encoding="utf-8")
+                raw_payload_path = str(payload_path)
             row = {
                 "snapshot_id": snapshot_id,
                 "captured_at_utc": captured_utc,
@@ -982,7 +997,7 @@ class SnapshotStore:
                 "payload_bytes": len(raw_text.encode("utf-8")),
                 "row_count": self.source_row_count(data),
                 "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
-                "raw_payload_path": str(payload_path),
+                "raw_payload_path": raw_payload_path,
             }
             rows.append(row)
         if rows:
@@ -1219,6 +1234,11 @@ class SnapshotStore:
 
     def safe_filename_part(self, value):
         return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value))
+
+    @staticmethod
+    def raw_forecast_payload_retention_enabled():
+        value = os.environ.get(FORECAST_RAW_PAYLOAD_RETENTION_ENV, "")
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def strip_raw_payloads(self, value):
         if isinstance(value, dict):
