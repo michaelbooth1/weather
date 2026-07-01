@@ -1013,6 +1013,8 @@ def summarize_market_making_run(path, payload, selection_summary=None):
         countability_blockers.append(f"quote_starvation={quote_starvation.get('classification')}")
     if _exchange_gate_blocked(exchange_gate):
         countability_blockers.append("paper_stale_exchange_economics")
+    if not countable_all_markets and not countability_blockers:
+        countability_blockers.append("counts_toward_live_forward_gate=False")
     countability_status = "COUNTABLE" if countable_all_markets and not countability_blockers else "NON_COUNTABLE"
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     return {
@@ -1075,6 +1077,41 @@ def summarize_market_making_run(path, payload, selection_summary=None):
         "model_review_evidence": _evidence_class(payload, "model_review_evidence"),
         "paper_trading_evidence": _evidence_class(payload, "paper_trading_evidence"),
         "live_trade_permission_evidence": _evidence_class(payload, "live_trade_permission_evidence"),
+    }
+
+
+def _maker_countability_gate(market_making):
+    mm = market_making or {}
+    blockers = list(mm.get("countability_blockers") or [])
+    quote_gate = mm.get("quote_starvation_gate") or {}
+    if mm.get("exists") is False:
+        status = "MISSING"
+    elif mm.get("countability_status") == "COUNTABLE" and mm.get("counts_toward_live_forward_gate"):
+        status = "PASS"
+    elif blockers or quote_gate.get("status") == "BLOCK":
+        status = "BLOCK"
+    elif mm.get("countability_status") == "NON_COUNTABLE":
+        status = "WARN"
+    else:
+        status = "UNKNOWN"
+    return {
+        "status": status,
+        "countability_status": mm.get("countability_status"),
+        "counts_toward_live_forward_gate": bool(mm.get("counts_toward_live_forward_gate")),
+        "selected_target_date": mm.get("selected_target_date"),
+        "selection_status": mm.get("evidence_selection_status"),
+        "maker_day_classification": mm.get("maker_day_classification"),
+        "quote_starvation_status": quote_gate.get("status"),
+        "quote_starvation_classification": quote_gate.get("classification"),
+        "blockers": blockers,
+        "first_blocker": blockers[0] if blockers else None,
+        "preflight_status": mm.get("preflight_status"),
+        "paper_score_freshness_status": mm.get("paper_score_freshness_status"),
+        "paper_fill_evidence_completeness_status": mm.get("paper_fill_evidence_completeness_status"),
+        "exchange_economics_gate_status": (
+            mm.get("paper_exchange_economics_gate_status")
+            or mm.get("exchange_economics_gate_status")
+        ),
     }
 
 
@@ -1668,6 +1705,13 @@ def build_trading_evidence_summary(
         "preflight_blocked_market_fraction"
     )
     market_making["evidence_starvation_recovery_owner_items"] = routed_starvation.get("recovery_owner_items") or []
+    market_making["maker_countability_gate"] = _maker_countability_gate(market_making)
+    market_making["maker_evidence_countability_status"] = (
+        market_making["maker_countability_gate"].get("status")
+    )
+    market_making["blocks_maker_evidence_countability"] = (
+        market_making["maker_countability_gate"].get("status") == "BLOCK"
+    )
     maker_exchange_blocked = bool(mm_paper_payload) and _exchange_gate_blocked(mm_paper_exchange_gate)
     taker_exchange_blocked = bool(taker.get("exists")) and _exchange_gate_blocked(taker.get("exchange_economics_gate"))
     exchange_summary = {
@@ -1707,6 +1751,8 @@ def _summary_status(payload):
     taker_quality = taker.get("quality_gate") or {}
     exchange = payload.get("exchange_economics") or {}
     if exchange.get("status") == "BLOCK":
+        return "BLOCK"
+    if mm.get("blocks_maker_evidence_countability"):
         return "BLOCK"
     if mm.get("evidence_starvation_status") == "CRITICAL":
         return "CRITICAL"
@@ -1774,6 +1820,7 @@ def render_report(payload):
             ["Evidence mode", mm.get("evidence_mode") or "-"],
             ["Counts toward live-forward", mm.get("counts_toward_live_forward_gate")],
             ["Countability status", mm.get("countability_status") or "-"],
+            ["Maker countability gate", (mm.get("maker_countability_gate") or {}).get("status") or "-"],
             ["Exchange economics", mm.get("paper_exchange_economics_gate_status") or mm.get("exchange_economics_gate_status") or "-"],
             ["Exchange snapshot", mm.get("exchange_economics_snapshot_id") or "-"],
             ["Maker day classification", mm.get("maker_day_classification") or "-"],

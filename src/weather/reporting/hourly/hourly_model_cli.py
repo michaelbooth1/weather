@@ -46,6 +46,11 @@ def build_parser():
         default=",".join(DEFAULT_QUALITY_GRADES),
         help="Comma-separated settlement quality grades to include.",
     )
+    parser.add_argument(
+        "--strict-quality-grades-only",
+        action="store_true",
+        help="Do not include labels that are promotion-countable but outside --quality-grades.",
+    )
     parser.add_argument("--markets", default="", help="Comma-separated market IDs to include.")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
@@ -79,6 +84,7 @@ def main(argv=None):
         snapshots_root=args.snapshots_root,
         context_root=args.context_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=not args.strict_quality_grades_only,
         markets=markets,
         start_date=args.start_date,
         end_date=args.end_date,

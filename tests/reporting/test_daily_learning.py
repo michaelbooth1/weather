@@ -265,6 +265,20 @@ def write_daily_artifacts(root, *, blocked=False):
         ),
         encoding="utf-8",
     )
+    (root / "winner_rank_parity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "winner_rank_parity_v0.1",
+                "generated_at_utc": "2026-06-17T00:00:30+00:00",
+                "status": "PASS",
+                "dates": ["2026-06-16"],
+                "summary": {"route_count": 0, "parity_gate_status": "PASS"},
+                "parity_gate": {"status": "PASS", "blocker_count": 0, "blockers": []},
+                "top_owner_routes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def rewrite_json(path, mutator):
@@ -1107,6 +1121,94 @@ class TestDailyLearning(unittest.TestCase):
         self.assertTrue(learning["retrain_input"])
         self.assertIn("settlement_distance_0_winner_catchup", learning["action"])
         self.assertIn("aggregate delta_vs_market", learning["action"])
+
+    def test_build_learning_payload_prioritizes_exact_band_and_warm_tail_research(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            rewrite_json(
+                backtest_root / "model_market_disagreement_analysis.json",
+                lambda payload: payload.update(
+                    {
+                        "recommendations": [
+                            {
+                                "priority": "P1",
+                                "category": "model_repair_candidate",
+                                "market_id": "nyc",
+                                "range_label": "82 F",
+                                "direction": "market_higher_than_model",
+                                "evidence": {"case_count": 3, "market_closer_count": 3},
+                                "route": {
+                                    "repair_lane": "exact-band/winner-centering",
+                                    "owner": "exact-band winner-centering repair",
+                                    "roadmap_owner": "Items 70, 147, 230",
+                                    "next_experiment": "audit_exact_band_winner_centering_replay",
+                                    "experiment_artifact": "data/backtest/experiments/audit_exact_band_winner_centering_replay.json",
+                                    "counts_toward_repair_evidence": True,
+                                },
+                            },
+                            {
+                                "priority": "P1",
+                                "category": "model_repair_candidate",
+                                "market_id": "seattle",
+                                "range_label": "90-91 F",
+                                "direction": "model_higher_than_market",
+                                "evidence": {"case_count": 3, "market_closer_count": 3},
+                                "route": {
+                                    "repair_lane": "warm-tail dampening",
+                                    "owner": "warm-tail spread repair",
+                                    "roadmap_owner": "Items 195, 232, 236",
+                                    "next_experiment": "audit_warm_tail_dampening_replay",
+                                    "experiment_artifact": "data/backtest/experiments/audit_warm_tail_dampening_replay.json",
+                                    "counts_toward_repair_evidence": True,
+                                },
+                            },
+                        ],
+                    }
+                ),
+            )
+            rewrite_json(
+                backtest_root / "winner_rank_parity.json",
+                lambda payload: payload.update(
+                    {
+                        "status": "BLOCK",
+                        "summary": {"route_count": 2, "parity_gate_status": "BLOCK"},
+                        "parity_gate": {"status": "BLOCK", "blocker_count": 1},
+                        "top_owner_routes": [
+                            {
+                                "slice": "band_type",
+                                "value": "eq",
+                                "snapshot_count": 8,
+                                "owner_items": [230],
+                                "model_top_miss_market_top_hit_brier_contribution": 0.012,
+                            },
+                            {
+                                "slice": "forecast_bucket_pressure",
+                                "value": "warm_side",
+                                "snapshot_count": 6,
+                                "owner_items": [194, 195, 232],
+                                "model_top_miss_market_top_hit_brier_contribution": 0.009,
+                            },
+                        ],
+                    }
+                ),
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-16")
+            research = [
+                row for row in payload["learnings"]
+                if row["category"] == "market_skill_gap"
+                and row["source"] in {"model_market_disagreement_analysis", "winner_rank_parity"}
+            ]
+            signals = "\n".join(row["signal"] for row in research)
+            queue_hypotheses = "\n".join(row["hypothesis"] for row in payload["experiment_queue"]["items"])
+
+        self.assertIn("exact-band/winner-centering", signals)
+        self.assertIn("warm-tail dampening", signals)
+        self.assertTrue(all(row["retrain_input"] for row in research))
+        self.assertEqual(payload["scorecard"]["winner_rank_parity"]["status"], "BLOCK")
+        self.assertIn("audit_exact_band_winner_centering_replay", queue_hypotheses)
+        self.assertIn("audit_warm_tail_dampening_replay", queue_hypotheses)
 
     def test_build_learning_payload_blocks_on_failed_blocked_validation(self):
         with tempfile.TemporaryDirectory() as tmp:

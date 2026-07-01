@@ -20,6 +20,7 @@ from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_SNAPSHOTS_ROOT,
     HOUR_REGIME_LABELS,
     discover_labeled_folders,
+    label_quality_metadata,
     parse_csv_values,
     parse_quality_grades,
 )
@@ -330,7 +331,7 @@ def score_folder(folder, label):
             "row_order": row_order,
             "market_id": label.get("market_id") or (spec.id if spec else None),
             "city": label.get("city") or (spec.city_label if spec else None),
-            "quality_grade": label.get("quality_grade"),
+            **label_quality_metadata(label),
             "target_date": target_date_value,
             "event_slug": slug,
             "snapshot_id": raw.get("snapshot_id"),
@@ -367,7 +368,7 @@ def score_folder(folder, label):
         "event_slug": slug,
         "market_id": label.get("market_id") or (spec.id if spec else None),
         "target_date": target_date_value,
-        "quality_grade": label.get("quality_grade"),
+        **label_quality_metadata(label),
         "settlement_bucket": settlement_bucket,
         "settlement_unit": label.get("settlement_unit") or (spec.display_unit if spec else None),
         "snapshot_count": len({row.get("snapshot_id") for row in tape_rows if row.get("snapshot_id")}),
@@ -636,6 +637,7 @@ def build_price_free_learning(
     labels_csv=DEFAULT_LABELS_CSV,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     quality_grades=DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels=True,
     markets=None,
     start_date=None,
     end_date=None,
@@ -644,6 +646,7 @@ def build_price_free_learning(
         labels_csv=labels_csv,
         snapshots_root=snapshots_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         markets=markets,
         start_date=start_date,
         end_date=end_date,
@@ -686,6 +689,7 @@ def build_price_free_learning(
             "labels_csv": str(Path(labels_csv)),
             "snapshots_root": str(Path(snapshots_root)),
             "quality_grades": list(quality_grades or []),
+            "include_promotion_countable_labels": bool(include_promotion_countable_labels),
             "markets": list(markets or []),
             "start_date": str(start_date) if start_date else None,
             "end_date": str(end_date) if end_date else None,
@@ -726,6 +730,7 @@ def build_price_free_learning(
         labels_csv=labels_csv,
         snapshots_root=snapshots_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         markets=markets,
         start_date=start_date,
         end_date=end_date,
@@ -735,6 +740,7 @@ def build_price_free_learning(
         artifact_name="price_free_model_learning",
         labels_csv=labels_csv,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
         rerun_command=rerun_command,
     )
@@ -1043,6 +1049,11 @@ def build_parser():
         default=",".join(DEFAULT_QUALITY_GRADES),
         help="Comma-separated settlement quality grades to include.",
     )
+    parser.add_argument(
+        "--strict-quality-grades-only",
+        action="store_true",
+        help="Do not include labels that are promotion-countable but outside --quality-grades.",
+    )
     parser.add_argument("--markets", default="", help="Comma-separated market IDs to include.")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
@@ -1060,6 +1071,7 @@ def main(argv=None):
         labels_csv=args.labels_csv,
         snapshots_root=args.snapshots_root,
         quality_grades=parse_quality_grades(args.quality_grades),
+        include_promotion_countable_labels=not args.strict_quality_grades_only,
         markets=parse_csv_values(args.markets),
         start_date=args.start_date,
         end_date=args.end_date,

@@ -11,6 +11,7 @@ STEP_ORDER = (
     "market_day_labels_finalize",
     "exchange_economics_rule_drift",
     "taker_finalization_watchdog",
+    "taker_edge_permission_map",
     "taker_tail_casebook",
     "maker_paper_score",
     "settlement_source_audit",

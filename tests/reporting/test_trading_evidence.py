@@ -443,7 +443,49 @@ class TestTradingEvidence(unittest.TestCase):
         mm = summary["market_making"]
         self.assertEqual(mm["maker_day_classification"], "quote_starved_infra")
         self.assertEqual(mm["quote_starvation_gate"]["status"], "BLOCK")
+        self.assertEqual(mm["maker_countability_gate"]["status"], "BLOCK")
+        self.assertTrue(mm["blocks_maker_evidence_countability"])
         self.assertIn("quote_starvation=quote_starved_infra", mm["countability_blockers"])
+
+    def test_market_making_non_countable_clean_no_edge_has_explicit_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "mm_runs" / "2026-06-19" / "risk-clean"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "mm_run_v0.2",
+                        "run_id": "risk-clean",
+                        "target_date": "2026-06-19",
+                        "mode": "paper-live-forward",
+                        **_exchange_fields(),
+                        "evidence_mode": "active_day_live_forward",
+                        "counts_toward_live_forward_gate": False,
+                        "preflight_status": "PASS",
+                        "live_forward_gate": {"status": "PASS"},
+                        "useful_work_liveness": {"status": "PASS"},
+                        "row_count": 12,
+                        "cumulative_quote_permission_rows": 0,
+                        "reason_counts": {"NO_QUOTE_NO_EDGE": 12},
+                        "generated_at_utc": "2026-06-19T20:00:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+
+        mm = summary["market_making"]
+        self.assertEqual(mm["maker_day_classification"], "risk_clean_no_edge")
+        self.assertEqual(mm["countability_status"], "NON_COUNTABLE")
+        self.assertEqual(mm["maker_countability_gate"]["status"], "BLOCK")
+        self.assertEqual(mm["maker_countability_gate"]["first_blocker"], "counts_toward_live_forward_gate=False")
+        self.assertIn("counts_toward_live_forward_gate=False", mm["countability_blockers"])
 
     def test_market_making_model_variant_skips_block_trading_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

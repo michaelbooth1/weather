@@ -90,6 +90,17 @@ def render_report(payload):
                     f"sla {result.get('sla_breach_count')}; "
                     f"champion {result.get('champion_decision')}"
                 )
+        elif step.get("name") == "taker_edge_permission_map":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                detail = (
+                    f"{result.get('status')}; tapes {result.get('source_tape_count')}; "
+                    f"records {result.get('record_count')}; "
+                    f"allowed {result.get('edge_allowed_count')}; "
+                    f"observe {result.get('observe_count')}; "
+                    f"deny {result.get('deny_count')}"
+                )
         elif step.get("name") == "taker_tail_casebook":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"
@@ -454,6 +465,7 @@ def render_report(payload):
             "",
         ]
     taker_finalization = (payload.get("summary") or {}).get("taker_finalization_watchdog") or {}
+    taker_edge_permission = (payload.get("summary") or {}).get("taker_edge_permission_map") or {}
     taker_tail = (payload.get("summary") or {}).get("taker_tail_casebook") or {}
     maker_paper = (payload.get("summary") or {}).get("maker_paper_score") or {}
     truth_audit = (payload.get("summary") or {}).get("settlement_source_audit") or {}
@@ -476,6 +488,7 @@ def render_report(payload):
         ]
     if (
         taker_finalization.get("status")
+        or taker_edge_permission.get("status")
         or taker_tail.get("status")
         or maker_paper.get("status")
         or truth_audit.get("status")
@@ -497,6 +510,16 @@ def render_report(payload):
                 f"pending={taker_finalization.get('pending_finalization_count')}; "
                 f"sla={taker_finalization.get('sla_breach_count')}; "
                 f"champion={taker_finalization.get('champion_decision')} |"
+            )
+        if taker_edge_permission.get("status"):
+            lines.append(
+                "| Taker edge-permission map | "
+                f"{taker_edge_permission.get('status')} | "
+                f"tapes={taker_edge_permission.get('source_tape_count')}; "
+                f"records={taker_edge_permission.get('record_count')}; "
+                f"allowed={taker_edge_permission.get('edge_allowed_count')}; "
+                f"observe={taker_edge_permission.get('observe_count')}; "
+                f"deny={taker_edge_permission.get('deny_count')} |"
             )
         if taker_tail.get("status"):
             lines.append(
@@ -535,6 +558,7 @@ def render_report(payload):
                 f"{trading.get('taker_pnl_evidence_status')}; "
                 f"truth={trading.get('taker_settlement_source_audit_status')}; "
                 f"mm_counts={trading.get('mm_counts_toward_live_forward')}; "
+                f"mm_gate={trading.get('mm_maker_countability_gate_status')}; "
                 f"starvation={trading.get('mm_evidence_starvation_status')}; "
                 f"paper_score={trading.get('mm_paper_score_freshness_status')} |"
             )

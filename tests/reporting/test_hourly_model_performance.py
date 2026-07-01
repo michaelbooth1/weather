@@ -103,6 +103,34 @@ def write_labels_csv(root, folder):
     return path
 
 
+def write_promotion_countable_partial_labels_csv(root, folder):
+    path = Path(root) / "labels.csv"
+    rows = [
+        {
+            "event_slug": SLUG,
+            "market_id": "toronto",
+            "city": "Toronto",
+            "target_date": "2026-06-03",
+            "settlement_bucket": "10",
+            "settlement_unit": "C",
+            "settlement_source": "test",
+            "quality_grade": "partial",
+            "material_coverage_grade": "minor_gap_material",
+            "material_coverage_reason": "fixture minor gap",
+            "promotion_countable": "True",
+            "promotion_countable_reason": "independent source and market reconciliation match",
+            "snapshot_count": "2",
+            "band_count": "2",
+            "snapshot_tape_path": str(folder / "snapshots_long.csv"),
+        }
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
 def write_stale_labels_csv(root, folder):
     path = Path(root) / "labels.csv"
     rows = [
@@ -242,6 +270,52 @@ class TestHourlyModelPerformance(unittest.TestCase):
             "python -m weather.reporting.hourly.hourly_model_performance",
             payload["hourly_performance_gate"]["first_blocker"]["remediation_command"],
         )
+
+    def test_promotion_countable_partial_labels_are_scored_with_quality_annotations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = write_snapshot_folder(tmp)
+            labels_csv = write_promotion_countable_partial_labels_csv(tmp, folder)
+
+            payload = build_hourly_performance(
+                labels_csv=labels_csv,
+                snapshots_root=Path(tmp) / "snapshots",
+                context_root=Path(tmp),
+                quality_grades=("complete",),
+                min_rows=1,
+                top_hours=1,
+            )
+
+        self.assertEqual(payload["corpus"]["scored_market_days"], 1)
+        self.assertEqual(payload["corpus"]["skipped_labels"], {})
+        self.assertEqual(payload["last_scored_target_date"], "2026-06-03")
+        self.assertEqual(payload["latest_settled_label_date"], "2026-06-03")
+        self.assertEqual(payload["scoring_liveness"]["status"], "PASS")
+        self.assertEqual(payload["scoring_liveness"]["selected_quality_counts"], {"partial": 1})
+        day = payload["days"][0]
+        self.assertEqual(day["quality_grade"], "partial")
+        self.assertEqual(day["material_coverage_grade"], "minor_gap_material")
+        self.assertTrue(day["promotion_countable"])
+
+    def test_strict_quality_only_excludes_promotion_countable_partial_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = write_snapshot_folder(tmp)
+            labels_csv = write_promotion_countable_partial_labels_csv(tmp, folder)
+
+            payload = build_hourly_performance(
+                labels_csv=labels_csv,
+                snapshots_root=Path(tmp) / "snapshots",
+                context_root=Path(tmp),
+                quality_grades=("complete",),
+                include_promotion_countable_labels=False,
+                min_rows=1,
+                top_hours=1,
+            )
+
+        self.assertEqual(payload["corpus"]["scored_market_days"], 0)
+        self.assertEqual(payload["corpus"]["skipped_labels"], {"quality": 1})
+        self.assertIsNone(payload["last_scored_target_date"])
+        self.assertIsNone(payload["latest_settled_label_date"])
+        self.assertEqual(payload["scoring_liveness"]["status"], "UNKNOWN")
 
     def test_forecast_centering_probe_uses_forecast_anchor_without_market_prices(self):
         rows = [

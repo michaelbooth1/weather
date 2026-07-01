@@ -42,6 +42,7 @@ ARTIFACT_FILES = {
     "settled_day_analysis_barrier": "settled_day_analysis_barrier.json",
     "source_family_inventory": "source_family_inventory.json",
     "proper_scoring_reliability_scorecard": "proper_scoring_reliability_scorecard.json",
+    "winner_rank_parity": "winner_rank_parity.json",
     "taker_finalization_watchdog": "taker_finalization_watchdog.json",
     "taker_tail_casebook": "taker_tail_casebook.json",
     "trading_evidence": "trading_evidence.json",
@@ -1153,6 +1154,7 @@ def _scorecard(payloads, daily_refresh_summary=None):
     taker_finalization = payloads.get("taker_finalization_watchdog") or {}
     taker_tail = payloads.get("taker_tail_casebook") or {}
     proper_scoring = payloads.get("proper_scoring_reliability_scorecard") or {}
+    winner_rank = payloads.get("winner_rank_parity") or {}
     snapshot_status = snapshot_eval.get("status") or {}
     snapshot_inventory = snapshot_eval.get("snapshot_inventory") or {}
     backlog = snapshot_eval.get("improvement_backlog") or {}
@@ -1265,6 +1267,14 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "model_win_count": safe_int(casebook.get("model_win_count")),
             "model_loss_count": safe_int(casebook.get("model_loss_count")),
             "taxonomy_counts": casebook.get("taxonomy_counts") or {},
+        },
+        "winner_rank_parity": {
+            "status": winner_rank.get("status"),
+            "dates": winner_rank.get("dates") or [],
+            "summary": winner_rank.get("summary") or {},
+            "parity_gate": winner_rank.get("parity_gate") or {},
+            "top_owner_route_count": len(winner_rank.get("top_owner_routes") or []),
+            "top_owner_routes": (winner_rank.get("top_owner_routes") or [])[:20],
         },
         "model_market_disagreement_rehydration": {
             "status": (

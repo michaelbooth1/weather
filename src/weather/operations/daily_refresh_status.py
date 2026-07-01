@@ -59,6 +59,7 @@ def pipeline_summary(steps):
     wu_restore = ((by_name.get("public_wu_settlement_restore") or {}).get("result") or {})
     finalize = ((by_name.get("market_day_labels_finalize") or {}).get("result") or {})
     taker_finalization = ((by_name.get("taker_finalization_watchdog") or {}).get("result") or {})
+    taker_edge_permission = ((by_name.get("taker_edge_permission_map") or {}).get("result") or {})
     taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
     maker_paper = ((by_name.get("maker_paper_score") or {}).get("result") or {})
     truth_audit = ((by_name.get("settlement_source_audit") or {}).get("result") or {})
@@ -141,6 +142,14 @@ def pipeline_summary(steps):
             "champion_decision": taker_finalization.get("champion_decision"),
             "champion_recommended_strategy_id": taker_finalization.get("champion_recommended_strategy_id"),
         },
+        "taker_edge_permission_map": {
+            "status": taker_edge_permission.get("status"),
+            "source_tape_count": taker_edge_permission.get("source_tape_count"),
+            "record_count": taker_edge_permission.get("record_count"),
+            "edge_allowed_count": taker_edge_permission.get("edge_allowed_count"),
+            "observe_count": taker_edge_permission.get("observe_count"),
+            "deny_count": taker_edge_permission.get("deny_count"),
+        },
         "taker_tail_casebook": {
             "status": taker_tail.get("status"),
             "source_run_count": taker_tail.get("source_run_count"),
@@ -178,6 +187,9 @@ def pipeline_summary(steps):
             "status": trading.get("status"),
             "mm_evidence_mode": trading.get("mm_evidence_mode"),
             "mm_counts_toward_live_forward": trading.get("mm_counts_toward_live_forward"),
+            "mm_maker_countability_gate_status": trading.get("mm_maker_countability_gate_status"),
+            "mm_maker_countability_blockers": trading.get("mm_maker_countability_blockers") or [],
+            "mm_blocks_maker_evidence_countability": trading.get("mm_blocks_maker_evidence_countability"),
             "mm_evidence_starvation_status": trading.get("mm_evidence_starvation_status"),
             "mm_paper_score_freshness_status": trading.get("mm_paper_score_freshness_status"),
             "mm_paper_latest_completed_active_day": trading.get("mm_paper_latest_completed_active_day"),

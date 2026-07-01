@@ -36,6 +36,7 @@ _DEPENDENCY_NAMES = {
     "taker_bot",
     "taker_tail_casebook",
     "trading_evidence",
+    "exchange_economics",
     "promotion_refresh",
     "clob_order_book_tiering",
     "daily_roll_log_hygiene",
@@ -251,6 +252,15 @@ def build_run_parser(parser, dependencies=None):
         default=taker_bot.DEFAULT_CHAMPION_MIN_SETTLED_ORDERS,
     )
     parser.add_argument("--skip-taker-tail-casebook", action="store_true")
+    parser.add_argument("--skip-taker-edge-permission-map", action="store_true")
+    parser.add_argument(
+        "--taker-edge-permission-map-out",
+        default="",
+        help="Output path for the regenerated taker edge-permission map; defaults to <backtest-root>/taker_edge_permission_map.json.",
+    )
+    parser.add_argument("--taker-edge-permission-min-settled-orders", type=int, default=5)
+    parser.add_argument("--taker-edge-permission-min-independent-days", type=int, default=3)
+    parser.add_argument("--taker-edge-permission-min-after-fee-skill", type=float, default=0.0)
     parser.add_argument(
         "--taker-tail-casebook-date",
         default="",
@@ -264,6 +274,11 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--skip-maker-paper-score", action="store_true")
     parser.add_argument("--skip-exchange-economics-rule-drift", action="store_true")
+    parser.add_argument(
+        "--exchange-economics-template",
+        default=str(exchange_economics.DEFAULT_TEMPLATE),
+        help="Tracked exchange-economics source template used to stamp target-date proof.",
+    )
     parser.add_argument(
         "--exchange-economics-snapshot",
         default="",

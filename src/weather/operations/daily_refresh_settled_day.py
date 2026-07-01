@@ -38,6 +38,12 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "skippable_as_non_critical": True,
     },
     {
+        "step": "taker_edge_permission_map",
+        "phase": "post_label_taker_permission_map",
+        "critical": True,
+        "skippable_as_non_critical": True,
+    },
+    {
         "step": "taker_tail_casebook",
         "phase": "post_label_taker_evidence",
         "critical": True,

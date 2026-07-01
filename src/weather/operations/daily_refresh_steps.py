@@ -17,6 +17,7 @@ from weather.backtesting.settlement_ledger import (
 from weather.market import exchange_economics
 from weather.market import mm_paper
 from weather.market import taker_bot
+from weather.market import taker_edge_permission
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
@@ -654,6 +655,25 @@ def run_exchange_economics_rule_drift_step(args):
         getattr(args, "exchange_economics_accepted_snapshot", "")
         or backtest_path(args, "exchange_economics_accepted_snapshot.json")
     )
+    refresh = {}
+    try:
+        refresh = exchange_economics.publish_snapshot_from_template(
+            template_path=(
+                getattr(args, "exchange_economics_template", "")
+                or exchange_economics.DEFAULT_TEMPLATE
+            ),
+            snapshot_path=snapshot_path,
+            target_date=target,
+            platform=getattr(args, "exchange_economics_platform", exchange_economics.DEFAULT_PLATFORM),
+            now=getattr(args, "as_of", None),
+        )
+    except Exception as exc:  # noqa: BLE001 - fail-closed gate evidence
+        refresh = {
+            "status": "BLOCK",
+            "reason": str(exc),
+            "snapshot_path": str(snapshot_path),
+            "target_date": target,
+        }
     payload = exchange_economics.build_drift_report(
         snapshot_path=snapshot_path,
         accepted_snapshot_path=accepted_snapshot_path,
@@ -661,6 +681,13 @@ def run_exchange_economics_rule_drift_step(args):
         platform=getattr(args, "exchange_economics_platform", exchange_economics.DEFAULT_PLATFORM),
         now=getattr(args, "as_of", None),
     )
+    payload["snapshot_refresh"] = refresh
+    if refresh.get("status") == "BLOCK":
+        payload["status"] = "BLOCK"
+        payload.setdefault("blockers", []).insert(0, {
+            "code": "exchange_economics_snapshot_refresh_failed",
+            "detail": refresh.get("reason") or "exchange economics snapshot refresh failed",
+        })
     json_out = exchange_economics.write_drift_report(
         payload,
         backtest_path(args, "exchange_economics_drift.json"),
@@ -672,6 +699,8 @@ def run_exchange_economics_rule_drift_step(args):
         "json_out": as_path(json_out),
         "snapshot_path": str(snapshot_path),
         "accepted_snapshot_path": str(accepted_snapshot_path),
+        "snapshot_refresh_status": refresh.get("status"),
+        "snapshot_refresh_target_date": refresh.get("target_date"),
         "snapshot_id": payload.get("current_snapshot_id"),
         "snapshot_hash": payload.get("current_snapshot_hash"),
         "gate_status": gate.get("status"),
@@ -688,6 +717,21 @@ def _taker_finalization_status(payload):
     if summary.get("pending_finalization_count") or summary.get("needs_finalization_count"):
         return "PENDING"
     return "OK"
+
+
+def _settled_taker_permission_tapes(taker_root):
+    root = Path(taker_root)
+    if not root.exists():
+        return []
+    paths = []
+    for run_folder in sorted(path for path in root.glob("*/*") if path.is_dir()):
+        counterfactual = run_folder / "settled_counterfactual_orders_long.csv"
+        settled = run_folder / "settled_orders_long.csv"
+        if counterfactual.exists():
+            paths.append(counterfactual)
+        elif settled.exists():
+            paths.append(settled)
+    return paths
 
 
 def run_taker_finalization_watchdog_step(args):
@@ -764,6 +808,50 @@ def run_taker_finalization_watchdog_step(args):
         "champion_recommended_strategy_id": summary.get("champion_recommended_strategy_id"),
         "champion_ledger_out": as_path(champion_ledger_out),
         "champion_ledger_report_out": as_path(champion_report_out),
+    }
+
+
+def run_taker_edge_permission_map_step(args):
+    if getattr(args, "skip_taker_edge_permission_map", False):
+        return {"status": "SKIPPED", "reason": "skip_taker_edge_permission_map"}
+    paths = _settled_taker_permission_tapes(getattr(args, "taker_root", taker_bot.DEFAULT_RUNS_ROOT))
+    out = getattr(args, "taker_edge_permission_map_out", "") or backtest_path(args, "taker_edge_permission_map.json")
+    if not paths:
+        payload = taker_edge_permission.write_taker_edge_permission_map(
+            out,
+            rows=[],
+            now=getattr(args, "as_of", None),
+            source_artifacts=[],
+        )
+        return {
+            "status": "NO_DATA",
+            "json_out": as_path(out),
+            "source_tape_count": 0,
+            "record_count": 0,
+            "edge_allowed_count": 0,
+            "observe_count": 0,
+            "deny_count": 0,
+        }
+    payload = taker_edge_permission.build_taker_edge_permission_map_from_tapes(
+        paths,
+        now=getattr(args, "as_of", None),
+        min_settled_orders=getattr(args, "taker_edge_permission_min_settled_orders", 5),
+        min_independent_days=getattr(args, "taker_edge_permission_min_independent_days", 3),
+        min_after_fee_skill=getattr(args, "taker_edge_permission_min_after_fee_skill", 0.0),
+        source_artifacts=[str(path) for path in paths],
+    )
+    out_path = Path(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    summary = payload.get("summary") or {}
+    return {
+        "status": "PASS",
+        "json_out": as_path(out_path),
+        "source_tape_count": len(paths),
+        "record_count": summary.get("record_count"),
+        "edge_allowed_count": summary.get("edge_allowed_count"),
+        "observe_count": summary.get("observe_count"),
+        "deny_count": summary.get("deny_count"),
     }
 
 
@@ -925,6 +1013,9 @@ def run_trading_evidence_step(args):
         "report_out": as_path(report_out),
         "mm_evidence_mode": mm.get("evidence_mode"),
         "mm_counts_toward_live_forward": mm.get("counts_toward_live_forward_gate"),
+        "mm_maker_countability_gate_status": (mm.get("maker_countability_gate") or {}).get("status"),
+        "mm_maker_countability_blockers": (mm.get("maker_countability_gate") or {}).get("blockers") or [],
+        "mm_blocks_maker_evidence_countability": mm.get("blocks_maker_evidence_countability"),
         "mm_evidence_starvation_status": mm.get("evidence_starvation_status"),
         "mm_maker_day_classification": mm.get("maker_day_classification"),
         "mm_quote_starvation_gate_status": (mm.get("quote_starvation_gate") or {}).get("status"),
@@ -2204,6 +2295,7 @@ DEFAULT_RUNNERS = (
     ("market_day_labels_finalize", run_market_day_labels_finalize),
     ("exchange_economics_rule_drift", run_exchange_economics_rule_drift_step),
     ("taker_finalization_watchdog", run_taker_finalization_watchdog_step),
+    ("taker_edge_permission_map", run_taker_edge_permission_map_step),
     ("taker_tail_casebook", run_taker_tail_casebook_step),
     ("maker_paper_score", run_maker_paper_score_step),
     ("settlement_source_audit", run_settlement_source_audit_step),

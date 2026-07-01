@@ -138,6 +138,30 @@ def _gap_owner_priority(row):
     return "P1" if row.get("counts_toward_core_skill_claim") else row.get("priority") or "P2"
 
 
+REPAIR_LANE_EXPERIMENTS = {
+    "exact-band/winner-centering": {
+        "owner": "exact-band winner-centering repair",
+        "roadmap_owner": "Items 70, 147, 230",
+        "next_experiment": "audit_exact_band_winner_centering_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_exact_band_winner_centering_replay.json",
+        "clearance_rule": (
+            "Improve exact-band and settlement-distance-0 winner rank without "
+            "regressing one-above, early-hour, or market-vs-model guardrails."
+        ),
+    },
+    "warm-tail dampening": {
+        "owner": "warm-tail spread repair",
+        "roadmap_owner": "Items 195, 232, 236",
+        "next_experiment": "audit_warm_tail_dampening_replay",
+        "experiment_artifact": "data/backtest/experiments/audit_warm_tail_dampening_replay.json",
+        "clearance_rule": (
+            "Reduce market-rejected warm-tail over-allocation without suppressing "
+            "legitimate rebound or current-high continuation winners."
+        ),
+    },
+}
+
+
 def _add_gap_owner_learnings(learnings, rows, truncated_sources=None):
     for row in _capped_sorted_rows(
         rows,
@@ -162,6 +186,165 @@ def _add_gap_owner_learnings(learnings, rows, truncated_sources=None):
             evidence=row,
             retrain_input=bool(row.get("counts_toward_core_skill_claim")),
         ))
+
+
+def _repair_lane_priority(evidence):
+    contribution = maybe_float(evidence.get("model_top_miss_market_top_hit_brier_contribution"))
+    cases = safe_int(first_present(evidence.get("market_closer_count"), evidence.get("snapshot_count"), evidence.get("case_count")))
+    if cases >= 3 or (contribution is not None and contribution >= 0.01):
+        return "P1"
+    return "P2"
+
+
+def _add_disagreement_repair_lane_learnings(learnings, disagreement_payload, truncated_sources=None):
+    rows = list(disagreement_payload.get("recommendations") or [])
+    if not rows:
+        rows = [
+            {
+                "priority": row.get("priority"),
+                "market_id": row.get("market_id"),
+                "range_label": row.get("range_label"),
+                "direction": row.get("direction"),
+                "category": row.get("category"),
+                "evidence": row,
+                "route": {
+                    "repair_lane": row.get("repair_lane"),
+                    "owner": row.get("owner"),
+                    "roadmap_owner": row.get("roadmap_owner"),
+                    "next_experiment": row.get("next_experiment"),
+                    "experiment_artifact": row.get("experiment_artifact"),
+                    "counts_toward_repair_evidence": row.get("counts_toward_repair_evidence"),
+                    "evidence_policy": row.get("suggested_backlog_note"),
+                },
+            }
+            for row in ((disagreement_payload.get("operator_review_queue") or {}).get("rows") or [])
+        ]
+    for row in _capped_sorted_rows(
+        rows,
+        8,
+        "model_market_disagreement_analysis.recommendations",
+        truncated_sources,
+        priority_func=lambda item: item.get("priority") or "P2",
+    ):
+        route = row.get("route") or {}
+        lane = route.get("repair_lane")
+        if lane not in REPAIR_LANE_EXPERIMENTS:
+            continue
+        if row.get("category") not in {"model_repair_candidate", None, ""}:
+            continue
+        evidence = {**(row.get("evidence") or {})}
+        lane_spec = {**REPAIR_LANE_EXPERIMENTS[lane], **{key: value for key, value in route.items() if value not in (None, "")}}
+        evidence.update({
+            "slice": lane,
+            "group": first_present(row.get("market_id"), row.get("range_label"), row.get("direction")),
+            "market_id": row.get("market_id"),
+            "range_label": row.get("range_label"),
+            "direction": row.get("direction"),
+            "repair_lane": lane,
+            "owner": lane_spec.get("owner"),
+            "roadmap_owner": lane_spec.get("roadmap_owner"),
+            "next_experiment": lane_spec.get("next_experiment"),
+            "experiment_artifact": lane_spec.get("experiment_artifact"),
+            "clearance_rule": lane_spec.get("clearance_rule"),
+            "evidence_policy": route.get("evidence_policy"),
+        })
+        market = row.get("market_id") or "market"
+        band = row.get("range_label") or "-"
+        market_closer = safe_int(evidence.get("market_closer_count"))
+        learnings.append(_learning(
+            _repair_lane_priority(evidence),
+            "market_skill_gap",
+            "model_market_disagreement_analysis",
+            (
+                f"{lane} has resolved repair evidence for {market} {band}: "
+                f"{row.get('direction') or '-'}; market-closer cases={market_closer}."
+            ),
+            (
+                f"Run paired daily-first experiment `{lane_spec.get('next_experiment')}`; "
+                f"artifact: {lane_spec.get('experiment_artifact')}; "
+                f"{lane_spec.get('clearance_rule')}"
+            ),
+            evidence=evidence,
+            retrain_input=bool(route.get("counts_toward_repair_evidence", True)),
+        ))
+
+
+def _owner_items(row):
+    owners = set()
+    for item in row.get("owner_items") or []:
+        try:
+            owners.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return owners
+
+
+def _winner_rank_repair_lanes(row):
+    slice_name = str(row.get("slice") or "")
+    value = str(row.get("value") or "").lower()
+    lanes = []
+    exact_slice = (
+        (slice_name == "band_type" and value in {"eq", "exact"})
+        or (slice_name == "settlement_distance_bucket" and value in {"0", "1"})
+        or (slice_name == "cutoff_regime" and value == "early")
+        or (slice_name == "local_hour" and (maybe_float(value) is not None and maybe_float(value) <= 8))
+    )
+    warm_slice = (
+        (slice_name == "forecast_disagreement_bucket" and "high" in value)
+        or (slice_name == "current_max_trust_state" and "current" in value)
+        or (slice_name == "cutoff_regime" and value in {"ramp", "late", "lock_in"})
+        or (slice_name == "local_hour" and (maybe_float(value) is not None and maybe_float(value) >= 9))
+        or "warm" in value
+    )
+    if exact_slice:
+        lanes.append("exact-band/winner-centering")
+    if warm_slice:
+        lanes.append("warm-tail dampening")
+    return lanes
+
+
+def _add_winner_rank_research_learnings(learnings, parity_payload, truncated_sources=None):
+    routes = parity_payload.get("top_owner_routes") or []
+    for row in _capped_sorted_rows(
+        routes,
+        10,
+        "winner_rank_parity.top_owner_routes",
+        truncated_sources,
+    ):
+        contribution = maybe_float(row.get("model_top_miss_market_top_hit_brier_contribution"))
+        for lane in _winner_rank_repair_lanes(row):
+            lane_spec = REPAIR_LANE_EXPERIMENTS[lane]
+            evidence = {
+                **row,
+                "slice": lane,
+                "group": f"{row.get('slice') or '-'}={row.get('value') or '-'}",
+                "repair_lane": lane,
+                "owner": lane_spec["owner"],
+                "roadmap_owner": lane_spec["roadmap_owner"],
+                "next_experiment": lane_spec["next_experiment"],
+                "experiment_artifact": lane_spec["experiment_artifact"],
+                "clearance_rule": lane_spec["clearance_rule"],
+                "parity_gate_status": (parity_payload.get("parity_gate") or {}).get("status"),
+                "source_dates": parity_payload.get("dates") or [],
+            }
+            learnings.append(_learning(
+                _repair_lane_priority(evidence),
+                "market_skill_gap",
+                "winner_rank_parity",
+                (
+                    f"{lane} is a winner-rank parity research priority: "
+                    f"{row.get('slice') or '-'}={row.get('value') or '-'}; "
+                    f"snapshots={row.get('snapshot_count')}; "
+                    f"Brier contribution={fmt_num(contribution, 4)}."
+                ),
+                (
+                    f"Run paired daily-first experiment `{lane_spec['next_experiment']}`; "
+                    f"artifact: {lane_spec['experiment_artifact']}; "
+                    f"{lane_spec['clearance_rule']}"
+                ),
+                evidence=evidence,
+                retrain_input=True,
+            ))
 
 
 def _add_data_recommendations(learnings, recommendations, truncated_sources=None):
@@ -431,6 +614,8 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
     data_payload = payloads.get("data_layer_audit") or {}
     promotion_payload = payloads.get("promotion_refresh") or {}
     hourly_payload = payloads.get("hourly_model_performance") or {}
+    disagreement_payload = payloads.get("model_market_disagreement_analysis") or {}
+    winner_rank_payload = payloads.get("winner_rank_parity") or {}
     hourly = scorecard.get("hourly_model_performance") or {}
     ten_minute = scorecard.get("ten_minute_model_performance") or {}
     price_free = scorecard.get("price_free_model_learning") or {}
@@ -771,6 +956,8 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
         truncated_sources,
     )
     _add_gap_owner_learnings(learnings, promotion_payload.get("gap_owner_table") or [], truncated_sources)
+    _add_disagreement_repair_lane_learnings(learnings, disagreement_payload, truncated_sources)
+    _add_winner_rank_research_learnings(learnings, winner_rank_payload, truncated_sources)
 
     hourly_gate = hourly.get("hourly_performance_gate") or {}
     if hourly_gate.get("status") == "BLOCK":

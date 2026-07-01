@@ -43,6 +43,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_settled_day_analysis_barrier_step,
     run_settled_day_root_cause_step,
     run_settlement_source_audit_step,
+    run_taker_edge_permission_map_step,
     run_taker_finalization_watchdog_step,
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
@@ -156,10 +157,16 @@ def _args(tmp, **overrides):
         "taker_champion_min_complete_label_days": 3,
         "taker_champion_min_settled_orders": 5,
         "skip_exchange_economics_rule_drift": False,
+        "exchange_economics_template": str(exchange_economics.DEFAULT_TEMPLATE),
         "exchange_economics_snapshot": str(root / "backtest" / "exchange_economics_snapshot.json"),
         "exchange_economics_accepted_snapshot": str(root / "backtest" / "exchange_economics_accepted_snapshot.json"),
         "exchange_economics_platform": "polymarket_us",
         "skip_taker_tail_casebook": False,
+        "skip_taker_edge_permission_map": False,
+        "taker_edge_permission_map_out": str(root / "backtest" / "taker_edge_permission_map.json"),
+        "taker_edge_permission_min_settled_orders": 5,
+        "taker_edge_permission_min_independent_days": 3,
+        "taker_edge_permission_min_after_fee_skill": 0.0,
         "taker_tail_casebook_date": "",
         "taker_tail_casebook_max_runs": 0,
         "skip_maker_paper_score": False,
@@ -317,6 +324,7 @@ def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_afte
             "result": {"status": "PASS", "target_date": target_date},
         },
         {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -579,6 +587,7 @@ class TestDailyRefresh(unittest.TestCase):
                 },
                 {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 0}},
                 {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -677,6 +686,7 @@ class TestDailyRefresh(unittest.TestCase):
                 },
                 {"name": "exchange_economics_rule_drift", "status": "ok", "result": {"status": "PASS"}},
                 {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -778,7 +788,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("market_day_labels_finalize"), names.index("exchange_economics_rule_drift"))
         self.assertLess(names.index("exchange_economics_rule_drift"), names.index("taker_finalization_watchdog"))
         self.assertLess(names.index("exchange_economics_rule_drift"), names.index("maker_paper_score"))
-        self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_tail_casebook"))
+        self.assertLess(names.index("taker_finalization_watchdog"), names.index("taker_edge_permission_map"))
+        self.assertLess(names.index("taker_edge_permission_map"), names.index("taker_tail_casebook"))
         self.assertLess(names.index("taker_tail_casebook"), names.index("maker_paper_score"))
         self.assertLess(names.index("maker_paper_score"), names.index("settlement_source_audit"))
         self.assertLess(names.index("settlement_source_audit"), names.index("trading_evidence"))
@@ -984,6 +995,7 @@ class TestDailyRefresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
             current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+            args.exchange_economics_template = str(current)
             accepted_payload = json.loads(current.read_text(encoding="utf-8"))
             accepted_payload["market_rules"]["tick_size"] = 0.01
             accepted = Path(args.exchange_economics_accepted_snapshot)
@@ -1002,6 +1014,7 @@ class TestDailyRefresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
             current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+            args.exchange_economics_template = str(current)
             accepted = Path(args.exchange_economics_accepted_snapshot)
             accepted.parent.mkdir(parents=True, exist_ok=True)
             accepted.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1013,6 +1026,30 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertFalse(result["rescore_required"])
         self.assertTrue(payload["accepted_snapshot_present"])
         self.assertEqual(payload["current_gate"]["evidence_basis"], "current_exchange_economics")
+
+    def test_exchange_economics_rule_drift_step_refreshes_stale_target_date_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
+            stale = _write_exchange_snapshot(
+                Path(args.exchange_economics_snapshot),
+                target_date="2026-06-17",
+                now="2026-06-17T12:00:00+00:00",
+            )
+            args.exchange_economics_template = str(stale)
+            accepted = Path(args.exchange_economics_accepted_snapshot)
+            accepted.parent.mkdir(parents=True, exist_ok=True)
+            accepted.write_text(stale.read_text(encoding="utf-8"), encoding="utf-8")
+
+            result = run_exchange_economics_rule_drift_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            refreshed_snapshot = json.loads(Path(args.exchange_economics_snapshot).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["snapshot_refresh_status"], "PASS")
+        self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-19")
+        self.assertEqual(refreshed_snapshot["verified_for_target_date"], "2026-06-19")
+        self.assertEqual(payload["current_gate"]["status"], "PASS")
+        self.assertEqual(payload["current_gate"]["verified_for_target_date"], "2026-06-19")
 
     def test_model_market_disagreement_rehydration_step_writes_resolved_revision(self):
         target_date = "2026-06-21"
@@ -2094,6 +2131,47 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(bakeoff_exists)
         self.assertTrue(detail_json_exists)
         self.assertTrue(detail_report_exists)
+
+    def test_taker_edge_permission_map_step_rebuilds_from_settled_tapes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "taker_runs" / "2026-06-19" / "taker-map"
+            run.mkdir(parents=True)
+            rows = []
+            for index in range(5):
+                rows.append({
+                    "target_date": f"2026-06-{14 + index:02d}",
+                    "market_id": "atlanta",
+                    "captured_at_utc": f"2026-06-{14 + index:02d}T16:00:00+00:00",
+                    "capture_hour_local": "12",
+                    "side": "YES_BUY",
+                    "source_freshness_state": "all_fresh",
+                    "snapshot_cadence_quality_state": "clean",
+                    "current_high_trusted": "True",
+                    "current_high_band_distance": "0",
+                    "model_variant_id": "served_current",
+                    "fair_probability": "0.90",
+                    "market_mid": "0.55",
+                    "best_ask": "0.60",
+                    "settlement_outcome": "1",
+                })
+            with (run / "settled_counterfactual_orders_long.csv").open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            args = _args(
+                tmp,
+                taker_edge_permission_map_out=str(root / "backtest" / "taker_edge_permission_map.json"),
+            )
+
+            result = run_taker_edge_permission_map_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["source_tape_count"], 1)
+        self.assertEqual(result["record_count"], 1)
+        self.assertEqual(result["edge_allowed_count"], 1)
+        self.assertEqual(payload["records"][0]["permission"], "edge_allowed")
 
     def test_taker_tail_casebook_step_writes_no_go_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:

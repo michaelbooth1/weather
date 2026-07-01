@@ -15,6 +15,14 @@ DEFAULT_QUALITY_GRADES = ("complete", "manual_override")
 LIVENESS_BLOCKER_GATE = "model_scoring_liveness_stale"
 
 
+def truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "pass", "countable"}
+
+
 def parse_quality_grades(value: Any, *, default: tuple[str, ...] = DEFAULT_QUALITY_GRADES) -> tuple[str, ...]:
     if value in (None, ""):
         return tuple(default)
@@ -65,6 +73,7 @@ def latest_settled_label_summary(
     labels_csv: str | Path,
     *,
     quality_grades: Any = DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels: bool = True,
 ) -> dict[str, Any]:
     grades = parse_quality_grades(quality_grades)
     allowed = {grade.lower() for grade in grades}
@@ -72,27 +81,40 @@ def latest_settled_label_summary(
     rows = read_label_rows(labels_csv)
     selected: list[dict[str, Any]] = []
     quality_counts = Counter()
+    selected_quality_counts = Counter()
+    selected_promotion_countable_count = 0
+    selected_by_reason = Counter()
     by_date = Counter()
     for row in rows:
         quality = str(row.get("quality_grade") or "unknown")
         quality_counts[quality] += 1
-        if not allow_all and quality.lower() not in allowed:
+        quality_allowed = allow_all or quality.lower() in allowed
+        promotion_countable = truthy(row.get("promotion_countable"))
+        if not quality_allowed and not (include_promotion_countable_labels and promotion_countable):
             continue
         target = row_target_date(row)
         if not target:
             continue
         selected.append(row)
+        selected_quality_counts[quality] += 1
+        if promotion_countable:
+            selected_promotion_countable_count += 1
+            selected_by_reason[str(row.get("promotion_countable_reason") or "-")] += 1
         by_date[target] += 1
     latest = max(by_date, default=None)
     return {
         "labels_csv": str(Path(labels_csv)),
         "labels_csv_exists": Path(labels_csv).exists(),
         "quality_grades": list(grades),
+        "include_promotion_countable_labels": bool(include_promotion_countable_labels),
         "selected_label_count": len(selected),
         "latest_settled_label_date": latest,
         "latest_label_count": by_date.get(latest, 0) if latest else 0,
         "date_counts": dict(sorted(by_date.items())),
         "quality_counts": dict(sorted(quality_counts.items())),
+        "selected_quality_counts": dict(sorted(selected_quality_counts.items())),
+        "selected_promotion_countable_label_count": selected_promotion_countable_count,
+        "selected_promotion_countable_reasons": dict(sorted(selected_by_reason.items())),
     }
 
 
@@ -111,6 +133,7 @@ def build_rerun_command(
     labels_csv: str | Path | None = None,
     snapshots_root: str | Path | None = None,
     quality_grades: Any = DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels: bool = True,
     markets: Any = None,
     start_date: Any = None,
     end_date: Any = None,
@@ -124,6 +147,8 @@ def build_rerun_command(
     grades = parse_quality_grades(quality_grades)
     if grades:
         parts += ["--quality-grades", ",".join(grades)]
+    if not include_promotion_countable_labels:
+        parts += ["--strict-quality-grades-only"]
     if markets not in (None, "", []):
         if isinstance(markets, str):
             market_text = markets
@@ -175,10 +200,15 @@ def build_scoring_liveness(
     artifact_name: str,
     labels_csv: str | Path,
     quality_grades: Any = DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels: bool = True,
     last_scored_target_date: Any = None,
     rerun_command: str | None = None,
 ) -> dict[str, Any]:
-    label_summary = latest_settled_label_summary(labels_csv, quality_grades=quality_grades)
+    label_summary = latest_settled_label_summary(
+        labels_csv,
+        quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
+    )
     latest = label_summary.get("latest_settled_label_date")
     last_scored = date_text(last_scored_target_date)
     blockers = []
@@ -208,9 +238,17 @@ def build_scoring_liveness(
         "latest_label_count": label_summary.get("latest_label_count"),
         "selected_label_count": label_summary.get("selected_label_count"),
         "quality_grades": label_summary.get("quality_grades") or [],
+        "include_promotion_countable_labels": label_summary.get("include_promotion_countable_labels"),
         "labels_csv": label_summary.get("labels_csv"),
         "labels_csv_exists": label_summary.get("labels_csv_exists"),
         "quality_counts": label_summary.get("quality_counts") or {},
+        "selected_quality_counts": label_summary.get("selected_quality_counts") or {},
+        "selected_promotion_countable_label_count": (
+            label_summary.get("selected_promotion_countable_label_count") or 0
+        ),
+        "selected_promotion_countable_reasons": (
+            label_summary.get("selected_promotion_countable_reasons") or {}
+        ),
         "blocker_count": len(blockers),
         "first_blocker": blockers[0] if blockers else {},
         "blockers": blockers,
@@ -267,6 +305,7 @@ def attach_scoring_liveness(
     artifact_name: str,
     labels_csv: str | Path,
     quality_grades: Any = DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels: bool = True,
     last_scored_target_date: Any = None,
     rerun_command: str | None = None,
     gate_keys: tuple[str, ...] = (),
@@ -276,6 +315,7 @@ def attach_scoring_liveness(
         artifact_name=artifact_name,
         labels_csv=labels_csv,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         last_scored_target_date=last_scored,
         rerun_command=rerun_command,
     )

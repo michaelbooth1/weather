@@ -774,6 +774,7 @@ def build_ten_minute_performance(
     labels_csv=DEFAULT_LABELS_CSV,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     quality_grades=DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels=True,
     markets="",
     start_date=None,
     end_date=None,
@@ -792,6 +793,7 @@ def build_ten_minute_performance(
         labels_csv=labels_csv,
         snapshots_root=snapshots_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         markets=markets,
         start_date=start_date,
         end_date=end_date,
@@ -814,6 +816,13 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         quality_grades = tuple(item.strip() for item in quality_grades.split(",") if item.strip())
     else:
         quality_grades = tuple(quality_grades or DEFAULT_QUALITY_GRADES)
+    include_promotion_countable_labels = bool(
+        getattr(
+            args,
+            "include_promotion_countable_labels",
+            not getattr(args, "strict_quality_grades_only", False),
+        )
+    )
     markets = args.markets
     if isinstance(markets, str):
         markets = [item.strip() for item in markets.split(",") if item.strip()]
@@ -821,6 +830,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         labels_csv=args.labels_csv,
         snapshots_root=args.snapshots_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         markets=markets,
         start_date=args.start_date,
         end_date=args.end_date,
@@ -897,6 +907,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
             "labels_csv": str(args.labels_csv),
             "snapshots_root": str(args.snapshots_root),
             "quality_grades": args.quality_grades,
+            "include_promotion_countable_labels": include_promotion_countable_labels,
             "markets": args.markets,
             "start_date": args.start_date,
             "end_date": args.end_date,
@@ -944,6 +955,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         labels_csv=args.labels_csv,
         snapshots_root=args.snapshots_root,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         markets=markets,
         start_date=args.start_date,
         end_date=args.end_date,
@@ -967,6 +979,7 @@ def build_payload(args: argparse.Namespace) -> dict[str, Any]:
         artifact_name="ten_minute_model_performance",
         labels_csv=args.labels_csv,
         quality_grades=quality_grades,
+        include_promotion_countable_labels=include_promotion_countable_labels,
         last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
         rerun_command=rerun_command,
         gate_keys=("ten_minute_performance_gate", "candidate_ten_minute_gate"),
@@ -1500,6 +1513,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--quality-grades", default=",".join(DEFAULT_QUALITY_GRADES))
+    parser.add_argument(
+        "--strict-quality-grades-only",
+        action="store_true",
+        help="Do not include labels that are promotion-countable but outside --quality-grades.",
+    )
     parser.add_argument("--markets", default="")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)

@@ -60,6 +60,7 @@ from weather.reporting.scorecards import winner_rank_parity
 from weather.reporting.location_analysis import june23_location_bias_repair
 from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.market import trading_evidence
+from weather.market import exchange_economics
 from weather.market import taker_bot
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
@@ -149,6 +150,7 @@ from weather.operations.daily_refresh_steps import (
     run_settlement_source_audit_step,
     run_shadow_ab_monitor_step,
     run_snapshot_evaluation_step,
+    run_taker_edge_permission_map_step,
     run_taker_finalization_watchdog_step,
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
@@ -388,6 +390,7 @@ def _cli_dependencies():
         taker_bot=taker_bot,
         taker_tail_casebook=taker_tail_casebook,
         trading_evidence=trading_evidence,
+        exchange_economics=exchange_economics,
         promotion_refresh=promotion_refresh,
         clob_order_book_tiering=clob_order_book_tiering,
         daily_roll_log_hygiene=daily_roll_log_hygiene,

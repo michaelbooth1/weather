@@ -126,6 +126,14 @@ def parse_quality_grades(value):
     return tuple(parsed) if parsed else tuple(DEFAULT_QUALITY_GRADES)
 
 
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "pass", "countable"}
+
+
 def safe_int(value):
     number = safe_float(value)
     if number is None:
@@ -194,6 +202,7 @@ def discover_labeled_folders(
     labels_csv=DEFAULT_LABELS_CSV,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     quality_grades=DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels=True,
     markets=None,
     start_date=None,
     end_date=None,
@@ -227,7 +236,9 @@ def discover_labeled_folders(
             skipped["market"] += 1
             continue
         quality = row.get("quality_grade")
-        if allowed_quality and quality not in allowed_quality:
+        quality_allowed = not allowed_quality or quality in allowed_quality
+        promotion_countable = truthy(row.get("promotion_countable"))
+        if not quality_allowed and not (include_promotion_countable_labels and promotion_countable):
             skipped["quality"] += 1
             continue
         if row.get("settlement_bucket") in (None, ""):
@@ -253,6 +264,16 @@ def discover_labeled_folders(
 
     selected.sort(key=lambda item: (item["label"].get("market_id") or "", item["label"].get("target_date") or ""))
     return selected, dict(skipped)
+
+
+def label_quality_metadata(label):
+    return {
+        "quality_grade": label.get("quality_grade"),
+        "material_coverage_grade": label.get("material_coverage_grade"),
+        "material_coverage_reason": label.get("material_coverage_reason"),
+        "promotion_countable": truthy(label.get("promotion_countable")),
+        "promotion_countable_reason": label.get("promotion_countable_reason"),
+    }
 
 
 def first_present(row, *keys):
@@ -312,7 +333,7 @@ def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS):
         raw = frame.iloc[int(row["row_order"])].to_dict()
         row["market_id"] = label.get("market_id") or (spec.id if spec else None)
         row["city"] = label.get("city") or (spec.city_label if spec else None)
-        row["quality_grade"] = label.get("quality_grade")
+        row.update(label_quality_metadata(label))
         row["settlement_bucket"] = settlement_bucket
         row["settlement_unit"] = label.get("settlement_unit") or (spec.display_unit if spec else None)
         row["settlement_source"] = label.get("settlement_source")
@@ -327,7 +348,7 @@ def score_folder(folder, label, thresholds=DEFAULT_THRESHOLDS):
         "event_slug": slug,
         "market_id": label.get("market_id") or (spec.id if spec else None),
         "target_date": target_date.isoformat() if target_date else None,
-        "quality_grade": label.get("quality_grade"),
+        **label_quality_metadata(label),
         "settlement_bucket": settlement_bucket,
         "settlement_unit": label.get("settlement_unit") or (spec.display_unit if spec else None),
         "snapshot_count": int(frame["snapshot_id"].nunique()) if "snapshot_id" in frame else None,
