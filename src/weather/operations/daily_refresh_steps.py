@@ -969,8 +969,18 @@ def run_settlement_source_audit_step(args):
         report_out=backtest_path(args, "settlement_source_revision_audit.md"),
     )
     summary = payload.get("summary") or {}
+    # The settled-day analysis barrier asserts truth-label proof for the day
+    # being analyzed; item 319 ratified that historical non-proof-grade labels
+    # (permanent capture-gap days) must not fail-close current settled-day
+    # analysis. Gate the step on the analyzed target date and keep the global
+    # audit outcome visible alongside it.
+    target = settled_analysis_target_date(args).isoformat()
+    gate = settlement_source_audit.settlement_label_gate_for_target_dates(payload, [target])
     return {
-        "status": payload.get("status"),
+        "status": gate.get("status"),
+        "target_date": target,
+        "target_date_gate_blockers": gate.get("blockers") or [],
+        "global_status": payload.get("status"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "label_count": summary.get("label_count"),

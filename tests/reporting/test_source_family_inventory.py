@@ -206,6 +206,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
@@ -302,6 +303,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
             evidence = open_meteo_air_quality_archive_evidence(open_meteo_root)
             inventory = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
                 locations_config=locations_config,
@@ -384,6 +386,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
             evidence = open_meteo_global_model_archive_evidence(open_meteo_root)
             inventory = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
                 locations_config=locations_config,
@@ -736,6 +739,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
                 ablation_json=backtest_root / "missing_source_family_ablation.json",
@@ -808,6 +812,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 marine_water_contrast_root=marine_root,
                 backtest_root=backtest_root,
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
@@ -883,6 +888,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=backtest_root / "missing_candidate_replay.json",
@@ -960,6 +966,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
@@ -1055,6 +1062,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
@@ -1108,6 +1116,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
@@ -1197,6 +1206,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
                 candidate_replay_json=candidate_replay,
@@ -1265,6 +1275,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
@@ -1343,6 +1354,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
 
             payload = build_source_family_inventory(
                 snapshots_root=snapshots_root,
+                archive_root=root / "archive",
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
                 candidate_replay_json=candidate_replay,

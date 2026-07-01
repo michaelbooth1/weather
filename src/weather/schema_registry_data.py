@@ -185,6 +185,13 @@ REGISTERED_SCHEMAS = (
         "Triggered-row replay comparison artifact.",
     ),
     SchemaSpec(
+        "snapshot_cadence_attribution",
+        "snapshot_cadence_attribution_v0.1",
+        "weather.collection.snapshot_tracker",
+        "active",
+        "Per-iteration market cadence attribution summary in snapshot loop diagnostics.",
+    ),
+    SchemaSpec(
         "snapshot_cadence_quality_backfill",
         "snapshot_cadence_quality_backfill_v0.1",
         "weather.collection.snapshot_store",

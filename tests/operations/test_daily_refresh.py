@@ -2303,16 +2303,84 @@ class TestDailyRefresh(unittest.TestCase):
             ledger.parent.mkdir(parents=True)
             ledger.write_text(json.dumps(row) + "\n", encoding="utf-8")
 
-            result = run_settlement_source_audit_step(_args(tmp, labels_csv=str(labels), ledger_root=str(root / "settlements")))
+            result = run_settlement_source_audit_step(_args(
+                tmp,
+                labels_csv=str(labels),
+                ledger_root=str(root / "settlements"),
+                as_of="2026-06-20T12:00:00+00:00",
+            ))
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             report_exists = Path(result["report_out"]).exists()
 
         self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["target_date"], "2026-06-19")
+        self.assertEqual(result["target_date_gate_blockers"], [])
+        self.assertEqual(result["global_status"], "PASS")
         self.assertEqual(result["label_count"], 1)
         self.assertEqual(result["finalized_label_count"], 1)
         self.assertEqual(result["proof_grade_label_count"], 1)
         self.assertEqual(payload["summary"]["promotion_blocked_label_count"], 0)
         self.assertTrue(report_exists)
+
+    def test_settlement_source_audit_step_gates_on_analyzed_target_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            daily = root / "daily_summary.csv"
+            snapshot = root / "snapshots_long.csv"
+            ledger = root / "settlements" / "atlanta" / "ledger.jsonl"
+            daily.write_text("local_date,row_count,max_temp_bucket_c\n2026-06-19,24,84\n", encoding="utf-8")
+            snapshot.write_text("snapshot_id,wu_history_high_c\ns1,84\n", encoding="utf-8")
+            current_row = {
+                "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                "market_id": "atlanta",
+                "target_date": "2026-06-19",
+                "settlement_bucket": "84",
+                "settlement_source": "daily_summary",
+                "quality_grade": "complete",
+                "reconciliation_status": "match",
+                "daily_summary_path": str(daily),
+                "snapshot_tape_path": str(snapshot),
+                "ledger_path": str(ledger),
+                "resolution_timezone": "America/New_York",
+                "finalized_at_utc": "2026-06-20T06:00:00+00:00",
+            }
+            historical_row = {
+                **current_row,
+                "event_slug": "highest-temperature-in-atlanta-on-june-01-2026",
+                "target_date": "2026-06-01",
+                "quality_grade": "partial",
+                "reconciliation_status": "match",
+                "promotion_countable": "False",
+                "promotion_countable_reason": "capture_ratio 49.3% below material threshold 80%",
+            }
+            fieldnames = sorted(set(current_row) | set(historical_row))
+            labels = root / "labels.csv"
+            labels.write_text(
+                ",".join(fieldnames) + "\n"
+                + ",".join(current_row.get(key, "") for key in fieldnames) + "\n"
+                + ",".join(historical_row.get(key, "") for key in fieldnames) + "\n",
+                encoding="utf-8",
+            )
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(
+                json.dumps(current_row) + "\n" + json.dumps(historical_row) + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_settlement_source_audit_step(_args(
+                tmp,
+                labels_csv=str(labels),
+                ledger_root=str(root / "settlements"),
+                as_of="2026-06-20T12:00:00+00:00",
+            ))
+
+        # Historical non-proof-grade labels keep the global audit BLOCK for
+        # visibility but must not fail-close analysis of the current settled day.
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["target_date"], "2026-06-19")
+        self.assertEqual(result["target_date_gate_blockers"], [])
+        self.assertEqual(result["global_status"], "BLOCK")
+        self.assertEqual(result["promotion_blocked_label_count"], 1)
 
     def test_maker_paper_score_step_writes_fresh_standard_report(self):
         with tempfile.TemporaryDirectory() as tmp:

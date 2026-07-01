@@ -59,6 +59,7 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "step": "settlement_source_audit",
         "phase": "label_provenance_audit",
         "critical": True,
+        "target_date_fields": ("target_date",),
         "skippable_as_non_critical": True,
     },
     {

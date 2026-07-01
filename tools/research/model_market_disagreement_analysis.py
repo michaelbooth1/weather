@@ -1,13 +1,25 @@
-import sys
-from pathlib import Path
+"""Retired compatibility wrapper for the canonical model/market disagreement analysis."""
+
+from __future__ import annotations
+
+try:
+    from .research_harness import retired_stub_main
+except ImportError:
+    from research_harness import retired_stub_main
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+RESEARCH_STATUS = "retired"
 
-from weather.reporting.candidate_lifecycle.model_market_disagreement_analysis import main  # noqa: E402
+
+def main(argv=None) -> int:
+    return retired_stub_main(
+        __file__,
+        argv,
+        description=(
+            "Retired compatibility wrapper; use "
+            "python -m weather.reporting.candidate_lifecycle.model_market_disagreement_analysis."
+        ),
+    )
 
 
 if __name__ == "__main__":

@@ -1222,7 +1222,6 @@ from weather.model.variant_prediction_runtime import (  # noqa: E402
     canonical_density_record,
     canonical_density_records,
     feature_frame,
-    feature_names_need_dynamic_source_state,
     finite_float,
     hard_floor_probability,
     late_lockin_strength_from_features,

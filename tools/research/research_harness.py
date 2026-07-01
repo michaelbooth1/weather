@@ -81,6 +81,16 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "Historical local input-importance audit; durable outputs feed items 134-138.",
     },
+    "model_market_disagreement_analysis.py": {
+        "status": "retired",
+        "smoke": "compile_main_guard",
+        "notes": "Compatibility wrapper; use weather.reporting.candidate_lifecycle.model_market_disagreement_analysis.",
+    },
+    "model_market_disagreement_audit.py": {
+        "status": "retired",
+        "smoke": "compile_main_guard",
+        "notes": "Compatibility wrapper; use weather.reporting.candidate_lifecycle.model_market_disagreement_audit.",
+    },
     "nyc_audit.py": {
         "status": "retired",
         "smoke": "help",

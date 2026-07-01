@@ -127,7 +127,9 @@ def render_report(payload):
                 detail = result.get("reason") or "skipped"
             else:
                 detail = (
-                    f"{result.get('status')}; labels {result.get('label_count')}; "
+                    f"{result.get('status')} (target {result.get('target_date')}); "
+                    f"global {result.get('global_status')}; "
+                    f"labels {result.get('label_count')}; "
                     f"proof {result.get('proof_grade_label_count')}; "
                     f"blocked {result.get('promotion_blocked_label_count')}; "
                     f"revised {result.get('revised_label_count')}; "

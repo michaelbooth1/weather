@@ -174,6 +174,9 @@ def pipeline_summary(steps):
         },
         "settlement_source_audit": {
             "status": truth_audit.get("status"),
+            "target_date": truth_audit.get("target_date"),
+            "target_date_gate_blockers": truth_audit.get("target_date_gate_blockers") or [],
+            "global_status": truth_audit.get("global_status"),
             "label_count": truth_audit.get("label_count"),
             "finalized_label_count": truth_audit.get("finalized_label_count"),
             "provisional_label_count": truth_audit.get("provisional_label_count"),
