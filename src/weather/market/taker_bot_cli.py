@@ -1133,6 +1133,7 @@ def finalize_main(argv=None):
                 Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None
             ),
             exchange_economics_platform=args.exchange_economics_platform,
+            exchange_economics_required=True,
         )
         if args.status_out:
             write_json(Path(args.status_out), payload)
@@ -1154,6 +1155,11 @@ def finalize_main(argv=None):
         run_folder=Path(args.run_folder) if args.run_folder else None,
         now=args.now,
         min_free_bytes=args.min_free_bytes,
+        exchange_economics_snapshot_path=(
+            Path(args.exchange_economics_snapshot) if args.exchange_economics_snapshot else None
+        ),
+        exchange_economics_platform=args.exchange_economics_platform,
+        exchange_economics_required=True,
     )
     print(f"Taker finalization: {payload['run_count']} run(s) finalized")
     for row in payload["runs"]:

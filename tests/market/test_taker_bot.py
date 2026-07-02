@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from weather.market import exchange_economics
 from weather.market.taker_bot import (
     DEFAULT_CONFIG,
     DEFAULT_BAKEOFF_STRATEGIES,
@@ -2704,6 +2705,164 @@ class TestTakerBot(unittest.TestCase):
             self.assertEqual(payload["runs"][0]["sla_status"], "PASS")
             self.assertEqual(payload["runs"][0]["bakeoff_action"], "created")
             self.assertEqual(payload["runs"][0]["action"], "finalized")
+
+    def test_finalize_taker_run_uses_current_exchange_economics_snapshot_when_supplied(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "taker-20260619-current-exchange-proof",
+                [
+                    order_row(
+                        "atlanta",
+                        "highest-temperature-in-atlanta-on-june-19-2026",
+                        "88-89 F",
+                        88,
+                        89,
+                        54.76,
+                        11.73047,
+                    )
+                ],
+                reported_net=0,
+                reported_mtm=0,
+                reported_unsettled=1,
+            )
+            stale_gate = {
+                "required": True,
+                "ok": False,
+                "status": "BLOCK",
+                "reason": "stale fixture",
+                "snapshot_id": "xecon-stale",
+                "snapshot_hash": "stale-hash",
+                "evidence_basis": exchange_economics.STALE_EVIDENCE_BASIS,
+                "verified_for_target_date": "2026-06-18",
+                "verified_at_utc": "2026-06-18T12:00:00+00:00",
+            }
+            (run / "run_config.json").write_text(
+                json.dumps({"exchange_economics_gate": stale_gate}),
+                encoding="utf-8",
+            )
+            snapshot_path = root / "exchange_economics_snapshot.json"
+            snapshot = exchange_economics.build_snapshot_payload(
+                target_date="2026-06-19",
+                verified_at_utc="2026-06-20T12:00:00+00:00",
+            )
+            snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 88,
+                    "winning_band": "88-89 F",
+                    "quality_grade": "complete",
+                }
+            ])
+
+            finalized = finalize_taker_run(
+                run,
+                labels_csv=labels,
+                now="2026-06-20T12:00:00+00:00",
+                exchange_economics_snapshot_path=snapshot_path,
+                exchange_economics_required=True,
+            )
+
+            expected_hash = exchange_economics.snapshot_hash(snapshot)
+            self.assertEqual(finalized["exchange_economics_gate"]["status"], "PASS")
+            self.assertEqual(finalized["exchange_economics_gate"]["verified_for_target_date"], "2026-06-19")
+            self.assertEqual(finalized["summary"]["exchange_economics_gate_status"], "PASS")
+            self.assertEqual(finalized["summary"]["exchange_economics_hash"], expected_hash)
+            self.assertNotEqual(finalized["next_run_policy_gate"]["status"], "BLOCK")
+            self.assertEqual(finalized["next_run_policy_gate"]["exchange_economics_status"], "PASS")
+            self.assertEqual(finalized["next_run_policy_gate"]["exchange_economics_hash"], expected_hash)
+            strategy_summary = json.loads((run / "settled_strategy_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(strategy_summary["exchange_economics_status"], "PASS")
+            self.assertEqual(
+                strategy_summary["exchange_economics_evidence_basis"],
+                exchange_economics.CURRENT_EVIDENCE_BASIS,
+            )
+            self.assertEqual(strategy_summary["exchange_economics_hash"], expected_hash)
+            settled_rows = read_csv(run / "settled_orders_long.csv")
+            self.assertEqual(
+                settled_rows[0]["exchange_economics_evidence_basis"],
+                exchange_economics.CURRENT_EVIDENCE_BASIS,
+            )
+            self.assertEqual(settled_rows[0]["exchange_economics_hash"], expected_hash)
+
+    def test_finalization_watchdog_refinalizes_stale_exchange_economics_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = write_taker_run(
+                root,
+                "taker-20260619-refresh-exchange-proof",
+                [
+                    order_row(
+                        "atlanta",
+                        "highest-temperature-in-atlanta-on-june-19-2026",
+                        "88-89 F",
+                        88,
+                        89,
+                        54.76,
+                        11.73047,
+                    )
+                ],
+                reported_net=0,
+                reported_mtm=0,
+                reported_unsettled=1,
+            )
+            stale_gate = {
+                "required": True,
+                "ok": False,
+                "status": "BLOCK",
+                "reason": "stale fixture",
+                "snapshot_id": "xecon-stale",
+                "snapshot_hash": "stale-hash",
+                "evidence_basis": exchange_economics.STALE_EVIDENCE_BASIS,
+                "verified_for_target_date": "2026-06-18",
+                "verified_at_utc": "2026-06-18T12:00:00+00:00",
+            }
+            (run / "run_config.json").write_text(
+                json.dumps({"exchange_economics_gate": stale_gate}),
+                encoding="utf-8",
+            )
+            labels = root / "market_day_labels.csv"
+            write_labels(labels, [
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-june-19-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-06-19",
+                    "settlement_bucket": 88,
+                    "winning_band": "88-89 F",
+                    "quality_grade": "complete",
+                }
+            ])
+            finalized = finalize_taker_run(run, labels_csv=labels, now="2026-06-20T12:00:00+00:00")
+            self.assertEqual(finalized["summary"]["exchange_economics_gate_status"], "BLOCK")
+            snapshot_path = root / "exchange_economics_snapshot.json"
+            snapshot = exchange_economics.build_snapshot_payload(
+                target_date="2026-06-19",
+                verified_at_utc="2026-06-20T12:00:00+00:00",
+            )
+            snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+            payload = finalization_watchdog(
+                target_date="2026-06-19",
+                runs_root=root / "taker_runs",
+                labels_csv=labels,
+                now="2026-06-20T12:00:00+00:00",
+                min_free_bytes=0,
+                ensure_bakeoff=False,
+                exchange_economics_snapshot_path=snapshot_path,
+                exchange_economics_required=True,
+            )
+
+            expected_hash = exchange_economics.snapshot_hash(snapshot)
+            self.assertEqual(payload["summary"]["finalized_run_count"], 1)
+            self.assertEqual(payload["runs"][0]["exchange_economics_finalization_status"], "CURRENT")
+            refreshed = json.loads((run / "settled_strategy_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(refreshed["exchange_economics_status"], "PASS")
+            self.assertEqual(refreshed["exchange_economics_hash"], expected_hash)
 
     def test_finalization_watchdog_blocks_labelable_run_when_disk_preflight_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

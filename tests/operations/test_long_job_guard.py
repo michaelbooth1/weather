@@ -23,6 +23,32 @@ class TestLongJobGuard(unittest.TestCase):
         else:
             os.environ[ACTIVE_ENV_VAR] = self._original_guard_env
 
+    @unittest.skipUnless(os.name == "nt", "Windows SetPriorityClass path")
+    def test_lower_process_priority_applies_on_windows(self):
+        # Run in a subprocess so the test runner's own priority is untouched.
+        # Regression: without ctypes restype/argtypes the pseudo-handle is
+        # truncated on 64-bit Windows and SetPriorityClass always fails.
+        import subprocess
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import json;"
+                    "from weather.operations.long_job_guard import lower_process_priority;"
+                    "print(json.dumps(lower_process_priority('below_normal')))"
+                ),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=60,
+            check=True,
+        )
+        payload = json.loads(result.stdout.strip())
+        self.assertTrue(payload["applied"], payload)
+        self.assertEqual(payload["method"], "SetPriorityClass")
+
     def test_guard_writes_running_and_complete_state_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "guard_status.json"

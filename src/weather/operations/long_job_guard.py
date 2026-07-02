@@ -158,8 +158,14 @@ def lower_process_priority(priority="below_normal"):
                 "below_normal": 0x00004000,
             }
             priority_class = classes.get(priority, classes["below_normal"])
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            ok = ctypes.windll.kernel32.SetPriorityClass(handle, priority_class)
+            kernel32 = ctypes.windll.kernel32
+            # Without these declarations ctypes truncates the pseudo-handle to
+            # a 32-bit int on 64-bit Windows and SetPriorityClass rejects it.
+            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel32.SetPriorityClass.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+            kernel32.SetPriorityClass.restype = ctypes.c_int
+            handle = kernel32.GetCurrentProcess()
+            ok = kernel32.SetPriorityClass(handle, priority_class)
             if not ok:
                 raise OSError("SetPriorityClass returned 0")
             return {

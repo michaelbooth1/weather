@@ -25,6 +25,36 @@ def _exchange_fields_from_run_config(run_config):
     return gate, fields
 
 
+def _exchange_fields_for_finalization(
+    run_config,
+    target_date=None,
+    now=None,
+    *,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
+):
+    if exchange_economics_snapshot_path is None and exchange_economics_required is None:
+        return _exchange_fields_from_run_config(run_config)
+    required = bool(exchange_economics_required) if exchange_economics_required is not None else True
+    gate = exchange_economics.load_exchange_economics_gate(
+        exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
+        target_date,
+        platform=exchange_economics_platform,
+        now=now,
+        required=required,
+    )
+    return gate, exchange_economics.exchange_economics_artifact_fields(gate)
+
+
+def _run_config_with_exchange_fields(run_config, exchange_gate, exchange_fields):
+    return {
+        **(run_config or {}),
+        "exchange_economics_gate": exchange_gate or {},
+        **(exchange_fields or {}),
+    }
+
+
 def _annotate_rows_with_exchange_fields(rows, fields):
     for row in rows or []:
         row.update({
@@ -883,12 +913,129 @@ def taker_artifact_retention_plan(
     }
 
 
+def _exchange_gate_identity(gate):
+    gate = gate or {}
+    return {
+        "status": gate.get("status"),
+        "snapshot_id": gate.get("snapshot_id") or gate.get("exchange_economics_snapshot_id"),
+        "snapshot_hash": gate.get("snapshot_hash") or gate.get("exchange_economics_hash"),
+        "verified_for_target_date": gate.get("verified_for_target_date"),
+        "evidence_basis": gate.get("evidence_basis") or gate.get("exchange_economics_evidence_basis"),
+    }
+
+
+def _exchange_gate_from_finalized_payload(payload):
+    payload = payload or {}
+    gate = payload.get("exchange_economics_gate")
+    if gate:
+        return gate
+    summary = payload.get("summary") or {}
+    strategy_summary = payload.get("strategy_summary") or {}
+    strategy_gate = strategy_summary.get("exchange_economics_gate")
+    if strategy_gate:
+        return strategy_gate
+    return {
+        "status": (
+            payload.get("exchange_economics_status")
+            or summary.get("exchange_economics_gate_status")
+            or strategy_summary.get("exchange_economics_status")
+        ),
+        "snapshot_id": (
+            payload.get("exchange_economics_snapshot_id")
+            or summary.get("exchange_economics_snapshot_id")
+            or strategy_summary.get("exchange_economics_snapshot_id")
+        ),
+        "snapshot_hash": (
+            payload.get("exchange_economics_hash")
+            or summary.get("exchange_economics_hash")
+            or strategy_summary.get("exchange_economics_hash")
+        ),
+        "verified_for_target_date": (
+            payload.get("exchange_economics_verified_for_target_date")
+            or summary.get("exchange_economics_verified_for_target_date")
+            or strategy_summary.get("exchange_economics_verified_for_target_date")
+        ),
+        "evidence_basis": (
+            payload.get("exchange_economics_evidence_basis")
+            or summary.get("exchange_economics_evidence_basis")
+            or strategy_summary.get("exchange_economics_evidence_basis")
+        ),
+    }
+
+
+def _finalized_exchange_economics_refresh_state(
+    settled_pnl_path,
+    target_date,
+    now,
+    *,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
+):
+    if exchange_economics_snapshot_path is None and exchange_economics_required is None:
+        return {"status": "NOT_CHECKED", "needs_refresh": False}
+    current_gate, _fields = _exchange_fields_for_finalization(
+        {},
+        target_date=target_date,
+        now=now,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
+    )
+    current_identity = _exchange_gate_identity(current_gate)
+    if not current_gate.get("ok"):
+        return {
+            "status": "CURRENT_GATE_BLOCK",
+            "needs_refresh": False,
+            "current_gate": current_identity,
+            "reason": current_gate.get("reason"),
+        }
+    payload = read_json(settled_pnl_path, {}) if Path(settled_pnl_path).exists() else {}
+    if not payload:
+        return {
+            "status": "MISSING_FINALIZED_PAYLOAD",
+            "needs_refresh": True,
+            "current_gate": current_identity,
+            "reason": "settled_pnl_missing_or_invalid",
+        }
+    finalized_identity = _exchange_gate_identity(_exchange_gate_from_finalized_payload(payload))
+    required_matches = (
+        ("status", current_identity.get("status")),
+        ("snapshot_id", current_identity.get("snapshot_id")),
+        ("snapshot_hash", current_identity.get("snapshot_hash")),
+        ("verified_for_target_date", current_identity.get("verified_for_target_date")),
+    )
+    mismatches = [
+        name
+        for name, expected in required_matches
+        if expected and finalized_identity.get(name) != expected
+    ]
+    if mismatches:
+        return {
+            "status": "STALE",
+            "needs_refresh": True,
+            "current_gate": current_identity,
+            "finalized_gate": finalized_identity,
+            "mismatches": mismatches,
+            "reason": "settled exchange-economics proof does not match current target-date snapshot",
+        }
+    return {
+        "status": "CURRENT",
+        "needs_refresh": False,
+        "current_gate": current_identity,
+        "finalized_gate": finalized_identity,
+    }
+
+
 def finalization_state_for_run(
     run_folder,
     labels_csv=DEFAULT_LABELS_CSV,
     *,
     now=None,
     sla_hours=DEFAULT_FINALIZATION_SLA_HOURS,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     now = utc_now(now)
     run_folder = Path(run_folder)
@@ -943,6 +1090,15 @@ def finalization_state_for_run(
         settled_mtime is not None
         and (freshness_cutoff is None or settled_mtime >= freshness_cutoff)
     )
+    exchange_refresh = _finalized_exchange_economics_refresh_state(
+        settled_pnl_path,
+        target_date,
+        now,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
+    )
+    finalization_fresh = finalization_fresh and not exchange_refresh.get("needs_refresh")
     label_available_at = labels_mtime if labels_available else None
     availability_age_hours = _time_age_hours(label_available_at, now)
     needs_finalization = bool(labels_available and not finalization_fresh)
@@ -990,6 +1146,12 @@ def finalization_state_for_run(
         "settled_pnl_exists": settled_pnl_path.exists(),
         "settled_report_exists": settled_report_path.exists(),
         "finalization_fresh": finalization_fresh,
+        "exchange_economics_finalization_status": exchange_refresh.get("status"),
+        "exchange_economics_finalization_needs_refresh": exchange_refresh.get("needs_refresh"),
+        "exchange_economics_finalization_reason": exchange_refresh.get("reason"),
+        "exchange_economics_finalization_mismatches": exchange_refresh.get("mismatches") or [],
+        "current_exchange_economics_gate": exchange_refresh.get("current_gate") or {},
+        "finalized_exchange_economics_gate": exchange_refresh.get("finalized_gate") or {},
         "orders_modified_at_utc": orders_mtime.isoformat() if orders_mtime else None,
         "labels_modified_at_utc": labels_mtime.isoformat() if labels_mtime else None,
         "settled_pnl_modified_at_utc": settled_mtime.isoformat() if settled_mtime else None,
@@ -1037,6 +1199,9 @@ def finalization_watchdog(
             labels_csv=labels_csv,
             now=now,
             sla_hours=sla_hours,
+            exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+            exchange_economics_platform=exchange_economics_platform,
+            exchange_economics_required=exchange_economics_required,
         )
         bakeoff_action = "not_labelable"
         bakeoff_path = str(Path(folder) / "strategy_bakeoff.json")
@@ -1073,6 +1238,9 @@ def finalization_watchdog(
                     now=now,
                     min_free_bytes=min_free_bytes,
                     disk_usage_fn=disk_usage_fn,
+                    exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+                    exchange_economics_platform=exchange_economics_platform,
+                    exchange_economics_required=exchange_economics_required,
                 )
                 finalized.append({
                     "run_id": payload.get("run_id"),
@@ -1089,6 +1257,9 @@ def finalization_watchdog(
                     labels_csv=labels_csv,
                     now=now,
                     sla_hours=sla_hours,
+                    exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+                    exchange_economics_platform=exchange_economics_platform,
+                    exchange_economics_required=exchange_economics_required,
                 )
                 action = "finalized"
         elif state.get("needs_finalization"):
@@ -1437,6 +1608,9 @@ def finalize_counterfactual_tape(
     run_id=None,
     target_date=None,
     run_config=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     run_folder = Path(run_folder)
     counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
@@ -1448,7 +1622,15 @@ def finalize_counterfactual_tape(
         }
     now = utc_now(now)
     run_config = run_config or {}
-    exchange_gate, exchange_fields = _exchange_fields_from_run_config(run_config)
+    exchange_gate, exchange_fields = _exchange_fields_for_finalization(
+        run_config,
+        target_date=target_date or run_folder.parent.name,
+        now=now,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
+    )
+    scoring_run_config = _run_config_with_exchange_fields(run_config, exchange_gate, exchange_fields)
     rows = read_order_rows(counterfactual_path)
     labels = load_settlement_labels(labels_csv)
     scored_rows, label_summary = score_orders_against_labels(rows, labels)
@@ -1462,10 +1644,10 @@ def finalize_counterfactual_tape(
         run_id or run_folder.name,
         target_date or run_folder.parent.name,
         now=now,
-        policy_config=run_config.get("policy_config") or {},
+        policy_config=scoring_run_config.get("policy_config") or {},
     )
     pnl_payload = _annotate_pnl_with_exchange_fields(pnl_payload, exchange_gate, exchange_fields)
-    active_strategy_id = run_config.get("active_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
+    active_strategy_id = scoring_run_config.get("active_strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
     strategy_lift = counterfactual_strategy_lift_rows(
         pnl_payload,
         active_strategy_id=active_strategy_id,
@@ -1473,7 +1655,7 @@ def finalize_counterfactual_tape(
     slice_summaries = counterfactual_slice_summaries(scored_rows)
     no_side_campaign = no_side_campaign_summary(scored_rows, pnl_payload=pnl_payload)
     model_variant_bakeoff = model_variant_strategy_bakeoff(scored_rows)
-    policy_config = run_config.get("policy_config") or {}
+    policy_config = scoring_run_config.get("policy_config") or {}
     clustered_gate = clustered_taker_promotion_statistics(
         scored_rows,
         alpha=maybe_float(policy_config.get("promotion_cluster_alpha")) or 0.05,
@@ -1496,7 +1678,7 @@ def finalize_counterfactual_tape(
     })
     strategy_summary = build_strategy_summary_payload(
         pnl_payload,
-        run_config=run_config,
+        run_config=scoring_run_config,
         run_id=run_id or run_folder.name,
         target_date=target_date or run_folder.parent.name,
         now=now,
@@ -1555,6 +1737,9 @@ def finalize_taker_run(
     *,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     run_folder = Path(run_folder)
     order_path = run_folder / "orders_long.csv"
@@ -1582,7 +1767,15 @@ def finalize_taker_run(
     raw_orders = read_order_rows(order_path)
     scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
     run_config = read_json(run_folder / "run_config.json", {}) or {}
-    exchange_gate, exchange_fields = _exchange_fields_from_run_config(run_config)
+    exchange_gate, exchange_fields = _exchange_fields_for_finalization(
+        run_config,
+        target_date=target_date,
+        now=now,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
+    )
+    scoring_run_config = _run_config_with_exchange_fields(run_config, exchange_gate, exchange_fields)
     _annotate_rows_with_exchange_fields(scored_orders, exchange_fields)
     pnl_payload = build_pnl_payload(
         scored_orders,
@@ -1590,7 +1783,7 @@ def finalize_taker_run(
         run_id,
         target_date,
         now=now,
-        policy_config=run_config.get("policy_config") or {},
+        policy_config=scoring_run_config.get("policy_config") or {},
     )
     pnl_payload = _annotate_pnl_with_exchange_fields(pnl_payload, exchange_gate, exchange_fields)
     reported_summary = reported_taker_pnl_summary(run_summary, daily_pnl)
@@ -1612,7 +1805,7 @@ def finalize_taker_run(
         )
     strategy_summary = build_strategy_summary_payload(
         pnl_payload,
-        run_config=read_json(run_folder / "run_config.json", {}) or {},
+        run_config=scoring_run_config,
         run_id=run_id,
         target_date=target_date,
         now=now,
@@ -1625,9 +1818,12 @@ def finalize_taker_run(
         budget_usdc=budget_usdc,
         run_id=run_id,
         target_date=target_date,
-        run_config=run_config,
+        run_config=scoring_run_config,
+        exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+        exchange_economics_platform=exchange_economics_platform,
+        exchange_economics_required=exchange_economics_required,
     )
-    next_gate = next_run_policy_gate(strategy_summary, run_config=run_config, bakeoff=bakeoff)
+    next_gate = next_run_policy_gate(strategy_summary, run_config=scoring_run_config, bakeoff=bakeoff)
     final_summary = {
         **(pnl_payload.get("summary") or {}),
         "pnl_source": reconciliation.get("preferred_pnl_source"),
@@ -1752,6 +1948,9 @@ def finalize_taker_runs(
     *,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     disk_usage_fn=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
 ):
     now = utc_now(now)
     folders = [Path(run_folder)] if run_folder else taker_run_folders(runs_root, target_date=target_date)
@@ -1762,6 +1961,9 @@ def finalize_taker_runs(
             now=now,
             min_free_bytes=min_free_bytes,
             disk_usage_fn=disk_usage_fn,
+            exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+            exchange_economics_platform=exchange_economics_platform,
+            exchange_economics_required=exchange_economics_required,
         )
         for folder in folders
     ]

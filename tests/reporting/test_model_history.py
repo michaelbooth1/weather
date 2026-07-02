@@ -144,13 +144,18 @@ def test_recent_completed_dates_excludes_current_day():
     ]
 
 
-def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path):
+def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path, monkeypatch):
     write_tape(tmp_path)
+    # Isolate from the real settlement ledger and labels CSV: once the real
+    # market settles this fixture's slug/date, the global slug-based lookups
+    # would otherwise override the fixture's intended settlement.
+    monkeypatch.setenv("SETTLEMENT_LEDGER_ROOT", str(tmp_path / "settlements"))
 
     payload = build_history_payload(
         snapshots_root=tmp_path,
         dates=[date(2026, 7, 1)],
         market_ids=["toronto"],
+        labels_csv=tmp_path / "missing_labels.csv",
     )
 
     day = payload["days"][0]

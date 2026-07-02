@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from weather.operations.nightly_retrain import (  # noqa: E402
     build_parser,
+    default_settled_day_target_date,
     nightly_run_sla_status,
     run_nightly_retrain,
+    settled_day_freshness_command,
 )
 
 
@@ -445,6 +447,36 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertTrue(sla["fresh_for_latest_window"])
         self.assertEqual(sla["p0_gate"], "Fleet status CRITICAL")
         self.assertEqual(sla["p0_action"], "Repair collection loops.")
+
+    def test_default_settled_day_target_skips_unfinalizable_yesterday_overnight(self):
+        # 03:30 ET scheduled run: yesterday's labels are only finalized by the
+        # 09:30 daily refresh later that morning, so the gate targets date-2.
+        overnight = datetime(2026, 7, 1, 7, 30, tzinfo=timezone.utc)  # 03:30 ET
+        self.assertEqual(default_settled_day_target_date(now=overnight), "2026-06-29")
+
+        # After the finalize window completes, yesterday is the right target.
+        afternoon = datetime(2026, 7, 1, 19, 0, tzinfo=timezone.utc)  # 15:00 ET
+        self.assertEqual(default_settled_day_target_date(now=afternoon), "2026-06-30")
+
+    def test_settled_day_freshness_command_defaults_to_finalizable_target_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            command = settled_day_freshness_command(_args(tmp))
+            self.assertIn("--target-date", command)
+            self.assertEqual(
+                command[command.index("--target-date") + 1],
+                default_settled_day_target_date(),
+            )
+
+            explicit = settled_day_freshness_command(
+                _args(tmp, "--settled-day-target-date", "2026-06-15")
+            )
+            self.assertEqual(explicit[explicit.index("--target-date") + 1], "2026-06-15")
+
+            as_of_only = settled_day_freshness_command(
+                _args(tmp, "--settled-day-as-of", "2026-07-01T12:00:00+00:00")
+            )
+            self.assertNotIn("--target-date", as_of_only)
+            self.assertIn("--as-of", as_of_only)
 
 
 if __name__ == "__main__":

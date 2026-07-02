@@ -43,6 +43,10 @@ DEFAULT_SETTLED_DAY_FRESHNESS_REPORT = DEFAULT_BACKTEST_ROOT / "settled_day_fres
 DEFAULT_TASK_NAME = "WeatherNightlyRetrainValidatePromote"
 DEFAULT_SCHEDULE_LOCAL_TIME = "03:30"
 DEFAULT_SCHEDULE_TIMEZONE = "America/Toronto"
+# Settled-day labels for date D are fetched/finalized by the daily refresh
+# chain, which starts at 09:30 local and takes up to ~2h. Before that window
+# completes, the freshest day an overnight run can gate on is D-1.
+DAILY_REFRESH_FINALIZE_COMPLETE_LOCAL_TIME = "11:30"
 DEFAULT_MISSED_RUN_GRACE_MINUTES = 120
 DEFAULT_SLA_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_sla_status.json"
 DEFAULT_SLA_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_sla_status_report.md"
@@ -153,6 +157,22 @@ def family_secondary_command(args):
     ]
 
 
+def default_settled_day_target_date(now=None):
+    """Most recent settled day whose finalize inputs should exist locally.
+
+    The settled-day freshness repair can only finalize from local WU data;
+    the public WU restore for date D runs inside the daily refresh on D+1.
+    Gating an overnight run on "yesterday" therefore fails every night, so
+    target the day before the last completed daily-refresh finalize window.
+    """
+    _local_now, finalize_due = latest_scheduled_window(
+        now=now,
+        schedule_local_time=DAILY_REFRESH_FINALIZE_COMPLETE_LOCAL_TIME,
+        schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE,
+    )
+    return (finalize_due.date() - timedelta(days=1)).isoformat()
+
+
 def settled_day_freshness_command(args):
     command = [
         sys.executable,
@@ -172,6 +192,8 @@ def settled_day_freshness_command(args):
     ]
     if args.settled_day_target_date:
         command += ["--target-date", args.settled_day_target_date]
+    elif not args.settled_day_as_of:
+        command += ["--target-date", default_settled_day_target_date()]
     if args.settled_day_as_of:
         command += ["--as-of", args.settled_day_as_of]
     if args.settled_day_markets:

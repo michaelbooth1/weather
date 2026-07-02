@@ -134,13 +134,23 @@ class TestTrustFormula(unittest.TestCase):
     def test_score_market_reports_winner_band_catchup(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_tape(tmp)
-
-            row = score_market(
-                "toronto",
-                root=tmp,
-                daily_summary=Path(tmp) / "missing_daily.csv",
-                as_of=date(2026, 7, 2),
-            )
+            # Isolate from the real settlement ledger: once the real market
+            # settles this fixture's slug/date, settlement_for_tape's
+            # slug-based ledger lookup would override the fixture settlement.
+            original_ledger_root = os.environ.get("SETTLEMENT_LEDGER_ROOT")
+            os.environ["SETTLEMENT_LEDGER_ROOT"] = str(Path(tmp) / "settlements")
+            try:
+                row = score_market(
+                    "toronto",
+                    root=tmp,
+                    daily_summary=Path(tmp) / "missing_daily.csv",
+                    as_of=date(2026, 7, 2),
+                )
+            finally:
+                if original_ledger_root is None:
+                    os.environ.pop("SETTLEMENT_LEDGER_ROOT", None)
+                else:
+                    os.environ["SETTLEMENT_LEDGER_ROOT"] = original_ledger_root
 
             self.assertEqual(row["settled_days"], 1)
             self.assertEqual(row["winner_rows"], 2)
