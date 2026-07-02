@@ -68,6 +68,11 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "critical": True,
         "target_date_fields": ("target_date", "run_date"),
         "skippable_as_non_critical": True,
+        # A BLOCK here is an evidence-countability verdict (maker countability,
+        # taker zero-fill), not broken data for the analyzed day; countability
+        # is enforced fail-closed again inside promotion/trading consumers.
+        # Infra failures still halt via CRITICAL (starvation) and step errors.
+        "block_is_policy_verdict": True,
     },
     {
         "step": "replay_status_backfill",
@@ -80,12 +85,18 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "phase": "model_skill_scoring",
         "critical": True,
         "skippable_as_non_critical": True,
+        # BLOCK is a promotion-policy verdict (model trails market in weak
+        # hours), already enforced fail-closed by the early-hour promotion
+        # blocker inside promotion refresh; it must not halt settled-day
+        # analysis (item 319 acceptance). Step errors/skips still halt.
+        "block_is_policy_verdict": True,
     },
     {
         "step": "ten_minute_model_performance",
         "phase": "model_skill_scoring",
         "critical": True,
         "skippable_as_non_critical": True,
+        "block_is_policy_verdict": True,
     },
     {
         "step": "price_free_model_learning",
@@ -151,6 +162,7 @@ def _dependency_status(step, dependency, target_date):
     result_status = result.get("status")
     blocker = None
     non_critical = False
+    policy_verdict = False
     if not step:
         blocker = "step_missing"
     elif step_status == "error":
@@ -160,7 +172,13 @@ def _dependency_status(step, dependency, target_date):
     elif result_status == "SKIPPED" and dependency.get("critical"):
         blocker = "step_skipped"
     elif result_status in {"BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
-        blocker = f"step_result_status={result_status}"
+        if result_status == "BLOCK" and dependency.get("block_is_policy_verdict"):
+            # The gate ran for the analyzed day and fail-closed as a policy
+            # verdict; downstream consumers (promotion refresh, countability
+            # gates) enforce it. Record it without halting settled-day analysis.
+            policy_verdict = True
+        else:
+            blocker = f"step_result_status={result_status}"
 
     observed_dates = []
     for field in dependency.get("target_date_fields") or ():
@@ -170,6 +188,7 @@ def _dependency_status(step, dependency, target_date):
     mismatched_dates = sorted({value for value in observed_dates if value != target_date})
     if mismatched_dates and dependency.get("critical"):
         blocker = f"target_date_mismatch={','.join(mismatched_dates)} expected={target_date}"
+        policy_verdict = False
 
     return {
         "step": dependency["step"],
@@ -180,6 +199,7 @@ def _dependency_status(step, dependency, target_date):
         "target_date": target_date,
         "observed_target_dates": sorted(set(observed_dates)),
         "non_critical": non_critical,
+        "policy_verdict": policy_verdict,
         "blocker": blocker,
     }
 
@@ -369,6 +389,16 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
         })
     finalize = (steps_by_name.get("market_day_labels_finalize") or {}).get("result") or {}
     countability = _label_countability_from_freshness(freshness_payload, finalize)
+    policy_verdicts = [
+        {
+            "component": dependency.get("step"),
+            "phase": dependency.get("phase"),
+            "result_status": dependency.get("result_status"),
+            "enforcement": "fail-closed downstream via promotion/countability gates",
+        }
+        for dependency in dependencies
+        if dependency.get("policy_verdict")
+    ]
     status = "BLOCK" if blockers else ("DIAGNOSTIC_ONLY" if countability.get("diagnostic_only") else "PASS")
     return {
         "schema_version": schema_version("settled_day_analysis_barrier"),
@@ -386,6 +416,8 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
         "label_countability": countability,
         "blocker_count": len(blockers),
         "blockers": blockers,
+        "policy_verdict_count": len(policy_verdicts),
+        "policy_verdicts": policy_verdicts,
         "resume_command": _settled_day_resume_command(args),
         "hard_stop_pipeline": bool(blockers),
     }

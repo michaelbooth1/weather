@@ -481,6 +481,9 @@ class TestSourceCacheTtl(unittest.TestCase):
 
         self.assertEqual(payload["raw_payload"], raw)
         self.assertEqual(payload["raw"], raw[0]["rawOb"])
+        self.assertEqual(len(payload["rows"]), 1)
+        self.assertAlmostEqual(payload["temp_native"], 82.4)
+        self.assertAlmostEqual(payload["max_since_7am_native"], 82.4)
 
     def test_rate_limited_open_meteo_uses_explicit_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:

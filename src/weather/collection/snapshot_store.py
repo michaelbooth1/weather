@@ -150,6 +150,10 @@ LONG_COLUMNS = [
     "wu_history_high_c",
     "wu_current_c",
     "wu_max_since_7am_c",
+    "station_current_c",
+    "station_max_since_7am_c",
+    "station_observation_source",
+    "station_observation_station_id",
     "eccc_swob_max_c",
     "weather_forecast_max_c",
     "open_meteo_max_c",
@@ -743,6 +747,12 @@ class SnapshotStore:
     def source_values(self, sources, model_client, captured_at=None):
         history = model_client.source_data(sources, "wu_history")
         current = model_client.source_data(sources, "wu_current")
+        station_method = getattr(model_client, "station_observation_data", None)
+        station = (
+            station_method(sources)
+            if callable(station_method)
+            else model_client.source_data(sources, "station_observations")
+        )
         eccc = model_client.source_data(sources, "eccc_swob")
         weather_forecast = model_client.source_data(sources, "weather_forecast")
         open_meteo = model_client.source_data(sources, "open_meteo")
@@ -765,6 +775,10 @@ class SnapshotStore:
             "wu_history_high_c": row_max_native(history),
             "wu_current_c": row_temp_native(current),
             "wu_max_since_7am_c": row_max_since_7am_native(current),
+            "station_current_c": row_temp_native(station),
+            "station_max_since_7am_c": row_max_since_7am_native(station),
+            "station_observation_source": station.get("station_observation_source") or station.get("source"),
+            "station_observation_station_id": station.get("station_id"),
             "eccc_swob_max_c": row_same_day_max_native(eccc),
             "weather_forecast_max_c": model_client.max_row_temp(
                 weather_forecast.get("rows")
@@ -1447,6 +1461,10 @@ class SnapshotStore:
             "wu_history_high_c",
             "wu_current_c",
             "wu_max_since_7am_c",
+            "station_current_c",
+            "station_max_since_7am_c",
+            "station_observation_source",
+            "station_observation_station_id",
             "eccc_swob_max_c",
             "weather_forecast_max_c",
             "open_meteo_max_c",
@@ -1490,6 +1508,10 @@ class SnapshotStore:
             "wu_history_high_c": first.get("wu_history_high_c"),
             "wu_current_c": first.get("wu_current_c"),
             "wu_max_since_7am_c": first.get("wu_max_since_7am_c"),
+            "station_current_c": first.get("station_current_c"),
+            "station_max_since_7am_c": first.get("station_max_since_7am_c"),
+            "station_observation_source": first.get("station_observation_source"),
+            "station_observation_station_id": first.get("station_observation_station_id"),
             "eccc_swob_max_c": first.get("eccc_swob_max_c"),
             "weather_forecast_max_c": first.get("weather_forecast_max_c"),
             "open_meteo_max_c": first.get("open_meteo_max_c"),

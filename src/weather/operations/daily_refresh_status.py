@@ -276,6 +276,8 @@ def pipeline_summary(steps):
             "target_date": settled_barrier.get("target_date"),
             "blocker_count": settled_barrier.get("blocker_count"),
             "blockers": settled_barrier.get("blockers") or [],
+            "policy_verdict_count": settled_barrier.get("policy_verdict_count"),
+            "policy_verdicts": settled_barrier.get("policy_verdicts") or [],
             "label_countability": settled_barrier.get("label_countability") or {},
             "settled_day_freshness": settled_barrier.get("settled_day_freshness") or {},
             "resume_command": settled_barrier.get("resume_command"),

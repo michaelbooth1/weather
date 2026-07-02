@@ -150,6 +150,12 @@ class DistributionMixin(DistributionSignalMixin):
         eccc_city = self.source_data(sources, "eccc_citypage")
         eccc = self.source_data(sources, "eccc_swob")
         metar = self.source_data(sources, "metar")
+        station_method = getattr(self, "station_observation_data", None)
+        station = (
+            station_method(sources)
+            if callable(station_method)
+            else self.source_data(sources, "station_observations")
+        )
         weather_forecast = self.source_data(sources, "weather_forecast")
         open_meteo = self.source_data(sources, "open_meteo")
         nws_hourly = self.source_data(sources, "nws_hourly")
@@ -157,8 +163,14 @@ class DistributionMixin(DistributionSignalMixin):
 
         now = now or datetime.now(self.spec.tz)
         history_max = self.row_max_native(history)
+        station_temp = self.row_temp_native(station)
+        station_max = self.row_max_since_7am_native(station)
         current_temp = self.row_temp_native(current)
+        if current_temp is None:
+            current_temp = station_temp
         current_max = self.row_max_since_7am_native(current)
+        if current_max is None:
+            current_max = station_max
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
@@ -181,6 +193,7 @@ class DistributionMixin(DistributionSignalMixin):
             official_observations={
                 "eccc_swob": eccc_max,
                 "metar": metar_temp,
+                "station_observations": station_max,
             },
             current_max_disposition=current_max_features.get("current_max_disposition"),
             current_max_state=current_max_features.get("current_max_state"),

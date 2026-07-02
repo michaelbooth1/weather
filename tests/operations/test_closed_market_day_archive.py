@@ -86,6 +86,50 @@ def valid_manifest():
 
 
 class TestClosedMarketDayArchiveContract(unittest.TestCase):
+    def test_source_frame_stringifies_ints_arrow_cannot_hold(self):
+        # Polymarket CLOB token ids are 256-bit integers; without coercion
+        # pyarrow raises OverflowError and the whole market-day fails.
+        import tempfile
+
+        import pyarrow as pa
+
+        from weather.operations.closed_market_day_archive import _read_source_frame
+
+        token = 2**255 + 7
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clob_features_long.csv"
+            path.write_text(
+                "snapshot_id,clob_token_id,clob_midpoint\n"
+                f"s1,{token},0.55\n"
+                "s2,,0.60\n",
+                encoding="utf-8",
+            )
+            frame = _read_source_frame(path)
+            table = pa.Table.from_pandas(frame, preserve_index=False)
+
+        self.assertEqual(frame["clob_token_id"].iloc[0], str(token))
+        self.assertEqual(table.num_rows, 2)
+
+    def test_source_frame_replaces_undecodable_bytes_with_provenance(self):
+        # A single corrupt byte in a large historical tape must not fail the
+        # whole market-day: raw evidence keeps the exact bytes, the analysis
+        # view reads tolerantly and records the fallback in provenance.
+        import tempfile
+
+        from weather.operations.closed_market_day_archive import _read_source_frame
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "order_books_long.csv"
+            path.write_bytes(b"snapshot_id,note\ns1,20\xb0C\ns2,ok\n")
+            frame = _read_source_frame(path)
+
+        self.assertEqual(len(frame), 2)
+        self.assertEqual(
+            frame.attrs.get("reader_fallback_reason"),
+            "csv_decode_fallback_replaced_bytes",
+        )
+        self.assertIn("�", str(frame["note"].iloc[0]))
+
     def test_manifest_schema_is_registered(self):
         self.assertEqual(
             schema_version("closed_market_day_archive_manifest"),

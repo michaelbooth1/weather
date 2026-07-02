@@ -223,11 +223,13 @@ class SourceFetchMixin:
 
         # wu_history rows must stay exactly what WU printed: the effective
         # cutoff, features, analogs, late-day model, and the replay corpus all
-        # read them as settlement-source evidence. Live wu_current readings
-        # reach the model through the live-signal weights and observed floors
-        # instead of being spliced into history (v0.5.1 briefly injected a
-        # backdated mock row here; reverted in v0.5.2).
-        return self.blend_with_last_good(self.fetch_live_source_groups(fetchers))
+        # read them as settlement-source evidence. Free station observations are
+        # carried as their own derived source instead of being spliced into WU.
+        fetched = self.blend_with_last_good(self.fetch_live_source_groups(fetchers))
+        station_source = self.derive_station_observations_source(fetched)
+        if station_source:
+            fetched["station_observations"] = station_source
+        return fetched
 
     def fetch_source_group(self, fetchers, *, max_workers=None):
         fetchers = {
@@ -258,6 +260,83 @@ class SourceFetchMixin:
         if name in OPEN_METEO_SOURCE_FAMILY:
             return "open_meteo"
         return name
+
+    def station_observation_source_order(self):
+        source_names = list(getattr(self.spec, "sources", ()) or ())
+        if "eccc_swob" in source_names:
+            return ("eccc_swob", "metar")
+        return ("metar", "eccc_swob")
+
+    def station_max_since_7am_from_rows(self, rows, *, air_temp=False):
+        values = []
+        for row in rows or []:
+            minute = self.minute_of_day(row.get("local_time") or row.get("time"))
+            if minute is None or minute < 7 * 60:
+                continue
+            value = self.row_air_temp_native(row) if air_temp else self.row_temp_native(row)
+            if value is not None:
+                values.append(value)
+        return max(values) if values else None
+
+    def derive_station_observation_data(self, sources):
+        for source in self.station_observation_source_order():
+            data = self.source_data(sources, source)
+            if not data:
+                continue
+            latest = data.get("latest") or data
+            if source == "eccc_swob":
+                current = self.row_air_temp_native(latest)
+                max_since_7am = self.row_max_since_7am_native(data)
+                if max_since_7am is None:
+                    max_since_7am = self.station_max_since_7am_from_rows(data.get("rows"), air_temp=True)
+                station_id = data.get("station_id") or data.get("station") or "CYYZ"
+            else:
+                current = self.row_temp_native(latest)
+                if current is None:
+                    current = self.row_temp_native(data)
+                max_since_7am = self.row_max_since_7am_native(data)
+                if max_since_7am is None:
+                    max_since_7am = self.station_max_since_7am_from_rows(data.get("rows"))
+                station_id = data.get("station_id") or data.get("station") or getattr(self.spec, "icao", None)
+            if current is None and max_since_7am is None:
+                continue
+            return {
+                "source": source,
+                "station_observation_source": source,
+                "station_id": station_id,
+                "temp_native": current,
+                "temp_c": current,
+                "current_temp_native": current,
+                "current_temp_c": current,
+                "max_since_7am_native": max_since_7am,
+                "max_since_7am_c": max_since_7am,
+                "target_date_match": True,
+            }
+        return {}
+
+    def station_observation_data(self, sources):
+        station = self.source_data(sources, "station_observations")
+        if station:
+            return station
+        return self.derive_station_observation_data(sources)
+
+    def derive_station_observations_source(self, sources):
+        data = self.derive_station_observation_data(sources)
+        if not data:
+            return None
+        source = data.get("source")
+        item = (sources or {}).get(source, {}) or {}
+        return {
+            "ok": True,
+            "data": data,
+            "source_family": "station_observations",
+            "fetched_at": item.get("fetched_at"),
+            "latency_ms": 0.0,
+            "stale": bool(item.get("stale")),
+            "cache_status": item.get("cache_status"),
+            "degradation_state": item.get("degradation_state"),
+            "fallback_source": source,
+        }
 
     def source_fetcher_with_budget(self, name, fetcher):
         if self.source_family(name) != "open_meteo":
@@ -960,6 +1039,7 @@ class SourceFetchMixin:
             self.row_air_temp_native(row)
             for row in rows
         ])
+        max_since_7am = self.station_max_since_7am_from_rows(rows, air_temp=True)
         return {
             "url": base_url,
             "latest": latest,
@@ -975,6 +1055,8 @@ class SourceFetchMixin:
             "skipped_missing_files": missing_files[-5:],
             "same_day_max_native": same_day_max,
             "same_day_max_c": same_day_max,
+            "max_since_7am_native": max_since_7am,
+            "max_since_7am_c": max_since_7am,
         }
 
     def fetch_eccc_citypage(self):
@@ -1032,32 +1114,80 @@ class SourceFetchMixin:
 
     def fetch_metar(self):
         url = "https://aviationweather.gov/api/data/metar"
-        payload = self.get_json(url, {
+        params = {
             "ids": self.spec.icao,
             "format": "json",
-        })
-        row = payload[0] if payload else {}
-        report_time = self.parse_utc_time(row.get("reportTime"))
-        is_target_day = report_time is not None and report_time.date() == self.target_date
-        temp_native = self.spec.c_to_native(self.to_number(row.get("temp"))) if is_target_day else None
-        dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp"))) if is_target_day else None
+            "hours": self.metar_query_hours(),
+        }
+        payload = self.get_json(url, params)
+        rows = []
+        for row in payload or []:
+            report_time = self.parse_utc_time(row.get("reportTime"))
+            if report_time is None or report_time.date() != self.target_date:
+                continue
+            temp_native = self.spec.c_to_native(self.to_number(row.get("temp")))
+            dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp")))
+            rows.append({
+                "time": report_time.strftime("%H:%M"),
+                "datetime": report_time.isoformat(),
+                "report_time": row.get("reportTime"),
+                "station_id": row.get("icaoId") or self.spec.icao,
+                "temp_native": temp_native,
+                "temp_c": temp_native,
+                "dewpoint_native": dewpoint_native,
+                "dewpoint_c": dewpoint_native,
+                "wind_dir": row.get("wdir"),
+                "wind_speed": self.to_number(row.get("wspd")),
+                "wind_gust": self.to_number(row.get("wgst")),
+                "cover": row.get("cover"),
+                "raw": row.get("rawOb"),
+            })
+        rows.sort(key=lambda item: item.get("datetime") or "")
+        latest = rows[-1] if rows else {}
+        temp_native = self.row_temp_native(latest)
+        dewpoint_native = self.row_dewpoint_native(latest)
+        max_since_7am = self.station_max_since_7am_from_rows(rows)
+        same_day_max = self.max_value(*[
+            self.row_temp_native(row)
+            for row in rows
+        ])
         return {
             "url": url,
+            "station_id": self.spec.icao,
             "raw_payload": payload,
-            "report_time": row.get("reportTime"),
-            "target_date_match": is_target_day,
+            "rows": rows,
+            "latest": latest if rows else None,
+            "report_time": latest.get("report_time"),
+            "target_date_match": bool(rows),
             # METAR temps are always Celsius from the API; convert to the
             # market's native unit so all features share one unit.
             "temp_native": temp_native,
             "temp_c": temp_native,
             "dewpoint_native": dewpoint_native,
             "dewpoint_c": dewpoint_native,
-            "wind_dir": row.get("wdir"),
-            "wind_speed": self.to_number(row.get("wspd")) if is_target_day else None,
-            "wind_gust": self.to_number(row.get("wgst")) if is_target_day else None,
-            "cover": row.get("cover"),
-            "raw": row.get("rawOb"),
+            "max_since_7am_native": max_since_7am,
+            "max_since_7am_c": max_since_7am,
+            "same_day_max_native": same_day_max,
+            "same_day_max_c": same_day_max,
+            "wind_dir": latest.get("wind_dir"),
+            "wind_speed": latest.get("wind_speed"),
+            "wind_gust": latest.get("wind_gust"),
+            "cover": latest.get("cover"),
+            "raw": latest.get("raw"),
         }
+
+    def metar_query_hours(self):
+        now = datetime.now(self.spec.tz)
+        if now.date() != self.target_date:
+            return 24
+        start = datetime(
+            self.target_date.year,
+            self.target_date.month,
+            self.target_date.day,
+            tzinfo=self.spec.tz,
+        )
+        elapsed_seconds = max(0.0, (now - start).total_seconds())
+        return max(1, min(24, int(elapsed_seconds // 3600) + 2))
 
     def fetch_weather_com_forecast(self):
         paid_weather_provider_disabled(

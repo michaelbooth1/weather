@@ -163,6 +163,33 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(features["startup_feature_quarantined_flag"], 1.0)
         self.assertIn("current_temp", features["startup_feature_quarantine_reason"])
 
+    def test_live_feature_extraction_uses_station_max_when_wu_current_missing(self):
+        model = TorontoHighTempModel(market_id="nyc", target_date="2026-06-20")
+
+        features = model.extract_live_features(
+            {
+                "wu_history": {"ok": True, "data": {"rows": []}},
+                "wu_current": {"ok": False, "data": {}},
+                "station_observations": {
+                    "ok": True,
+                    "data": {
+                        "station_observation_source": "metar",
+                        "station_id": "KNYC",
+                        "temp_native": 88.0,
+                        "max_since_7am_native": 92.0,
+                    },
+                },
+                "open_meteo": {"ok": True, "data": {"rows": [], "day_max_native": 95.0}},
+            },
+            cutoff_hour=14,
+        )
+
+        self.assertEqual(features["current_temp"], 88.0)
+        self.assertEqual(features["high_so_far"], 92.0)
+        self.assertEqual(features["support_only_current_max"], 92.0)
+        self.assertEqual(features["current_max_state"], "missing_history_for_current_max")
+        self.assertEqual(features["live_reading_temp"], 88.0)
+
     def test_forecast_profile_uses_native_temperature_alias(self):
         features = forecast_profile_features(
             forecast_rows=[
@@ -1116,6 +1143,17 @@ class TestFeatureStore(unittest.TestCase):
                         "max_since_7am_c": 34.0,
                     },
                 },
+                "station_observations": {
+                    "ok": True,
+                    "data": {
+                        "station_observation_source": "metar",
+                        "station_id": "KNYC",
+                        "temp_native": 88.0,
+                        "temp_c": 31.0,
+                        "max_since_7am_native": 93.0,
+                        "max_since_7am_c": 34.0,
+                    },
+                },
                 "eccc_swob": {
                     "ok": True,
                     "data": {"same_day_max_native": 90.0, "same_day_max_c": 32.0},
@@ -1138,9 +1176,45 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(values["wu_history_high_c"], 91.0)
         self.assertEqual(values["wu_current_c"], 89.0)
         self.assertEqual(values["wu_max_since_7am_c"], 92.0)
+        self.assertEqual(values["station_current_c"], 88.0)
+        self.assertEqual(values["station_max_since_7am_c"], 93.0)
+        self.assertEqual(values["station_observation_source"], "metar")
+        self.assertEqual(values["station_observation_station_id"], "KNYC")
         self.assertEqual(values["eccc_swob_max_c"], 90.0)
         self.assertEqual(values["weather_forecast_max_c"], 93.0)
         self.assertEqual(values["eccc_forecast_high_c"], 94.0)
+
+    def test_snapshot_source_values_keep_wu_blank_and_station_populated(self):
+        store = SnapshotStore(root=Path("."), event_slug="event")
+        model = TorontoHighTempModel(target_date="2026-05-28", market_id="nyc")
+
+        values = store.source_values(
+            {
+                "wu_history": {"ok": False, "data": {}},
+                "wu_current": {"ok": False, "data": {}},
+                "metar": {
+                    "ok": True,
+                    "data": {
+                        "station_id": "KNYC",
+                        "temp_native": 88.0,
+                        "max_since_7am_native": 93.0,
+                    },
+                },
+                "weather_forecast": {"ok": False, "data": {}},
+                "open_meteo": {"ok": True, "data": {"rows": []}},
+                "nws_hourly": {"ok": True, "data": {"rows": []}},
+                "global_ensemble": {"ok": True, "data": {"rows": []}},
+                "eccc_citypage": {"ok": False, "data": {}},
+            },
+            model,
+        )
+
+        self.assertIsNone(values["wu_current_c"])
+        self.assertIsNone(values["wu_max_since_7am_c"])
+        self.assertEqual(values["station_current_c"], 88.0)
+        self.assertEqual(values["station_max_since_7am_c"], 93.0)
+        self.assertEqual(values["station_observation_source"], "metar")
+        self.assertEqual(values["station_observation_station_id"], "KNYC")
 
     def test_source_status_rows_include_physical_validity(self):
         store = SnapshotStore(root=Path("."), event_slug="event")

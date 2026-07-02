@@ -72,6 +72,8 @@ RAW_DRIVER_COLUMNS = (
     "wu_max_since_7am_c",
     "wu_max_since_7am",
     "wu_max_since_7am_native",
+    "station_current_c",
+    "station_max_since_7am_c",
     "eccc_swob_max_c",
     "weather_forecast_max_c",
     "open_meteo_max_c",
@@ -89,6 +91,8 @@ DRIVER_NUMERIC_FIELDS = (
     "raw_wu_history_high_c",
     "raw_wu_current_c",
     "raw_wu_max_since_7am_c",
+    "raw_station_current_c",
+    "raw_station_max_since_7am_c",
     "raw_weather_forecast_max_c",
     "raw_open_meteo_max_c",
 )

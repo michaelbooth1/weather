@@ -738,6 +738,12 @@ class FeatureModelMixin:
         """
         history = self.source_data(sources, "wu_history")
         current = self.source_data(sources, "wu_current")
+        station_method = getattr(self, "station_observation_data", None)
+        station = (
+            station_method(sources)
+            if callable(station_method)
+            else self.source_data(sources, "station_observations")
+        )
         weather_forecast = self.source_data(sources, "weather_forecast")
         eccc_city = self.source_data(sources, "eccc_citypage")
 
@@ -745,10 +751,17 @@ class FeatureModelMixin:
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(rows)
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None
+        wu_current_temp = self.row_temp_native(current)
+        station_current_temp = self.row_temp_native(station)
+        live_observation_temp = wu_current_temp if wu_current_temp is not None else station_current_temp
+        current_max = self.row_max_since_7am_native(current)
+        if current_max is None:
+            current_max = self.row_max_since_7am_native(station)
 
         # high_so_far
         temps = [self.row_temp_native(r) for r in feature_rows if self.row_temp_native(r) is not None]
-        current_temp = self.row_temp_native(feature_latest) if feature_latest else self.row_temp_native(current)
+        history_high_for_trust = max(temps) if temps else None
+        current_temp = self.row_temp_native(feature_latest) if feature_latest else live_observation_temp
         if temps:
             high_so_far = max(temps)
         else:
@@ -756,16 +769,18 @@ class FeatureModelMixin:
 
         # current_temp
         if current_temp is None:
-            current_temp = self.row_temp_native(current)
+            current_temp = live_observation_temp
         if current_temp is None and strict:
             return None
         if current_temp is None:
             current_temp = self.row_temp_native(rows[-1]) if rows else None
         high_so_far = self.max_value(high_so_far, current_temp)
+        if cutoff_hour >= 7 and current_max is not None:
+            high_so_far = self.max_value(high_so_far, current_max)
         startup_guard = startup_observation_guard_features(
             high_so_far=high_so_far,
             current_temp=current_temp,
-            live_reading_temp=self.row_temp_native(current),
+            live_reading_temp=live_observation_temp,
             unit=self.spec.display_unit,
         )
         if startup_guard.get("startup_feature_quarantined_flag"):
@@ -882,7 +897,7 @@ class FeatureModelMixin:
         marine_context_source = self.source_data(sources, "marine_context")
         mrms_precip_source = self.source_data(sources, "mrms_precip")
         eccc_gem = self.source_data(sources, "eccc_gem")
-        live_reading = self.row_temp_native(current)
+        live_reading = live_observation_temp
         if startup_guard.get("startup_feature_quarantined_flag"):
             live_reading = None
         guidance_floor = self.guidance_physical_floor(
@@ -924,8 +939,8 @@ class FeatureModelMixin:
                 minutes_since_cutoff = 0.0
         wall_minute = int(cutoff_hour * 60 + minutes_since_cutoff)
         current_max_features = current_max_trust_features(
-            self.row_max_since_7am_native(current),
-            history_max=high_so_far,
+            current_max,
+            history_max=history_high_for_trust,
             current_temp=current_temp,
             cutoff_hour=cutoff_hour,
             unit=self.spec.display_unit,

@@ -707,6 +707,171 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(countability["material_promotion_countable_label_count"], 1)
         self.assertIn("passed material coverage", countability["reason"])
 
+    def _barrier_fixture_args(self, tmp, target_date):
+        root = Path(tmp)
+        snapshots = root / "snapshots"
+        slug = event_slug_for_date(target_date, "nyc")
+        folder = snapshots / slug
+        folder.mkdir(parents=True)
+        (folder / "snapshots_long.csv").write_text(
+            "event_slug,snapshot_id,captured_at_local,range_label,bin_kind,bin_value_c,model_probability,market_yes\n"
+            f"{slug},s1,{target_date}T12:00:00-04:00,77 F,eq,77,0.5,0.5\n",
+            encoding="utf-8",
+        )
+        (folder / "replay_inputs.jsonl").write_text('{"snapshot_id": "s1"}\n', encoding="utf-8")
+        (folder / "source_status_long.csv").write_text(
+            "snapshot_id,source,ok,status\ns1,wu_history,True,fresh\n",
+            encoding="utf-8",
+        )
+        (folder / "replay_input_status_long.csv").write_text(
+            "snapshot_id,replay_input_status,replay_input_source\ns1,captured,replay_inputs.jsonl\n",
+            encoding="utf-8",
+        )
+        label = {
+            "event_slug": slug,
+            "market_id": "nyc",
+            "target_date": target_date,
+            "settlement_bucket": "77",
+            "winning_band": "77 F",
+            "settlement_source": "daily_summary",
+            "quality_grade": "complete",
+            "material_coverage_grade": "materially_complete",
+            "material_coverage_reason": "no gaps",
+            "promotion_countable": "True",
+            "promotion_countable_reason": "settlement reconciled and material coverage countable",
+            "reconciliation_status": "match",
+        }
+        labels = root / "backtest" / "market_day_labels.csv"
+        labels.parent.mkdir(parents=True)
+        with labels.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(label))
+            writer.writeheader()
+            writer.writerow(label)
+        ledger = root / "settlements" / "nyc" / "ledger.jsonl"
+        ledger.parent.mkdir(parents=True)
+        ledger.write_text(json.dumps(label) + "\n", encoding="utf-8")
+        (folder / "settlement.json").write_text(json.dumps(label), encoding="utf-8")
+        return _args(
+            tmp,
+            snapshots_root=str(snapshots),
+            labels_csv=str(labels),
+            ledger_root=str(root / "settlements"),
+            settled_analysis_target_date=target_date,
+            markets="nyc",
+        )
+
+    def _barrier_steps(self, target_date, **result_overrides):
+        steps = [
+            {
+                "name": "public_wu_settlement_restore",
+                "status": "ok",
+                "result": {"status": "PASS", "target_date": target_date},
+            },
+            {
+                "name": "market_day_labels_finalize",
+                "status": "ok",
+                "result": {
+                    "label_count": 1,
+                    "quality_counts": {"complete": 1},
+                    "promotion_countability_available": True,
+                    "promotion_countable_label_count": 1,
+                    "promotion_blocked_label_count": 0,
+                },
+            },
+            {"name": "exchange_economics_rule_drift", "status": "ok", "result": {"status": "PASS"}},
+            {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "ten_minute_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "price_free_model_learning", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "model_market_disagreement_rehydration", "status": "ok", "result": {"status": "SKIPPED"}},
+        ]
+        for step in steps:
+            override = result_overrides.get(step["name"])
+            if override is not None:
+                step["result"] = override
+        return steps
+
+    def test_settled_day_barrier_records_skill_and_countability_blocks_as_policy_verdicts(self):
+        target_date = "2026-06-17"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._barrier_fixture_args(tmp, target_date)
+            args._daily_refresh_steps_so_far = self._barrier_steps(
+                target_date,
+                hourly_model_performance={"status": "BLOCK"},
+                ten_minute_model_performance={"status": "BLOCK"},
+                trading_evidence={
+                    "status": "BLOCK",
+                    "target_date": target_date,
+                    "run_date": target_date,
+                },
+            )
+
+            payload = run_settled_day_analysis_barrier_step(args)
+
+        # Fail-closed skill/countability verdicts are recorded and enforced
+        # downstream (early-hour promotion blocker, countability gates), but
+        # do not halt settled-day analysis for a valid label day.
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["blocker_count"], 0)
+        self.assertEqual(payload["policy_verdict_count"], 3)
+        self.assertEqual(
+            {row["component"] for row in payload["policy_verdicts"]},
+            {"hourly_model_performance", "ten_minute_model_performance", "trading_evidence"},
+        )
+
+    def test_settled_day_barrier_still_blocks_on_infra_failures_and_date_mismatch(self):
+        target_date = "2026-06-17"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._barrier_fixture_args(tmp, target_date)
+            args._daily_refresh_steps_so_far = self._barrier_steps(
+                target_date,
+                trading_evidence={"status": "CRITICAL"},
+            )
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+        self.assertIn(
+            "trading_evidence",
+            {row["component"] for row in raised.exception.payload["blockers"]},
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._barrier_fixture_args(tmp, target_date)
+            steps = self._barrier_steps(
+                target_date,
+                trading_evidence={
+                    "status": "BLOCK",
+                    "target_date": "2026-06-16",
+                    "run_date": "2026-06-16",
+                },
+            )
+            args._daily_refresh_steps_so_far = steps
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+        blockers = {row["component"]: row["detail"] for row in raised.exception.payload["blockers"]}
+        self.assertIn("trading_evidence", blockers)
+        self.assertIn("target_date_mismatch", blockers["trading_evidence"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self._barrier_fixture_args(tmp, target_date)
+            steps = self._barrier_steps(target_date)
+            for step in steps:
+                if step["name"] == "hourly_model_performance":
+                    step["status"] = "error"
+                    step["error"] = "scoring crashed"
+            args._daily_refresh_steps_so_far = steps
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+        self.assertIn(
+            "hourly_model_performance",
+            {row["component"] for row in raised.exception.payload["blockers"]},
+        )
+
     def test_dry_run_records_planned_steps_without_calling_runners(self):
         def should_not_run(_args):
             raise AssertionError("dry run should not execute runners")

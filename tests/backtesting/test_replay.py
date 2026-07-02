@@ -321,6 +321,9 @@ class TestReconstruction(unittest.TestCase):
             "source_values": {
                 "wu_history_high_c": 24.0, "wu_current_c": 22.0,
                 "wu_max_since_7am_c": 24.0, "eccc_swob_max_c": 24.2,
+                "station_current_c": 23.0, "station_max_since_7am_c": 24.4,
+                "station_observation_source": "metar",
+                "station_observation_station_id": "KJFK",
                 "weather_forecast_max_c": 25.0, "open_meteo_max_c": 25.5,
                 "eccc_forecast_high_c": 26.0,
             },
@@ -358,6 +361,7 @@ class TestReconstruction(unittest.TestCase):
         history = sources["wu_history"]["data"]
         current = sources["wu_current"]["data"]
         swob = sources["eccc_swob"]["data"]
+        station = sources["station_observations"]["data"]
         citypage = sources["eccc_citypage"]["data"]
         weather_row = sources["weather_forecast"]["data"]["rows"][0]
         open_meteo = sources["open_meteo"]["data"]
@@ -369,6 +373,10 @@ class TestReconstruction(unittest.TestCase):
         self.assertEqual(current["temp_native"], 22.0)
         self.assertEqual(current["max_since_7am_native"], 24.0)
         self.assertEqual(swob["same_day_max_native"], 24.2)
+        self.assertEqual(station["temp_native"], 23.0)
+        self.assertEqual(station["max_since_7am_native"], 24.4)
+        self.assertEqual(station["station_observation_source"], "metar")
+        self.assertEqual(station["station_id"], "KJFK")
         self.assertEqual(citypage["forecast_high_native"], 26.0)
         self.assertEqual(weather_row["temp_native"], 25.0)
         self.assertEqual(weather_row["temp_c"], 25.0)

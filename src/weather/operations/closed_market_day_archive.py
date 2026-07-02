@@ -742,17 +742,20 @@ def _read_jsonl_frame(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _csv_text_handle(path: Path):
+def _csv_text_handle(path: Path, *, errors: str | None = None):
     if path.name.lower().endswith(".gz"):
-        return gzip.open(path, "rt", encoding="utf-8-sig", newline="")
-    return path.open("r", encoding="utf-8-sig", newline="")
+        return gzip.open(path, "rt", encoding="utf-8-sig", errors=errors, newline="")
+    return path.open("r", encoding="utf-8-sig", errors=errors, newline="")
 
 
 def _read_csv_parser_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     malformed_rows = 0
     extra_fields = 0
-    with _csv_text_handle(path) as handle:
+    # Damaged tapes routed here can carry corrupt bytes as well as malformed
+    # rows; the raw evidence file preserves exact bytes, so the analysis view
+    # decodes tolerantly.
+    with _csv_text_handle(path, errors="replace") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         for row in reader:
@@ -769,15 +772,62 @@ def _read_csv_parser_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
     return frame
 
 
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
+
+
+def _is_oversized_int(value: Any) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and not (_INT64_MIN <= value <= _INT64_MAX)
+    )
+
+
+def _coerce_oversized_ints(frame: pd.DataFrame) -> pd.DataFrame:
+    """Stringify integer columns Arrow cannot hold in int64.
+
+    Polymarket CLOB token ids are 256-bit integers; pandas parses them as
+    Python-object ints and pyarrow raises OverflowError, failing the whole
+    market-day conversion. Ids are identifiers, so persist them as strings.
+    """
+    for column in frame.columns:
+        if frame[column].dtype != object:
+            continue
+        values = frame[column]
+        if values.map(_is_oversized_int).any():
+            frame[column] = values.map(
+                lambda value: str(value)
+                if isinstance(value, int) and not isinstance(value, bool)
+                else value
+            )
+    return frame
+
+
+def _read_csv_decode_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
+    """Tolerant analysis read for tapes with corrupt bytes.
+
+    The raw evidence file is preserved byte-exact (with sha256) alongside the
+    parquet, so replacing undecodable bytes only affects the analysis view and
+    is recorded in reader provenance.
+    """
+    frame = pd.read_csv(path, encoding_errors="replace")
+    frame.attrs["reader_fallback_reason"] = "csv_decode_fallback_replaced_bytes"
+    frame.attrs["reader_error"] = f"{type(exc).__name__}: {exc}"
+    return frame
+
+
 def _read_source_frame(path: Path) -> pd.DataFrame:
     name = path.name.lower()
     if name.endswith(".jsonl"):
-        return _read_jsonl_frame(path)
+        return _coerce_oversized_ints(_read_jsonl_frame(path))
     if name.endswith(".csv") or name.endswith(".csv.gz"):
         try:
-            return pd.read_csv(path)
+            return _coerce_oversized_ints(pd.read_csv(path))
         except pd.errors.ParserError as exc:
-            return _read_csv_parser_fallback_frame(path, exc)
+            return _coerce_oversized_ints(_read_csv_parser_fallback_frame(path, exc))
+        except UnicodeDecodeError as exc:
+            return _coerce_oversized_ints(_read_csv_decode_fallback_frame(path, exc))
     raise ValueError(f"unsupported archive source format: {path}")
 
 

@@ -122,6 +122,20 @@ def render_report(payload):
                     f"fills {result.get('conservative_fills')}; "
                     f"gate {result.get('gate_status')}"
                 )
+        elif step.get("name") == "settled_day_analysis_barrier":
+            if result.get("status") == "SKIPPED":
+                detail = result.get("reason") or "skipped"
+            else:
+                verdicts = result.get("policy_verdicts") or []
+                detail = (
+                    f"{result.get('status')} (target {result.get('target_date')}); "
+                    f"blockers {result.get('blocker_count')}; "
+                    f"policy verdicts {result.get('policy_verdict_count')}"
+                )
+                if verdicts:
+                    detail += ": " + ", ".join(
+                        str(item.get("component") or "-") for item in verdicts
+                    )
         elif step.get("name") == "settlement_source_audit":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"

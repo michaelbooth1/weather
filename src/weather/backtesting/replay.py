@@ -375,7 +375,12 @@ def reconstruct_sources(snapshot, target_date):
 
     history_high = _f(values.get("wu_history_high_c"))
     if current_temp is None:
-        current_temp = _f(values.get("wu_current_c")) or high_so_far or history_high
+        current_temp = _first_present(
+            _f(values.get("wu_current_c")),
+            _f(values.get("station_current_c")),
+            high_so_far,
+            history_high,
+        )
 
     rows = []
     # 7am anchor so rise_from_7am reconstructs.
@@ -436,6 +441,18 @@ def reconstruct_sources(snapshot, target_date):
             "same_day_max_c": _f(values.get("eccc_swob_max_c")),
             "rows": [],
         }),
+        "station_observations": _ok({
+            "source": values.get("station_observation_source"),
+            "station_observation_source": values.get("station_observation_source"),
+            "station_id": values.get("station_observation_station_id"),
+            "temp_native": _f(values.get("station_current_c")),
+            "temp_c": _f(values.get("station_current_c")),
+            "current_temp_native": _f(values.get("station_current_c")),
+            "current_temp_c": _f(values.get("station_current_c")),
+            "max_since_7am_native": _f(values.get("station_max_since_7am_c")),
+            "max_since_7am_c": _f(values.get("station_max_since_7am_c")),
+            "target_date_match": True,
+        }),
         "eccc_citypage": _ok({
             "forecast_high_native": _f(values.get("eccc_forecast_high_c")),
             "forecast_high_c": _f(values.get("eccc_forecast_high_c")),
@@ -452,6 +469,13 @@ def reconstruct_sources(snapshot, target_date):
 
 def _temp_row(time, value):
     return {"time": time, "temp_native": value, "temp_c": value}
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def _max_only_rows(max_temp):
