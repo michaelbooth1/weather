@@ -106,6 +106,7 @@ from weather.operations.daily_refresh_steps import (
     DEFAULT_RUNNERS,
     STEP_ORDER,
     build_rollup_freshness_status,
+    carried_forward_steps,
     casebook_args,
     filter_runners_for_resume,
     ingest_quality_gate_status,
@@ -213,6 +214,16 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "resume_from_step": getattr(args, "resume_from_step", ""),
         },
     }
+    resume_from = getattr(args, "resume_from_step", "")
+    if resume_from and not args.dry_run:
+        try:
+            prior = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            prior = {}
+        carried = carried_forward_steps(prior.get("steps"), resume_from)
+        payload["steps"] = carried
+        payload["config"]["carried_forward_step_count"] = len(carried)
+        payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
     if args.dry_run:
         payload["steps"] = planned_steps()
         payload["status"] = "dry_run"

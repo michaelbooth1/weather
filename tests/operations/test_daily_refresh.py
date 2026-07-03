@@ -49,6 +49,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_trading_evidence_step,
     run_winner_rank_parity_step,
 )
+from weather.operations.daily_refresh_registry import carried_forward_steps
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
@@ -559,6 +560,62 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual(payload["steps"][0]["root_cause_class"], "settled_day_analysis_barrier")
         self.assertEqual(len(payload["steps"]), 1)
+
+    def test_carried_forward_steps_trims_to_pre_resume_and_marks(self):
+        prior = [
+            {"name": "public_wu_settlement_restore", "status": "ok", "result": {"status": "PASS"}},
+            {"name": "hourly_model_performance", "status": "ok", "result": {"status": "BLOCK"}},
+            {"name": "settled_day_analysis_barrier", "status": "error", "result": {"status": "BLOCK"}},
+            {"name": "promotion_refresh", "status": "ok", "result": {}},
+            {"name": "not_a_registered_step", "status": "ok", "result": {}},
+        ]
+        carried = carried_forward_steps(prior, "settled_day_analysis_barrier")
+        self.assertEqual(
+            [step["name"] for step in carried],
+            ["public_wu_settlement_restore", "hourly_model_performance"],
+        )
+        self.assertTrue(all(step["carried_forward"] for step in carried))
+        self.assertEqual(carried_forward_steps(prior, ""), [])
+
+    def test_resume_seeds_prior_steps_for_barrier_consumers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, resume_from_step="settled_day_analysis_barrier")
+            prior = {
+                "started_at_utc": "2026-07-02T13:30:00+00:00",
+                "steps": [
+                    {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 3}},
+                    {"name": "hourly_model_performance", "status": "ok", "result": {"status": "BLOCK"}},
+                ],
+            }
+            status_path = Path(args.status_out)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text(json.dumps(prior), encoding="utf-8")
+
+            seen = {}
+
+            def capture(step_args):
+                seen["steps"] = list(getattr(step_args, "_daily_refresh_steps_so_far", []))
+                return {"status": "PASS"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[("settled_day_analysis_barrier", capture)],
+            )
+
+        self.assertEqual(
+            [step["name"] for step in seen["steps"]],
+            ["market_day_labels_finalize", "hourly_model_performance"],
+        )
+        self.assertTrue(all(step.get("carried_forward") for step in seen["steps"]))
+        self.assertEqual(
+            [step["name"] for step in payload["steps"]],
+            ["market_day_labels_finalize", "hourly_model_performance", "settled_day_analysis_barrier"],
+        )
+        self.assertEqual(payload["config"]["carried_forward_step_count"], 2)
+        self.assertEqual(
+            payload["config"]["carried_forward_from_run_started_at_utc"],
+            "2026-07-02T13:30:00+00:00",
+        )
 
     def test_settled_day_barrier_blocks_pre_finalization_target_date(self):
         target_date = "2026-06-17"

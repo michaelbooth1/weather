@@ -64,3 +64,26 @@ def filter_runners_for_resume(runners, resume_from_step=""):
     start = STEP_ORDER.index(resume_from_step)
     allowed = set(STEP_ORDER[start:])
     return [(name, runner) for name, runner in runners if name in allowed]
+
+
+def carried_forward_steps(prior_steps, resume_from_step=""):
+    """Prior-run steps that precede the resume point, marked as carried.
+
+    A resumed run re-executes only the tail of the pipeline, but consumers
+    such as the settled-day analysis barrier and the pipeline summary need
+    the completed head steps' results; without carrying them forward a
+    resumed barrier sees only step_missing dependencies and the advertised
+    resume command cannot work.
+    """
+    if not resume_from_step:
+        return []
+    if resume_from_step not in STEP_ORDER:
+        raise ValueError(f"unknown resume step: {resume_from_step}")
+    allowed = set(STEP_ORDER[: STEP_ORDER.index(resume_from_step)])
+    carried = []
+    for step in prior_steps or []:
+        if step.get("name") in allowed:
+            row = dict(step)
+            row["carried_forward"] = True
+            carried.append(row)
+    return carried
