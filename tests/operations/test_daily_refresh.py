@@ -1094,7 +1094,7 @@ class TestDailyRefresh(unittest.TestCase):
                 raise AssertionError("restore should not record errors")
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.all_specs", return_value=[
+                patch("weather.operations.daily_refresh_source_steps.all_specs", return_value=[
                     SimpleNamespace(
                         id="nyc",
                         icao="KLGA",
@@ -1106,8 +1106,8 @@ class TestDailyRefresh(unittest.TestCase):
                         data_root=Path(tmp) / "wunderground" / "klga",
                     )
                 ]), \
-                patch("weather.operations.daily_refresh_steps.PublicWundergroundHistoryClient", FakeClient), \
-                patch("weather.operations.daily_refresh_steps.WundergroundHistoryStore", FakeStore):
+                patch("weather.operations.daily_refresh_source_steps.PublicWundergroundHistoryClient", FakeClient), \
+                patch("weather.operations.daily_refresh_source_steps.WundergroundHistoryStore", FakeStore):
             result = run_public_wu_settlement_restore_step(
                 _args(tmp, settled_analysis_target_date=target_date, wu_settlement_restore_markets="nyc")
             )
@@ -1177,8 +1177,8 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_runtime_identity_reconciliation_step_uses_settled_target_date(self):
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.runtime_identity_reconciliation.build_payload") as build, \
-                patch("weather.operations.daily_refresh_steps.runtime_identity_reconciliation.write_outputs") as write:
+                patch("weather.operations.daily_refresh_reporting_steps.runtime_identity_reconciliation.build_payload") as build, \
+                patch("weather.operations.daily_refresh_reporting_steps.runtime_identity_reconciliation.write_outputs") as write:
             root = Path(tmp)
             payload = {
                 "status": "BLOCK",
@@ -1561,7 +1561,7 @@ class TestDailyRefresh(unittest.TestCase):
             raise AssertionError("daily refresh should stop at disk preflight")
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.promotion_refresh.run_promotion_refresh") as run_refresh:
+                patch("weather.operations.daily_refresh_reporting_steps.promotion_refresh.run_promotion_refresh") as run_refresh:
             root = Path(tmp)
             backtest = root / "backtest"
             backtest.mkdir(parents=True)
@@ -1647,8 +1647,8 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_clob_order_book_tiering_step_applies_settled_compression(self):
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.clob_order_book_tiering.run") as run, \
-                patch("weather.operations.daily_refresh_steps.clob_order_book_tiering.write_outputs") as write_outputs:
+                patch("weather.operations.daily_refresh_trading_steps.clob_order_book_tiering.run") as run, \
+                patch("weather.operations.daily_refresh_trading_steps.clob_order_book_tiering.write_outputs") as write_outputs:
             root = Path(tmp)
             payload = {
                 "status": "PASS",
@@ -3002,9 +3002,9 @@ class TestDailyRefresh(unittest.TestCase):
             reanalysis_lag_days=2,
             reanalysis_chunk_days=5,
         )
-        with patch("weather.operations.daily_refresh_steps.all_specs", return_value=[FakeSpec()]), \
-                patch("weather.operations.daily_refresh_steps.ReanalysisClient", FakeClient), \
-                patch("weather.operations.daily_refresh_steps.ReanalysisStore", FakeStore):
+        with patch("weather.operations.daily_refresh_source_steps.all_specs", return_value=[FakeSpec()]), \
+                patch("weather.operations.daily_refresh_source_steps.ReanalysisClient", FakeClient), \
+                patch("weather.operations.daily_refresh_source_steps.ReanalysisStore", FakeStore):
             result = run_reanalysis_recent_refresh_step(args)
 
         self.assertEqual(result["start"], "2026-06-01")
@@ -3038,8 +3038,8 @@ class TestDailyRefresh(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
-                patch("weather.operations.daily_refresh_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
+                patch("weather.operations.daily_refresh_source_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
+                patch("weather.operations.daily_refresh_source_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
             self.assertEqual(result["status"], "WARN")
@@ -3073,8 +3073,8 @@ class TestDailyRefresh(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp, \
-                patch("weather.operations.daily_refresh_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
-                patch("weather.operations.daily_refresh_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
+                patch("weather.operations.daily_refresh_source_steps.data_auditor.audit_fleet_historical_data", return_value=fake_results), \
+                patch("weather.operations.daily_refresh_source_steps.fleet_observability.historical_gap_coverage", return_value=fake_coverage):
             result = run_ingest_quality_gate_step(_args(tmp, ingest_quality_years="2026"))
 
             self.assertEqual(result["status"], "PASS")

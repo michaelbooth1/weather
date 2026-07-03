@@ -55,8 +55,23 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/operations/daily_refresh_steps.py": {
         "owner": "operations",
-        "boundary": "Daily refresh step adapter compatibility surface.",
-        "next_split": "Item 318 slice complete; registry, settled-day barrier, and status aggregation live in owner modules.",
+        "boundary": "Compatibility facade that re-exports daily refresh registry, settled-day, status, and step-family adapters for existing callers.",
+        "next_split": "Item 318 step-family split complete; keep facade stable and add new adapters in source, trading, or reporting family modules.",
+    },
+    "src/weather/operations/daily_refresh_source_steps.py": {
+        "owner": "operations",
+        "boundary": "Source-refresh, ingest quality, event metadata, settlement restore, and market-day label finalization step adapters.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/daily_refresh_trading_steps.py": {
+        "owner": "operations",
+        "boundary": "Exchange economics, taker/maker evidence, CLOB tiering, replay status, and closed-day archive step adapters.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade.",
+    },
+    "src/weather/operations/daily_refresh_reporting_steps.py": {
+        "owner": "operations",
+        "boundary": "Promotion, scorecard, lifecycle, observability, retention, snapshot evaluation, root-cause, daily learning, and daily flow step adapters.",
+        "next_split": "Owner module for item 318; must not import the daily_refresh facade.",
     },
     "src/weather/operations/daily_refresh_registry.py": {
         "owner": "operations",
@@ -106,7 +121,7 @@ OWNERSHIP_NOTES = {
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",
         "boundary": "Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers.",
-        "next_split": "Item 318 slice complete; input readers, input gates, experiment queue builders, and scorecard assembly live in daily_learning_scorecard.",
+        "next_split": "WARN in the 2026-07-03 audit; input readers, gates, experiment queues, and scorecard assembly already live in daily_learning_scorecard, so the next slice should move learning-lane builders, promotion-confidence helpers, or retrain-plan assembly behind another daily-learning owner module.",
     },
     "src/weather/reporting/daily/daily_learning_scorecard.py": {
         "owner": "reporting",
@@ -116,7 +131,7 @@ OWNERSHIP_NOTES = {
     "src/weather/market/mm_paper.py": {
         "owner": "market",
         "boundary": "Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers.",
-        "next_split": "Item 318 slice complete; tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in mm_paper_scoring.",
+        "next_split": "WARN in the 2026-07-03 audit; tape ingestion, conservative fill accounting, queue simulation, and P&L scoring already live in mm_paper_scoring, so the next slice should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade.",
     },
     "src/weather/market/mm_paper_scoring.py": {
         "owner": "market",
@@ -131,7 +146,7 @@ OWNERSHIP_NOTES = {
     "src/weather/schema_registry_data.py": {
         "owner": "shared",
         "boundary": "Static registered schema records, exclusion records, and lookup maps for the schema registry facade.",
-        "next_split": "Owner module for item 318; must not import the schema_registry facade or producer modules.",
+        "next_split": "WARN in the 2026-07-03 audit; acceptable as static registry data for now, but the next growth slice should move another schema family into schema_registry_recent_data or a new static shard without importing producer modules.",
     },
     "src/weather/schema_registry_recent_data.py": {
         "owner": "shared",
@@ -146,7 +161,12 @@ OWNERSHIP_NOTES = {
     "src/weather/collection/snapshot_store.py": {
         "owner": "collection",
         "boundary": "Snapshot schema constants, readers, writers, and compatibility exports for backfill utilities.",
-        "next_split": "Item 318 slice complete; backfill helpers and utility CLI wiring live in snapshot_store_backfill.",
+        "next_split": "WARN in the 2026-07-03 audit; backfill helpers and utility CLI wiring already live in snapshot_store_backfill, so the next slice should extract payload persistence, explanation sidecar, or replay-input helpers while preserving SnapshotStore's public surface.",
+    },
+    "src/weather/model/model_sources.py": {
+        "owner": "model",
+        "boundary": "Serving-time source fetch orchestration, retry/backoff policy, source-group integration, and live/local source parsing for model assembly.",
+        "next_split": "WARN in the 2026-07-03 audit; move provider-specific fetch/parsing helpers toward weather.sources or source_adapters, keeping model_sources focused on serving-time source assembly.",
     },
     "src/weather/collection/snapshot_store_backfill.py": {
         "owner": "collection",
