@@ -12,7 +12,7 @@ from weather.backtesting.replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
 
 
-def _write_label(folder, bucket=25):
+def _write_label(folder, bucket=25, **overrides):
     label = {
         "schema_version": "settlement_ledger_v1",
         "event_slug": SLUG,
@@ -35,6 +35,7 @@ def _write_label(folder, bucket=25):
         "polymarket_url": f"https://polymarket.com/event/{SLUG}",
         "finalized_at_utc": "2026-06-04T00:00:00+00:00",
     }
+    label.update(overrides)
     (Path(folder) / "settlement.json").write_text(json.dumps(label, sort_keys=True), encoding="utf-8")
 
 
@@ -167,6 +168,82 @@ class TestPromotionCorpus(unittest.TestCase):
         self.assertEqual(entry["feature_quality_excluded_snapshot_ids"], [])
         self.assertEqual(entry["feature_quality_quarantine"]["recovered_row_count"], 1)
         self.assertEqual(entry["feature_quality_quarantine"]["training_excluded_row_count"], 0)
+
+    def test_partial_promotion_countable_day_is_admitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(
+                folder,
+                quality_grade="partial",
+                quality_reason="collection coverage incomplete: 1 gap(s), max 19 min",
+                coverage_clean=False,
+                promotion_countable=True,
+                promotion_countable_reason="settlement reconciled and material coverage countable",
+                material_coverage_grade="countable",
+            )
+
+            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
+
+            self.assertEqual(manifest["summary"]["market_day_count"], 1)
+            self.assertTrue(manifest["admit_promotion_countable"])
+            entry = manifest["entries"][0]
+            self.assertEqual(entry["quality_grade"], "partial")
+            self.assertEqual(entry["admitted_by"], "promotion_countable")
+            self.assertTrue(entry["promotion_countable"])
+            self.assertEqual(manifest["summary"]["admitted_by"], {"promotion_countable": 1})
+
+    def test_partial_non_countable_day_is_still_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(
+                folder,
+                quality_grade="partial",
+                coverage_clean=False,
+                promotion_countable=False,
+                promotion_countable_reason="capture_ratio 49.3% below material threshold 80%",
+            )
+
+            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
+
+            self.assertEqual(manifest["summary"]["market_day_count"], 0)
+            self.assertEqual(manifest["skipped"][0]["reason"], "quality:partial")
+
+    def test_grade_only_admission_skips_countable_partial_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(
+                folder,
+                quality_grade="partial",
+                coverage_clean=False,
+                promotion_countable=True,
+                material_coverage_grade="countable",
+            )
+
+            manifest = build_promotion_corpus(
+                [folder],
+                snapshots_root=tmp,
+                as_of="2026-06-04",
+                admit_promotion_countable=False,
+            )
+
+            self.assertEqual(manifest["summary"]["market_day_count"], 0)
+            self.assertFalse(manifest["admit_promotion_countable"])
+            self.assertEqual(manifest["skipped"][0]["reason"], "quality:partial")
+
+    def test_complete_day_is_admitted_by_quality_grade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder, promotion_countable=True, material_coverage_grade="countable")
+
+            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
+
+            entry = manifest["entries"][0]
+            self.assertEqual(entry["admitted_by"], "quality_grade")
+            self.assertEqual(manifest["summary"]["admitted_by"], {"quality_grade": 1})
 
     def test_replay_with_manifest_ignores_later_folder_growth(self):
         with tempfile.TemporaryDirectory() as tmp:

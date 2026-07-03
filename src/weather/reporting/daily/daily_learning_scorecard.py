@@ -426,6 +426,7 @@ def _market_day_labels_summary(path):
     reconciliation_counts = Counter()
     settlement_source_counts = Counter()
     material_coverage_counts = Counter()
+    countable_by_quality_grade = Counter()
     total = 0
     material_available = False
     promotion_countable_count = 0
@@ -445,6 +446,7 @@ def _market_day_labels_summary(path):
             if "promotion_countable" in row and row.get("promotion_countable") != "":
                 if str(row.get("promotion_countable")).strip().lower() in {"1", "true", "yes", "y"}:
                     promotion_countable_count += 1
+                    countable_by_quality_grade[str(row.get("quality_grade") or "missing")] += 1
                 else:
                     promotion_blocked_count += 1
     return {
@@ -452,6 +454,7 @@ def _market_day_labels_summary(path):
         "exists": True,
         "total_all": total,
         "quality_counts": dict(sorted(quality_counts.items())),
+        "countable_by_quality_grade": dict(sorted(countable_by_quality_grade.items())),
         "reconciliation_counts": dict(sorted(reconciliation_counts.items())),
         "settlement_source_counts": dict(sorted(settlement_source_counts.items())),
         "material_coverage_counts": dict(sorted(material_coverage_counts.items())),
@@ -966,13 +969,48 @@ def _label_total_for_quality_grades(label_summary, quality_grades):
     return sum(safe_int(quality_counts.get(str(grade))) for grade in quality_grades)
 
 
+def _label_total_for_admission(label_summary, quality_grades, admit_promotion_countable):
+    """Count settled labels the corpus admission rules make eligible.
+
+    Grade-eligible labels plus, when the corpus admits item-319 material
+    countability, promotion-countable labels outside the listed grades. This is
+    the total the corpus-vs-labels invariant must reconcile against; the
+    all-grades label total includes non-countable capture-gap history the
+    corpus is required to exclude.
+    """
+    grade_total = _label_total_for_quality_grades(label_summary, quality_grades)
+    if grade_total is None:
+        return None
+    if not admit_promotion_countable:
+        return grade_total
+    if not quality_grades or "all" in {str(item).lower() for item in quality_grades}:
+        return grade_total
+    countable_by_grade = label_summary.get("countable_by_quality_grade") or {}
+    grades = {str(grade) for grade in quality_grades}
+    return grade_total + sum(
+        safe_int(count)
+        for grade, count in countable_by_grade.items()
+        if str(grade) not in grades
+    )
+
+
 def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
     daily_labels = daily_labels or {}
     market_day_labels = market_day_labels or {}
     quality_grades = corpus.get("quality_grades") or ["complete", "manual_override"]
+    admit_promotion_countable = bool(corpus.get("admit_promotion_countable"))
+    # The corpus-vs-labels invariant needs the label total scoped to the same
+    # admission rules the corpus applied; the raw all-grades total counts
+    # non-countable capture-gap history the corpus must exclude.
+    scoped_total = _label_total_for_admission(
+        market_day_labels, quality_grades, admit_promotion_countable
+    )
     csv_total = _label_total_for_quality_grades(market_day_labels, quality_grades)
     daily_total = safe_int(daily_labels.get("total"))
-    if daily_total > 0:
+    if scoped_total is not None:
+        total = scoped_total
+        source = "market_day_labels_csv_admission_scoped"
+    elif daily_total > 0:
         total = daily_total
         source = "daily_refresh_status"
     elif csv_total is not None:
@@ -983,6 +1021,8 @@ def _scorecard_label_summary(daily_labels, market_day_labels, corpus):
         source = "daily_refresh_status"
     return {
         "total": total,
+        "total_admission_scoped": scoped_total,
+        "admit_promotion_countable": admit_promotion_countable,
         "quality_counts": (
             daily_labels.get("quality_counts")
             or market_day_labels.get("quality_counts")
@@ -1225,6 +1265,8 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "path": corpus.get("path"),
             "corpus_hash": corpus.get("corpus_hash"),
             "quality_grades": corpus.get("quality_grades") or [],
+            "admit_promotion_countable": bool(corpus.get("admit_promotion_countable")),
+            "admitted_by": corpus.get("admitted_by") or {},
             "skipped_by_reason": corpus.get("skipped_by_reason") or {},
             "skipped_count": safe_int(corpus.get("skipped_count")),
         },
@@ -1446,6 +1488,7 @@ __all__ = [
     "_build_input_gate",
     "_candidate_from_payloads",
     "_label_total_for_quality_grades",
+    "_label_total_for_admission",
     "_scorecard_label_summary",
     "_label_countability_policy",
     "_served_calibration_lane",

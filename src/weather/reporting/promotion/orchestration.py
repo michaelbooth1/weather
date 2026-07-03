@@ -200,6 +200,7 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         allow_unsettled=args.allow_unsettled,
         market_id=None,
         min_snapshots=args.min_snapshots,
+        admit_promotion_countable=not getattr(args, "grade_only_admission", False),
     )
     corpus_path = write_manifest(manifest, args.corpus_out)
 

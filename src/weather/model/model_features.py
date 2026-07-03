@@ -775,7 +775,12 @@ class FeatureModelMixin:
         if current_temp is None:
             current_temp = self.row_temp_native(rows[-1]) if rows else None
         high_so_far = self.max_value(high_so_far, current_temp)
-        if cutoff_hour >= 7 and current_max is not None:
+        # Station max_since_7am covers 7:00 through NOW, so folding it into
+        # high_so_far when printed rows exist would leak post-cutoff readings
+        # the training path excludes (train/serve skew). It may only rescue
+        # high_so_far when the printed path is empty; with printed history the
+        # signal belongs to current_max_trust_features instead.
+        if history_high_for_trust is None and cutoff_hour >= 7 and current_max is not None:
             high_so_far = self.max_value(high_so_far, current_max)
         startup_guard = startup_observation_guard_features(
             high_so_far=high_so_far,

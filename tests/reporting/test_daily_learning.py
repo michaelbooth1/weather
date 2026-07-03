@@ -589,7 +589,10 @@ class TestDailyLearning(unittest.TestCase):
                 if row["name"] == "promotion_corpus_vs_settled_labels"
             )
 
-        self.assertEqual(payload["scorecard"]["labels"]["source"], "market_day_labels_csv")
+        self.assertEqual(
+            payload["scorecard"]["labels"]["source"],
+            "market_day_labels_csv_admission_scoped",
+        )
         self.assertEqual(payload["scorecard"]["labels"]["total"], 4)
         self.assertEqual(label_check["status"], "PASS")
         self.assertEqual(label_check["evidence"]["countable_corpus_skip_count"], 1)
@@ -597,6 +600,79 @@ class TestDailyLearning(unittest.TestCase):
             "promotion_corpus_vs_settled_labels",
             gate["consistency"]["failed_invariants"],
         )
+
+    def test_label_consistency_scopes_to_countable_partial_admission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            daily_path = backtest_root / "daily_refresh_status.json"
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            # All-grades label total (6) must not be compared against the
+            # admission-scoped corpus; only complete + countable-partial count.
+            daily["summary"]["labels"]["total"] = 6
+            daily_path.write_text(json.dumps(daily), encoding="utf-8")
+            promotion_path = backtest_root / "f_family_promotion_refresh.json"
+            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+            promotion["corpus"]["market_day_count"] = 3
+            promotion["corpus"]["quality_grades"] = ["complete", "manual_override"]
+            promotion["corpus"]["admit_promotion_countable"] = True
+            promotion["corpus"]["skipped_by_reason"] = {
+                "too_few_replay_inputs": 1,
+                "quality:partial": 2,
+            }
+            promotion["corpus"]["skipped_count"] = 3
+            promotion_path.write_text(json.dumps(promotion), encoding="utf-8")
+            (backtest_root / "market_day_labels.csv").write_text(
+                "\n".join(
+                    [
+                        "event_slug,quality_grade,reconciliation_status,settlement_source,material_coverage_grade,promotion_countable",
+                        "slug-1,complete,match,daily_summary,countable,True",
+                        "slug-2,complete,match,daily_summary,countable,True",
+                        "slug-3,partial,match,daily_summary,countable,True",
+                        "slug-4,partial,match,daily_summary,countable,True",
+                        "slug-5,partial,match,daily_summary,not_countable,False",
+                        "slug-6,partial,match,daily_summary,not_countable,False",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            gate = payload["input_gate"]
+            label_check = next(
+                row for row in gate["consistency"]["checks"]
+                if row["name"] == "promotion_corpus_vs_settled_labels"
+            )
+
+        # Eligible = 2 complete + 2 countable-partial = 4; corpus 3 + 1
+        # acceptable skip (too_few_replay_inputs) reconciles; the 2
+        # non-countable partial days are outside the scoped total.
+        self.assertEqual(payload["scorecard"]["labels"]["total"], 4)
+        self.assertEqual(
+            payload["scorecard"]["labels"]["source"],
+            "market_day_labels_csv_admission_scoped",
+        )
+        self.assertEqual(label_check["status"], "PASS")
+        self.assertNotIn(
+            "promotion_corpus_vs_settled_labels",
+            gate["consistency"]["failed_invariants"],
+        )
+
+    def test_label_admission_total_helper(self):
+        from weather.reporting.daily.daily_learning_scorecard import _label_total_for_admission
+
+        summary = {
+            "exists": True,
+            "total_all": 10,
+            "quality_counts": {"complete": 4, "partial": 6},
+            "countable_by_quality_grade": {"complete": 4, "partial": 3},
+        }
+        grades = ["complete", "manual_override"]
+        self.assertEqual(_label_total_for_admission(summary, grades, False), 4)
+        self.assertEqual(_label_total_for_admission(summary, grades, True), 7)
+        self.assertEqual(_label_total_for_admission(summary, ["all"], True), 10)
+        self.assertIsNone(_label_total_for_admission({"exists": False}, grades, True))
 
     def test_build_learning_payload_blocks_when_quality_gates_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

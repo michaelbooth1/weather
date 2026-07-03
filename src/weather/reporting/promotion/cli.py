@@ -14,6 +14,9 @@ def build_parser():
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default=",".join(DEFAULT_QUALITY_GRADES))
+    parser.add_argument("--grade-only-admission", action="store_true",
+                        help="Admit only the listed quality grades; do not admit partial days "
+                             "whose labels are promotion_countable (item 319 material coverage).")
     parser.add_argument("--include-reconstructed", action="store_true")
     parser.add_argument("--allow-unsettled", action="store_true")
     parser.add_argument("--min-snapshots", type=int, default=1)

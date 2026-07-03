@@ -113,6 +113,8 @@ def _manifest_summary(manifest, corpus_path):
         "identity_record_count": summary.get("identity_record_count", 0),
         "by_market": summary.get("by_market") or {},
         "quality_grades": manifest.get("quality_grades") or [],
+        "admit_promotion_countable": bool(manifest.get("admit_promotion_countable")),
+        "admitted_by": summary.get("admitted_by") or {},
         "skipped_count": len(manifest.get("skipped") or []),
         "skipped_by_reason": dict(sorted(
             Counter(item.get("reason") or "unknown" for item in manifest.get("skipped") or []).items()

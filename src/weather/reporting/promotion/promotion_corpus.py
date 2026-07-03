@@ -159,6 +159,7 @@ def _entry_for_folder(
     quality_grades,
     include_reconstructed=False,
     min_snapshots=1,
+    admit_promotion_countable=False,
 ):
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
@@ -173,7 +174,16 @@ def _entry_for_folder(
     if not label or label.get("settlement_bucket") is None:
         return None, "missing_settlement_label"
     grade = label.get("quality_grade")
-    if quality_grades is not None and grade not in set(quality_grades):
+    grade_admitted = quality_grades is None or grade in set(quality_grades)
+    # Item 319: a partial headline grade (any 24h collection gap) does not make
+    # a day unscoreable — the ratified promotion gate is material coverage plus
+    # settlement reconciliation, recorded on the label as promotion_countable.
+    countable_admitted = (
+        admit_promotion_countable
+        and not grade_admitted
+        and bool(label.get("promotion_countable"))
+    )
+    if not grade_admitted and not countable_admitted:
         return None, f"quality:{grade or 'missing'}"
 
     frame = pd.read_csv(tape)
@@ -242,6 +252,10 @@ def _entry_for_folder(
         "winning_band_value_hi": _safe_int(label.get("winning_band_value_hi")),
         "quality_grade": grade,
         "quality_reason": label.get("quality_reason"),
+        "admitted_by": "quality_grade" if grade_admitted else "promotion_countable",
+        "promotion_countable": bool(label.get("promotion_countable")),
+        "promotion_countable_reason": label.get("promotion_countable_reason"),
+        "material_coverage_grade": label.get("material_coverage_grade"),
         "coverage_clean": bool(label.get("coverage_clean")),
         "capture_ratio": _safe_float(label.get("capture_ratio")),
         "max_gap_minutes": _safe_float(label.get("max_gap_minutes")),
@@ -311,9 +325,11 @@ def corpus_hash(entries):
 
 def summarize_entries(entries):
     by_market = Counter(entry["market_id"] for entry in entries)
+    admitted_by = Counter(entry.get("admitted_by") or "quality_grade" for entry in entries)
     return {
         "market_count": len(by_market),
         "market_day_count": len(entries),
+        "admitted_by": dict(sorted(admitted_by.items())),
         "snapshot_count": sum(int(entry.get("snapshot_count") or 0) for entry in entries),
         "band_row_count": sum(int(entry.get("row_count") or 0) for entry in entries),
         "feature_quality_excluded_snapshot_count": sum(
@@ -338,6 +354,7 @@ def build_promotion_corpus(
     allow_unsettled=False,
     market_id=None,
     min_snapshots=1,
+    admit_promotion_countable=True,
 ):
     snapshots_root = Path(snapshots_root)
     as_of_day = _as_of_date(as_of)
@@ -364,6 +381,7 @@ def build_promotion_corpus(
             quality_grades=quality_grades,
             include_reconstructed=include_reconstructed,
             min_snapshots=min_snapshots,
+            admit_promotion_countable=admit_promotion_countable,
         )
         if entry:
             entries.append(entry)
@@ -377,6 +395,7 @@ def build_promotion_corpus(
         "as_of": as_of_day.isoformat(),
         "snapshots_root": str(snapshots_root),
         "quality_grades": list(quality_grades) if quality_grades is not None else ["all"],
+        "admit_promotion_countable": bool(admit_promotion_countable),
         "include_reconstructed": bool(include_reconstructed),
         "allow_unsettled": bool(allow_unsettled),
         "min_snapshots": int(min_snapshots),
@@ -468,6 +487,9 @@ def main():
                         help="Only include one registered market.")
     parser.add_argument("--quality-grades", default=",".join(DEFAULT_QUALITY_GRADES),
                         help="Comma-separated label grades, or 'all'. Default: complete,manual_override.")
+    parser.add_argument("--grade-only-admission", action="store_true",
+                        help="Admit only the listed quality grades; do not admit partial days "
+                             "whose labels are promotion_countable (item 319 material coverage).")
     parser.add_argument("--include-reconstructed", action="store_true",
                         help="Include approximate reconstructed replay inputs in the pinned corpus.")
     parser.add_argument("--allow-unsettled", action="store_true",
@@ -484,6 +506,7 @@ def main():
         allow_unsettled=args.allow_unsettled,
         market_id=args.market,
         min_snapshots=args.min_snapshots,
+        admit_promotion_countable=not args.grade_only_admission,
     )
     path = write_manifest(manifest, args.out)
     summary = manifest["summary"]
