@@ -69,6 +69,7 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
     process_is_running,
+    touch_long_job_guard,
 )
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.schema_registry import schema_version
@@ -251,6 +252,15 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 payload["steps"].append(step)
                 break
             payload["steps"].append(step)
+            touch_long_job_guard(
+                getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+                progress={
+                    "last_completed_step": name,
+                    "last_completed_step_status": step.get("status"),
+                    "completed_step_count": len(payload["steps"]),
+                    "total_step_count": len(runners),
+                },
+            )
             if step["status"] == "error" and (
                 not args.continue_on_error
                 or (step.get("result") or {}).get("hard_stop_pipeline")

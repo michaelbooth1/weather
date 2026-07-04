@@ -259,7 +259,17 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         for market, target in last_target_dates_by_market.items()
         if configured_target_date and target != configured_target_date
     )
-    dead_after = max(2 * interval + 30.0, 90.0)
+    last_iteration_elapsed = to_number(status.get("last_iteration_elapsed_seconds")) or 0.0
+    max_recent_iteration_elapsed = to_number(status.get("max_recent_iteration_elapsed_seconds")) or 0.0
+    recent_iteration_elapsed = max(last_iteration_elapsed, max_recent_iteration_elapsed)
+    sleep_seconds = to_number(status.get("last_sleep_seconds"))
+    if sleep_seconds is None:
+        sleep_seconds = interval
+    dead_after = max(
+        2 * interval + 30.0,
+        90.0,
+        recent_iteration_elapsed + sleep_seconds + 30.0,
+    )
     if status.get("paused"):
         state = "PAUSED"
     elif heartbeat_age is None or heartbeat_age > dead_after:
@@ -290,6 +300,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
             "fixed_target_date" if configured_target_date else "market_local_date"
         ),
         "interval_seconds": interval,
+        "dead_after_seconds": round(dead_after, 1),
         "fast_interval_seconds": status.get("fast_interval_seconds"),
         "include_price_history": status.get("include_price_history"),
         "include_ws_events": status.get("include_ws_events"),
@@ -323,6 +334,7 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
         "max_iteration_elapsed_seconds": status.get("max_iteration_elapsed_seconds"),
         "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
+        "recent_iteration_elapsed_seconds": round(recent_iteration_elapsed, 1),
     }
 
 

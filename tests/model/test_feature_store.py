@@ -27,6 +27,7 @@ from weather.model.feature_store import (
     row_same_day_max_native,
     row_temp_native,
 )
+from weather.collection.snapshot_store import snapshot_id_for_captured_at
 from weather.collection.snapshot_tracker import SnapshotStore
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 
@@ -762,7 +763,7 @@ class TestFeatureStore(unittest.TestCase):
 
             self.assertEqual(result["features_path"], str(root / "features_long.csv"))
             self.assertEqual(result["components_path"], str(root / "components_long.csv"))
-            self.assertEqual(rows[0]["snapshot_id"], captured_at.strftime("%Y%m%dT%H%M%S%z"))
+            self.assertEqual(rows[0]["snapshot_id"], snapshot_id_for_captured_at(captured_at))
             self.assertEqual(rows[0]["feature_schema_version"], FEATURE_SCHEMA_VERSION)
             self.assertEqual(len(component_rows), 2)
             self.assertEqual(component_rows[0]["component_schema_version"], "components-v")
@@ -835,7 +836,7 @@ class TestFeatureStore(unittest.TestCase):
             replay_payload = json.loads((root / "replay_inputs.jsonl").read_text(encoding="utf-8").strip())
             observation_raw_exists = Path(observation_rows[0]["raw_payload_path"]).exists()
 
-        snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
+        snapshot_id = snapshot_id_for_captured_at(captured_at)
         self.assertEqual(result["snapshot_explanation_rows"], len(explanation_rows))
         self.assertEqual(result["snapshot_explanations_path"], str(root / "snapshot_explanations_long.csv"))
         self.assertEqual(result["snapshot_explanations_jsonl_path"], str(root / "snapshot_explanations.jsonl"))

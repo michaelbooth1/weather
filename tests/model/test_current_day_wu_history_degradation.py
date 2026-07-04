@@ -110,6 +110,40 @@ def test_expected_current_day_wu_history_source_status_is_not_failed(tmp_path):
     assert family["source_details"][0]["fallback_source"] == "wu_current,metar,eccc_swob,current_high_ledger"
 
 
+def test_paid_provider_disabled_source_status_is_expected_unavailable(tmp_path):
+    write_rows(
+        tmp_path / "source_status_long.csv",
+        [
+            {
+                "snapshot_id": "s1",
+                "captured_at_utc": "2026-07-03T19:36:00+00:00",
+                "captured_at_local": "2026-07-03T15:36:00-04:00",
+                "source": "wu_history",
+                "ok": "False",
+                "stale": "False",
+                "status": "paid_provider_disabled",
+                "source_family": "wu_history",
+                "http_status": "",
+                "degradation_state": "paid_provider_disabled",
+                "cache_status": "expected_unavailable",
+                "fallback_source": "metar,eccc_swob,current_high_ledger",
+                "fetched_at": "2026-07-03T15:36:00-04:00",
+                "error": "Paid-provider weather endpoints are disabled by project policy.",
+            }
+        ],
+    )
+
+    payload = source_family_degradation(tmp_path)
+
+    family = payload["families"]["wu_history"]
+    assert payload["failed_source_count"] == 0
+    assert payload["expected_unavailable_source_count"] == 1
+    assert payload["blocking_family_count"] == 0
+    assert payload["trading_evidence_allowed"]
+    assert family["status"] == "expected_current_day_unavailable"
+    assert family["source_details"][0]["bucket"] == "expected_unavailable"
+
+
 def test_wu_history_paid_provider_disablement_is_not_cached_as_success():
     model = FakeWuHistoryModel("KATL:9:US", status_code=403)
 

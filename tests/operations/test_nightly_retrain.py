@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 from weather.operations.nightly_retrain import (  # noqa: E402
     build_parser,
     default_settled_day_target_date,
@@ -447,6 +448,30 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertTrue(sla["fresh_for_latest_window"])
         self.assertEqual(sla["p0_gate"], "Fleet status CRITICAL")
         self.assertEqual(sla["p0_action"], "Repair collection loops.")
+
+    def test_status_command_is_read_only_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "nightly_retrain_sla_status.json"
+            report = root / "nightly_retrain_sla_status_report.md"
+            args = build_parser().parse_args([
+                "status",
+                "--status-path",
+                str(root / "nightly_retrain_status.json"),
+                "--out",
+                str(out),
+                "--report",
+                str(report),
+            ])
+            with patch(
+                "weather.operations.nightly_retrain.nightly_run_sla_status",
+                return_value={"schema_version": "nightly_retrain_sla_status_v0.1", "state": "BLOCKED"},
+            ):
+                code = args.func(args)
+
+        self.assertEqual(code, 0)
+        self.assertFalse(out.exists())
+        self.assertFalse(report.exists())
 
     def test_default_settled_day_target_skips_unfinalizable_yesterday_overnight(self):
         # 03:30 ET scheduled run: yesterday's labels are only finalized by the

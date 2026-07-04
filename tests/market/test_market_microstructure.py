@@ -776,6 +776,17 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(clob_loop_health({**base, "consecutive_errors": 3}, now=now)["state"], "ERRORING")
         stale = {**base, "last_heartbeat": (now - timedelta(seconds=181)).isoformat()}
         self.assertEqual(clob_loop_health(stale, now=now)["state"], "DEAD")
+        slow_cycle = {
+            **base,
+            "last_heartbeat": (now - timedelta(seconds=181)).isoformat(),
+            "last_iteration_elapsed_seconds": 160.0,
+            "max_recent_iteration_elapsed_seconds": 170.0,
+            "last_sleep_seconds": 60.0,
+        }
+        slow_cycle_health = clob_loop_health(slow_cycle, now=now)
+        self.assertEqual(slow_cycle_health["state"], "RUNNING")
+        self.assertEqual(slow_cycle_health["recent_iteration_elapsed_seconds"], 170.0)
+        self.assertEqual(slow_cycle_health["dead_after_seconds"], 260.0)
         self.assertEqual(clob_loop_health(None, now=now)["state"], "UNKNOWN")
 
     def test_clob_ensure_decision(self):

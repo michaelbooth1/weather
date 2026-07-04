@@ -21,9 +21,11 @@ from weather.collection.collection_health import (
     live_coverage_summary,
     latest_market_folder,
     parse_times,
+    snapshot_artifact_integrity,
     source_family_degradation,
     summarize_folder,
 )
+from weather.collection.snapshot_store import snapshot_id_for_captured_at
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 
@@ -814,6 +816,51 @@ class TestGapDetection(unittest.TestCase):
             )
             self.assertFalse(strict.is_due(datetime(2026, 5, 30, 12, 9, 30), cadence="scheduled"))
             self.assertTrue(strict.is_due(datetime(2026, 5, 30, 12, 10, 0), cadence="scheduled"))
+
+    def test_snapshot_ids_include_microseconds_to_prevent_trigger_collision(self):
+        first = datetime(2026, 7, 3, 9, 33, 22, 686386, tzinfo=timezone.utc)
+        second = datetime(2026, 7, 3, 9, 33, 22, 976479, tzinfo=timezone.utc)
+
+        self.assertNotEqual(snapshot_id_for_captured_at(first), snapshot_id_for_captured_at(second))
+
+    def test_snapshot_artifact_integrity_blocks_duplicate_id_probability_sum(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "snapshot_id": "same-second",
+                        "captured_at_utc": "2026-07-03T13:33:22.686386+00:00",
+                        "range_label": "low",
+                        "model_probability": 0.4,
+                    },
+                    {
+                        "snapshot_id": "same-second",
+                        "captured_at_utc": "2026-07-03T13:33:22.686386+00:00",
+                        "range_label": "high",
+                        "model_probability": 0.6,
+                    },
+                    {
+                        "snapshot_id": "same-second",
+                        "captured_at_utc": "2026-07-03T13:33:22.976479+00:00",
+                        "range_label": "low",
+                        "model_probability": 0.4,
+                    },
+                    {
+                        "snapshot_id": "same-second",
+                        "captured_at_utc": "2026-07-03T13:33:22.976479+00:00",
+                        "range_label": "high",
+                        "model_probability": 0.6,
+                    },
+                ]
+            ).to_csv(folder / "snapshots_long.csv", index=False)
+
+            integrity = snapshot_artifact_integrity(folder)
+
+        self.assertEqual(integrity["status"], "BLOCK")
+        self.assertTrue(integrity["action_required"])
+        self.assertEqual(integrity["duplicate_snapshot_id_count"], 1)
+        self.assertEqual(integrity["invalid_probability_sum_count"], 1)
 
     def test_early_hour_coverage_uses_market_native_timezone(self):
         # Los Angeles rows are persisted with the process/local -04:00 offset,

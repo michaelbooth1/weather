@@ -10,6 +10,7 @@ from weather.operations.long_job_guard import (  # noqa: E402
     acquire_long_job_lock,
     long_job_guard,
     release_long_job_lock,
+    touch_long_job_guard,
 )
 
 
@@ -76,6 +77,36 @@ class TestLongJobGuard(unittest.TestCase):
             self.assertEqual(complete["status"], "complete")
             self.assertFalse(complete["active"])
             self.assertGreaterEqual(complete["duration_seconds"], 0.0)
+
+    def test_touch_updates_running_guard_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "guard_status.json"
+            lock_path = Path(tmp) / "guard.lock"
+
+            with long_job_guard(
+                "unit_test",
+                state_path=state_path,
+                lock_path=lock_path,
+                priority="normal",
+            ):
+                result = touch_long_job_guard(
+                    state_path,
+                    progress={
+                        "last_completed_step": "daily_learning",
+                        "completed_step_count": 3,
+                        "total_step_count": 8,
+                    },
+                )
+                running = json.loads(state_path.read_text(encoding="utf-8"))
+
+            complete = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(result["updated"])
+        self.assertEqual(running["progress"]["last_completed_step"], "daily_learning")
+        self.assertEqual(running["progress"]["completed_step_count"], 3)
+        self.assertIn("last_progress_at_utc", running)
+        self.assertEqual(complete["progress"]["last_completed_step"], "daily_learning")
+        self.assertEqual(complete["status"], "complete")
 
     def test_guard_records_error_state_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as tmp:

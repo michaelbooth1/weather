@@ -39,6 +39,40 @@ def write_json(path, payload):
     return path
 
 
+def _parse_utc(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def touch_long_job_guard(state_path=DEFAULT_STATE_PATH, *, progress=None):
+    """Refresh a running long-job guard heartbeat without taking the lock."""
+    state_path = Path(state_path)
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"updated": False, "reason": "state_unavailable"}
+    if state.get("status") != "running" or not state.get("active"):
+        return {"updated": False, "reason": "not_running"}
+    now = utc_iso()
+    state["updated_at_utc"] = now
+    started = _parse_utc(state.get("started_at_utc"))
+    current = _parse_utc(now)
+    if started and current:
+        state["duration_seconds"] = round((current - started).total_seconds(), 3)
+    if progress is not None:
+        state["progress"] = progress
+        state["last_progress_at_utc"] = now
+    write_json(state_path, state)
+    return {"updated": True, "state_path": str(state_path)}
+
+
 def _lock_payload(job_name):
     return {
         "schema_version": SCHEMA_VERSION,

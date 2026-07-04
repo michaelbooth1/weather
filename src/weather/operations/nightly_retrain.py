@@ -1156,11 +1156,14 @@ def cmd_status(args):
         schedule_timezone=args.schedule_timezone,
         missed_run_grace_minutes=args.missed_run_grace_minutes,
     )
-    json_path = write_json(args.out, payload)
-    report_path = write_sla_report(args.report, payload)
     print(f"Nightly retrain SLA: {payload['state']}")
-    print(f"JSON written to {json_path}")
-    print(f"Report written to {report_path}")
+    if args.write:
+        json_path = write_json(args.out, payload)
+        report_path = write_sla_report(args.report, payload)
+        print(f"JSON written to {json_path}")
+        print(f"Report written to {report_path}")
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 2 if payload["state"] == "CRITICAL" else 0
 
 
@@ -1177,6 +1180,11 @@ def build_parser():
     status.add_argument("--missed-run-grace-minutes", type=float, default=DEFAULT_MISSED_RUN_GRACE_MINUTES)
     status.add_argument("--out", default=str(DEFAULT_SLA_STATUS_OUT))
     status.add_argument("--report", default=str(DEFAULT_SLA_REPORT_OUT))
+    status.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the SLA JSON/report artifacts. By default status is read-only and prints JSON.",
+    )
     status.set_defaults(func=cmd_status)
     return parser
 

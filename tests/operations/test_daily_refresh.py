@@ -363,6 +363,7 @@ class TestDailyRefresh(unittest.TestCase):
             )
 
             saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
             report_exists = Path(report_path).exists()
 
         self.assertEqual(calls, [
@@ -376,6 +377,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(saved["status"], "ok")
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
         self.assertFalse(saved["config"]["long_job_guard"]["nested"])
+        self.assertEqual(guard_state["status"], "complete")
+        self.assertEqual(guard_state["progress"]["last_completed_step"], "fleet_observability")
+        self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
         self.assertTrue(report_exists)
 
     def test_acquire_lock_removes_dead_pid_lock(self):

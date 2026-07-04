@@ -473,6 +473,13 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
     summary["folder"] = str(folder)
     summary["tape_path"] = str(tape)
     summary["variant_prediction_tape"] = variant_prediction_tape_health(folder)
+    summary["snapshot_artifact_integrity"] = snapshot_artifact_integrity(folder)
+    if summary["snapshot_artifact_integrity"].get("action_required"):
+        summary["clean"] = False
+        summary["action_required"] = True
+        reason = summary.get("reason")
+        integrity_reason = summary["snapshot_artifact_integrity"].get("reason")
+        summary["reason"] = "; ".join(part for part in [reason, integrity_reason] if part)
     summary["latest_snapshot_id"] = snapshot_meta.get("snapshot_id")
     summary["latest_snapshot_at_utc"] = snapshot_meta.get("captured_at_utc")
     summary["latest_snapshot_at_local"] = snapshot_meta.get("captured_at_local")
@@ -492,6 +499,91 @@ def summarize_folder(folder, interval_minutes=10.0, tolerance=1.5, live=False, a
         native_tz=native_tz,
     )
     return summary
+
+
+def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
+    path = Path(folder) / "snapshots_long.csv"
+    if not path.exists():
+        return {
+            "status": "MISSING",
+            "action_required": True,
+            "reason": "snapshots_long.csv missing",
+            "duplicate_snapshot_id_count": 0,
+            "invalid_probability_sum_count": 0,
+            "snapshot_group_count": 0,
+        }
+    try:
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError as exc:
+        return {
+            "status": "BLOCK",
+            "action_required": True,
+            "reason": f"snapshots_long.csv unreadable: {type(exc).__name__}",
+            "duplicate_snapshot_id_count": 0,
+            "invalid_probability_sum_count": 0,
+            "snapshot_group_count": 0,
+        }
+    groups = {}
+    for row in rows:
+        snapshot_id = row.get("snapshot_id")
+        if not snapshot_id:
+            continue
+        groups.setdefault(snapshot_id, []).append(row)
+    duplicate_examples = []
+    invalid_examples = []
+    for snapshot_id, group_rows in groups.items():
+        capture_times = {
+            row.get("captured_at_utc") or row.get("captured_at_local") or ""
+            for row in group_rows
+        }
+        capture_times.discard("")
+        if len(capture_times) > 1:
+            duplicate_examples.append({
+                "snapshot_id": snapshot_id,
+                "distinct_capture_count": len(capture_times),
+                "row_count": len(group_rows),
+            })
+        probabilities = []
+        for row in group_rows:
+            value = row.get("model_probability")
+            if value in (None, ""):
+                continue
+            try:
+                probabilities.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if probabilities:
+            probability_sum = sum(probabilities)
+            if abs(probability_sum - 1.0) > probability_tolerance:
+                invalid_examples.append({
+                    "snapshot_id": snapshot_id,
+                    "probability_sum": probability_sum,
+                    "row_count": len(group_rows),
+                })
+    duplicate_count = len(duplicate_examples)
+    invalid_count = len(invalid_examples)
+    ok = duplicate_count == 0 and invalid_count == 0
+    reason = (
+        "snapshot artifact integrity passed"
+        if ok
+        else (
+            f"{duplicate_count} duplicate snapshot id group(s); "
+            f"{invalid_count} invalid probability sum group(s)"
+        )
+    )
+    return {
+        "status": "PASS" if ok else "BLOCK",
+        "action_required": not ok,
+        "reason": reason,
+        "duplicate_snapshot_id_count": duplicate_count,
+        "duplicate_snapshot_id_examples": duplicate_examples[:5],
+        "invalid_probability_sum_count": invalid_count,
+        "invalid_probability_sum_examples": invalid_examples[:5],
+        "snapshot_group_count": len(groups),
+        "row_count": len(rows),
+        "probability_tolerance": probability_tolerance,
+    }
 
 
 def latest_market_folder(spec, snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date=None):
@@ -559,6 +651,7 @@ def source_status_for_row(row):
 def source_degradation_bucket(row):
     status = source_status_for_row(row)
     degradation = str(row.get("degradation_state") or "").strip().lower()
+    cache_status = str(row.get("cache_status") or "").strip().lower()
     family = source_family_for_row(row)
     http_status = str(row.get("http_status") or "").strip()
     if (
@@ -567,10 +660,16 @@ def source_degradation_bucket(row):
         or (family in PAID_WEATHER_PROVIDER_FAMILIES and http_status in {"401", "403"})
     ):
         return SETTLEMENT_AUTH_FAILURE_BUCKET
-    if status in {"expected_current_day_unavailable", "expected_unavailable"} or degradation in {
+    expected_unavailable_states = {
         "expected_current_day_unavailable",
         "expected_unavailable",
-    }:
+        "paid_provider_disabled",
+    }
+    if (
+        status in expected_unavailable_states
+        or degradation in expected_unavailable_states
+        or cache_status == "expected_unavailable"
+    ):
         return "expected_unavailable"
     if status == "rate_limited":
         return "rate_limited"

@@ -103,6 +103,11 @@ RUNTIME_IDENTITY_COLUMNS = [
 ]
 
 
+def snapshot_id_for_captured_at(captured_at):
+    """Return a collision-resistant snapshot id for a captured timestamp."""
+    return captured_at.strftime("%Y%m%dT%H%M%S%f%z")
+
+
 LONG_COLUMNS = [
     "snapshot_id",
     "captured_at_utc",
@@ -408,7 +413,7 @@ class SnapshotStore:
         if not self.fixed_root and event_config.event_slug != self.event_slug:
             self._set_paths(None, event_config.event_slug)
         self.root.mkdir(parents=True, exist_ok=True)
-        snapshot_id = captured_at.strftime("%Y%m%dT%H%M%S%z")
+        snapshot_id = snapshot_id_for_captured_at(captured_at)
         runtime_guard = runtime_guard or self.runtime_identity_guard()
         if not runtime_guard.get("ok"):
             raise RuntimeError(runtime_guard.get("detail") or "stale snapshot runtime identity")
