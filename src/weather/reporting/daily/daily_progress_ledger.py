@@ -377,6 +377,9 @@ def build_progress_row(
         "evidence_labels_promotion_countable": label_countability.get("promotion_countable"),
         "evidence_label_total": maybe_int(((daily_refresh.get("summary") or {}).get("labels") or {}).get("total")),
         "evidence_promotion_grade_market_days": maybe_int(trend_summary.get("promotion_grade_market_days")),
+        "evidence_promotion_grade_basis_counts": json_field(
+            trend_summary.get("promotion_grade_basis_counts") or {}
+        ),
         "evidence_corpus_market_days": maybe_int(corpus.get("market_day_count")),
         "evidence_corpus_snapshots": maybe_int(corpus.get("snapshot_count")),
         "evidence_snapshot_inventory_count": maybe_int(((snapshot_eval.get("snapshot_inventory") or {}).get("snapshot_count"))),
@@ -680,6 +683,7 @@ def render_report(rows):
             ["Rolling daily-first skill", fmt(latest.get("model_rolling_daily_first_brier_skill"))],
             ["Positive skill days", latest.get("model_positive_skill_days")],
             ["Promotion-grade market-days", latest.get("evidence_promotion_grade_market_days")],
+            ["Promotion-grade basis", latest.get("evidence_promotion_grade_basis_counts") or "{}"],
             ["Live-forward SLO", latest.get("ops_live_forward_slo_status") or "-"],
             ["Snapshot gaps", latest.get("ops_snapshot_gap_count")],
             ["Source-status blocked markets", latest.get("ops_source_status_blocked_markets")],

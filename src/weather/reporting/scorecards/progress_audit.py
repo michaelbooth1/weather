@@ -130,6 +130,14 @@ def maybe_int(value):
     return int(number)
 
 
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "t"}
+
+
 def _mean(values):
     values = [value for value in values if value is not None]
     return sum(values) / len(values) if values else None
@@ -481,6 +489,16 @@ def load_market_day_labels(path):
             rows = list(csv.DictReader(handle))
     quality = Counter(row.get("quality_grade") or "unknown" for row in rows)
     markets = Counter(row.get("market_id") or "unknown" for row in rows)
+    promotion_countable = Counter(
+        "promotion_countable" if truthy(row.get("promotion_countable")) else "not_promotion_countable"
+        for row in rows
+        if row.get("promotion_countable") not in (None, "")
+    )
+    countable_by_quality = Counter(
+        row.get("quality_grade") or "unknown"
+        for row in rows
+        if truthy(row.get("promotion_countable"))
+    )
     complete_by_market = Counter(
         row.get("market_id") or "unknown"
         for row in rows
@@ -493,6 +511,10 @@ def load_market_day_labels(path):
         "rows": len(rows),
         "quality_counts": dict(quality),
         "market_counts": dict(markets),
+        "promotion_countability_counts": dict(promotion_countable),
+        "promotion_countable_by_quality": dict(countable_by_quality),
+        "promotion_countable_label_count": promotion_countable.get("promotion_countable", 0),
+        "promotion_blocked_label_count": promotion_countable.get("not_promotion_countable", 0),
         "complete_by_market": dict(complete_by_market),
         "first_target_date": target_dates[0] if target_dates else None,
         "last_target_date": target_dates[-1] if target_dates else None,
@@ -586,6 +608,50 @@ def _history_quality_counts(history):
         quality = day.get("quality_grade") or "unknown"
         counts.setdefault(target_date, Counter())[quality] += 1
     return {target_date: dict(counter) for target_date, counter in counts.items()}
+
+
+def _history_label_proof_summary(history):
+    proof_by_date = {}
+    for day in history.get("days") or []:
+        if day.get("status") != "scored":
+            continue
+        target_date = day.get("target_date")
+        if not target_date:
+            continue
+        grade = day.get("quality_grade") or "unknown"
+        strict_quality = grade in TREND_CLAIM_QUALITY_GRADES
+        material_countable = truthy(day.get("promotion_countable"))
+        proof_basis = None
+        if strict_quality:
+            proof_basis = f"quality_grade:{grade}"
+        elif material_countable:
+            proof_basis = "promotion_countable"
+        bucket = proof_by_date.setdefault(
+            target_date,
+            {
+                "proof_grade_label_count": 0,
+                "strict_quality_label_count": 0,
+                "promotion_countable_label_count": 0,
+                "blocked_label_count": 0,
+                "basis_counts": Counter(),
+            },
+        )
+        if strict_quality:
+            bucket["strict_quality_label_count"] += 1
+        if material_countable:
+            bucket["promotion_countable_label_count"] += 1
+        if proof_basis:
+            bucket["proof_grade_label_count"] += 1
+            bucket["basis_counts"][proof_basis] += 1
+        else:
+            bucket["blocked_label_count"] += 1
+    return {
+        target_date: {
+            **summary,
+            "basis_counts": dict(sorted(summary["basis_counts"].items())),
+        }
+        for target_date, summary in proof_by_date.items()
+    }
 
 
 def _trend_collection_blockers(fleet):
@@ -684,6 +750,7 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtim
 
     daily_first = _history_daily_first_by_date(history)
     quality_counts_by_date = _history_quality_counts(history)
+    label_proof_by_date = _history_label_proof_summary(history)
     max_market_days = max((maybe_int(row.get("market_days")) or 0 for row in by_date), default=0)
     min_promotion_grade_market_days = max_market_days * TREND_MIN_COMPARABLE_DAYS
 
@@ -703,19 +770,19 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtim
         }
         full_market_day = bool(max_market_days and market_days == max_market_days)
         trend_countable = full_market_day and not unknown_or_provisional
-        claim_quality_count = sum(
-            count
-            for grade, count in quality_counts.items()
-            if grade in TREND_CLAIM_QUALITY_GRADES
-        )
-        claim_countable = trend_countable and claim_quality_count == market_days
+        proof_summary = label_proof_by_date.get(target_date) or {}
+        proof_grade_label_count = maybe_int(proof_summary.get("proof_grade_label_count")) or 0
+        claim_countable = trend_countable and proof_grade_label_count == market_days
         exclusions = []
         if not full_market_day:
             exclusions.append(f"not full-market ({market_days}/{max_market_days} market-days)")
         if unknown_or_provisional:
             exclusions.append(f"provisional/unknown quality {unknown_or_provisional}")
         if trend_countable and not claim_countable:
-            exclusions.append(f"not promotion-grade quality {quality_counts}")
+            exclusions.append(
+                "not promotion-grade labels "
+                f"({proof_grade_label_count}/{market_days} proof-grade; quality={quality_counts})"
+            )
         sequence.append({
             "date": target_date,
             "market_days": market_days,
@@ -731,6 +798,17 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtim
             "daily_first_brier_skill": daily_first_skill,
             "final_top_hit_rate": maybe_float(row.get("final_top_hit_rate")),
             "quality_counts": quality_counts,
+            "proof_grade_label_count": proof_grade_label_count,
+            "strict_claim_quality_label_count": maybe_int(
+                proof_summary.get("strict_quality_label_count")
+            ) or 0,
+            "promotion_countable_label_count": maybe_int(
+                proof_summary.get("promotion_countable_label_count")
+            ) or 0,
+            "promotion_blocked_label_count": maybe_int(
+                proof_summary.get("blocked_label_count")
+            ) or 0,
+            "proof_grade_basis_counts": proof_summary.get("basis_counts") or {},
             "counts_toward_directional_trend": trend_countable,
             "counts_toward_proven_claim": claim_countable,
             "exclusion_reason": "; ".join(exclusions) if exclusions else "",
@@ -750,6 +828,9 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtim
     skill_slope = _linear_slope(comparable, "brier_skill")
     gap_slope = _linear_slope(comparable, "model_minus_market_brier")
     promotion_grade_market_days = sum(row.get("market_days") or 0 for row in claim_rows)
+    promotion_grade_basis_counts = Counter()
+    for row in claim_rows:
+        promotion_grade_basis_counts.update(row.get("proof_grade_basis_counts") or {})
 
     threshold_failures = []
     if len(comparable) < TREND_MIN_COMPARABLE_DAYS:
@@ -811,11 +892,16 @@ def core_model_trend_claim(history, *, fleet=None, variant_evidence=None, runtim
             "min_promotion_grade_market_days": min_promotion_grade_market_days,
             "claim_quality_grades": sorted(TREND_CLAIM_QUALITY_GRADES),
             "directional_quality_grades": sorted(TREND_DIRECTIONAL_QUALITY_GRADES),
+            "claim_proof_bases": [
+                *[f"quality_grade:{grade}" for grade in sorted(TREND_CLAIM_QUALITY_GRADES)],
+                "promotion_countable",
+            ],
         },
         "summary": {
             "comparable_day_count": len(comparable),
             "claim_day_count": len(claim_rows),
             "promotion_grade_market_days": promotion_grade_market_days,
+            "promotion_grade_basis_counts": dict(sorted(promotion_grade_basis_counts.items())),
             "positive_skill_days": positive_skill_days,
             "positive_daily_first_days": positive_daily_first_days,
             "rolling_daily_first_brier_skill": rolling_daily_first_skill,
@@ -843,7 +929,7 @@ def _trend_next_action(failure):
     if "rolling daily-first skill" in failure:
         return "Improve daily-first replay until the rolling comparable-day window is non-negative."
     if "promotion-grade market-days" in failure:
-        return "Finalize more complete/manual-override labels for full-market days."
+        return "Finalize complete/manual-override labels or reconcile partial labels as promotion_countable for full-market days."
     if "live-forward SLO" in failure or "fleet observability" in failure:
         return "Repair live-forward collection health before using active-day evidence in the trend claim."
     if "clean active day" in failure:
@@ -1230,6 +1316,7 @@ def render_report(payload):
             ["Claim allowed", core_trend.get("claim_allowed")],
             ["Comparable full-market days", trend_summary.get("comparable_day_count")],
             ["Promotion-grade market-days", trend_summary.get("promotion_grade_market_days")],
+            ["Promotion-grade basis", trend_summary.get("promotion_grade_basis_counts") or {}],
             ["Positive-skill days", trend_summary.get("positive_skill_days")],
             ["Rolling daily-first skill", fmt_skill(trend_summary.get("rolling_daily_first_brier_skill"))],
             ["Brier skill slope/day", fmt_skill(trend_summary.get("brier_skill_slope_per_day"))],
@@ -1313,6 +1400,7 @@ def render_report(payload):
             fmt_num(row.get("final_top_hit_rate"), 3),
             row.get("counts_toward_directional_trend"),
             row.get("counts_toward_proven_claim"),
+            row.get("proof_grade_basis_counts") or {},
             row.get("exclusion_reason") or "-",
         ])
     if sequence_rows:
@@ -1321,7 +1409,7 @@ def render_report(payload):
             [
                 "Date", "Market Days", "Rows", "Model Brier", "Market Brier",
                 "Gap", "Brier Skill", "Daily-First Skill", "Final Top Hit",
-                "Trend Day", "Proven Claim Day", "Exclusion",
+                "Trend Day", "Proven Claim Day", "Proof Basis", "Exclusion",
             ],
             sequence_rows,
         ))

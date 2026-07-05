@@ -215,3 +215,60 @@ def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path, mon
     assert list(hour_table["Hour"]) == ["10:00", "11:00"]
     assert "Brier Skill" in hour_table.columns
     assert list(hour_table["Winner Catch-Up"]) == ["+9.0%", "+15.0%"]
+
+
+def test_history_payload_carries_promotion_countable_label_fields(tmp_path, monkeypatch):
+    write_tape(tmp_path)
+    monkeypatch.setenv("SETTLEMENT_LEDGER_ROOT", str(tmp_path / "settlements"))
+    labels_csv = tmp_path / "market_day_labels.csv"
+    with labels_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "event_slug",
+                "market_id",
+                "target_date",
+                "settlement_bucket",
+                "settlement_unit",
+                "winning_band",
+                "quality_grade",
+                "coverage_clean",
+                "capture_ratio",
+                "max_gap_minutes",
+                "settlement_source",
+                "material_coverage_grade",
+                "promotion_countable",
+                "promotion_countable_reason",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow({
+            "event_slug": SLUG,
+            "market_id": "toronto",
+            "target_date": "2026-07-01",
+            "settlement_bucket": "25",
+            "settlement_unit": "C",
+            "winning_band": "25 C",
+            "quality_grade": "partial",
+            "coverage_clean": "False",
+            "capture_ratio": "0.94",
+            "max_gap_minutes": "42",
+            "settlement_source": "market_day_labels",
+            "material_coverage_grade": "minor_gap_material",
+            "promotion_countable": "True",
+            "promotion_countable_reason": "settlement reconciled and material coverage countable",
+        })
+
+    payload = build_history_payload(
+        snapshots_root=tmp_path,
+        dates=[date(2026, 7, 1)],
+        market_ids=["toronto"],
+        labels_csv=labels_csv,
+    )
+
+    day = payload["days"][0]
+    assert day["status"] == "scored"
+    assert day["quality_grade"] == "partial"
+    assert day["promotion_countable"] is True
+    assert day["material_coverage_grade"] == "minor_gap_material"
+    assert "settlement reconciled" in day["promotion_countable_reason"]

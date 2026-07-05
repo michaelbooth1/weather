@@ -34,7 +34,7 @@ from weather.model.model_constants import TORONTO_TZ
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
 DEFAULT_HISTORY_CACHE = data_path() / "backtest" / "model_history_cache.json"
-MODEL_HISTORY_CACHE_SCHEMA = "model_history_cache_v0.2"
+MODEL_HISTORY_CACHE_SCHEMA = "model_history_cache_v0.3"
 
 
 def safe_float(value):
@@ -55,6 +55,14 @@ def safe_float(value):
 def safe_int(value):
     number = safe_float(value)
     return int(number) if number is not None else None
+
+
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "t"}
 
 
 def fmt_pct(value, digits=1):
@@ -492,6 +500,9 @@ def summarize_market_day(folder, spec, target_date, label_index=None):
             "coverage_clean": label.get("coverage_clean"),
             "capture_ratio": safe_float(label.get("capture_ratio")),
             "max_gap_minutes": safe_float(label.get("max_gap_minutes")),
+            "material_coverage_grade": label.get("material_coverage_grade"),
+            "promotion_countable": truthy(label.get("promotion_countable")),
+            "promotion_countable_reason": label.get("promotion_countable_reason") or "",
             "settlement_source": label.get("settlement_source") or "-",
             "note": label.get("quality_reason") or label.get("note") or "",
         }

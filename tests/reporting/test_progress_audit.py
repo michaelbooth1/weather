@@ -124,17 +124,38 @@ class TestProgressAudit(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "market_day_labels.csv"
             with path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=["market_id", "target_date", "quality_grade"])
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=["market_id", "target_date", "quality_grade", "promotion_countable"],
+                )
                 writer.writeheader()
-                writer.writerow({"market_id": "toronto", "target_date": "2026-06-01", "quality_grade": "complete"})
-                writer.writerow({"market_id": "toronto", "target_date": "2026-06-02", "quality_grade": "partial"})
-                writer.writerow({"market_id": "nyc", "target_date": "2026-06-02", "quality_grade": "complete"})
+                writer.writerow({
+                    "market_id": "toronto",
+                    "target_date": "2026-06-01",
+                    "quality_grade": "complete",
+                    "promotion_countable": "True",
+                })
+                writer.writerow({
+                    "market_id": "toronto",
+                    "target_date": "2026-06-02",
+                    "quality_grade": "partial",
+                    "promotion_countable": "True",
+                })
+                writer.writerow({
+                    "market_id": "nyc",
+                    "target_date": "2026-06-02",
+                    "quality_grade": "complete",
+                    "promotion_countable": "False",
+                })
 
             parsed = load_market_day_labels(path)
 
         self.assertEqual(parsed["rows"], 3)
         self.assertEqual(parsed["quality_counts"]["complete"], 2)
         self.assertEqual(parsed["complete_by_market"]["toronto"], 1)
+        self.assertEqual(parsed["promotion_countable_label_count"], 2)
+        self.assertEqual(parsed["promotion_blocked_label_count"], 1)
+        self.assertEqual(parsed["promotion_countable_by_quality"]["partial"], 1)
         self.assertEqual(parsed["target_date_count"], 2)
 
     def test_classify_trend_requires_positive_skill_for_market_beating(self):
@@ -269,6 +290,58 @@ class TestProgressAudit(unittest.TestCase):
         latest = claim["daily_sequence"][-1]
         self.assertTrue(latest["counts_toward_directional_trend"])
         self.assertFalse(latest["counts_toward_proven_claim"])
+
+    def test_core_model_trend_claim_counts_promotion_countable_partial_days_as_proof_grade(self):
+        dates = [f"2026-06-{day:02d}" for day in range(1, 8)]
+        history = {
+            "by_date": [
+                {
+                    "target_date": target_date,
+                    "market_days": 12,
+                    "scored_rows": 1200,
+                    "model_brier": 0.03,
+                    "market_brier": 0.04,
+                    "brier_skill_score": 0.25,
+                    "final_top_hit_rate": 1.0,
+                }
+                for target_date in dates
+            ],
+            "days": [
+                {
+                    "target_date": target_date,
+                    "status": "scored",
+                    "quality_grade": "partial",
+                    "promotion_countable": True,
+                    "n": 100,
+                    "model_brier": 0.03,
+                    "market_brier": 0.04,
+                    "model_logloss": 0.10,
+                    "market_logloss": 0.12,
+                    "base_rate": 0.09,
+                }
+                for target_date in dates
+                for _ in range(12)
+            ],
+        }
+
+        claim = core_model_trend_claim(history, fleet={"live_forward_slo": {"status": "PASS"}})
+
+        self.assertEqual(claim["status"], "PROVEN")
+        self.assertTrue(claim["claim_allowed"])
+        self.assertEqual(claim["summary"]["claim_day_count"], 7)
+        self.assertEqual(claim["summary"]["promotion_grade_market_days"], 84)
+        self.assertEqual(
+            claim["summary"]["promotion_grade_basis_counts"],
+            {"promotion_countable": 84},
+        )
+        self.assertIn("promotion_countable", claim["thresholds"]["claim_proof_bases"])
+        self.assertTrue(
+            all(row["counts_toward_proven_claim"] for row in claim["daily_sequence"])
+        )
+        self.assertEqual(
+            claim["daily_sequence"][0]["proof_grade_basis_counts"],
+            {"promotion_countable": 12},
+        )
 
     def test_render_report_includes_daily_progress_ledger_cross_check(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -66,6 +66,10 @@ class TestDailyProgressLedger(unittest.TestCase):
                             "positive_daily_first_days": 1,
                             "rolling_daily_first_brier_skill": -0.3334,
                             "promotion_grade_market_days": 48,
+                            "promotion_grade_basis_counts": {
+                                "promotion_countable": 40,
+                                "quality_grade:complete": 8,
+                            },
                             "model_minus_market_brier_slope_per_day": -0.0007,
                             "brier_skill_slope_per_day": 0.0535,
                         },
@@ -296,6 +300,10 @@ class TestDailyProgressLedger(unittest.TestCase):
         self.assertIn("live_forward_slo_not_pass", failures)
         self.assertIn("independent_baseline_missing", failures)
         self.assertIn("market_beating_objective_not_pass", failures)
+        self.assertEqual(
+            json.loads(row["evidence_promotion_grade_basis_counts"]),
+            {"promotion_countable": 40, "quality_grade:complete": 8},
+        )
         self.assertEqual(row["market_beating_objective_status"], "MISSING")
         self.assertEqual(row["ops_disk_preflight_status"], "BLOCK")
         self.assertEqual(row["ops_disk_free_bytes"], 485441536)
