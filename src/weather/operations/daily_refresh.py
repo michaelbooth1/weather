@@ -184,6 +184,21 @@ def run_daily_refresh(args, runners=None):
         return _run_daily_refresh_guarded(args, runners=runners, long_job_guard_info=guard_info)
 
 
+def _flush_incremental_status(args, payload):
+    """Best-effort mid-run status persistence.
+
+    Crash forensics (which step was live when the process died) and the seed
+    for --resume-from-step after a hard death. Never fails the run.
+    """
+    snapshot = dict(payload)
+    snapshot["generated_at_utc"] = utc_iso()
+    snapshot["summary"] = pipeline_summary(payload.get("steps") or [])
+    try:
+        write_json_atomic(getattr(args, "status_out", None), snapshot)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
@@ -250,8 +265,15 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     "traceback": traceback.format_exc(),
                 }
                 payload["steps"].append(step)
+                _flush_incremental_status(args, payload)
                 break
             payload["steps"].append(step)
+            # Flush after every step: the 2026-07-04 chain died mid-step with
+            # no status row, no error manifest, and no crash event — an
+            # end-only status write leaves a multi-hour pipeline forensically
+            # blank AND unresumable past its last completed run. This write is
+            # also what --resume-from-step seeds from after a hard death.
+            _flush_incremental_status(args, payload)
             touch_long_job_guard(
                 getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
                 progress={

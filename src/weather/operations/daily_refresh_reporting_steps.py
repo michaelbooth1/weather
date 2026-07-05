@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import time
 from collections import Counter
@@ -466,6 +467,16 @@ def run_active_variant_shadow_step(args):
         json_out=backtest_path(args, "active_variant_shadow.json"),
         report_out=backtest_path(args, "active_variant_shadow_report.md"),
     )
+    # This step holds the largest heap of the chain (every variant x snapshot
+    # x band row, hundreds of MB serialized). Drop the row references once the
+    # exports are on disk so the pages become collectable/evictable for the
+    # ~15 steps that still follow, instead of pinning multi-GB RSS for hours
+    # (the 2026-07-03 collection stall was this heap squeezing the trackers).
+    shadow = payload.get("multi_variant_shadow")
+    if isinstance(shadow, dict):
+        shadow.pop("rows", None)
+    payload.pop("rows", None)
+    gc.collect()
     return {
         "status": payload.get("status"),
         "long_out": as_path(long_out),

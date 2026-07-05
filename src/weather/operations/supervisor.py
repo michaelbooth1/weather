@@ -425,7 +425,19 @@ def _event_time(event: dict[str, Any]) -> datetime | None:
 # loop uses health state "stale_code", while the CLOB/microstructure loop uses
 # "runtime_identity" (set when runtime_matches_current is False). Both mean the
 # loop is being relaunched on current code, not crash-looping, so both are benign.
-_BENIGN_RESTART_CAUSES = {"stale_code", "runtime_identity"}
+# "superseded_code" is the daily-roll supervisor's name for the same condition.
+# "policy_no_edge" and "infra_starved_*" recycle a worker that is alive and
+# correctly idle (no tradable edge, or upstream snapshot/CLOB inputs stale) —
+# restarting cannot manufacture edge or repair upstream inputs, so those
+# recycles must not burn the crash budget: on 2026-07-03/04/05 they exhausted
+# the 12-restart budget by midday and opened the taker circuit every day.
+_BENIGN_RESTART_CAUSES = {
+    "stale_code",
+    "runtime_identity",
+    "superseded_code",
+    "policy_no_edge",
+}
+_BENIGN_RESTART_CAUSE_PREFIXES = ("infra_starved",)
 
 
 def _recovery_event(event: dict[str, Any]) -> bool:
@@ -433,7 +445,10 @@ def _recovery_event(event: dict[str, Any]) -> bool:
         return False
     if str(event.get("action") or "").lower() not in {"start", "restart"}:
         return False
-    if str(event.get("restart_cause") or "").lower() in _BENIGN_RESTART_CAUSES:
+    cause = str(event.get("restart_cause") or "").lower()
+    if cause in _BENIGN_RESTART_CAUSES:
+        return False
+    if cause.startswith(_BENIGN_RESTART_CAUSE_PREFIXES):
         return False
     return True
 

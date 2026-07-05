@@ -49,6 +49,13 @@ class TestLongJobGuard(unittest.TestCase):
         payload = json.loads(result.stdout.strip())
         self.assertTrue(payload["applied"], payload)
         self.assertEqual(payload["method"], "SetPriorityClass")
+        # Regression (2026-07-03): CPU priority alone let a 7 GB replay evict
+        # the collection loops' pages and stall capture for ~80 minutes; the
+        # guard must also lower memory priority so the long job's pages are
+        # trimmed first under pressure.
+        memory = payload.get("memory_priority") or {}
+        self.assertTrue(memory.get("applied"), payload)
+        self.assertEqual(memory.get("memory_priority"), 4)
 
     def test_guard_writes_running_and_complete_state_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as tmp:

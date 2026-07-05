@@ -526,8 +526,25 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_a
         state = "ERRORING"
     else:
         state = "RUNNING"
+    # The heartbeat updates per market inside a sweep, so a loop thrashing
+    # under host memory pressure reads RUNNING while per-market captures gap
+    # for an hour-plus (2026-07-03 stall). Restarting doesn't relieve external
+    # pressure, so this stays out of `state`; it is a visibility flag for
+    # status/fleet consumers.
+    capture_degraded = (
+        state == "RUNNING"
+        and snap_age is not None
+        and snap_age > dead_after
+    )
     return {
         "state": state,
+        "capture_degraded": capture_degraded,
+        "capture_degraded_reason": (
+            f"heartbeat fresh but last snapshot {round(snap_age, 1)} min old"
+            f" (> {round(dead_after, 1)} min)"
+            if capture_degraded
+            else None
+        ),
         "pid": status.get("pid"),
         "pid_alive": bool(pid_alive),
         "heartbeat_age_min": round(hb_age, 1) if hb_age is not None else None,

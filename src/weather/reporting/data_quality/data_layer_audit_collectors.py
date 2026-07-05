@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import statistics
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from weather.collection.collection_health import summarize_folder
@@ -256,6 +256,37 @@ def truthy(value):
     if value in (None, ""):
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "y"}
+
+
+AUTH_FAILURE_RECENT_DATA_DAYS = 2
+
+
+def _recent_auth_failure_markets(market_latest_failure_dates, folder_rows):
+    """Markets whose newest auth-failure day is within the newest data days.
+
+    Recency is measured against the newest target_date in the scanned folders
+    rather than the wall clock: if collection itself stops, the failure days
+    stay the newest data and the gate keeps failing closed.
+    """
+    if not market_latest_failure_dates:
+        return []
+    newest = max(
+        (str(row.get("target_date")) for row in folder_rows if row.get("target_date")),
+        default=None,
+    )
+    if newest is None:
+        return sorted(market_latest_failure_dates)
+    try:
+        cutoff = (
+            date.fromisoformat(newest) - timedelta(days=AUTH_FAILURE_RECENT_DATA_DAYS - 1)
+        ).isoformat()
+    except ValueError:
+        return sorted(market_latest_failure_dates)
+    return sorted(
+        market
+        for market, latest in market_latest_failure_dates.items()
+        if latest >= cutoff
+    )
 
 
 def source_status_summary_for_folder(folder):
@@ -567,6 +598,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     source_status_stale_or_failed_rows = 0
     source_status_settlement_auth_failure_rows = 0
     source_status_settlement_auth_failure_markets = set()
+    source_status_settlement_auth_failure_market_dates = {}
     source_status_counts = Counter()
     forecast_payload_rows = 0
     forecast_payload_bytes = 0
@@ -699,6 +731,12 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         source_status_settlement_auth_failure_rows += auth_failure_rows
         if auth_failure_rows and row.get("market_id"):
             source_status_settlement_auth_failure_markets.add(row.get("market_id"))
+            if row.get("target_date"):
+                existing = source_status_settlement_auth_failure_market_dates.get(row.get("market_id"))
+                if existing is None or str(row.get("target_date")) > existing:
+                    source_status_settlement_auth_failure_market_dates[row.get("market_id")] = str(
+                        row.get("target_date")
+                    )
         source_status_counts.update(status.get("status_counts") or {})
         payloads = row.get("forecast_payloads") or {}
         forecast_payload_rows += int(payloads.get("row_count") or 0)
@@ -803,8 +841,30 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "stale_or_failed_rows": source_status_stale_or_failed_rows,
             "stale_or_failed_rate": pct(source_status_stale_or_failed_rows, source_status_rows),
             "settlement_source_auth_failure_rows": source_status_settlement_auth_failure_rows,
-            "settlement_source_auth_failure_market_count": len(source_status_settlement_auth_failure_markets),
-            "settlement_source_auth_failure_markets": sorted(source_status_settlement_auth_failure_markets),
+            # The fail-closed gate reads the market list/count, so they cover
+            # only the two newest data days: source-status rows are immutable
+            # capture history, and a repaired outage (e.g. June 26-30 WU auth)
+            # must not keep failing the gate until its folders age out of the
+            # scan. Keyed off data recency, not the wall clock, so a total
+            # collection outage still fails closed. Full-window detail stays in
+            # *_window fields.
+            "settlement_source_auth_failure_market_count": len(
+                _recent_auth_failure_markets(
+                    source_status_settlement_auth_failure_market_dates, folder_rows
+                )
+            ),
+            "settlement_source_auth_failure_markets": _recent_auth_failure_markets(
+                source_status_settlement_auth_failure_market_dates, folder_rows
+            ),
+            "settlement_source_auth_failure_window_market_count": len(
+                source_status_settlement_auth_failure_markets
+            ),
+            "settlement_source_auth_failure_window_markets": sorted(
+                source_status_settlement_auth_failure_markets
+            ),
+            "settlement_source_auth_failure_market_latest_dates": dict(
+                sorted(source_status_settlement_auth_failure_market_dates.items())
+            ),
             "status_counts": dict(sorted(source_status_counts.items())),
         },
         "forecast_payloads": {

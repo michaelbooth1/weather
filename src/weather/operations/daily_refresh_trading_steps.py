@@ -9,9 +9,13 @@ from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import csv
+
 from weather.backtesting.settlement_ledger import (
     DEFAULT_LABELS_CSV,
     DEFAULT_LEDGER_ROOT,
+    LABEL_COLUMNS,
+    finalize_folder,
     finalize_folders,
 )
 from weather.market import exchange_economics
@@ -393,6 +397,88 @@ def run_maker_paper_score_step(args):
     }
 
 
+def _provisional_target_blocker_slugs(payload, gate, target):
+    """Event slugs to re-reconcile when a target-date gate blocked purely on
+    PROVISIONAL reconciliation.
+
+    Polymarket resolution can lag the morning finalize by an hour or two
+    (2026-07-05: three July-4 labels were PROVISIONAL at the 10:47 audit and
+    reconciled `match` by early afternoon, but the day's chain was already
+    lost). Only a pure-PROVISIONAL block is retried; disagreements, missing
+    rows, or any other blocker class still needs a human.
+    """
+    blockers = gate.get("blockers") or []
+    if not blockers or not all(str(b).endswith(":PROVISIONAL") for b in blockers):
+        return []
+    return sorted({
+        row.get("event_slug")
+        for row in payload.get("rows") or []
+        if row.get("target_date") == target
+        and row.get("promotion_blocker")
+        and str(row.get("status") or "").upper() == "PROVISIONAL"
+        and row.get("event_slug")
+    })
+
+
+def _merge_labels_into_csv(labels_csv, labels):
+    """Update specific rows of the labels CSV without dropping the rest.
+
+    finalize_folders/write_labels_csv rewrite the whole CSV from the labels
+    passed, so a subset re-finalize must merge by event_slug instead.
+    """
+    path = Path(labels_csv)
+    existing = []
+    if path.exists():
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            existing = [row for row in csv.DictReader(handle) if row.get("event_slug")]
+    by_slug = {row.get("event_slug"): row for row in existing}
+    for label in labels:
+        if label.get("event_slug"):
+            by_slug[label["event_slug"]] = label
+    merged = sorted(
+        by_slug.values(),
+        key=lambda row: (str(row.get("market_id") or ""), str(row.get("target_date") or "")),
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=LABEL_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in merged:
+            writer.writerow(row)
+
+
+def _retry_provisional_reconciliation(args, slugs):
+    snapshots_root = Path(getattr(args, "snapshots_root", "") or "")
+    labels = []
+    missing = []
+    for slug in slugs:
+        folder = snapshots_root / slug
+        if not folder.exists():
+            missing.append(slug)
+            continue
+        label = finalize_folder(
+            folder,
+            daily_summary_path=getattr(args, "daily_summary", "") or None,
+            overrides=parse_overrides(getattr(args, "settle", None)),
+            interval_minutes=getattr(args, "interval_minutes", 10.0),
+            gap_tolerance=getattr(args, "tolerance", 1.5),
+            reconcile_polymarket=not getattr(args, "skip_polymarket_reconciliation", False),
+            ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
+        )
+        if label:
+            labels.append(label)
+    if labels:
+        _merge_labels_into_csv(getattr(args, "labels_csv", DEFAULT_LABELS_CSV), labels)
+    return {
+        "attempted_slugs": list(slugs),
+        "refinalized_count": len(labels),
+        "missing_folders": missing,
+        "statuses": sorted({
+            f"{label.get('market_id')}:{label.get('reconciliation_status')}" for label in labels
+        }),
+    }
+
+
 def run_settlement_source_audit_step(args):
     if getattr(args, "skip_settlement_source_audit", False):
         return {"status": "SKIPPED", "reason": "skip_settlement_source_audit"}
@@ -401,12 +487,6 @@ def run_settlement_source_audit_step(args):
         ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
         generated_at_utc=utc_iso(),
     )
-    json_out, report_out = settlement_source_audit.write_outputs(
-        payload,
-        json_out=backtest_path(args, "settlement_source_revision_audit.json"),
-        report_out=backtest_path(args, "settlement_source_revision_audit.md"),
-    )
-    summary = payload.get("summary") or {}
     # The settled-day analysis barrier asserts truth-label proof for the day
     # being analyzed; item 319 ratified that historical non-proof-grade labels
     # (permanent capture-gap days) must not fail-close current settled-day
@@ -414,10 +494,32 @@ def run_settlement_source_audit_step(args):
     # audit outcome visible alongside it.
     target = settled_analysis_target_date(args).isoformat()
     gate = settlement_source_audit.settlement_label_gate_for_target_dates(payload, [target])
+    reconciliation_retry = None
+    if gate.get("status") == "BLOCK":
+        retry_slugs = _provisional_target_blocker_slugs(payload, gate, target)
+        if retry_slugs:
+            reconciliation_retry = _retry_provisional_reconciliation(args, retry_slugs)
+            if reconciliation_retry.get("refinalized_count"):
+                payload = settlement_source_audit.build_settlement_source_audit(
+                    labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+                    ledger_root=getattr(args, "ledger_root", DEFAULT_LEDGER_ROOT),
+                    generated_at_utc=utc_iso(),
+                )
+                gate = settlement_source_audit.settlement_label_gate_for_target_dates(
+                    payload, [target]
+                )
+    json_out, report_out = settlement_source_audit.write_outputs(
+        payload,
+        json_out=backtest_path(args, "settlement_source_revision_audit.json"),
+        report_out=backtest_path(args, "settlement_source_revision_audit.md"),
+    )
+    summary = payload.get("summary") or {}
     return {
         "status": gate.get("status"),
         "target_date": target,
         "target_date_gate_blockers": gate.get("blockers") or [],
+        "target_date_non_countable_reconciled": gate.get("non_countable_reconciled") or [],
+        "reconciliation_retry": reconciliation_retry,
         "global_status": payload.get("status"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),

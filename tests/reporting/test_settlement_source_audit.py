@@ -154,13 +154,20 @@ class TestSettlementSourceAudit(unittest.TestCase):
         # Decisive-gap partial day: not materially countable -> stays blocked.
         self.assertFalse(by_date["2026-06-22"]["proof_grade_label"])
         self.assertTrue(by_date["2026-06-22"]["promotion_blocker"])
-        # The promotion gate passes for the countable date, blocks the other.
+        # The promotion gate passes for the countable date.
         self.assertEqual(
             settlement_label_gate_for_target_dates(payload, ["2026-06-21"])["status"], "PASS"
         )
-        self.assertEqual(
-            settlement_label_gate_for_target_dates(payload, ["2026-06-22"])["status"], "BLOCK"
-        )
+        # The decisive-gap day still carries promotion_blocker (corpus and
+        # countability gates exclude it fail-closed), but its payout truth is
+        # Polymarket-confirmed, so it must not halt the day's ANALYSIS: on
+        # 2026-07-05 three such July-4 markets cost the entire chain day. The
+        # gate reports it as non-countable-but-reconciled instead of blocking.
+        decisive_gate = settlement_label_gate_for_target_dates(payload, ["2026-06-22"])
+        self.assertEqual(decisive_gate["status"], "PASS")
+        self.assertEqual(decisive_gate["blockers"], [])
+        self.assertEqual(len(decisive_gate["non_countable_reconciled"]), 1)
+        self.assertIn("2026-06-22:atlanta:", decisive_gate["non_countable_reconciled"][0])
 
     def test_target_date_gate_blocks_uncertain_or_missing_audit_rows(self):
         payload = {

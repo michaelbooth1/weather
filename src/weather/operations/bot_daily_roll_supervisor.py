@@ -431,6 +431,17 @@ def ensure_daily_roll(
             force_retire_latest_run=result.get("restart_cause") == "superseded_code",
         )
     elif action == "start":
+        # A day-roll "start" (e.g. TARGET_MISMATCH at 00:05) previously left
+        # yesterday's worker running: it leaked ~3GB/2h alongside the fresh
+        # worker and recurred nightly (2026-06-30, 2026-07-04). Stop the
+        # superseded worker, matched against ITS OWN target date, before
+        # starting the new one; stop is a no-op when the pid is already dead.
+        result["stop_superseded"] = stop_daily_roll_process(
+            status,
+            target_date=status.get("target_date"),
+            pid_alive=pid_alive,
+            now=current,
+        )
         result["start"] = start_fn(force=True, force_retire_latest_run=False)
 
     final_status = None

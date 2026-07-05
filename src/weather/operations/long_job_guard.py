@@ -173,12 +173,54 @@ def release_long_job_lock(path):
         pass
 
 
+def _lower_memory_priority(priority):
+    """Bias Windows page replacement against this process (best effort).
+
+    CPU priority alone did not protect the collection loops on 2026-07-03: a
+    7 GB replay at below-normal CPU still forced the trackers' pages out and a
+    10-minute capture sweep thrashed to ~85 minutes. Memory priority tells the
+    memory manager to evict THIS process's pages before normal-priority ones.
+    """
+    import ctypes
+
+    MEMORY_PRIORITY_LOW = 2
+    MEMORY_PRIORITY_BELOW_NORMAL = 4
+    memory_priority = (
+        MEMORY_PRIORITY_LOW if priority == "idle" else MEMORY_PRIORITY_BELOW_NORMAL
+    )
+
+    class MEMORY_PRIORITY_INFORMATION(ctypes.Structure):
+        _fields_ = [("MemoryPriority", ctypes.c_ulong)]
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.SetProcessInformation.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    )
+    kernel32.SetProcessInformation.restype = ctypes.c_int
+    ProcessMemoryPriority = 0
+    info = MEMORY_PRIORITY_INFORMATION(memory_priority)
+    ok = kernel32.SetProcessInformation(
+        kernel32.GetCurrentProcess(),
+        ProcessMemoryPriority,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    )
+    if not ok:
+        raise OSError("SetProcessInformation(ProcessMemoryPriority) returned 0")
+    return {"applied": True, "memory_priority": memory_priority}
+
+
 def lower_process_priority(priority="below_normal"):
     """Best-effort process throttling for local long jobs.
 
     This deliberately avoids external dependencies. On Windows it uses
-    SetPriorityClass; on POSIX it increases nice value. Failure is reported in
-    the guard status and does not abort the job.
+    SetPriorityClass plus a lowered memory priority; on POSIX it increases the
+    nice value. Failure is reported in the guard status and does not abort the
+    job.
     """
     priority = (priority or "normal").lower()
     if priority in {"normal", "none", "off"}:
@@ -202,10 +244,18 @@ def lower_process_priority(priority="below_normal"):
             ok = kernel32.SetPriorityClass(handle, priority_class)
             if not ok:
                 raise OSError("SetPriorityClass returned 0")
+            try:
+                memory_result = _lower_memory_priority(priority)
+            except Exception as exc:  # noqa: BLE001 - memory bias is best-effort
+                memory_result = {
+                    "applied": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
             return {
                 "requested": priority,
                 "applied": True,
                 "method": "SetPriorityClass",
+                "memory_priority": memory_result,
             }
         increment = 10 if priority == "idle" else 5
         new_nice = os.nice(increment)

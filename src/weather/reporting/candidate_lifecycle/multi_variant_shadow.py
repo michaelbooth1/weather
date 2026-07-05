@@ -53,6 +53,9 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow_report.md"
 DEFAULT_LONG_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow_long.csv"
 DEFAULT_ATTRIBUTION_SIDECAR_OUT = DEFAULT_BACKTEST_ROOT / "multi_variant_shadow_attribution.jsonl"
 DEFAULT_LONG_EXPORT_BYTES_PER_ROW = 1536
+# Measured 1033 bytes/row on the 2026-07-03 sidecar; padded so the headroom
+# check errs on the safe side.
+DEFAULT_SIDECAR_EXPORT_BYTES_PER_ROW = 1280
 MAX_NON_CONTROL_VARIANTS = 4
 OBSERVATION_KEY_FIELDS = ("market_id", "target_date", "snapshot_id", "band_key")
 ATTRIBUTION_COLUMNS = [
@@ -469,8 +472,13 @@ def _sidecar_hash(payload):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def attribution_sidecar_rows(rows):
-    output = []
+def iter_attribution_sidecar_rows(rows):
+    """Yield sidecar rows one at a time.
+
+    The sidecar can run to hundreds of MB; materializing every row (and later
+    every serialized line) doubles the multi-GB row heap at the exact moment
+    the host is most memory-squeezed, which starves the collection loops.
+    """
     for row in rows:
         attribution = {
             field: row.get(field)
@@ -479,7 +487,7 @@ def attribution_sidecar_rows(rows):
         }
         if not attribution:
             continue
-        output.append({
+        yield {
             "schema_version": ATTRIBUTION_SCHEMA_VERSION,
             "variant_id": row.get("variant_id"),
             "market_id": row.get("market_id"),
@@ -490,8 +498,11 @@ def attribution_sidecar_rows(rows):
             "feature_family_hash": row.get("feature_family_hash") or _sidecar_hash(attribution),
             "feature_missingness_hash": row.get("feature_missingness_hash"),
             "attribution": attribution,
-        })
-    return output
+        }
+
+
+def attribution_sidecar_rows(rows):
+    return list(iter_attribution_sidecar_rows(rows))
 
 
 def evidence_by_market(rows):
@@ -1214,19 +1225,19 @@ def write_long_csv(path, rows, min_free_bytes=0):
 def write_attribution_sidecar(path, rows, min_free_bytes=0):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    sidecar_rows = attribution_sidecar_rows(rows)
-    lines = [
-        json.dumps(row, sort_keys=True, default=str) + "\n"
-        for row in sidecar_rows
-    ]
-    ensure_artifact_disk_headroom(
+    # Streamed line-by-line: the sidecar reaches hundreds of MB and building
+    # every serialized line up front duplicated the row heap in memory. The
+    # headroom check uses a per-row estimate like the long-CSV export.
+    ensure_row_export_disk_headroom(
         path,
-        estimated_bytes=sum(len(line.encode("utf-8")) for line in lines),
+        len(rows),
         min_free_bytes=min_free_bytes,
+        bytes_per_row=DEFAULT_SIDECAR_EXPORT_BYTES_PER_ROW,
         context="multi-variant attribution sidecar export",
     )
     with path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.writelines(lines)
+        for row in iter_attribution_sidecar_rows(rows):
+            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
     return path
 
 

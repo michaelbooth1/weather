@@ -2608,6 +2608,83 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["global_status"], "BLOCK")
         self.assertEqual(result["promotion_blocked_label_count"], 1)
 
+    def test_provisional_blocker_slugs_only_for_pure_provisional_gates(self):
+        from weather.operations.daily_refresh_trading_steps import (
+            _provisional_target_blocker_slugs,
+        )
+
+        payload = {
+            "rows": [
+                {
+                    "event_slug": "highest-temperature-in-atlanta-on-july-4-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-07-04",
+                    "status": "PROVISIONAL",
+                    "promotion_blocker": True,
+                },
+                {
+                    "event_slug": "highest-temperature-in-nyc-on-july-4-2026",
+                    "market_id": "nyc",
+                    "target_date": "2026-07-04",
+                    "status": "PROVISIONAL",
+                    "promotion_blocker": False,
+                },
+            ]
+        }
+        pure = {"blockers": ["2026-07-04:atlanta:PROVISIONAL"]}
+        self.assertEqual(
+            _provisional_target_blocker_slugs(payload, pure, "2026-07-04"),
+            ["highest-temperature-in-atlanta-on-july-4-2026"],
+        )
+        # Any non-PROVISIONAL blocker class disables the retry (fail closed).
+        mixed = {"blockers": ["2026-07-04:atlanta:PROVISIONAL", "2026-07-04:nyc:SOURCE_DISAGREEMENT"]}
+        self.assertEqual(_provisional_target_blocker_slugs(payload, mixed, "2026-07-04"), [])
+        self.assertEqual(_provisional_target_blocker_slugs(payload, {"blockers": []}, "2026-07-04"), [])
+
+    def test_merge_labels_into_csv_updates_only_matching_slugs(self):
+        from weather.backtesting.settlement_ledger import LABEL_COLUMNS
+        from weather.operations.daily_refresh_trading_steps import _merge_labels_into_csv
+
+        with tempfile.TemporaryDirectory() as tmp:
+            labels_csv = Path(tmp) / "labels.csv"
+            with labels_csv.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=LABEL_COLUMNS, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerow({
+                    "event_slug": "highest-temperature-in-atlanta-on-july-4-2026",
+                    "market_id": "atlanta",
+                    "target_date": "2026-07-04",
+                    "reconciliation_status": "PROVISIONAL",
+                })
+                writer.writerow({
+                    "event_slug": "highest-temperature-in-chicago-on-july-4-2026",
+                    "market_id": "chicago",
+                    "target_date": "2026-07-04",
+                    "reconciliation_status": "match",
+                })
+
+            _merge_labels_into_csv(labels_csv, [{
+                "event_slug": "highest-temperature-in-atlanta-on-july-4-2026",
+                "market_id": "atlanta",
+                "target_date": "2026-07-04",
+                "reconciliation_status": "match",
+            }])
+
+            with labels_csv.open("r", encoding="utf-8-sig", newline="") as handle:
+                rows = {row["event_slug"]: row for row in csv.DictReader(handle)}
+
+        # The retried label updated in place; the untouched label survived the
+        # rewrite (finalize's write_labels_csv would have dropped it).
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            rows["highest-temperature-in-atlanta-on-july-4-2026"]["reconciliation_status"],
+            "match",
+        )
+        self.assertEqual(
+            rows["highest-temperature-in-chicago-on-july-4-2026"]["reconciliation_status"],
+            "match",
+        )
+
     def test_maker_paper_score_step_writes_fresh_standard_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             _run = _write_active_mm_run(tmp)

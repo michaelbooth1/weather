@@ -87,6 +87,40 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(state, "RUNNING")
         self.assertEqual(ensure_decision(state, pid_alive=True), "noop")
 
+    def test_thrashing_sweep_is_flagged_degraded_but_not_restarted(self):
+        # 2026-07-03 stall: the heartbeat updates per market inside a sweep,
+        # so a loop crawling under host memory pressure reads RUNNING while
+        # per-market captures gap for 80+ minutes. Restarting would not
+        # relieve external pressure (and would storm every ensure tick), so
+        # the condition is a visibility flag, not a state.
+        health = loop_health(
+            status(
+                heartbeat_age_min=5,
+                last_snapshot_written_at=(NOW - timedelta(minutes=80)).isoformat(),
+            ),
+            NOW,
+            pid_alive=True,
+        )
+
+        self.assertEqual(health["state"], "RUNNING")
+        self.assertTrue(health["capture_degraded"])
+        self.assertIn("last snapshot 80.0 min old", health["capture_degraded_reason"])
+        self.assertEqual(ensure_decision(health["state"], pid_alive=True), "noop")
+
+    def test_healthy_sweep_is_not_degraded(self):
+        health = loop_health(
+            status(
+                heartbeat_age_min=1,
+                last_snapshot_written_at=(NOW - timedelta(minutes=3)).isoformat(),
+            ),
+            NOW,
+            pid_alive=True,
+        )
+
+        self.assertEqual(health["state"], "RUNNING")
+        self.assertFalse(health["capture_degraded"])
+        self.assertIsNone(health["capture_degraded_reason"])
+
     def test_stale_runtime_identity_restarts_loop(self):
         old_identity = {
             "schema_version": "runtime_identity_v0.1",

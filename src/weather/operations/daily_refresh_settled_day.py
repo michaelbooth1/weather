@@ -310,14 +310,21 @@ def _label_countability_from_freshness(freshness, finalize_result=None):
     }
 
 
-def _settled_day_resume_command(args):
+def _settled_day_resume_command(args, resume_step="settled_day_analysis_barrier"):
+    """Resume command for a barrier blocker.
+
+    A resume carries prior step results forward, so resuming from the barrier
+    itself would re-consume the very step result that blocked it. Blockers fed
+    by a step must resume from THAT step so it re-runs (e.g. a settlement
+    audit that blocked on since-reconciled PROVISIONAL labels).
+    """
     command = [
         "python",
         "-m",
         "weather.operations.daily_refresh",
         "run",
         "--resume-from-step",
-        "settled_day_analysis_barrier",
+        str(resume_step or "settled_day_analysis_barrier"),
         "--backtest-root",
         str(args.backtest_root),
         "--snapshots-root",
@@ -371,7 +378,9 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
                 "component": dependency.get("step"),
                 "detail": dependency.get("blocker"),
                 "phase": dependency.get("phase"),
-                "resume_command": _settled_day_resume_command(args),
+                "resume_command": _settled_day_resume_command(
+                    args, resume_step=dependency.get("step")
+                ),
             })
     step_order = {
         step.get("name"): index
@@ -385,7 +394,9 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
             "component": "public_wu_settlement_restore",
             "detail": "step_order_violation=public_wu_settlement_restore_after_market_day_labels_finalize",
             "phase": "settlement_source_restoration",
-            "resume_command": _settled_day_resume_command(args),
+            "resume_command": _settled_day_resume_command(
+                args, resume_step="public_wu_settlement_restore"
+            ),
         })
     finalize = (steps_by_name.get("market_day_labels_finalize") or {}).get("result") or {}
     countability = _label_countability_from_freshness(freshness_payload, finalize)

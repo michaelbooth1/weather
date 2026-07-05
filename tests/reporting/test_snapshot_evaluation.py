@@ -160,7 +160,16 @@ class TestSnapshotEvaluation(unittest.TestCase):
             write_snapshot_folder(snapshots_root)
             write_backtest_artifacts(backtest_root)
 
-            payload = build_evaluation(backtest_root=backtest_root, snapshots_root=snapshots_root)
+            # archive_root must be pinned into the fixture: prefer_archive
+            # otherwise reads the PRODUCTION parquet archive, and once the
+            # real archive gains a parquet for this slug the inventory counts
+            # live rows instead of the fixture's (failed 2026-07-05 when the
+            # archive backlog reached the fixture's market-day).
+            payload = build_evaluation(
+                backtest_root=backtest_root,
+                snapshots_root=snapshots_root,
+                archive_root=Path(tmp) / "archive",
+            )
             json_out, report_out = write_outputs(
                 payload,
                 json_out=backtest_root / "snapshot_evaluation.json",

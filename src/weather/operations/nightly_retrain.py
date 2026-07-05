@@ -423,11 +423,15 @@ def daily_learning_summary(path):
         for row in payload.get("learnings") or []
         if row.get("blocker")
     ]
+    input_gate = payload.get("input_gate") or {}
     return {
         "path": str(path),
         "exists": bool(payload),
         "status": payload.get("status") if payload else "missing",
         "run_date": payload.get("run_date"),
+        "input_gate_status": input_gate.get("status"),
+        "input_consistency_status": (input_gate.get("consistency") or {}).get("status"),
+        "input_freshness_status": (input_gate.get("freshness") or {}).get("status"),
         "learning_count": summary.get("learning_count"),
         "blocker_count": summary.get("blocker_count"),
         "high_priority_learning_count": summary.get("high_priority_learning_count"),
@@ -553,6 +557,29 @@ def run_experiment_queue_step(args, runner):
     step["finished_at_utc"] = utc_iso()
     step["duration_seconds"] = round(time.time() - started, 3)
     return step
+
+
+def daily_learning_input_integrity(daily_learning):
+    """Whether daily_learning's own inputs were consistent and fresh.
+
+    The nightly run must stop on garbage-in (inconsistent or stale critical
+    inputs) but NOT on the policy/skill P0s that keep the headline BLOCKED —
+    the experiment queue exists to repair exactly those gates, so gating the
+    queue on the headline re-creates the settled-day-barrier circularity one
+    level up (queue starved June 24 -> July 5 while headline stayed BLOCKED
+    on predawn skill gates and the excluded tape-backup alarm).
+    """
+    if not (daily_learning or {}).get("exists"):
+        # Missing artifact was never a blocker for this flag; downstream steps
+        # (experiment queue, retrain gates) each tolerate missing inputs.
+        return True, "daily_learning_missing"
+    consistency = str(daily_learning.get("input_consistency_status") or "").upper()
+    freshness = str(daily_learning.get("input_freshness_status") or "").upper()
+    if consistency == "FAIL":
+        return False, "input_consistency_fail"
+    if freshness == "FAIL":
+        return False, "input_freshness_fail"
+    return True, "input_gate_ok"
 
 
 def _should_skip_expensive_retrain(args, daily_learning):
@@ -721,9 +748,12 @@ def pipeline_status(steps, promotion, daily_learning=None, *, fail_on_daily_lear
         return "error"
     if any(step.get("name") == "retrain_recommendation_gate" and step.get("status") == "skipped" for step in steps):
         return "skipped_no_retrain_recommendation"
-    if (
-        fail_on_daily_learning_blocker
-        and (daily_learning or {}).get("status") == "BLOCKED"
+    # Only an input-integrity abort marks the run blocked; a headline-BLOCKED
+    # daily_learning (policy/skill P0s) no longer stops the queue or the
+    # retrain, so it must not mask what the run actually did.
+    if any(
+        step.get("name") == "daily_learning_input_gate" and step.get("status") == "blocked"
+        for step in steps
     ):
         return "blocked"
     verdict = promotion.get("verdict")
@@ -1034,7 +1064,24 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
                 break
             if name == "daily_learning" and args.fail_on_daily_learning_blocker:
                 payload["daily_learning"] = daily_learning_summary(args.daily_learning_out)
-                if payload["daily_learning"].get("status") == "BLOCKED":
+                integrity_ok, integrity_reason = daily_learning_input_integrity(
+                    payload["daily_learning"]
+                )
+                if not integrity_ok:
+                    steps.append({
+                        "name": "daily_learning_input_gate",
+                        "command": ["internal", "daily_learning_input_integrity"],
+                        "status": "blocked",
+                        "returncode": None,
+                        "duration_seconds": 0.0,
+                        "reason": integrity_reason,
+                        "input_consistency_status": payload["daily_learning"].get(
+                            "input_consistency_status"
+                        ),
+                        "input_freshness_status": payload["daily_learning"].get(
+                            "input_freshness_status"
+                        ),
+                    })
                     break
         payload["settled_day_freshness"] = settled_day_freshness_summary(args.settled_day_freshness_out)
         payload["daily_learning"] = daily_learning_summary(args.daily_learning_out)
@@ -1046,9 +1093,13 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
                 step.get("name") == "retrain_recommendation_gate" and step.get("status") == "skipped"
                 for step in steps
             )
+            aborted_on_input_gate = any(
+                step.get("name") == "daily_learning_input_gate" and step.get("status") == "blocked"
+                for step in steps
+            )
             reason = (
-                "daily_learning_blocked"
-                if payload["daily_learning"].get("status") == "BLOCKED"
+                "daily_learning_input_gate_blocked"
+                if aborted_on_input_gate
                 else "retrain_not_recommended"
                 if skipped_for_recommendation
                 else "promotion_refresh_not_run"

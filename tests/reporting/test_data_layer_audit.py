@@ -443,6 +443,51 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertEqual(summary["settlement_source_auth_failure_sources"], ["wu_history"])
         self.assertEqual(summary["status_counts"]["fresh"], 1)
 
+    def test_recent_auth_failure_markets_scopes_to_newest_data_days(self):
+        # Regression (2026-07-03): the fail-closed WU auth gate aggregated the
+        # whole folder window, so the repaired June 26-30 outage kept 12
+        # markets failing the gate days after auth recovered. The gate list
+        # must cover only the newest two data days.
+        from weather.reporting.data_quality.data_layer_audit_collectors import (
+            _recent_auth_failure_markets,
+        )
+
+        folders = [
+            {"target_date": "2026-07-02"},
+            {"target_date": "2026-07-03"},
+        ]
+
+        # Resolved outage: failures ended June 30, data runs through July 3.
+        self.assertEqual(
+            _recent_auth_failure_markets(
+                {"atlanta": "2026-06-30", "nyc": "2026-06-29"}, folders
+            ),
+            [],
+        )
+        # Live outage: failure on the newest data day still fails.
+        self.assertEqual(
+            _recent_auth_failure_markets({"atlanta": "2026-07-03"}, folders),
+            ["atlanta"],
+        )
+        # Yesterday (second newest data day) still counts as live.
+        self.assertEqual(
+            _recent_auth_failure_markets({"nyc": "2026-07-02"}, folders),
+            ["nyc"],
+        )
+        # Collection outage: no newer folders exist, so the failure days ARE
+        # the newest data and the gate stays fail-closed.
+        self.assertEqual(
+            _recent_auth_failure_markets(
+                {"atlanta": "2026-06-30"}, [{"target_date": "2026-06-30"}]
+            ),
+            ["atlanta"],
+        )
+        # Missing folder dates: fail closed with the full market list.
+        self.assertEqual(
+            _recent_auth_failure_markets({"atlanta": "2026-06-30"}, [{}]),
+            ["atlanta"],
+        )
+
     def test_snapshot_audit_tracks_raw_clob_artifact_presence(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "highest-temperature-in-nyc-on-june-16-2026"

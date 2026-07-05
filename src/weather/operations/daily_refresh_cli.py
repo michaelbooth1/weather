@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from weather.operations import nightly_health_checks
+from weather.paths import data_path
 from weather.schema_registry import schema_version
 
 
@@ -622,11 +624,40 @@ def build_parser(dependencies):
     return parser
 
 
+def _enable_crash_forensics():
+    """Persist native-crash tracebacks for hidden scheduled-task runs.
+
+    The 2026-07-04 chain vanished mid-step with nothing in the status file,
+    Windows Error Reporting, or the task history. Scheduled tasks run pythonw
+    with no visible stderr, so a native fault (or hard kill) leaves no trace;
+    faulthandler at least captures segfault-class deaths, and the log names
+    which run was live. Best effort — never blocks the run.
+    """
+    import faulthandler
+    from datetime import datetime, timezone
+
+    try:
+        log_dir = Path(str(data_path())) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        handle = (log_dir / f"daily_refresh_faulthandler_{stamp}.log").open(
+            "w", encoding="utf-8"
+        )
+        handle.write(f"daily_refresh pid={os.getpid()} started {stamp}\n")
+        handle.flush()
+        faulthandler.enable(file=handle, all_threads=True)
+        return handle
+    except OSError:
+        return None
+
+
 def main(argv=None, dependencies=None):
     if dependencies is None:
         raise ValueError("daily refresh CLI dependencies are required")
     parser = build_parser(dependencies)
     args = parser.parse_args(argv)
+    if getattr(args, "command", "") in {"run", "repair-stale-locks"}:
+        _enable_crash_forensics()
     return args.func(args)
 
 

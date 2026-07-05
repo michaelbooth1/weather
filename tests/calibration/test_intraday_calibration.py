@@ -576,7 +576,15 @@ class TestTorontoModelCalibrationConfig(unittest.TestCase):
             "open_meteo": {"ok": True, "data": {"rows": [{"temp_c": 19.6}]}},
         }
 
-        distribution = model.estimate_distribution(sources)
+        # Pin the clock: without `now` the distribution blend keys cutoff and
+        # current-max boundary logic off the wall clock, so this test passed
+        # or failed depending on the HOUR the suite ran (green at 21:00-01:00,
+        # red at ~18:00 on 2026-07-05). Mid-afternoon on the target date is
+        # the scenario the fixture describes.
+        distribution = model.estimate_distribution(
+            sources,
+            now=datetime(2026, 5, 28, 14, 30, tzinfo=toronto_model.TORONTO_TZ),
+        )
 
         self.assertGreater(distribution[20], distribution[19])
         self.assertLess(distribution[20], 0.60)

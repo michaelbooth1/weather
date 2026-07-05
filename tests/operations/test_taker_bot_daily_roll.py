@@ -799,6 +799,56 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(saved["daily_roll_supervisor"]["action"], "start")
         self.assertEqual(diagnostics[-1]["restart_cause"], "pid_missing")
 
+    def test_day_roll_start_stops_superseded_previous_day_worker(self):
+        # Regression (2026-06-30, 2026-07-04): the 00:05 day roll started the
+        # new date's worker but left yesterday's worker running, leaking
+        # ~3GB/2h alongside it every night. A TARGET_MISMATCH start must stop
+        # the live superseded worker (matched on ITS OWN target date) first.
+        calls = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(command)
+            return 9100
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            # Yesterday's worker: alive, healthy, but for 2026-06-18 while the
+            # roll now targets 2026-06-19.
+            _write_status(status_path, tmp)
+
+            terminated = []
+
+            def fake_terminate(pid, pid_check=None):
+                terminated.append(pid)
+                return {"pid": pid, "stopped": True}
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                side_effect=fake_terminate,
+            ):
+                payload = ensure_for_date(
+                    "2026-06-19",
+                    status_path=status_path,
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "taker_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-19T04:20:00+00:00",
+                    start_after_local_time="00:00",
+                    max_activity_age_seconds=120,
+                    startup_grace_seconds=60,
+                    launcher=launcher,
+                    pid_alive=lambda pid, target_date=None: True,
+                )
+
+        self.assertEqual(payload["action"], "start")
+        self.assertEqual(payload["state"], "TARGET_MISMATCH")
+        self.assertEqual(payload["stop_superseded"]["stopped"], True)
+        self.assertEqual(terminated, [7654])
+        self.assertEqual(len(calls), 1)
+
     def test_ensure_restarts_superseded_code_and_quarantines_latest_run(self):
         calls = []
         current_identity = {

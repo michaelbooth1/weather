@@ -340,6 +340,35 @@ class TestMultiVariantShadow(unittest.TestCase):
             for path in paths.values():
                 self.assertFalse(path.exists())
 
+    def test_attribution_sidecar_streams_rows_without_materializing_lines(self):
+        # Regression (2026-07-03): the sidecar writer built every serialized
+        # line in memory first; at ~555k rows that duplicated a multi-GB heap
+        # while the host was already memory-squeezed. The writer must stream
+        # and still produce identical one-JSON-object-per-line output.
+        import inspect
+        from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
+            iter_attribution_sidecar_rows,
+        )
+
+        self.assertTrue(inspect.isgeneratorfunction(iter_attribution_sidecar_rows))
+
+        rows = [
+            _row("exact_catchup", "2026-06-11", 0.80, source_freshness_state="all_fresh"),
+            _row("exact_catchup", "2026-06-12", 0.55, source_freshness_state="stale:open_meteo"),
+        ]
+        payload = build_payload(rows, use_variant_registry=False)
+        expected = attribution_sidecar_rows(payload["rows"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rows.jsonl"
+            write_attribution_sidecar(path, payload["rows"])
+            written = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        self.assertEqual(written, expected)
+        self.assertGreater(len(written), 0)
+
     def test_attribution_extension_round_trips_and_reports_slices(self):
         raw = _row(
             "diagnostic_v",

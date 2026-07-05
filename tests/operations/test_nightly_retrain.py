@@ -248,7 +248,9 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertIn("retrain_recommendation_gate", [step["name"] for step in payload["steps"]])
         self.assertFalse(any("weather.calibration.family_secondary_artifacts" in command for command in calls))
 
-    def test_daily_learning_blocker_marks_run_blocked_by_default(self):
+    def test_daily_learning_input_integrity_failure_marks_run_blocked(self):
+        # Garbage-in still aborts: inconsistent/stale critical inputs mean the
+        # queue and retrain would act on a corrupted picture.
         calls = []
 
         def runner(command, **_kwargs):
@@ -262,13 +264,18 @@ class TestNightlyRetrain(unittest.TestCase):
                         "run_date": "2026-06-16",
                         "summary": {"learning_count": 2, "blocker_count": 1},
                         "retrain_plan": {"training_ready": False},
+                        "input_gate": {
+                            "status": "FAIL",
+                            "consistency": {"status": "FAIL", "failed_invariants": ["promotion_corpus_vs_settled_labels"]},
+                            "freshness": {"status": "PASS"},
+                        },
                         "learnings": [
                             {
                                 "priority": "P0",
-                                "category": "data_quality",
-                                "source": "data_layer_audit",
-                                "signal": "Data-layer audit failed.",
-                                "action": "Fix failed data-layer gates before retraining.",
+                                "category": "input_inconsistency",
+                                "source": "daily_learning",
+                                "signal": "Daily analysis input inconsistency.",
+                                "action": "Regenerate upstream artifacts.",
                                 "blocker": True,
                             }
                         ],
@@ -287,13 +294,64 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["daily_learning"]["status"], "BLOCKED")
         self.assertEqual(payload["promotion"]["verdict"], "not_run")
-        self.assertEqual(payload["promotion"]["reason"], "daily_learning_blocked")
-        self.assertEqual([step["name"] for step in payload["steps"]], ["settled_day_freshness", "daily_learning"])
+        self.assertEqual(payload["promotion"]["reason"], "daily_learning_input_gate_blocked")
+        self.assertEqual(
+            [step["name"] for step in payload["steps"]],
+            ["settled_day_freshness", "daily_learning", "daily_learning_input_gate"],
+        )
+        self.assertEqual(payload["steps"][-1]["reason"], "input_consistency_fail")
         self.assertEqual(len(calls), 2)
         self.assertEqual(payload["nightly_sla"]["state"], "BLOCKED")
-        self.assertIn("daily_learning_blocked", report)
-        self.assertIn("Data-layer audit failed.", report)
-        self.assertIn("Fix failed data-layer gates before retraining.", report)
+        self.assertIn("daily_learning_input_gate_blocked", report)
+
+    def test_headline_blocked_daily_learning_with_clean_inputs_still_runs_queue(self):
+        # Regression (2026-07-05): the queue starved June 24 -> July 5 because
+        # the run broke on the headline BLOCKED status, which includes the very
+        # skill gates the queued experiments exist to repair plus the excluded
+        # tape-backup alarm. Policy blockers must not stop the queue/retrain
+        # when the input gate itself is clean.
+        def runner(command, **_kwargs):
+            if "weather.reporting.daily.daily_learning" in command:
+                out = command[command.index("--json-out") + 1]
+                Path(out).parent.mkdir(parents=True, exist_ok=True)
+                Path(out).write_text(
+                    json.dumps({
+                        "status": "BLOCKED",
+                        "run_date": "2026-06-16",
+                        "summary": {"learning_count": 2, "blocker_count": 1},
+                        "retrain_plan": {"training_ready": False},
+                        "input_gate": {
+                            "status": "PASS",
+                            "consistency": {"status": "PASS"},
+                            "freshness": {"status": "WARN"},
+                        },
+                        "learnings": [
+                            {
+                                "priority": "P0",
+                                "category": "hourly_performance_gate",
+                                "source": "hourly_model_performance",
+                                "signal": "early-hour model trails market",
+                                "action": "Run predawn repair experiments.",
+                                "blocker": True,
+                            }
+                        ],
+                    }),
+                    encoding="utf-8",
+                )
+            if "weather.reporting.promotion.promotion_refresh" in command:
+                out = command[command.index("--out") + 1]
+                _write_promotion(out, shadow=["nyc"])
+            return {"returncode": 0, "stdout": "", "stderr": ""}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_nightly_retrain(_args(tmp), runner=runner)
+
+        step_names = [step["name"] for step in payload["steps"]]
+        self.assertIn("experiment_queue", step_names)
+        self.assertIn("promotion_refresh", step_names)
+        self.assertNotIn("daily_learning_input_gate", step_names)
+        self.assertEqual(payload["daily_learning"]["status"], "BLOCKED")
+        self.assertEqual(payload["status"], "shadow")
 
     def test_nightly_report_surfaces_broad_live_forward_slo_recovery(self):
         def runner(command, **_kwargs):

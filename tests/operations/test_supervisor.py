@@ -282,6 +282,63 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertTrue(guard["allowed"])
         self.assertNotEqual(guard["action"], "circuit_open")
 
+    def test_policy_and_starvation_recycles_do_not_consume_crash_budget(self):
+        # Regression (2026-07-03..05): the taker daily-roll worker was recycled
+        # hourly for policy_no_edge / infra_starved_* / superseded_code —
+        # conditions a restart cannot fix (no tradable edge, stale upstream
+        # inputs, code re-adoption). Those recycles exhausted the 12-restart
+        # budget by midday and opened the circuit every single day. Only
+        # genuine worker-side failures may burn the budget.
+        now = datetime(2026, 7, 5, 18, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="taker",
+                module="weather.example",
+                status_path=root / "status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "console.log",
+                restart_budget=4,
+                restart_backoff_base_seconds=60,
+            )
+            benign_causes = [
+                "policy_no_edge",
+                "infra_starved_snapshot",
+                "infra_starved_clob",
+                "superseded_code",
+                "policy_no_edge",
+                "infra_starved_snapshot",
+            ]
+            events = [
+                {
+                    "time": (now - timedelta(minutes=60 - 5 * index)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "IDLE",
+                    "restart_cause": cause,
+                }
+                for index, cause in enumerate(benign_causes)
+            ] + [
+                {
+                    "time": (now - timedelta(minutes=8)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "IDLE",
+                    "restart_cause": "stale_heartbeat_metadata",
+                }
+            ]
+            diagnostics_path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            guard = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+
+        # Only the stale-heartbeat recycle (a real worker-side wedge) counts.
+        self.assertEqual(guard["recent_recovery_count"], 1)
+        self.assertTrue(guard["allowed"])
+        self.assertNotEqual(guard["action"], "circuit_open")
+
     def test_readoption_debounce_holds_recent_benign_readoption(self):
         now = datetime(2026, 6, 27, 5, 20, tzinfo=timezone.utc)
         # Benign re-adoption (stale_code) of a process that started 3 min ago is

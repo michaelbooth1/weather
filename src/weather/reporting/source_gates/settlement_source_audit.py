@@ -463,13 +463,32 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
         rows_by_date[str(row.get("target_date") or "")].append(row)
     blockers = []
     blocked_dates = []
+    non_countable_reconciled = []
     for target_date in target_dates:
         rows = rows_by_date.get(target_date) or []
         if not rows:
             blocked_dates.append(target_date)
             blockers.append(f"{target_date}:missing_audit_row")
             continue
-        bad = [row for row in rows if row.get("promotion_blocker")]
+        bad = []
+        for row in rows:
+            if not row.get("promotion_blocker"):
+                continue
+            # The barrier asserts settlement TRUTH for the analyzed day.
+            # A label whose payout Polymarket confirmed (`match`) but whose
+            # intraday coverage is non-countable (decisive capture gap) is a
+            # corpus-admission exclusion, not a truth uncertainty: promotion
+            # corpus/countability gates already exclude it fail-closed, and
+            # halting the whole day's analysis for it lost 2026-07-05 to three
+            # such July-4 markets. Same item-319 principle as the historical
+            # non-proof-grade carve-out.
+            if str(row.get("reconciliation_status") or "").strip().lower() == "match":
+                non_countable_reconciled.append(
+                    f"{target_date}:{row.get('market_id') or 'unknown'}:"
+                    f"{row.get('promotion_blocker_reason') or row.get('status')}"
+                )
+                continue
+            bad.append(row)
         if bad:
             blocked_dates.append(target_date)
             blockers.extend(
@@ -481,6 +500,7 @@ def settlement_label_gate_for_target_dates(payload, target_dates):
         "target_dates": target_dates,
         "blocked_target_dates": blocked_dates,
         "blockers": blockers,
+        "non_countable_reconciled": non_countable_reconciled,
         "reason": "truth-label uncertainty blocks promotion-grade evidence" if blockers else "truth labels proof-grade",
     }
 
