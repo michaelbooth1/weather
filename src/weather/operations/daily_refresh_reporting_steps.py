@@ -440,10 +440,20 @@ def run_active_variant_shadow_step(args):
     if source_paths == [backtest_path(args, "")]:
         source_paths = []
     execution = {}
+    evidence_window = None
     if not source_paths:
+        evidence_window = active_variant_shadow_refresh.windowed_corpus_manifest(
+            backtest_path(args, "promotion_corpus.json"),
+            backtest_path(args, "active_variant_shadow_window_corpus.json"),
+            window_dates=getattr(
+                args,
+                "active_variant_shadow_window_dates",
+                active_variant_shadow_refresh.DEFAULT_EVIDENCE_WINDOW_DATES,
+            ),
+        )
         execution = active_variant_shadow_refresh.execute_registry_prediction_exports(
             registry_path=getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH),
-            corpus_path=backtest_path(args, "promotion_corpus.json"),
+            corpus_path=evidence_window["path"],
             snapshots_root=getattr(args, "snapshots_root", None),
             out_dir=backtest_path(args, "active_variant_shadow_runs"),
             min_artifact_free_bytes=getattr(args, "promotion_min_artifact_free_bytes", 0),
@@ -486,6 +496,7 @@ def run_active_variant_shadow_step(args):
         "summary": payload.get("summary") or {},
         "blockers": payload.get("blockers") or [],
         "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
+        "evidence_window": evidence_window,
         "execution": execution,
     }
 

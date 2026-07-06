@@ -1381,12 +1381,23 @@ REGISTERED_SCHEMAS = (
         "legacy",
     ),
     SchemaSpec(
-        "model_history_cache",
+        "model_history_cache_v0_2",
         "model_history_cache_v0.2",
         "weather.reporting.scorecards.model_history",
-        "active",
+        "legacy",
         supersedes=("model_history_cache_v0.1",),
         migration_notes="Adds winner-band catch-up diagnostics by location, day, and location-hour.",
+    ),
+    SchemaSpec(
+        "model_history_cache",
+        "model_history_cache_v0.3",
+        "weather.reporting.scorecards.model_history",
+        "active",
+        supersedes=("model_history_cache_v0.2",),
+        migration_notes=(
+            "Caches material_coverage_grade and promotion_countable(+reason) "
+            "per settled label so history rows carry item-319 countability."
+        ),
     ),
     SchemaSpec("multi_variant_shadow", "multi_variant_shadow_v0.1", "weather.reporting.candidate_lifecycle.multi_variant_shadow", "active"),
     SchemaSpec(

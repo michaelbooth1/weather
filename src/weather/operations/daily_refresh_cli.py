@@ -119,6 +119,15 @@ def build_run_parser(parser, dependencies=None):
         default="",
         help="Comma-separated current active variant row paths used to build active_variant_shadow_long.csv.",
     )
+    parser.add_argument(
+        "--active-variant-shadow-window-dates",
+        type=int,
+        default=active_variant_shadow_refresh.DEFAULT_EVIDENCE_WINDOW_DATES,
+        help="Replay registry shadow variants over only the newest N distinct "
+             "target dates of the promotion corpus (recent-skill evidence "
+             "window; caps the step's cost as the corpus grows). 0 replays "
+             "the full corpus.",
+    )
     parser.add_argument("--skip-proper-scoring-reliability-scorecard", action="store_true")
     parser.add_argument("--variant-registry", default=str(active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
     parser.add_argument(

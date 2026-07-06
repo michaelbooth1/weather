@@ -245,3 +245,104 @@ def test_active_timesplit_logistic_runtime_executes_registry_export(tmp_path):
     assert execution["executions"][0]["live_runtime"] == "active_timesplit_logistic_repair"
     assert execution["executions"][0]["status"] == "OK"
     assert "delta_vs_market=-0.01" in execution["executions"][0]["detail"]
+
+
+def _pinned_manifest_entry(slug: str, target_date: str) -> dict:
+    return {
+        "event_slug": slug,
+        "market_id": slug.split("-in-")[1].rsplit("-on-", 1)[0],
+        "target_date": target_date,
+        "settlement_bucket": 25,
+        "settlement_unit": "F",
+        "settlement_source": "test",
+        "quality_grade": "complete",
+        "snapshot_ids": ["snap1"],
+        "snapshot_count": 1,
+        "row_count": 3,
+        "replay_record_hashes": {"snap1": "rh"},
+        "tape_row_hashes": {"snap1": "th"},
+        "label_hash": "lh",
+    }
+
+
+def test_windowed_corpus_manifest_keeps_newest_dates_and_valid_hash(tmp_path):
+    # The 2026-07-05 chain spent 11.2h replaying every registry variant over
+    # the full 249-market-day corpus; the evidence window must cap that by
+    # pinning only the newest N distinct dates while staying a VALID manifest
+    # (load_manifest re-verifies corpus_hash).
+    from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import (
+        windowed_corpus_manifest,
+    )
+    from weather.reporting.promotion.promotion_corpus import (
+        corpus_hash,
+        load_manifest,
+        write_manifest,
+    )
+
+    entries = [
+        _pinned_manifest_entry(f"highest-temperature-in-nyc-on-june-{day}-2026", f"2026-06-{day:02d}")
+        for day in range(1, 11)
+    ]
+    manifest = {
+        "schema_version": "promotion_corpus_v0.1",
+        "generated_at_utc": "2026-07-06T00:00:00+00:00",
+        "as_of": "2026-07-06",
+        "snapshots_root": str(tmp_path),
+        "quality_grades": ["complete", "manual_override"],
+        "admit_promotion_countable": True,
+        "include_reconstructed": False,
+        "allow_unsettled": False,
+        "min_snapshots": 1,
+        "market_filter": None,
+        "entries": entries,
+        "summary": {},
+        "skipped": [],
+        "corpus_hash": corpus_hash(entries),
+    }
+    source_path = tmp_path / "promotion_corpus.json"
+    write_manifest(manifest, source_path)
+    out_path = tmp_path / "window_corpus.json"
+
+    info = windowed_corpus_manifest(source_path, out_path, window_dates=3)
+
+    assert info["windowed"] is True
+    assert info["path"] == str(out_path)
+    assert info["market_day_count"] == 3
+    assert info["window_date_min"] == "2026-06-08"
+    assert info["window_date_max"] == "2026-06-10"
+    # The windowed manifest must round-trip the pinned-corpus validator.
+    reloaded = load_manifest(out_path)
+    assert len(reloaded["entries"]) == 3
+    assert reloaded["evidence_window"]["source_market_day_count"] == 10
+    assert reloaded["evidence_window"]["source_corpus_hash"] == manifest["corpus_hash"]
+
+
+def test_windowed_corpus_manifest_passthrough_when_window_covers_corpus(tmp_path):
+    from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import (
+        windowed_corpus_manifest,
+    )
+    from weather.reporting.promotion.promotion_corpus import corpus_hash, write_manifest
+
+    entries = [
+        _pinned_manifest_entry("highest-temperature-in-nyc-on-june-1-2026", "2026-06-01"),
+        _pinned_manifest_entry("highest-temperature-in-nyc-on-june-2-2026", "2026-06-02"),
+    ]
+    manifest = {
+        "schema_version": "promotion_corpus_v0.1",
+        "entries": entries,
+        "corpus_hash": corpus_hash(entries),
+    }
+    source_path = tmp_path / "promotion_corpus.json"
+    write_manifest(manifest, source_path)
+    out_path = tmp_path / "window_corpus.json"
+
+    # Window wider than the corpus: use the original manifest untouched.
+    info = windowed_corpus_manifest(source_path, out_path, window_dates=14)
+    assert info["windowed"] is False
+    assert info["path"] == str(source_path)
+    assert not out_path.exists()
+
+    # Window disabled: same passthrough.
+    disabled = windowed_corpus_manifest(source_path, out_path, window_dates=0)
+    assert disabled["windowed"] is False
+    assert disabled["path"] == str(source_path)

@@ -46,6 +46,14 @@ DEFAULT_ATTRIBUTION_SIDECAR_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow
 DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_report.md"
 DEFAULT_EXECUTION_OUT_DIR = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_runs"
+DEFAULT_WINDOW_CORPUS_OUT = DEFAULT_BACKTEST_ROOT / "active_variant_shadow_window_corpus.json"
+# Variant lifecycle decisions are about RECENT skill; replaying every registry
+# contract over the full promotion corpus scaled with corpus growth until the
+# step alone took 11.2h of a 16.6h chain (2026-07-05/06), starving the nightly
+# retrain lock, spanning midnight (breaking date-consistency invariants), and
+# squeezing collection. The shadow evidence window caps that permanently; the
+# promotion corpus itself stays full-history for promotion gates.
+DEFAULT_EVIDENCE_WINDOW_DATES = 14
 ROW_ROUTE_COMPOSITE_RUNTIME = "candidate_row_route_composite"
 ACTIVE_TIMESPLIT_LOGISTIC_RUNTIME = "active_timesplit_logistic_repair"
 REPAIR_INTEGRATION_RUNTIME = "repair_integration_active_contract"
@@ -483,6 +491,78 @@ def _execute_repair_integration_contract(
             f"delta_vs_market={summary.get('aggregate_delta_vs_market')}"
         ),
     )
+
+
+def windowed_corpus_manifest(
+    corpus_path: str | Path,
+    out_path: str | Path = DEFAULT_WINDOW_CORPUS_OUT,
+    *,
+    window_dates: int = DEFAULT_EVIDENCE_WINDOW_DATES,
+) -> dict[str, Any]:
+    """Pin a recent-evidence sub-corpus for shadow variant replays.
+
+    Keeps the newest `window_dates` distinct target dates from the promotion
+    corpus manifest and writes a valid pinned manifest (recomputed corpus_hash)
+    so replays against it keep their append/rewrite protection. Returns the
+    path to use plus window metadata; `window_dates <= 0` or a corpus already
+    inside the window returns the original path unchanged.
+    """
+    from weather.reporting.promotion.promotion_corpus import (
+        corpus_hash,
+        load_manifest,
+        summarize_entries,
+        write_manifest,
+    )
+
+    corpus_path = Path(corpus_path)
+    passthrough = {
+        "path": str(corpus_path),
+        "windowed": False,
+        "window_dates": int(window_dates or 0),
+    }
+    if not window_dates or int(window_dates) <= 0 or not corpus_path.exists():
+        return passthrough
+    try:
+        manifest = load_manifest(corpus_path)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        # A corpus that fails pinned-manifest validation replays as-is (the
+        # pre-window behavior); the replay layer owns rejecting bad corpora.
+        return {**passthrough, "window_skip_reason": f"{type(exc).__name__}: {exc}"}
+    entries = manifest.get("entries") or []
+    dates = sorted({str(e.get("target_date")) for e in entries if e.get("target_date")})
+    keep = set(dates[-int(window_dates):])
+    subset = [e for e in entries if str(e.get("target_date")) in keep]
+    if len(subset) == len(entries):
+        return {
+            **passthrough,
+            "market_day_count": len(entries),
+            "window_date_count": len(dates),
+        }
+    windowed = {key: value for key, value in manifest.items() if key != "_path"}
+    windowed["entries"] = subset
+    windowed["summary"] = summarize_entries(subset)
+    windowed["corpus_hash"] = corpus_hash(subset)
+    windowed["evidence_window"] = {
+        "window_dates": int(window_dates),
+        "window_date_min": min(keep) if keep else None,
+        "window_date_max": max(keep) if keep else None,
+        "source_corpus_path": str(corpus_path),
+        "source_corpus_hash": manifest.get("corpus_hash"),
+        "source_market_day_count": len(entries),
+        "source_date_count": len(dates),
+    }
+    out_path = Path(out_path)
+    write_manifest(windowed, out_path)
+    return {
+        "path": str(out_path),
+        "windowed": True,
+        "window_dates": int(window_dates),
+        "window_date_count": len(keep),
+        "market_day_count": len(subset),
+        "source_market_day_count": len(entries),
+        "window_date_min": min(keep) if keep else None,
+        "window_date_max": max(keep) if keep else None,
+    }
 
 
 def execute_registry_prediction_exports(
