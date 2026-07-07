@@ -1268,20 +1268,6 @@ def promotion_readiness(
                 "path": (fleet_observability or {}).get("path"),
             },
         })
-    tape = (fleet_observability or {}).get("tape_backup") or {}
-    tape_status = tape.get("status") or fleet_summary.get("tape_backup_status")
-    if fleet_observability is not None and tape_status not in {None, "OK", "PASS"}:
-        capacity = tape.get("capacity_preflight") or {}
-        insufficient = capacity.get("insufficient_bytes")
-        detail = f"tape backup status is {tape_status}; promotion readiness requires current backup/restore evidence"
-        if insufficient is not None:
-            detail += f" ({insufficient} bytes short)"
-        blockers.append({
-            "category": "tape_backup_sla",
-            "severity": "block" if tape_status not in {"WARN"} else "open",
-            "detail": detail,
-            "evidence": tape,
-        })
     hourly_gate = (hourly_performance or {}).get("hourly_performance_gate") or {}
     if ((hourly_performance or {}).get("scoring_liveness") or {}).get("status") == "BLOCK":
         hourly_gate = apply_liveness_to_gate(hourly_gate, (hourly_performance or {}).get("scoring_liveness") or {})

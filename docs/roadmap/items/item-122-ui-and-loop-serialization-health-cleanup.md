@@ -1,4 +1,4 @@
-# 122. UI And Loop Serialization Health Cleanup [COMPLETE 2026-06-18 - ARROW SAFE TABLES AND JSONL QUARANTINE]
+﻿# 122. UI And Loop Serialization Health Cleanup [COMPLETE 2026-06-18 - ARROW SAFE TABLES AND JSONL QUARANTINE]
 
 Goal: remove recurring dashboard serialization errors and loop JSONL malformed
 line warnings so operator health reports reflect real collection problems
@@ -47,7 +47,6 @@ market-making and operations dashboard tables through Arrow-safe dataframe or
 record normalization. Added malformed JSONL line classification to supervisor
 integrity checks, included samples and repair commands in fleet observability,
 and added `weather.operations.loop_jsonl_repair` to quarantine malformed lines
-while preserving raw backups.
 
 Verification:
 `python -m pytest tests/app/test_market_making_view.py tests/reporting/test_fleet_observability.py tests/operations/test_loop_jsonl_repair.py -q`

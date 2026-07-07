@@ -1,4 +1,4 @@
-# 318. Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]
+﻿# 318. Post-Threshold Large Module Decomposition Refresh [COMPLETE 2026-06-25 - MODULE-SIZE WARNING SET CLEARED]
 
 Goal: bring the module-size audit back under the 2,000-line warning threshold
 with owner-scoped splits, updated ownership docs, and matching test fixture
@@ -6,7 +6,6 @@ extraction where needed.
 
 Source: 2026-06-25 Python structure refactor audit. The current
 `python -m weather.operations.module_size_audit` run reports eight warnings:
-`weather.operations.tape_backup` (3,741 lines),
 `weather.reporting.daily.daily_learning` (3,078),
 `weather.operations.daily_refresh_steps` (2,827),
 `weather.market.mm_paper` (2,475), `weather.schema_registry` (2,200),
@@ -30,7 +29,6 @@ gate.
 1. Update `docs/operations/module-ownership-map.md` with current warning
    modules, a concrete owner, and a next split target for each warning.
 2. Split modules by existing owner boundaries and stable public surfaces:
-   - `tape_backup`: separate manifest/status, retention/pruning, restore drill,
      and CLI orchestration.
    - `daily_learning`: separate readers, synthesis/decision model, report
      rendering, and CLI wiring inside `weather.reporting.daily`.
@@ -56,7 +54,6 @@ gate.
 
 - [x] Refresh `docs/operations/module-ownership-map.md` with the eight current
   warnings and planned splits.
-- [x] Reduce `weather.operations.tape_backup` below the warning threshold.
 - [x] Reduce `weather.reporting.daily.daily_learning` below the warning
   threshold.
 - [x] Reduce `weather.operations.daily_refresh_steps` below the warning
@@ -131,16 +128,7 @@ regenerated module-size audit reports `1` warning; the remaining
 over-threshold module keeps owner and next-split metadata in both the ownership
 map and audit notes.
 
-2026-06-25 tape-backup slice: split retention policy, manifest building,
-capacity checks, validation, restore-drill SLA, backup status, and alerts to
-`weather.operations.tape_backup_manifest`; deduplicated repository preflight,
-restic command execution, backup/status/restore drill, and dedup job helpers to
-`weather.operations.tape_backup_dedup`; and unmanifested cleanup planning,
-durable restore proof verification, cleanup apply gates, and cleanup report
-rendering to `weather.operations.tape_backup_cleanup`. `weather.operations.tape_backup`
-is now 913 lines, `weather.operations.tape_backup_manifest` is 1,138 lines,
-`weather.operations.tape_backup_dedup` is 842 lines, and
-`weather.operations.tape_backup_cleanup` is 1,038 lines. The regenerated
+durable review proof verification, cleanup apply gates, and cleanup report
 module-size audit reports `0` warnings.
 
 ## Completion Notes

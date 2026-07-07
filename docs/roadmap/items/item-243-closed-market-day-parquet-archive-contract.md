@@ -1,4 +1,4 @@
-# 243. Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]
+﻿# 243. Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]
 
 Goal: define the canonical Parquet archive contract for closed market-days while
 leaving live `data/snapshots` text tapes unchanged for current collectors and
@@ -13,7 +13,6 @@ analysis surface.
 
 Why this matters: retaining every useful observation is the right default, but
 keeping settled historical market-days only as mutable row-oriented text makes
-analysis slow, backup growth expensive, and storage pressure look like a data
 retention problem instead of a layout problem. A written contract lets later
 conversion, readers, and cleanup preserve forensic evidence while making the
 normal historical path compact and queryable.
@@ -74,7 +73,6 @@ code-backed:
 - `closed_market_day_archive_manifest_v0.1` is registered in
   `weather.schema_registry` as `closed_market_day_archive_manifest`.
 - `docs/operations/data-retention-policy.md` and
-  `docs/operations/TAPE_BACKUP_RUNBOOK.md` now point operators at the contract
   and preserve the rule that Parquet is an analysis copy, not a replacement for
   raw JSONL/order-book/settlement evidence.
 

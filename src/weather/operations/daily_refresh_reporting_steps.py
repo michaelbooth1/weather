@@ -799,8 +799,6 @@ def run_fleet_observability_step(args):
         target_day=args.audit_target_day,
         years=years,
         include_audits=not args.skip_historical_audits,
-        tape_backup_root=getattr(args, "tape_backup_root", fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT),
-        verify_tape_backup_checksums=getattr(args, "verify_tape_backup_checksums", False),
         parquet_incremental_path=backtest_path(args, "closed_market_day_parquet_incremental.json"),
     )
     json_out = fleet_observability.write_json(backtest_path(args, "fleet_observability.json"), payload)
@@ -816,7 +814,6 @@ def run_fleet_observability_step(args):
         "provenance_out": as_path(provenance_out),
         "status": payload.get("status"),
         "summary": payload.get("summary") or {},
-        "tape_backup_status": ((payload.get("tape_backup") or {}).get("status")),
         "collection_states": ((payload.get("collection") or {}).get("summary") or {}).get("states") or {},
     }
 
@@ -1120,7 +1117,6 @@ def run_data_retention_inventory_step(args):
     root = getattr(args, "data_root", "") or str(Path(args.backtest_root).parent)
     payload = data_retention_inventory.build_payload(
         root=root,
-        backup_status_path=Path(args.backtest_root) / "tape_backup_status.json",
         min_free_bytes=getattr(
             args,
             "data_retention_min_free_bytes",
@@ -1147,7 +1143,6 @@ def run_data_retention_inventory_step(args):
         "report_out": as_path(report_out),
         "summary": payload.get("summary"),
         "disk": payload.get("disk"),
-        "backup_status": payload.get("backup_status"),
     }
 
 

@@ -307,8 +307,8 @@ class TestNightlyRetrain(unittest.TestCase):
     def test_headline_blocked_daily_learning_with_clean_inputs_still_runs_queue(self):
         # Regression (2026-07-05): the queue starved June 24 -> July 5 because
         # the run broke on the headline BLOCKED status, which includes the very
-        # skill gates the queued experiments exist to repair plus the excluded
-        # tape-backup alarm. Policy blockers must not stop the queue/retrain
+        # skill gates the queued experiments exist to repair. Policy blockers
+        # must not stop the queue/retrain
         # when the input gate itself is clean.
         def runner(command, **_kwargs):
             if "weather.reporting.daily.daily_learning" in command:

@@ -1,4 +1,4 @@
-# 244. Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]
+﻿# 244. Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]
 
 Goal: build the guarded conversion pipeline that backfills closed
 `data/snapshots` market-days into the Parquet archive without deleting source
@@ -29,7 +29,6 @@ reclaimed.
    selection configurable but default to the repo's best available compact
    codec.
 4. Convert JSONL families only when the transformation is schema-safe and
-   auditable; otherwise retain the raw JSONL in the forensic backup and record
    it as a raw-only source in the archive manifest.
 5. Make the command resumable by skipping partitions whose manifest still
    matches source hashes and by rewriting only stale or invalid partitions.

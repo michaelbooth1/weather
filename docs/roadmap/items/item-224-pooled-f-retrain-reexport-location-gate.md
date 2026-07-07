@@ -1,4 +1,4 @@
-# 224. Pooled F Retrain/Re-Export Location Gate [COMPLETE 2026-06-24 - MODEL/LOCATION GATE PASS, BROAD CLAIM READINESS-BLOCKED]
+﻿# 224. Pooled F Retrain/Re-Export Location Gate [COMPLETE 2026-06-24 - MODEL/LOCATION GATE PASS, BROAD CLAIM READINESS-BLOCKED]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -202,7 +202,6 @@ location-clearance claims.
 Re-exported the active pooled F artifact from the v1.15 current-max trust
 candidate and preserved the previous active artifact at:
 
-- `data/backtest/item224_feature_model_hgb_f_pooled_v0_3_pre_v15_reexport_backup.pkl`
 
 Updated artifacts:
 
@@ -799,7 +798,6 @@ Still blocked and how to unblock:
 - Production readiness: clear live-forward SLO and current-code soak evidence,
   then refresh `fleet_observability.json`.
 - Countable location readiness: refresh settled-day freshness, physical
-  feature-family ratchet, and tape backup/restore evidence so promotion
   readiness can count location validation.
 
 ## 2026-06-24 active-contract fail-closed guard
@@ -878,18 +876,12 @@ python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint
 
 Result: `61 passed`; roadmap backlog `OK`.
 
-## 2026-06-24 tape backup SLA cleared for v0.2 refresh
 
-Repaired the tape backup countability blocker used by Item 224 promotion
-readiness. The latest tape backup manifest now records an explicit
 scan-start `coverage_cutoff_utc`, so files created by still-running live CLOB
-capture after the backup scan are reported as post-manifest drift instead of
-incorrectly failing the completed backup.
 
 Ran:
 
 ```powershell
-python -m weather.operations.tape_backup run --status-out data\backtest\tape_backup_status.json --status-report data\backtest\tape_backup_status_report.md --restore-out data\backtest\tape_restore_drill.json --restore-report data\backtest\tape_restore_drill_report.md
 python -m weather.reporting.fleet.fleet_observability report --out data\backtest\fleet_observability.json --report data\backtest\fleet_observability_report.md --provenance-out data\backtest\fleet_observability_provenance.json
 python -m weather.reporting.promotion_refresh --precomputed-candidate-json data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --precomputed-candidate-report data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary_report.md --candidate-hourly-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_hourly_candidate_performance.json --candidate-ten-minute-performance-report data\backtest\item224_no_market_market_route_composite_v0_2_ten_minute_performance.json --out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --report data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_report.md --promotion-allowlist-out data\backtest\item224_no_market_market_route_composite_v0_2_promotion_allowlist.json --incomplete-manifest data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh_incomplete.json --min-artifact-free-bytes 0 --disable-long-job-guard
 python -m weather.reporting.location_analysis.pooled_f_retrain_location_gate --candidate-replay data\backtest\item224_no_market_market_route_composite_v0_2_replay_summary.json --promotion-refresh data\backtest\item224_no_market_market_route_composite_v0_2_promotion_refresh.json --bottom-location data\backtest\item224_no_market_market_route_composite_v0_2_bottom_location.json --exact-distance data\backtest\item224_no_market_market_route_composite_v0_2_exact_band_distance_zero.json --out data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json --report data\backtest\item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate_report.md
@@ -897,16 +889,12 @@ python -m weather.reporting.location_analysis.pooled_f_retrain_location_gate --c
 
 Evidence:
 
-- `data/backtest/tape_backup_status.json`: `OK`, manifest valid, restore drill
   SLA `OK`, `0` missing critical files, manifest hash
   `ae7cefad12394880accff9e2b5375f28af7ca0d16408f004181d73737dfbb192`.
-- `data/backtest/tape_restore_drill.json`: `PASS`, `21405` files restored
   against the same manifest hash.
 - `data/backtest/fleet_observability.json`: still `CRITICAL`, but
-  `summary.tape_backup_status` is now `OK`.
 - `data/backtest/item224_no_market_market_route_composite_v0_2_promotion_refresh.json`:
   readiness remains `OPEN`, with blockers reduced from `7` to `6`; the
-  `tape_backup_sla` blocker is gone.
 - `data/backtest/item224_no_market_market_route_composite_v0_2_pooled_f_retrain_location_gate.json`:
   top-level status remains `BLOCK` with `3` umbrella blockers.
 
@@ -925,7 +913,6 @@ Remaining blockers:
 Verification:
 
 ```powershell
-python -m pytest tests\operations\test_tape_backup.py tests\reporting\test_fleet_observability.py tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_variant_replay_summary.py tests\operations\test_replay_status_backfill.py tests\operations\test_settled_day_freshness.py -q
 ```
 
 Result: `122 passed, 10 subtests passed`.
@@ -983,7 +970,6 @@ nearby-station feature rows.
 Verification:
 
 ```powershell
-python -m pytest tests\reporting\test_physical_feature_family_ratchet.py tests\backtesting\test_replay_ablation.py tests\operations\test_tape_backup.py tests\reporting\test_fleet_observability.py tests\calibration\test_promotion_refresh.py tests\reporting\test_candidate_variant_replay_summary.py tests\operations\test_replay_status_backfill.py tests\operations\test_settled_day_freshness.py -q
 ```
 
 Result: `129 passed, 10 subtests passed`.

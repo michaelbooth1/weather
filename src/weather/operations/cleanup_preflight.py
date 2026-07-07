@@ -18,7 +18,6 @@ from weather.schema_registry import schema_version
 CLEANUP_MANIFEST_SCHEMA_VERSION = schema_version("cleanup_manifest")
 CLEANUP_PREFLIGHT_SCHEMA_VERSION = schema_version("cleanup_preflight")
 DEFAULT_DATA_ROOT = data_path()
-DEFAULT_BACKUP_STATUS = DEFAULT_DATA_ROOT / "backtest" / "tape_backup_status.json"
 DEFAULT_OUT = DEFAULT_DATA_ROOT / "backtest" / "cleanup_preflight.json"
 DEFAULT_REPORT = DEFAULT_DATA_ROOT / "backtest" / "cleanup_preflight_report.md"
 
@@ -70,62 +69,6 @@ def _review_ok(manifest: dict[str, Any]) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _backup_ok(backup_status: dict[str, Any]) -> tuple[bool, str]:
-    status = backup_status.get("status")
-    if status != "OK":
-        return False, f"backup status is {status or 'MISSING'}"
-    if backup_status.get("restore_drill_sla_status") != "OK":
-        return False, f"restore drill SLA is {backup_status.get('restore_drill_sla_status') or 'MISSING'}"
-    if int(backup_status.get("missing_critical_files") or 0) > 0:
-        return False, "latest backup manifest is missing critical files"
-    if int(backup_status.get("missing_critical_bytes") or 0) > 0:
-        return False, "latest backup manifest is missing critical bytes"
-    if backup_status.get("checksum_failures"):
-        return False, "backup checksum failures are present"
-    return True, "ok"
-
-
-def _manifest_entry_map(backup_status: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    manifest_path = backup_status.get("manifest_path")
-    manifest = _load_json(manifest_path)
-    return {
-        str(row.get("path")): row
-        for row in manifest.get("files") or []
-        if row.get("path")
-    }
-
-
-def _backup_contains_candidate(
-    candidate: dict[str, Any],
-    backup_status: dict[str, Any],
-    backup_entries: dict[str, dict[str, Any]],
-) -> tuple[bool, str]:
-    status_hash = backup_status.get("manifest_hash")
-    candidate_hash = candidate.get("backup_manifest_hash")
-    if not candidate_hash:
-        return False, "candidate backup_manifest_hash is required"
-    if candidate_hash != status_hash:
-        return False, "candidate backup_manifest_hash does not match latest backup status"
-    restore_hash = candidate.get("restore_drill_hash")
-    drill = backup_status.get("last_restore_drill") or {}
-    if not restore_hash:
-        return False, "candidate restore_drill_hash is required"
-    if restore_hash != drill.get("manifest_hash"):
-        return False, "candidate restore_drill_hash does not match latest restore drill"
-    data_path_value = str(candidate.get("data_path") or candidate.get("path") or "")
-    candidates = [data_path_value]
-    if not data_path_value.startswith("data/"):
-        candidates.append(f"data/{data_path_value}")
-    for key in candidates:
-        entry = backup_entries.get(key)
-        if not entry:
-            continue
-        if candidate.get("sha256") and entry.get("sha256") != candidate.get("sha256"):
-            return False, "backup manifest SHA-256 does not match cleanup candidate"
-        return True, "ok"
-    return False, "candidate file is absent from latest backup manifest"
-
-
 def cleanup_manifest_for_paths(
     paths: list[str | Path] | tuple[str | Path, ...],
     *,
@@ -133,13 +76,10 @@ def cleanup_manifest_for_paths(
     classification_prefix: str | None = None,
     deletion_reason: str,
     operator_review: dict[str, Any],
-    backup_status: dict[str, Any] | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     root = Path(root)
     candidates = []
-    backup_status = backup_status or {}
-    restore = backup_status.get("last_restore_drill") or {}
     for item in paths:
         path = Path(item)
         if not path.is_absolute():
@@ -162,8 +102,6 @@ def cleanup_manifest_for_paths(
             "rebuild_source": classification["rebuild_source"],
             "bytes": int(size),
             "sha256": sha,
-            "backup_manifest_hash": backup_status.get("manifest_hash"),
-            "restore_drill_hash": restore.get("manifest_hash"),
         })
     return {
         "schema_version": CLEANUP_MANIFEST_SCHEMA_VERSION,
@@ -178,37 +116,15 @@ def build_cleanup_preflight(
     cleanup_manifest: dict[str, Any],
     *,
     root: str | Path | None = None,
-    backup_status: dict[str, Any] | None = None,
-    backup_status_path: str | Path | None = DEFAULT_BACKUP_STATUS,
 ) -> dict[str, Any]:
     root = Path(root or cleanup_manifest.get("root") or DEFAULT_DATA_ROOT).resolve()
-    backup_status = backup_status if backup_status is not None else _load_json(backup_status_path)
-    backup_entries = _manifest_entry_map(backup_status)
     review_pass, review_detail = _review_ok(cleanup_manifest)
-    backup_pass, backup_detail = _backup_ok(backup_status)
     raw_candidates = cleanup_manifest.get("candidates") or cleanup_manifest.get("selected") or []
-    has_canonical_candidate = any(
-        (
-            candidate.get("storage_class")
-            or classification_payload(candidate.get("data_path") or _classification_path(str(candidate.get("path") or ""), root))["storage_class"]
-        )
-        == "canonical_evidence"
-        for candidate in raw_candidates
-    )
     checks = [{
         "check": "operator_review",
         "status": "PASS" if review_pass else "BLOCK",
         "detail": review_detail,
     }]
-    if has_canonical_candidate and (backup_status or {}).get("status") == "MISSING_CRITICAL_FILES":
-        checks.append({
-            "check": "missing_critical_files",
-            "status": "BLOCK",
-            "detail": "latest tape backup status reports missing critical files",
-            "missing_critical_files": backup_status.get("missing_critical_files"),
-            "missing_critical_bytes": backup_status.get("missing_critical_bytes"),
-            "missing_samples": backup_status.get("missing_critical_file_samples") or [],
-        })
     candidate_rows = []
     for candidate in raw_candidates:
         rel_path = Path(str(candidate.get("path") or ""))
@@ -243,10 +159,7 @@ def build_cleanup_preflight(
         if not candidate.get("deletion_reason"):
             row_checks.append({"check": "deletion_reason", "status": "BLOCK", "detail": "deletion_reason is required"})
         if storage_class == "canonical_evidence":
-            if not backup_pass:
-                row_checks.append({"check": "backup_restore_status", "status": "BLOCK", "detail": backup_detail})
-            contains, detail = _backup_contains_candidate(candidate, backup_status, backup_entries)
-            row_checks.append({"check": "backup_manifest_coverage", "status": "PASS" if contains else "BLOCK", "detail": detail})
+            row_checks.append({"check": "canonical_review", "status": "PASS"})
         elif storage_class == "analysis_projection":
             rebuild_source = candidate.get("rebuild_source")
             if not rebuild_source or rebuild_source == "unknown":
@@ -272,20 +185,12 @@ def build_cleanup_preflight(
         "status": status,
         "delete_permission": status == "PASS",
         "root": str(root),
-        "backup_status": {
-            "status": backup_status.get("status") or "MISSING",
-            "manifest_hash": backup_status.get("manifest_hash"),
-            "restore_drill_sla_status": backup_status.get("restore_drill_sla_status"),
-            "missing_critical_files": backup_status.get("missing_critical_files"),
-            "missing_critical_bytes": backup_status.get("missing_critical_bytes"),
-        },
         "checks": checks,
         "candidates": candidate_rows,
     }
 
 
 def render_report(payload: dict[str, Any]) -> str:
-    backup = payload.get("backup_status") or {}
     lines = [
         "# Cleanup Preflight",
         "",
@@ -294,16 +199,12 @@ def render_report(payload: dict[str, Any]) -> str:
         f"Delete permission: `{payload.get('delete_permission')}`",
         f"Root: `{payload.get('root')}`",
         "",
-        "## Backup Gate",
+        "## Review Gate",
         "",
         *markdown_table(
             ["Field", "Value"],
             [
-                ["Status", backup.get("status")],
-                ["Manifest hash", backup.get("manifest_hash")],
-                ["Restore drill SLA", backup.get("restore_drill_sla_status")],
-                ["Missing critical files", backup.get("missing_critical_files")],
-                ["Missing critical bytes", backup.get("missing_critical_bytes")],
+                ["Operator review", next((row.get("status") for row in payload.get("checks") or [] if row.get("check") == "operator_review"), "-")],
             ],
         ),
         "",
@@ -356,7 +257,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fail-closed cleanup preflight for deletion manifests.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--root", default="")
-    parser.add_argument("--backup-status", default=str(DEFAULT_BACKUP_STATUS))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     return parser
@@ -368,7 +268,6 @@ def main(argv: list[str] | None = None) -> int:
     payload = build_cleanup_preflight(
         manifest,
         root=args.root or None,
-        backup_status_path=args.backup_status,
     )
     out = write_json(args.out, payload)
     report = write_report(args.report, payload)

@@ -1,32 +1,32 @@
 {
   "catchup_contexts": {
     "global": {
-      "catchup_rate": 0.6349643993334343,
-      "mean_lag_minutes": 138.79683698296836,
-      "median_lag_minutes": 60.0,
-      "n": 6599,
-      "raw_catchup_rate": 0.6349446885891802
+      "catchup_rate": 0.6782403691813804,
+      "mean_lag_minutes": 143.1207133058985,
+      "median_lag_minutes": 60,
+      "n": 19934,
+      "raw_catchup_rate": 0.6782381860138457
     },
     "source=metar": {
-      "catchup_rate": 0.5710124826629681,
-      "mean_lag_minutes": 138.79683698296836,
-      "median_lag_minutes": 60.0,
-      "n": 1440,
-      "raw_catchup_rate": 0.5708333333333333
+      "catchup_rate": 0.5880837359098229,
+      "mean_lag_minutes": 143.1207133058985,
+      "median_lag_minutes": 60,
+      "n": 1240,
+      "raw_catchup_rate": 0.5879032258064516
     },
     "source=metar|gap=1": {
-      "catchup_rate": 0.5477693144722524,
-      "mean_lag_minutes": 131.67529880478088,
-      "median_lag_minutes": 60.0,
-      "n": 917,
-      "raw_catchup_rate": 0.5474372955288986
+      "catchup_rate": 0.57,
+      "mean_lag_minutes": 137.76283618581908,
+      "median_lag_minutes": 60,
+      "n": 718,
+      "raw_catchup_rate": 0.5696378830083565
     },
     "source=metar|gap=2": {
-      "catchup_rate": 0.6015384615384616,
+      "catchup_rate": 0.6038610038610038,
       "mean_lag_minutes": 148.15483870967742,
       "median_lag_minutes": 60,
-      "n": 258,
-      "raw_catchup_rate": 0.6007751937984496
+      "n": 257,
+      "raw_catchup_rate": 0.603112840466926
     },
     "source=metar|gap=3_plus": {
       "catchup_rate": 0.6232209737827715,
@@ -36,18 +36,18 @@
       "raw_catchup_rate": 0.6226415094339622
     },
     "source=metar|hour=10": {
-      "catchup_rate": 0.9803030303030303,
-      "mean_lag_minutes": 141.78125,
+      "catchup_rate": 0.9869918699186992,
+      "mean_lag_minutes": 142.21666666666667,
       "median_lag_minutes": 60.0,
-      "n": 130,
-      "raw_catchup_rate": 0.9846153846153847
+      "n": 121,
+      "raw_catchup_rate": 0.9917355371900827
     },
     "source=metar|hour=10|gap=1": {
-      "catchup_rate": 0.9653333333333334,
-      "mean_lag_minutes": 134.18309859154928,
+      "catchup_rate": 0.9757575757575758,
+      "mean_lag_minutes": 134.04761904761904,
       "median_lag_minutes": 60,
-      "n": 73,
-      "raw_catchup_rate": 0.9726027397260274
+      "n": 64,
+      "raw_catchup_rate": 0.984375
     },
     "source=metar|hour=10|gap=2": {
       "catchup_rate": 0.9727272727272727,
@@ -64,18 +64,18 @@
       "raw_catchup_rate": 1.0
     },
     "source=metar|hour=11": {
-      "catchup_rate": 0.9707317073170733,
-      "mean_lag_minutes": 118.57627118644068,
-      "median_lag_minutes": 60.0,
-      "n": 121,
-      "raw_catchup_rate": 0.9752066115702479
+      "catchup_rate": 0.9761467889908257,
+      "mean_lag_minutes": 120.4952380952381,
+      "median_lag_minutes": 60,
+      "n": 107,
+      "raw_catchup_rate": 0.9813084112149533
     },
     "source=metar|hour=11|gap=1": {
-      "catchup_rate": 0.9657894736842106,
-      "mean_lag_minutes": 106.93055555555556,
-      "median_lag_minutes": 60.0,
-      "n": 74,
-      "raw_catchup_rate": 0.972972972972973
+      "catchup_rate": 0.9741935483870967,
+      "mean_lag_minutes": 107.77966101694915,
+      "median_lag_minutes": 60,
+      "n": 60,
+      "raw_catchup_rate": 0.9833333333333333
     },
     "source=metar|hour=11|gap=2": {
       "catchup_rate": 0.98,
@@ -92,18 +92,18 @@
       "raw_catchup_rate": 0.9473684210526315
     },
     "source=metar|hour=12": {
-      "catchup_rate": 0.9358208955223881,
-      "mean_lag_minutes": 100.15322580645162,
-      "median_lag_minutes": 60.0,
-      "n": 132,
-      "raw_catchup_rate": 0.9393939393939394
+      "catchup_rate": 0.9445378151260505,
+      "mean_lag_minutes": 104.85585585585585,
+      "median_lag_minutes": 60,
+      "n": 117,
+      "raw_catchup_rate": 0.9487179487179487
     },
     "source=metar|hour=12|gap=1": {
-      "catchup_rate": 0.9282051282051282,
-      "mean_lag_minutes": 94.08450704225352,
-      "median_lag_minutes": 60,
-      "n": 76,
-      "raw_catchup_rate": 0.9342105263157895
+      "catchup_rate": 0.9428571428571428,
+      "mean_lag_minutes": 101.72413793103448,
+      "median_lag_minutes": 60.0,
+      "n": 61,
+      "raw_catchup_rate": 0.9508196721311475
     },
     "source=metar|hour=12|gap=2": {
       "catchup_rate": 0.9483870967741935,
@@ -120,25 +120,25 @@
       "raw_catchup_rate": 0.9259259259259259
     },
     "source=metar|hour=13": {
-      "catchup_rate": 0.8495726495726497,
-      "mean_lag_minutes": 105.08163265306122,
+      "catchup_rate": 0.8788461538461539,
+      "mean_lag_minutes": 107.08888888888889,
       "median_lag_minutes": 60.0,
-      "n": 115,
-      "raw_catchup_rate": 0.8521739130434782
+      "n": 102,
+      "raw_catchup_rate": 0.8823529411764706
     },
     "source=metar|hour=13|gap=1": {
-      "catchup_rate": 0.8136986301369863,
-      "mean_lag_minutes": 112.24137931034483,
+      "catchup_rate": 0.8426229508196721,
+      "mean_lag_minutes": 117.0,
       "median_lag_minutes": 60.0,
-      "n": 71,
-      "raw_catchup_rate": 0.8169014084507042
+      "n": 59,
+      "raw_catchup_rate": 0.847457627118644
     },
     "source=metar|hour=13|gap=2": {
-      "catchup_rate": 0.911111111111111,
+      "catchup_rate": 0.9647058823529411,
       "mean_lag_minutes": 77.46666666666667,
       "median_lag_minutes": 60,
-      "n": 16,
-      "raw_catchup_rate": 0.9375
+      "n": 15,
+      "raw_catchup_rate": 1.0
     },
     "source=metar|hour=13|gap=3_plus": {
       "catchup_rate": 0.88,
@@ -148,18 +148,18 @@
       "raw_catchup_rate": 0.8928571428571429
     },
     "source=metar|hour=14": {
-      "catchup_rate": 0.7115044247787611,
-      "mean_lag_minutes": 94.77215189873418,
+      "catchup_rate": 0.7410526315789474,
+      "mean_lag_minutes": 97.20289855072464,
       "median_lag_minutes": 60,
-      "n": 111,
-      "raw_catchup_rate": 0.7117117117117117
+      "n": 93,
+      "raw_catchup_rate": 0.7419354838709677
     },
     "source=metar|hour=14|gap=1": {
-      "catchup_rate": 0.6453333333333333,
-      "mean_lag_minutes": 87.57446808510639,
+      "catchup_rate": 0.6736842105263158,
+      "mean_lag_minutes": 90.16216216216216,
       "median_lag_minutes": 60,
-      "n": 73,
-      "raw_catchup_rate": 0.6438356164383562
+      "n": 55,
+      "raw_catchup_rate": 0.6727272727272727
     },
     "source=metar|hour=14|gap=2": {
       "catchup_rate": 0.8959999999999999,
@@ -176,18 +176,18 @@
       "raw_catchup_rate": 0.7333333333333333
     },
     "source=metar|hour=15": {
-      "catchup_rate": 0.4461538461538461,
-      "mean_lag_minutes": 104.93333333333334,
+      "catchup_rate": 0.45909090909090905,
+      "mean_lag_minutes": 108.76923076923077,
       "median_lag_minutes": 60,
-      "n": 102,
-      "raw_catchup_rate": 0.4411764705882353
+      "n": 86,
+      "raw_catchup_rate": 0.45348837209302323
     },
     "source=metar|hour=15|gap=1": {
-      "catchup_rate": 0.4029411764705882,
-      "mean_lag_minutes": 101.38461538461539,
-      "median_lag_minutes": 60.0,
-      "n": 66,
-      "raw_catchup_rate": 0.3939393939393939
+      "catchup_rate": 0.4115384615384615,
+      "mean_lag_minutes": 107.8,
+      "median_lag_minutes": 90.0,
+      "n": 50,
+      "raw_catchup_rate": 0.4
     },
     "source=metar|hour=15|gap=2": {
       "catchup_rate": 0.49523809523809526,
@@ -204,18 +204,18 @@
       "raw_catchup_rate": 0.5882352941176471
     },
     "source=metar|hour=16": {
-      "catchup_rate": 0.16210526315789475,
-      "mean_lag_minutes": 115.21428571428571,
-      "median_lag_minutes": 60.0,
-      "n": 93,
-      "raw_catchup_rate": 0.15053763440860216
+      "catchup_rate": 0.18227848101265823,
+      "mean_lag_minutes": 119.46153846153847,
+      "median_lag_minutes": 60,
+      "n": 77,
+      "raw_catchup_rate": 0.16883116883116883
     },
     "source=metar|hour=16|gap=1": {
-      "catchup_rate": 0.2057142857142857,
-      "mean_lag_minutes": 114.84615384615384,
-      "median_lag_minutes": 60,
-      "n": 68,
-      "raw_catchup_rate": 0.19117647058823528
+      "catchup_rate": 0.24814814814814815,
+      "mean_lag_minutes": 119.41666666666667,
+      "median_lag_minutes": 60.0,
+      "n": 52,
+      "raw_catchup_rate": 0.23076923076923078
     },
     "source=metar|hour=16|gap=2": {
       "catchup_rate": 0.09333333333333332,
@@ -232,18 +232,18 @@
       "raw_catchup_rate": 0.08333333333333333
     },
     "source=metar|hour=17": {
-      "catchup_rate": 0.1,
-      "mean_lag_minutes": 82.77777777777777,
-      "median_lag_minutes": 60,
-      "n": 102,
-      "raw_catchup_rate": 0.08823529411764706
+      "catchup_rate": 0.10681818181818183,
+      "mean_lag_minutes": 87.875,
+      "median_lag_minutes": 81.5,
+      "n": 86,
+      "raw_catchup_rate": 0.09302325581395349
     },
     "source=metar|hour=17|gap=1": {
-      "catchup_rate": 0.10724637681159421,
-      "mean_lag_minutes": 84.16666666666667,
-      "median_lag_minutes": 81.5,
-      "n": 67,
-      "raw_catchup_rate": 0.08955223880597014
+      "catchup_rate": 0.12075471698113208,
+      "mean_lag_minutes": 92.6,
+      "median_lag_minutes": 103,
+      "n": 51,
+      "raw_catchup_rate": 0.09803921568627451
     },
     "source=metar|hour=17|gap=2": {
       "catchup_rate": 0.11428571428571428,
@@ -260,18 +260,18 @@
       "raw_catchup_rate": 0.125
     },
     "source=metar|hour=18": {
-      "catchup_rate": 0.031192660550458714,
+      "catchup_rate": 0.03655913978494624,
       "mean_lag_minutes": 120.0,
       "median_lag_minutes": 120.0,
-      "n": 107,
-      "raw_catchup_rate": 0.018691588785046728
+      "n": 91,
+      "raw_catchup_rate": 0.02197802197802198
     },
     "source=metar|hour=18|gap=1": {
-      "catchup_rate": 0.04722222222222222,
+      "catchup_rate": 0.060714285714285714,
       "mean_lag_minutes": 120.0,
       "median_lag_minutes": 120.0,
-      "n": 70,
-      "raw_catchup_rate": 0.02857142857142857
+      "n": 54,
+      "raw_catchup_rate": 0.037037037037037035
     },
     "source=metar|hour=18|gap=2": {
       "catchup_rate": 0.06363636363636363,
@@ -288,17 +288,17 @@
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=19": {
-      "catchup_rate": 0.012844036697247705,
+      "catchup_rate": 0.015053763440860214,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 107,
+      "n": 91,
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=19|gap=1": {
-      "catchup_rate": 0.019444444444444445,
+      "catchup_rate": 0.024999999999999998,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 70,
+      "n": 54,
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=19|gap=2": {
@@ -316,17 +316,17 @@
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=20": {
-      "catchup_rate": 0.01217391304347826,
+      "catchup_rate": 0.01414141414141414,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 113,
+      "n": 97,
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=20|gap=1": {
-      "catchup_rate": 0.01917808219178082,
+      "catchup_rate": 0.02456140350877193,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 71,
+      "n": 55,
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=20|gap=2": {
@@ -344,18 +344,18 @@
       "raw_catchup_rate": 0.0
     },
     "source=metar|hour=8": {
-      "catchup_rate": 0.9835051546391753,
-      "mean_lag_minutes": 269.75531914893617,
-      "median_lag_minutes": 95.5,
-      "n": 95,
-      "raw_catchup_rate": 0.9894736842105263
+      "catchup_rate": 0.9926829268292684,
+      "mean_lag_minutes": 288.05,
+      "median_lag_minutes": 240.0,
+      "n": 80,
+      "raw_catchup_rate": 1.0
     },
     "source=metar|hour=8|gap=1": {
-      "catchup_rate": 0.9792207792207793,
-      "mean_lag_minutes": 228.94594594594594,
-      "median_lag_minutes": 60.0,
-      "n": 75,
-      "raw_catchup_rate": 0.9866666666666667
+      "catchup_rate": 0.9903225806451613,
+      "mean_lag_minutes": 243.81666666666666,
+      "median_lag_minutes": 95.5,
+      "n": 60,
+      "raw_catchup_rate": 1.0
     },
     "source=metar|hour=8|gap=2": {
       "catchup_rate": 0.9500000000000001,
@@ -372,18 +372,18 @@
       "raw_catchup_rate": 1.0
     },
     "source=metar|hour=9": {
-      "catchup_rate": 0.9859649122807018,
-      "mean_lag_minutes": 171.80180180180182,
-      "median_lag_minutes": 60,
-      "n": 112,
-      "raw_catchup_rate": 0.9910714285714286
+      "catchup_rate": 0.9936170212765958,
+      "mean_lag_minutes": 183.16304347826087,
+      "median_lag_minutes": 60.0,
+      "n": 92,
+      "raw_catchup_rate": 1.0
     },
     "source=metar|hour=9|gap=1": {
-      "catchup_rate": 0.9753846153846154,
-      "mean_lag_minutes": 157.30645161290323,
-      "median_lag_minutes": 60.0,
-      "n": 63,
-      "raw_catchup_rate": 0.9841269841269841
+      "catchup_rate": 0.9866666666666666,
+      "mean_lag_minutes": 175.2093023255814,
+      "median_lag_minutes": 60,
+      "n": 43,
+      "raw_catchup_rate": 1.0
     },
     "source=metar|hour=9|gap=2": {
       "catchup_rate": 0.976,
@@ -400,423 +400,423 @@
       "raw_catchup_rate": 1.0
     },
     "source=weather_current": {
-      "catchup_rate": 0.6528579732609959,
+      "catchup_rate": 0.6842319212665811,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 5159,
-      "raw_catchup_rate": 0.6528396976158171
+      "n": 18694,
+      "raw_catchup_rate": 0.6842302342997754
     },
     "source=weather_current|gap=1": {
-      "catchup_rate": 0.604570054119062,
+      "catchup_rate": 0.6283832957892913,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 1661,
-      "raw_catchup_rate": 0.6044551475015051
+      "n": 5769,
+      "raw_catchup_rate": 0.6283584676720402
     },
     "source=weather_current|gap=2": {
-      "catchup_rate": 0.7340857787810383,
+      "catchup_rate": 0.8131732418524872,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 884,
-      "raw_catchup_rate": 0.7341628959276018
+      "n": 2913,
+      "raw_catchup_rate": 0.8132509440439409
     },
     "source=weather_current|gap=3_plus": {
-      "catchup_rate": 0.6561162079510704,
+      "catchup_rate": 0.6788895546235271,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 2614,
-      "raw_catchup_rate": 0.6560826319816373
+      "n": 10012,
+      "raw_catchup_rate": 0.6788853375948861
     },
     "source=weather_current|hour=0": {
-      "catchup_rate": 0.08505747126436781,
+      "catchup_rate": 0.14711246200607903,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 85,
-      "raw_catchup_rate": 0.07058823529411765
+      "n": 327,
+      "raw_catchup_rate": 0.1437308868501529
     },
     "source=weather_current|hour=0|gap=1": {
-      "catchup_rate": 0.031818181818181815,
+      "catchup_rate": 0.026600985221674877,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 42,
-      "raw_catchup_rate": 0.0
+      "n": 201,
+      "raw_catchup_rate": 0.01990049751243781
     },
     "source=weather_current|hour=0|gap=2": {
-      "catchup_rate": 0.05384615384615384,
+      "catchup_rate": 0.035897435897435895,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 24,
+      "n": 37,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=0|gap=3_plus": {
-      "catchup_rate": 0.3523809523809524,
+      "catchup_rate": 0.4879120879120879,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 19,
-      "raw_catchup_rate": 0.3157894736842105
+      "n": 89,
+      "raw_catchup_rate": 0.48314606741573035
     },
     "source=weather_current|hour=1": {
-      "catchup_rate": 0.5432432432432432,
+      "catchup_rate": 0.5417165668662675,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 146,
-      "raw_catchup_rate": 0.541095890410959
+      "n": 499,
+      "raw_catchup_rate": 0.5410821643286573
     },
     "source=weather_current|hour=10": {
-      "catchup_rate": 0.9977443609022556,
+      "catchup_rate": 0.980085653104925,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 264,
-      "raw_catchup_rate": 1.0
+      "n": 932,
+      "raw_catchup_rate": 0.98068669527897
     },
     "source=weather_current|hour=10|gap=1": {
-      "catchup_rate": 0.9952380952380953,
+      "catchup_rate": 0.9864734299516907,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 124,
-      "raw_catchup_rate": 1.0
+      "n": 412,
+      "raw_catchup_rate": 0.9878640776699029
     },
     "source=weather_current|hour=10|gap=2": {
-      "catchup_rate": 0.9931034482758622,
+      "catchup_rate": 0.9975308641975309,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 85,
+      "n": 241,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=10|gap=3_plus": {
-      "catchup_rate": 0.9894736842105263,
+      "catchup_rate": 0.9516014234875444,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 55,
-      "raw_catchup_rate": 1.0
+      "n": 279,
+      "raw_catchup_rate": 0.953405017921147
     },
     "source=weather_current|hour=11": {
+      "catchup_rate": 0.984780487804878,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 1023,
+      "raw_catchup_rate": 0.9853372434017595
+    },
+    "source=weather_current|hour=11|gap=1": {
+      "catchup_rate": 0.9659673659673659,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 427,
+      "raw_catchup_rate": 0.9672131147540983
+    },
+    "source=weather_current|hour=11|gap=2": {
+      "catchup_rate": 0.9945762711864407,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 293,
+      "raw_catchup_rate": 0.9965870307167235
+    },
+    "source=weather_current|hour=11|gap=3_plus": {
       "catchup_rate": 0.9980327868852459,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 303,
       "raw_catchup_rate": 1.0
     },
-    "source=weather_current|hour=11|gap=1": {
-      "catchup_rate": 0.9953488372093023,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 127,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=11|gap=2": {
-      "catchup_rate": 0.9931034482758622,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 85,
-      "raw_catchup_rate": 1.0
-    },
-    "source=weather_current|hour=11|gap=3_plus": {
-      "catchup_rate": 0.9935483870967743,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 91,
-      "raw_catchup_rate": 1.0
-    },
     "source=weather_current|hour=12": {
-      "catchup_rate": 0.9983050847457626,
+      "catchup_rate": 0.9872711421098519,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 352,
-      "raw_catchup_rate": 1.0
+      "n": 1145,
+      "raw_catchup_rate": 0.9877729257641922
     },
     "source=weather_current|hour=12|gap=1": {
-      "catchup_rate": 0.9955223880597015,
+      "catchup_rate": 0.9826086956521739,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 132,
-      "raw_catchup_rate": 1.0
+      "n": 435,
+      "raw_catchup_rate": 0.9839080459770115
     },
     "source=weather_current|hour=12|gap=2": {
-      "catchup_rate": 0.9936170212765958,
+      "catchup_rate": 0.9755627009646302,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 92,
-      "raw_catchup_rate": 1.0
+      "n": 309,
+      "raw_catchup_rate": 0.9773462783171522
     },
     "source=weather_current|hour=12|gap=3_plus": {
-      "catchup_rate": 0.9953846153846154,
+      "catchup_rate": 0.9985111662531017,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 128,
+      "n": 401,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=13": {
-      "catchup_rate": 0.9496969696969696,
+      "catchup_rate": 0.9689128481581313,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 328,
-      "raw_catchup_rate": 0.9512195121951219
+      "n": 1111,
+      "raw_catchup_rate": 0.9693969396939695
     },
     "source=weather_current|hour=13|gap=1": {
-      "catchup_rate": 0.9138211382113821,
+      "catchup_rate": 0.9475638051044083,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 121,
-      "raw_catchup_rate": 0.9173553719008265
+      "n": 429,
+      "raw_catchup_rate": 0.9487179487179487
     },
     "source=weather_current|hour=13|gap=2": {
-      "catchup_rate": 0.9771929824561404,
+      "catchup_rate": 0.9750724637681158,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 112,
-      "raw_catchup_rate": 0.9821428571428571
+      "n": 343,
+      "raw_catchup_rate": 0.9766763848396501
     },
     "source=weather_current|hour=13|gap=3_plus": {
-      "catchup_rate": 0.9525773195876289,
+      "catchup_rate": 0.9865102639296187,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 95,
-      "raw_catchup_rate": 0.9578947368421052
+      "n": 339,
+      "raw_catchup_rate": 0.9882005899705014
     },
     "source=weather_current|hour=14": {
-      "catchup_rate": 0.889108910891089,
+      "catchup_rate": 0.9282001924927815,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 301,
-      "raw_catchup_rate": 0.8903654485049833
+      "n": 1037,
+      "raw_catchup_rate": 0.9286403085824494
     },
     "source=weather_current|hour=14|gap=1": {
-      "catchup_rate": 0.843939393939394,
+      "catchup_rate": 0.9139588100686499,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 130,
-      "raw_catchup_rate": 0.8461538461538461
+      "n": 435,
+      "raw_catchup_rate": 0.9149425287356322
     },
     "source=weather_current|hour=14|gap=2": {
-      "catchup_rate": 0.903370786516854,
+      "catchup_rate": 0.9052631578947368,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 87,
-      "raw_catchup_rate": 0.9080459770114943
+      "n": 321,
+      "raw_catchup_rate": 0.9065420560747663
     },
     "source=weather_current|hour=14|gap=3_plus": {
-      "catchup_rate": 0.9348837209302326,
+      "catchup_rate": 0.9731448763250883,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 84,
-      "raw_catchup_rate": 0.9404761904761905
+      "n": 281,
+      "raw_catchup_rate": 0.9750889679715302
     },
     "source=weather_current|hour=15": {
-      "catchup_rate": 0.8089347079037801,
+      "catchup_rate": 0.8638251366120219,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 289,
-      "raw_catchup_rate": 0.8096885813148789
+      "n": 913,
+      "raw_catchup_rate": 0.864184008762322
     },
     "source=weather_current|hour=15|gap=1": {
-      "catchup_rate": 0.7323308270676692,
+      "catchup_rate": 0.824102564102564,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 131,
-      "raw_catchup_rate": 0.732824427480916
+      "n": 388,
+      "raw_catchup_rate": 0.8247422680412371
     },
     "source=weather_current|hour=15|gap=2": {
-      "catchup_rate": 0.8410958904109589,
+      "catchup_rate": 0.8475524475524475,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 71,
-      "raw_catchup_rate": 0.8450704225352113
+      "n": 284,
+      "raw_catchup_rate": 0.8485915492957746
     },
     "source=weather_current|hour=15|gap=3_plus": {
-      "catchup_rate": 0.8921348314606742,
+      "catchup_rate": 0.9440329218106996,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 241,
+      "raw_catchup_rate": 0.946058091286307
+    },
+    "source=weather_current|hour=16": {
+      "catchup_rate": 0.7621761658031088,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 770,
+      "raw_catchup_rate": 0.7623376623376623
+    },
+    "source=weather_current|hour=16|gap=1": {
+      "catchup_rate": 0.7213270142180094,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 420,
+      "raw_catchup_rate": 0.7214285714285714
+    },
+    "source=weather_current|hour=16|gap=2": {
+      "catchup_rate": 0.7703703703703704,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 214,
+      "raw_catchup_rate": 0.7710280373831776
+    },
+    "source=weather_current|hour=16|gap=3_plus": {
+      "catchup_rate": 0.8724637681159421,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 136,
+      "raw_catchup_rate": 0.875
+    },
+    "source=weather_current|hour=17": {
+      "catchup_rate": 0.5944922547332185,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 579,
+      "raw_catchup_rate": 0.5941278065630398
+    },
+    "source=weather_current|hour=17|gap=1": {
+      "catchup_rate": 0.5682926829268293,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 326,
+      "raw_catchup_rate": 0.5674846625766872
+    },
+    "source=weather_current|hour=17|gap=2": {
+      "catchup_rate": 0.5619047619047619,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 166,
+      "raw_catchup_rate": 0.5602409638554217
+    },
+    "source=weather_current|hour=17|gap=3_plus": {
+      "catchup_rate": 0.7573033707865169,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 87,
-      "raw_catchup_rate": 0.896551724137931
-    },
-    "source=weather_current|hour=16": {
-      "catchup_rate": 0.6309859154929578,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 211,
-      "raw_catchup_rate": 0.6303317535545023
-    },
-    "source=weather_current|hour=16|gap=1": {
-      "catchup_rate": 0.6426229508196721,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 120,
-      "raw_catchup_rate": 0.6416666666666667
-    },
-    "source=weather_current|hour=16|gap=2": {
-      "catchup_rate": 0.630188679245283,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 51,
-      "raw_catchup_rate": 0.6274509803921569
-    },
-    "source=weather_current|hour=16|gap=3_plus": {
-      "catchup_rate": 0.6047619047619047,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 40,
-      "raw_catchup_rate": 0.6
-    },
-    "source=weather_current|hour=17": {
-      "catchup_rate": 0.49677419354838714,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 184,
-      "raw_catchup_rate": 0.4945652173913043
-    },
-    "source=weather_current|hour=17|gap=1": {
-      "catchup_rate": 0.5033898305084745,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 116,
-      "raw_catchup_rate": 0.5
-    },
-    "source=weather_current|hour=17|gap=2": {
-      "catchup_rate": 0.5191489361702127,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 45,
-      "raw_catchup_rate": 0.5111111111111111
-    },
-    "source=weather_current|hour=17|gap=3_plus": {
-      "catchup_rate": 0.456,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 23,
-      "raw_catchup_rate": 0.43478260869565216
+      "raw_catchup_rate": 0.7586206896551724
     },
     "source=weather_current|hour=18": {
-      "catchup_rate": 0.25103448275862067,
+      "catchup_rate": 0.42790697674418604,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 143,
-      "raw_catchup_rate": 0.24475524475524477
+      "n": 471,
+      "raw_catchup_rate": 0.4267515923566879
     },
     "source=weather_current|hour=18|gap=1": {
-      "catchup_rate": 0.25656565656565655,
+      "catchup_rate": 0.36711409395973155,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 97,
-      "raw_catchup_rate": 0.24742268041237114
+      "n": 296,
+      "raw_catchup_rate": 0.36486486486486486
     },
     "source=weather_current|hour=18|gap=2": {
-      "catchup_rate": 0.22424242424242424,
+      "catchup_rate": 0.5134751773049646,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 31,
-      "raw_catchup_rate": 0.1935483870967742
+      "n": 139,
+      "raw_catchup_rate": 0.5107913669064749
     },
     "source=weather_current|hour=18|gap=3_plus": {
-      "catchup_rate": 0.3764705882352941,
+      "catchup_rate": 0.6157894736842104,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 15,
-      "raw_catchup_rate": 0.3333333333333333
+      "n": 36,
+      "raw_catchup_rate": 0.6111111111111112
     },
     "source=weather_current|hour=19": {
-      "catchup_rate": 0.13700787401574802,
+      "catchup_rate": 0.23413461538461539,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 125,
-      "raw_catchup_rate": 0.128
+      "n": 414,
+      "raw_catchup_rate": 0.2318840579710145
     },
     "source=weather_current|hour=19|gap=1": {
-      "catchup_rate": 0.16559139784946236,
+      "catchup_rate": 0.21176470588235297,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 91,
-      "raw_catchup_rate": 0.15384615384615385
+      "n": 321,
+      "raw_catchup_rate": 0.2087227414330218
     },
     "source=weather_current|hour=19|gap=2": {
-      "catchup_rate": 0.14166666666666666,
+      "catchup_rate": 0.3721518987341772,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 22,
-      "raw_catchup_rate": 0.09090909090909091
+      "n": 77,
+      "raw_catchup_rate": 0.36363636363636365
     },
     "source=weather_current|hour=19|gap=3_plus": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.13333333333333333,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
-      "raw_catchup_rate": 0.0
+      "n": 16,
+      "raw_catchup_rate": 0.0625
     },
     "source=weather_current|hour=1|gap=1": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.08709677419354839,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
+      "n": 60,
+      "raw_catchup_rate": 0.06666666666666667
     },
     "source=weather_current|hour=1|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.49230769230769234,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
+      "n": 11,
+      "raw_catchup_rate": 0.45454545454545453
     },
     "source=weather_current|hour=1|gap=3_plus": {
-      "catchup_rate": 0.5911764705882353,
+      "catchup_rate": 0.6102325581395348,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 134,
-      "raw_catchup_rate": 0.5895522388059702
+      "n": 428,
+      "raw_catchup_rate": 0.6098130841121495
     },
     "source=weather_current|hour=2": {
-      "catchup_rate": 0.5213973799126638,
+      "catchup_rate": 0.5608124253285544,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 227,
-      "raw_catchup_rate": 0.5198237885462555
+      "n": 835,
+      "raw_catchup_rate": 0.5604790419161677
     },
     "source=weather_current|hour=20": {
-      "catchup_rate": 0.05161290322580645,
+      "catchup_rate": 0.08896103896103896,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 122,
-      "raw_catchup_rate": 0.040983606557377046
+      "n": 306,
+      "raw_catchup_rate": 0.08496732026143791
     },
     "source=weather_current|hour=20|gap=1": {
-      "catchup_rate": 0.07272727272727274,
+      "catchup_rate": 0.07666666666666666,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 86,
-      "raw_catchup_rate": 0.05813953488372093
+      "n": 238,
+      "raw_catchup_rate": 0.07142857142857142
     },
     "source=weather_current|hour=20|gap=2": {
-      "catchup_rate": 0.05384615384615384,
+      "catchup_rate": 0.1824561403508772,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 24,
-      "raw_catchup_rate": 0.0
+      "n": 55,
+      "raw_catchup_rate": 0.16363636363636364
     },
     "source=weather_current|hour=20|gap=3_plus": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.09333333333333332,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
+      "n": 13,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=21": {
-      "catchup_rate": 0.013592233009708738,
+      "catchup_rate": 0.012546125461254613,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 101,
-      "raw_catchup_rate": 0.0
+      "n": 269,
+      "raw_catchup_rate": 0.007434944237918215
     },
     "source=weather_current|hour=21|gap=1": {
-      "catchup_rate": 0.019718309859154928,
+      "catchup_rate": 0.015525114155251141,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 69,
-      "raw_catchup_rate": 0.0
+      "n": 217,
+      "raw_catchup_rate": 0.009216589861751152
     },
     "source=weather_current|hour=21|gap=2": {
-      "catchup_rate": 0.05833333333333333,
+      "catchup_rate": 0.031818181818181815,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 22,
+      "n": 42,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=21|gap=3_plus": {
@@ -827,214 +827,277 @@
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22": {
-      "catchup_rate": 0.01308411214953271,
+      "catchup_rate": 0.0047138047138047135,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 105,
+      "n": 295,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22|gap=1": {
-      "catchup_rate": 0.019718309859154928,
+      "catchup_rate": 0.005833333333333333,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 69,
+      "n": 238,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22|gap=2": {
-      "catchup_rate": 0.05384615384615384,
+      "catchup_rate": 0.031818181818181815,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 24,
+      "n": 42,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=22|gap=3_plus": {
-      "catchup_rate": 0.09999999999999999,
+      "catchup_rate": 0.08235294117647059,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 12,
+      "n": 15,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=23": {
-      "catchup_rate": 0.01320754716981132,
+      "catchup_rate": 0.0038147138964577656,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 104,
+      "n": 365,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=23|gap=1": {
-      "catchup_rate": 0.02,
+      "catchup_rate": 0.0045016077170418,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 68,
+      "n": 309,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=23|gap=2": {
-      "catchup_rate": 0.05833333333333333,
+      "catchup_rate": 0.03783783783783783,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 22,
+      "n": 35,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=23|gap=3_plus": {
-      "catchup_rate": 0.0875,
+      "catchup_rate": 0.0608695652173913,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 14,
+      "n": 21,
       "raw_catchup_rate": 0.0
     },
     "source=weather_current|hour=2|gap=1": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.20869565217391306,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
+      "n": 67,
+      "raw_catchup_rate": 0.19402985074626866
     },
     "source=weather_current|hour=2|gap=2": {
-      "catchup_rate": 0.175,
+      "catchup_rate": 0.4266666666666667,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 6,
-      "raw_catchup_rate": 0.0
+      "n": 13,
+      "raw_catchup_rate": 0.38461538461538464
     },
     "source=weather_current|hour=2|gap=3_plus": {
-      "catchup_rate": 0.5502304147465438,
+      "catchup_rate": 0.5963011889035666,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 215,
-      "raw_catchup_rate": 0.5488372093023256
+      "n": 755,
+      "raw_catchup_rate": 0.5960264900662252
     },
     "source=weather_current|hour=3": {
-      "catchup_rate": 0.5398843930635838,
+      "catchup_rate": 0.585,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 171,
-      "raw_catchup_rate": 0.5380116959064327
+      "n": 838,
+      "raw_catchup_rate": 0.5847255369928401
+    },
+    "source=weather_current|hour=3|gap=1": {
+      "catchup_rate": 0.9454545454545454,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 9,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=3|gap=2": {
+      "catchup_rate": 0.8800000000000001,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 3,
+      "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=3|gap=3_plus": {
-      "catchup_rate": 0.5398843930635838,
+      "catchup_rate": 0.5789855072463768,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 171,
-      "raw_catchup_rate": 0.5380116959064327
+      "n": 826,
+      "raw_catchup_rate": 0.5786924939467313
     },
     "source=weather_current|hour=4": {
-      "catchup_rate": 0.5633466135458167,
+      "catchup_rate": 0.5963272120200334,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 249,
-      "raw_catchup_rate": 0.5622489959839357
+      "n": 1196,
+      "raw_catchup_rate": 0.5961538461538461
+    },
+    "source=weather_current|hour=4|gap=1": {
+      "catchup_rate": 0.9454545454545454,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 9,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=4|gap=2": {
+      "catchup_rate": 0.9142857142857144,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 5,
+      "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=4|gap=3_plus": {
-      "catchup_rate": 0.5633466135458167,
+      "catchup_rate": 0.591554054054054,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 249,
-      "raw_catchup_rate": 0.5622489959839357
+      "n": 1182,
+      "raw_catchup_rate": 0.5913705583756346
     },
     "source=weather_current|hour=5": {
-      "catchup_rate": 0.607741935483871,
+      "catchup_rate": 0.6112582781456953,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 308,
-      "raw_catchup_rate": 0.6071428571428571
+      "n": 1206,
+      "raw_catchup_rate": 0.6111111111111112
     },
-    "source=weather_current|hour=5|gap=3_plus": {
-      "catchup_rate": 0.607741935483871,
+    "source=weather_current|hour=5|gap=1": {
+      "catchup_rate": 0.9538461538461539,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 308,
-      "raw_catchup_rate": 0.6071428571428571
+      "n": 11,
+      "raw_catchup_rate": 1.0
     },
-    "source=weather_current|hour=6": {
-      "catchup_rate": 0.5851612903225807,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 308,
-      "raw_catchup_rate": 0.5844155844155844
-    },
-    "source=weather_current|hour=6|gap=3_plus": {
-      "catchup_rate": 0.5851612903225807,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 308,
-      "raw_catchup_rate": 0.5844155844155844
-    },
-    "source=weather_current|hour=7": {
-      "catchup_rate": 0.6154471544715447,
-      "mean_lag_minutes": null,
-      "median_lag_minutes": null,
-      "n": 244,
-      "raw_catchup_rate": 0.6147540983606558
-    },
-    "source=weather_current|hour=7|gap=1": {
+    "source=weather_current|hour=5|gap=2": {
       "catchup_rate": 0.9,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
       "n": 4,
       "raw_catchup_rate": 1.0
     },
-    "source=weather_current|hour=7|gap=3_plus": {
-      "catchup_rate": 0.6090909090909091,
+    "source=weather_current|hour=5|gap=3_plus": {
+      "catchup_rate": 0.6063704945515507,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 240,
-      "raw_catchup_rate": 0.6083333333333333
+      "n": 1191,
+      "raw_catchup_rate": 0.6062132661628883
+    },
+    "source=weather_current|hour=6": {
+      "catchup_rate": 0.6214553638409602,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 1331,
+      "raw_catchup_rate": 0.6213373403456048
+    },
+    "source=weather_current|hour=6|gap=1": {
+      "catchup_rate": 0.9454545454545454,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 9,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=6|gap=2": {
+      "catchup_rate": 0.9142857142857144,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 5,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=6|gap=3_plus": {
+      "catchup_rate": 0.6174374526156179,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 1317,
+      "raw_catchup_rate": 0.6173120728929385
+    },
+    "source=weather_current|hour=7": {
+      "catchup_rate": 0.6163064833005893,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 1016,
+      "raw_catchup_rate": 0.6161417322834646
+    },
+    "source=weather_current|hour=7|gap=1": {
+      "catchup_rate": 0.9853658536585366,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 39,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=7|gap=2": {
+      "catchup_rate": 0.9400000000000001,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 8,
+      "raw_catchup_rate": 1.0
+    },
+    "source=weather_current|hour=7|gap=3_plus": {
+      "catchup_rate": 0.5977342945417096,
+      "mean_lag_minutes": null,
+      "median_lag_minutes": null,
+      "n": 969,
+      "raw_catchup_rate": 0.5975232198142415
     },
     "source=weather_current|hour=8": {
-      "catchup_rate": 0.7364928909952607,
+      "catchup_rate": 0.7412698412698412,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 209,
-      "raw_catchup_rate": 0.7368421052631579
+      "n": 754,
+      "raw_catchup_rate": 0.7413793103448276
     },
     "source=weather_current|hour=8|gap=1": {
-      "catchup_rate": 0.9857142857142857,
+      "catchup_rate": 0.9959731543624162,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 40,
+      "n": 147,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=8|gap=2": {
-      "catchup_rate": 0.9739130434782608,
+      "catchup_rate": 0.9901639344262295,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 21,
+      "n": 59,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=8|gap=3_plus": {
-      "catchup_rate": 0.6293333333333334,
+      "catchup_rate": 0.6443636363636364,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 148,
-      "raw_catchup_rate": 0.6283783783783784
+      "n": 548,
+      "raw_catchup_rate": 0.6441605839416058
     },
     "source=weather_current|hour=9": {
-      "catchup_rate": 0.8879432624113476,
+      "catchup_rate": 0.8622180451127819,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 280,
-      "raw_catchup_rate": 0.8892857142857142
+      "n": 1062,
+      "raw_catchup_rate": 0.8625235404896422
     },
     "source=weather_current|hour=9|gap=1": {
-      "catchup_rate": 0.9928571428571429,
+      "catchup_rate": 0.9951219512195121,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 82,
-      "raw_catchup_rate": 1.0
+      "n": 326,
+      "raw_catchup_rate": 0.9969325153374233
     },
     "source=weather_current|hour=9|gap=2": {
-      "catchup_rate": 0.9892857142857142,
+      "catchup_rate": 0.9971291866028709,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 54,
+      "n": 207,
       "raw_catchup_rate": 1.0
     },
     "source=weather_current|hour=9|gap=3_plus": {
-      "catchup_rate": 0.7835616438356164,
+      "catchup_rate": 0.7258003766478343,
       "mean_lag_minutes": null,
       "median_lag_minutes": null,
-      "n": 144,
-      "raw_catchup_rate": 0.7847222222222222
+      "n": 529,
+      "raw_catchup_rate": 0.725897920604915
     }
   },
   "component": {
@@ -1043,259 +1106,512 @@
     "min_context_n": 20
   },
   "family_unit": "F",
-  "generated_at_utc": "2026-06-15T00:09:36.863467+00:00",
+  "generated_at_utc": "2026-07-07T07:36:42.359481+00:00",
   "revision_contexts": {
     "hour=0": {
-      "mean_positive_revision_gap": 13.142857142857142,
-      "n": 348,
-      "raw_revision_up_rate": 0.020114942528735632,
-      "revision_up_rate": 0.022857142857142857
+      "mean_positive_revision_gap": 9.2125,
+      "n": 1145,
+      "raw_revision_up_rate": 0.06986899563318777,
+      "revision_up_rate": 0.07061900610287707
     },
     "hour=1": {
-      "mean_positive_revision_gap": 10.674796747967479,
-      "n": 288,
-      "raw_revision_up_rate": 0.4270833333333333,
-      "revision_up_rate": 0.42758620689655175
+      "mean_positive_revision_gap": 10.541966426858513,
+      "n": 924,
+      "raw_revision_up_rate": 0.4512987012987013,
+      "revision_up_rate": 0.4514038876889849
     },
     "hour=10": {
-      "mean_positive_revision_gap": 8.046351273702356,
-      "n": 10828,
-      "raw_revision_up_rate": 0.9643516808274843,
-      "revision_up_rate": 0.9642659279778394
+      "mean_positive_revision_gap": 8.351658686730506,
+      "n": 12117,
+      "raw_revision_up_rate": 0.9652554262606255,
+      "revision_up_rate": 0.9651786451027312
     },
     "hour=11": {
-      "mean_positive_revision_gap": 6.259749234870175,
-      "n": 10775,
-      "raw_revision_up_rate": 0.940046403712297,
-      "revision_up_rate": 0.9399647397234852
+      "mean_positive_revision_gap": 6.555654735338749,
+      "n": 11885,
+      "raw_revision_up_rate": 0.9426167437946992,
+      "revision_up_rate": 0.9425422730714226
     },
     "hour=12": {
-      "mean_positive_revision_gap": 4.748445568553062,
-      "n": 10819,
-      "raw_revision_up_rate": 0.8770681208984195,
-      "revision_up_rate": 0.8769984289806857
+      "mean_positive_revision_gap": 5.044300789048388,
+      "n": 11900,
+      "raw_revision_up_rate": 0.8839495798319328,
+      "revision_up_rate": 0.8838850613342295
     },
     "hour=13": {
-      "mean_positive_revision_gap": 3.589480048367594,
-      "n": 10841,
-      "raw_revision_up_rate": 0.7628447560188174,
-      "revision_up_rate": 0.7627962740938855
+      "mean_positive_revision_gap": 3.9345474022495983,
+      "n": 11989,
+      "raw_revision_up_rate": 0.7786304112102761,
+      "revision_up_rate": 0.7785839379534651
     },
     "hour=14": {
-      "mean_positive_revision_gap": 2.7131210582987233,
-      "n": 10824,
-      "raw_revision_up_rate": 0.600609756097561,
-      "revision_up_rate": 0.6005911694069832
+      "mean_positive_revision_gap": 3.001211631663974,
+      "n": 11886,
+      "raw_revision_up_rate": 0.6249369005552751,
+      "revision_up_rate": 0.6249158815612382
     },
     "hour=15": {
-      "mean_positive_revision_gap": 2.097659765976598,
-      "n": 10876,
-      "raw_revision_up_rate": 0.40860610518573004,
-      "revision_up_rate": 0.4086229086229086
+      "mean_positive_revision_gap": 2.39282268956203,
+      "n": 11839,
+      "raw_revision_up_rate": 0.43779035391502663,
+      "revision_up_rate": 0.4378008614137319
     },
     "hour=16": {
-      "mean_positive_revision_gap": 1.7174199210179903,
-      "n": 10839,
-      "raw_revision_up_rate": 0.21025924900821108,
-      "revision_up_rate": 0.21031270178027858
+      "mean_positive_revision_gap": 2.0928792569659445,
+      "n": 11899,
+      "raw_revision_up_rate": 0.24430624422220354,
+      "revision_up_rate": 0.24434921435173515
     },
     "hour=17": {
-      "mean_positive_revision_gap": 1.6213093709884467,
-      "n": 10866,
-      "raw_revision_up_rate": 0.07169151481685992,
-      "revision_up_rate": 0.07177033492822966
+      "mean_positive_revision_gap": 2.14025974025974,
+      "n": 11782,
+      "raw_revision_up_rate": 0.09803089458496012,
+      "revision_up_rate": 0.09809911744738628
     },
     "hour=18": {
-      "mean_positive_revision_gap": 1.5638766519823788,
-      "n": 10849,
-      "raw_revision_up_rate": 0.020923587427412665,
-      "revision_up_rate": 0.021011888305225324
+      "mean_positive_revision_gap": 2.0102459016393444,
+      "n": 11805,
+      "raw_revision_up_rate": 0.04133841592545531,
+      "revision_up_rate": 0.04141610908782925
     },
     "hour=19": {
-      "mean_positive_revision_gap": 1.6486486486486487,
-      "n": 10861,
-      "raw_revision_up_rate": 0.00681336893472056,
-      "revision_up_rate": 0.006904170118751726
+      "mean_positive_revision_gap": 1.683673469387755,
+      "n": 11824,
+      "raw_revision_up_rate": 0.016576454668470908,
+      "revision_up_rate": 0.016658210722137662
     },
     "hour=2": {
-      "mean_positive_revision_gap": 11.266009852216749,
-      "n": 308,
-      "raw_revision_up_rate": 0.6590909090909091,
-      "revision_up_rate": 0.6580645161290323
+      "mean_positive_revision_gap": 10.832,
+      "n": 1094,
+      "raw_revision_up_rate": 0.6855575868372943,
+      "revision_up_rate": 0.6852189781021898
     },
     "hour=20": {
-      "mean_positive_revision_gap": 1.6666666666666667,
-      "n": 10922,
-      "raw_revision_up_rate": 0.0019227247756821095,
-      "revision_up_rate": 0.0020139143170999634
+      "mean_positive_revision_gap": 1.453125,
+      "n": 11750,
+      "raw_revision_up_rate": 0.005446808510638298,
+      "revision_up_rate": 0.0055309734513274336
     },
     "hour=21": {
-      "mean_positive_revision_gap": 0.0,
-      "n": 440,
-      "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.0022624434389140274
+      "mean_positive_revision_gap": 1.0,
+      "n": 1279,
+      "raw_revision_up_rate": 0.00547302580140735,
+      "revision_up_rate": 0.00624512099921936
     },
     "hour=22": {
-      "mean_positive_revision_gap": 0.0,
-      "n": 440,
-      "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.0022624434389140274
+      "mean_positive_revision_gap": 1.0,
+      "n": 1384,
+      "raw_revision_up_rate": 0.002167630057803468,
+      "revision_up_rate": 0.002886002886002886
     },
     "hour=23": {
-      "mean_positive_revision_gap": 0.0,
-      "n": 442,
-      "raw_revision_up_rate": 0.0,
-      "revision_up_rate": 0.0022522522522522522
+      "mean_positive_revision_gap": 1.0,
+      "n": 1483,
+      "raw_revision_up_rate": 0.006068779501011463,
+      "revision_up_rate": 0.006734006734006734
     },
     "hour=3": {
-      "mean_positive_revision_gap": 11.309941520467836,
-      "n": 171,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9942196531791907
+      "mean_positive_revision_gap": 11.185276073619631,
+      "n": 845,
+      "raw_revision_up_rate": 0.9644970414201184,
+      "revision_up_rate": 0.9634002361275088
     },
     "hour=4": {
-      "mean_positive_revision_gap": 11.811244979919678,
-      "n": 249,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9960159362549801
+      "mean_positive_revision_gap": 11.976149914821125,
+      "n": 1201,
+      "raw_revision_up_rate": 0.97751873438801,
+      "revision_up_rate": 0.9767248545303409
     },
     "hour=5": {
-      "mean_positive_revision_gap": 12.597402597402597,
-      "n": 308,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9967741935483871
+      "mean_positive_revision_gap": 12.426284751474306,
+      "n": 1210,
+      "raw_revision_up_rate": 0.9809917355371901,
+      "revision_up_rate": 0.9801980198019802
     },
     "hour=6": {
-      "mean_positive_revision_gap": 12.38961038961039,
-      "n": 308,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9967741935483871
+      "mean_positive_revision_gap": 12.425190839694656,
+      "n": 1335,
+      "raw_revision_up_rate": 0.9812734082397003,
+      "revision_up_rate": 0.9805534779356769
     },
     "hour=7": {
-      "mean_positive_revision_gap": 12.460815047021944,
-      "n": 319,
-      "raw_revision_up_rate": 1.0,
-      "revision_up_rate": 0.9968847352024922
+      "mean_positive_revision_gap": 12.07920059215396,
+      "n": 1378,
+      "raw_revision_up_rate": 0.9804063860667634,
+      "revision_up_rate": 0.9797101449275363
     },
     "hour=8": {
-      "mean_positive_revision_gap": 11.471053132736621,
-      "n": 10739,
-      "raw_revision_up_rate": 0.9779309060433933,
-      "revision_up_rate": 0.9778419141606927
+      "mean_positive_revision_gap": 11.535206412134793,
+      "n": 11878,
+      "raw_revision_up_rate": 0.976847954201044,
+      "revision_up_rate": 0.9767676767676767
     },
     "hour=9": {
-      "mean_positive_revision_gap": 9.86987471526196,
-      "n": 10804,
-      "raw_revision_up_rate": 0.9751943724546465,
-      "revision_up_rate": 0.9751064223579493
+      "mean_positive_revision_gap": 10.059569398349076,
+      "n": 12055,
+      "raw_revision_up_rate": 0.9747822480298631,
+      "revision_up_rate": 0.9747034917475326
     }
   },
   "training": {
-    "lead_rows": 6599,
+    "lead_rows": 19934,
     "market_rows": {
-      "atlanta": 13853,
-      "austin": 13008,
-      "chicago": 13907,
-      "dallas": 13865,
-      "denver": 13809,
-      "houston": 13861,
-      "los-angeles": 13527,
-      "miami": 13695,
-      "nyc": 13730,
-      "san-francisco": 14070,
-      "seattle": 13738
+      "atlanta": 17382,
+      "austin": 16408,
+      "chicago": 17172,
+      "dallas": 17379,
+      "denver": 17390,
+      "houston": 16956,
+      "los-angeles": 15912,
+      "miami": 17030,
+      "nyc": 16807,
+      "san-francisco": 17788,
+      "seattle": 17597
     },
-    "revision_rows": 144464,
-    "rows": 151063,
+    "revision_rows": 167887,
+    "rows": 187821,
     "snapshot_folders": [
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-6-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-9-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-10-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-11-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-13-2026"
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-6-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-9-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-10-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-11-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-14-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-15-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-16-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-17-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-18-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-19-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-20-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-21-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-22-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-23-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-24-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-25-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-26-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-27-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-29-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-30-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-1-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-2-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-3-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-4-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-6-2026"
     ],
     "sources": [
       "metar",

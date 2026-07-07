@@ -1,4 +1,4 @@
-# 163. Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]
+﻿# 163. Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]
 
 Goal: create one durable daily progress row after daily refresh so improvement
 claims use the same model, evidence, operations, and trading gates every day.
@@ -27,7 +27,6 @@ preserving directional sub-metrics.
    baseline status.
 4. Source operations fields from fleet observability: fleet status,
    live-forward SLO status, snapshot gap count/max gap, source-status blocked
-   markets, CLOB status, observation-trigger status, backup status, and disk
    free/headroom.
 5. Source trading fields from market-making and taker reports: evidence mode,
    countable markets, quote rows, live-trade permission rows, fills, P&L, and

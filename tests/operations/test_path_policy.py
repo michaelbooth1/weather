@@ -23,11 +23,3 @@ def test_default_runtime_paths_are_repo_absolute_from_other_cwd(monkeypatch, tmp
     assert market_making_dashboard.RUNS_ROOT == data_path("mm_runs")
 
 
-def test_tape_backup_default_root_uses_repo_data_when_env_is_absent(monkeypatch, tmp_path):
-    monkeypatch.delenv("WEATHER_TAPE_BACKUP_ROOT", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    tape_backup = importlib.import_module("weather.operations.tape_backup")
-    tape_backup = importlib.reload(tape_backup)
-
-    assert tape_backup.DEFAULT_BACKUP_ROOT == data_path("tape_backups")

@@ -561,13 +561,9 @@ def _read_fleet_observability(path):
             "status": "MISSING",
             "summary": {
                 "live_forward_slo_status": "MISSING",
-                "tape_backup_status": "MISSING",
             },
-            "tape_backup": {"status": "MISSING"},
         }
     payload = json.loads(path.read_text(encoding="utf-8"))
-    tape = payload.get("tape_backup") or {}
-    capacity = tape.get("capacity_preflight") or {}
     live_slo = payload.get("live_forward_slo") or {}
     collection = payload.get("collection") or {}
     clean_day = payload.get("clean_active_day_countability") or {}
@@ -604,18 +600,6 @@ def _read_fleet_observability(path):
                 for row in clob_books.get("markets") or []
                 if not row.get("ok")
             ],
-        },
-        "tape_backup": {
-            "status": tape.get("status"),
-            "backup_root": tape.get("backup_root"),
-            "missing_critical_files": tape.get("missing_critical_files"),
-            "restore_drill_sla_status": tape.get("restore_drill_sla_status"),
-            "capacity_preflight": {
-                "status": capacity.get("status"),
-                "free_bytes": capacity.get("free_bytes"),
-                "required_bytes": capacity.get("required_bytes"),
-                "insufficient_bytes": capacity.get("insufficient_bytes"),
-            },
         },
     }
 

@@ -1,4 +1,4 @@
-# 154. Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]
+﻿# 154. Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]
 
 Goal: make replay, promotion-refresh, and shadow-variant artifact generation
 respect local disk budgets before writing large backtest outputs.
@@ -10,9 +10,6 @@ local `C:` volume at 0 bytes free. Pytest then failed during cache write with
 were removed, freeing only about 100 MB, so the workspace remains critically
 low on disk even after cleanup.
 
-This is separate from Item 146's backup durability and high-volume tape
-retention work. Item 146 now has local backup/restore evidence green, but still
-covers external backup-root durability for irreplaceable and high-volume data.
 This item covers local run-time budgets for generated backtest,
 promotion-refresh, and variant exports so diagnostics cannot starve the
 workstation or scheduled jobs.

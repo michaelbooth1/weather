@@ -15,10 +15,6 @@ def cmd_report(args):
         target_day=args.target_day,
         years=years,
         include_audits=not args.skip_audits,
-        tape_backup_root=args.tape_backup_root,
-        tape_backup_status_path=args.tape_backup_status,
-        refresh_tape_backup_status=args.refresh_tape_backup_status,
-        verify_tape_backup_checksums=args.verify_tape_backup_checksums,
     )
     json_path = write_json(args.out, payload)
     report_path = write_markdown(args.report, payload)
@@ -42,14 +38,6 @@ def build_parser():
     report.add_argument("--target-day", type=int, default=None)
     report.add_argument("--years", default="", help="Comma-separated audit years; default 2000-2025.")
     report.add_argument("--skip-audits", action="store_true")
-    report.add_argument("--tape-backup-root", default=str(tape_backup.DEFAULT_BACKUP_ROOT))
-    report.add_argument("--tape-backup-status", default=str(tape_backup.DEFAULT_STATUS_OUT))
-    report.add_argument(
-        "--refresh-tape-backup-status",
-        action="store_true",
-        help="Recompute the full tape-backup status instead of reading the generated status artifact.",
-    )
-    report.add_argument("--verify-tape-backup-checksums", action="store_true")
     report.add_argument("--strict", action="store_true", help="Exit 2 when critical alerts are present.")
     report.add_argument("--out", default=str(DEFAULT_JSON_OUT))
     report.add_argument("--report", default=str(DEFAULT_REPORT))

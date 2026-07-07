@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +7,7 @@ from weather.reporting.data_quality.data_retention_inventory import build_payloa
 
 
 class TestDataRetentionInventory(unittest.TestCase):
-    def test_classifies_data_owners_and_blocks_restore_required_deletion_without_backup(self):
+    def test_classifies_data_owners_and_marks_review_required_classes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshot = root / "snapshots" / "market-day" / "snapshots_long.csv"
@@ -20,7 +19,6 @@ class TestDataRetentionInventory(unittest.TestCase):
 
             payload = build_payload(
                 root,
-                backup_status_path=root / "backtest" / "missing_backup_status.json",
                 min_free_bytes=0,
                 lookback_hours=48,
                 top_n=5,
@@ -28,42 +26,34 @@ class TestDataRetentionInventory(unittest.TestCase):
 
         by_policy = {row["policy"]: row for row in payload["policy_summaries"]}
         by_storage_class = {row["storage_class"]: row for row in payload["storage_class_summaries"]}
-        self.assertEqual(payload["status"], "WARN")
+        self.assertEqual(payload["status"], "PASS")
         self.assertEqual(by_policy["snapshots"]["owner"], "collection/model/market")
-        self.assertEqual(by_policy["snapshots"]["restore_gate"]["status"], "BLOCK")
+        self.assertEqual(by_policy["snapshots"]["delete_gate"]["status"], "REVIEW_REQUIRED")
         self.assertIn(ANALYSIS_PROJECTION, by_storage_class)
         self.assertIn(OPERATOR_CACHE, by_storage_class)
-        self.assertEqual(by_storage_class[ANALYSIS_PROJECTION]["delete_gate"]["status"], "BLOCK")
+        self.assertEqual(by_storage_class[ANALYSIS_PROJECTION]["delete_gate"]["status"], "REVIEW_REQUIRED")
         self.assertIn("snapshot_csv_long_tables", by_storage_class[ANALYSIS_PROJECTION]["artifact_families"])
         self.assertEqual(
-            by_policy["snapshots"]["restore_gate"]["delete_permission"],
-            "blocked_until_restore_proof",
+            by_policy["snapshots"]["delete_gate"]["delete_permission"],
+            "allowed_only_with_reviewed_manifest",
         )
-        self.assertEqual(by_policy["provider_caches"]["restore_gate"]["status"], "NOT_REQUIRED")
+        self.assertEqual(by_policy["provider_caches"]["delete_gate"]["status"], "NOT_REQUIRED")
 
-    def test_restore_ok_allows_reviewed_manifest_for_irreplaceable_classes(self):
+    def test_canonical_evidence_delete_gate_requires_review(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             mm = root / "mm_runs" / "run1" / "order_lifecycle.jsonl"
             mm.parent.mkdir(parents=True)
             mm.write_text("{}\n", encoding="utf-8")
-            status = root / "backtest" / "tape_backup_status.json"
-            status.parent.mkdir()
-            status.write_text(json.dumps({
-                "status": "OK",
-                "restore_drill_sla_status": "OK",
-                "missing_critical_files": 0,
-                "missing_critical_bytes": 0,
-            }), encoding="utf-8")
 
-            payload = build_payload(root, backup_status_path=status, min_free_bytes=0)
+            payload = build_payload(root, min_free_bytes=0)
             report = render_report(payload)
 
         by_policy = {row["policy"]: row for row in payload["policy_summaries"]}
         by_storage_class = {row["storage_class"]: row for row in payload["storage_class_summaries"]}
         self.assertEqual(payload["status"], "PASS")
-        self.assertEqual(by_policy["mm_runs"]["restore_gate"]["status"], "PASS")
-        self.assertEqual(by_storage_class[CANONICAL_EVIDENCE]["delete_gate"]["status"], "PASS")
+        self.assertEqual(by_policy["mm_runs"]["delete_gate"]["status"], "REVIEW_REQUIRED")
+        self.assertEqual(by_storage_class[CANONICAL_EVIDENCE]["delete_gate"]["status"], "REVIEW_REQUIRED")
         self.assertIn("Ownership And Retention", report)
         self.assertIn("Storage Class Summary", report)
         self.assertIn("Operator Procedure", report)
@@ -83,30 +73,6 @@ class TestDataRetentionInventory(unittest.TestCase):
         recent_dirs = {row["path"]: row for row in payload["recent_directories"]}
         self.assertIn("backtest", recent_dirs)
         self.assertGreaterEqual(recent_dirs["backtest"]["bytes"], 64)
-
-    def test_missing_critical_files_blocks_canonical_evidence_delete_gate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            snapshot = root / "snapshots" / "market-day" / "snapshots.jsonl"
-            snapshot.parent.mkdir(parents=True)
-            snapshot.write_text("{}\n", encoding="utf-8")
-            status = root / "backtest" / "tape_backup_status.json"
-            status.parent.mkdir()
-            status.write_text(json.dumps({
-                "status": "MISSING_CRITICAL_FILES",
-                "restore_drill_sla_status": "OK",
-                "missing_critical_files": 1,
-                "missing_critical_bytes": 12,
-                "missing_critical_file_samples": [{"path": "data/snapshots/market-day/order_books.jsonl"}],
-            }), encoding="utf-8")
-
-            payload = build_payload(root, backup_status_path=status, min_free_bytes=0)
-
-        by_storage_class = {row["storage_class"]: row for row in payload["storage_class_summaries"]}
-        gate = by_storage_class[CANONICAL_EVIDENCE]["delete_gate"]
-        self.assertEqual(gate["status"], "BLOCK")
-        self.assertEqual(gate["delete_permission"], "blocked_missing_critical_backup_files")
-        self.assertEqual(gate["missing_samples"][0]["path"], "data/snapshots/market-day/order_books.jsonl")
 
 
 if __name__ == "__main__":

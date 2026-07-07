@@ -326,7 +326,6 @@ def build_cleanup_manifest(
         classification_prefix="backtest",
         deletion_reason="delete rebuildable generated backtest projection after paired evidence is retained",
         operator_review=operator_review,
-        backup_status={},
     )
     candidates_by_path = {
         row.get("path"): row
@@ -355,7 +354,7 @@ def build_cleanup_manifest(
 
 def apply_cleanup_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     root = Path(manifest["root"]).resolve()
-    preflight = build_cleanup_preflight(manifest, root=root, backup_status={})
+    preflight = build_cleanup_preflight(manifest, root=root)
     manifest["cleanup_preflight"] = preflight
     if preflight.get("status") != "PASS":
         manifest["applied_at_utc"] = datetime.now(timezone.utc).isoformat()

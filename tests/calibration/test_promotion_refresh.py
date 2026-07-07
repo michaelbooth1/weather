@@ -665,11 +665,6 @@ class TestPromotionRefresh(unittest.TestCase):
                 "status": "CRITICAL",
                 "summary": {
                     "live_forward_slo_status": "BLOCK",
-                    "tape_backup_status": "INSUFFICIENT_BACKUP_CAPACITY",
-                },
-                "tape_backup": {
-                    "status": "INSUFFICIENT_BACKUP_CAPACITY",
-                    "capacity_preflight": {"insufficient_bytes": 100},
                 },
             },
         )
@@ -679,8 +674,6 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("source_family_preflight", blockers)
         self.assertIn("nws_grid", blockers["source_family_preflight"]["detail"])
         self.assertIn("live_forward_slo", blockers)
-        self.assertIn("tape_backup_sla", blockers)
-        self.assertIn("100 bytes short", blockers["tape_backup_sla"]["detail"])
 
     def test_promotion_readiness_blocks_on_physical_family_ratchet(self):
         readiness = promotion_readiness(
@@ -1701,11 +1694,6 @@ class TestPromotionRefresh(unittest.TestCase):
                 "status": "CRITICAL",
                 "summary": {
                     "live_forward_slo_status": "BLOCK",
-                    "tape_backup_status": "INSUFFICIENT_BACKUP_CAPACITY",
-                },
-                "tape_backup": {
-                    "status": "INSUFFICIENT_BACKUP_CAPACITY",
-                    "backup_root": "data/tape_backups",
                 },
             },
             "evidence_freshness": {
@@ -1766,7 +1754,6 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("## Operational Promotion Gates", text)
         self.assertIn("Source family preflight", text)
         self.assertIn("Physical family ratchet", text)
-        self.assertIn("Tape backup SLA", text)
         self.assertIn("Hourly gate mitigation", text)
         self.assertIn("10-minute gate mitigation", text)
         self.assertIn("APPLIED", text)

@@ -1,4 +1,4 @@
-# Compatibility Shim Inventory
+﻿# Compatibility Shim Inventory
 
 Generated for roadmap item 87. These wrappers are retained only for external or local legacy commands during the migration from the flat `src.*` interface to canonical `weather.*` package modules.
 
@@ -159,7 +159,6 @@ On or after 2026-07-18:
 | `src/source_redundancy.py` | `weather.reporting.source_gates.source_redundancy` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/supplemental_station_validation.py` | `weather.sources.supplemental_station_validation` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/supplemental_stations.py` | `weather.sources.supplemental_stations` | External/local legacy commands only | No first-party callers for one migration window |
-| `src/tape_backup.py` | `weather.operations.tape_backup` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/toronto_model.py` | `weather.model.toronto_model` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/variant_evidence_growth.py` | `weather.reporting.candidate_lifecycle.variant_evidence_growth` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/wu_history.py` | `weather.sources.wu_history` | External/local legacy commands only | No first-party callers for one migration window |

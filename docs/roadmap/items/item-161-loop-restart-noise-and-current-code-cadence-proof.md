@@ -1,4 +1,4 @@
-# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]
+﻿# 161. Loop Restart Noise And Current-Code Cadence Proof [PARTIAL 2026-06-25 - JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED]
 
 Goal: reduce supervisor restart noise and prove that current-code loops can
 hold cadence across a full active day.
@@ -206,7 +206,6 @@ under restart budget, and within cadence thresholds.
 
 ## 2026-06-25 Soak Refresh
 
-Fleet observability is runnable again after switching its tape-backup section to
 the generated status cache by default. The refreshed
 `data/backtest/fleet_observability.json` was generated at
 `2026-06-25T18:47:03Z`, but the current-code soak is still `BLOCK` and

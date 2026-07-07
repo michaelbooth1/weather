@@ -110,7 +110,6 @@ class TestDailyProgressLedger(unittest.TestCase):
                     "clob": {"loop": {"state": "RUNNING"}},
                     "observation_trigger": {"state": "RUNNING"},
                     "current_code_soak": {"status": "BLOCK"},
-                    "tape_backup": {"status": "OK"},
                 },
             )
             write_json(

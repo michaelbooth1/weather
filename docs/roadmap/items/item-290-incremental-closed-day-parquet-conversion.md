@@ -1,4 +1,4 @@
-# 290. Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]
+﻿# 290. Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]
 
 Goal: make closed-day Parquet conversion incremental, resumable, and routine so
 heavy historical analysis reads compact validated Parquet instead of repeatedly
@@ -34,7 +34,6 @@ pressure is high; a resumable daily converter can keep up as market-days close.
    promotion-corpus scans, and model/taker/maker evidence reports.
 5. Add operator reports that compare text/gzip/parquet source modes and quantify
    bytes/scan-time avoided, without allowing Parquet to replace raw forensic
-   evidence or backup requirements.
 
 - [x] Add an incremental closed-day Parquet planner with a bounded scan window
   and resumable cursor/status.

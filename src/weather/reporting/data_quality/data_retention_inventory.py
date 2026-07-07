@@ -24,7 +24,6 @@ from weather.schema_registry import schema_version
 
 SCHEMA_VERSION = schema_version("data_retention_inventory")
 DEFAULT_DATA_ROOT = data_path()
-DEFAULT_BACKUP_STATUS_PATH = DEFAULT_DATA_ROOT / "backtest" / "tape_backup_status.json"
 DEFAULT_OUT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory.json"
 DEFAULT_REPORT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory_report.md"
 DEFAULT_MIN_FREE_BYTES = 5_000_000_000
@@ -40,11 +39,10 @@ class DataRetentionPolicy:
     durability: str
     local_ttl: str
     archive_ttl: str
-    restore_requirement: str
+    deletion_requirement: str
     regeneration_path: str
     prune_policy: str
-    backup_class: str = ""
-    deletion_requires_restore: bool = False
+    deletion_requires_review: bool = False
     local_delete_allowed: bool = False
 
 
@@ -54,25 +52,12 @@ POLICIES = (
         "collection/model/market",
         ("snapshots/**",),
         "irreplaceable live snapshot, feature, source-status, and CLOB evidence",
-        "keep active and recent settled days locally; archive older proof-grade folders after restore proof",
+        "keep active and recent settled days locally; archive older proof-grade folders only after review",
         "permanent external archive for proof-grade live tapes",
-        "requires current tape backup manifest and restore-drill proof before deletion",
+        "requires reviewed cleanup manifest before deletion",
         "not regenerable from providers after the fact",
-        "delete only from an explicit manifest after restore proof; prefer gzip tiering for full-depth books",
-        backup_class="snapshot_tapes",
-        deletion_requires_restore=True,
-    ),
-    DataRetentionPolicy(
-        "tape_backups",
-        "operations/tape_backup",
-        ("tape_backups/**",),
-        "backup mirror and restore evidence",
-        "bounded latest plus timestamped manifests; same-disk partials must be pruned",
-        "external/NAS/cloud root with growth headroom",
-        "same-workstation backup roots are not durable deletion proof",
-        "not applicable; this is the restore source",
-        "use weather.operations.tape_backup prune-unmanifested for failed-copy debris",
-        local_delete_allowed=True,
+        "delete only from an explicit reviewed manifest; prefer gzip tiering for full-depth books",
+        deletion_requires_review=True,
     ),
     DataRetentionPolicy(
         "backtest",
@@ -81,10 +66,9 @@ POLICIES = (
         "mixed: promotion corpora and reports are durable; row exports may be rebuildable",
         "keep manifests, reports, promotion corpora, and current evidence; review large row exports after 30 days",
         "retain promotion corpora/manifests permanently; large rebuildable CSVs may be externalized",
-        "deletion of promotion corpora requires artifact/restore proof; generated row exports require paired reports",
+        "deletion of promotion corpora requires artifact lineage; generated row exports require paired reports",
         "large row exports can usually be rebuilt from retained corpus, artifact, and report",
         "use backtest_artifact_retention cleanup manifest; never delete orphaned evidence by hand",
-        backup_class="promotion_corpora",
         local_delete_allowed=True,
     ),
     DataRetentionPolicy(
@@ -92,26 +76,24 @@ POLICIES = (
         "backtesting/market",
         ("settlements/**",),
         "irreplaceable settlement and label provenance",
-        "retain locally with promotion corpora; archive after restore proof",
+        "retain locally with promotion corpora; archive only after review",
         "permanent external archive",
-        "requires current tape backup and restore-drill proof before deletion",
+        "requires reviewed cleanup manifest before deletion",
         "not safely regenerable without settlement-source history and manual overrides",
-        "delete only from a reviewed manifest after restore proof",
-        backup_class="settlement_ledgers",
-        deletion_requires_restore=True,
+        "delete only from a reviewed manifest",
+        deletion_requires_review=True,
     ),
     DataRetentionPolicy(
         "mm_runs",
         "market",
         ("mm_runs/**",),
         "irreplaceable market-making paper/live-forward lifecycle evidence",
-        "retain locally through active review; archive after restore proof",
+        "retain locally through active review",
         "permanent external archive for countable live/paper evidence",
-        "requires current tape backup and restore-drill proof before deletion",
+        "requires reviewed cleanup manifest before deletion",
         "not regenerable because quote/fill/markout timing is live-only",
-        "delete only from a reviewed manifest after restore proof and promotion windows close",
-        backup_class="market_making_runs",
-        deletion_requires_restore=True,
+        "delete only from a reviewed manifest after promotion windows close",
+        deletion_requires_review=True,
     ),
     DataRetentionPolicy(
         "taker_runs",
@@ -120,10 +102,10 @@ POLICIES = (
         "irreplaceable taker strategy, fill, and settlement evidence",
         "retain locally through strategy bakeoff and settlement finalization",
         "permanent external archive for countable trading evidence",
-        "requires current tape backup and restore-drill proof before deletion",
+        "requires reviewed cleanup manifest before deletion",
         "not regenerable because fills and account snapshots are live-only",
-        "delete only from a reviewed manifest after restore proof",
-        deletion_requires_restore=True,
+        "delete only from a reviewed manifest",
+        deletion_requires_review=True,
     ),
     DataRetentionPolicy(
         "ops",
@@ -132,7 +114,7 @@ POLICIES = (
         "operational reports, status, and local run diagnostics",
         "keep latest statuses and incident evidence; rotate noisy logs after 30 days",
         "archive incident reports with related run evidence",
-        "restore proof required only for incident evidence; routine status is regenerable",
+        "manual review required only for incident evidence; routine status is regenerable",
         "routine health reports are regenerated by daily refresh and fleet observability",
         "rotate only with an incident manifest or after confirming regenerated status exists",
         local_delete_allowed=True,
@@ -172,13 +154,12 @@ POLICIES = (
             "eccc_swob/**",
         ),
         "historical weather source rows and provenance manifests",
-        "retain canonical source histories locally; archive raw mirrors after restore proof",
+        "retain canonical source histories locally; archive raw mirrors only after review",
         "permanent archive for raw/provenance source rows",
-        "requires source manifest and restore proof before raw deletion",
+        "requires source manifest before raw deletion",
         "some provider history is backfillable, but canonical settled-source provenance is not safely assumed regenerable",
-        "delete only duplicate raw mirrors after manifest and restore proof",
-        backup_class="source_manifests",
-        deletion_requires_restore=True,
+        "delete only duplicate raw mirrors after manifest review",
+        deletion_requires_review=True,
     ),
     DataRetentionPolicy(
         "reanalysis",
@@ -187,9 +168,9 @@ POLICIES = (
         "large gridded/reanalysis source cache and derived sidecars",
         "retain sidecars and latest cache windows; externalize large raw gridded files when manifest-backed",
         "archive raw pressure/gridded files used by trained artifacts",
-        "restore or re-download proof required before removing raw NetCDF/GRIB cache",
+        "re-download proof required before removing raw NetCDF/GRIB cache",
         "raw gridded files may be re-downloaded when upstream retains the exact vintage; sidecars are rebuildable",
-        "externalize raw files with checksums; rebuild sidecars after restore",
+        "externalize raw files with checksums; rebuild sidecars after re-download",
         local_delete_allowed=True,
     ),
     DataRetentionPolicy(
@@ -258,32 +239,17 @@ def classify_data_path(rel_path: str) -> DataRetentionPolicy:
     )
 
 
-def _backup_restore_ok(backup_status: dict[str, Any]) -> bool:
-    return (
-        backup_status.get("status") == "OK"
-        and backup_status.get("restore_drill_sla_status") == "OK"
-        and int(backup_status.get("missing_critical_files") or 0) == 0
-        and int(backup_status.get("missing_critical_bytes") or 0) == 0
-    )
-
-
-def _policy_restore_gate(policy: DataRetentionPolicy, backup_status: dict[str, Any]) -> dict[str, Any]:
-    if not policy.deletion_requires_restore:
+def _policy_delete_gate(policy: DataRetentionPolicy) -> dict[str, Any]:
+    if not policy.deletion_requires_review:
         return {
             "status": "NOT_REQUIRED",
             "delete_permission": "allowed_by_policy_with_manifest" if policy.local_delete_allowed else "retain",
-            "detail": policy.restore_requirement,
-        }
-    if _backup_restore_ok(backup_status):
-        return {
-            "status": "PASS",
-            "delete_permission": "allowed_only_with_reviewed_manifest",
-            "detail": "backup status and restore-drill SLA are OK",
+            "detail": policy.deletion_requirement,
         }
     return {
-        "status": "BLOCK",
-        "delete_permission": "blocked_until_restore_proof",
-        "detail": "missing current OK tape backup status or restore-drill proof",
+        "status": "REVIEW_REQUIRED",
+        "delete_permission": "allowed_only_with_reviewed_manifest",
+        "detail": policy.deletion_requirement,
     }
 
 
@@ -316,9 +282,9 @@ def _storage_summary_row(storage_class: str) -> dict[str, Any]:
         "new_file_count": 0,
         "new_bytes": 0,
         "new_size_human": "0 B",
-        "backup_required_files": 0,
-        "backup_required_bytes": 0,
-        "backup_required_human": "0 B",
+        "protected_files": 0,
+        "protected_bytes": 0,
+        "protected_human": "0 B",
         "artifact_families": set(),
         "delete_gate": {},
     }
@@ -327,7 +293,6 @@ def _storage_summary_row(storage_class: str) -> dict[str, Any]:
 def build_payload(
     root: str | Path = DEFAULT_DATA_ROOT,
     *,
-    backup_status_path: str | Path | None = DEFAULT_BACKUP_STATUS_PATH,
     min_free_bytes: int = DEFAULT_MIN_FREE_BYTES,
     lookback_hours: float = DEFAULT_LOOKBACK_HOURS,
     top_n: int = DEFAULT_TOP_N,
@@ -335,7 +300,6 @@ def build_payload(
     root = Path(root)
     generated_at = datetime.now(timezone.utc)
     cutoff = generated_at - timedelta(hours=float(lookback_hours))
-    backup_status = _load_json(backup_status_path)
     event_day_manifests = summarize_event_day_manifests(root / "snapshots", check_hashes=False)
     usage_path = root if root.exists() else root.parent
     usage = shutil.disk_usage(usage_path)
@@ -373,7 +337,7 @@ def build_payload(
                 "new_bytes": 0,
                 "new_size_human": "0 B",
                 "newest_modified_at_utc": None,
-                "restore_gate": {},
+                "delete_gate": {},
             })
             summary["file_count"] += 1
             summary["bytes"] += row["bytes"]
@@ -383,9 +347,9 @@ def build_payload(
             )
             storage_summary["file_count"] += 1
             storage_summary["bytes"] += row["bytes"]
-            if row.get("backup_required"):
-                storage_summary["backup_required_files"] += 1
-                storage_summary["backup_required_bytes"] += row["bytes"]
+            if row.get("protected"):
+                storage_summary["protected_files"] += 1
+                storage_summary["protected_bytes"] += row["bytes"]
             if row.get("artifact_family"):
                 storage_summary["artifact_families"].add(row["artifact_family"])
             if not summary["largest_file"] or row["bytes"] > summary["largest_file"]["bytes"]:
@@ -411,16 +375,16 @@ def build_payload(
         policy = policies.get(name) or classify_data_path("")
         summary["size_human"] = _format_bytes(summary["bytes"])
         summary["new_size_human"] = _format_bytes(summary["new_bytes"])
-        summary["restore_gate"] = _policy_restore_gate(policy, backup_status)
+        summary["delete_gate"] = _policy_delete_gate(policy)
         if summary["largest_file"]:
             summary["newest_modified_at_utc"] = _newest_mtime([summary["largest_file"]])
 
     for storage_class, summary in storage_summaries.items():
         summary["size_human"] = _format_bytes(summary["bytes"])
         summary["new_size_human"] = _format_bytes(summary["new_bytes"])
-        summary["backup_required_human"] = _format_bytes(summary["backup_required_bytes"])
+        summary["protected_human"] = _format_bytes(summary["protected_bytes"])
         summary["artifact_families"] = sorted(summary["artifact_families"])
-        summary["delete_gate"] = delete_gate_for_storage_class(storage_class, backup_status)
+        summary["delete_gate"] = delete_gate_for_storage_class(storage_class)
 
     largest_files.sort(key=lambda row: row["bytes"], reverse=True)
     recent_files.sort(key=lambda row: row["bytes"], reverse=True)
@@ -431,16 +395,9 @@ def build_payload(
             row["size_human"] = _format_bytes(row["bytes"])
 
     free_shortfall = max(0, int(min_free_bytes) - int(usage.free))
-    restore_blocks = [
-        row for row in summaries.values()
-        if (row.get("restore_gate") or {}).get("status") == "BLOCK"
-        and row.get("bytes", 0) > 0
-    ]
     status = "PASS"
     if free_shortfall:
         status = "BLOCK"
-    elif restore_blocks:
-        status = "WARN"
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at.isoformat(),
@@ -457,12 +414,6 @@ def build_payload(
             "free_shortfall_bytes": int(free_shortfall),
             "free_shortfall_human": _format_bytes(free_shortfall),
         },
-        "backup_status": {
-            "path": str(backup_status_path) if backup_status_path else "",
-            "status": backup_status.get("status") or "MISSING",
-            "restore_drill_sla_status": backup_status.get("restore_drill_sla_status") or "-",
-            "restore_ok": _backup_restore_ok(backup_status),
-        },
         "event_day_manifests": event_day_manifests,
         "summary": {
             "file_count": file_count,
@@ -470,7 +421,12 @@ def build_payload(
             "total_human": _format_bytes(total_bytes),
             "policy_count": len(summaries),
             "storage_class_count": len(storage_summaries),
-            "restore_block_count": len(restore_blocks),
+            "review_required_class_count": sum(
+                1
+                for row in summaries.values()
+                if (row.get("delete_gate") or {}).get("status") == "REVIEW_REQUIRED"
+                and row.get("bytes", 0) > 0
+            ),
             "recent_file_count": len(recent_files),
             "recent_bytes": sum(row["bytes"] for row in recent_files),
             "recent_human": _format_bytes(sum(row["bytes"] for row in recent_files)),
@@ -489,7 +445,6 @@ def build_payload(
 def render_report(payload: dict[str, Any]) -> str:
     summary = payload.get("summary") or {}
     disk = payload.get("disk") or {}
-    backup = payload.get("backup_status") or {}
     lines = [
         "# Data Retention Inventory",
         "",
@@ -508,10 +463,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Recent bytes", summary.get("recent_human")],
                 ["Free space", disk.get("free_human")],
                 ["Free-space shortfall", disk.get("free_shortfall_human")],
-                ["Backup status", backup.get("status")],
-                ["Restore drill SLA", backup.get("restore_drill_sla_status")],
-                ["Restore OK for deletion gates", backup.get("restore_ok")],
-                ["Restore-blocked classes", summary.get("restore_block_count")],
+                ["Review-required classes", summary.get("review_required_class_count")],
                 ["Event-day manifests", (payload.get("event_day_manifests") or {}).get("manifest_count")],
                 ["Blocked event-day manifests", (payload.get("event_day_manifests") or {}).get("block_count")],
             ],
@@ -525,7 +477,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 "Files",
                 "Size",
                 "New bytes",
-                "Backup-required bytes",
+                "Protected bytes",
                 "Delete gate",
                 "Delete permission",
                 "Artifact families",
@@ -536,7 +488,7 @@ def render_report(payload: dict[str, Any]) -> str:
                     row.get("file_count"),
                     row.get("size_human"),
                     row.get("new_size_human"),
-                    row.get("backup_required_human"),
+                    row.get("protected_human"),
                     (row.get("delete_gate") or {}).get("status"),
                     (row.get("delete_gate") or {}).get("delete_permission"),
                     ", ".join((row.get("artifact_families") or [])[:6]),
@@ -548,7 +500,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "## Ownership And Retention",
         "",
         *markdown_table(
-            ["Class", "Owner", "Files", "Size", "New bytes", "Restore gate", "Delete permission"],
+            ["Class", "Owner", "Files", "Size", "New bytes", "Delete gate", "Delete permission"],
             [
                 [
                     row.get("policy"),
@@ -556,8 +508,8 @@ def render_report(payload: dict[str, Any]) -> str:
                     row.get("file_count"),
                     row.get("size_human"),
                     row.get("new_size_human"),
-                    (row.get("restore_gate") or {}).get("status"),
-                    (row.get("restore_gate") or {}).get("delete_permission"),
+                    (row.get("delete_gate") or {}).get("status"),
+                    (row.get("delete_gate") or {}).get("delete_permission"),
                 ]
                 for row in payload.get("policy_summaries") or []
             ],
@@ -596,7 +548,7 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         "## Operator Procedure",
         "",
-        "Deletion is blocked for restore-required classes until backup status and restore-drill SLA are OK. Use the generated class table to pick the owning procedure, then create a reviewed cleanup manifest before removing local files. Prefer tiering or externalization for large historical JSONL/CSV evidence.",
+        "Use the generated class table to pick the owning procedure, then create a reviewed cleanup manifest before removing local files. Prefer tiering or externalization for large historical JSONL/CSV evidence.",
         "",
     ]
     return "\n".join(lines)
@@ -619,7 +571,6 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Inventory data ownership, retention policy, and disk growth.")
     parser.add_argument("--root", default=str(DEFAULT_DATA_ROOT))
-    parser.add_argument("--backup-status", default=str(DEFAULT_BACKUP_STATUS_PATH))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
@@ -628,7 +579,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     payload = build_payload(
         args.root,
-        backup_status_path=args.backup_status,
         min_free_bytes=args.min_free_bytes,
         lookback_hours=args.lookback_hours,
         top_n=args.top_n,

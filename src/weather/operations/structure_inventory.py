@@ -24,7 +24,6 @@ DEFAULT_DATA_BUDGET_MIB = {
     "metar": 2_000,
     "noaa_ghcnh": 5_000,
     "snapshots": 50_000,
-    "tape_backups": 50_000,
     "wunderground": 2_000,
 }
 
@@ -326,9 +325,9 @@ def data_budget_checks(
         threshold_bytes = threshold_mib * 1024 * 1024
         if row["bytes"] <= threshold_bytes:
             continue
-        recommendation = "Review retention and move bulky generated state outside the repo if it is operational backup data."
-        if area in {"snapshots", "tape_backups"}:
-            recommendation = "Move backup/snapshot roots outside the repo or apply retention before daily refresh loops fail."
+        recommendation = "Review retention and move bulky generated state outside the repo if it is operational data."
+        if area == "snapshots":
+            recommendation = "Move large snapshot roots outside the repo or apply retention before daily refresh loops fail."
         warnings.append({
             "area": area,
             "path": row["path"],

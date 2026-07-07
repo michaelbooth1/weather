@@ -1,4 +1,4 @@
-# Project Structure Action Plan - 2026-06-22
+﻿# Project Structure Action Plan - 2026-06-22
 
 ## Purpose
 
@@ -43,7 +43,6 @@ The old audit is now stale in several concrete ways:
   - `weather.collection.live_variant_predictions` imports
     `weather.calibration`, creating an undocumented `collection -> calibration`
     edge.
-- ignored local runtime state grew further: `data/tape_backups` is about
   89,302 MiB and `data/snapshots` is about 84,435 MiB.
 
 ## Current Evidence Snapshot
@@ -108,7 +107,6 @@ Near-threshold modules:
 | `weather.reporting.disagreement_casebook` | 1,892 |
 | `weather.model.model_sources` | 1,883 |
 | `weather.model.model_features` | 1,849 |
-| `weather.operations.tape_backup` | 1,789 |
 | `weather.reporting.source_gates.source_family_inventory` | 1,753 |
 | `weather.reporting.candidate_lifecycle.multi_variant_shadow` | 1,693 |
 | `weather.operations.daily_refresh_steps` | 1,678 |
@@ -543,7 +541,6 @@ Ignored local runtime state is very large:
 
 | Area | Files | MiB |
 | :--- | ---: | ---: |
-| `data/tape_backups` | 4,195 | 89,301.61 |
 | `data/snapshots` | 140,742 | 84,434.81 |
 | `data/noaa_ghcnh` | 4,187 | 6,321.24 |
 | `data/wunderground` | 74,052 | 3,885.01 |
@@ -552,10 +549,8 @@ Ignored local runtime state is very large:
 
 Actions:
 
-1. Extend existing retention/tape backup tooling or the new
    `structure_inventory` command to report ignored data sizes.
 2. Add warning thresholds by area.
-3. Recommend moving backup roots outside the repo when size exceeds threshold.
 4. Keep generated reports under `data/backtest`.
 
 Acceptance:

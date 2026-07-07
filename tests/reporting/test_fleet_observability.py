@@ -20,7 +20,6 @@ from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     artifact_metadata,
     audit_alerts,
-    cached_tape_backup_status,
     classify_loop_diagnostic_event,
     clob_alerts,
     cleanup_deletion_gate_summary,
@@ -37,7 +36,6 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     runtime_identity_alerts,
     runtime_identity_target_date,
     settled_day_freshness_alerts,
-    tape_backup_status_summary,
     trust_readiness,
     write_markdown,
 )
@@ -426,109 +424,11 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(overall_status([{"severity": "warning"}]), "WARN")
         self.assertEqual(overall_status([{"severity": "warning"}, {"severity": "critical"}]), "CRITICAL")
 
-    def test_cleanup_deletion_gate_blocks_missing_critical_files(self):
-        gate = cleanup_deletion_gate_summary({
-            "status": "MISSING_CRITICAL_FILES",
-            "restore_drill_sla_status": "OK",
-            "missing_critical_files": 2,
-            "missing_critical_bytes": 12,
-            "missing_critical_file_samples": [{"path": "data/snapshots/event/order_books.jsonl"}],
-        })
+    def test_cleanup_deletion_gate_requires_review_manifest(self):
+        gate = cleanup_deletion_gate_summary()
 
-        self.assertEqual(gate["status"], "BLOCK")
-        self.assertEqual(gate["delete_permission"], "blocked_missing_critical_backup_files")
-        self.assertEqual(gate["missing_samples"][0]["path"], "data/snapshots/event/order_books.jsonl")
-
-    def test_cached_tape_backup_status_recomputes_age_and_stale_status(self):
-        now = datetime(2026, 6, 25, 18, 0, tzinfo=timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tape_backup_status.json"
-            path.write_text(
-                json.dumps({
-                    "status": "OK",
-                    "backup_root": str(Path(tmp) / "tape_backups"),
-                    "manifest_hash": "abc123",
-                    "generated_at_utc": "2026-06-24T06:00:00+00:00",
-                    "missing_critical_classes": [],
-                    "missing_critical_files": 0,
-                    "missing_critical_bytes": 0,
-                    "checksum_failures": [],
-                    "last_restore_drill": {
-                        "exists": True,
-                        "status": "PASS",
-                        "manifest_hash": "abc123",
-                        "generated_at_utc": "2026-06-24T07:00:00+00:00",
-                    },
-                }),
-                encoding="utf-8",
-            )
-
-            status = cached_tape_backup_status(
-                path,
-                max_age_hours=26,
-                max_restore_age_hours=168,
-                now=now,
-            )
-
-        self.assertTrue(status["status_cache_loaded"])
-        self.assertEqual(status["age_hours"], 36.0)
-        self.assertEqual(status["last_restore_drill"]["age_hours"], 35.0)
-        self.assertEqual(status["restore_drill_sla_status"], "OK")
-        self.assertEqual(status["status"], "STALE")
-
-    def test_tape_backup_status_summary_uses_cache_without_backup_scan(self):
-        now = datetime.now(timezone.utc)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "tape_backup_status.json"
-            path.write_text(
-                json.dumps({
-                    "status": "OK",
-                    "backup_root": str(Path(tmp) / "tape_backups"),
-                    "manifest_hash": "abc123",
-                    "generated_at_utc": now.isoformat(),
-                    "missing_critical_classes": [],
-                    "missing_critical_files": 0,
-                    "missing_critical_bytes": 0,
-                    "checksum_failures": [],
-                    "last_restore_drill": {
-                        "exists": True,
-                        "status": "PASS",
-                        "manifest_hash": "abc123",
-                        "generated_at_utc": now.isoformat(),
-                    },
-                }),
-                encoding="utf-8",
-            )
-
-            with patch(
-                "weather.reporting.fleet.fleet_observability_payload.tape_backup.backup_status",
-                side_effect=AssertionError("unexpected full backup status scan"),
-            ):
-                status = tape_backup_status_summary(
-                    status_path=path,
-                    backup_root=Path(tmp) / "tape_backups",
-                )
-
-        self.assertTrue(status["status_cache_loaded"])
-        self.assertEqual(status["status"], "OK")
-
-    def test_tape_backup_status_summary_refresh_runs_full_backup_scan(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            status_path = Path(tmp) / "tape_backup_status.json"
-            backup_root = Path(tmp) / "tape_backups"
-            with patch(
-                "weather.reporting.fleet.fleet_observability_payload.tape_backup.backup_status",
-                return_value={"status": "OK", "missing_critical_files": 0, "missing_critical_bytes": 0},
-            ) as mocked:
-                status = tape_backup_status_summary(
-                    status_path=status_path,
-                    backup_root=backup_root,
-                    refresh=True,
-                )
-
-        mocked.assert_called_once()
-        self.assertFalse(status["status_cache_loaded"])
-        self.assertEqual(status["status_cache_path"], str(status_path))
+        self.assertEqual(gate["status"], "REVIEW_REQUIRED")
+        self.assertEqual(gate["delete_permission"], "allowed_only_with_reviewed_cleanup_manifest")
 
     def test_runtime_identity_alerts_warn_on_mixed_runtime_blocker(self):
         collection = {
@@ -1074,7 +974,7 @@ class TestFleetObservability(unittest.TestCase):
         self.assertNotIn("snapshot_collection", {row["gate"] for row in gate["recovery_checklist"]})
         self.assertEqual(gate["first_blocker"]["component"], "variant_prediction_tape")
 
-    def test_markdown_surfaces_tape_backup_status(self):
+    def test_markdown_surfaces_cleanup_deletion_gate(self):
         payload = {
             "generated_at_utc": "2026-06-15T00:00:00+00:00",
             "status": "CRITICAL",
@@ -1272,16 +1172,12 @@ class TestFleetObservability(unittest.TestCase):
                     }
                 },
             },
-            "tape_backup": {
-                "status": "MISSING_CRITICAL_CLASS",
-                "backup_root": "Z:/weather-tapes",
-                "age_hours": 1.5,
-                "file_count": 10,
-                "missing_critical_classes": ["clob_tapes"],
-                "checksum_failures": [{"path": "x", "reason": "sha256_mismatch"}],
-                "restore_drill_sla_status": "OK",
-                "restore_drill_sla_detail": "restore drill evidence is current",
-                "last_restore_drill": {"status": "PASS", "generated_at_utc": "2026-06-15T01:00:00+00:00"},
+            "cleanup_deletion_gate": {
+                "status": "REVIEW_REQUIRED",
+                "canonical_evidence": {
+                    "delete_permission": "allowed_only_with_reviewed_cleanup_manifest",
+                    "detail": "canonical evidence cleanup requires an explicit reviewed cleanup manifest",
+                },
             },
             "runtime_identity_evidence": {
                 "status": "BLOCK",
@@ -1320,11 +1216,9 @@ class TestFleetObservability(unittest.TestCase):
             write_markdown(report, payload)
             text = report.read_text(encoding="utf-8")
 
-        self.assertIn("## Tape Backup And Restore", text)
-        self.assertIn("MISSING_CRITICAL_CLASS", text)
-        self.assertIn("clob_tapes", text)
-        self.assertIn("Restore SLA", text)
-        self.assertIn("restore drill evidence is current", text)
+        self.assertIn("## Cleanup Deletion Gate", text)
+        self.assertIn("REVIEW_REQUIRED", text)
+        self.assertIn("allowed_only_with_reviewed_cleanup_manifest", text)
         self.assertIn("## Loop Artifact Integrity", text)
         self.assertIn("clob_capture", text)
         self.assertIn("loop_jsonl_repair repair", text)

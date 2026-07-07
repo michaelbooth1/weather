@@ -1,4 +1,4 @@
-# 156. CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]
+﻿# 156. CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]
 
 Goal: make market-informed CLOB repairs usable as split-stable evidence by
 collecting and auditing raw token/book tapes with enough midpoint coverage on
@@ -29,8 +29,6 @@ Current evidence:
   and `72` have raw-book artifacts.
 - The combined Item 32/35/48 v0.3 CLOB audit:
   `data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`
-  scans all local tape-backup manifests. All `24` June 7/8 train folders have
-  feature shells in backup manifests but no raw-book or token-map restore
   source; all `24` June 12/13 eval folders do have full raw restore sources.
 
 Why this matters: CLOB/market-informed policies can be valid quote-time
@@ -52,7 +50,6 @@ midpoint anchors as promotion-supporting market-informed evidence.
    useful.
 5. Keep no-market weather candidates and market-informed quote/risk overlays
    separated in promotion reports.
-6. Retain enough raw book/token artifacts, with Item 146 backup evidence, to
    rerun the selector from source tapes.
 
 - [x] Define the minimum train-side midpoint coverage threshold for split-safe
@@ -171,26 +168,22 @@ Verification:
 `python -m pytest tests\market\test_market_microstructure.py tests\reporting\test_data_layer_audit.py tests\operations\test_schema_registry.py -q`
 passed with `50 passed`.
 
-## 2026-06-20 local restore-source audit
+## 2026-06-20 local source-verification audit
 
 `weather.reporting.clob_coverage_audit` now emits
-`clob_coverage_audit_v0.3`, adding an optional backup manifest scan for raw
 CLOB restore sources. I regenerated the combined Item 32/35/48 audit with all
-six local tape-backup manifests:
 `data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
 
 The continuity blocker is now sharper. The split gate remains `BLOCK`: train
 folders `24`, train midpoint coverage `0.0000`, and train classifications
-`{"missing_raw_clob_tape_and_token_map": 24}`. The restore-source audit proves
-local backup cannot repair those train days: all `24` June 7/8 train folders
+`{"missing_raw_clob_tape_and_token_map": 24}`. The source-verification audit proves
 have `clob_features*` feature shells in the manifests, but `0/24` have raw-book
 restore paths, `0/24` have token-map restore paths, and `0/24` have full raw
-restore availability. By contrast, all `24` June 12/13 eval folders have full
+source availability. By contrast, all `24` June 12/13 eval folders have full
 raw restore sources, which explains why eval-side CLOB can look useful while
 the selector remains split-unsafe.
 
 Item 156 therefore stays `OPEN`. The next unblock is not another local restore
-attempt unless an external/off-machine backup exists; it is collecting fresh
 predeclared train/eval market days with raw `clob_tokens*`,
 `order_books*`, and `clob_capture_status.jsonl` continuity, then rerunning the
 v0.3 coverage audit before any Item 35/48 market-informed repair is tried.

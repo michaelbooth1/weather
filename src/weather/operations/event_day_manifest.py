@@ -159,34 +159,11 @@ def _iter_family_files(folder: Path, family: EventDayArtifactFamily) -> list[Pat
     return sorted(files)
 
 
-def _backup_state(
-    data_rel_path: str,
-    classification: dict[str, Any],
-    *,
-    backup_manifest: dict[str, Any] | None = None,
-    restore_drill: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    manifest_files = {
-        row.get("path"): row
-        for row in (backup_manifest or {}).get("files") or []
-        if row.get("path")
-    }
-    backed_entry = manifest_files.get(f"data/{data_rel_path}") or manifest_files.get(data_rel_path)
-    return {
-        "expected": bool(classification.get("backup_required")),
-        "backed_up": bool(backed_entry) if backup_manifest else None,
-        "backup_manifest_hash": (backup_manifest or {}).get("manifest_hash"),
-        "restore_drill_status": (restore_drill or {}).get("status") or "unknown",
-    }
-
-
 def _file_record(
     path: Path,
     *,
     folder: Path,
     snapshots_root: Path,
-    backup_manifest: dict[str, Any] | None,
-    restore_drill: dict[str, Any] | None,
 ) -> dict[str, Any]:
     stat = path.stat()
     data_rel = _data_relative_path(path, snapshots_root)
@@ -204,13 +181,7 @@ def _file_record(
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "retention_class": classification["retention_class"],
         "rebuild_source": classification["rebuild_source"],
-        "backup_required": classification["backup_required"],
-        "backup": _backup_state(
-            data_rel,
-            classification,
-            backup_manifest=backup_manifest,
-            restore_drill=restore_drill,
-        ),
+        "protected": classification["protected"],
     }
 
 
@@ -272,8 +243,6 @@ def build_event_day_manifest(
     folder: str | Path,
     *,
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
-    backup_manifest: dict[str, Any] | None = None,
-    restore_drill: dict[str, Any] | None = None,
     event_metadata_validation_payload: dict[str, Any] | None = None,
     event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
     generated_at_utc: str | None = None,
@@ -293,8 +262,6 @@ def build_event_day_manifest(
                 path,
                 folder=folder,
                 snapshots_root=snapshots_root,
-                backup_manifest=backup_manifest,
-                restore_drill=restore_drill,
             )
             for path in files
         ]
@@ -322,8 +289,6 @@ def build_event_day_manifest(
                 path,
                 folder=folder,
                 snapshots_root=snapshots_root,
-                backup_manifest=backup_manifest,
-                restore_drill=restore_drill,
             )
             for path in extra_files
         ]
@@ -409,8 +374,6 @@ def write_event_day_manifest(
     folder: str | Path,
     *,
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
-    backup_manifest: dict[str, Any] | None = None,
-    restore_drill: dict[str, Any] | None = None,
     event_metadata_validation_payload: dict[str, Any] | None = None,
     event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
     generated_at_utc: str | None = None,
@@ -418,8 +381,6 @@ def write_event_day_manifest(
     manifest = build_event_day_manifest(
         folder,
         snapshots_root=snapshots_root,
-        backup_manifest=backup_manifest,
-        restore_drill=restore_drill,
         event_metadata_validation_payload=event_metadata_validation_payload,
         event_metadata_validation_path=event_metadata_validation_path,
         generated_at_utc=generated_at_utc,
@@ -548,15 +509,6 @@ def validate_deletion_candidates(
             })
             continue
         storage_class = record.get("storage_class")
-        backup = record.get("backup") or {}
-        if storage_class == "canonical_evidence" and backup.get("backed_up") is not True:
-            checks.append({
-                "check": "canonical_backup_proof",
-                "status": "BLOCK",
-                "path": normalized,
-                "detail": "canonical evidence candidate lacks backup manifest coverage",
-            })
-            continue
         if storage_class == "analysis_projection" and not record.get("rebuild_source"):
             checks.append({
                 "check": "projection_rebuild_source",

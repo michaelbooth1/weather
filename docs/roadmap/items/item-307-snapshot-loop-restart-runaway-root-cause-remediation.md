@@ -1,4 +1,4 @@
-# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]
+﻿# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -177,11 +177,6 @@ fleet observability run to show `current_code_soak=PASS`,
 ## 2026-06-25 Fleet Observability Timeout And Blocker Refresh
 
 Diagnosed the two-minute `weather.reporting.fleet.fleet_observability report`
-timeout: the report was recomputing the full tape-backup status, which parses a
-large local backup manifest and walks the local mirror. Fleet observability now
-uses the generated `data/backtest/tape_backup_status.json` by default, recomputes
-its current age/SLA from cached timestamps, and keeps the full backup refresh
-behind `--refresh-tape-backup-status` or `--verify-tape-backup-checksums`.
 
 Verification:
 

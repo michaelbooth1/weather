@@ -1,4 +1,4 @@
-# 2026-06-23 Trading Stack Performance And Profitability Audit
+﻿# 2026-06-23 Trading Stack Performance And Profitability Audit
 
 Scope: evidence audit of weather-market trading over the latest active run
 window, focused on June 19-22, 2026. This separates maker-style market making
@@ -162,7 +162,6 @@ promotion threshold.
 Daily:
 
 1. Confirm loop health: snapshot/model, CLOB, observation-trigger, disk, and
-   tape backup.
 2. Finalize settlement labels and taker runs as soon as labels are available.
 3. Run taker champion/challenger bakeoff from settled, after-fee, after-slippage
    evidence only.

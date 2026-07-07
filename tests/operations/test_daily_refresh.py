@@ -621,6 +621,29 @@ class TestDailyRefresh(unittest.TestCase):
             "2026-07-02T13:30:00+00:00",
         )
 
+    def test_run_pins_settled_target_once_at_chain_start(self):
+        # Regression (2026-07-07): steps derived the settled target from the
+        # wall clock at their own execution time, so a chain crossing midnight
+        # analyzed two different "yesterdays" (root-cause targeted 07-06 at
+        # 01:00 while pre-midnight steps targeted 07-05), failing the settled
+        # target-agreement invariant and blocking the experiment queue. The
+        # runner must resolve the target once and pin it for every step.
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, as_of="2026-07-06T15:00:00+00:00")
+            seen = {}
+
+            def capture(step_args):
+                seen["pinned"] = getattr(step_args, "settled_analysis_target_date", "")
+                return {"status": "PASS"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[("ingest_quality_gate", capture)],
+            )
+
+        self.assertEqual(seen["pinned"], "2026-07-05")
+        self.assertEqual(payload["config"]["settled_analysis_target_date"], "2026-07-05")
+
     def test_settled_day_barrier_blocks_pre_finalization_target_date(self):
         target_date = "2026-06-17"
         with tempfile.TemporaryDirectory() as tmp:

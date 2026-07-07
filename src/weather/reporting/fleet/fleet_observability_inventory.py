@@ -44,7 +44,6 @@ from weather.operations.observation_trigger import read_status as read_observati
 from weather.operations.observation_trigger import watcher_health
 from weather.operations.market_making_daily_roll import MARKET_MAKING_DAILY_ROLL_SUPERVISOR
 from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
-from weather.operations import tape_backup
 from weather.artifacts import resolve_artifact_path
 from weather.paths import relative_to_repo, data_path
 from weather.reporting.data_quality.data_auditor import MIN_HOURLY_OBS, audit_fleet_historical_data, jsonable_result

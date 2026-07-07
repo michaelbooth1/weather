@@ -1,4 +1,4 @@
-# Project Structure Audit - 2026-06-22
+﻿# Project Structure Audit - 2026-06-22
 
 ## Scope
 
@@ -44,7 +44,6 @@ layout:
    tracked, but they show real coupling between reporting, operations, market,
    collection, calibration, and backtesting.
 5. Ignored local runtime state is enormous inside the repo root. That is okay
-   for Git hygiene but risky for local operations, backup, and accidental tool
    scans.
 6. The current architecture ratchet fails only because critical files are
    untracked in the worktree. The rule is good; the current state needs staging
@@ -185,7 +184,6 @@ Modules over 1,000 lines:
 | `weather.collection.snapshot_store` | 1,955 | schema constants, readers, writers, cadence metadata, migrations |
 | `weather.reporting.disagreement_casebook` | 1,892 | input loading, case classification, report rendering |
 | `weather.model.model_sources` | 1,869 | provider fetch clients vs serving adapter logic |
-| `weather.operations.tape_backup` | 1,789 | manifest, retention, backup, restore drill CLI |
 | `weather.calibration.feature_model` | 1,617 | training pipeline, artifact IO, CLI, reports |
 | `weather.reporting.candidate_lifecycle.multi_variant_shadow` | 1,610 | row normalization, scoring, governance report, CLI |
 | `weather.model.model_features` | 1,583 | feature extraction groups and source-state features |
@@ -304,7 +302,6 @@ The first pooled model is close to the 100 MiB failure threshold documented in
 
 | Area | Files | MiB |
 | :--- | ---: | ---: |
-| `data/tape_backups` | 3,845 | 76,859.94 |
 | `data/snapshots` | 122,607 | 72,513.77 |
 | `data/noaa_ghcnh` | 4,187 | 6,321.24 |
 | `data/wunderground` | 74,052 | 3,885.07 |
@@ -316,7 +313,6 @@ The first pooled model is close to the 100 MiB failure threshold documented in
 | `data/ops` | 14 | 127.12 |
 
 Keeping this out of Git is correct. The structure risk is local operational:
-repo-wide scans, backups, and disk pressure can become dominated by ignored
 state unless tooling consistently scopes itself to tracked/source directories.
 
 ## Scripts And Tools Map
@@ -489,10 +485,8 @@ edge counts show where the next extractions should happen.
 
 10. **Move very large ignored runtime stores out of the repo root or add a
     stronger local retention command.**
-    - Evidence: ignored `data/tape_backups` and `data/snapshots` together are
       about 149 GiB.
     - First move: make the existing retention/tiering tools report total
-      ignored-state size by area and recommend external roots for backups.
     - Acceptance: routine source scans avoid `data/`, and local disk-budget
       warnings trigger before operational runs fail.
 

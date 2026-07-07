@@ -17,7 +17,7 @@ class TestStorageClassRegistry(unittest.TestCase):
 
         self.assertEqual(set(STORAGE_CLASSES), {CANONICAL_EVIDENCE, ANALYSIS_PROJECTION, OPERATOR_CACHE})
         self.assertEqual(set(contracts), set(STORAGE_CLASSES))
-        self.assertIn("backup", contracts[CANONICAL_EVIDENCE]["backup_requirement"].lower())
+        self.assertIn("reviewed cleanup manifest", contracts[CANONICAL_EVIDENCE]["protection_requirement"].lower())
         self.assertIn("rebuild", contracts[ANALYSIS_PROJECTION]["deletion_prerequisite"].lower())
         self.assertIn("ttl", contracts[OPERATOR_CACHE]["retention_default"].lower())
 
@@ -38,7 +38,6 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/backtest/data_retention_inventory_report.md": OPERATOR_CACHE,
             "data/backtest/fleet_observability.json": OPERATOR_CACHE,
             "data/logs/daily_refresh.log": OPERATOR_CACHE,
-            "data/tape_backups/latest/tape_backup_manifest.json": OPERATOR_CACHE,
         }
 
         for path, expected in examples.items():

@@ -1,4 +1,4 @@
-# 289. CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]
+﻿# 289. CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]
 
 Goal: stop repeated CLOB price-history captures from appending duplicate
 overlapping windows, and store raw price-history responses once by content hash
@@ -17,7 +17,6 @@ markouts, taker/maker replay, adverse-selection analysis, and market movement
 diagnostics. It should be kept. The waste is not the data itself; it is storing
 the same exchange time series points and raw responses repeatedly. A deduped
 point table plus content-addressed raw response blobs keeps the useful evidence
-while reducing local disk pressure and backup churn.
 
 ## Design
 
@@ -35,7 +34,6 @@ while reducing local disk pressure and backup churn.
    raw-response manifest.
 5. Add a historical repair command that scans existing price-history tapes,
    writes a deduped table, validates point counts by key, and reports reclaimed
-   duplicate rows without deleting legacy evidence until backup/restore gates
    pass.
 
 - [x] Add a deduped CLOB price-history point writer with an explicit uniqueness
@@ -62,13 +60,11 @@ while reducing local disk pressure and backup churn.
 - `python -m weather.market.market_microstructure repair-price-history
   --folder <snapshot-folder>` writes `price_history_deduped.csv`; `--apply`
   rewrites `price_history.csv` after the key-parity validation passes.
-- Storage-class, event-day manifest, closed-day archive docs, and tape-backup
   policy now classify the raw response blobs as canonical CLOB evidence.
 
 Verification:
 
 - `python -m pytest tests/market/test_market_microstructure.py -q`
-- `python -m pytest tests/operations/test_tape_backup.py tests/operations/test_event_day_manifest.py tests/operations/test_schema_registry.py -q`
 
 Acceptance: repeated CLOB captures over overlapping price-history windows write
 each unique point once per token/fidelity/interval timestamp, raw API responses

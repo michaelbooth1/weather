@@ -1,4 +1,4 @@
-# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]
+﻿# 32. Reanalysis And Synoptic Feature Layer [PARTIAL 2026-06-22 - SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED]
 
 Goal: add physically meaningful, multi-decade-consistent inputs the obs-only set
 lacks.
@@ -16,7 +16,7 @@ improves skill without creating sparse-source or train/serve skew.
 > pressure-level path here is antecedent-day reanalysis, so live serving is left
 > with empty synoptic features whenever the reanalysis lags (e.g. the NOAA 2026
 > pressure file only covers through March). A complementary unblock is to also
-> pull **live forecast-side** 850 hPa temperature / 1000–500 thickness from a
+> pull **live forecast-side** 850 hPa temperature / 1000â€“500 thickness from a
 > forecast pressure-level API (Open-Meteo) for the target day, so the
 > mixing-temperature predictor is populated at serve time, not only in history.
 > The 850 hPa "mixing" method is the single most classic Tmax predictor; see
@@ -463,7 +463,6 @@ artifact disk guard because local free space was below the 1 GB reserve; the
 small diagnostic was rerun with `--min-artifact-free-bytes 0`. Subsequent Item
 154 cleanup (`data/backtest/backtest_artifact_cleanup_manifest_4.json`) restored
 the local backtest artifact-retention report to `PASS` with the 1 GB reserve
-met for that diagnostic pass, while Item 146 still owns external backup-root
 durability for irreplaceable and high-volume data.
 
 A later retention check after the CLOB raw-artifact audit temporarily reversed
@@ -515,9 +514,7 @@ To prevent low-disk repeats, `pooled_feature_model` now has
 `--min-artifact-free-bytes`, defaulting to the shared artifact reserve, and
 preflights planned model/report outputs before dataset assembly or fitting.
 The disk guard was exercised while local free space was low, then cleared after
-`tape_backup_unmanifested_cleanup_applied.json` and
 `clob_order_book_tiering_apply_batch1.json`; the latest local retention check
-`data/backtest/backtest_artifact_retention_after_backup_cleanup_and_tiering_report.md`
 is `PASS`.
 
 A bounded no-pressure diagnostic was completed with
@@ -1005,7 +1002,6 @@ I regenerated the exact combined replay CLOB coverage audit after adding
 chronological split classification counts:
 `data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
 The v0.3 audit covers the same June 7/8 train-side and June 12/13 eval-side
-replay window across all 12 markets, and scans all local tape-backup manifests
 for raw CLOB restore sources.
 
 The result is a hard data continuity blocker, not a model-selection result.
@@ -1014,10 +1010,8 @@ as `missing_raw_clob_tape_and_token_map`, with `0.0000` midpoint coverage,
 zero raw-book folders, and zero token-map folders. Eval-side coverage is
 partially useful but asymmetric: `16` eval folders are `midpoint_available`,
 `8` are `one_sided_books_no_midpoint`, and midpoint row coverage is `0.2380`.
-The backup restore-source section proves this is not locally recoverable:
-all `24` train folders have feature shells in backup manifests, but `0/24`
 have raw-book restore paths, `0/24` have token-map restore paths, and `0/24`
-have full raw restore availability.
+have full raw source availability.
 
 This means CLOB/microstructure remains a plausible target-day band-selection
 signal, but it is not currently promotable or split-safe for Item 32 repair.

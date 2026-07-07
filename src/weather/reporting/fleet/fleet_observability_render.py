@@ -644,29 +644,15 @@ def write_markdown(path, payload):
     ]
     lines += ["", "## Closed-Day Parquet Incremental Status", ""]
     lines += markdown_table(["Metric", "Value"], parquet_rows)
-    backup = payload.get("tape_backup") or {}
-    restore = backup.get("last_restore_drill") or {}
     cleanup_gate = payload.get("cleanup_deletion_gate") or {}
     canonical_cleanup_gate = cleanup_gate.get("canonical_evidence") or {}
-    backup_rows = [
-        ["Status", backup.get("status")],
-        ["Status cache", backup.get("status_cache_path") or "-"],
-        ["Status cache loaded", backup.get("status_cache_loaded")],
-        ["Backup root", backup.get("backup_root")],
-        ["Manifest age hours", backup.get("age_hours")],
-        ["Files", backup.get("file_count")],
-        ["Missing critical classes", ", ".join(backup.get("missing_critical_classes") or []) or "-"],
-        ["Checksum failures", len(backup.get("checksum_failures") or [])],
-        ["Restore SLA", backup.get("restore_drill_sla_status") or "-"],
-        ["Restore SLA detail", backup.get("restore_drill_sla_detail") or "-"],
-        ["Last restore drill", restore.get("status") or "-"],
-        ["Restore generated", restore.get("generated_at_utc") or "-"],
+    cleanup_rows = [
         ["Canonical cleanup gate", cleanup_gate.get("status") or "-"],
         ["Canonical delete permission", canonical_cleanup_gate.get("delete_permission") or "-"],
-        ["Cleanup missing critical files", cleanup_gate.get("missing_critical_files") or 0],
+        ["Canonical cleanup detail", canonical_cleanup_gate.get("detail") or "-"],
     ]
-    lines += ["", "## Tape Backup And Restore", ""]
-    lines += markdown_table(["Metric", "Value"], backup_rows)
+    lines += ["", "## Cleanup Deletion Gate", ""]
+    lines += markdown_table(["Metric", "Value"], cleanup_rows)
     lines += ["", "## Alerts", ""]
     lines += markdown_table(
         ["Severity", "Market", "Category", "Message"],

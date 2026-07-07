@@ -105,7 +105,6 @@ infrastructure work remains.
 | 61 | [Supplemental Nearby Station Registry And Provenance [COMPLETE 2026-06-15 - REGISTRY AND PROVENANCE LIVE]](items/item-61-supplemental-nearby-station-registry-and-provenance.md) |
 | 62 | [Nearby Station Validation And Promotion Gates [COMPLETE 2026-06-15 - VALIDATION GATE LIVE]](items/item-62-nearby-station-validation-and-promotion-gates.md) |
 | 64 | [Canonical Settlement History Provenance Guardrails [COMPLETE 2026-06-15 - CANONICAL GUARDRAILS LIVE]](items/item-64-canonical-settlement-history-provenance-guardrails.md) |
-| 65 | [Irreplaceable Tape Retention, Backup, And Restore [COMPLETE 2026-06-15 - BACKUP + RESTORE DRILL LIVE]](items/item-65-irreplaceable-tape-retention-backup-and-restore.md) |
 | 76 | [GRIB Subset Extraction Foundation [COMPLETE 2026-06-16 - GRIB CACHE POLICY LIVE]](items/item-76-grib-subset-extraction-foundation.md) |
 | 77 | [One-Minute ASOS Spike And High-Timing Layer [COMPLETE 2026-06-16 - ASOS 1-MIN GATE LIVE]](items/item-77-one-minute-asos-spike-and-high-timing-layer.md) |
 | 78 | [Coastal Marine And Lake-Breeze Context Features [COMPLETE 2026-06-16 - MARINE CONTEXT REPORTING LIVE]](items/item-78-coastal-marine-and-lake-breeze-context-features.md) |
@@ -116,12 +115,10 @@ infrastructure work remains.
 | 100 | [Open-Meteo Rate Limit And Source Fallback Resilience [COMPLETE 2026-06-18 - DEGRADED SOURCE PROVENANCE LIVE]](items/item-100-open-meteo-rate-limit-and-source-fallback-resilience.md) |
 | 102 | [Toronto ECCC Runtime Source Hardening [COMPLETE 2026-06-18 - TORONTO SOURCE HEALTH GATE LIVE]](items/item-102-toronto-eccc-runtime-source-hardening.md) |
 | 109 | [Settled-Day Replay Status Artifact Backfill [COMPLETE 2026-06-17 - REPAIR COMMAND LIVE]](items/item-109-settled-day-replay-status-artifact-backfill.md) |
-| 111 | [Tape Backup Manifest SLA And Restore Evidence [COMPLETE 2026-06-17 - BACKUP SLA ENFORCED]](items/item-111-tape-backup-manifest-sla-and-restore-evidence.md) |
 | 113 | [Independent Settled Evidence Growth And Sample SLA [COMPLETE 2026-06-17 - EVIDENCE SLA LIVE]](items/item-113-independent-settled-evidence-growth-and-sample-sla.md) |
 | 114 | [Data-Layer P0 Gate Closure For Retrain Eligibility [COMPLETE 2026-06-17 - DATA P0 CLEARED]](items/item-114-data-layer-p0-gate-closure-for-retrain-eligibility.md) |
 | 120 | [Settled-Day Finalization Freshness SLA [COMPLETE 2026-06-18 - NIGHTLY PREFLIGHT LIVE]](items/item-120-settled-day-finalization-freshness-sla.md) |
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
-| 146 | [Tape Backup Capacity And CLOB Tiered Retention [COMPLETE 2026-06-24 - DURABLE RESTIC REPOSITORY AND RESTORE DRILL LIVE]](items/item-146-tape-backup-capacity-and-clob-tiered-retention.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
 | 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
 | 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-25 - JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
@@ -142,11 +139,8 @@ infrastructure work remains.
 | 243 | [Closed Market-Day Parquet Archive Contract [COMPLETE 2026-06-22 - VERSIONED ARCHIVE CONTRACT REGISTERED]](items/item-243-closed-market-day-parquet-archive-contract.md) |
 | 244 | [Historical Snapshot Parquet Backfill And Validation Harness [COMPLETE 2026-06-22 - GUARDED PARQUET BACKFILL LIVE]](items/item-244-historical-snapshot-parquet-backfill-validation.md) |
 | 245 | [Parquet-First Historical Analysis Readers [COMPLETE 2026-06-23 - VALIDATED PARQUET READERS LIVE]](items/item-245-parquet-first-historical-analysis-readers.md) |
-| 246 | [Deduplicated Durable Tape Backup Repository [COMPLETE 2026-06-24 - RESTIC SNAPSHOT AND RESTORE DRILL LIVE]](items/item-246-deduplicated-durable-tape-backup-repository.md) |
-| 247 | [Tape Backup Mirror Demotion And Guarded Reclaim [COMPLETE 2026-06-25 - DURABLE PROOF-BACKED MIRROR RECLAIM APPLIED]](items/item-247-tape-backup-mirror-demotion-guarded-reclaim.md) |
 | 286 | [Three-Class Data Storage Contract And Retention Classification [COMPLETE 2026-06-23 - STORAGE CLASS REGISTRY AND REPORTING LIVE]](items/item-286-three-class-data-storage-contract.md) |
 | 287 | [Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]](items/item-287-market-day-event-manifest.md) |
-| 288 | [Fresh Backup/Restore Deletion Gate Before Data Cleanup [COMPLETE 2026-06-23 - CLEANUP PREFLIGHT FAILS CLOSED ON CANONICAL EVIDENCE]](items/item-288-backup-restore-deletion-gate.md) |
 | 289 | [CLOB Price-History Deduplication And Content-Addressed Raw Response Store [COMPLETE 2026-06-23 - DEDUPED POINT TABLE AND HASHED RAW STORE LIVE]](items/item-289-clob-price-history-dedup-content-addressed-store.md) |
 | 290 | [Incremental Closed-Day Parquet Conversion And Reader Migration Closure [COMPLETE 2026-06-23 - BOUNDED CURSOR CONVERTER AND READER STATUS LIVE]](items/item-290-incremental-closed-day-parquet-conversion.md) |
 | 291 | [Schema Registry Reconciliation For Storage And Log Artifacts [COMPLETE 2026-06-24 - STRICT AUDIT CLEAN WITH EXPLICIT NON-SCHEMA EXCLUSIONS]](items/item-291-schema-registry-storage-log-artifact-reconciliation.md) |

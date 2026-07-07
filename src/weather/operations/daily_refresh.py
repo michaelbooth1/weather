@@ -117,6 +117,7 @@ from weather.operations.daily_refresh_steps import (
     promotion_args,
     render_ingest_quality_report,
     run_active_variant_shadow_step,
+    settled_analysis_target_date,
     run_clob_order_book_tiering_step,
     run_closed_day_parquet_incremental_step,
     run_daily_learning_step,
@@ -230,6 +231,17 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "resume_from_step": getattr(args, "resume_from_step", ""),
         },
     }
+    if not getattr(args, "settled_analysis_target_date", "") and not args.dry_run:
+        # Pin the settled-analysis target once at chain start. Steps used to
+        # derive it from the wall clock at their own execution time, so a
+        # chain crossing midnight analyzed two different "yesterdays"
+        # (2026-07-07: settled_day_root_cause ran at 01:00 and targeted 07-06
+        # while every pre-midnight step targeted 07-05, failing the settled
+        # target-agreement invariant and blocking the experiment queue).
+        args.settled_analysis_target_date = settled_analysis_target_date(args).isoformat()
+    payload["config"]["settled_analysis_target_date"] = getattr(
+        args, "settled_analysis_target_date", ""
+    )
     resume_from = getattr(args, "resume_from_step", "")
     if resume_from and not args.dry_run:
         try:

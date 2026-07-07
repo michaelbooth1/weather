@@ -1,4 +1,4 @@
-# 35. Unified Continuous-Density Model [PARTIAL 2026-06-22 - V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED]
+﻿# 35. Unified Continuous-Density Model [PARTIAL 2026-06-22 - V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED]
 
 Goal: one model for all cities; C/F becomes serving-only (audit Option B).
 
@@ -647,7 +647,6 @@ readiness `OPEN`, candidate verdict `PARTIAL_PASS`, market-only verdict
 Denver, Houston, Los Angeles, and Toronto would promote; Dallas and Miami
 remain shadow; Chicago, NYC, San Francisco, and Seattle remain blocked. This
 does not change acceptance because the alpha schedule is replay-selected and
-the promotion refresh still has model-market, live-forward SLO, backup-capacity,
 and hourly-performance blockers.
 
 ## 2026-06-19 time-split current-blend validation
@@ -1392,7 +1391,6 @@ full pinned replay, and lift Toronto without replay-row tuning.
 I regenerated the combined Item 32/35/48 CLOB coverage audit:
 `data/backtest/item32_35_48_combined_replay_clob_coverage_audit_report.md`.
 It now emits `clob_coverage_audit_v0.3`, uses the exact replay-window split
-that the current combined candidate relies on, and scans all local tape-backup
 manifests for restorable raw CLOB sources.
 
 The audit blocks any CLOB-informed density repair on the current export. Train
@@ -1401,7 +1399,7 @@ coverage is `0.0000`: all `24` train-side folders are
 folders, and no midpoint rows. Eval coverage is asymmetric and only diagnostic:
 `16` folders have midpoint coverage, `8` are one-sided/no-midpoint, and eval
 midpoint row coverage is `0.2380`.
-The restore-source scan finds no local raw recovery path for the train split:
+The source-verification scan finds no local raw recovery path for the train split:
 the June 7/8 train folders have feature shells in manifests, but `0/24` have
 raw-book restore paths, token-map restore paths, or full raw restore
 availability. All `24` June 12/13 eval folders do have full raw restore

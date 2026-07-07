@@ -1,4 +1,4 @@
-# 202. Price-History And WebSocket Event Capture Loop [COMPLETE 2026-06-21]
+﻿# 202. Price-History And WebSocket Event Capture Loop [COMPLETE 2026-06-21]
 
 Goal: add lightweight, durable price-history and WebSocket event capture for
 active market days so model-market disagreement cases can distinguish market
@@ -31,7 +31,6 @@ improvement and market-aware risk controls.
 
 - [x] Enable a bounded active-day price-history capture path in the loop.
 - [x] Enable bounded WebSocket event summary capture with heartbeat diagnostics.
-- [x] Add storage tiering and backup accounting for event/history artifacts.
 - [x] Join event/history evidence into market-lead and liquidity-artifact cases.
 - [x] Add tests for optional-stream failure isolation from core snapshot capture.
 
@@ -44,7 +43,6 @@ price-history and WebSocket event capture by default while retaining explicit
 opt-out flags. Disagreement casebook and settled-day root-cause reports join
 recent price path and WebSocket event summaries into reviewed cases, and fleet
 observability surfaces optional stream WARNs without blocking the broad
-live-forward SLO. Existing tape-backup policy coverage for `price_history` and
 `market_ws` artifacts was verified.
 
 ## Completion Notes

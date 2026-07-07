@@ -153,7 +153,7 @@ def discover_rows(
         settled = bool(event_date and event_date < cutoff)
         if source.exists() and gzip_path.exists():
             status = "already_tiered_source_present"
-            action = "review_delete_uncompressed_after_manifest_backup"
+            action = "review_delete_uncompressed_after_manifest"
         elif gzip_path.exists():
             status = "already_tiered"
             action = "none"
@@ -311,9 +311,8 @@ def apply_tiering(
                             "approved_at_utc": utc_iso(),
                             "note": "Projection cleanup after deterministic gzip verification; raw order_books.jsonl remains canonical evidence.",
                         },
-                        backup_status={},
                     )
-                    preflight = build_cleanup_preflight(cleanup_manifest, root=root, backup_status={})
+                    preflight = build_cleanup_preflight(cleanup_manifest, root=root)
                     action["cleanup_preflight"] = preflight
                     if preflight.get("status") == "PASS":
                         source.unlink()

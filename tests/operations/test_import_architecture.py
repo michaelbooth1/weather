@@ -4,12 +4,6 @@ import subprocess
 from pathlib import Path
 
 
-TAPE_BACKUP_SPLIT_MODULES = [
-    Path("src/weather/operations/tape_backup_manifest.py"),
-    Path("src/weather/operations/tape_backup_dedup.py"),
-    Path("src/weather/operations/tape_backup_cleanup.py"),
-]
-
 TARGET_MODULES = [
     Path("src/weather/io.py"),
     Path("src/weather/time.py"),
@@ -78,8 +72,6 @@ TARGET_MODULES = [
     Path("src/weather/operations/observation_trigger.py"),
     Path("src/weather/operations/ops_monitor.py"),
     Path("src/weather/operations/structure_inventory.py"),
-    Path("src/weather/operations/tape_backup.py"),
-    *TAPE_BACKUP_SPLIT_MODULES,
     Path("src/weather/reporting/data_quality/data_auditor.py"),
     Path("src/weather/reporting/daily/daily_learning_render.py"),
     Path("src/weather/reporting/data_quality/data_layer_audit.py"),
@@ -508,15 +500,6 @@ EXTRACTED_MODULE_IMPORT_RULES.update({
     )
     for path in DAILY_REFRESH_SPLIT_MODULES
 })
-EXTRACTED_MODULE_IMPORT_RULES.update({
-    path: re.compile(
-        r"^\s*(?:from\s+(?:weather\.operations\.tape_backup|\.tape_backup)\s+import\b|"
-        r"import\s+weather\.operations\.tape_backup\b)",
-        re.MULTILINE,
-    )
-    for path in TAPE_BACKUP_SPLIT_MODULES
-})
-
 ROUND_HALF_UP_DEFINITION_RE = re.compile(r"^\s*def\s+round_half_up\s*\(", re.MULTILINE)
 ROUND_HALF_UP_ALLOWED_DEFINITION_MODULES = {
     Path("src/weather/units.py"),

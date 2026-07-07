@@ -567,7 +567,7 @@ def daily_learning_input_integrity(daily_learning):
     the experiment queue exists to repair exactly those gates, so gating the
     queue on the headline re-creates the settled-day-barrier circularity one
     level up (queue starved June 24 -> July 5 while headline stayed BLOCKED
-    on predawn skill gates and the excluded tape-backup alarm).
+    on predawn skill gates).
     """
     if not (daily_learning or {}).get("exists"):
         # Missing artifact was never a blocker for this flag; downstream steps

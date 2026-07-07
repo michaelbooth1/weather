@@ -1,4 +1,4 @@
-# Closed Market-Day Parquet Archive Contract
+﻿# Closed Market-Day Parquet Archive Contract
 
 Last updated: 2026-06-23
 
@@ -140,7 +140,6 @@ Validation must prove:
   compression codec, schema fingerprint, and artifact-family name.
 - Parquet row counts match the source row counts after documented filtering or
   normalization.
-- Raw evidence references exist in the source folder, backup manifest, or
   durable restore manifest.
 - The manifest hash verifies after excluding the `manifest_hash` field.
 
@@ -244,7 +243,7 @@ print(rows)
 ## Forensic Evidence
 
 Parquet is an analysis representation. The following remain forensic evidence
-and must stay backed up according to the tape backup policy:
+and must stay protected by reviewed cleanup manifests:
 
 - `snapshots.jsonl`, `features.jsonl`, `components.jsonl`, `forecasts.jsonl`,
   `forecast_payloads.jsonl`, `source_status.jsonl`, `replay_inputs.jsonl`, and

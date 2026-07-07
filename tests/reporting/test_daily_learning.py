@@ -543,6 +543,14 @@ class TestDailyLearning(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            # Trading evidence aligns to the settled-target anchor; move the
+            # fixture's anchor to the trading day so this test stays about
+            # run_date defaulting, not target alignment.
+            for name in ("settled_day_freshness.json", "settled_day_analysis_barrier.json"):
+                path = backtest_root / name
+                artifact = json.loads(path.read_text(encoding="utf-8"))
+                artifact["target_date"] = "2026-06-15"
+                path.write_text(json.dumps(artifact), encoding="utf-8")
 
             payload = build_learning_payload(backtest_root=backtest_root)
             trading_check = next(
@@ -552,6 +560,64 @@ class TestDailyLearning(unittest.TestCase):
 
         self.assertEqual(payload["run_date"], "2026-06-15")
         self.assertEqual(trading_check["status"], "PASS")
+
+    def test_midnight_spanning_clean_chain_passes_target_alignment(self):
+        # Regression (2026-07-07 02:00): a clean chain analyzing settled day
+        # D-1 could never satisfy target==run_date; ten invariants failed for
+        # every honest run and starved the experiment queue. Targets must
+        # agree with the settled anchor, with run_date at most one day ahead.
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "trading_evidence.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "trading_evidence_summary_v0.1",
+                        "generated_at_utc": "2026-06-17T00:01:00+00:00",
+                        "run_date": "2026-06-16",
+                        "status": "OK",
+                        "market_making": {"exists": False},
+                        "taker": {"exists": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            # Chain ran on the 17th analyzing settled day the 16th; all
+            # fixture artifacts carry target 2026-06-16.
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-17")
+            checks = {
+                row["name"]: row
+                for row in payload["input_gate"]["consistency"]["checks"]
+            }
+
+        for name in (
+            "settled_target_recency",
+            "settled_day_freshness_target_date",
+            "settled_day_analysis_barrier_target_date",
+            "trading_evidence_run_date",
+        ):
+            self.assertEqual(checks[name]["status"], "PASS", name)
+        self.assertEqual(checks["settled_target_recency"]["evidence"]["lag_days"], 1)
+
+    def test_stale_agreeing_targets_fail_recency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+
+            # Everything agrees on 2026-06-16 but the run happens on the 19th:
+            # mutual agreement must not mask a uniformly stale artifact set.
+            payload = build_learning_payload(backtest_root=backtest_root, run_date="2026-06-19")
+            checks = {
+                row["name"]: row
+                for row in payload["input_gate"]["consistency"]["checks"]
+            }
+
+        self.assertEqual(checks["settled_target_recency"]["status"], "FAIL")
+        self.assertIn(
+            "settled_target_recency",
+            payload["input_gate"]["consistency"]["failed_invariants"],
+        )
 
     def test_label_consistency_uses_csv_and_explained_corpus_skips(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1058,41 +1124,6 @@ class TestDailyLearning(unittest.TestCase):
         self.assertTrue(learning["blocker"])
         self.assertIn("nws_grid", learning["signal"])
         self.assertIn("replay_ablation", learning["action"])
-
-    def test_build_learning_payload_blocks_on_tape_backup_sla_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            backtest_root = Path(tmp) / "backtest"
-            write_daily_artifacts(backtest_root)
-            (backtest_root / "fleet_observability.json").write_text(
-                json.dumps(
-                    {
-                        "status": "CRITICAL",
-                        "summary": {"tape_backup_status": "RESTORE_DRILL_MISSING"},
-                        "live_forward_slo": {
-                            "counts_toward_live_forward_gate": True,
-                            "reason": "all collection loops fresh",
-                        },
-                        "tape_backup": {
-                            "status": "RESTORE_DRILL_MISSING",
-                            "backup_root": "data/tape_backups",
-                            "restore_drill_sla_status": "RESTORE_DRILL_MISSING",
-                            "restore_drill_sla_detail": "no restore drill evidence recorded",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            payload = build_learning_payload(backtest_root=backtest_root)
-            backup_learning = next(
-                row for row in payload["learnings"] if row["category"] == "operational_backup"
-            )
-
-        self.assertEqual(payload["status"], "BLOCKED")
-        self.assertFalse(payload["retrain_plan"]["training_ready"])
-        self.assertTrue(backup_learning["blocker"])
-        self.assertIn("weather.operations.tape_backup run", backup_learning["action"])
-        self.assertIn("tape_restore_drill.json", backup_learning["action"])
 
     def test_build_learning_payload_surfaces_first_data_layer_p0_remediation(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -124,7 +124,6 @@ Environment variables used by operator-facing code:
 | `TORONTO_MARKET_DATE` | Legacy-named target-date override, ISO `YYYY-MM-DD`. Applies to registered markets that use the default date resolver; otherwise defaults to today's date in the market timezone. Restart long-running loops after changing it. |
 | `WEATHER_MARKET_REGISTRY` | Optional path to an external market registry override. |
 | `SETTLEMENT_LEDGER_ROOT` | Optional root for settlement ledgers; defaults to `data/settlements/`. |
-| `WEATHER_TAPE_BACKUP_ROOT` | Optional tape-backup destination; can also be passed with `--backup-root`. |
 | `WEATHER_DISABLE_STAY_AWAKE` | Set to `1` to disable Windows stay-awake requests in long-running loops. |
 | `WEATHER_ALLOW_CONSOLE_CHILDREN` | Set to `1` to allow visible console child processes on Windows background workers. |
 
@@ -278,7 +277,6 @@ registration script replaces the existing task.
 .\scripts\ops\register_nightly_retrain.ps1
 .\scripts\ops\register_market_making_daily_roll.ps1
 .\scripts\ops\register_taker_bot_daily_roll.ps1
-.\scripts\ops\register_tape_backup.ps1
 ```
 
 Default scheduled behavior:
@@ -293,7 +291,6 @@ Default scheduled behavior:
 | `WeatherNightlyRetrainValidatePromote` | `register_nightly_retrain.ps1` | Daily at 03:30. |
 | `WeatherMarketMakingDailyRoll` | `register_market_making_daily_roll.ps1` | Daily at 19:30 in `America/Toronto`. |
 | `WeatherTakerBotDailyRoll` | `register_taker_bot_daily_roll.ps1` | Daily at 00:05 in `America/Toronto`. |
-| `WeatherTapeBackupAndRestoreDrill` | `register_tape_backup.ps1` | Daily at 02:15. |
 
 The Operations dashboard can inspect and control the supervised loops. CLI
 status commands are still the fastest sanity checks:
@@ -304,15 +301,6 @@ status commands are still the fastest sanity checks:
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger status
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain status
-.\venv\Scripts\python.exe -m weather.operations.tape_backup status
-```
-
-Tape backup should write to storage outside the working checkout. Example:
-
-```powershell
-$env:WEATHER_TAPE_BACKUP_ROOT = "E:\weather-tape-backups"
-.\venv\Scripts\python.exe -m weather.operations.tape_backup run --backup-root $env:WEATHER_TAPE_BACKUP_ROOT --verify-checksums
-.\venv\Scripts\python.exe -m weather.operations.tape_backup restore-drill --backup-root $env:WEATHER_TAPE_BACKUP_ROOT
 ```
 
 ## Data Layout
@@ -353,7 +341,6 @@ data/
   settlements/<market-id>/      # settlement ledgers
   mm_runs/                      # market-making run folders
   taker_runs/                   # taker-bot run folders
-  tape_backups/                 # default local tape-backup root if not overridden
 ```
 
 Durable model artifacts are tracked under `artifacts/`. Small deterministic
@@ -408,8 +395,6 @@ and new docs should use `python -m weather...`.
   repository path and import policy.
 - [docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md) -
   nightly retrain/validate/promote runbook.
-- [docs/operations/TAPE_BACKUP_RUNBOOK.md](docs/operations/TAPE_BACKUP_RUNBOOK.md) -
-  irreplaceable tape backup and restore drill runbook.
 - [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - roadmap index, item
   links, and maintenance conventions.
 - [docs/roadmap/project-structure-audit-2026-06-22.md](docs/roadmap/project-structure-audit-2026-06-22.md) -

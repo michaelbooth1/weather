@@ -1,387 +1,387 @@
 {
   "candidate_scores": [
     {
-      "brier": 0.0378688515089935,
-      "logloss": 0.12250754197478507,
+      "brier": 0.040324799973464207,
+      "logloss": 0.1308013671236261,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 1.0
     },
     {
-      "brier": 0.037958405876142416,
-      "logloss": 0.12337524028003485,
+      "brier": 0.040457709572965996,
+      "logloss": 0.13255123722160472,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.9
     },
     {
-      "brier": 0.03843099927037745,
-      "logloss": 0.12527216732824192,
+      "brier": 0.041022672616635454,
+      "logloss": 0.13527616554957328,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.8
     },
     {
-      "brier": 0.03928663169162949,
-      "logloss": 0.12791989999449283,
+      "brier": 0.04201968910440439,
+      "logloss": 0.13877108575886385,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.7
     },
     {
-      "brier": 0.04052530313992325,
-      "logloss": 0.13129453706377364,
+      "brier": 0.043448759036310944,
+      "logloss": 0.14303282461715977,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.6
     },
     {
-      "brier": 0.042147013615289476,
-      "logloss": 0.13546597763238308,
+      "brier": 0.04530988241237034,
+      "logloss": 0.14814153565481067,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.5
     },
     {
-      "brier": 0.04415176311765389,
-      "logloss": 0.1405981683243308,
+      "brier": 0.04760305923252597,
+      "logloss": 0.15426531603939544,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.4
     },
     {
-      "brier": 0.04653955164712025,
-      "logloss": 0.1470135889124747,
+      "brier": 0.050328289496851614,
+      "logloss": 0.1617193432273327,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.3
     },
     {
-      "brier": 0.04931037920355233,
-      "logloss": 0.15540886122269842,
+      "brier": 0.0534855732052637,
+      "logloss": 0.17115355198515725,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.2
     },
     {
-      "brier": 0.05246424578708799,
-      "logloss": 0.16782835574409422,
+      "brier": 0.0570749103578463,
+      "logloss": 0.18435863150920115,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.1
     },
     {
-      "brier": 0.055384488200058604,
-      "logloss": 0.2024169363549144,
+      "brier": 0.05984426286119794,
+      "logloss": 0.21280379534520905,
       "method": "isotonic",
-      "n": 67430,
+      "n": 96041,
       "param": null
     },
     {
-      "brier": 0.05555980659112009,
-      "logloss": 0.20117987903322562,
+      "brier": 0.06035669270478348,
+      "logloss": 0.2123401263806408,
       "method": "prior_shrink",
-      "n": 67430,
-      "param": 0.1
-    },
-    {
-      "brier": 0.05580861569153804,
-      "logloss": 0.20091311915607715,
-      "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.2
     },
     {
-      "brier": 0.05598395184946224,
-      "logloss": 0.2591864068567747,
+      "brier": 0.06041091721946276,
+      "logloss": 0.2124076607740853,
+      "method": "prior_shrink",
+      "n": 96041,
+      "param": 0.1
+    },
+    {
+      "brier": 0.06089235217163318,
+      "logloss": 0.25365667495483124,
       "method": "temperature",
-      "n": 67430,
+      "n": 96041,
       "param": 1.2
     },
     {
-      "brier": 0.05600115139762482,
-      "logloss": 0.28092872593177937,
-      "method": "identity",
-      "n": 67430,
-      "param": null
-    },
-    {
-      "brier": 0.05674757869896068,
-      "logloss": 0.2047455913764846,
+      "brier": 0.06093362741058189,
+      "logloss": 0.21575507128376287,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.3
     },
     {
-      "brier": 0.057070399777642104,
-      "logloss": 0.2431443315699501,
-      "method": "temperature",
-      "n": 67430,
-      "param": 1.5
-    },
-    {
-      "brier": 0.05837669561333328,
-      "logloss": 0.21094642567700503,
-      "method": "prior_shrink",
-      "n": 67430,
-      "param": 0.4
-    },
-    {
-      "brier": 0.059440525934341605,
-      "logloss": 0.23101423069308663,
-      "method": "platt",
-      "n": 67430,
+      "brier": 0.06109630095451413,
+      "logloss": 0.2708055633310861,
+      "method": "identity",
+      "n": 96041,
       "param": null
     },
     {
-      "brier": 0.06052108470425263,
-      "logloss": 0.23692058816378825,
+      "brier": 0.06186966008675269,
+      "logloss": 0.2429160686327389,
       "method": "temperature",
-      "n": 67430,
-      "param": 2.0
+      "n": 96041,
+      "param": 1.5
     },
     {
-      "brier": 0.0606959664346937,
-      "logloss": 0.21907870421880718,
+      "brier": 0.062130227053402765,
+      "logloss": 0.23341431803193266,
+      "method": "platt",
+      "n": 96041,
+      "param": null
+    },
+    {
+      "brier": 0.062141721336809105,
+      "logloss": 0.2212634005766856,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
+      "param": 0.4
+    },
+    {
+      "brier": 0.06398097448345957,
+      "logloss": 0.22851427257590803,
+      "method": "prior_shrink",
+      "n": 96041,
       "param": 0.5
     },
     {
-      "brier": 0.0637053911629943,
-      "logloss": 0.22912812401430246,
+      "brier": 0.06545086230799807,
+      "logloss": 0.2430626844692298,
+      "method": "temperature",
+      "n": 96041,
+      "param": 2.0
+    },
+    {
+      "brier": 0.0664513868505345,
+      "logloss": 0.23750601877765926,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.6
     },
     {
-      "brier": 0.06740496979832822,
-      "logloss": 0.24137733390815608,
+      "brier": 0.06955295843809778,
+      "logloss": 0.24848839617963964,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.7
     },
     {
-      "brier": 0.06932502816924721,
-      "logloss": 0.2514397575003567,
-      "method": "temperature",
-      "n": 67430,
-      "param": 3.0
-    },
-    {
-      "brier": 0.07179470234058438,
-      "logloss": 0.25651234575561627,
+      "brier": 0.07328568924602974,
+      "logloss": 0.2620537824930469,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.8
     },
     {
-      "brier": 0.07687458878983591,
-      "logloss": 0.27609170280498263,
+      "brier": 0.07499187376219814,
+      "logloss": 0.2653498016974828,
+      "method": "temperature",
+      "n": 96041,
+      "param": 3.0
+    },
+    {
+      "brier": 0.07764957927443224,
+      "logloss": 0.2795250208516416,
       "method": "prior_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 0.9
     },
     {
-      "brier": 0.07813953627297779,
-      "logloss": 0.27705939111284206,
+      "brier": 0.08464326000316413,
+      "logloss": 0.2949841807028448,
       "method": "temperature",
-      "n": 67430,
+      "n": 96041,
       "param": 4.0
     },
     {
-      "brier": 0.0865764549305496,
-      "logloss": 0.30519267880761203,
+      "brier": 0.09378615189886697,
+      "logloss": 0.3249814476918852,
       "method": "temperature",
-      "n": 67430,
+      "n": 96041,
       "param": 5.0
     }
   ],
   "exact_distribution": {
     "candidate_metrics": [
       {
-        "brier": 0.06807721837775502,
-        "logloss": 0.34091827875681857,
-        "n": 55170,
+        "brier": 0.07402995989558078,
+        "logloss": 0.3272659675304347,
+        "n": 78579,
         "temperature": 1.0
       },
       {
-        "brier": 0.06790310450302657,
-        "logloss": 0.31338855644973057,
-        "n": 55170,
+        "brier": 0.07355449164392389,
+        "logloss": 0.3050894285525313,
+        "n": 78579,
         "temperature": 1.2
       },
       {
-        "brier": 0.0689511281044023,
-        "logloss": 0.29218425761831407,
-        "n": 55170,
+        "brier": 0.0743616829372136,
+        "logloss": 0.29003124788654194,
+        "n": 78579,
         "temperature": 1.5
       },
       {
-        "brier": 0.07260273128570216,
-        "logloss": 0.28161002453471495,
-        "n": 55170,
+        "brier": 0.07801319299732509,
+        "logloss": 0.286817964970553,
+        "n": 78579,
         "temperature": 2.0
       },
       {
-        "brier": 0.08201995887290564,
-        "logloss": 0.2924540179294696,
-        "n": 55170,
+        "brier": 0.08810484737924501,
+        "logloss": 0.3066098505884654,
+        "n": 78579,
         "temperature": 3.0
       },
       {
-        "brier": 0.0912817831518323,
-        "logloss": 0.3157925383144364,
-        "n": 55170,
+        "brier": 0.0982440463383047,
+        "logloss": 0.3345584615067573,
+        "n": 78579,
         "temperature": 4.0
       }
     ],
     "enabled": true,
-    "exact_row_count": 55170,
+    "exact_row_count": 78579,
     "hour_detail": {
       "0": {
-        "n_days": 4,
-        "n_rows": 2421,
+        "n_days": 6,
+        "n_rows": 3114,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "1": {
-        "n_days": 4,
-        "n_rows": 2349,
+        "n_days": 6,
+        "n_rows": 3258,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "10": {
-        "n_days": 4,
-        "n_rows": 2259,
+        "n_days": 6,
+        "n_rows": 3123,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "11": {
-        "n_days": 4,
-        "n_rows": 2196,
+        "n_days": 6,
+        "n_rows": 3375,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "12": {
-        "n_days": 4,
-        "n_rows": 2376,
+        "n_days": 6,
+        "n_rows": 3618,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "13": {
-        "n_days": 4,
-        "n_rows": 2178,
+        "n_days": 6,
+        "n_rows": 3465,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "14": {
-        "n_days": 4,
-        "n_rows": 2376,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 3573,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "15": {
-        "n_days": 4,
-        "n_rows": 2376,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 3636,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "16": {
-        "n_days": 4,
-        "n_rows": 2178,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "n_days": 6,
+        "n_rows": 3312,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "17": {
-        "n_days": 4,
-        "n_rows": 2376,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "n_days": 6,
+        "n_rows": 3393,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "18": {
-        "n_days": 4,
-        "n_rows": 2079,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 3087,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "19": {
-        "n_days": 4,
-        "n_rows": 2277,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 2835,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "2": {
-        "n_days": 4,
-        "n_rows": 2268,
+        "n_days": 6,
+        "n_rows": 3303,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "20": {
-        "n_days": 4,
-        "n_rows": 2376,
+        "n_days": 6,
+        "n_rows": 3123,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
+      },
+      "21": {
+        "n_days": 6,
+        "n_rows": 3015,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
+      },
+      "22": {
+        "n_days": 5,
+        "n_rows": 2682,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
-      "21": {
-        "n_days": 4,
-        "n_rows": 2178,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
-      },
-      "22": {
-        "n_days": 4,
-        "n_rows": 2277,
-        "raw_best_temperature": 1.5,
-        "shrunk_temperature": 1.25
-      },
       "23": {
-        "n_days": 4,
-        "n_rows": 2394,
+        "n_days": 5,
+        "n_rows": 2826,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "3": {
-        "n_days": 4,
-        "n_rows": 2286,
+        "n_days": 6,
+        "n_rows": 3393,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "4": {
-        "n_days": 4,
-        "n_rows": 2367,
+        "n_days": 6,
+        "n_rows": 3465,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "5": {
-        "n_days": 4,
-        "n_rows": 2178,
+        "n_days": 6,
+        "n_rows": 3249,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "6": {
-        "n_days": 4,
-        "n_rows": 2376,
+        "n_days": 6,
+        "n_rows": 3519,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "7": {
-        "n_days": 4,
-        "n_rows": 2277,
+        "n_days": 6,
+        "n_rows": 3375,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "8": {
-        "n_days": 4,
-        "n_rows": 2376,
+        "n_days": 6,
+        "n_rows": 3456,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "9": {
-        "n_days": 4,
-        "n_rows": 2376,
+        "n_days": 6,
+        "n_rows": 3384,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       }
     },
     "max_deployment_temperature": 1.5,
@@ -389,54 +389,54 @@
     "prior_weight": 0.0,
     "temperature": 1.2,
     "temperature_by_hour": {
-      "0": 1.1,
-      "1": 1.1,
-      "10": 1.1,
-      "11": 1.1,
-      "12": 1.1,
-      "13": 1.1,
-      "14": 1.0,
-      "15": 1.0,
-      "16": 1.1,
-      "17": 1.1,
-      "18": 1.0,
-      "19": 1.0,
+      "0": 1.12,
+      "1": 1.12,
+      "10": 1.12,
+      "11": 1.12,
+      "12": 1.12,
+      "13": 1.12,
+      "14": 1.12,
+      "15": 1.12,
+      "16": 1.3,
+      "17": 1.3,
+      "18": 1.3,
+      "19": 1.12,
       "2": 1.0,
-      "20": 1.0,
-      "21": 1.1,
-      "22": 1.25,
+      "20": 1.3,
+      "21": 1.3,
+      "22": 1.0,
       "23": 1.0,
       "3": 1.0,
-      "4": 1.1,
-      "5": 1.1,
-      "6": 1.1,
-      "7": 1.1,
-      "8": 1.1,
-      "9": 1.1
+      "4": 1.12,
+      "5": 1.12,
+      "6": 1.12,
+      "7": 1.12,
+      "8": 1.12,
+      "9": 1.12
     },
     "unconstrained_best_temperature": 1.2
   },
   "family_unit": "F",
-  "generated_at_utc": "2026-06-15T00:08:04.179869+00:00",
+  "generated_at_utc": "2026-07-07T07:34:10.285782+00:00",
   "market_bin": {
     "allow_exact_lift": false,
-    "base_rate": 0.09093335706023667,
+    "base_rate": 0.09092612837732313,
     "best_market_informed_baseline": {
-      "brier": 0.0378688515089935,
-      "logloss": 0.12250754197478507,
+      "brier": 0.040324799973464207,
+      "logloss": 0.1308013671236261,
       "method": "market_shrink",
-      "n": 67430,
+      "n": 96041,
       "param": 1.0
     },
     "context_shrink_k": 50.0,
     "contexts": {
       "global": {
-        "base_rate": 0.09093335706023667,
-        "n": 67430
+        "base_rate": 0.09092612837732313,
+        "n": 96041
       },
       "kind=eq": {
-        "base_rate": 0.11113930474498858,
-        "n": 55170
+        "base_rate": 0.11113090617563595,
+        "n": 78579
       },
       "kind=eq|distance=at_floor": {
         "base_rate": 0.613326602725896,
@@ -459,12 +459,12 @@
         "n": 2409
       },
       "kind=eq|distance=unknown": {
-        "base_rate": 0.11174089068825911,
-        "n": 2466
+        "base_rate": 0.11117121990803354,
+        "n": 25875
       },
       "kind=eq|hour=0": {
-        "base_rate": 0.11175257731958763,
-        "n": 2421
+        "base_rate": 0.11161000641436819,
+        "n": 3114
       },
       "kind=eq|hour=0|distance=at_floor": {
         "base_rate": 0.9787234042553191,
@@ -487,16 +487,16 @@
         "n": 91
       },
       "kind=eq|hour=0|distance=unknown": {
-        "base_rate": 0.11367380560131796,
-        "n": 603
+        "base_rate": 0.1123076923076923,
+        "n": 1296
       },
       "kind=eq|hour=1": {
-        "base_rate": 0.11177220569485763,
-        "n": 2349
+        "base_rate": 0.11158798283261803,
+        "n": 3258
       },
       "kind=eq|hour=10": {
-        "base_rate": 0.11179849756959788,
-        "n": 2259
+        "base_rate": 0.11160857051487048,
+        "n": 3123
       },
       "kind=eq|hour=10|distance=at_floor": {
         "base_rate": 0.034482758620689655,
@@ -518,9 +518,13 @@
         "base_rate": 0.08695652173913043,
         "n": 88
       },
+      "kind=eq|hour=10|distance=unknown": {
+        "base_rate": 0.11290322580645161,
+        "n": 864
+      },
       "kind=eq|hour=11": {
-        "base_rate": 0.11181818181818182,
-        "n": 2196
+        "base_rate": 0.11157147084936371,
+        "n": 3375
       },
       "kind=eq|hour=11|distance=at_floor": {
         "base_rate": 0.02631578947368421,
@@ -542,9 +546,13 @@
         "base_rate": 0.1308411214953271,
         "n": 103
       },
+      "kind=eq|hour=11|distance=unknown": {
+        "base_rate": 0.11242603550295859,
+        "n": 1179
+      },
       "kind=eq|hour=12": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11154058531198233,
+        "n": 3618
       },
       "kind=eq|hour=12|distance=at_floor": {
         "base_rate": 0.03125,
@@ -566,9 +574,13 @@
         "base_rate": 0.18032786885245902,
         "n": 118
       },
+      "kind=eq|hour=12|distance=unknown": {
+        "base_rate": 0.11235955056179775,
+        "n": 1242
+      },
       "kind=eq|hour=13": {
-        "base_rate": 0.11182401466544455,
-        "n": 2178
+        "base_rate": 0.1115595272412799,
+        "n": 3465
       },
       "kind=eq|hour=13|distance=at_floor": {
         "base_rate": 0.21153846153846154,
@@ -590,9 +602,13 @@
         "base_rate": 0.32142857142857145,
         "n": 108
       },
+      "kind=eq|hour=13|distance=unknown": {
+        "base_rate": 0.1123160340821069,
+        "n": 1287
+      },
       "kind=eq|hour=14": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11154598825831702,
+        "n": 3573
       },
       "kind=eq|hour=14|distance=at_floor": {
         "base_rate": 0.3951612903225806,
@@ -614,9 +630,13 @@
         "base_rate": 0.27906976744186046,
         "n": 125
       },
+      "kind=eq|hour=14|distance=unknown": {
+        "base_rate": 0.11240632805995004,
+        "n": 1197
+      },
       "kind=eq|hour=15": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11153846153846154,
+        "n": 3636
       },
       "kind=eq|hour=15|distance=at_floor": {
         "base_rate": 0.48484848484848486,
@@ -638,9 +658,13 @@
         "base_rate": 0.29545454545454547,
         "n": 128
       },
+      "kind=eq|hour=15|distance=unknown": {
+        "base_rate": 0.11234177215189874,
+        "n": 1260
+      },
       "kind=eq|hour=16": {
-        "base_rate": 0.11182401466544455,
-        "n": 2178
+        "base_rate": 0.11158021712907117,
+        "n": 3312
       },
       "kind=eq|hour=16|distance=at_floor": {
         "base_rate": 0.6456692913385826,
@@ -662,9 +686,13 @@
         "base_rate": 0.18110236220472442,
         "n": 123
       },
+      "kind=eq|hour=16|distance=unknown": {
+        "base_rate": 0.11247803163444639,
+        "n": 1134
+      },
       "kind=eq|hour=17": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11156903149838092,
+        "n": 3393
       },
       "kind=eq|hour=17|distance=at_floor": {
         "base_rate": 0.8076923076923077,
@@ -686,9 +714,13 @@
         "base_rate": 0.07692307692307693,
         "n": 126
       },
+      "kind=eq|hour=17|distance=unknown": {
+        "base_rate": 0.11263467189030363,
+        "n": 1017
+      },
       "kind=eq|hour=18": {
-        "base_rate": 0.11185789726356217,
-        "n": 2079
+        "base_rate": 0.11161436428340343,
+        "n": 3087
       },
       "kind=eq|hour=18|distance=at_floor": {
         "base_rate": 0.8869565217391304,
@@ -710,9 +742,13 @@
         "base_rate": 0.06956521739130435,
         "n": 111
       },
+      "kind=eq|hour=18|distance=unknown": {
+        "base_rate": 0.11264822134387352,
+        "n": 1008
+      },
       "kind=eq|hour=19": {
-        "base_rate": 0.11179307321350285,
-        "n": 2277
+        "base_rate": 0.11165903487143361,
+        "n": 2835
       },
       "kind=eq|hour=19|distance=at_floor": {
         "base_rate": 0.9133858267716536,
@@ -733,6 +769,10 @@
       "kind=eq|hour=19|distance=two_above": {
         "base_rate": 0.08661417322834646,
         "n": 123
+      },
+      "kind=eq|hour=19|distance=unknown": {
+        "base_rate": 0.11387900355871886,
+        "n": 558
       },
       "kind=eq|hour=1|distance=at_floor": {
         "base_rate": 0.9333333333333333,
@@ -755,16 +795,16 @@
         "n": 61
       },
       "kind=eq|hour=1|distance=unknown": {
-        "base_rate": 0.11311053984575835,
-        "n": 774
+        "base_rate": 0.11203319502074689,
+        "n": 1683
       },
       "kind=eq|hour=2": {
-        "base_rate": 0.11179577464788733,
-        "n": 2268
+        "base_rate": 0.11158149380102812,
+        "n": 3303
       },
       "kind=eq|hour=20": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11160857051487048,
+        "n": 3123
       },
       "kind=eq|hour=20|distance=at_floor": {
         "base_rate": 0.9858156028368794,
@@ -786,9 +826,13 @@
         "base_rate": 0.014184397163120567,
         "n": 137
       },
+      "kind=eq|hour=20|distance=unknown": {
+        "base_rate": 0.11318242343541944,
+        "n": 747
+      },
       "kind=eq|hour=21": {
-        "base_rate": 0.11182401466544455,
-        "n": 2178
+        "base_rate": 0.11162636634647234,
+        "n": 3015
       },
       "kind=eq|hour=21|distance=at_floor": {
         "base_rate": 0.9848484848484849,
@@ -810,9 +854,13 @@
         "base_rate": 0.015151515151515152,
         "n": 128
       },
+      "kind=eq|hour=21|distance=unknown": {
+        "base_rate": 0.11296076099881094,
+        "n": 837
+      },
       "kind=eq|hour=22": {
-        "base_rate": 0.11179307321350285,
-        "n": 2277
+        "base_rate": 0.11169024571854058,
+        "n": 2682
       },
       "kind=eq|hour=22|distance=at_floor": {
         "base_rate": 0.9849624060150376,
@@ -834,9 +882,13 @@
         "base_rate": 0.015037593984962405,
         "n": 129
       },
+      "kind=eq|hour=22|distance=unknown": {
+        "base_rate": 0.11491442542787286,
+        "n": 405
+      },
       "kind=eq|hour=23": {
-        "base_rate": 0.11175979983319433,
-        "n": 2394
+        "base_rate": 0.111660777385159,
+        "n": 2826
       },
       "kind=eq|hour=23|distance=at_floor": {
         "base_rate": 0.9861111111111112,
@@ -857,6 +909,10 @@
       "kind=eq|hour=23|distance=two_above": {
         "base_rate": 0.013888888888888888,
         "n": 140
+      },
+      "kind=eq|hour=23|distance=unknown": {
+        "base_rate": 0.11467889908256881,
+        "n": 432
       },
       "kind=eq|hour=2|distance=at_floor": {
         "base_rate": 0.6153846153846154,
@@ -879,12 +935,12 @@
         "n": 71
       },
       "kind=eq|hour=2|distance=unknown": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11235059760956176,
+        "n": 1251
       },
       "kind=eq|hour=3": {
-        "base_rate": 0.11179039301310044,
-        "n": 2286
+        "base_rate": 0.11156903149838092,
+        "n": 3393
       },
       "kind=eq|hour=3|distance=at_floor": {
         "base_rate": 0.09090909090909091,
@@ -907,12 +963,12 @@
         "n": 53
       },
       "kind=eq|hour=3|distance=unknown": {
-        "base_rate": 0.11318242343541944,
-        "n": 747
+        "base_rate": 0.11194833153928956,
+        "n": 1854
       },
       "kind=eq|hour=4": {
-        "base_rate": 0.11176718684099536,
-        "n": 2367
+        "base_rate": 0.1115595272412799,
+        "n": 3465
       },
       "kind=eq|hour=4|distance=at_floor": {
         "base_rate": 0.07142857142857142,
@@ -935,12 +991,12 @@
         "n": 66
       },
       "kind=eq|hour=4|distance=unknown": {
-        "base_rate": 0.12307692307692308,
-        "n": 126
+        "base_rate": 0.11237785016286644,
+        "n": 1224
       },
       "kind=eq|hour=5": {
-        "base_rate": 0.11182401466544455,
-        "n": 2178
+        "base_rate": 0.11158930218260067,
+        "n": 3249
       },
       "kind=eq|hour=5|distance=at_floor": {
         "base_rate": 0.07142857142857142,
@@ -962,9 +1018,13 @@
         "base_rate": 0.030303030303030304,
         "n": 62
       },
+      "kind=eq|hour=5|distance=unknown": {
+        "base_rate": 0.11255813953488372,
+        "n": 1071
+      },
       "kind=eq|hour=6": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.11155265398807834,
+        "n": 3519
       },
       "kind=eq|hour=6|distance=at_floor": {
         "base_rate": 0.058823529411764705,
@@ -986,9 +1046,13 @@
         "base_rate": 0.02631578947368421,
         "n": 72
       },
+      "kind=eq|hour=6|distance=unknown": {
+        "base_rate": 0.11246730601569312,
+        "n": 1143
+      },
       "kind=eq|hour=7": {
-        "base_rate": 0.11179307321350285,
-        "n": 2277
+        "base_rate": 0.11157147084936371,
+        "n": 3375
       },
       "kind=eq|hour=7|distance=at_floor": {
         "base_rate": 0.05714285714285714,
@@ -1010,9 +1074,13 @@
         "base_rate": 0.02631578947368421,
         "n": 72
       },
+      "kind=eq|hour=7|distance=unknown": {
+        "base_rate": 0.11252268602540835,
+        "n": 1098
+      },
       "kind=eq|hour=8": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.1115606936416185,
+        "n": 3456
       },
       "kind=eq|hour=8|distance=at_floor": {
         "base_rate": 0.03636363636363636,
@@ -1034,9 +1102,13 @@
         "base_rate": 0.021739130434782608,
         "n": 88
       },
+      "kind=eq|hour=8|distance=unknown": {
+        "base_rate": 0.11254612546125461,
+        "n": 1080
+      },
       "kind=eq|hour=9": {
-        "base_rate": 0.11176470588235295,
-        "n": 2376
+        "base_rate": 0.1115702479338843,
+        "n": 3384
       },
       "kind=eq|hour=9|distance=at_floor": {
         "base_rate": 0.037037037037037035,
@@ -1058,233 +1130,313 @@
         "base_rate": 0.022222222222222223,
         "n": 86
       },
+      "kind=eq|hour=9|distance=unknown": {
+        "base_rate": 0.11264822134387352,
+        "n": 1008
+      },
       "kind=gte": {
-        "base_rate": 0.00032605151613955004,
-        "n": 6130
+        "base_rate": 0.0002289639381797367,
+        "n": 8731
       },
       "kind=gte|distance=three_plus_above": {
         "base_rate": 0.00034129692832764505,
         "n": 5856
       },
       "kind=gte|distance=unknown": {
-        "base_rate": 0.007194244604316547,
-        "n": 274
+        "base_rate": 0.0006946856547412296,
+        "n": 2875
       },
       "kind=gte|hour=0": {
-        "base_rate": 0.007326007326007326,
-        "n": 269
+        "base_rate": 0.005714285714285714,
+        "n": 346
       },
       "kind=gte|hour=0|distance=three_plus_above": {
         "base_rate": 0.009708737864077669,
         "n": 202
       },
       "kind=gte|hour=0|distance=unknown": {
-        "base_rate": 0.028169014084507043,
-        "n": 67
+        "base_rate": 0.013513513513513514,
+        "n": 144
       },
       "kind=gte|hour=1": {
-        "base_rate": 0.007547169811320755,
-        "n": 261
+        "base_rate": 0.00546448087431694,
+        "n": 362
       },
       "kind=gte|hour=10": {
-        "base_rate": 0.00784313725490196,
-        "n": 251
+        "base_rate": 0.005698005698005698,
+        "n": 347
       },
       "kind=gte|hour=10|distance=three_plus_above": {
         "base_rate": 0.00784313725490196,
         "n": 251
       },
+      "kind=gte|hour=10|distance=unknown": {
+        "base_rate": 0.02,
+        "n": 96
+      },
       "kind=gte|hour=11": {
-        "base_rate": 0.008064516129032258,
-        "n": 244
+        "base_rate": 0.005277044854881266,
+        "n": 375
       },
       "kind=gte|hour=11|distance=three_plus_above": {
         "base_rate": 0.008064516129032258,
         "n": 244
       },
+      "kind=gte|hour=11|distance=unknown": {
+        "base_rate": 0.014814814814814815,
+        "n": 131
+      },
       "kind=gte|hour=12": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.0049261083743842365,
+        "n": 402
       },
       "kind=gte|hour=12|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=12|distance=unknown": {
+        "base_rate": 0.014084507042253521,
+        "n": 138
+      },
       "kind=gte|hour=13": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005141388174807198,
+        "n": 385
       },
       "kind=gte|hour=13|distance=three_plus_above": {
         "base_rate": 0.008130081300813009,
         "n": 242
       },
+      "kind=gte|hour=13|distance=unknown": {
+        "base_rate": 0.013605442176870748,
+        "n": 143
+      },
       "kind=gte|hour=14": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.004987531172069825,
+        "n": 397
       },
       "kind=gte|hour=14|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=14|distance=unknown": {
+        "base_rate": 0.014598540145985401,
+        "n": 133
+      },
       "kind=gte|hour=15": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.004901960784313725,
+        "n": 404
       },
       "kind=gte|hour=15|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=15|distance=unknown": {
+        "base_rate": 0.013888888888888888,
+        "n": 140
+      },
       "kind=gte|hour=16": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005376344086021506,
+        "n": 368
       },
       "kind=gte|hour=16|distance=three_plus_above": {
         "base_rate": 0.008130081300813009,
         "n": 242
       },
+      "kind=gte|hour=16|distance=unknown": {
+        "base_rate": 0.015384615384615385,
+        "n": 126
+      },
       "kind=gte|hour=17": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005249343832020997,
+        "n": 377
       },
       "kind=gte|hour=17|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=17|distance=unknown": {
+        "base_rate": 0.017094017094017096,
+        "n": 113
+      },
       "kind=gte|hour=18": {
-        "base_rate": 0.00851063829787234,
-        "n": 231
+        "base_rate": 0.005763688760806916,
+        "n": 343
       },
       "kind=gte|hour=18|distance=three_plus_above": {
         "base_rate": 0.00851063829787234,
         "n": 231
       },
+      "kind=gte|hour=18|distance=unknown": {
+        "base_rate": 0.017241379310344827,
+        "n": 112
+      },
       "kind=gte|hour=19": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.006269592476489028,
+        "n": 315
       },
       "kind=gte|hour=19|distance=three_plus_above": {
         "base_rate": 0.007782101167315175,
         "n": 253
+      },
+      "kind=gte|hour=19|distance=unknown": {
+        "base_rate": 0.030303030303030304,
+        "n": 62
       },
       "kind=gte|hour=1|distance=three_plus_above": {
         "base_rate": 0.0111731843575419,
         "n": 175
       },
       "kind=gte|hour=1|distance=unknown": {
-        "base_rate": 0.022222222222222223,
-        "n": 86
+        "base_rate": 0.010471204188481676,
+        "n": 187
       },
       "kind=gte|hour=2": {
-        "base_rate": 0.0078125,
-        "n": 252
+        "base_rate": 0.005390835579514825,
+        "n": 367
       },
       "kind=gte|hour=20": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005698005698005698,
+        "n": 347
       },
       "kind=gte|hour=20|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=20|distance=unknown": {
+        "base_rate": 0.022988505747126436,
+        "n": 83
+      },
       "kind=gte|hour=21": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.0058997050147492625,
+        "n": 335
       },
       "kind=gte|hour=21|distance=three_plus_above": {
         "base_rate": 0.008130081300813009,
         "n": 242
       },
+      "kind=gte|hour=21|distance=unknown": {
+        "base_rate": 0.020618556701030927,
+        "n": 93
+      },
       "kind=gte|hour=22": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.006622516556291391,
+        "n": 298
       },
       "kind=gte|hour=22|distance=three_plus_above": {
         "base_rate": 0.007782101167315175,
         "n": 253
       },
+      "kind=gte|hour=22|distance=unknown": {
+        "base_rate": 0.04081632653061224,
+        "n": 45
+      },
       "kind=gte|hour=23": {
-        "base_rate": 0.007407407407407408,
-        "n": 266
+        "base_rate": 0.006289308176100629,
+        "n": 314
       },
       "kind=gte|hour=23|distance=three_plus_above": {
         "base_rate": 0.007407407407407408,
         "n": 266
+      },
+      "kind=gte|hour=23|distance=unknown": {
+        "base_rate": 0.038461538461538464,
+        "n": 48
       },
       "kind=gte|hour=2|distance=three_plus_above": {
         "base_rate": 0.008620689655172414,
         "n": 228
       },
       "kind=gte|hour=2|distance=unknown": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.013986013986013986,
+        "n": 139
       },
       "kind=gte|hour=3": {
-        "base_rate": 0.007751937984496124,
-        "n": 254
+        "base_rate": 0.005249343832020997,
+        "n": 377
       },
       "kind=gte|hour=3|distance=three_plus_above": {
         "base_rate": 0.011428571428571429,
         "n": 171
       },
       "kind=gte|hour=3|distance=unknown": {
-        "base_rate": 0.022988505747126436,
-        "n": 83
+        "base_rate": 0.009523809523809525,
+        "n": 206
       },
       "kind=gte|hour=4": {
-        "base_rate": 0.00749063670411985,
-        "n": 263
+        "base_rate": 0.005141388174807198,
+        "n": 385
       },
       "kind=gte|hour=4|distance=three_plus_above": {
         "base_rate": 0.007905138339920948,
         "n": 249
       },
       "kind=gte|hour=4|distance=unknown": {
-        "base_rate": 0.1111111111111111,
-        "n": 14
+        "base_rate": 0.014285714285714285,
+        "n": 136
       },
       "kind=gte|hour=5": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005479452054794521,
+        "n": 361
       },
       "kind=gte|hour=5|distance=three_plus_above": {
         "base_rate": 0.008130081300813009,
         "n": 242
       },
+      "kind=gte|hour=5|distance=unknown": {
+        "base_rate": 0.016260162601626018,
+        "n": 119
+      },
       "kind=gte|hour=6": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005063291139240506,
+        "n": 391
       },
       "kind=gte|hour=6|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=6|distance=unknown": {
+        "base_rate": 0.015267175572519083,
+        "n": 127
+      },
       "kind=gte|hour=7": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.005277044854881266,
+        "n": 375
       },
       "kind=gte|hour=7|distance=three_plus_above": {
         "base_rate": 0.007782101167315175,
         "n": 253
       },
+      "kind=gte|hour=7|distance=unknown": {
+        "base_rate": 0.015873015873015872,
+        "n": 122
+      },
       "kind=gte|hour=8": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005154639175257732,
+        "n": 384
       },
       "kind=gte|hour=8|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=8|distance=unknown": {
+        "base_rate": 0.016129032258064516,
+        "n": 120
+      },
       "kind=gte|hour=9": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005263157894736842,
+        "n": 376
       },
       "kind=gte|hour=9|distance=three_plus_above": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=gte|hour=9|distance=unknown": {
+        "base_rate": 0.017241379310344827,
+        "n": 112
+      },
       "kind=lte": {
-        "base_rate": 0.00032605151613955004,
-        "n": 6130
+        "base_rate": 0.0002289639381797367,
+        "n": 8731
       },
       "kind=lte|distance=at_floor": {
         "base_rate": 0.01,
@@ -1307,12 +1459,12 @@
         "n": 168
       },
       "kind=lte|distance=unknown": {
-        "base_rate": 0.007194244604316547,
-        "n": 274
+        "base_rate": 0.0006946856547412296,
+        "n": 2875
       },
       "kind=lte|hour=0": {
-        "base_rate": 0.007326007326007326,
-        "n": 269
+        "base_rate": 0.005714285714285714,
+        "n": 346
       },
       "kind=lte|hour=0|distance=below_floor": {
         "base_rate": 0.009950248756218905,
@@ -1327,16 +1479,16 @@
         "n": 4
       },
       "kind=lte|hour=0|distance=unknown": {
-        "base_rate": 0.028169014084507043,
-        "n": 67
+        "base_rate": 0.013513513513513514,
+        "n": 144
       },
       "kind=lte|hour=1": {
-        "base_rate": 0.007547169811320755,
-        "n": 261
+        "base_rate": 0.00546448087431694,
+        "n": 362
       },
       "kind=lte|hour=10": {
-        "base_rate": 0.00784313725490196,
-        "n": 251
+        "base_rate": 0.005698005698005698,
+        "n": 347
       },
       "kind=lte|hour=10|distance=at_floor": {
         "base_rate": 0.1111111111111111,
@@ -1358,9 +1510,13 @@
         "base_rate": 0.11764705882352941,
         "n": 13
       },
+      "kind=lte|hour=10|distance=unknown": {
+        "base_rate": 0.02,
+        "n": 96
+      },
       "kind=lte|hour=11": {
-        "base_rate": 0.008064516129032258,
-        "n": 244
+        "base_rate": 0.005277044854881266,
+        "n": 375
       },
       "kind=lte|hour=11|distance=at_floor": {
         "base_rate": 0.1,
@@ -1382,9 +1538,13 @@
         "base_rate": 0.13333333333333333,
         "n": 11
       },
+      "kind=lte|hour=11|distance=unknown": {
+        "base_rate": 0.014814814814814815,
+        "n": 131
+      },
       "kind=lte|hour=12": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.0049261083743842365,
+        "n": 402
       },
       "kind=lte|hour=12|distance=at_floor": {
         "base_rate": 0.058823529411764705,
@@ -1406,9 +1566,13 @@
         "base_rate": 0.13333333333333333,
         "n": 11
       },
+      "kind=lte|hour=12|distance=unknown": {
+        "base_rate": 0.014084507042253521,
+        "n": 138
+      },
       "kind=lte|hour=13": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005141388174807198,
+        "n": 385
       },
       "kind=lte|hour=13|distance=at_floor": {
         "base_rate": 0.2857142857142857,
@@ -1430,9 +1594,13 @@
         "base_rate": 0.15384615384615385,
         "n": 9
       },
+      "kind=lte|hour=13|distance=unknown": {
+        "base_rate": 0.013605442176870748,
+        "n": 143
+      },
       "kind=lte|hour=14": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.004987531172069825,
+        "n": 397
       },
       "kind=lte|hour=14|distance=below_floor": {
         "base_rate": 0.00816326530612245,
@@ -1450,9 +1618,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=14|distance=unknown": {
+        "base_rate": 0.014598540145985401,
+        "n": 133
+      },
       "kind=lte|hour=15": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.004901960784313725,
+        "n": 404
       },
       "kind=lte|hour=15|distance=below_floor": {
         "base_rate": 0.007782101167315175,
@@ -1462,9 +1634,13 @@
         "base_rate": 0.13333333333333333,
         "n": 11
       },
+      "kind=lte|hour=15|distance=unknown": {
+        "base_rate": 0.013888888888888888,
+        "n": 140
+      },
       "kind=lte|hour=16": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005376344086021506,
+        "n": 368
       },
       "kind=lte|hour=16|distance=below_floor": {
         "base_rate": 0.008333333333333333,
@@ -1478,9 +1654,13 @@
         "base_rate": 0.3333333333333333,
         "n": 2
       },
+      "kind=lte|hour=16|distance=unknown": {
+        "base_rate": 0.015384615384615385,
+        "n": 126
+      },
       "kind=lte|hour=17": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005249343832020997,
+        "n": 377
       },
       "kind=lte|hour=17|distance=below_floor": {
         "base_rate": 0.007547169811320755,
@@ -1490,21 +1670,33 @@
         "base_rate": 0.2857142857142857,
         "n": 3
       },
+      "kind=lte|hour=17|distance=unknown": {
+        "base_rate": 0.017094017094017096,
+        "n": 113
+      },
       "kind=lte|hour=18": {
-        "base_rate": 0.00851063829787234,
-        "n": 231
+        "base_rate": 0.005763688760806916,
+        "n": 343
       },
       "kind=lte|hour=18|distance=below_floor": {
         "base_rate": 0.00851063829787234,
         "n": 231
       },
+      "kind=lte|hour=18|distance=unknown": {
+        "base_rate": 0.017241379310344827,
+        "n": 112
+      },
       "kind=lte|hour=19": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.006269592476489028,
+        "n": 315
       },
       "kind=lte|hour=19|distance=below_floor": {
         "base_rate": 0.007782101167315175,
         "n": 253
+      },
+      "kind=lte|hour=19|distance=unknown": {
+        "base_rate": 0.030303030303030304,
+        "n": 62
       },
       "kind=lte|hour=1|distance=at_floor": {
         "base_rate": 0.2,
@@ -1523,44 +1715,60 @@
         "n": 31
       },
       "kind=lte|hour=1|distance=unknown": {
-        "base_rate": 0.022222222222222223,
-        "n": 86
+        "base_rate": 0.010471204188481676,
+        "n": 187
       },
       "kind=lte|hour=2": {
-        "base_rate": 0.0078125,
-        "n": 252
+        "base_rate": 0.005390835579514825,
+        "n": 367
       },
       "kind=lte|hour=20": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005698005698005698,
+        "n": 347
       },
       "kind=lte|hour=20|distance=below_floor": {
         "base_rate": 0.007462686567164179,
         "n": 264
       },
+      "kind=lte|hour=20|distance=unknown": {
+        "base_rate": 0.022988505747126436,
+        "n": 83
+      },
       "kind=lte|hour=21": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.0058997050147492625,
+        "n": 335
       },
       "kind=lte|hour=21|distance=below_floor": {
         "base_rate": 0.008130081300813009,
         "n": 242
       },
+      "kind=lte|hour=21|distance=unknown": {
+        "base_rate": 0.020618556701030927,
+        "n": 93
+      },
       "kind=lte|hour=22": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.006622516556291391,
+        "n": 298
       },
       "kind=lte|hour=22|distance=below_floor": {
         "base_rate": 0.007782101167315175,
         "n": 253
       },
+      "kind=lte|hour=22|distance=unknown": {
+        "base_rate": 0.04081632653061224,
+        "n": 45
+      },
       "kind=lte|hour=23": {
-        "base_rate": 0.007407407407407408,
-        "n": 266
+        "base_rate": 0.006289308176100629,
+        "n": 314
       },
       "kind=lte|hour=23|distance=below_floor": {
         "base_rate": 0.007407407407407408,
         "n": 266
+      },
+      "kind=lte|hour=23|distance=unknown": {
+        "base_rate": 0.038461538461538464,
+        "n": 48
       },
       "kind=lte|hour=2|distance=at_floor": {
         "base_rate": 0.09523809523809523,
@@ -1583,12 +1791,12 @@
         "n": 6
       },
       "kind=lte|hour=2|distance=unknown": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.013986013986013986,
+        "n": 139
       },
       "kind=lte|hour=3": {
-        "base_rate": 0.007751937984496124,
-        "n": 254
+        "base_rate": 0.005249343832020997,
+        "n": 377
       },
       "kind=lte|hour=3|distance=at_floor": {
         "base_rate": 0.11764705882352941,
@@ -1611,12 +1819,12 @@
         "n": 6
       },
       "kind=lte|hour=3|distance=unknown": {
-        "base_rate": 0.022988505747126436,
-        "n": 83
+        "base_rate": 0.009523809523809525,
+        "n": 206
       },
       "kind=lte|hour=4": {
-        "base_rate": 0.00749063670411985,
-        "n": 263
+        "base_rate": 0.005141388174807198,
+        "n": 385
       },
       "kind=lte|hour=4|distance=at_floor": {
         "base_rate": 0.09090909090909091,
@@ -1639,12 +1847,12 @@
         "n": 13
       },
       "kind=lte|hour=4|distance=unknown": {
-        "base_rate": 0.1111111111111111,
-        "n": 14
+        "base_rate": 0.014285714285714285,
+        "n": 136
       },
       "kind=lte|hour=5": {
-        "base_rate": 0.008130081300813009,
-        "n": 242
+        "base_rate": 0.005479452054794521,
+        "n": 361
       },
       "kind=lte|hour=5|distance=at_floor": {
         "base_rate": 0.10526315789473684,
@@ -1666,9 +1874,13 @@
         "base_rate": 0.1,
         "n": 16
       },
+      "kind=lte|hour=5|distance=unknown": {
+        "base_rate": 0.016260162601626018,
+        "n": 119
+      },
       "kind=lte|hour=6": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005063291139240506,
+        "n": 391
       },
       "kind=lte|hour=6|distance=at_floor": {
         "base_rate": 0.09090909090909091,
@@ -1690,9 +1902,13 @@
         "base_rate": 0.09090909090909091,
         "n": 18
       },
+      "kind=lte|hour=6|distance=unknown": {
+        "base_rate": 0.015267175572519083,
+        "n": 127
+      },
       "kind=lte|hour=7": {
-        "base_rate": 0.007782101167315175,
-        "n": 253
+        "base_rate": 0.005277044854881266,
+        "n": 375
       },
       "kind=lte|hour=7|distance=at_floor": {
         "base_rate": 0.1,
@@ -1714,9 +1930,13 @@
         "base_rate": 0.09090909090909091,
         "n": 18
       },
+      "kind=lte|hour=7|distance=unknown": {
+        "base_rate": 0.015873015873015872,
+        "n": 122
+      },
       "kind=lte|hour=8": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005154639175257732,
+        "n": 384
       },
       "kind=lte|hour=8|distance=at_floor": {
         "base_rate": 0.125,
@@ -1738,9 +1958,13 @@
         "base_rate": 0.09090909090909091,
         "n": 18
       },
+      "kind=lte|hour=8|distance=unknown": {
+        "base_rate": 0.016129032258064516,
+        "n": 120
+      },
       "kind=lte|hour=9": {
-        "base_rate": 0.007462686567164179,
-        "n": 264
+        "base_rate": 0.005263157894736842,
+        "n": 376
       },
       "kind=lte|hour=9|distance=at_floor": {
         "base_rate": 0.09090909090909091,
@@ -1761,6 +1985,10 @@
       "kind=lte|hour=9|distance=two_above": {
         "base_rate": 0.09090909090909091,
         "n": 18
+      },
+      "kind=lte|hour=9|distance=unknown": {
+        "base_rate": 0.017241379310344827,
+        "n": 112
       }
     },
     "enabled": true,
@@ -1769,95 +1997,115 @@
     "min_context_n": 40,
     "min_probability": 1e-06,
     "preserve_distribution_coherence": true,
-    "selected_loo_brier": 0.055384488200058604,
-    "selected_loo_logloss": 0.2024169363549144
+    "selected_loo_brier": 0.05984426286119794,
+    "selected_loo_logloss": 0.21280379534520905
   },
   "selected_deployable_candidate": {
-    "brier": 0.055384488200058604,
-    "logloss": 0.2024169363549144,
+    "brier": 0.05984426286119794,
+    "logloss": 0.21280379534520905,
     "method": "isotonic",
-    "n": 67430,
+    "n": 96041,
     "param": null
   },
   "training": {
-    "artifact_replay_brier": 0.062449348470779174,
-    "artifact_replay_brier_skill_vs_market": -0.6490953905995771,
-    "artifact_replay_logloss": 0.7373173607604753,
-    "baseline_brier": 0.05600115139762482,
-    "baseline_brier_skill_vs_market": -0.4788183207596546,
-    "baseline_logloss": 0.28092872593177937,
-    "market_brier": 0.03786885150899238,
-    "market_logloss": 0.12250754197480236,
+    "artifact_replay_brier": 0.06562355419677288,
+    "artifact_replay_brier_skill_vs_market": -0.6273745744543067,
+    "artifact_replay_logloss": 0.5912341583957963,
+    "baseline_brier": 0.06109630095451413,
+    "baseline_brier_skill_vs_market": -0.5151048732967607,
+    "baseline_logloss": 0.2708055633310861,
+    "market_brier": 0.04032479997346514,
+    "market_logloss": 0.13080136712357376,
     "market_rows": {
-      "atlanta": 6138,
-      "austin": 6138,
-      "chicago": 6182,
-      "dallas": 6138,
-      "denver": 6149,
-      "houston": 6127,
-      "los-angeles": 6083,
-      "miami": 6127,
-      "nyc": 6138,
-      "san-francisco": 6094,
-      "seattle": 6116
+      "atlanta": 9405,
+      "austin": 9372,
+      "chicago": 9306,
+      "dallas": 9240,
+      "denver": 9097,
+      "houston": 9262,
+      "los-angeles": 7678,
+      "miami": 7887,
+      "nyc": 9262,
+      "san-francisco": 7744,
+      "seattle": 7788
     },
     "quality_grades": [
       "complete",
       "manual_override"
     ],
-    "rows": 67430,
-    "selected_brier_skill_vs_market": -0.46253414067513887,
+    "rows": 96041,
+    "selected_brier_skill_vs_market": -0.48405603749001,
     "snapshot_folders": [
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-nyc-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-atlanta-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-chicago-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-dallas-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-denver-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-houston-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-los-angeles-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-miami-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-san-francisco-on-june-13-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-seattle-on-june-13-2026"
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-nyc-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-atlanta-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-chicago-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-dallas-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-denver-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-houston-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-los-angeles-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-miami-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-san-francisco-on-july-5-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-seattle-on-july-5-2026"
     ],
     "target_dates": [
       "2026-06-07",
       "2026-06-08",
       "2026-06-12",
-      "2026-06-13"
+      "2026-06-13",
+      "2026-06-28",
+      "2026-07-05"
     ]
   },
   "version": "v0.1"

@@ -1,4 +1,4 @@
-# System-Level Backlog Audit - 2026-06-24
+﻿# System-Level Backlog Audit - 2026-06-24
 
 Scope: all numbered roadmap items through item 300, plus the active backlog and
 ROADMAP maintenance conventions.
@@ -18,17 +18,13 @@ failure typing. These are related but not duplicate.
 Gap disposition: no new item. Future truth-label problems should expand item
 265 or item 281 unless they are outside canonical settlement-source behavior.
 
-## Historical Data, Redundancy, Backup, And Retention
 
 Already covered: items 29-32, 61-65, 76-81, 100, 102, 109, 111, 113, 114, 124,
 146, 154, 171, 172, 185-191, 201, 203, 243-247, and 286-291 cover source depth,
-redundancy, raw sidecars, source-health recovery, tape backup, Parquet archives,
 event-day manifests, storage classes, cleanup gates, and schema reconciliation.
 
-Overlaps: items 65/111/146/246/247 form a backup maturity chain; item 287 plus
 items 286/288/290/291 form the storage-class and archive-verification chain.
 
-Gap disposition: no new item. External durable/deduplicated backup remains owned
 by item 246, and local mirror reclaim remains item 247.
 
 ## Live Collection, Freshness, And Operations

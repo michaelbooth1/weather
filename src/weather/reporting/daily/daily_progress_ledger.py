@@ -319,7 +319,6 @@ def build_progress_row(
     source_status_summary = ((((fleet.get("collection") or {}).get("source_status_proof") or {}).get("summary")) or {})
     clob = (fleet.get("clob") or {}).get("loop") or {}
     observation = fleet.get("observation_trigger") or {}
-    backup = fleet.get("tape_backup") or {}
     current_soak = fleet.get("current_code_soak") or {}
     frozen_status = _frozen_baseline_status(frozen_baseline)
     frozen_overall = frozen_baseline.get("overall") or {}
@@ -443,7 +442,6 @@ def build_progress_row(
         "ops_clob_status": clob.get("state"),
         "ops_observation_trigger_status": observation.get("state"),
         "ops_current_code_soak_status": current_soak.get("status"),
-        "ops_backup_status": backup.get("status"),
         "ops_disk_preflight_status": disk.get("status"),
         "ops_disk_free_bytes": disk.get("free_bytes"),
         "ops_disk_required_free_bytes": disk.get("required_free_bytes"),

@@ -1,4 +1,4 @@
-# Location Performance Model Audit - 2026-06-22
+﻿# Location Performance Model Audit - 2026-06-22
 
 ## Scope
 
@@ -275,7 +275,6 @@ Operational state is not clean enough to treat live evidence as fully current:
 
 - `settled_day_freshness.json` is FAIL for target date 2026-06-20. All 12 markets are missing replay status.
 - `daily_learning.json` is BLOCKED with 8 blockers and 59 high-priority learning items.
-- `fleet_observability.json` is CRITICAL with 28 critical alerts, 717 loop restarts, CLOB capture staleness, missing tape backup files, and market microstructure evidence starvation.
 - `feature_quality_quarantine.json` excludes 4,857 rows from training/promotion/score-only paths. Seattle has the largest affected count at 709, but top markets are also affected, so quarantine volume is an amplifier rather than the full root cause.
 - `data/mm_runs/daily_roll_console.log` and `data/taker_runs/daily_roll_console.log` show `OSError: [Errno 28] No space left on device`.
 - The MM run recorded 0 quote rows and 132 no-quote rows with stale preflight for 2026-06-20.

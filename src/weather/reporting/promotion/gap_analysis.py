@@ -282,16 +282,10 @@ def _operational_gate_rows(payload):
     fleet = payload.get("fleet_observability") or {}
     if fleet:
         summary = fleet.get("summary") or {}
-        tape = fleet.get("tape_backup") or {}
         rows.append([
             "Live-forward SLO",
             summary.get("live_forward_slo_status") or "-",
             f"fleet status {fleet.get('status') or '-'}",
-        ])
-        rows.append([
-            "Tape backup SLA",
-            tape.get("status") or summary.get("tape_backup_status") or "-",
-            f"backup root {tape.get('backup_root') or '-'}",
         ])
     hourly = payload.get("hourly_performance") or {}
     if hourly:

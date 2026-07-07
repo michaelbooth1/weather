@@ -1,4 +1,4 @@
-# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]
+﻿# 178. Serving-Time Ordinal Smoothing Train/Serve Skew [PARTIAL 2026-06-22 - GATE REFRESHED, VALIDATION BLOCKED]
 
 Goal: eliminate the train/serve skew where serving de-sharpens the feature-model
 distribution with an ordinal-smoothing layer that the per-hour temperature/blend
@@ -17,7 +17,7 @@ training.
 Why this matters: the served distribution is de-sharpened twice (a fixed 50%
 ordinal blend, then the tuned temperature/prior weight), and the tuning that
 chose those values was blind to the first step. The net effect is a distribution
-flatter than anything validated — the exact symptom items 168/169 measured
+flatter than anything validated â€” the exact symptom items 168/169 measured
 (predawn winner band `24.2%` model vs `34.6%` market; probability spread over
 more bands). The smoothing constants are also global, applied identically across
 every hour and regime, including the predawn slots already too diffuse.
@@ -243,7 +243,6 @@ Remaining blockers are:
 - Candidate hourly gate: still `BLOCK`; repaired early-hour Brier trails market
   by `+0.0048 > +0.0030`, and log-loss trails by `+0.0252 > +0.0100`.
 - Operational gates outside this item: live-forward SLO is `BLOCK` and tape
-  backup SLA is `MISSING_CRITICAL_FILES`.
 
 Remaining unblock: promote the repaired policy from probe CSV into the active
 replay/export contract, broaden the repair only if it clears the full

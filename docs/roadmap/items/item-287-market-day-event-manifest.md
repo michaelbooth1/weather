@@ -1,8 +1,7 @@
-# 287. Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]
+﻿# 287. Per-Market-Day Event Manifest For Evidence, Projections, And Rebuild Sources [COMPLETE 2026-06-23 - EVENT-DAY MANIFEST WRITER AND VALIDATOR LIVE]
 
 Goal: add an `event_day_manifest.json` to each market-day snapshot folder so
 the folder is self-describing: file role, schema version, row count, byte count,
-hash, storage class, retention class, rebuild source, and backup/restore state.
 
 Source: the 2026-06-23 data-layer audit found that a single market-day folder
 contains many useful files with different roles: raw JSONL tapes, CSV analysis
@@ -17,7 +16,6 @@ Why this matters: folder-level self-description is the missing layer between
 "keep everything" and "avoid duplicate bloat." A manifest lets operators and
 tools safely answer: what is irreplaceable, what can be rebuilt, whether a CSV
 matches its raw JSONL, which schema version wrote it, whether a file is covered
-by backup, and whether a cleanup or Parquet conversion can proceed. It also
 removes future dependence on fragile filename-only ownership and makes
 long-term archive migrations verifiable.
 
@@ -56,15 +54,12 @@ Acceptance: each active or historical market-day folder can produce a valid
 schema, count, hash, retention class, and rebuild source; cleanup/archive
 planning consumes the manifest when present; and validation fails closed when a
 manifest is stale or when a deletion candidate lacks canonical evidence and
-backup proof.
 
 Implementation (2026-06-23): `weather.operations.event_day_manifest` now owns
 `event_day_manifest_v0.1`, a writer, validator, manifest hash helper,
 historical plan/apply backfill command, manifest summary helper, and a
 fail-closed deletion-candidate gate. File entries include folder-relative path,
 data-relative path, role/storage class, schema version when present, row count,
-bytes, SHA-256, retention class, rebuild source, backup expectation, and
-backup/restore state.
 
 The manifest covers snapshot, feature, component, forecast, forecast-payload,
 source-status, replay, CLOB token/book/price/websocket/feature, variant,

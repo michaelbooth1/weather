@@ -1,4 +1,4 @@
-# 159. Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]
+﻿# 159. Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]
 
 Goal: make daily refresh fail fast on artifact disk pressure and resume cleanly
 after disk cleanup, especially before promotion refresh variant exports.
@@ -19,7 +19,6 @@ headroom must be a hard preflight, not a late exception during export.
 
 1. Run disk headroom checks before each artifact-heavy daily refresh step:
    promotion refresh, candidate shadow export, disagreement casebook, CLOB
-   audits, and backup/restore.
 2. Estimate required bytes from expected row counts and configured export
    classes before work begins.
 3. Fail fast with an actionable cleanup command when projected free space is

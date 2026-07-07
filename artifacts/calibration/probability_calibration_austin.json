@@ -1,387 +1,387 @@
 {
   "candidate_scores": [
     {
-      "brier": 0.03620363070218276,
-      "logloss": 0.11015362726935606,
+      "brier": 0.044056701147283155,
+      "logloss": 0.13903902061078352,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
+      "param": 0.9
+    },
+    {
+      "brier": 0.044198014137859405,
+      "logloss": 0.13856996132808166,
+      "method": "market_shrink",
+      "n": 9372,
       "param": 1.0
     },
     {
-      "brier": 0.03634945289564056,
-      "logloss": 0.11177711307826815,
+      "brier": 0.04424306692679494,
+      "logloss": 0.14028294208462838,
       "method": "market_shrink",
-      "n": 6138,
-      "param": 0.9
-    },
-    {
-      "brier": 0.03677641441636561,
-      "logloss": 0.11384397371664644,
-      "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.8
     },
     {
-      "brier": 0.037484515264358816,
-      "logloss": 0.11636976466526831,
+      "brier": 0.044757111476394114,
+      "logloss": 0.14215526619107224,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.7
     },
     {
-      "brier": 0.03847375543962018,
-      "logloss": 0.11939522893512382,
+      "brier": 0.0455988347960786,
+      "logloss": 0.14463645211407247,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.6
     },
     {
-      "brier": 0.0397441349421496,
-      "logloss": 0.12299390926366494,
+      "brier": 0.046768236885848746,
+      "logloss": 0.14776635475122604,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.5
     },
     {
-      "brier": 0.04129565377194736,
-      "logloss": 0.1272919859618303,
+      "brier": 0.04826531774570646,
+      "logloss": 0.1516436856937985,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.4
     },
     {
-      "brier": 0.04312831192900872,
-      "logloss": 0.13251737747407694,
+      "brier": 0.050090077375645636,
+      "logloss": 0.15646064903647447,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.3
     },
     {
-      "brier": 0.04524210941334166,
-      "logloss": 0.1391443823646012,
+      "brier": 0.052242515775675485,
+      "logloss": 0.16261585010674348,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.2
     },
     {
-      "brier": 0.047637046224939625,
-      "logloss": 0.14852401607380356,
+      "brier": 0.05472263294578823,
+      "logloss": 0.1711911343471492,
       "method": "market_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.1
     },
     {
-      "brier": 0.05014295329292369,
-      "logloss": 0.1763787622813417,
+      "brier": 0.057064141873173345,
+      "logloss": 0.193875705753646,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.1
     },
     {
-      "brier": 0.05016195323857517,
-      "logloss": 0.20854551506724284,
+      "brier": 0.05712786801537903,
+      "logloss": 0.2136862349620714,
       "method": "temperature",
-      "n": 6138,
+      "n": 9372,
       "param": 1.2
     },
     {
-      "brier": 0.050313122363807014,
-      "logloss": 0.22192419659403687,
-      "method": "identity",
-      "n": 6138,
+      "brier": 0.05713317228914467,
+      "logloss": 0.21613310667036867,
+      "method": "platt",
+      "n": 9372,
       "param": null
     },
     {
-      "brier": 0.050729080279424396,
-      "logloss": 0.18022392437305698,
+      "brier": 0.057259568489757225,
+      "logloss": 0.1976029183763742,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.2
     },
     {
-      "brier": 0.050969759002454165,
-      "logloss": 0.2006479380061912,
+      "brier": 0.05753042888598901,
+      "logloss": 0.22300649216507537,
+      "method": "identity",
+      "n": 9372,
+      "param": null
+    },
+    {
+      "brier": 0.05787924124061052,
+      "logloss": 0.2110189464422364,
       "method": "temperature",
-      "n": 6138,
+      "n": 9372,
       "param": 1.5
     },
     {
-      "brier": 0.05200094977987995,
-      "logloss": 0.21544187133445872,
-      "method": "platt",
-      "n": 6138,
+      "brier": 0.05789510590515195,
+      "logloss": 0.23829680468507047,
+      "method": "isotonic",
+      "n": 9372,
       "param": null
     },
     {
-      "brier": 0.05207150332330135,
-      "logloss": 0.18689593383293204,
+      "brier": 0.058116708735737016,
+      "logloss": 0.20354144960936998,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.3
     },
     {
-      "brier": 0.05396362816528008,
-      "logloss": 0.2025991086230821,
-      "method": "temperature",
-      "n": 6138,
-      "param": 2.0
-    },
-    {
-      "brier": 0.054170222424558954,
-      "logloss": 0.1954502811133154,
+      "brier": 0.05963556261111392,
+      "logloss": 0.21103935521660286,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.4
     },
     {
-      "brier": 0.054515858425546064,
-      "logloss": 0.259430358634002,
-      "method": "isotonic",
-      "n": 6138,
-      "param": null
+      "brier": 0.06133668903736433,
+      "logloss": 0.21980800331930245,
+      "method": "temperature",
+      "n": 9372,
+      "param": 2.0
     },
     {
-      "brier": 0.05702523758319715,
-      "logloss": 0.20572285765949935,
+      "brier": 0.0618161301158886,
+      "logloss": 0.21999617924295387,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.5
     },
     {
-      "brier": 0.060636548799214436,
-      "logloss": 0.2178484785377216,
+      "brier": 0.064658411250064,
+      "logloss": 0.23053712547490748,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.6
     },
     {
-      "brier": 0.06234658677553464,
-      "logloss": 0.2262126283341781,
-      "method": "temperature",
-      "n": 6138,
-      "param": 3.0
-    },
-    {
-      "brier": 0.06500415607260704,
-      "logloss": 0.2322302554421333,
+      "brier": 0.06816240601363387,
+      "logloss": 0.24300059982512426,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.7
     },
     {
-      "brier": 0.07012805940339135,
-      "logloss": 0.24970018066414534,
+      "brier": 0.07126872015841736,
+      "logloss": 0.25194757918724336,
+      "method": "temperature",
+      "n": 9372,
+      "param": 3.0
+    },
+    {
+      "brier": 0.07232811440659451,
+      "logloss": 0.25807088736942424,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.8
     },
     {
-      "brier": 0.0713540291249487,
-      "logloss": 0.25733132080029536,
-      "method": "temperature",
-      "n": 6138,
-      "param": 4.0
-    },
-    {
-      "brier": 0.07600825879153954,
-      "logloss": 0.27207946206900235,
+      "brier": 0.07715553642896159,
+      "logloss": 0.2772245707176498,
       "method": "prior_shrink",
-      "n": 6138,
+      "n": 9372,
       "param": 0.9
     },
     {
-      "brier": 0.0803004740946246,
-      "logloss": 0.2892335609576107,
+      "brier": 0.08167200055111612,
+      "logloss": 0.2871349641159928,
       "method": "temperature",
-      "n": 6138,
+      "n": 9372,
+      "param": 4.0
+    },
+    {
+      "brier": 0.09161173009295899,
+      "logloss": 0.3205321446435041,
+      "method": "temperature",
+      "n": 9372,
       "param": 5.0
     }
   ],
   "exact_distribution": {
     "candidate_metrics": [
       {
-        "brier": 0.0614318017943447,
-        "logloss": 0.27065531476694826,
-        "n": 5022,
+        "brier": 0.07013054344943327,
+        "logloss": 0.2706409427452625,
+        "n": 7668,
         "temperature": 1.0
       },
       {
-        "brier": 0.06121319811225625,
-        "logloss": 0.2539109624064339,
-        "n": 5022,
+        "brier": 0.0694963998050429,
+        "logloss": 0.25825818694789393,
+        "n": 7668,
         "temperature": 1.2
       },
       {
-        "brier": 0.06212816237734734,
-        "logloss": 0.24340999954648757,
-        "n": 5022,
+        "brier": 0.07013805853159165,
+        "logloss": 0.2533000716375761,
+        "n": 7668,
         "temperature": 1.5
       },
       {
-        "brier": 0.06557801783520245,
-        "logloss": 0.24372123589208122,
-        "n": 5022,
+        "brier": 0.07377591540198847,
+        "logloss": 0.26081767163005526,
+        "n": 7668,
         "temperature": 2.0
       },
       {
-        "brier": 0.07501082941544898,
-        "logloss": 0.2663919458508482,
-        "n": 5022,
+        "brier": 0.08446639611545777,
+        "logloss": 0.2925240163031687,
+        "n": 7668,
         "temperature": 3.0
       },
       {
-        "brier": 0.0847543873222773,
-        "logloss": 0.2964237408079961,
-        "n": 5022,
+        "brier": 0.09551398539313344,
+        "logloss": 0.32691911295477577,
+        "n": 7668,
         "temperature": 4.0
       }
     ],
     "enabled": true,
-    "exact_row_count": 5022,
+    "exact_row_count": 7668,
     "hour_detail": {
       "0": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 5,
+        "n_rows": 261,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "1": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 6,
+        "n_rows": 351,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "10": {
-        "n_days": 4,
-        "n_rows": 207,
+        "n_days": 6,
+        "n_rows": 306,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
+      },
+      "11": {
+        "n_days": 6,
+        "n_rows": 333,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
+      },
+      "12": {
+        "n_days": 6,
+        "n_rows": 369,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
-      "11": {
-        "n_days": 4,
-        "n_rows": 198,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
-      },
-      "12": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
-      },
       "13": {
-        "n_days": 4,
-        "n_rows": 198,
-        "raw_best_temperature": 1.5,
-        "shrunk_temperature": 1.25
+        "n_days": 6,
+        "n_rows": 351,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "14": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "n_days": 6,
+        "n_rows": 333,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "15": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 6,
+        "n_rows": 369,
         "raw_best_temperature": 1.5,
-        "shrunk_temperature": 1.25
+        "shrunk_temperature": 1.3
       },
       "16": {
-        "n_days": 4,
-        "n_rows": 198,
+        "n_days": 6,
+        "n_rows": 306,
         "raw_best_temperature": 1.5,
-        "shrunk_temperature": 1.25
+        "shrunk_temperature": 1.3
       },
       "17": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 6,
+        "n_rows": 333,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "18": {
-        "n_days": 4,
-        "n_rows": 189,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 315,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "19": {
-        "n_days": 4,
-        "n_rows": 207,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 279,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "2": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 342,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "20": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 297,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "21": {
-        "n_days": 4,
-        "n_rows": 198,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 288,
+        "raw_best_temperature": 1.5,
+        "shrunk_temperature": 1.3
       },
       "22": {
-        "n_days": 4,
-        "n_rows": 207,
+        "n_days": 5,
+        "n_rows": 243,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "23": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 5,
+        "n_rows": 261,
         "raw_best_temperature": 1.0,
         "shrunk_temperature": 1.0
       },
       "3": {
-        "n_days": 4,
-        "n_rows": 207,
+        "n_days": 6,
+        "n_rows": 315,
         "raw_best_temperature": 1.5,
-        "shrunk_temperature": 1.25
+        "shrunk_temperature": 1.3
       },
       "4": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 351,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "5": {
-        "n_days": 4,
-        "n_rows": 198,
+        "n_days": 6,
+        "n_rows": 315,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "6": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 6,
+        "n_rows": 342,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "7": {
-        "n_days": 4,
-        "n_rows": 207,
+        "n_days": 6,
+        "n_rows": 333,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       },
       "8": {
-        "n_days": 4,
-        "n_rows": 216,
-        "raw_best_temperature": 1.0,
-        "shrunk_temperature": 1.0
+        "n_days": 6,
+        "n_rows": 342,
+        "raw_best_temperature": 1.2,
+        "shrunk_temperature": 1.12
       },
       "9": {
-        "n_days": 4,
-        "n_rows": 216,
+        "n_days": 6,
+        "n_rows": 333,
         "raw_best_temperature": 1.2,
-        "shrunk_temperature": 1.1
+        "shrunk_temperature": 1.12
       }
     },
     "max_deployment_temperature": 1.5,
@@ -391,51 +391,51 @@
     "temperature_by_hour": {
       "0": 1.0,
       "1": 1.0,
-      "10": 1.0,
-      "11": 1.1,
-      "12": 1.1,
-      "13": 1.25,
-      "14": 1.1,
-      "15": 1.25,
-      "16": 1.25,
+      "10": 1.12,
+      "11": 1.12,
+      "12": 1.0,
+      "13": 1.12,
+      "14": 1.3,
+      "15": 1.3,
+      "16": 1.3,
       "17": 1.0,
-      "18": 1.0,
-      "19": 1.0,
-      "2": 1.0,
-      "20": 1.0,
-      "21": 1.0,
+      "18": 1.12,
+      "19": 1.3,
+      "2": 1.12,
+      "20": 1.3,
+      "21": 1.3,
       "22": 1.0,
       "23": 1.0,
-      "3": 1.25,
-      "4": 1.0,
-      "5": 1.1,
-      "6": 1.1,
-      "7": 1.1,
-      "8": 1.0,
-      "9": 1.1
+      "3": 1.3,
+      "4": 1.12,
+      "5": 1.12,
+      "6": 1.12,
+      "7": 1.12,
+      "8": 1.12,
+      "9": 1.12
     },
     "unconstrained_best_temperature": 1.2
   },
-  "generated_at_utc": "2026-06-15T00:09:52.284023+00:00",
+  "generated_at_utc": "2026-07-07T07:37:35.636352+00:00",
   "market_bin": {
     "allow_exact_lift": false,
-    "base_rate": 0.09117551286225985,
+    "base_rate": 0.09108361774744027,
     "best_market_informed_baseline": {
-      "brier": 0.03620363070218276,
-      "logloss": 0.11015362726935606,
+      "brier": 0.044056701147283155,
+      "logloss": 0.13903902061078352,
       "method": "market_shrink",
-      "n": 6138,
-      "param": 1.0
+      "n": 9372,
+      "param": 0.9
     },
     "context_shrink_k": 50.0,
     "contexts": {
       "global": {
-        "base_rate": 0.09117551286225985,
-        "n": 6138
+        "base_rate": 0.09108361774744027,
+        "n": 9372
       },
       "kind=eq": {
-        "base_rate": 0.11142061281337047,
-        "n": 5022
+        "base_rate": 0.11131386861313869,
+        "n": 7668
       },
       "kind=eq|distance=at_floor": {
         "base_rate": 0.6904761904761905,
@@ -458,12 +458,12 @@
         "n": 312
       },
       "kind=eq|distance=unknown": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11165730337078651,
+        "n": 2844
       },
       "kind=eq|hour=0": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.1169811320754717,
+        "n": 261
       },
       "kind=eq|hour=0|distance=at_floor": {
         "base_rate": 0.9090909090909091,
@@ -485,13 +485,17 @@
         "base_rate": 0.09090909090909091,
         "n": 18
       },
+      "kind=eq|hour=0|distance=unknown": {
+        "base_rate": 0.14285714285714285,
+        "n": 45
+      },
       "kind=eq|hour=1": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11549295774647887,
+        "n": 351
       },
       "kind=eq|hour=10": {
-        "base_rate": 0.11848341232227488,
-        "n": 207
+        "base_rate": 0.11612903225806452,
+        "n": 306
       },
       "kind=eq|hour=10|distance=at_floor": {
         "base_rate": 0.3333333333333333,
@@ -513,9 +517,13 @@
         "base_rate": 0.16666666666666666,
         "n": 8
       },
+      "kind=eq|hour=10|distance=unknown": {
+        "base_rate": 0.1262135922330097,
+        "n": 99
+      },
       "kind=eq|hour=11": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=11|distance=at_floor": {
         "base_rate": 0.14285714285714285,
@@ -537,9 +545,13 @@
         "base_rate": 0.4666666666666667,
         "n": 11
       },
+      "kind=eq|hour=11|distance=unknown": {
+        "base_rate": 0.1223021582733813,
+        "n": 135
+      },
       "kind=eq|hour=12": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11528150134048257,
+        "n": 369
       },
       "kind=eq|hour=12|distance=at_floor": {
         "base_rate": 0.1111111111111111,
@@ -561,9 +573,13 @@
         "base_rate": 0.36363636363636365,
         "n": 18
       },
+      "kind=eq|hour=12|distance=unknown": {
+        "base_rate": 0.12101910828025478,
+        "n": 153
+      },
       "kind=eq|hour=13": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11549295774647887,
+        "n": 351
       },
       "kind=eq|hour=13|distance=at_floor": {
         "base_rate": 0.1,
@@ -585,9 +601,13 @@
         "base_rate": 0.35,
         "n": 16
       },
+      "kind=eq|hour=13|distance=unknown": {
+        "base_rate": 0.12101910828025478,
+        "n": 153
+      },
       "kind=eq|hour=14": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=14|distance=at_floor": {
         "base_rate": 0.3125,
@@ -609,9 +629,13 @@
         "base_rate": 0.25,
         "n": 12
       },
+      "kind=eq|hour=14|distance=unknown": {
+        "base_rate": 0.12396694214876033,
+        "n": 117
+      },
       "kind=eq|hour=15": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11528150134048257,
+        "n": 369
       },
       "kind=eq|hour=15|distance=at_floor": {
         "base_rate": 0.47058823529411764,
@@ -633,9 +657,13 @@
         "base_rate": 0.5294117647058824,
         "n": 13
       },
+      "kind=eq|hour=15|distance=unknown": {
+        "base_rate": 0.12101910828025478,
+        "n": 153
+      },
       "kind=eq|hour=16": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11612903225806452,
+        "n": 306
       },
       "kind=eq|hour=16|distance=at_floor": {
         "base_rate": 0.7,
@@ -657,9 +685,13 @@
         "base_rate": 0.3,
         "n": 6
       },
+      "kind=eq|hour=16|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 108
+      },
       "kind=eq|hour=17": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=17|distance=at_floor": {
         "base_rate": 0.8571428571428571,
@@ -681,9 +713,13 @@
         "base_rate": 0.14285714285714285,
         "n": 10
       },
+      "kind=eq|hour=17|distance=unknown": {
+        "base_rate": 0.12396694214876033,
+        "n": 117
+      },
       "kind=eq|hour=18": {
-        "base_rate": 0.11917098445595854,
-        "n": 189
+        "base_rate": 0.11598746081504702,
+        "n": 315
       },
       "kind=eq|hour=18|distance=at_floor": {
         "base_rate": 0.8947368421052632,
@@ -705,9 +741,13 @@
         "base_rate": 0.10526315789473684,
         "n": 15
       },
+      "kind=eq|hour=18|distance=unknown": {
+        "base_rate": 0.12307692307692308,
+        "n": 126
+      },
       "kind=eq|hour=19": {
-        "base_rate": 0.11848341232227488,
-        "n": 207
+        "base_rate": 0.1166077738515901,
+        "n": 279
       },
       "kind=eq|hour=19|distance=at_floor": {
         "base_rate": 0.9047619047619048,
@@ -729,6 +769,10 @@
         "base_rate": 0.09523809523809523,
         "n": 17
       },
+      "kind=eq|hour=19|distance=unknown": {
+        "base_rate": 0.13157894736842105,
+        "n": 72
+      },
       "kind=eq|hour=1|distance=three_plus_above": {
         "base_rate": 0.19047619047619047,
         "n": 17
@@ -738,16 +782,16 @@
         "n": 1
       },
       "kind=eq|hour=1|distance=unknown": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=2": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11560693641618497,
+        "n": 342
       },
       "kind=eq|hour=20": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11627906976744186,
+        "n": 297
       },
       "kind=eq|hour=20|distance=at_floor": {
         "base_rate": 0.9090909090909091,
@@ -769,9 +813,13 @@
         "base_rate": 0.09090909090909091,
         "n": 18
       },
+      "kind=eq|hour=20|distance=unknown": {
+        "base_rate": 0.12941176470588237,
+        "n": 81
+      },
       "kind=eq|hour=21": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11643835616438356,
+        "n": 288
       },
       "kind=eq|hour=21|distance=at_floor": {
         "base_rate": 0.9047619047619048,
@@ -793,9 +841,13 @@
         "base_rate": 0.09523809523809523,
         "n": 17
       },
+      "kind=eq|hour=21|distance=unknown": {
+        "base_rate": 0.1276595744680851,
+        "n": 90
+      },
       "kind=eq|hour=22": {
-        "base_rate": 0.11848341232227488,
-        "n": 207
+        "base_rate": 0.11740890688259109,
+        "n": 243
       },
       "kind=eq|hour=22|distance=at_floor": {
         "base_rate": 0.9047619047619048,
@@ -817,9 +869,13 @@
         "base_rate": 0.09523809523809523,
         "n": 17
       },
+      "kind=eq|hour=22|distance=unknown": {
+        "base_rate": 0.15,
+        "n": 36
+      },
       "kind=eq|hour=23": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.1169811320754717,
+        "n": 261
       },
       "kind=eq|hour=23|distance=at_floor": {
         "base_rate": 0.9047619047619048,
@@ -841,6 +897,10 @@
         "base_rate": 0.09523809523809523,
         "n": 17
       },
+      "kind=eq|hour=23|distance=unknown": {
+        "base_rate": 0.14285714285714285,
+        "n": 45
+      },
       "kind=eq|hour=2|distance=one_above": {
         "base_rate": 0.2,
         "n": 6
@@ -853,9 +913,13 @@
         "base_rate": 0.125,
         "n": 12
       },
+      "kind=eq|hour=2|distance=unknown": {
+        "base_rate": 0.12307692307692308,
+        "n": 126
+      },
       "kind=eq|hour=3": {
-        "base_rate": 0.11848341232227488,
-        "n": 207
+        "base_rate": 0.11598746081504702,
+        "n": 315
       },
       "kind=eq|hour=3|distance=one_above": {
         "base_rate": 0.2,
@@ -869,9 +933,13 @@
         "base_rate": 0.125,
         "n": 12
       },
+      "kind=eq|hour=3|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 108
+      },
       "kind=eq|hour=4": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11549295774647887,
+        "n": 351
       },
       "kind=eq|hour=4|distance=one_above": {
         "base_rate": 0.2,
@@ -885,9 +953,13 @@
         "base_rate": 0.125,
         "n": 12
       },
+      "kind=eq|hour=4|distance=unknown": {
+        "base_rate": 0.1223021582733813,
+        "n": 135
+      },
       "kind=eq|hour=5": {
-        "base_rate": 0.1188118811881188,
-        "n": 198
+        "base_rate": 0.11598746081504702,
+        "n": 315
       },
       "kind=eq|hour=5|distance=one_above": {
         "base_rate": 0.2222222222222222,
@@ -901,9 +973,13 @@
         "base_rate": 0.13333333333333333,
         "n": 11
       },
+      "kind=eq|hour=5|distance=unknown": {
+        "base_rate": 0.12396694214876033,
+        "n": 117
+      },
       "kind=eq|hour=6": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11560693641618497,
+        "n": 342
       },
       "kind=eq|hour=6|distance=one_above": {
         "base_rate": 0.2,
@@ -917,9 +993,13 @@
         "base_rate": 0.125,
         "n": 12
       },
+      "kind=eq|hour=6|distance=unknown": {
+        "base_rate": 0.12307692307692308,
+        "n": 126
+      },
       "kind=eq|hour=7": {
-        "base_rate": 0.11848341232227488,
-        "n": 207
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=7|distance=one_above": {
         "base_rate": 0.2,
@@ -933,9 +1013,13 @@
         "base_rate": 0.13333333333333333,
         "n": 11
       },
+      "kind=eq|hour=7|distance=unknown": {
+        "base_rate": 0.12307692307692308,
+        "n": 126
+      },
       "kind=eq|hour=8": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11560693641618497,
+        "n": 342
       },
       "kind=eq|hour=8|distance=one_above": {
         "base_rate": 0.2,
@@ -949,9 +1033,13 @@
         "base_rate": 0.125,
         "n": 12
       },
+      "kind=eq|hour=8|distance=unknown": {
+        "base_rate": 0.12307692307692308,
+        "n": 126
+      },
       "kind=eq|hour=9": {
-        "base_rate": 0.11818181818181818,
-        "n": 216
+        "base_rate": 0.11572700296735905,
+        "n": 333
       },
       "kind=eq|hour=9|distance=at_floor": {
         "base_rate": 0.25,
@@ -969,217 +1057,313 @@
         "base_rate": 0.1,
         "n": 16
       },
+      "kind=eq|hour=9|distance=unknown": {
+        "base_rate": 0.12396694214876033,
+        "n": 117
+      },
       "kind=gte": {
-        "base_rate": 0.0035587188612099642,
-        "n": 558
+        "base_rate": 0.002336448598130841,
+        "n": 852
       },
       "kind=gte|distance=three_plus_above": {
         "base_rate": 0.003703703703703704,
         "n": 536
       },
       "kind=gte|distance=unknown": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.00625,
+        "n": 316
       },
       "kind=gte|hour=0": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.06060606060606061,
+        "n": 29
       },
       "kind=gte|hour=0|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=0|distance=unknown": {
+        "base_rate": 0.2222222222222222,
+        "n": 5
+      },
       "kind=gte|hour=1": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=gte|hour=10": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05263157894736842,
+        "n": 34
       },
       "kind=gte|hour=10|distance=three_plus_above": {
         "base_rate": 0.07407407407407407,
         "n": 23
       },
+      "kind=gte|hour=10|distance=unknown": {
+        "base_rate": 0.13333333333333333,
+        "n": 11
+      },
       "kind=gte|hour=11": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=11|distance=three_plus_above": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=gte|hour=11|distance=unknown": {
+        "base_rate": 0.10526315789473684,
+        "n": 15
+      },
       "kind=gte|hour=12": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.044444444444444446,
+        "n": 41
       },
       "kind=gte|hour=12|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=12|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=gte|hour=13": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=gte|hour=13|distance=three_plus_above": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=gte|hour=13|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=gte|hour=14": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=14|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=14|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=gte|hour=15": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.044444444444444446,
+        "n": 41
       },
       "kind=gte|hour=15|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=15|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=gte|hour=16": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05263157894736842,
+        "n": 34
       },
       "kind=gte|hour=16|distance=three_plus_above": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=gte|hour=16|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 12
+      },
       "kind=gte|hour=17": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=17|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=17|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=gte|hour=18": {
-        "base_rate": 0.08,
-        "n": 21
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=gte|hour=18|distance=three_plus_above": {
         "base_rate": 0.08,
         "n": 21
       },
+      "kind=gte|hour=18|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=gte|hour=19": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05714285714285714,
+        "n": 31
       },
       "kind=gte|hour=19|distance=three_plus_above": {
         "base_rate": 0.07407407407407407,
         "n": 23
+      },
+      "kind=gte|hour=19|distance=unknown": {
+        "base_rate": 0.16666666666666666,
+        "n": 8
       },
       "kind=gte|hour=1|distance=three_plus_above": {
         "base_rate": 0.3333333333333333,
         "n": 2
       },
       "kind=gte|hour=1|distance=unknown": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=2": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=gte|hour=20": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.05405405405405406,
+        "n": 33
       },
       "kind=gte|hour=20|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=20|distance=unknown": {
+        "base_rate": 0.15384615384615385,
+        "n": 9
+      },
       "kind=gte|hour=21": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05555555555555555,
+        "n": 32
       },
       "kind=gte|hour=21|distance=three_plus_above": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=gte|hour=21|distance=unknown": {
+        "base_rate": 0.14285714285714285,
+        "n": 10
+      },
       "kind=gte|hour=22": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.06451612903225806,
+        "n": 27
       },
       "kind=gte|hour=22|distance=three_plus_above": {
         "base_rate": 0.07407407407407407,
         "n": 23
       },
+      "kind=gte|hour=22|distance=unknown": {
+        "base_rate": 0.25,
+        "n": 4
+      },
       "kind=gte|hour=23": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.06060606060606061,
+        "n": 29
       },
       "kind=gte|hour=23|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=23|distance=unknown": {
+        "base_rate": 0.2222222222222222,
+        "n": 5
+      },
       "kind=gte|hour=2|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=2|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=gte|hour=3": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=gte|hour=3|distance=three_plus_above": {
         "base_rate": 0.07407407407407407,
         "n": 23
       },
+      "kind=gte|hour=3|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 12
+      },
       "kind=gte|hour=4": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=gte|hour=4|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=4|distance=unknown": {
+        "base_rate": 0.10526315789473684,
+        "n": 15
+      },
       "kind=gte|hour=5": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=gte|hour=5|distance=three_plus_above": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=gte|hour=5|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=gte|hour=6": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=gte|hour=6|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=6|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=gte|hour=7": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=7|distance=three_plus_above": {
         "base_rate": 0.07407407407407407,
         "n": 23
       },
+      "kind=gte|hour=7|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=gte|hour=8": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=gte|hour=8|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=8|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=gte|hour=9": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=gte|hour=9|distance=three_plus_above": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=gte|hour=9|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=lte": {
-        "base_rate": 0.0035587188612099642,
-        "n": 558
+        "base_rate": 0.002336448598130841,
+        "n": 852
       },
       "kind=lte|distance=at_floor": {
         "base_rate": 0.038461538461538464,
@@ -1198,24 +1382,28 @@
         "n": 58
       },
       "kind=lte|distance=unknown": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.00625,
+        "n": 316
       },
       "kind=lte|hour=0": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.06060606060606061,
+        "n": 29
       },
       "kind=lte|hour=0|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=lte|hour=0|distance=unknown": {
+        "base_rate": 0.2222222222222222,
+        "n": 5
+      },
       "kind=lte|hour=1": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=lte|hour=10": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05263157894736842,
+        "n": 34
       },
       "kind=lte|hour=10|distance=at_floor": {
         "base_rate": 0.2222222222222222,
@@ -1233,9 +1421,13 @@
         "base_rate": 0.2222222222222222,
         "n": 5
       },
+      "kind=lte|hour=10|distance=unknown": {
+        "base_rate": 0.13333333333333333,
+        "n": 11
+      },
       "kind=lte|hour=11": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=11|distance=below_floor": {
         "base_rate": 0.1,
@@ -1249,9 +1441,13 @@
         "base_rate": 0.2222222222222222,
         "n": 5
       },
+      "kind=lte|hour=11|distance=unknown": {
+        "base_rate": 0.10526315789473684,
+        "n": 15
+      },
       "kind=lte|hour=12": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.044444444444444446,
+        "n": 41
       },
       "kind=lte|hour=12|distance=below_floor": {
         "base_rate": 0.08333333333333333,
@@ -1261,61 +1457,93 @@
         "base_rate": 0.25,
         "n": 4
       },
+      "kind=lte|hour=12|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=lte|hour=13": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=lte|hour=13|distance=below_floor": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=lte|hour=13|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=lte|hour=14": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=14|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=lte|hour=14|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=lte|hour=15": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.044444444444444446,
+        "n": 41
       },
       "kind=lte|hour=15|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=lte|hour=15|distance=unknown": {
+        "base_rate": 0.09523809523809523,
+        "n": 17
+      },
       "kind=lte|hour=16": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05263157894736842,
+        "n": 34
       },
       "kind=lte|hour=16|distance=below_floor": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=lte|hour=16|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 12
+      },
       "kind=lte|hour=17": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=17|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=lte|hour=17|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=lte|hour=18": {
-        "base_rate": 0.08,
-        "n": 21
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=lte|hour=18|distance=below_floor": {
         "base_rate": 0.08,
         "n": 21
       },
+      "kind=lte|hour=18|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=lte|hour=19": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05714285714285714,
+        "n": 31
       },
       "kind=lte|hour=19|distance=below_floor": {
         "base_rate": 0.07407407407407407,
         "n": 23
+      },
+      "kind=lte|hour=19|distance=unknown": {
+        "base_rate": 0.16666666666666666,
+        "n": 8
       },
       "kind=lte|hour=1|distance=one_above": {
         "base_rate": 0.4,
@@ -1326,44 +1554,60 @@
         "n": 1
       },
       "kind=lte|hour=1|distance=unknown": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=2": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=lte|hour=20": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.05405405405405406,
+        "n": 33
       },
       "kind=lte|hour=20|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
       },
+      "kind=lte|hour=20|distance=unknown": {
+        "base_rate": 0.15384615384615385,
+        "n": 9
+      },
       "kind=lte|hour=21": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05555555555555555,
+        "n": 32
       },
       "kind=lte|hour=21|distance=below_floor": {
         "base_rate": 0.07692307692307693,
         "n": 22
       },
+      "kind=lte|hour=21|distance=unknown": {
+        "base_rate": 0.14285714285714285,
+        "n": 10
+      },
       "kind=lte|hour=22": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.06451612903225806,
+        "n": 27
       },
       "kind=lte|hour=22|distance=below_floor": {
         "base_rate": 0.07407407407407407,
         "n": 23
       },
+      "kind=lte|hour=22|distance=unknown": {
+        "base_rate": 0.25,
+        "n": 4
+      },
       "kind=lte|hour=23": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.06060606060606061,
+        "n": 29
       },
       "kind=lte|hour=23|distance=below_floor": {
         "base_rate": 0.07142857142857142,
         "n": 24
+      },
+      "kind=lte|hour=23|distance=unknown": {
+        "base_rate": 0.2222222222222222,
+        "n": 5
       },
       "kind=lte|hour=2|distance=at_floor": {
         "base_rate": 0.2,
@@ -1377,9 +1621,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=2|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=lte|hour=3": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=lte|hour=3|distance=at_floor": {
         "base_rate": 0.2,
@@ -1393,9 +1641,13 @@
         "base_rate": 0.2222222222222222,
         "n": 5
       },
+      "kind=lte|hour=3|distance=unknown": {
+        "base_rate": 0.125,
+        "n": 12
+      },
       "kind=lte|hour=4": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.046511627906976744,
+        "n": 39
       },
       "kind=lte|hour=4|distance=at_floor": {
         "base_rate": 0.2,
@@ -1409,9 +1661,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=4|distance=unknown": {
+        "base_rate": 0.10526315789473684,
+        "n": 15
+      },
       "kind=lte|hour=5": {
-        "base_rate": 0.07692307692307693,
-        "n": 22
+        "base_rate": 0.05128205128205128,
+        "n": 35
       },
       "kind=lte|hour=5|distance=at_floor": {
         "base_rate": 0.2222222222222222,
@@ -1425,9 +1681,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=5|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
+      },
       "kind=lte|hour=6": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=lte|hour=6|distance=at_floor": {
         "base_rate": 0.2,
@@ -1441,9 +1701,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=6|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=lte|hour=7": {
-        "base_rate": 0.07407407407407407,
-        "n": 23
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=7|distance=at_floor": {
         "base_rate": 0.2,
@@ -1457,9 +1721,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=7|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=lte|hour=8": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.047619047619047616,
+        "n": 38
       },
       "kind=lte|hour=8|distance=at_floor": {
         "base_rate": 0.2,
@@ -1473,9 +1741,13 @@
         "base_rate": 0.2,
         "n": 6
       },
+      "kind=lte|hour=8|distance=unknown": {
+        "base_rate": 0.1111111111111111,
+        "n": 14
+      },
       "kind=lte|hour=9": {
-        "base_rate": 0.07142857142857142,
-        "n": 24
+        "base_rate": 0.04878048780487805,
+        "n": 37
       },
       "kind=lte|hour=9|distance=at_floor": {
         "base_rate": 0.3333333333333333,
@@ -1492,6 +1764,10 @@
       "kind=lte|hour=9|distance=three_plus_above": {
         "base_rate": 0.2,
         "n": 6
+      },
+      "kind=lte|hour=9|distance=unknown": {
+        "base_rate": 0.11764705882352941,
+        "n": 13
       }
     },
     "enabled": true,
@@ -1500,43 +1776,47 @@
     "min_context_n": 40,
     "min_probability": 1e-06,
     "preserve_distribution_coherence": true,
-    "selected_loo_brier": 0.05014295329292369,
-    "selected_loo_logloss": 0.1763787622813417,
+    "selected_loo_brier": 0.057064141873173345,
+    "selected_loo_logloss": 0.193875705753646,
     "weight": 0.1
   },
   "selected_deployable_candidate": {
-    "brier": 0.05014295329292369,
-    "logloss": 0.1763787622813417,
+    "brier": 0.057064141873173345,
+    "logloss": 0.193875705753646,
     "method": "prior_shrink",
-    "n": 6138,
+    "n": 9372,
     "param": 0.1
   },
   "training": {
-    "artifact_replay_brier": 0.0519042154519765,
-    "artifact_replay_brier_skill_vs_market": -0.4336743151246192,
-    "artifact_replay_logloss": 0.4011663657426043,
-    "baseline_brier": 0.050313122363807014,
-    "baseline_brier_skill_vs_market": -0.3897258752220556,
-    "baseline_logloss": 0.22192419659403687,
-    "market_brier": 0.03620363070218276,
-    "market_logloss": 0.11015362726935606,
+    "artifact_replay_brier": 0.05857248280989902,
+    "artifact_replay_brier_skill_vs_market": -0.3252288355581714,
+    "artifact_replay_logloss": 0.3403974625186557,
+    "baseline_brier": 0.05753042888598901,
+    "baseline_brier_skill_vs_market": -0.30165189563820793,
+    "baseline_logloss": 0.22300649216507537,
+    "market_brier": 0.044198014137859405,
+    "market_logloss": 0.13856996132808166,
     "quality_grades": [
       "complete",
       "manual_override"
     ],
-    "rows": 6138,
-    "selected_brier_skill_vs_market": -0.3850255435817522,
+    "rows": 9372,
+    "selected_brier_skill_vs_market": -0.29110194171129056,
     "snapshot_folders": [
-      "data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
-      "data\\snapshots\\highest-temperature-in-austin-on-june-13-2026"
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-7-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-8-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-12-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-13-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-june-28-2026",
+      "C:\\Users\\micha\\Desktop\\github\\weather\\data\\snapshots\\highest-temperature-in-austin-on-july-5-2026"
     ],
     "target_dates": [
       "2026-06-07",
       "2026-06-08",
       "2026-06-12",
-      "2026-06-13"
+      "2026-06-13",
+      "2026-06-28",
+      "2026-07-05"
     ]
   },
   "version": "v0.1"

@@ -1226,30 +1226,6 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             evidence=mm_paper_evidence,
             retrain_input=True,
         ))
-    tape_backup = fleet.get("tape_backup") or {}
-    tape_status = tape_backup.get("status")
-    if tape_status and tape_status != "OK":
-        backup_root = tape_backup.get("backup_root") or "data/tape_backups"
-        detail = (
-            tape_backup.get("restore_drill_sla_detail")
-            or tape_backup.get("manifest_detail")
-            or f"status {tape_status}"
-        )
-        learnings.append(_learning(
-            "P0",
-            "operational_backup",
-            "fleet_observability",
-            f"Tape backup status {tape_status}: {detail}",
-            (
-                "Run `python -m weather.operations.tape_backup run "
-                f"--backup-root {backup_root} --verify-checksums`; expected outputs are "
-                "`data/backtest/tape_backup_status.json` and "
-                "`data/backtest/tape_restore_drill.json`."
-            ),
-            evidence={"tape_backup": tape_backup},
-            blocker=True,
-        ))
-
     if live_slo.get("counts_toward_live_forward_gate") is False:
         first_recovery = (
             live_slo.get("first_blocker")

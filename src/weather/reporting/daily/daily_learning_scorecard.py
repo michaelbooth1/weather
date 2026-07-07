@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from weather.io import read_json, read_jsonl
@@ -700,11 +700,29 @@ def _target_date_check(name, expected_date, observed_date, *, mode="equals", sou
         )
     if mode == "date_max":
         status = "PASS" if observed == expected else "FAIL"
-        detail = f"{source or name} date_max={observed}; run_date={expected}"
+        detail = f"{source or name} date_max={observed}; expected_target={expected}"
     else:
         status = "PASS" if observed == expected else "FAIL"
-        detail = f"{source or name} target_date={observed}; run_date={expected}"
+        detail = f"{source or name} target_date={observed}; expected_target={expected}"
     return _consistency_check(name, status, detail, evidence)
+
+
+def _settled_analysis_anchor(payloads, run_date):
+    """The settled day the run's artifacts must agree on.
+
+    Since the 2026-07-02 finalize-window redesign, a daily chain running on
+    date D analyzes settled day D-1, so target-dated artifacts can never equal
+    run_date. Anchoring them to run_date made these invariants fail for every
+    clean chain (they only passed when stale carried artifacts happened to
+    share an old date) and starved the experiment queue. Artifacts must agree
+    with the settled-analysis target; a separate recency check bounds how far
+    that target may trail run_date.
+    """
+    return _date_text(
+        (payloads.get("settled_day_freshness") or {}).get("target_date")
+        or (payloads.get("settled_day_analysis_barrier") or {}).get("target_date")
+        or run_date
+    )
 
 
 def _scoring_liveness(payload):
@@ -723,7 +741,8 @@ def _last_scored_target_date(payload):
 
 
 def _target_date_consistency_checks(payloads, *, run_date):
-    expected = _date_text(run_date)
+    expected = _settled_analysis_anchor(payloads, run_date)
+    checks = [_settled_target_recency_check(expected, run_date)]
     specs = [
         (
             "settled_day_freshness_target_date",
@@ -786,10 +805,47 @@ def _target_date_consistency_checks(payloads, *, run_date):
             "price_free_model_learning",
         ),
     ]
-    return [
+    checks.extend(
         _target_date_check(name, expected, observed, mode=mode, source=source)
         for name, observed, mode, source in specs
-    ]
+    )
+    return checks
+
+
+def _settled_target_recency_check(anchor_date, run_date):
+    """Fail closed when the agreed settled target trails run_date by > 1 day.
+
+    Mutual target agreement alone would also pass a uniformly STALE artifact
+    set (everything from three days ago agreeing with itself); the analyzed
+    day must be run_date or the day before it.
+    """
+    anchor = _date_text(anchor_date)
+    run = _date_text(run_date)
+    evidence = {"settled_target_date": anchor, "run_date": run}
+    if not anchor or not run:
+        return _consistency_check(
+            "settled_target_recency",
+            "SKIP",
+            "no comparable settled target or run date",
+            evidence,
+        )
+    try:
+        lag_days = (date.fromisoformat(run) - date.fromisoformat(anchor)).days
+    except ValueError:
+        return _consistency_check(
+            "settled_target_recency",
+            "FAIL",
+            f"unparseable dates: settled_target={anchor}; run_date={run}",
+            evidence,
+        )
+    evidence["lag_days"] = lag_days
+    status = "PASS" if 0 <= lag_days <= 1 else "FAIL"
+    return _consistency_check(
+        "settled_target_recency",
+        status,
+        f"settled_target={anchor}; run_date={run}; lag_days={lag_days}",
+        evidence,
+    )
 
 
 def _consistency_gate(payloads, scorecard, *, run_date, brier_delta_tolerance):
@@ -829,22 +885,25 @@ def _consistency_gate(payloads, scorecard, *, run_date, brier_delta_tolerance):
             {"market_day_count": corpus_days, "settled_label_total": labels_total},
         ))
 
-    expected_run_date = str(run_date or "")[:10]
+    # Trading evidence summarizes the settled analysis day, so it aligns with
+    # the settled-target anchor, not the calendar run date (see
+    # _settled_analysis_anchor for why those differ on every clean chain).
+    expected_trading_date = _settled_analysis_anchor(payloads, run_date)
     trading_run_date = _trading_evidence_run_date(payloads.get("trading_evidence") or {})
     observed_trading_date = str(trading_run_date or "")[:10]
-    if expected_run_date and observed_trading_date:
+    if expected_trading_date and observed_trading_date:
         checks.append(_consistency_check(
             "trading_evidence_run_date",
-            "PASS" if observed_trading_date == expected_run_date else "FAIL",
-            f"trading_evidence date={observed_trading_date}; run_date={expected_run_date}",
-            {"trading_evidence_date": observed_trading_date, "run_date": expected_run_date},
+            "PASS" if observed_trading_date == expected_trading_date else "FAIL",
+            f"trading_evidence date={observed_trading_date}; expected_target={expected_trading_date}",
+            {"trading_evidence_date": observed_trading_date, "expected_target_date": expected_trading_date},
         ))
     else:
         checks.append(_consistency_check(
             "trading_evidence_run_date",
             "FAIL",
             "Trading evidence is missing a run_date or target_date for alignment.",
-            {"trading_evidence_date": observed_trading_date or None, "run_date": expected_run_date or None},
+            {"trading_evidence_date": observed_trading_date or None, "expected_target_date": expected_trading_date or None},
         ))
 
     checks.extend(_target_date_consistency_checks(payloads, run_date=run_date))
@@ -1350,7 +1409,6 @@ def _scorecard(payloads, daily_refresh_summary=None):
             "current_code_soak": fleet.get("current_code_soak") or {},
             "clean_active_day_countability": fleet.get("clean_active_day_countability") or {},
             "source_status_proof": ((fleet.get("collection") or {}).get("source_status_proof") or {}),
-            "tape_backup": fleet.get("tape_backup") or {},
             "mm_paper_evidence": fleet.get("mm_paper_evidence") or {},
         },
         "event_metadata_validation": {

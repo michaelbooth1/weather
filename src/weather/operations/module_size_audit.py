@@ -98,26 +98,6 @@ OWNERSHIP_NOTES = {
         "boundary": "Daily refresh CLI parser and command handlers with facade-injected dependencies.",
         "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
     },
-    "src/weather/operations/tape_backup.py": {
-        "owner": "operations",
-        "boundary": "Compatibility facade for export, restore drill, backup-job, status-report, and CLI behavior.",
-        "next_split": "Item 318 slice complete; manifest/status, dedup repository, and unmanifested cleanup helpers live in owner modules.",
-    },
-    "src/weather/operations/tape_backup_manifest.py": {
-        "owner": "operations",
-        "boundary": "Tape retention policy, manifest building, capacity checks, manifest validation, restore-drill SLA, backup status, and alert helpers.",
-        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
-    },
-    "src/weather/operations/tape_backup_dedup.py": {
-        "owner": "operations",
-        "boundary": "Deduplicated repository preflight, restic command execution, repository status, backup, restore drill, and dedup backup job helpers.",
-        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
-    },
-    "src/weather/operations/tape_backup_cleanup.py": {
-        "owner": "operations",
-        "boundary": "Unmanifested backup cleanup planning, durable restore proof verification, cleanup apply gates, and cleanup report rendering.",
-        "next_split": "Owner module for item 318; must not import the tape_backup facade.",
-    },
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",
         "boundary": "Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers.",

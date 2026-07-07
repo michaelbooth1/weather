@@ -135,7 +135,7 @@ class TestEventDayManifest(unittest.TestCase):
         checks = {row["check"]: row for row in manifest["validation"]["checks"]}
         self.assertEqual(checks["event_metadata_validation"]["status"], "PASS")
 
-    def test_deletion_candidate_gate_requires_manifest_record_and_backup_proof(self):
+    def test_deletion_candidate_gate_requires_manifest_record(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = self.make_folder(root)
@@ -150,7 +150,7 @@ class TestEventDayManifest(unittest.TestCase):
         blocked = [row for row in gate["checks"] if row["status"] == "BLOCK"]
         self.assertEqual(
             {row["check"] for row in blocked},
-            {"canonical_backup_proof", "candidate_manifest_record"},
+            {"candidate_manifest_record"},
         )
 
     def test_validation_fails_closed_for_stale_manifest(self):
@@ -211,7 +211,7 @@ class TestEventDayManifest(unittest.TestCase):
             folder = self.make_folder(root)
             write_event_day_manifest(folder, snapshots_root=root / "snapshots")
 
-            payload = build_retention_payload(root, backup_status_path=root / "missing.json", min_free_bytes=0)
+            payload = build_retention_payload(root, min_free_bytes=0)
 
         self.assertEqual(payload["event_day_manifests"]["manifest_count"], 1)
         self.assertEqual(payload["event_day_manifests"]["pass_count"], 1)

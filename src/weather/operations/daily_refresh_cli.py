@@ -403,8 +403,6 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--audit-target-day", type=int, default=None)
     parser.add_argument("--audit-years", default="")
     parser.add_argument("--skip-historical-audits", action="store_true")
-    parser.add_argument("--tape-backup-root", default=str(fleet_observability.tape_backup.DEFAULT_BACKUP_ROOT))
-    parser.add_argument("--verify-tape-backup-checksums", action="store_true")
     parser.add_argument("--skip-nightly-health-checks", action="store_true")
     parser.add_argument("--skip-daily-roll-log-hygiene", action="store_true")
     parser.add_argument(
@@ -668,5 +666,4 @@ def main(argv=None, dependencies=None):
     if getattr(args, "command", "") in {"run", "repair-stale-locks"}:
         _enable_crash_forensics()
     return args.func(args)
-
 

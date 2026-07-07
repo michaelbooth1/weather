@@ -22,7 +22,7 @@ class StorageClassContract:
     description: str
     allowed_formats: tuple[str, ...]
     retention_default: str
-    backup_requirement: str
+    protection_requirement: str
     deletion_prerequisite: str
 
 
@@ -35,7 +35,7 @@ class ArtifactFamilyClassification:
     retention_class: str
     rebuild_source: str
     delete_gate: str
-    backup_required: bool
+    protected: bool
     durable: bool = True
     examples: tuple[str, ...] = ()
     notes: str = ""
@@ -46,17 +46,17 @@ STORAGE_CLASS_CONTRACTS = (
         CANONICAL_EVIDENCE,
         "Append-only or source-of-truth evidence that cannot be safely rebuilt after the fact.",
         ("jsonl", "json", "csv", "raw", "csv.gz"),
-        "Permanent archive; local copies stay until a reviewed cleanup manifest and restore proof exist.",
-        "Must be covered by a current backup manifest and restore drill before local deletion.",
-        "Reviewed cleanup manifest, matching backup manifest hash, fresh restore drill, and checksum proof.",
+        "Permanent archive; local copies stay until a reviewed cleanup manifest exists.",
+        "Must be named by a reviewed cleanup manifest before local deletion.",
+        "Reviewed cleanup manifest with exact path, class, reason, operator, and checksum.",
     ),
     StorageClassContract(
         ANALYSIS_PROJECTION,
         "Derived tables or partitions built from canonical evidence for fast analysis.",
         ("parquet", "csv", "csv.gz", "json"),
         "Keep while actively queried; local copies may be rebuilt from named canonical evidence.",
-        "Backup is optional unless the projection is operationally pinned; source evidence must be backed up.",
-        "Reviewed cleanup manifest plus current rebuild source and restore proof for the source evidence.",
+        "Projection cleanup must name its rebuild source.",
+        "Reviewed cleanup manifest plus current rebuild source.",
     ),
     StorageClassContract(
         OPERATOR_CACHE,
@@ -92,7 +92,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_live_snapshot_tape",
         "not rebuildable from providers with the same live timing and source state",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/snapshots/<event>/snapshots.jsonl", "data/snapshots/<event>/features.jsonl"),
     ),
@@ -107,7 +107,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_replay_contract",
         "not safely rebuildable without the original snapshot/source-status payloads",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/snapshots/<event>/replay_inputs.jsonl",),
     ),
@@ -128,7 +128,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_clob_source_evidence",
         "not rebuildable; CLOB book, price, and websocket state is live-only",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/snapshots/<event>/order_books.jsonl", "data/snapshots/<event>/market_ws.jsonl"),
     ),
@@ -139,7 +139,7 @@ ARTIFACT_FAMILIES = (
         ("snapshots/*/clob_tokens.csv",),
         "permanent_clob_join_key",
         "not rebuildable without the original Gamma/CLOB token mapping",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/snapshots/<event>/clob_tokens.csv",),
     ),
@@ -158,7 +158,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_settlement_label_evidence",
         "not safely rebuildable without source history and manual overrides",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/settlements/<market>.jsonl", "data/backtest/market_day_labels.csv"),
     ),
@@ -184,7 +184,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_live_forward_market_making_evidence",
         "not rebuildable because quote, fill, risk, and markout timing is live-only",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/mm_runs/<run>/order_lifecycle.jsonl", "data/mm_runs/<run>/risk_events.jsonl"),
     ),
@@ -202,7 +202,7 @@ ARTIFACT_FAMILIES = (
         ),
         "permanent_taker_strategy_evidence",
         "not rebuildable because fills, account snapshots, and decisions are live-only",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/taker_runs/<run>/orders.jsonl",),
     ),
@@ -224,7 +224,7 @@ ARTIFACT_FAMILIES = (
         ),
         "source_history_with_provenance",
         "partially backfillable, but canonical settled-source provenance is not assumed rebuildable",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/wunderground/<station>/daily.csv", "data/eccc_swob/<station>/manifest.json"),
     ),
@@ -242,7 +242,7 @@ ARTIFACT_FAMILIES = (
         ),
         "pinned_promotion_evidence",
         "not equivalent if regenerated after model, source, or market state changes",
-        "canonical_evidence_restore_gate",
+        "canonical_evidence_review_gate",
         True,
         examples=("data/backtest/promotion_corpus.json", "data/backtest/location_trust.json"),
     ),
@@ -342,17 +342,6 @@ ARTIFACT_FAMILIES = (
         "projection_rebuild_source_gate",
         False,
         examples=("artifacts/models/hgb/feature_model_hgb.pkl",),
-    ),
-    ArtifactFamilyClassification(
-        "backup_mirror_and_restore_evidence",
-        "operations/tape_backup",
-        OPERATOR_CACHE,
-        ("tape_backups/**",),
-        "bounded_backup_control_copy",
-        "latest durable backup backend and source canonical evidence",
-        "operator_cleanup_manifest_or_prune_command",
-        False,
-        examples=("data/tape_backups/latest/tape_backup_manifest.json",),
     ),
     ArtifactFamilyClassification(
         "operator_status_json",
@@ -471,51 +460,23 @@ def classification_payload(path: str | Path) -> dict[str, Any]:
         "retention_class": family.retention_class,
         "rebuild_source": family.rebuild_source,
         "delete_gate": family.delete_gate,
-        "backup_required": family.backup_required,
+        "protected": family.protected,
         "storage_owner": family.owner,
     }
 
 
-def delete_gate_for_storage_class(storage_class: str, backup_status: dict[str, Any] | None = None) -> dict[str, Any]:
-    backup_status = backup_status or {}
-    backup_ok = (
-        backup_status.get("status") == "OK"
-        and backup_status.get("restore_drill_sla_status") == "OK"
-        and int(backup_status.get("missing_critical_files") or 0) == 0
-        and int(backup_status.get("missing_critical_bytes") or 0) == 0
-    )
+def delete_gate_for_storage_class(storage_class: str) -> dict[str, Any]:
     if storage_class == CANONICAL_EVIDENCE:
-        if backup_ok:
-            return {
-                "status": "PASS",
-                "delete_permission": "allowed_only_with_reviewed_cleanup_manifest",
-                "detail": "canonical evidence has current backup, restore drill, and checksum coverage",
-            }
-        if backup_status.get("status") == "MISSING_CRITICAL_FILES":
-            return {
-                "status": "BLOCK",
-                "delete_permission": "blocked_missing_critical_backup_files",
-                "detail": "latest tape backup status is MISSING_CRITICAL_FILES",
-                "missing_critical_files": backup_status.get("missing_critical_files"),
-                "missing_critical_bytes": backup_status.get("missing_critical_bytes"),
-                "missing_samples": backup_status.get("missing_critical_file_samples") or [],
-            }
         return {
-            "status": "BLOCK",
-            "delete_permission": "blocked_until_backup_restore_proof",
-            "detail": "canonical evidence requires a current OK backup status and restore drill",
+            "status": "REVIEW_REQUIRED",
+            "delete_permission": "allowed_only_with_reviewed_cleanup_manifest",
+            "detail": "canonical evidence cleanup requires an explicit reviewed cleanup manifest",
         }
     if storage_class == ANALYSIS_PROJECTION:
-        if backup_ok:
-            return {
-                "status": "PASS",
-                "delete_permission": "allowed_with_rebuild_source_and_reviewed_cleanup_manifest",
-                "detail": "projection cleanup requires current rebuild source and restore proof",
-            }
         return {
-            "status": "BLOCK",
-            "delete_permission": "blocked_until_rebuild_source_restore_proof",
-            "detail": "projection cleanup requires restore proof for source canonical evidence",
+            "status": "REVIEW_REQUIRED",
+            "delete_permission": "allowed_with_rebuild_source_and_reviewed_cleanup_manifest",
+            "detail": "projection cleanup requires a named rebuild source and reviewed cleanup manifest",
         }
     if storage_class == OPERATOR_CACHE:
         return {
@@ -539,8 +500,8 @@ def summarize_storage_class_entries(
         contract.name: {
             "file_count": 0,
             "total_bytes": 0,
-            "backup_required_files": 0,
-            "backup_required_bytes": 0,
+            "protected_files": 0,
+            "protected_bytes": 0,
             "artifact_families": [],
         }
         for contract in STORAGE_CLASS_CONTRACTS
@@ -553,17 +514,17 @@ def summarize_storage_class_entries(
             {
                 "file_count": 0,
                 "total_bytes": 0,
-                "backup_required_files": 0,
-                "backup_required_bytes": 0,
+                "protected_files": 0,
+                "protected_bytes": 0,
                 "artifact_families": [],
             },
         )
         size = int(entry.get(size_key) or entry.get("bytes") or 0)
         summary["file_count"] += 1
         summary["total_bytes"] += size
-        if entry.get("backup_required"):
-            summary["backup_required_files"] += 1
-            summary["backup_required_bytes"] += size
+        if entry.get("protected"):
+            summary["protected_files"] += 1
+            summary["protected_bytes"] += size
         family = entry.get("artifact_family")
         if family:
             families_by_class.setdefault(storage_class, set()).add(str(family))

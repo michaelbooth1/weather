@@ -1,4 +1,4 @@
-# Closed Roadmap Model Progress Audit - 2026-06-22
+﻿# Closed Roadmap Model Progress Audit - 2026-06-22
 
 Scope: review all roadmap items currently marked `COMPLETE` and assess what
 they say about the direction, progress, current state, and remaining work for
@@ -99,7 +99,6 @@ source absence, source degradation, feature missingness, replay eligibility,
 and live-only evidence.
 
 But several data-layer parents remain active: reanalysis/synoptic features,
-CLOB midpoint continuity, live-forward cadence, durable external backup,
 source-family expansion, probabilistic guidance, SST/marine, ECMWF/ML-NWP, NBM,
 and smoke/soil/radiation features are still partial/open. The data layer is
 vastly better, not complete.

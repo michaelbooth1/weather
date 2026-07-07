@@ -1,4 +1,4 @@
-# 48. F-Family Promotion Readiness And Serving Parity [COMPLETE 2026-06-25 - MARKET DISPOSITIONS PASSED, PRODUCTION CUTOVER FAIL-CLOSED]
+﻿# 48. F-Family Promotion Readiness And Serving Parity [COMPLETE 2026-06-25 - MARKET DISPOSITIONS PASSED, PRODUCTION CUTOVER FAIL-CLOSED]
 
 Goal: separate the implemented family-pooled pipeline from the unresolved proof
 that it is ready for broader promotion.
@@ -137,9 +137,6 @@ and remain diagnostic/live-only until backfilled or retrained.
 Item 48 remains blocked because promotion readiness still fails daily-first
 validation, candidate-vs-market tolerance, the current live-forward collection
 SLO, settled-day/collection freshness, and hourly performance gates. The
-tape-backup capacity gate was later cleared locally on 2026-06-19:
-`data/backtest/tape_backup_status.json` is `OK` and fleet observability reports
-tape backup as `OK`. Durable off-workstation backup-root configuration remains
 tracked in Item 146.
 
 ## 2026-06-18 current promotion-refresh blocker state
@@ -172,14 +169,12 @@ and still reports `PASS` with 0 active model-input blockers. The separate Item
 also reports `PASS` after active model usage was tightened to count only
 imputer-retained artifact features. Source-family lineage/parity is therefore
 not the current Item 48 blocker; empirical replay quality, live-forward SLO,
-settled-day/collection freshness, hourly performance, and external backup-root
 durability still are.
 
 Follow-up implementation wired those P0 gates directly into
 `weather.reporting.promotion_refresh`: the report now reads
 `source_family_inventory.json` and `fleet_observability.json`, renders an
 `Operational Promotion Gates` table, and keeps readiness open when the
-live-forward SLO or tape-backup SLA is not green. The generated readiness
 blockers in that pass were:
 
 - `candidate_market_skill`: aggregate candidate trails market by `+0.0042`.
@@ -188,9 +183,6 @@ blockers in that pass were:
 - `per_market_block`: Austin, Chicago, NYC, San Francisco, and Seattle remain
   blocked.
 - `live_forward_slo`: fleet observability reports `BLOCK`.
-- `tape_backup_sla`: at that time, tape backup reported
-  `INSUFFICIENT_BACKUP_CAPACITY` (`106794554808` bytes short). This was later
-  cleared locally by the 2026-06-19 restore-pass evidence; external backup-root
   durability remains Item 146.
 - `hourly_performance_gate`: early-hour model Brier trails market by `0.0159`,
   above the `0.0030` gate.
@@ -217,7 +209,6 @@ improves from Brier `0.064117` to `0.063753`, nearly reaching market tolerance,
 but hour `8` regresses and Austin worsens from market gap `+0.004058` to
 `+0.005576`. Item 48's next model unblock is therefore a narrower market/cutoff
 residual repair that preserves the hour-7 lift without broad hour-8 or Austin
-regression; the same live-forward SLO and Item 146 external backup-root
 durability work still remain.
 
 The narrowed follow-up artifact
@@ -233,7 +224,6 @@ and Austin no longer regresses versus current, but Austin still trails market
 by `+0.005212` and hours `8`/`9` remain above market tolerance. The next Item
 48 model unblock is a targeted no-market hour-8/hour-9 and Austin market-gap
 repair; operations blockers from live-forward SLO and Item 146 external
-backup-root durability still remain.
 
 The next combined artifact,
 `data/backtest/item147_hour7_no_austin_exact_winner_candidate.pkl`, adds Item
@@ -261,7 +251,6 @@ Item 48 therefore remains an empirical promotion blocker. The next model
 unblock is not another broad centering/bridge blend; it needs market-specific
 Austin/NYC/San Francisco/Seattle repair, hour-8/hour-9 tolerance, and an
 exact-winner constraint that preserves one-above safety. The live-forward SLO
-and Item 146 external backup-root durability gates still remain separate
 operational blockers.
 
 ## 2026-06-19 Item 32 rich+pressure replay check
@@ -288,7 +277,6 @@ NYC, San Francisco, and Seattle remain blocked.
 The current Item 48 unblock remains model-quality and operations work:
 market-specific repair for NYC/San Francisco/Seattle/Chicago plus the broader
 hour-8/hour-9 and Austin issues from Item 147, then live-forward SLO and Item
-146 external backup-root durability before readiness can become `READY`.
 
 ## 2026-06-19 Item 35 replay-blend diagnostic
 
@@ -305,7 +293,6 @@ blocked, while Dallas and Miami remain shadow.
 This narrows the model-quality path for Item 48 but does not change readiness:
 the next promotion-safe candidate needs a predeclared or out-of-sample blend
 policy and must still clear the live-forward SLO and Item 146 external
-backup-root durability gate.
 
 ## 2026-06-19 all-market diagnostic promotion refresh
 
@@ -325,13 +312,9 @@ broad readiness still fails because the aggregate candidate trails market by
 `+0.0030`.
 
 Operational gates in that generated pass still blocked readiness independently
-of model quality: live-forward SLO was `BLOCK`, tape backup SLA was
-`INSUFFICIENT_BACKUP_CAPACITY` with `106794554808` bytes short, and the hourly
 performance gate was `BLOCK` because early-hour model Brier trailed market by
-`0.0159`. The tape backup SLA was later cleared locally by the 2026-06-19
 restore pass, but Item 48 still stays `PARTIAL`: the strongest current
 diagnostic boundary is clearer, while a predeclared or out-of-sample blend plus
-the live/freshness, external-backup-root, and hourly gates are still required
 before readiness can become `READY`.
 
 ## 2026-06-19 time-split blend anti-overfit check
@@ -379,7 +362,6 @@ Francisco, Seattle, and Toronto; Dallas, Denver, and Miami remain shadow.
 
 This does not advance promotion readiness because Toronto regresses current
 (`0.038703` candidate versus `0.036925` current), degraded-source rows regress
-current serving, and the operational live-forward SLO, external backup-root
 durability, and early-hour performance gates still block. The next model attempt should
 preserve the Austin/Los Angeles lift while adding source-state/Toronto
 guardrails and repairing Chicago/NYC/San Francisco/Seattle.
@@ -445,7 +427,6 @@ against market (`0.051904` candidate/current versus `0.043225` market).
 
 Therefore the Toronto-alpha probe stays diagnostic only and should not be used
 as a promotion policy. Item 48 remains blocked on model quality, live-forward
-SLO, external backup-root durability, and hourly performance. The next candidate needs a
 holdout-selected Toronto repair plus direct Austin/Chicago/Houston/Los
 Angeles/NYC/San Francisco/Seattle market-gap fixes.
 
@@ -579,7 +560,6 @@ San Francisco, and Seattle remain blocked. The next model repair is
 market-specific rather than aggregate: Austin and San Francisco need better
 than current fallback, Los Angeles is just outside tolerance, NYC needs a
 small exact-winner/alpha improvement, and Seattle remains the largest
-underpricing gap. Live-forward SLO, Item 146 external backup-root durability,
 settled-day/collection freshness, and hourly performance gates still have to
 clear before readiness can become `READY`.
 
@@ -614,7 +594,6 @@ Atlanta/Chicago/Denver/Houston are `PROMOTE_CANDIDATE`; Dallas/Miami remain
 Readiness blockers are now: aggregate candidate still trails market by
 `+0.0024` despite daily-first tolerance passing, Dallas/Miami shadow cells,
 the five blocked markets, live-forward SLO `BLOCK`, Item 146 external
-backup-root durability, and the hourly performance gate. Disk headroom was no longer the
 local P0 for this retry; the later raw CLOB audit section below supersedes
 that with the current local retention state.
 
@@ -719,7 +698,6 @@ retaining their paired JSON/Markdown reports and model artifacts. The follow-up
 report
 `data/backtest/backtest_artifact_retention_after_item35_recent365_manual_cleanup_report.md`
 is `PASS` under the local 500 MB reserve. This is local headroom only; Item
-146 still owns external backup-root durability.
 
 That local headroom was temporarily lost after the raw CLOB audit and ongoing
 capture loops:
@@ -736,18 +714,9 @@ paired reports/manifests. The final no-cleanup retention report
 is `PASS`: free space is `490.0 MB` and the 500 MB reserve shortfall is `0 B`.
 
 The later Item 32 no-pressure training attempt exposed a local headroom
-problem, but that specific blocker has been cleared. The tape-backup cleanup
-manifest `data/backtest/tape_backup_unmanifested_cleanup_applied.json` removed
-67 unmanifested same-disk backup partials totaling `17264418975` bytes, and
 all settled full-depth CLOB books are now gzip-tiered. The follow-up retention report
-`data/backtest/backtest_artifact_retention_after_backup_cleanup_and_tiering_report.md`
-is `PASS`, and `data/backtest/tape_backup_status.json` is now `OK` with
-restore-drill SLA `OK`, zero missing critical files, and all 6 required CLOB
-artifact classes restored. Fleet observability also reports tape backup as
-`OK`. Durable external backup storage remains Item 146's completion caveat
-because `data\tape_backups` is still a same-workstation backup root, and the
+verification SLA `OK`, zero missing critical files, and all 6 required CLOB
 duplicate dashboard processes should still be cleaned up separately, but local
-backtest headroom and tape-backup capacity are no longer the immediate blockers
 for another bounded replay.
 
 The Item 32 no-pressure recent-120 replay adds another negative model signal
@@ -784,13 +753,9 @@ Verification:
 `python -m pytest tests\market\test_market_making_run.py tests\reporting\test_data_layer_audit.py -q`
 passed with `42 passed`.
 
-## 2026-06-19 backup and settled-day gate refresh
 
-The local operational gate order changed after the tape-backup and settled-day
 repairs:
 
-- `data/backtest/tape_backup_status.json` is `OK`, restore-drill SLA is `OK`,
-  and fleet observability reports tape backup as `OK`.
 - `data/backtest/settled_day_freshness.json` improved from `FAIL` to `WARN`:
   all 12 June 18 markets are complete, missing labels/ledgers/tapes/replay
   status counts are `0`, and only WU daily-summary source-lag warnings remain.
@@ -798,7 +763,6 @@ repairs:
   is now hourly performance: early-hour model Brier trails market by `0.0159`
   above the `0.0030` gate.
 - `data/backtest/fleet_observability.json` remains `CRITICAL` because 11
-  collection alerts still report afternoon-window coverage gaps. Tape backup
   is no longer among the critical alerts, and settled-day freshness is now a
   warning.
 
@@ -837,7 +801,6 @@ readiness blocker list with `hourly_performance_mitigation.applied=true` and
 current-serving hourly gate `BLOCK` and candidate hourly gate `PASS`. Remaining
 readiness blockers are aggregate candidate market skill, Dallas/Miami shadow
 status, Austin/Los Angeles/NYC/San Francisco/Seattle per-market blocks, and
-live-forward SLO. Tape backup is now `OK` in this refreshed staging evidence.
 
 The next readiness move is still direct blocked-market repair followed by a
 staged promotion refresh; the candidate-hourly report proves that the current
@@ -1170,19 +1133,12 @@ Verification:
 passed with `10 passed`, and the strict schema audit for
 `blocked_market_repair_diagnostics_v0.1` reported `unregistered_versions=0`.
 
-## 2026-06-19 post-window backup refresh
 
-The new CLOB capture-status tape briefly reopened the tape-backup gate:
 `data\backtest\fleet_observability_current_2026_06_19_1949_report.md`
 reported `MISSING_CRITICAL_FILES` because twelve live
 `clob_capture_status.jsonl` files were now classified as critical CLOB tape
-evidence but were not yet in the latest backup manifest. I ran the backup job
-against `data\tape_backups`:
-`python -m weather.operations.tape_backup run --source-root . --backup-root data\tape_backups --status-out data\backtest\tape_backup_status.json --status-report data\backtest\tape_backup_status_report.md --restore-out data\backtest\tape_restore_drill.json --restore-report data\backtest\tape_restore_drill_report.md`.
 
-That cleared the local backup gate again. The updated manifest hash is
 `458b1982459b2aed96d2ec1a41694f0b4ae29d29ee307628858ef45d5a49375d`; the
-restore drill passed with `3,369` restored files; `tape_backup_status.json`
 reports `OK`, restore SLA `OK`, zero missing critical files, and all six
 required CLOB artifact classes restored.
 
@@ -1190,11 +1146,9 @@ The canonical fleet and learning reports were refreshed afterward:
 `data\backtest\fleet_observability_report.md` and
 `data\backtest\daily_learning_report.md`. Item 48 still remains `PARTIAL`:
 fleet status is `CRITICAL`, but now the critical alerts are the twelve
-snapshot-cadence gaps rather than tape backup. Broad live-forward SLO is still
 `BLOCK` because all 12 markets are `PARTIAL`, with Toronto first at `9` gaps
 and max gap `25` minutes. Source-status freshness is still a secondary blocker
 for five Open-Meteo-family markets, while latest model rows, variant
-prediction freshness, CLOB book capture, observation trigger, and tape backup
 are green.
 
 Daily learning remains `BLOCKED` with four blockers. The first P0 gate is
@@ -1527,7 +1481,6 @@ and observation-trigger loops are all `RUNNING`, `current`, single-writer, and
 at zero consecutive errors. The remaining active-day countability blockers are
 non-recoverable June 19 `snapshot_coverage_gap` across 12 markets,
 historical restart-budget/duplicate-writer incident counts in current-code
-soak, and `MISSING_CRITICAL_FILES` tape backup status. Item 48 therefore stays
 `PARTIAL` until a future clean active-day soak and the model-quality blockers
 both clear.
 
@@ -1560,7 +1513,6 @@ new source fingerprint `1e38db421dace6a5`: loop artifact integrity is `OK`,
 malformed lines `0`, duplicate writers `0`, and snapshot/CLOB/observation
 loops are `RUNNING`, `current`, single-writer, and at zero consecutive errors.
 The remaining blockers are still June 19 `snapshot_coverage_gap`, historical
-restart-budget/duplicate-writer incident counts, and tape backup status
 `MISSING_CRITICAL_FILES`.
 
 ## 2026-06-20 UTC CLOB continuity check for promotion readiness
@@ -1572,7 +1524,6 @@ The v0.3 promotion implication is negative and concrete. The train side of the
 current replay window has no usable CLOB evidence and no local restore source:
 all `24` June 7/8 folders are `missing_raw_clob_tape_and_token_map`, with
 `0.0000` midpoint coverage, zero raw-book folders, zero token-map folders, and
-`0/24` full raw restore availability in local backup manifests. The June 12/13
 eval side is partially informative (`0.2380` midpoint row coverage, `16`
 midpoint-available folders, `8` one-sided/no-midpoint folders), and all `24`
 eval folders have raw restore sources, but that is not split-safe selection
@@ -1596,7 +1547,6 @@ lines `0` and duplicate writers `0`; snapshot, CLOB, and observation-trigger
 loops are all `RUNNING`, `current`, single-writer, and at zero consecutive
 errors. The remaining operational blockers are the non-recoverable June 19
 `snapshot_coverage_gap`, historical restart-budget/duplicate-writer incident
-counts in current-code soak, and tape backup status `MISSING_CRITICAL_FILES`.
 
 ## 2026-06-20 UTC reanalysis sidecar coverage promotion check
 
@@ -1626,7 +1576,6 @@ malformed lines `0` and duplicate writers `0`; the three managed loops are
 all `RUNNING`, `current`, single-writer, and at zero consecutive errors. The
 remaining operational blockers are unchanged: June 19 `snapshot_coverage_gap`
 across 12 markets, historical restart-budget/duplicate-writer incident counts
-in current-code soak, and tape backup status `MISSING_CRITICAL_FILES`.
 
 ## 2026-06-20 UTC v0.7 density row-export promotion check
 

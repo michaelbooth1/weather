@@ -1,4 +1,4 @@
-# Python Structure Refactor Audit - 2026-06-25
+﻿# Python Structure Refactor Audit - 2026-06-25
 
 ## Executive Summary
 
@@ -19,7 +19,6 @@ existing layout:
 4. The compatibility layer is still large at 102 shims, but this is already
    owned by item 206.
 5. Ignored local runtime state is operationally large at 230,575.10 MiB, but
-   cleanup, storage classification, backup, and retention are already covered
    by existing roadmap items.
 
 This audit creates two new roadmap items only for uncovered, actionable gaps:
@@ -107,7 +106,6 @@ Ignored data budget warnings:
 | Area | MiB | Threshold MiB |
 | :--- | ---: | ---: |
 | `data/snapshots` | 122,094.28 | 50,000 |
-| `data/tape_backups` | 81,523.99 | 50,000 |
 | `data/noaa_ghcnh` | 6,321.24 | 5,000 |
 | `data/backtest` | 6,192.68 | 2,000 |
 | `data/wunderground` | 4,257.38 | 2,000 |
@@ -162,7 +160,6 @@ Evidence:
 
 | Module | Owner | Lines |
 | :--- | :--- | ---: |
-| `src/weather/operations/tape_backup.py` | operations | 3,741 |
 | `src/weather/reporting/daily/daily_learning.py` | reporting | 3,078 |
 | `src/weather/operations/daily_refresh_steps.py` | operations | 2,827 |
 | `src/weather/market/mm_paper.py` | market | 2,475 |
@@ -287,18 +284,14 @@ Roadmap owner:
 Evidence:
 
 The `--include-data-sizes` structure inventory found 230,575.10 MiB under
-ignored `data`, led by `snapshots`, `tape_backups`, `backtest`,
 `wunderground`, `reanalysis`, `metar`, `taker_runs`, and `mm_runs`.
 
 Impact:
 
 This will dominate local scans and can starve daily refresh, snapshot loops,
-and backup workflows. It is local operational risk, not Git structure risk.
 
 Recommended change:
 
-Keep runtime state ignored, apply retention and backup policies, and move bulky
-backup/snapshot roots outside the repo where practical. Do not track this data
 to solve local disk pressure.
 
 Roadmap owner:
