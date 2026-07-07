@@ -202,6 +202,59 @@ def _apply_queue_result(item, results_by_id):
     }
 
 
+# Slice/owner text -> runnable research module. Until 2026-07-07 queue items
+# carried hypotheses but no commands, so every nightly experiment_queue run
+# "recorded" its top items without computing anything: the loop ran but never
+# learned. Routes are deliberately high-confidence only; unmatched items stay
+# command-less operator records.
+EXPERIMENT_COMMAND_ROUTES = (
+    (
+        ("warm-tail", "lock_in", "cutoff_regime=late", "late_day_lock_in"),
+        ["python", "-m", "weather.reporting.research.late_day_lock_in_repair"],
+    ),
+    (
+        (
+            "exact_band_calibration",
+            "band_type=eq",
+            "settlement_distance=0",
+            "settlement_distance_0_winner_catchup",
+        ),
+        ["python", "-m", "weather.reporting.research.exact_band_distance_zero_calibration"],
+    ),
+    (
+        (
+            "cold_start",
+            "early-hour",
+            "predawn",
+            "cutoff_07",
+            "cutoff_hour=7",
+            "weak-slot",
+            "weak_slot",
+        ),
+        ["python", "-m", "weather.reporting.research.predawn_weak_slot_repair"],
+    ),
+    (
+        ("source_freshness", "source-state", "source_state"),
+        ["python", "-m", "weather.reporting.research.forecast_source_state_reliability"],
+    ),
+)
+_LATE_LOCAL_HOUR_TOKENS = tuple(f"local_hour={hour}" for hour in range(17, 24)) + tuple(
+    f"cutoff_hour={hour}" for hour in range(17, 24)
+)
+
+
+def _default_experiment_command(slice_name, hypothesis, artifact_path):
+    haystack = " ".join(
+        str(part or "").lower() for part in (slice_name, hypothesis, artifact_path)
+    )
+    if any(token in haystack for token in _LATE_LOCAL_HOUR_TOKENS):
+        return list(EXPERIMENT_COMMAND_ROUTES[0][1])
+    for tokens, command in EXPERIMENT_COMMAND_ROUTES:
+        if any(token in haystack for token in tokens):
+            return list(command)
+    return []
+
+
 def _queue_item_from_learning(row, index, *, generated_at_utc):
     evidence = row.get("evidence") or {}
     slice_name = first_present(
@@ -243,7 +296,11 @@ def _queue_item_from_learning(row, index, *, generated_at_utc):
         "estimated_impact": row.get("estimated_impact"),
         "created_at_utc": generated_at_utc,
         "source_learning_index": index,
-        "command": evidence.get("experiment_command") or evidence.get("command") or [],
+        "command": (
+            evidence.get("experiment_command")
+            or evidence.get("command")
+            or _default_experiment_command(slice_name, hypothesis, artifact_path)
+        ),
     }
 
 

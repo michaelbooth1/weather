@@ -725,6 +725,71 @@ class TestDailyLearning(unittest.TestCase):
             gate["consistency"]["failed_invariants"],
         )
 
+    def test_default_experiment_commands_route_known_slices(self):
+        # Regression (2026-07-07): queue items had hypotheses but no commands,
+        # so nightly experiment_queue runs recorded top items without
+        # computing anything. Known slices must route to runnable research
+        # modules; unknown slices stay command-less operator records.
+        from weather.reporting.daily.daily_learning_scorecard import (
+            _default_experiment_command,
+        )
+
+        cases = {
+            ("warm-tail dampening=cutoff_regime=late", "", ""): "late_day_lock_in_repair",
+            ("cutoff_regime=lock_in", "", ""): "late_day_lock_in_repair",
+            ("local_hour=20", "warm-tail dampening", ""): "late_day_lock_in_repair",
+            ("band_type=eq", "", "data/backtest/experiments/exact_band_calibration_daily_first.json"): "exact_band_distance_zero_calibration",
+            ("settlement_distance=0", "winner catch-up", ""): "exact_band_distance_zero_calibration",
+            ("cutoff_hour=7", "07:00 cold-start calibration", "data/backtest/experiments/cutoff_07_cold_start_daily_first.json"): "predawn_weak_slot_repair",
+            ("hourly_performance_gate", "early-hour model trails market", ""): "predawn_weak_slot_repair",
+            ("source_freshness=all_fresh", "", ""): "forecast_source_state_reliability",
+        }
+        for (slice_name, hypothesis, artifact), expected_module in cases.items():
+            command = _default_experiment_command(slice_name, hypothesis, artifact)
+            self.assertTrue(command, (slice_name, hypothesis))
+            self.assertIn(expected_module, command[-1], (slice_name, command))
+            self.assertEqual(command[0], "python")
+
+        # local_hour=10 is midday, not the late lock-in window.
+        self.assertEqual(_default_experiment_command("local_hour=10", "", ""), [])
+        self.assertEqual(_default_experiment_command("market/miami", "residual calibration", ""), [])
+
+    def test_queue_items_from_learnings_carry_routed_commands(self):
+        from weather.reporting.daily.daily_learning_scorecard import (
+            _queue_item_from_learning,
+        )
+
+        item = _queue_item_from_learning(
+            {
+                "source": "hourly_model_performance",
+                "category": "chronic_or_priority_slice",
+                "priority": "P1",
+                "signal": "warm-tail dampening is a winner-rank parity research priority: cutoff_regime=late",
+                "action": "Run warm-tail dampening replay.",
+                "evidence": {
+                    "slice": "cutoff_regime=late",
+                    "next_experiment": "warm-tail dampening",
+                    "experiment_artifact": "data/backtest/experiments/audit_warm_tail_dampening_replay.json",
+                },
+            },
+            0,
+            generated_at_utc="2026-07-07T12:00:00+00:00",
+        )
+
+        self.assertEqual(item["status"], "queued")
+        self.assertIn("late_day_lock_in_repair", item["command"][-1])
+        # Evidence-provided commands still win over routed defaults.
+        explicit = _queue_item_from_learning(
+            {
+                "source": "x",
+                "category": "y",
+                "evidence": {"slice": "cutoff_regime=late", "experiment_command": ["python", "-m", "custom.module"]},
+            },
+            1,
+            generated_at_utc="2026-07-07T12:00:00+00:00",
+        )
+        self.assertEqual(explicit["command"], ["python", "-m", "custom.module"])
+
     def test_label_admission_total_helper(self):
         from weather.reporting.daily.daily_learning_scorecard import _label_total_for_admission
 

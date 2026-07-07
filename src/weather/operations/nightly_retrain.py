@@ -329,6 +329,19 @@ def planned_steps(args):
     return steps
 
 
+def step_timeout_for(name, args):
+    """Per-step timeout: validation replay outgrew the flat default.
+
+    The retrain's promotion_refresh replays the freshly trained candidate
+    over the FULL promotion corpus (~4h at 261 market-days on 2026-07-07);
+    the flat 1h step timeout killed it mid-replay after an otherwise
+    successful retrain night. Replay-scale steps get their own budget.
+    """
+    if name == "promotion_refresh":
+        return int(getattr(args, "promotion_step_timeout_seconds", 0) or 6 * 60 * 60)
+    return args.step_timeout_seconds
+
+
 def run_step(name, command, args, runner):
     started = time.time()
     step = {
@@ -343,7 +356,7 @@ def run_step(name, command, args, runner):
         "stderr": "",
     }
     try:
-        result = runner(command, timeout_seconds=args.step_timeout_seconds)
+        result = runner(command, timeout_seconds=step_timeout_for(name, args))
         step.update(result or {})
         step["returncode"] = int(step.get("returncode") or 0)
         step["status"] = "ok" if step["returncode"] == 0 else "error"
@@ -1156,6 +1169,14 @@ def build_run_parser(parser):
     parser.add_argument("--ab-current-tol", type=float, default=0.003)
     parser.add_argument("--ab-market-tol", type=float, default=0.003)
     parser.add_argument("--step-timeout-seconds", type=float, default=DEFAULT_STEP_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--promotion-step-timeout-seconds",
+        type=float,
+        default=6 * 60 * 60,
+        help="Timeout for the retrain's promotion_refresh validation replay, "
+             "which replays the fresh candidate over the full promotion corpus "
+             "(~4h at 261 market-days) and outgrew the flat step timeout.",
+    )
     parser.add_argument("--include-reconstructed", action="store_true")
     parser.add_argument("--allow-unsettled", action="store_true")
     parser.add_argument("--require-exact-identity", action="store_true")
