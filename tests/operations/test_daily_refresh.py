@@ -49,7 +49,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_trading_evidence_step,
     run_winner_rank_parity_step,
 )
-from weather.operations.daily_refresh_registry import carried_forward_steps
+from weather.operations.daily_refresh_registry import carried_forward_steps, step_names_for_stage
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
@@ -88,6 +88,10 @@ def _args(tmp, **overrides):
         "ab_market_tol": 0.003,
         "skip_active_variant_shadow": False,
         "active_variant_shadow_sources": "",
+        "active_variant_shadow_window_dates": 14,
+        "heavy_step_subprocess": False,
+        "heavy_step_timeout_seconds": 60.0,
+        "heavy_step_working_set_max_mb": 0,
         "skip_proper_scoring_reliability_scorecard": False,
         "variant_registry": str(root / "config" / "model_variant_registry.json"),
         "skip_frozen_baseline_replay_trend": False,
@@ -174,6 +178,14 @@ def _args(tmp, **overrides):
         "skip_settlement_source_audit": False,
         "skip_trading_evidence": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
+        "replay_cache": "read_write",
+        "replay_cache_root": "",
+        "disable_replay_cache_sentinel": False,
+        "include_reconstructed": False,
+        "allow_unsettled": False,
+        "skip_serving_gauntlet": False,
+        "require_exact_identity": False,
+        "require_all_markets": False,
         "quality_grades": "complete,manual_override",
         "labels_csv": str(root / "backtest" / "market_day_labels.csv"),
         "ledger_root": str(root / "settlements"),
@@ -381,6 +393,136 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["progress"]["last_completed_step"], "fleet_observability")
         self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
         self.assertTrue(report_exists)
+
+    def test_stage_step_slices_split_after_fleet_observability(self):
+        settlement = step_names_for_stage("settlement")
+        evidence = step_names_for_stage("evidence")
+
+        self.assertEqual(settlement[-1], "fleet_observability")
+        self.assertEqual(evidence[0], "promotion_refresh")
+        self.assertNotIn("promotion_refresh", settlement)
+        self.assertNotIn("fleet_observability", evidence)
+
+    def test_settlement_stage_writes_manifest_and_skips_evidence_tail(self):
+        calls = []
+
+        def runner(name, result=None):
+            def _run(_args):
+                calls.append(name)
+                return result or {"status": "OK"}
+            return _run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_a_manifest = Path(tmp) / "backtest" / "stage_a.json"
+            args = _args(
+                tmp,
+                stage="settlement",
+                stage_a_manifest=str(stage_a_manifest),
+                disable_stage_trigger=True,
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("reanalysis_recent_refresh", runner("reanalysis_recent_refresh")),
+                    (
+                        "settled_day_analysis_barrier",
+                        runner(
+                            "settled_day_analysis_barrier",
+                            {"status": "OK", "target_date": "2026-07-07"},
+                        ),
+                    ),
+                    ("fleet_observability", runner("fleet_observability")),
+                    ("promotion_refresh", runner("promotion_refresh")),
+                ],
+            )
+            manifest = json.loads(stage_a_manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [
+            "reanalysis_recent_refresh",
+            "settled_day_analysis_barrier",
+            "fleet_observability",
+        ])
+        self.assertEqual(payload["config"]["stage"], "settlement")
+        self.assertEqual(manifest["status"], "COMPLETED")
+        self.assertEqual(manifest["target_date"], "2026-07-07")
+        self.assertEqual(manifest["barrier"]["status"], "OK")
+        self.assertEqual(manifest["evidence_trigger"]["status"], "PENDING")
+
+    def test_evidence_stage_skips_when_stage_a_manifest_missing(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(Path(tmp) / "backtest" / "missing_stage_a.json"),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[("promotion_refresh", lambda _args: calls.append("promotion_refresh"))],
+            )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(saved["skip_reason"], "missing_stage_a_manifest")
+
+    def test_evidence_stage_carries_stage_a_steps_forward(self):
+        calls = []
+        seen = {}
+
+        def promotion(_args):
+            calls.append("promotion_refresh")
+            return {"status": "OK"}
+
+        def learning(args):
+            calls.append("daily_learning")
+            seen["steps"] = list(getattr(args, "_daily_refresh_steps_so_far", []))
+            return {"status": "ACTIONABLE"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_a_manifest = Path(tmp) / "backtest" / "stage_a.json"
+            stage_a_manifest.parent.mkdir(parents=True)
+            stage_a_manifest.write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_stage_manifest_v0.1",
+                    "stage": "settlement",
+                    "status": "COMPLETED",
+                    "target_date": "2026-07-07",
+                    "started_at_utc": "2026-07-08T09:30:00+00:00",
+                    "barrier": {"status": "OK", "target_date": "2026-07-07"},
+                    "steps": [
+                        {"name": "settled_day_analysis_barrier", "status": "ok", "result": {"status": "OK"}},
+                        {"name": "fleet_observability", "status": "ok", "result": {"status": "OK"}},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(Path(tmp) / "backtest" / "stage_b.json"),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", learning),
+                ],
+            )
+
+        self.assertEqual(calls, ["promotion_refresh", "daily_learning"])
+        self.assertEqual(payload["config"]["stage"], "evidence")
+        self.assertEqual(payload["config"]["carried_forward_from_stage"], "settlement")
+        self.assertTrue(all(step.get("carried_forward") for step in seen["steps"][:2]))
+        self.assertEqual([step["name"] for step in seen["steps"][:2]], [
+            "settled_day_analysis_barrier",
+            "fleet_observability",
+        ])
 
     def test_acquire_lock_removes_dead_pid_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -996,6 +1138,27 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(captured["status_out"].endswith("daily_refresh_dry_run_status.json"))
         self.assertTrue(captured["report_out"].endswith("daily_refresh_dry_run_report.md"))
+
+    def test_cli_run_defaults_heavy_steps_to_subprocess_isolation(self):
+        parser = build_parser()
+        args = parser.parse_args(["run", "--dry-run"])
+
+        self.assertTrue(args.heavy_step_subprocess)
+        self.assertEqual(args.heavy_step_timeout_seconds, 8 * 60 * 60)
+        self.assertEqual(args.heavy_step_working_set_max_mb, 6144)
+
+        disabled = parser.parse_args([
+            "run",
+            "--dry-run",
+            "--disable-heavy-step-subprocess",
+            "--heavy-step-timeout-seconds",
+            "5",
+            "--heavy-step-working-set-max-mb",
+            "256",
+        ])
+        self.assertFalse(disabled.heavy_step_subprocess)
+        self.assertEqual(disabled.heavy_step_timeout_seconds, 5)
+        self.assertEqual(disabled.heavy_step_working_set_max_mb, 256)
 
     def test_cli_run_injects_lock_diagnostic_before_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1627,6 +1790,75 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertFalse((Path(tmp) / "backtest" / "f_family_promotion_refresh.json").exists())
         self.assertIn("## Disk Preflight", report)
         self.assertIn("--resume-from-step promotion_refresh", report)
+
+    def test_promotion_refresh_step_uses_subprocess_handoff_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            (backtest / "pooled_candidate_replay_latest.json").write_text(
+                json.dumps({"aggregate": {"n": 1}}),
+                encoding="utf-8",
+            )
+            captured = {}
+
+            def fake_child(command, **kwargs):
+                captured["command"] = [str(item) for item in command]
+                captured["kwargs"] = kwargs
+                (backtest / "f_family_promotion_refresh.json").write_text(
+                    json.dumps({
+                        "status": "OK",
+                        "decisions": {
+                            "action_counts": {"promote": 1},
+                            "promote_markets": ["nyc"],
+                            "shadow_markets": [],
+                            "blocked_markets": [],
+                        },
+                        "candidate": {
+                            "verdict": "PASS",
+                            "candidate_market_verdict": "PASS",
+                            "cutover_decision": "promote",
+                            "aggregate": {"candidate_brier": 0.1, "current_brier": 0.2},
+                        },
+                        "corpus": {
+                            "market_day_count": 1,
+                            "snapshot_count": 2,
+                            "band_row_count": 3,
+                        },
+                        "serving_gauntlet": {"verdict": "PASS"},
+                    }),
+                    encoding="utf-8",
+                )
+                return {
+                    "command": [str(item) for item in command],
+                    "returncode": 0,
+                    "timed_out": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "working_set_limit": {"requested": False},
+                }
+
+            with patch(
+                "weather.operations.daily_refresh_reporting_steps.run_isolated_subprocess",
+                side_effect=fake_child,
+            ) as child, patch(
+                "weather.operations.daily_refresh_reporting_steps.promotion_refresh.run_promotion_refresh"
+            ) as in_process:
+                result = run_promotion_refresh_step(_args(
+                    tmp,
+                    heavy_step_subprocess=True,
+                    heavy_step_working_set_max_mb=512,
+                    promotion_min_artifact_free_bytes=0,
+                ))
+
+        child.assert_called_once()
+        in_process.assert_not_called()
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["subprocess"]["returncode"], 0)
+        self.assertEqual(captured["kwargs"]["working_set_max_bytes"], 512 * 1024 * 1024)
+        self.assertIn("-m", captured["command"])
+        self.assertIn("weather.reporting.promotion.promotion_refresh", captured["command"])
+        self.assertIn("--out", captured["command"])
 
     def test_resume_from_step_skips_upstream_steps(self):
         calls = []
@@ -2945,6 +3177,76 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["execution"]["source_paths"], [str(export)])
         self.assertEqual(payload["registry"]["reported_active_variant_ids"], ["active_v"])
         execute.assert_called_once()
+
+    def test_active_variant_shadow_step_uses_subprocess_handoff_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backtest = root / "backtest"
+            backtest.mkdir(parents=True)
+            registry = root / "config" / "model_variant_registry.json"
+            registry.parent.mkdir(parents=True)
+            registry.write_text(
+                json.dumps({"schema_version": "model_variant_registry_v0.1", "variants": []}),
+                encoding="utf-8",
+            )
+            captured = {}
+
+            def fake_child(command, **kwargs):
+                captured["command"] = [str(item) for item in command]
+                captured["kwargs"] = kwargs
+                (backtest / "active_variant_shadow.json").write_text(
+                    json.dumps({
+                        "schema_version": "active_variant_shadow_refresh_v0.1",
+                        "status": "OK",
+                        "summary": {"source_path_count": 1, "execution_count": 1},
+                        "blockers": [],
+                        "registry": {"missing_active_variant_ids": []},
+                        "execution": {
+                            "status": "OK",
+                            "source_paths": [str(backtest / "fresh_active.csv")],
+                            "executions": [{"variant_id": "active_v", "status": "OK"}],
+                        },
+                        "evidence_window": {
+                            "path": str(backtest / "active_variant_shadow_window_corpus.json"),
+                            "windowed": True,
+                            "window_dates": 14,
+                        },
+                    }),
+                    encoding="utf-8",
+                )
+                return {
+                    "command": [str(item) for item in command],
+                    "returncode": 0,
+                    "timed_out": False,
+                    "stdout": "",
+                    "stderr": "",
+                    "working_set_limit": {"requested": False},
+                }
+
+            with patch(
+                "weather.operations.daily_refresh_reporting_steps.run_isolated_subprocess",
+                side_effect=fake_child,
+            ) as child, patch(
+                "weather.operations.daily_refresh_reporting_steps.active_variant_shadow_refresh.execute_registry_prediction_exports"
+            ) as in_process_execute:
+                result = run_active_variant_shadow_step(_args(
+                    tmp,
+                    variant_registry=str(registry),
+                    heavy_step_subprocess=True,
+                    heavy_step_working_set_max_mb=768,
+                    promotion_min_artifact_free_bytes=0,
+                ))
+
+        child.assert_called_once()
+        in_process_execute.assert_not_called()
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(result["summary"]["execution_count"], 1)
+        self.assertEqual(result["subprocess"]["returncode"], 0)
+        self.assertEqual(captured["kwargs"]["working_set_max_bytes"], 768 * 1024 * 1024)
+        self.assertIn("weather.reporting.candidate_lifecycle.active_variant_shadow_refresh", captured["command"])
+        self.assertIn("--execute-registry-contracts", captured["command"])
+        self.assertIn("--window-corpus-out", captured["command"])
+        self.assertIn("--replay-cache", captured["command"])
 
     def test_active_variant_shadow_explicit_sources_bypass_registry_execution(self):
         header = (

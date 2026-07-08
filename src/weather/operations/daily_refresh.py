@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -83,6 +84,10 @@ DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_report.md"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
 DEFAULT_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
+DEFAULT_EVIDENCE_TASK_NAME = "WeatherEveningEvidenceRefresh"
+DEFAULT_STAGE_A_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_settlement_truth_manifest.json"
+DEFAULT_STAGE_B_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_evidence_learning_manifest.json"
+STAGE_MANIFEST_SCHEMA_VERSION = schema_version("daily_refresh_stage_manifest")
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
     _remove_lock_if_verified_stale,
@@ -104,12 +109,18 @@ from weather.operations.daily_refresh_locks import (
     write_json,
 )
 from weather.operations.daily_refresh_steps import (
+    DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
+    DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
     DEFAULT_RUNNERS,
     STEP_ORDER,
+    STAGE_CHOICES,
+    STAGE_EVIDENCE,
+    STAGE_SETTLEMENT,
     build_rollup_freshness_status,
+    carried_forward_stage_head,
     carried_forward_steps,
     casebook_args,
-    filter_runners_for_resume,
+    filter_runners_for_stage_and_resume,
     ingest_quality_gate_status,
     parse_date_arg,
     pipeline_summary,
@@ -200,11 +211,200 @@ def _flush_incremental_status(args, payload):
         pass
 
 
+def _stage_name(args):
+    stage = getattr(args, "stage", "all") or "all"
+    if stage not in STAGE_CHOICES:
+        raise ValueError(f"unknown daily refresh stage: {stage}")
+    return stage
+
+
+def _stage_manifest_path(args, stage):
+    if stage == STAGE_SETTLEMENT:
+        return Path(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
+    if stage == STAGE_EVIDENCE:
+        return Path(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST))
+    return None
+
+
+def _read_json_payload(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _step_by_name(steps, name):
+    return next((step for step in steps or [] if step.get("name") == name), {})
+
+
+def _stage_barrier_summary(payload):
+    barrier_step = _step_by_name(payload.get("steps"), "settled_day_analysis_barrier")
+    result = barrier_step.get("result") or {}
+    return {
+        "step_status": barrier_step.get("status"),
+        "status": result.get("status"),
+        "target_date": result.get("target_date"),
+        "blocker_count": result.get("blocker_count", 0),
+        "json_out": result.get("json_out"),
+    }
+
+
+def _stage_manifest_payload(args, payload, *, stage, status_path=None, report_path=None):
+    target_date = getattr(args, "settled_analysis_target_date", "") or ""
+    stage_label = "settlement_truth" if stage == STAGE_SETTLEMENT else "evidence_learning"
+    return {
+        "schema_version": STAGE_MANIFEST_SCHEMA_VERSION,
+        "stage": stage,
+        "stage_label": stage_label,
+        "status": "COMPLETED" if payload.get("status") in {"ok", "critical"} else str(payload.get("status") or "unknown").upper(),
+        "payload_status": payload.get("status"),
+        "target_date": target_date,
+        "started_at_utc": payload.get("started_at_utc"),
+        "completed_at_utc": payload.get("finished_at_utc"),
+        "status_out": as_path(status_path or getattr(args, "status_out", "")),
+        "report_out": as_path(report_path or getattr(args, "report_out", "")),
+        "step_count": len(payload.get("steps") or []),
+        "completed_steps": [
+            step.get("name")
+            for step in payload.get("steps") or []
+            if step.get("status") != "error"
+        ],
+        "barrier": _stage_barrier_summary(payload),
+        "steps": payload.get("steps") or [],
+    }
+
+
+def _write_stage_manifest(args, payload, *, stage, status_path=None, report_path=None):
+    path = _stage_manifest_path(args, stage)
+    if path is None:
+        return None
+    manifest = _stage_manifest_payload(
+        args,
+        payload,
+        stage=stage,
+        status_path=status_path,
+        report_path=report_path,
+    )
+    write_json_atomic(path, manifest, trailing_newline=True)
+    return path, manifest
+
+
+def _stage_b_start_gate(args):
+    target_date = getattr(args, "settled_analysis_target_date", "") or ""
+    stage_a_path = Path(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
+    stage_b_path = Path(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST))
+    stage_a = _read_json_payload(stage_a_path)
+    if not stage_a:
+        return {
+            "status": "SKIP",
+            "skip_reason": "missing_stage_a_manifest",
+            "target_date": target_date,
+            "stage_a_manifest": str(stage_a_path),
+        }
+    if stage_a.get("target_date") != target_date:
+        return {
+            "status": "SKIP",
+            "skip_reason": "stale_stage_a_manifest",
+            "target_date": target_date,
+            "stage_a_target_date": stage_a.get("target_date"),
+            "stage_a_manifest": str(stage_a_path),
+        }
+    if stage_a.get("status") != "COMPLETED":
+        return {
+            "status": "SKIP",
+            "skip_reason": "stage_a_not_completed",
+            "target_date": target_date,
+            "stage_a_status": stage_a.get("status"),
+            "stage_a_manifest": str(stage_a_path),
+        }
+    barrier = stage_a.get("barrier") or {}
+    if barrier.get("status") == "BLOCK" or barrier.get("step_status") == "error":
+        return {
+            "status": "SKIP",
+            "skip_reason": "stage_a_barrier_blocked",
+            "target_date": target_date,
+            "barrier": barrier,
+            "stage_a_manifest": str(stage_a_path),
+        }
+    stage_b = _read_json_payload(stage_b_path)
+    if stage_b.get("target_date") == target_date and stage_b.get("status") == "COMPLETED":
+        return {
+            "status": "SKIP",
+            "skip_reason": "stage_b_already_completed",
+            "target_date": target_date,
+            "stage_b_manifest": str(stage_b_path),
+            "completed_at_utc": stage_b.get("completed_at_utc"),
+        }
+    return {
+        "status": "RUN",
+        "target_date": target_date,
+        "stage_a_manifest": str(stage_a_path),
+        "stage_b_manifest": str(stage_b_path),
+    }
+
+
+def _write_stage_skip(args, *, started, started_at, gate):
+    finished = utc_iso()
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": finished,
+        "started_at_utc": started_at,
+        "finished_at_utc": finished,
+        "status": "skipped",
+        "dry_run": False,
+        "runner": "daily_refresh",
+        "steps": [],
+        "summary": pipeline_summary([]),
+        "duration_seconds": round(time.time() - started, 3),
+        "config": {
+            "snapshots_root": args.snapshots_root,
+            "backtest_root": args.backtest_root,
+            "roadmap": args.roadmap,
+            "stage": STAGE_EVIDENCE,
+            "settled_analysis_target_date": getattr(args, "settled_analysis_target_date", ""),
+            "stage_gate": gate,
+        },
+        "skip_reason": gate.get("skip_reason"),
+        "stage_gate": gate,
+    }
+    status_path = write_json(args.status_out, payload)
+    report_path = write_report(args.report_out, payload)
+    return payload, status_path, report_path
+
+
+def _trigger_evidence_stage(args, manifest):
+    if getattr(args, "disable_stage_trigger", False):
+        return {"status": "SKIPPED", "reason": "disable_stage_trigger"}
+    task_name = getattr(args, "evidence_task_name", DEFAULT_EVIDENCE_TASK_NAME) or DEFAULT_EVIDENCE_TASK_NAME
+    if os.name != "nt":
+        return {"status": "SKIPPED", "reason": "non_windows", "task_name": task_name}
+    try:
+        result = subprocess.run(
+            ["schtasks", "/run", "/tn", task_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - prompt trigger is best-effort
+        return {"status": "ERROR", "task_name": task_name, "error": str(exc)}
+    return {
+        "status": "OK" if result.returncode == 0 else "ERROR",
+        "task_name": task_name,
+        "returncode": result.returncode,
+        "stdout": (result.stdout or "").strip(),
+        "stderr": (result.stderr or "").strip(),
+        "target_date": manifest.get("target_date"),
+    }
+
+
 def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
-    runners = filter_runners_for_resume(
+    stage = _stage_name(args)
+    runners = filter_runners_for_stage_and_resume(
         list(runners or DEFAULT_RUNNERS),
+        stage,
         getattr(args, "resume_from_step", ""),
     )
     payload = {
@@ -229,6 +429,9 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "fail_on_nightly_health_critical": getattr(args, "fail_on_nightly_health_critical", False),
             "long_job_guard": long_job_guard_info or {},
             "resume_from_step": getattr(args, "resume_from_step", ""),
+            "stage": stage,
+            "stage_a_manifest": str(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST)),
+            "stage_b_manifest": str(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST)),
         },
     }
     if not getattr(args, "settled_analysis_target_date", "") and not args.dry_run:
@@ -242,6 +445,11 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     payload["config"]["settled_analysis_target_date"] = getattr(
         args, "settled_analysis_target_date", ""
     )
+    if stage == STAGE_EVIDENCE and not args.dry_run:
+        gate = _stage_b_start_gate(args)
+        payload["config"]["stage_gate"] = gate
+        if gate.get("status") == "SKIP":
+            return _write_stage_skip(args, started=started, started_at=started_at, gate=gate)
     resume_from = getattr(args, "resume_from_step", "")
     if resume_from and not args.dry_run:
         try:
@@ -252,8 +460,15 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["steps"] = carried
         payload["config"]["carried_forward_step_count"] = len(carried)
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+    elif stage == STAGE_EVIDENCE and not args.dry_run:
+        prior = _read_json_payload(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
+        carried = carried_forward_stage_head(prior.get("steps"), stage)
+        payload["steps"] = carried
+        payload["config"]["carried_forward_step_count"] = len(carried)
+        payload["config"]["carried_forward_from_stage"] = STAGE_SETTLEMENT
+        payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
     if args.dry_run:
-        payload["steps"] = planned_steps()
+        payload["steps"] = planned_steps(stage)
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
@@ -405,7 +620,43 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 payload["status"] = "critical"
     status_path = write_json(args.status_out, payload)
     report_path = write_report(args.report_out, payload)
+    if not args.dry_run and stage in {STAGE_SETTLEMENT, STAGE_EVIDENCE}:
+        try:
+            stage_manifest = _write_stage_manifest(
+                args,
+                payload,
+                stage=stage,
+                status_path=status_path,
+                report_path=report_path,
+            )
+            if stage_manifest and stage == STAGE_SETTLEMENT and payload.get("status") in {"ok", "critical"}:
+                stage_manifest[1]["evidence_trigger"] = {
+                    "status": "PENDING",
+                    "reason": "waiting_for_daily_lock_release",
+                    "task_name": getattr(args, "evidence_task_name", DEFAULT_EVIDENCE_TASK_NAME),
+                }
+                write_json_atomic(stage_manifest[0], stage_manifest[1], trailing_newline=True)
+        except Exception as exc:  # noqa: BLE001 - status/report are already durable
+            payload["stage_manifest_error"] = f"{type(exc).__name__}: {exc}"
     return payload, status_path, report_path
+
+
+def trigger_evidence_stage_after_lock(args, payload):
+    config = payload.get("config") or {}
+    if config.get("stage") != STAGE_SETTLEMENT:
+        return {"status": "SKIPPED", "reason": "not_settlement_stage"}
+    if payload.get("status") not in {"ok", "critical"}:
+        return {"status": "SKIPPED", "reason": "stage_a_not_successful", "payload_status": payload.get("status")}
+    path = _stage_manifest_path(args, STAGE_SETTLEMENT)
+    if path is None:
+        return {"status": "SKIPPED", "reason": "no_stage_a_manifest_path"}
+    manifest = _read_json_payload(path)
+    if not manifest:
+        return {"status": "SKIPPED", "reason": "missing_stage_a_manifest", "stage_a_manifest": str(path)}
+    trigger = _trigger_evidence_stage(args, manifest)
+    manifest["evidence_trigger"] = trigger
+    write_json_atomic(path, manifest, trailing_newline=True)
+    return trigger
 
 
 def load_status(path=DEFAULT_STATUS_OUT):
@@ -428,11 +679,17 @@ def _cli_dependencies():
         DEFAULT_STATUS_OUT=DEFAULT_STATUS_OUT,
         DEFAULT_REPORT_OUT=DEFAULT_REPORT_OUT,
         DEFAULT_LOCK_PATH=DEFAULT_LOCK_PATH,
+        DEFAULT_STAGE_A_MANIFEST=DEFAULT_STAGE_A_MANIFEST,
+        DEFAULT_STAGE_B_MANIFEST=DEFAULT_STAGE_B_MANIFEST,
+        DEFAULT_EVIDENCE_TASK_NAME=DEFAULT_EVIDENCE_TASK_NAME,
         DEFAULT_LONG_JOB_STATE_PATH=DEFAULT_LONG_JOB_STATE_PATH,
         DEFAULT_LONG_JOB_LOCK_PATH=DEFAULT_LONG_JOB_LOCK_PATH,
+        DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS=DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
+        DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
         DEFAULT_LABELS_CSV=DEFAULT_LABELS_CSV,
         DEFAULT_LEDGER_ROOT=DEFAULT_LEDGER_ROOT,
         STEP_ORDER=STEP_ORDER,
+        STAGE_CHOICES=STAGE_CHOICES,
         progress_audit=progress_audit,
         active_variant_shadow_refresh=active_variant_shadow_refresh,
         frozen_baseline_replay_trend=frozen_baseline_replay_trend,
@@ -453,6 +710,7 @@ def _cli_dependencies():
         event_metadata_validation=event_metadata_validation,
         data_retention_inventory=data_retention_inventory,
         run_daily_refresh=run_daily_refresh,
+        trigger_evidence_stage_after_lock=trigger_evidence_stage_after_lock,
         load_status=load_status,
         lock_preflight=lock_preflight,
         lock_diagnostic=lock_diagnostic,

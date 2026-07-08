@@ -77,6 +77,18 @@ def build_parser():
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--max-fidelity-l1", type=float, default=FIDELITY_FAITHFUL_L1)
     parser.add_argument("--clob-max-age-seconds", type=float, default=180.0)
+    parser.add_argument(
+        "--replay-cache",
+        default="read_write",
+        choices=["read_write", "write_only", "off"],
+        help="Per-market-day replay cache mode for candidate validation.",
+    )
+    parser.add_argument(
+        "--replay-cache-root",
+        default="",
+        help="Replay cache root. Defaults to <corpus parent>/replay_cache.",
+    )
+    parser.add_argument("--disable-replay-cache-sentinel", action="store_true")
     parser.add_argument("--casebook", default=str(DEFAULT_CASEBOOK))
     parser.add_argument("--candidate-variant-out", default=None,
                         help="Item-69-compatible candidate variant CSV. Defaults to the active registry contract when available.")
@@ -110,6 +122,8 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.replay_cache_root == "":
+        args.replay_cache_root = None
     payload, out_path, report_path = run_promotion_refresh(args)
     decisions = payload.get("decisions") or {}
     print(

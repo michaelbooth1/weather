@@ -21,11 +21,17 @@ _DEPENDENCY_NAMES = {
     "DEFAULT_STATUS_OUT",
     "DEFAULT_REPORT_OUT",
     "DEFAULT_LOCK_PATH",
+    "DEFAULT_STAGE_A_MANIFEST",
+    "DEFAULT_STAGE_B_MANIFEST",
+    "DEFAULT_EVIDENCE_TASK_NAME",
     "DEFAULT_LONG_JOB_STATE_PATH",
     "DEFAULT_LONG_JOB_LOCK_PATH",
+    "DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS",
+    "DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB",
     "DEFAULT_LABELS_CSV",
     "DEFAULT_LEDGER_ROOT",
     "STEP_ORDER",
+    "STAGE_CHOICES",
     "progress_audit",
     "active_variant_shadow_refresh",
     "frozen_baseline_replay_trend",
@@ -46,6 +52,7 @@ _DEPENDENCY_NAMES = {
     "event_metadata_validation",
     "data_retention_inventory",
     "run_daily_refresh",
+    "trigger_evidence_stage_after_lock",
     "load_status",
     "lock_preflight",
     "lock_diagnostic",
@@ -75,12 +82,30 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     parser.add_argument("--lock-path", default=str(DEFAULT_LOCK_PATH))
+    parser.add_argument("--stage", default="all", choices=STAGE_CHOICES)
+    parser.add_argument("--stage-a-manifest", default=str(DEFAULT_STAGE_A_MANIFEST))
+    parser.add_argument("--stage-b-manifest", default=str(DEFAULT_STAGE_B_MANIFEST))
+    parser.add_argument("--evidence-task-name", default=str(DEFAULT_EVIDENCE_TASK_NAME))
+    parser.add_argument("--disable-stage-trigger", action="store_true")
     parser.add_argument("--force-lock", action="store_true")
     parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
     parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
     parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
     parser.add_argument("--disable-long-job-guard", action="store_true")
     parser.add_argument("--force-long-job-lock", action="store_true")
+    parser.set_defaults(heavy_step_subprocess=True)
+    parser.add_argument("--heavy-step-subprocess", dest="heavy_step_subprocess", action="store_true")
+    parser.add_argument("--disable-heavy-step-subprocess", dest="heavy_step_subprocess", action="store_false")
+    parser.add_argument(
+        "--heavy-step-timeout-seconds",
+        type=float,
+        default=DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        "--heavy-step-working-set-max-mb",
+        type=int,
+        default=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
@@ -310,6 +335,18 @@ def build_run_parser(parser, dependencies=None):
         default=promotion_refresh.DEFAULT_VARIANT_EXPORT_MIN_FREE_BYTES,
         help="Daily-refresh preflight minimum free bytes before promotion refresh artifact exports.",
     )
+    parser.add_argument(
+        "--replay-cache",
+        default="read_write",
+        choices=["read_write", "write_only", "off"],
+        help="Per-market-day replay cache mode for promotion and active variant shadow replays.",
+    )
+    parser.add_argument(
+        "--replay-cache-root",
+        default="",
+        help="Replay cache root. Defaults to <backtest-root>/replay_cache.",
+    )
+    parser.add_argument("--disable-replay-cache-sentinel", action="store_true")
     parser.add_argument("--hourly-min-rows", type=int, default=hourly_model_performance.DEFAULT_MIN_ROWS)
     parser.add_argument("--hourly-top-hours", type=int, default=hourly_model_performance.DEFAULT_TOP_HOURS)
     parser.add_argument("--hourly-min-regime-market-days", type=int, default=hourly_model_performance.DEFAULT_MIN_REGIME_MARKET_DAYS)
@@ -530,6 +567,7 @@ def build_run_parser(parser, dependencies=None):
 
 def cmd_run(args):
     lock = None
+    payload = None
     _redirect_default_dry_run_outputs(args)
     if not args.dry_run:
         preflight = lock_preflight(args)
@@ -549,9 +587,12 @@ def cmd_run(args):
         payload, status_path, report_path = run_daily_refresh(args)
     finally:
         release_lock(lock)
+    trigger = trigger_evidence_stage_after_lock(args, payload)
     print(f"Daily refresh: {payload['status']}")
     print(f"Status written to {status_path}")
     print(f"Report written to {report_path}")
+    if trigger.get("status") not in {"SKIPPED", "PENDING"}:
+        print(f"Evidence trigger: {trigger.get('status')} ({trigger.get('task_name')})")
     if payload["status"] == "error":
         return 1
     if payload["status"] == "critical":
@@ -666,4 +707,3 @@ def main(argv=None, dependencies=None):
     if getattr(args, "command", "") in {"run", "repair-stale-locks"}:
         _enable_crash_forensics()
     return args.func(args)
-

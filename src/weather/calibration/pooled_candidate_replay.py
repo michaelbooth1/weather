@@ -84,6 +84,7 @@ from weather.reporting.promotion.promotion_corpus import (
     entry_for_folder,
     folders_from_manifest,
     load_manifest,
+    summarize_entries,
 )
 from weather.backtesting.replay import (
     index_records_by_snapshot,
@@ -93,7 +94,17 @@ from weather.backtesting.replay import (
     record_target_date,
     source_freshness_group,
 )
-from weather.backtesting.replay_backtest import FIDELITY_FAITHFUL_L1, run_replay_backtest
+from weather.backtesting import replay_cache
+from weather.backtesting.replay_backtest import (
+    FIDELITY_FAITHFUL_L1,
+    comparison as current_replay_comparison,
+    daily_first_comparison as current_replay_daily_first_comparison,
+    fidelity_summary as current_replay_fidelity_summary,
+    grouped_comparison as current_replay_grouped_comparison,
+    run_replay_backtest,
+    write_report as write_replay_backtest_report,
+)
+from weather.backtesting.tape_scoring import last_pre_close_rows
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, folder_market_id
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.artifacts import sha256_file, writable_artifact_path
@@ -1135,6 +1146,272 @@ def apply_current_blend_guardrail(rows, config):
     return rows
 
 
+def _single_entry_manifest(manifest, folder, snapshots_root):
+    entry = entry_for_folder(manifest, folder)
+    if not entry:
+        return manifest
+    single = {key: value for key, value in (manifest or {}).items() if key != "_path"}
+    single["entries"] = [entry]
+    single["summary"] = summarize_entries([entry])
+    single["corpus_hash"] = replay_cache.fingerprint({
+        "source_corpus_hash": (manifest or {}).get("corpus_hash"),
+        "event_slug": entry.get("event_slug"),
+        "inputs_fp": replay_cache.entry_inputs_fingerprint(entry),
+    })
+    single["snapshots_root"] = str(snapshots_root)
+    return single
+
+
+def _sum_numeric_dicts(dicts):
+    out = {}
+    for payload in dicts:
+        for key, value in (payload or {}).items():
+            if isinstance(value, bool):
+                out[key] = value
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[key] = out.get(key, 0) + value
+            elif isinstance(value, dict):
+                current = out.get(key)
+                if isinstance(current, dict):
+                    out[key] = _sum_numeric_dicts([current, value])
+                else:
+                    out[key] = dict(value)
+            elif isinstance(value, list):
+                current = out.setdefault(key, [])
+                if isinstance(current, list):
+                    current.extend(value)
+                else:
+                    out[key] = list(value)
+            elif key not in out or out.get(key) in {None, "", []}:
+                out[key] = value
+    return out
+
+
+def _merge_candidate_coverage(items, family_unit):
+    merged = _sum_numeric_dicts(items)
+    merged["family_unit"] = family_unit
+    return merged
+
+
+def _merge_candidate_diagnostics(items, family_unit):
+    merged = _sum_numeric_dicts(items)
+    merged["family_unit"] = family_unit
+    for key in (
+        "feature_errors",
+        "reanalysis_sidecar_loaded_markets",
+        "marine_water_contrast_sidecar_loaded_markets",
+    ):
+        if key not in merged:
+            continue
+        if key == "feature_errors":
+            merged[key] = list(merged[key])[:20]
+        else:
+            merged[key] = sorted({str(item) for item in merged[key]})
+    return merged
+
+
+def _compact_replay_results(results):
+    return {
+        "folders": results.get("folders") or [],
+        "days": results.get("days") or [],
+        "total_rows": results.get("total_rows", 0),
+        "all_rows": results.get("all_rows") or [],
+        "snaps_in_corpus": results.get("snaps_in_corpus", 0),
+        "snaps_scored": results.get("snaps_scored", 0),
+        "replayed_versions": results.get("replayed_versions") or [],
+        "fidelity_rows": results.get("fidelity_rows") or [],
+        "band_semantics": results.get("band_semantics") or {},
+        "include_reconstructed": bool(results.get("include_reconstructed")),
+        "corpus_warnings": results.get("corpus_warnings") or [],
+    }
+
+
+def _aggregate_replay_results(day_results, *, manifest, include_reconstructed, long_job_guard_info=None):
+    all_rows = []
+    days = []
+    fidelity_rows = []
+    corpus_warnings = []
+    folders = []
+    band_semantics = Counter()
+    snaps_in_corpus = 0
+    snaps_scored = 0
+    replayed_versions = set()
+    for payload in day_results:
+        folders.extend(payload.get("folders") or [])
+        rows = payload.get("all_rows") or []
+        all_rows.extend(rows)
+        days.extend(payload.get("days") or [])
+        fidelity = payload.get("fidelity_rows") or []
+        fidelity_rows.extend(fidelity)
+        corpus_warnings.extend(payload.get("corpus_warnings") or [])
+        snaps_in_corpus += int(payload.get("snaps_in_corpus") or 0)
+        snaps_scored += int(payload.get("snaps_scored") or 0)
+        replayed_versions.update(str(item) for item in (payload.get("replayed_versions") or []) if item)
+        for key, value in (payload.get("band_semantics") or {}).items():
+            try:
+                band_semantics[key] += int(value or 0)
+            except (TypeError, ValueError):
+                pass
+    last_rows = last_pre_close_rows(all_rows)
+    return {
+        "folders": folders,
+        "days": days,
+        "total_rows": len(all_rows),
+        "all_rows": all_rows,
+        "snaps_in_corpus": snaps_in_corpus,
+        "snaps_scored": snaps_scored,
+        "replayed_versions": sorted(replayed_versions),
+        "aggregate": current_replay_comparison(all_rows),
+        "daily_first": current_replay_daily_first_comparison(days),
+        "last_pre_close": current_replay_comparison(last_rows),
+        "by_day": current_replay_grouped_comparison(all_rows, "target_date"),
+        "by_hour": current_replay_grouped_comparison(all_rows, "cutoff_hour"),
+        "by_bin_type": current_replay_grouped_comparison(all_rows, "bin_type"),
+        "fidelity": current_replay_fidelity_summary(fidelity_rows),
+        "fidelity_rows": fidelity_rows,
+        "band_semantics": dict(band_semantics),
+        "include_reconstructed": bool(include_reconstructed),
+        "promotion_corpus": _manifest_summary(manifest),
+        "corpus_warnings": corpus_warnings,
+        "long_job_guard": long_job_guard_info or {},
+    }
+
+
+def _pooled_replay_cache_config(args, manifest, artifact, *, prediction_mode, family_unit, registry_contract):
+    postprocess = artifact.get("postprocess") or {}
+    density_postprocess = artifact.get("density_postprocess") or {}
+    return {
+        "consumer_row_contract": "pooled_candidate_replay_day_rows_v0.1",
+        "prediction_mode": prediction_mode,
+        "family_unit": family_unit,
+        "artifact_schema_version": artifact.get("schema_version"),
+        "artifact_feature_schema_version": artifact.get("feature_schema_version"),
+        "include_reconstructed": bool((manifest or {}).get("include_reconstructed")),
+        "clob_max_age_seconds": getattr(args, "clob_max_age_seconds", None),
+        "postprocess_schema_version": postprocess.get("schema_version"),
+        "density_postprocess_schema_version": density_postprocess.get("schema_version"),
+        "registry_postprocess_config_hash": (registry_contract or {}).get("postprocess_config_hash"),
+        "replay_cache_schema_version": replay_cache.REPLAY_CACHE_SCHEMA_VERSION,
+    }
+
+
+def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_unit, prediction_mode):
+    day_manifest = _single_entry_manifest(manifest, folder, args.snapshots_root)
+    replay_results = run_replay_backtest(
+        [str(folder)],
+        daily_summary_path=None,
+        overrides={},
+        out_path=None,
+        include_reconstructed=day_manifest.get("include_reconstructed", False),
+        write=False,
+        corpus_manifest=day_manifest,
+        long_job_guard_info=getattr(args, "long_job_guard_info", None),
+    )
+    if prediction_mode == "band_binary":
+        feature_rows, diagnostics = build_candidate_features(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+            artifact=artifact,
+        )
+        clob_features, clob_diagnostics = build_clob_feature_index(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+            max_age_seconds=args.clob_max_age_seconds,
+        )
+        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+        )
+        diagnostics.update(clob_diagnostics)
+        diagnostics.update(source_freshness_diagnostics)
+        candidate_rows, coverage = attach_band_candidate_probabilities(
+            replay_results,
+            feature_rows,
+            artifact,
+            family_unit,
+            clob_features=clob_features,
+            source_freshness=source_freshness,
+        )
+    elif prediction_mode == "continuous_density_f":
+        feature_rows, diagnostics = build_candidate_features(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+            artifact=artifact,
+        )
+        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+        )
+        diagnostics.update(source_freshness_diagnostics)
+        candidate_rows, coverage = attach_density_candidate_probabilities(
+            replay_results,
+            feature_rows,
+            artifact,
+            family_unit,
+            source_freshness=source_freshness,
+        )
+    else:
+        predictions, diagnostics = build_candidate_distributions(day_manifest, args.snapshots_root, artifact)
+        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+        )
+        diagnostics.update(source_freshness_diagnostics)
+        candidate_rows, coverage = attach_candidate_probabilities(
+            replay_results,
+            predictions,
+            family_unit,
+            source_freshness=source_freshness,
+        )
+    return {
+        "candidate_rows": candidate_rows,
+        "coverage": coverage,
+        "diagnostics": diagnostics,
+        "replay_results": _compact_replay_results(replay_results),
+    }
+
+
+def _run_replay_cache_sentinel(
+    *,
+    args,
+    consumer,
+    cache_root,
+    cached_entries,
+    manifest,
+    artifact,
+    family_unit,
+    prediction_mode,
+):
+    selected = replay_cache.select_sentinel(cached_entries, consumer=consumer)
+    if not selected:
+        return {"status": "SKIPPED", "reason": "no_cached_hits"}
+    fresh = _compute_pooled_candidate_day(
+        args,
+        manifest,
+        selected["folder"],
+        artifact,
+        family_unit=family_unit,
+        prediction_mode=prediction_mode,
+    )
+    if replay_cache.rows_match(selected["payload"].get("rows") or [], fresh["candidate_rows"]):
+        return {
+            "status": "PASS",
+            "event_slug": selected["key"].event_slug,
+            "path": selected["payload"].get("path"),
+        }
+    flush = replay_cache.flush_consumer(cache_root, consumer)
+    raise RuntimeError(
+        "replay cache sentinel mismatch for "
+        f"{consumer}/{selected['key'].event_slug}; flushed {flush.get('removed_count')} cache entries"
+    )
+
+
 def run_pooled_candidate_replay(args):
     manifest = load_manifest(args.corpus)
     artifact = load_artifact(args.artifact)
@@ -1167,83 +1444,127 @@ def run_pooled_candidate_replay(args):
         or ""
     )
     folders = [str(folder) for folder in folders_from_manifest(manifest, args.snapshots_root)]
-    replay_results = run_replay_backtest(
-        folders,
-        daily_summary_path=None,
-        overrides={},
-        out_path=args.replay_report,
+    cache_policy = replay_cache.replay_cache_policy(getattr(args, "replay_cache", "read_write"))
+    cache_root = replay_cache.cache_root_for_corpus(
+        args.corpus,
+        getattr(args, "replay_cache_root", None),
+    )
+    cache_consumer = getattr(args, "replay_cache_consumer", "") or "pooled_candidate_replay"
+    config_fp = replay_cache.config_fingerprint(
+        _pooled_replay_cache_config(
+            args,
+            manifest,
+            artifact,
+            prediction_mode=prediction_mode,
+            family_unit=family_unit,
+            registry_contract=registry_contract,
+        )
+    )
+    candidate_rows = []
+    coverage_parts = []
+    diagnostic_parts = []
+    replay_parts = []
+    cached_hits = []
+    cache_stats = {
+        "schema_version": replay_cache.REPLAY_CACHE_SCHEMA_VERSION,
+        "mode": cache_policy["mode"],
+        "root": str(cache_root),
+        "consumer": cache_consumer,
+        "config_fp": config_fp,
+        "hit_count": 0,
+        "miss_count": 0,
+        "write_count": 0,
+        "write_error_count": 0,
+        "sentinel": {"status": "SKIPPED", "reason": "not_run"},
+    }
+    for folder in folders:
+        entry = entry_for_folder(manifest, folder)
+        key = None
+        cached = None
+        if entry:
+            key = replay_cache.key_for_entry(
+                entry,
+                consumer=cache_consumer,
+                model_fp=artifact_hash,
+                config_fp=config_fp,
+            )
+            if cache_policy["read"]:
+                cached = replay_cache.read_entry(cache_root, key)
+                if cached and not isinstance(cached.get("replay_results"), dict):
+                    cached = None
+        if cached:
+            cache_stats["hit_count"] += 1
+            rows = [dict(row) for row in (cached.get("rows") or [])]
+            candidate_rows.extend(rows)
+            coverage_parts.append(cached.get("coverage") or {})
+            diagnostic_parts.append(cached.get("diagnostics") or {})
+            replay_parts.append(cached.get("replay_results") or {})
+            cached_hits.append({"folder": folder, "key": key, "payload": cached})
+            continue
+
+        cache_stats["miss_count"] += 1
+        computed = _compute_pooled_candidate_day(
+            args,
+            manifest,
+            folder,
+            artifact,
+            family_unit=family_unit,
+            prediction_mode=prediction_mode,
+        )
+        rows = computed["candidate_rows"]
+        candidate_rows.extend(rows)
+        coverage_parts.append(computed["coverage"])
+        diagnostic_parts.append(computed["diagnostics"])
+        replay_parts.append(computed["replay_results"])
+        if key and cache_policy["write"]:
+            try:
+                replay_cache.write_entry(
+                    cache_root,
+                    key,
+                    rows=rows,
+                    replay_results=computed["replay_results"],
+                    coverage=computed["coverage"],
+                    diagnostics=computed["diagnostics"],
+                    metadata={
+                        "artifact_path": str(args.artifact),
+                        "corpus_path": str(args.corpus),
+                        "target_date": entry.get("target_date"),
+                        "market_id": entry.get("market_id"),
+                    },
+                )
+                cache_stats["write_count"] += 1
+            except OSError as exc:
+                cache_stats["write_error_count"] += 1
+                cache_stats.setdefault("write_errors", []).append({
+                    "event_slug": key.event_slug,
+                    "error": str(exc),
+                })
+    if cache_policy["read"] and not getattr(args, "disable_replay_cache_sentinel", False):
+        cache_stats["sentinel"] = _run_replay_cache_sentinel(
+            args=args,
+            consumer=cache_consumer,
+            cache_root=cache_root,
+            cached_entries=cached_hits,
+            manifest=manifest,
+            artifact=artifact,
+            family_unit=family_unit,
+            prediction_mode=prediction_mode,
+        )
+    replay_results = _aggregate_replay_results(
+        replay_parts,
+        manifest=manifest,
         include_reconstructed=manifest.get("include_reconstructed", False),
-        write=bool(args.replay_report),
-        corpus_manifest=manifest,
         long_job_guard_info=getattr(args, "long_job_guard_info", None),
     )
+    if args.replay_report:
+        write_replay_backtest_report(replay_results, args.replay_report)
     replay_gate = replay_gate_status(
         replay_results,
         max_fidelity_l1=getattr(args, "max_fidelity_l1", FIDELITY_FAITHFUL_L1),
         require_exact_identity=getattr(args, "require_exact_identity", False),
     )
-    if prediction_mode == "band_binary":
-        feature_rows, diagnostics = build_candidate_features(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-            artifact=artifact,
-        )
-        clob_features, clob_diagnostics = build_clob_feature_index(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-            max_age_seconds=args.clob_max_age_seconds,
-        )
-        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-        )
-        diagnostics.update(clob_diagnostics)
-        diagnostics.update(source_freshness_diagnostics)
-        candidate_rows, coverage = attach_band_candidate_probabilities(
-            replay_results,
-            feature_rows,
-            artifact,
-            family_unit,
-            clob_features=clob_features,
-            source_freshness=source_freshness,
-        )
-    elif prediction_mode == "continuous_density_f":
-        feature_rows, diagnostics = build_candidate_features(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-            artifact=artifact,
-        )
-        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-        )
-        diagnostics.update(source_freshness_diagnostics)
-        candidate_rows, coverage = attach_density_candidate_probabilities(
-            replay_results,
-            feature_rows,
-            artifact,
-            family_unit,
-            source_freshness=source_freshness,
-        )
-    else:
-        predictions, diagnostics = build_candidate_distributions(manifest, args.snapshots_root, artifact)
-        source_freshness, source_freshness_diagnostics = build_source_freshness_index(
-            manifest,
-            args.snapshots_root,
-            family_unit,
-        )
-        diagnostics.update(source_freshness_diagnostics)
-        candidate_rows, coverage = attach_candidate_probabilities(
-            replay_results,
-            predictions,
-            family_unit,
-            source_freshness=source_freshness,
-        )
+    coverage = _merge_candidate_coverage(coverage_parts, family_unit)
+    diagnostics = _merge_candidate_diagnostics(diagnostic_parts, family_unit)
     for row in candidate_rows:
         row["candidate_artifact_hash"] = artifact_hash
         row["candidate_cutoff_regime"] = cutoff_regime(row.get("candidate_cutoff_hour"))
@@ -1417,6 +1738,7 @@ def run_pooled_candidate_replay(args):
         "coverage": coverage,
         "sidecar_eligibility": sidecar_eligibility,
         "diagnostics": diagnostics,
+        "replay_cache": cache_stats,
         "replay_gate": replay_gate,
         "blocked_validation": blocked_validation,
         "aggregate": aggregate,
@@ -1480,6 +1802,22 @@ def main():
                         help="Current-serving replay report path. Empty string disables it.")
     parser.add_argument("--data-layer-audit", default=str(DEFAULT_DATA_LAYER_AUDIT),
                         help="Data-layer audit JSON used to annotate sidecar eligibility coverage.")
+    parser.add_argument(
+        "--replay-cache",
+        default="read_write",
+        choices=["read_write", "write_only", "off"],
+        help="Per-market-day replay cache mode. Use off for the historical full recompute behavior.",
+    )
+    parser.add_argument(
+        "--replay-cache-root",
+        default="",
+        help="Replay cache root. Defaults to <corpus parent>/replay_cache.",
+    )
+    parser.add_argument(
+        "--disable-replay-cache-sentinel",
+        action="store_true",
+        help="Skip the one-hit re-replay determinism sentinel for this run.",
+    )
     parser.add_argument("--current-tol", type=float, default=0.003,
                         help="Hard-block tolerance for candidate Brier regression vs current replay.")
     parser.add_argument("--market-tol", type=float, default=0.003,
@@ -1537,6 +1875,8 @@ def main():
         args.source_state_ablation_variant_out = None
     if args.bridge_variant_out == "":
         args.bridge_variant_out = None
+    if args.replay_cache_root == "":
+        args.replay_cache_root = None
 
     with long_job_guard(
         "pooled_candidate_replay",

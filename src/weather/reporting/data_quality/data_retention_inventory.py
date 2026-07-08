@@ -60,6 +60,18 @@ POLICIES = (
         deletion_requires_review=True,
     ),
     DataRetentionPolicy(
+        "replay_cache",
+        "backtesting/calibration",
+        ("backtest/replay_cache/**",),
+        "rebuildable per-market-day replay rows keyed by pinned corpus inputs and model identity",
+        "keep while referenced by active promotion corpora or active variant registry entries",
+        "no archive required; cache is disposable when source corpus and artifacts are retained",
+        "local deletion allowed for unreferenced model/input keys or cache-schema bumps",
+        "rebuild from retained promotion corpus, snapshots, settlements, and model artifacts",
+        "prune entries whose event_slug/model identity is no longer referenced by active corpora or registry artifacts",
+        local_delete_allowed=True,
+    ),
+    DataRetentionPolicy(
         "backtest",
         "reporting/calibration",
         ("backtest/**",),

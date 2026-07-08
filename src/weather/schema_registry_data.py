@@ -35,6 +35,20 @@ REGISTERED_SCHEMAS = (
         "Fleet source-coverage payload across WU, GHCNh, reanalysis, and supplemental sources.",
     ),
     SchemaSpec(
+        "replay_cache",
+        "replay_cache_v0.1",
+        "weather.backtesting.replay_cache",
+        "active",
+        "Per-market-day replay rows keyed by pinned corpus inputs, model identity, and row-affecting replay config.",
+    ),
+    SchemaSpec(
+        "pooled_candidate_replay_day_rows",
+        "pooled_candidate_replay_day_rows_v0.1",
+        "weather.calibration.pooled_candidate_replay",
+        "active",
+        "Per-market-day pooled-candidate replay row contract stored inside replay-cache entries.",
+    ),
+    SchemaSpec(
         "historical_coverage_dashboard",
         "historical_coverage_dashboard_v0.1",
         "weather.sources.historical_coverage",
@@ -127,6 +141,13 @@ REGISTERED_SCHEMAS = (
         "weather.operations.daily_refresh",
         "active",
         "Daily settlement, promotion, audit, and snapshot-evaluation status artifact.",
+    ),
+    SchemaSpec(
+        "daily_refresh_stage_manifest",
+        "daily_refresh_stage_manifest_v0.1",
+        "weather.operations.daily_refresh",
+        "active",
+        "Start-gate manifest linking split daily-refresh settlement and evidence stages.",
     ),
     SchemaSpec(
         "nightly_health_checks",

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import (
     build_payload,
     execute_registry_prediction_exports,
+    main,
 )
 
 
@@ -346,3 +347,65 @@ def test_windowed_corpus_manifest_passthrough_when_window_covers_corpus(tmp_path
     disabled = windowed_corpus_manifest(source_path, out_path, window_dates=0)
     assert disabled["windowed"] is False
     assert disabled["path"] == str(source_path)
+
+
+def test_cli_execute_registry_contracts_writes_json_handoff(tmp_path):
+    export = tmp_path / "backtest" / "fresh_active.csv"
+    registry = tmp_path / "config" / "model_variant_registry.json"
+    corpus = tmp_path / "backtest" / "promotion_corpus.json"
+    json_out = tmp_path / "backtest" / "active_variant_shadow.json"
+    registry.parent.mkdir(parents=True)
+    corpus.parent.mkdir(parents=True)
+    corpus.write_text("{}", encoding="utf-8")
+    _registry(
+        registry,
+        [
+            _variant(
+                "active_v",
+                export,
+                runtime="pooled_candidate_replay",
+            ),
+        ],
+    )
+
+    def fake_execute(variant, contract, **_kwargs):
+        _write_rows(export, variant["variant_id"], [
+            {"market_id": "nyc", "snapshot_id": "nyc-s1", "band_key": "eq:80", "probability": "0.61"},
+        ])
+        return {
+            "variant_id": variant["variant_id"],
+            "live_runtime": contract["live_runtime"],
+            "prediction_function": contract["prediction_function"],
+            "status": "OK",
+            "output_path": str(export),
+        }
+
+    with patch(
+        "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh._execute_pooled_candidate_replay_contract",
+        side_effect=fake_execute,
+    ):
+        payload = main([
+            "--execute-registry-contracts",
+            "--variant-registry",
+            str(registry),
+            "--corpus-path",
+            str(corpus),
+            "--window-corpus-out",
+            str(tmp_path / "backtest" / "active_variant_shadow_window_corpus.json"),
+            "--long-out",
+            str(tmp_path / "backtest" / "active_variant_shadow_long.csv"),
+            "--attribution-sidecar-out",
+            str(tmp_path / "backtest" / "active_variant_shadow_attribution.jsonl"),
+            "--json-out",
+            str(json_out),
+            "--report-out",
+            str(tmp_path / "backtest" / "active_variant_shadow_report.md"),
+        ])
+
+    saved = json.loads(json_out.read_text(encoding="utf-8"))
+    assert payload["status"] in {"OK", "WARN"}
+    assert payload["execution"]["status"] == "OK"
+    assert payload["execution"]["source_paths"] == [str(export)]
+    assert payload["evidence_window"]["path"] == str(corpus)
+    assert saved["execution"]["source_paths"] == [str(export)]
+    assert saved["evidence_window"]["path"] == str(corpus)

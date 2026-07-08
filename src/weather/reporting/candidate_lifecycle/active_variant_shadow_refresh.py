@@ -337,6 +337,9 @@ def _execute_pooled_candidate_replay_contract(
     min_trust: int = 25,
     require_exact_identity: bool = False,
     require_all_markets: bool = False,
+    replay_cache: str = "read_write",
+    replay_cache_root: str | Path | None = None,
+    disable_replay_cache_sentinel: bool = False,
 ) -> dict[str, Any]:
     """Execute one pooled replay registry contract and write its configured export.
 
@@ -366,6 +369,9 @@ def _execute_pooled_candidate_replay_contract(
         min_trust=min_trust,
         max_fidelity_l1=FIDELITY_FAITHFUL_L1,
         clob_max_age_seconds=180.0,
+        replay_cache=replay_cache,
+        replay_cache_root=str(replay_cache_root) if replay_cache_root else None,
+        disable_replay_cache_sentinel=disable_replay_cache_sentinel,
         casebook=str(backtest_root / "disagreement_casebook.json"),
         candidate_variant_out=str(output_path) if output_path else None,
         candidate_variant_id=variant_id,
@@ -578,6 +584,9 @@ def execute_registry_prediction_exports(
     min_trust: int = 25,
     require_exact_identity: bool = False,
     require_all_markets: bool = False,
+    replay_cache: str = "read_write",
+    replay_cache_root: str | Path | None = None,
+    disable_replay_cache_sentinel: bool = False,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     """Run active registry prediction contracts and return generated sources."""
@@ -685,6 +694,9 @@ def execute_registry_prediction_exports(
                 min_trust=min_trust,
                 require_exact_identity=require_exact_identity,
                 require_all_markets=require_all_markets,
+                replay_cache=replay_cache,
+                replay_cache_root=replay_cache_root,
+                disable_replay_cache_sentinel=disable_replay_cache_sentinel,
             )
         except Exception as exc:  # pragma: no cover - exercised through failure payloads in production.
             rows.append(_execution_row(
@@ -1037,13 +1049,66 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = argparse.ArgumentParser(description="Build canonical active-variant shadow refresh artifacts.")
     parser.add_argument("predictions", nargs="*", help="Current active variant shadow row CSV/JSON/JSONL paths.")
     parser.add_argument("--variant-registry", default=str(DEFAULT_REGISTRY_PATH))
+    parser.add_argument(
+        "--execute-registry-contracts",
+        action="store_true",
+        help="Run active registry export contracts before building the canonical shadow artifact.",
+    )
+    parser.add_argument("--corpus-path", default=str(DEFAULT_BACKTEST_ROOT / "promotion_corpus.json"))
+    parser.add_argument("--snapshots-root", default="")
+    parser.add_argument("--out-dir", default=str(DEFAULT_EXECUTION_OUT_DIR))
+    parser.add_argument("--window-corpus-out", default=str(DEFAULT_WINDOW_CORPUS_OUT))
+    parser.add_argument(
+        "--active-variant-shadow-window-dates",
+        type=int,
+        default=DEFAULT_EVIDENCE_WINDOW_DATES,
+    )
+    parser.add_argument("--min-artifact-free-bytes", type=int, default=0)
+    parser.add_argument("--current-tol", type=float, default=0.003)
+    parser.add_argument("--market-tol", type=float, default=0.003)
+    parser.add_argument("--min-days", type=int, default=2)
+    parser.add_argument("--min-trust", type=int, default=25)
+    parser.add_argument("--require-exact-identity", action="store_true")
+    parser.add_argument("--require-all-markets", action="store_true")
+    parser.add_argument("--replay-cache", default="read_write", choices=["read_write", "write_only", "off"])
+    parser.add_argument("--replay-cache-root", default="")
+    parser.add_argument("--disable-replay-cache-sentinel", action="store_true")
     parser.add_argument("--long-out", default=str(DEFAULT_LONG_OUT))
     parser.add_argument("--attribution-sidecar-out", default=str(DEFAULT_ATTRIBUTION_SIDECAR_OUT))
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     args = parser.parse_args(argv)
 
-    payload = build_payload(args.predictions, registry_path=args.variant_registry)
+    predictions = list(args.predictions)
+    execution = None
+    evidence_window = None
+    if args.execute_registry_contracts and not predictions:
+        evidence_window = windowed_corpus_manifest(
+            args.corpus_path,
+            args.window_corpus_out,
+            window_dates=args.active_variant_shadow_window_dates,
+        )
+        execution = execute_registry_prediction_exports(
+            registry_path=args.variant_registry,
+            corpus_path=evidence_window["path"],
+            snapshots_root=args.snapshots_root or None,
+            out_dir=args.out_dir,
+            min_artifact_free_bytes=args.min_artifact_free_bytes,
+            current_tol=args.current_tol,
+            market_tol=args.market_tol,
+            min_days=args.min_days,
+            min_trust=args.min_trust,
+            require_exact_identity=args.require_exact_identity,
+            require_all_markets=args.require_all_markets,
+            replay_cache=args.replay_cache,
+            replay_cache_root=args.replay_cache_root or None,
+            disable_replay_cache_sentinel=args.disable_replay_cache_sentinel,
+        )
+        predictions = execution.get("source_paths") or []
+
+    payload = build_payload(predictions, registry_path=args.variant_registry, execution=execution)
+    if evidence_window is not None:
+        payload["evidence_window"] = evidence_window
     long_path, sidecar_path, json_path, report_path = write_outputs(
         payload,
         long_out=args.long_out,

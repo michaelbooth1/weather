@@ -10,6 +10,7 @@ from weather.operations.long_job_guard import (  # noqa: E402
     acquire_long_job_lock,
     long_job_guard,
     release_long_job_lock,
+    run_isolated_subprocess,
     touch_long_job_guard,
 )
 
@@ -211,6 +212,22 @@ class TestLongJobGuard(unittest.TestCase):
                 payload = json.loads(lock_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["job_name"], "replacement")
                 self.assertEqual(payload["pid"], os.getpid())
+
+    def test_isolated_subprocess_returns_output_and_working_set_status(self):
+        result = run_isolated_subprocess(
+            [sys.executable, "-c", "print('isolated-ok')"],
+            timeout_seconds=60,
+            working_set_max_bytes=64 * 1024 * 1024,
+        )
+
+        self.assertEqual(result["returncode"], 0)
+        self.assertFalse(result["timed_out"])
+        self.assertIn("isolated-ok", result["stdout"])
+        self.assertTrue(result["working_set_limit"]["requested"])
+        if os.name == "nt":
+            self.assertIn("applied", result["working_set_limit"])
+        else:
+            self.assertEqual(result["working_set_limit"]["reason"], "non_windows")
 
 
 if __name__ == "__main__":

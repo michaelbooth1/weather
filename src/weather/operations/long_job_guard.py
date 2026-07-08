@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_STATE_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard_status.json"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard.lock"
 ACTIVE_ENV_VAR = "WEATHER_LONG_JOB_GUARD_ACTIVE"
+DEFAULT_CHILD_OUTPUT_TAIL_CHARS = 4000
 
 
 class LongJobBusy(RuntimeError):
@@ -212,6 +214,116 @@ def _lower_memory_priority(priority):
     if not ok:
         raise OSError("SetProcessInformation(ProcessMemoryPriority) returned 0")
     return {"applied": True, "memory_priority": memory_priority}
+
+
+def set_process_working_set_limit(pid, *, max_bytes=None, min_bytes=None):
+    """Best-effort Windows working-set cap for an already spawned child.
+
+    The process still owns its virtual memory; this limits resident working set
+    pressure so a replay child can be paged without pinning the daily-refresh
+    parent or collection loops.
+    """
+    if not max_bytes or int(max_bytes) <= 0:
+        return {"requested": False, "applied": False, "reason": "no_limit"}
+    if os.name != "nt":
+        return {"requested": True, "applied": False, "reason": "non_windows"}
+    try:
+        import ctypes
+
+        PROCESS_SET_QUOTA = 0x0100
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        QUOTA_LIMITS_HARDWS_MAX_ENABLE = 0x00000004
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.SetProcessWorkingSetSizeEx.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_size_t,
+            ctypes.c_uint32,
+        )
+        kernel32.SetProcessWorkingSetSizeEx.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        kernel32.CloseHandle.restype = ctypes.c_int
+        handle = kernel32.OpenProcess(
+            PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            int(pid),
+        )
+        if not handle:
+            raise OSError("OpenProcess returned 0")
+        try:
+            max_value = int(max_bytes)
+            min_value = int(min_bytes) if min_bytes and int(min_bytes) > 0 else min(64 * 1024 * 1024, max_value)
+            ok = kernel32.SetProcessWorkingSetSizeEx(
+                handle,
+                ctypes.c_size_t(min_value),
+                ctypes.c_size_t(max_value),
+                QUOTA_LIMITS_HARDWS_MAX_ENABLE,
+            )
+            if not ok:
+                raise OSError("SetProcessWorkingSetSizeEx returned 0")
+        finally:
+            kernel32.CloseHandle(handle)
+        return {
+            "requested": True,
+            "applied": True,
+            "pid": int(pid),
+            "min_bytes": min_value,
+            "max_bytes": max_value,
+            "method": "SetProcessWorkingSetSizeEx",
+        }
+    except Exception as exc:  # noqa: BLE001 - cap is best-effort
+        return {
+            "requested": True,
+            "applied": False,
+            "pid": int(pid),
+            "max_bytes": int(max_bytes),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def run_isolated_subprocess(
+    command,
+    *,
+    timeout_seconds=None,
+    working_set_max_bytes=None,
+    cwd=None,
+    env=None,
+    output_tail_chars=DEFAULT_CHILD_OUTPUT_TAIL_CHARS,
+):
+    """Run a heavy child process and apply a best-effort working-set cap."""
+    started = time.time()
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+    )
+    working_set = set_process_working_set_limit(
+        process.pid,
+        max_bytes=working_set_max_bytes,
+    )
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        process.kill()
+        stdout, stderr = process.communicate()
+    tail = max(0, int(output_tail_chars or 0))
+    return {
+        "command": [str(item) for item in command],
+        "pid": process.pid,
+        "returncode": process.returncode,
+        "timed_out": timed_out,
+        "stdout": (stdout or "")[-tail:] if tail else "",
+        "stderr": (stderr or "")[-tail:] if tail else "",
+        "duration_seconds": round(time.time() - started, 3),
+        "working_set_limit": working_set,
+    }
 
 
 def lower_process_priority(priority="below_normal"):

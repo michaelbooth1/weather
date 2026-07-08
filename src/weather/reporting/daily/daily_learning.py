@@ -1251,7 +1251,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             },
             blocker=True,
         ))
-    elif fleet.get("status") == "CRITICAL" and not (tape_status and tape_status != "OK"):
+    elif fleet.get("status") == "CRITICAL":
         learnings.append(_learning(
             "P0",
             "collection_health",

@@ -48,11 +48,31 @@ STEP_ORDER = (
     "daily_flow_analysis",
 )
 
+STAGE_ALL = "all"
+STAGE_SETTLEMENT = "settlement"
+STAGE_EVIDENCE = "evidence"
+STAGE_CHOICES = (STAGE_ALL, STAGE_SETTLEMENT, STAGE_EVIDENCE)
+STAGE_A_END_STEP = "fleet_observability"
+STAGE_B_START_STEP = "promotion_refresh"
 
-def planned_steps():
+
+def step_names_for_stage(stage="all"):
+    stage = stage or STAGE_ALL
+    if stage == STAGE_ALL:
+        return tuple(STEP_ORDER)
+    if stage == STAGE_SETTLEMENT:
+        end = STEP_ORDER.index(STAGE_A_END_STEP) + 1
+        return tuple(STEP_ORDER[:end])
+    if stage == STAGE_EVIDENCE:
+        start = STEP_ORDER.index(STAGE_B_START_STEP)
+        return tuple(STEP_ORDER[start:])
+    raise ValueError(f"unknown daily refresh stage: {stage}")
+
+
+def planned_steps(stage="all"):
     return [
         {"name": name, "status": "planned"}
-        for name in STEP_ORDER
+        for name in step_names_for_stage(stage)
     ]
 
 
@@ -64,6 +84,20 @@ def filter_runners_for_resume(runners, resume_from_step=""):
     start = STEP_ORDER.index(resume_from_step)
     allowed = set(STEP_ORDER[start:])
     return [(name, runner) for name, runner in runners if name in allowed]
+
+
+def filter_runners_for_stage(runners, stage="all"):
+    if (stage or STAGE_ALL) == STAGE_ALL:
+        return list(runners)
+    allowed = set(step_names_for_stage(stage))
+    return [(name, runner) for name, runner in runners if name in allowed]
+
+
+def filter_runners_for_stage_and_resume(runners, stage="all", resume_from_step=""):
+    return filter_runners_for_resume(
+        filter_runners_for_stage(runners, stage),
+        resume_from_step=resume_from_step,
+    )
 
 
 def carried_forward_steps(prior_steps, resume_from_step=""):
@@ -85,5 +119,19 @@ def carried_forward_steps(prior_steps, resume_from_step=""):
         if step.get("name") in allowed:
             row = dict(step)
             row["carried_forward"] = True
+            carried.append(row)
+    return carried
+
+
+def carried_forward_stage_head(prior_steps, stage="all"):
+    if stage != STAGE_EVIDENCE:
+        return []
+    allowed = set(step_names_for_stage(STAGE_SETTLEMENT))
+    carried = []
+    for step in prior_steps or []:
+        if step.get("name") in allowed:
+            row = dict(step)
+            row["carried_forward"] = True
+            row["carried_forward_source_stage"] = STAGE_SETTLEMENT
             carried.append(row)
     return carried

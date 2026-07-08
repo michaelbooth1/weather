@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import json
+import sys
 import time
 from collections import Counter
 from datetime import timedelta
@@ -57,6 +58,7 @@ from weather.operations.daily_refresh_locks import (
     utc_now,
     write_json,
 )
+from weather.operations.long_job_guard import run_isolated_subprocess
 from weather.reporting.candidate_lifecycle import active_variant_shadow_refresh
 from weather.reporting.data_quality import data_auditor
 from weather.reporting.data_quality import data_layer_audit
@@ -85,6 +87,10 @@ from weather.reporting.scorecards import settled_day_root_cause
 from weather.reporting.scorecards import winner_rank_parity
 
 
+DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS = 8 * 60 * 60
+DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB = 6144
+
+
 def _daily_archive_root(args):
     return (
         Path(args.backtest_root).parent
@@ -92,6 +98,45 @@ def _daily_archive_root(args):
         / "closed_market_days"
         / closed_market_day_archive.ARCHIVE_ROOT_VERSION
     )
+
+
+def _heavy_step_subprocess_enabled(args):
+    return bool(getattr(args, "heavy_step_subprocess", False))
+
+
+def _heavy_step_timeout_seconds(args):
+    return float(getattr(args, "heavy_step_timeout_seconds", DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS))
+
+
+def _heavy_step_working_set_max_bytes(args):
+    value = int(getattr(args, "heavy_step_working_set_max_mb", DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB) or 0)
+    return value * 1024 * 1024 if value > 0 else None
+
+
+def _append_option(command, flag, value):
+    if value is not None and value != "":
+        command.extend([flag, str(value)])
+
+
+def _run_heavy_step_child(args, step_name, command):
+    result = run_isolated_subprocess(
+        command,
+        timeout_seconds=_heavy_step_timeout_seconds(args),
+        working_set_max_bytes=_heavy_step_working_set_max_bytes(args),
+    )
+    if result.get("timed_out"):
+        raise RuntimeError(f"{step_name} subprocess timed out after {result.get('duration_seconds')}s")
+    if int(result.get("returncode") or 0) != 0:
+        stderr = (result.get("stderr") or "").strip()
+        raise RuntimeError(f"{step_name} subprocess failed rc={result.get('returncode')}: {stderr}")
+    return result
+
+
+def _load_child_json(path, step_name):
+    path = Path(path)
+    if not path.exists():
+        raise RuntimeError(f"{step_name} subprocess did not write expected JSON artifact: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def promotion_args(args):
@@ -110,6 +155,11 @@ def promotion_args(args):
     refresh_args.candidate_report = backtest_path(args, "pooled_candidate_replay_latest_report.md")
     refresh_args.candidate_json = backtest_path(args, "pooled_candidate_replay_latest.json")
     refresh_args.current_replay_report = backtest_path(args, "pooled_candidate_current_replay_latest_report.md")
+    refresh_args.replay_cache = getattr(args, "replay_cache", "read_write")
+    refresh_args.replay_cache_root = getattr(args, "replay_cache_root", None) or None
+    refresh_args.disable_replay_cache_sentinel = bool(
+        getattr(args, "disable_replay_cache_sentinel", False)
+    )
     refresh_args.serving_gauntlet_report = backtest_path(args, "promotion_gauntlet_latest_report.md")
     refresh_args.serving_replay_report = backtest_path(args, "promotion_replay_latest_report.md")
     refresh_args.hourly_performance_report = backtest_path(args, "hourly_model_performance.json")
@@ -125,30 +175,83 @@ def promotion_args(args):
     return refresh_args
 
 
-def run_promotion_refresh_step(args):
-    disk_preflight = promotion_disk_preflight(args, disk_usage_fn=getattr(args, "disk_usage_fn", None))
-    if disk_preflight["status"] == "BLOCK":
-        raise DiskPreflightError(
-            (
-                "insufficient disk headroom before promotion_refresh: "
-                f"free_bytes={disk_preflight['free_bytes']}, "
-                f"required_free_bytes={disk_preflight['required_free_bytes']}"
-            ),
-            {
-                "status": "BLOCK",
-                "root_cause_class": "blocked_by_disk",
-                "disk_preflight": disk_preflight,
-                "resume_command": disk_preflight["resume_command"],
-                "cleanup_command": disk_preflight["cleanup_command"],
-                "no_partial_export": True,
-            },
-        )
-    payload, out_path, report_path = promotion_refresh.run_promotion_refresh(promotion_args(args))
+def _promotion_refresh_command(args, refresh_args):
+    command = [
+        sys.executable,
+        "-m",
+        "weather.reporting.promotion.promotion_refresh",
+        "--family-unit",
+        refresh_args.family_unit,
+        "--snapshots-root",
+        refresh_args.snapshots_root,
+        "--quality-grades",
+        refresh_args.quality_grades,
+        "--corpus-out",
+        refresh_args.corpus_out,
+        "--trust-out",
+        refresh_args.trust_out,
+        "--artifact",
+        refresh_args.artifact,
+        "--variant-registry",
+        refresh_args.variant_registry,
+        "--candidate-report",
+        refresh_args.candidate_report,
+        "--candidate-json",
+        refresh_args.candidate_json,
+        "--current-replay-report",
+        refresh_args.current_replay_report,
+        "--serving-gauntlet-report",
+        refresh_args.serving_gauntlet_report,
+        "--serving-replay-report",
+        refresh_args.serving_replay_report,
+        "--hourly-performance-report",
+        refresh_args.hourly_performance_report,
+        "--ten-minute-performance-report",
+        refresh_args.ten_minute_performance_report,
+        "--candidate-ten-minute-performance-report",
+        refresh_args.candidate_ten_minute_performance_report,
+        "--out",
+        refresh_args.out,
+        "--report",
+        refresh_args.report,
+        "--min-artifact-free-bytes",
+        str(refresh_args.min_artifact_free_bytes),
+        "--replay-cache",
+        refresh_args.replay_cache,
+        "--long-job-state",
+        getattr(args, "long_job_state", ""),
+        "--long-job-lock",
+        getattr(args, "long_job_lock", ""),
+        "--long-job-priority",
+        getattr(args, "long_job_priority", "below_normal"),
+    ]
+    _append_option(command, "--as-of", refresh_args.as_of)
+    _append_option(command, "--replay-cache-root", refresh_args.replay_cache_root)
+    if refresh_args.include_reconstructed:
+        command.append("--include-reconstructed")
+    if refresh_args.allow_unsettled:
+        command.append("--allow-unsettled")
+    if refresh_args.skip_serving_gauntlet:
+        command.append("--skip-serving-gauntlet")
+    if refresh_args.require_exact_identity:
+        command.append("--require-exact-identity")
+    if refresh_args.require_all_markets:
+        command.append("--require-all-markets")
+    if refresh_args.disable_replay_cache_sentinel:
+        command.append("--disable-replay-cache-sentinel")
+    if getattr(args, "disable_long_job_guard", False):
+        command.append("--disable-long-job-guard")
+    if getattr(args, "force_long_job_lock", False):
+        command.append("--force-long-job-lock")
+    return command
+
+
+def _promotion_step_summary(payload, out_path, report_path, disk_preflight, *, subprocess_result=None):
     decisions = payload.get("decisions") or {}
     candidate = payload.get("candidate") or {}
     aggregate = candidate.get("aggregate") or {}
     corpus = payload.get("corpus") or {}
-    return {
+    result = {
         "status": payload.get("status") or "OK",
         "disk_preflight": disk_preflight,
         "resume_command": disk_preflight["resume_command"],
@@ -169,6 +272,46 @@ def run_promotion_refresh_step(args):
         "market_brier": aggregate.get("market_brier"),
         "serving_gauntlet_verdict": (payload.get("serving_gauntlet") or {}).get("verdict"),
     }
+    if subprocess_result is not None:
+        result["subprocess"] = subprocess_result
+    return result
+
+
+def run_promotion_refresh_step(args):
+    disk_preflight = promotion_disk_preflight(args, disk_usage_fn=getattr(args, "disk_usage_fn", None))
+    if disk_preflight["status"] == "BLOCK":
+        raise DiskPreflightError(
+            (
+                "insufficient disk headroom before promotion_refresh: "
+                f"free_bytes={disk_preflight['free_bytes']}, "
+                f"required_free_bytes={disk_preflight['required_free_bytes']}"
+            ),
+            {
+                "status": "BLOCK",
+                "root_cause_class": "blocked_by_disk",
+                "disk_preflight": disk_preflight,
+                "resume_command": disk_preflight["resume_command"],
+                "cleanup_command": disk_preflight["cleanup_command"],
+                "no_partial_export": True,
+            },
+        )
+    refresh_args = promotion_args(args)
+    if _heavy_step_subprocess_enabled(args):
+        subprocess_result = _run_heavy_step_child(
+            args,
+            "promotion_refresh",
+            _promotion_refresh_command(args, refresh_args),
+        )
+        payload = _load_child_json(refresh_args.out, "promotion_refresh")
+        return _promotion_step_summary(
+            payload,
+            refresh_args.out,
+            refresh_args.report,
+            disk_preflight,
+            subprocess_result=subprocess_result,
+        )
+    payload, out_path, report_path = promotion_refresh.run_promotion_refresh(refresh_args)
+    return _promotion_step_summary(payload, out_path, report_path, disk_preflight)
 
 
 def scoring_liveness_fields(payload):
@@ -429,16 +572,126 @@ def _variant_evidence_baseline_paths(args):
     return [backtest_path(args, "item70_71_full_multi_variant_shadow_long.csv")]
 
 
-def run_active_variant_shadow_step(args):
-    if getattr(args, "skip_active_variant_shadow", False):
-        return {"status": "SKIPPED", "reason": "skip_active_variant_shadow"}
+def _active_variant_shadow_source_paths(args):
     source_paths = _variant_evidence_paths(
         args,
         "active_variant_shadow_sources",
         "",
     )
     if source_paths == [backtest_path(args, "")]:
-        source_paths = []
+        return []
+    return source_paths
+
+
+def _active_variant_shadow_outputs(args):
+    return {
+        "long_out": backtest_path(args, "active_variant_shadow_long.csv"),
+        "attribution_sidecar_out": backtest_path(args, "active_variant_shadow_attribution.jsonl"),
+        "json_out": backtest_path(args, "active_variant_shadow.json"),
+        "report_out": backtest_path(args, "active_variant_shadow_report.md"),
+    }
+
+
+def _active_variant_shadow_command(args, source_paths):
+    outputs = _active_variant_shadow_outputs(args)
+    command = [
+        sys.executable,
+        "-m",
+        "weather.reporting.candidate_lifecycle.active_variant_shadow_refresh",
+        *[str(path) for path in source_paths],
+        "--variant-registry",
+        str(getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH)),
+        "--long-out",
+        outputs["long_out"],
+        "--attribution-sidecar-out",
+        outputs["attribution_sidecar_out"],
+        "--json-out",
+        outputs["json_out"],
+        "--report-out",
+        outputs["report_out"],
+    ]
+    if not source_paths:
+        command.extend([
+            "--execute-registry-contracts",
+            "--corpus-path",
+            backtest_path(args, "promotion_corpus.json"),
+            "--window-corpus-out",
+            backtest_path(args, "active_variant_shadow_window_corpus.json"),
+            "--active-variant-shadow-window-dates",
+            str(getattr(
+                args,
+                "active_variant_shadow_window_dates",
+                active_variant_shadow_refresh.DEFAULT_EVIDENCE_WINDOW_DATES,
+            )),
+            "--out-dir",
+            backtest_path(args, "active_variant_shadow_runs"),
+            "--min-artifact-free-bytes",
+            str(getattr(args, "promotion_min_artifact_free_bytes", 0)),
+            "--current-tol",
+            str(getattr(args, "current_tol", 0.003)),
+            "--market-tol",
+            str(getattr(args, "market_tol", 0.003)),
+            "--min-days",
+            str(getattr(args, "min_days", 2)),
+            "--min-trust",
+            str(getattr(args, "min_trust", 25)),
+            "--replay-cache",
+            str(getattr(args, "replay_cache", "read_write")),
+        ])
+        _append_option(command, "--snapshots-root", getattr(args, "snapshots_root", None))
+        _append_option(command, "--replay-cache-root", getattr(args, "replay_cache_root", None) or None)
+        if getattr(args, "require_exact_identity", False):
+            command.append("--require-exact-identity")
+        if getattr(args, "require_all_markets", False):
+            command.append("--require-all-markets")
+        if getattr(args, "disable_replay_cache_sentinel", False):
+            command.append("--disable-replay-cache-sentinel")
+    return command
+
+
+def _discard_active_shadow_rows(payload):
+    # Keep the daily-refresh parent small after writing the row-heavy artifacts.
+    shadow = payload.get("multi_variant_shadow")
+    if isinstance(shadow, dict):
+        shadow.pop("rows", None)
+    payload.pop("rows", None)
+
+
+def _active_variant_shadow_step_summary(payload, outputs, *, subprocess_result=None):
+    result = {
+        "status": payload.get("status"),
+        "long_out": as_path(outputs["long_out"]),
+        "attribution_sidecar_out": as_path(outputs["attribution_sidecar_out"]),
+        "json_out": as_path(outputs["json_out"]),
+        "report_out": as_path(outputs["report_out"]),
+        "summary": payload.get("summary") or {},
+        "blockers": payload.get("blockers") or [],
+        "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
+        "evidence_window": payload.get("evidence_window"),
+        "execution": payload.get("execution") or {},
+    }
+    if subprocess_result is not None:
+        result["subprocess"] = subprocess_result
+    return result
+
+
+def run_active_variant_shadow_step(args):
+    if getattr(args, "skip_active_variant_shadow", False):
+        return {"status": "SKIPPED", "reason": "skip_active_variant_shadow"}
+    source_paths = _active_variant_shadow_source_paths(args)
+    outputs = _active_variant_shadow_outputs(args)
+    if _heavy_step_subprocess_enabled(args):
+        subprocess_result = _run_heavy_step_child(
+            args,
+            "active_variant_shadow",
+            _active_variant_shadow_command(args, source_paths),
+        )
+        payload = _load_child_json(outputs["json_out"], "active_variant_shadow")
+        return _active_variant_shadow_step_summary(
+            payload,
+            outputs,
+            subprocess_result=subprocess_result,
+        )
     execution = {}
     evidence_window = None
     if not source_paths:
@@ -463,6 +716,9 @@ def run_active_variant_shadow_step(args):
             min_trust=getattr(args, "min_trust", 25),
             require_exact_identity=getattr(args, "require_exact_identity", False),
             require_all_markets=getattr(args, "require_all_markets", False),
+            replay_cache=getattr(args, "replay_cache", "read_write"),
+            replay_cache_root=getattr(args, "replay_cache_root", None) or None,
+            disable_replay_cache_sentinel=bool(getattr(args, "disable_replay_cache_sentinel", False)),
         )
         source_paths = execution.get("source_paths") or []
     payload = active_variant_shadow_refresh.build_payload(
@@ -470,35 +726,31 @@ def run_active_variant_shadow_step(args):
         registry_path=getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH),
         execution=execution,
     )
+    if evidence_window is not None:
+        payload["evidence_window"] = evidence_window
     long_out, attribution_sidecar_out, json_out, report_out = active_variant_shadow_refresh.write_outputs(
         payload,
-        long_out=backtest_path(args, "active_variant_shadow_long.csv"),
-        attribution_sidecar_out=backtest_path(args, "active_variant_shadow_attribution.jsonl"),
-        json_out=backtest_path(args, "active_variant_shadow.json"),
-        report_out=backtest_path(args, "active_variant_shadow_report.md"),
+        long_out=outputs["long_out"],
+        attribution_sidecar_out=outputs["attribution_sidecar_out"],
+        json_out=outputs["json_out"],
+        report_out=outputs["report_out"],
     )
     # This step holds the largest heap of the chain (every variant x snapshot
     # x band row, hundreds of MB serialized). Drop the row references once the
     # exports are on disk so the pages become collectable/evictable for the
     # ~15 steps that still follow, instead of pinning multi-GB RSS for hours
     # (the 2026-07-03 collection stall was this heap squeezing the trackers).
-    shadow = payload.get("multi_variant_shadow")
-    if isinstance(shadow, dict):
-        shadow.pop("rows", None)
-    payload.pop("rows", None)
+    _discard_active_shadow_rows(payload)
     gc.collect()
-    return {
-        "status": payload.get("status"),
-        "long_out": as_path(long_out),
-        "attribution_sidecar_out": as_path(attribution_sidecar_out),
-        "json_out": as_path(json_out),
-        "report_out": as_path(report_out),
-        "summary": payload.get("summary") or {},
-        "blockers": payload.get("blockers") or [],
-        "missing_active_variant_ids": (payload.get("registry") or {}).get("missing_active_variant_ids") or [],
-        "evidence_window": evidence_window,
-        "execution": execution,
-    }
+    return _active_variant_shadow_step_summary(
+        payload,
+        {
+            "long_out": long_out,
+            "attribution_sidecar_out": attribution_sidecar_out,
+            "json_out": json_out,
+            "report_out": report_out,
+        },
+    )
 
 
 def run_proper_scoring_reliability_scorecard_step(args):
@@ -1137,11 +1389,15 @@ def run_data_retention_inventory_step(args):
         backtest_path(args, "data_retention_inventory_report.md"),
         payload,
     )
+    status = payload.get("status")
+    summary = payload.get("summary") or {}
+    if status == "PASS" and int(summary.get("review_required_class_count") or 0) > 0:
+        status = "WARN"
     return {
-        "status": payload.get("status"),
+        "status": status,
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
-        "summary": payload.get("summary"),
+        "summary": summary,
         "disk": payload.get("disk"),
     }
 
