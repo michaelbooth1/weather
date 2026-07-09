@@ -1182,7 +1182,7 @@ def _sum_numeric_dicts(dicts):
                     current.extend(value)
                 else:
                     out[key] = list(value)
-            elif key not in out or out.get(key) in {None, "", []}:
+            elif key not in out or out.get(key) in (None, "", []):
                 out[key] = value
     return out
 

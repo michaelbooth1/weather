@@ -2050,6 +2050,24 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(rows[0]["micro_gate_action"], "overlay")
         self.assertEqual(rows[1]["micro_gate_action"], "base")
 
+    def test_sum_numeric_dicts_repeated_scalar_keys_do_not_crash(self):
+        # 2026-07-08 live failure: merging per-day coverage parts crashed with
+        # "unhashable type: 'list'" once a scalar key repeated across days,
+        # because the fallback membership test used a set literal containing [].
+        from weather.calibration.pooled_candidate_replay import _sum_numeric_dicts
+
+        merged = _sum_numeric_dicts([
+            {"family_unit": "F", "days": 1, "warnings": ["a"], "detail": {"rows": 2}},
+            {"family_unit": "F", "days": 2, "warnings": ["b"], "detail": {"rows": 3}},
+            {"family_unit": "", "note": None},
+        ])
+
+        self.assertEqual(merged["family_unit"], "F")
+        self.assertEqual(merged["days"], 3)
+        self.assertEqual(merged["warnings"], ["a", "b"])
+        self.assertEqual(merged["detail"], {"rows": 5})
+        self.assertIn("note", merged)
+
 
 if __name__ == "__main__":
     unittest.main()
