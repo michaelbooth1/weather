@@ -2068,6 +2068,33 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(merged["detail"], {"rows": 5})
         self.assertIn("note", merged)
 
+    def test_sentinel_forensics_records_changed_fields(self):
+        from weather.backtesting import replay_cache
+        from weather.calibration.pooled_candidate_replay import _write_sentinel_forensics
+
+        key = replay_cache.ReplayCacheKey(
+            event_slug="highest-temperature-in-nyc-on-july-2-2026",
+            consumer="pooled_candidate_replay",
+            inputs_fp="a" * 64,
+            model_fp="b" * 64,
+            config_fp="c" * 64,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("weather.paths.data_path", return_value=Path(tmp)):
+                out_path = _write_sentinel_forensics(
+                    consumer="pooled_candidate_replay",
+                    key=key,
+                    cached_rows=[{"snapshot_id": "1", "probability": 0.4, "outcome": 1}],
+                    fresh_rows=[{"snapshot_id": "1", "probability": 0.6, "outcome": 1}],
+                    cached_path="cache/entry.json",
+                )
+            payload = json.loads(Path(out_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["differing_row_sample"][0]["changed_fields"], ["probability"])
+        self.assertEqual(payload["differing_row_sample"][0]["cached"]["probability"], 0.4)
+        self.assertEqual(payload["differing_row_sample"][0]["fresh"]["probability"], 0.6)
+        self.assertEqual(payload["cached_row_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ import math
 import pickle
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import data_path
@@ -1399,17 +1399,70 @@ def _run_replay_cache_sentinel(
         family_unit=family_unit,
         prediction_mode=prediction_mode,
     )
-    if replay_cache.rows_match(selected["payload"].get("rows") or [], fresh["candidate_rows"]):
+    cached_rows = selected["payload"].get("rows") or []
+    fresh_rows = fresh["candidate_rows"]
+    if replay_cache.rows_match(cached_rows, fresh_rows):
         return {
             "status": "PASS",
             "event_slug": selected["key"].event_slug,
             "path": selected["payload"].get("path"),
         }
+    # The flush below destroys the only evidence of WHAT drifted, so persist
+    # the mismatching pair first (2026-07-09: first live trip flushed 901
+    # entries and left no way to tell stale-input from nondeterminism).
+    forensics_path = None
+    try:
+        forensics_path = str(_write_sentinel_forensics(
+            consumer=consumer,
+            key=selected["key"],
+            cached_rows=cached_rows,
+            fresh_rows=fresh_rows,
+            cached_path=selected["payload"].get("path"),
+        ))
+    except OSError:
+        pass
     flush = replay_cache.flush_consumer(cache_root, consumer)
     raise RuntimeError(
         "replay cache sentinel mismatch for "
         f"{consumer}/{selected['key'].event_slug}; flushed {flush.get('removed_count')} cache entries"
+        + (f"; forensics: {forensics_path}" if forensics_path else "")
     )
+
+
+def _write_sentinel_forensics(*, consumer, key, cached_rows, fresh_rows, cached_path):
+    from weather.io import write_json_atomic
+    from weather.paths import data_path
+
+    differing = []
+    for index, (cached, fresh) in enumerate(zip(cached_rows, fresh_rows)):
+        if replay_cache.canonical_json(cached) != replay_cache.canonical_json(fresh):
+            changed_fields = sorted(
+                field
+                for field in set(cached) | set(fresh)
+                if replay_cache.canonical_json(cached.get(field))
+                != replay_cache.canonical_json(fresh.get(field))
+            )
+            differing.append({
+                "row_index": index,
+                "changed_fields": changed_fields,
+                "cached": {field: cached.get(field) for field in changed_fields},
+                "fresh": {field: fresh.get(field) for field in changed_fields},
+            })
+        if len(differing) >= 20:
+            break
+    out_path = (
+        data_path() / "logs"
+        / f"replay_cache_sentinel_mismatch_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+    )
+    write_json_atomic(out_path, {
+        "consumer": consumer,
+        "key": key.metadata(),
+        "cached_path": cached_path,
+        "cached_row_count": len(cached_rows),
+        "fresh_row_count": len(fresh_rows),
+        "differing_row_sample": differing,
+    }, trailing_newline=True)
+    return out_path
 
 
 def run_pooled_candidate_replay(args):
