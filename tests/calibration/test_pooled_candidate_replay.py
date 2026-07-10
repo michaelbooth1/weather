@@ -2068,6 +2068,25 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(merged["detail"], {"rows": 5})
         self.assertIn("note", merged)
 
+    def test_replay_cache_fresh_window_excludes_recent_days_from_reads(self):
+        # 2026-07-10 root cause: reanalysis recent-refresh (10-day lag) rewrites
+        # sidecar features daily, so cached predictions for recent days go stale
+        # without any folder-content hash changing. Recent days must recompute.
+        from datetime import date
+        from weather.calibration.pooled_candidate_replay import (
+            entry_in_replay_fresh_window,
+            replay_cache_fresh_window_cutoff,
+        )
+
+        cutoff = replay_cache_fresh_window_cutoff(14, today=date(2026, 7, 10))
+        self.assertEqual(cutoff, "2026-06-26")
+        self.assertTrue(entry_in_replay_fresh_window({"target_date": "2026-07-02"}, cutoff))
+        self.assertTrue(entry_in_replay_fresh_window({"target_date": "2026-06-26"}, cutoff))
+        self.assertFalse(entry_in_replay_fresh_window({"target_date": "2026-06-25"}, cutoff))
+        self.assertFalse(entry_in_replay_fresh_window({"target_date": ""}, cutoff))
+        self.assertFalse(entry_in_replay_fresh_window({"target_date": "2026-07-02"}, None))
+        self.assertIsNone(replay_cache_fresh_window_cutoff(0))
+
     def test_sentinel_forensics_records_changed_fields(self):
         from weather.backtesting import replay_cache
         from weather.calibration.pooled_candidate_replay import _write_sentinel_forensics

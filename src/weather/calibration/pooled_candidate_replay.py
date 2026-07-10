@@ -14,7 +14,7 @@ import math
 import pickle
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.paths import data_path
@@ -1277,6 +1277,29 @@ def _aggregate_replay_results(day_results, *, manifest, include_reconstructed, l
     }
 
 
+DEFAULT_REPLAY_CACHE_FRESH_WINDOW_DAYS = 14
+
+
+def replay_cache_fresh_window_cutoff(window_days, today=None):
+    """ISO date; entries on/after it are recomputed instead of cache-read.
+
+    Sized to exceed the reanalysis recent-refresh lag (10 days) so daily
+    sidecar rewrites can never serve stale cached predictions.
+    """
+    days = int(window_days or 0)
+    if days <= 0:
+        return None
+    today = today or datetime.now(timezone.utc).date()
+    return (today - timedelta(days=days)).isoformat()
+
+
+def entry_in_replay_fresh_window(entry, cutoff):
+    if not cutoff:
+        return False
+    target_date = str((entry or {}).get("target_date") or "")
+    return bool(target_date) and target_date >= cutoff
+
+
 def _pooled_replay_cache_config(args, manifest, artifact, *, prediction_mode, family_unit, registry_contract):
     postprocess = artifact.get("postprocess") or {}
     density_postprocess = artifact.get("density_postprocess") or {}
@@ -1518,12 +1541,17 @@ def run_pooled_candidate_replay(args):
     diagnostic_parts = []
     replay_parts = []
     cached_hits = []
+    fresh_window_cutoff = replay_cache_fresh_window_cutoff(
+        getattr(args, "replay_cache_fresh_window_days", DEFAULT_REPLAY_CACHE_FRESH_WINDOW_DAYS)
+    )
     cache_stats = {
         "schema_version": replay_cache.REPLAY_CACHE_SCHEMA_VERSION,
         "mode": cache_policy["mode"],
         "root": str(cache_root),
         "consumer": cache_consumer,
         "config_fp": config_fp,
+        "fresh_window_cutoff": fresh_window_cutoff,
+        "fresh_window_skip_count": 0,
         "hit_count": 0,
         "miss_count": 0,
         "write_count": 0,
@@ -1541,7 +1569,13 @@ def run_pooled_candidate_replay(args):
                 model_fp=artifact_hash,
                 config_fp=config_fp,
             )
-            if cache_policy["read"]:
+            # Sidecar stores refreshed daily (reanalysis lags 10 days) change
+            # recent days' replay features without touching any folder-content
+            # hash, so recent entries are recomputed fresh instead of read
+            # (2026-07-09 sentinel trip: candidate_p drift on a 7-day-old day).
+            if entry_in_replay_fresh_window(entry, fresh_window_cutoff):
+                cache_stats["fresh_window_skip_count"] += 1
+            elif cache_policy["read"]:
                 cached = replay_cache.read_entry(cache_root, key)
                 if cached and not isinstance(cached.get("replay_results"), dict):
                     cached = None
@@ -1870,6 +1904,16 @@ def main():
         "--disable-replay-cache-sentinel",
         action="store_true",
         help="Skip the one-hit re-replay determinism sentinel for this run.",
+    )
+    parser.add_argument(
+        "--replay-cache-fresh-window-days",
+        type=int,
+        default=DEFAULT_REPLAY_CACHE_FRESH_WINDOW_DAYS,
+        help=(
+            "Recompute (never cache-read) market-days newer than this many days; "
+            "sized past the reanalysis recent-refresh lag so daily sidecar rewrites "
+            "cannot serve stale cached predictions."
+        ),
     )
     parser.add_argument("--current-tol", type=float, default=0.003,
                         help="Hard-block tolerance for candidate Brier regression vs current replay.")
