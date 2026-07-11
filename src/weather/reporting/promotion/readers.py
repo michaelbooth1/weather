@@ -318,6 +318,9 @@ def _serving_gauntlet_summary(report, report_path, replay_report_path):
         "forecast_tracker": report.get("forecast_tracker") or {},
         "market_rows": report.get("market_rows") or [],
         "decomposition": report.get("decomposition") or {},
+        "carried_forward": bool(report.get("carried_forward")),
+        "carried_from_utc": report.get("carried_from_utc"),
+        "carry_age_days": report.get("carry_age_days"),
     }
 
 

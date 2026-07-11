@@ -1832,6 +1832,91 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertIn("### Serving Blocking Source Freshness", text)
         self.assertIn("failed:wu_history", text)
 
+    def test_gauntlet_carry_forward_rules(self):
+        # 2026-07-11: the gauntlet re-replayed the full corpus (~3.4h) daily
+        # even though its inputs only change on retrain/cutover. Carry a
+        # recent PASS for an unchanged artifact; never carry FAIL, stale,
+        # hash-mismatched, or force-refreshed runs.
+        from weather.reporting.promotion.orchestration import (
+            _carry_forward_gauntlet,
+            _write_gauntlet_manifest,
+        )
+
+        report = {
+            "verdict": "PASS",
+            "corpus_ok": True,
+            "fidelity_ok": True,
+            "baseline_ok": True,
+            "market_rows": [{"market_id": "nyc"}],
+            "decomposition": {"total": 1},
+            "forecast_tracker": {},
+            "results": {"all_rows": ["should", "not", "persist"]},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            args = SimpleNamespace(
+                serving_gauntlet_report=str(Path(tmp) / "gauntlet.md"),
+                heavy_analysis_max_age_days=7.0,
+                force_heavy_analysis=False,
+            )
+            manifest_path = _write_gauntlet_manifest(args, "hash-a", report)
+            stored = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+            self.assertNotIn("results", stored["report"])
+
+            carried = _carry_forward_gauntlet(args, "hash-a")
+            self.assertTrue(carried["carried_forward"])
+            self.assertEqual(carried["verdict"], "PASS")
+            self.assertEqual(carried["market_rows"], [{"market_id": "nyc"}])
+
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-b"))
+            args.force_heavy_analysis = True
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
+            args.force_heavy_analysis = False
+            args.heavy_analysis_max_age_days = 0.0
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
+
+            args.heavy_analysis_max_age_days = 7.0
+            shadows = dict(report, verdict="PASS_WITH_SHADOWS")
+            _write_gauntlet_manifest(args, "hash-a", shadows)
+            carried_shadows = _carry_forward_gauntlet(args, "hash-a")
+            self.assertEqual(carried_shadows["verdict"], "PASS_WITH_SHADOWS")
+
+            failed = dict(report, verdict="FAIL")
+            _write_gauntlet_manifest(args, "hash-a", failed)
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
+
+    def test_heavy_diagnostics_carry_disabled_by_default_and_keyed_on_hash(self):
+        from weather.calibration.pooled_candidate_replay import (
+            _load_heavy_diagnostics_carry,
+            _write_heavy_diagnostics_manifest,
+        )
+
+        sections = {
+            "microstructure": {"gate": {"status": "PASS"}},
+            "source_state_ablation": {"status": "OK"},
+            "conservative_bridge": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            corpus = Path(tmp) / "promotion_corpus.json"
+            args = SimpleNamespace(
+                corpus=str(corpus),
+                heavy_analysis_max_age_days=7.0,
+                force_heavy_analysis=False,
+            )
+            _write_heavy_diagnostics_manifest(args, "hash-a", sections)
+
+            carried = _load_heavy_diagnostics_carry(args, "hash-a")
+            self.assertTrue(carried["microstructure"]["carried_forward"])
+            self.assertEqual(carried["source_state_ablation"]["status"], "OK")
+            self.assertIsNone(carried["conservative_bridge"])
+
+            self.assertIsNone(_load_heavy_diagnostics_carry(args, "hash-b"))
+
+            # Shadow contract runs share this code path without the promotion
+            # flags; the getattr default of 0 must keep carry-forward off.
+            shadow_args = SimpleNamespace(corpus=str(corpus))
+            self.assertIsNone(_load_heavy_diagnostics_carry(shadow_args, "hash-a"))
+            self.assertIsNone(_write_heavy_diagnostics_manifest(shadow_args, "hash-a", sections))
+
 
 if __name__ == "__main__":
     unittest.main()

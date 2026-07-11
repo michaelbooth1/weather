@@ -111,6 +111,22 @@ def build_parser():
     parser.add_argument("--require-exact-identity", action="store_true")
     parser.add_argument("--require-all-markets", action="store_true")
     parser.add_argument("--fail-on-block", action="store_true")
+    parser.add_argument(
+        "--heavy-analysis-max-age-days",
+        type=float,
+        default=7.0,
+        help=(
+            "Carry forward the serving gauntlet and heavy candidate diagnostics "
+            "(microstructure/ablation/bridge) when the relevant artifact hash is "
+            "unchanged, the prior verdict allows it, and the prior run is at most "
+            "this many days old. 0 disables carry-forward."
+        ),
+    )
+    parser.add_argument(
+        "--force-heavy-analysis",
+        action="store_true",
+        help="Recompute the serving gauntlet and heavy diagnostics regardless of carry-forward eligibility.",
+    )
     parser.add_argument("--long-job-state", default=str(DEFAULT_LONG_JOB_STATE_PATH))
     parser.add_argument("--long-job-lock", default=str(DEFAULT_LONG_JOB_LOCK_PATH))
     parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])

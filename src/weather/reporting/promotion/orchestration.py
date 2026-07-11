@@ -1,12 +1,97 @@
 """Implementation slice extracted from src/weather/reporting/promotion_refresh.py."""
 
+import json as _gauntlet_json
+from datetime import datetime as _dt, timezone as _tz
+from pathlib import Path as _GauntletPath
+
 from weather.reporting.promotion.report import *  # noqa: F403
+from weather.io import write_json_atomic as _write_json_atomic
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
 from weather.reporting.serving_gates.runtime_identity_evidence import build_runtime_identity_evidence
+
+SERVING_GAUNTLET_MANIFEST_SCHEMA_VERSION = "serving_gauntlet_manifest_v0.1"
+# Fields _serving_gauntlet_summary consumes; the manifest stores only these
+# (the full report embeds every replay row and would bloat the manifest).
+_GAUNTLET_CARRY_FIELDS = (
+    "verdict",
+    "corpus_ok",
+    "fidelity_ok",
+    "fidelity_message",
+    "baseline_ok",
+    "baseline_message",
+    "forecast_tracker",
+    "market_rows",
+    "decomposition",
+)
+
+
+def _gauntlet_manifest_path(args):
+    report_path = getattr(args, "serving_gauntlet_report", None)
+    if not report_path:
+        return None
+    return _GauntletPath(report_path).with_name("serving_gauntlet_manifest.json")
+
+
+def _carry_forward_gauntlet(args, artifact_hash):
+    """Reuse the previous serving gauntlet when nothing it measures changed.
+
+    The gauntlet replays recorded serving predictions over the corpus, so its
+    verdict moves only with model lineage (retrain/cutover) or slowly with
+    corpus growth. A PASS younger than --heavy-analysis-max-age-days with the
+    same artifact hash is carried instead of re-replaying ~3.5h daily; a FAIL
+    is never carried so recovery is re-proven with fresh evidence.
+    """
+    max_age_days = float(getattr(args, "heavy_analysis_max_age_days", 0.0) or 0.0)
+    if max_age_days <= 0 or getattr(args, "force_heavy_analysis", False):
+        return None
+    path = _gauntlet_manifest_path(args)
+    if not path or not path.exists():
+        return None
+    try:
+        manifest = _gauntlet_json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, _gauntlet_json.JSONDecodeError):
+        return None
+    if not artifact_hash or manifest.get("artifact_hash") != artifact_hash:
+        return None
+    report = manifest.get("report") or {}
+    # PASS_WITH_SHADOWS is the normal healthy verdict (markets in shadow by
+    # design); only failing verdicts force a fresh gauntlet for recovery proof.
+    if report.get("verdict") not in {"PASS", "PASS_WITH_SHADOWS"}:
+        return None
+    generated = manifest.get("generated_at_utc")
+    try:
+        age_days = (
+            _dt.now(_tz.utc) - _dt.fromisoformat(str(generated))
+        ).total_seconds() / 86400.0
+    except (TypeError, ValueError):
+        return None
+    if age_days < 0 or age_days > max_age_days:
+        return None
+    carried = dict(report)
+    carried["carried_forward"] = True
+    carried["carried_from_utc"] = generated
+    carried["carry_age_days"] = round(age_days, 2)
+    return carried
+
+
+def _write_gauntlet_manifest(args, artifact_hash, serving_report):
+    path = _gauntlet_manifest_path(args)
+    if not path or not serving_report:
+        return None
+    payload = {
+        "schema_version": SERVING_GAUNTLET_MANIFEST_SCHEMA_VERSION,
+        "generated_at_utc": _dt.now(_tz.utc).isoformat(),
+        "artifact_hash": artifact_hash,
+        "report": {key: serving_report.get(key) for key in _GAUNTLET_CARRY_FIELDS},
+    }
+    try:
+        return _write_json_atomic(path, payload, trailing_newline=True)
+    except OSError:
+        return None
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -49,6 +134,8 @@ def _candidate_args(args, corpus_path, long_job_guard_info=None):
         replay_cache=getattr(args, "replay_cache", "read_write"),
         replay_cache_root=getattr(args, "replay_cache_root", None) or None,
         disable_replay_cache_sentinel=bool(getattr(args, "disable_replay_cache_sentinel", False)),
+        heavy_analysis_max_age_days=float(getattr(args, "heavy_analysis_max_age_days", 0.0) or 0.0),
+        force_heavy_analysis=bool(getattr(args, "force_heavy_analysis", False)),
         candidate_variant_out=getattr(args, "candidate_variant_out", None) or None,
         candidate_variant_id=getattr(args, "candidate_variant_id", None) or None,
         candidate_variant_family=getattr(args, "candidate_variant_family", None) or None,
@@ -240,7 +327,11 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
 
     serving_report = None
     if not args.skip_serving_gauntlet:
-        serving_report = run_promotion_gauntlet(_serving_gauntlet_args(args, corpus_path))
+        candidate_artifact_hash = (candidate_report.get("artifact") or {}).get("artifact_hash") or ""
+        serving_report = _carry_forward_gauntlet(args, candidate_artifact_hash)
+        if serving_report is None:
+            serving_report = run_promotion_gauntlet(_serving_gauntlet_args(args, corpus_path))
+            _write_gauntlet_manifest(args, candidate_artifact_hash, serving_report)
 
     family_ids = [spec.id for spec in _family_specs(args.family_unit)]
     candidate_summary = _candidate_summary(

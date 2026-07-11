@@ -2,14 +2,14 @@
   "schema_version": "location_market_events_v0.1",
   "status": "generated_snapshot",
   "owner": "weather.operations.location_config_refresh",
-  "generated_at_utc": "2026-07-11T10:00:03.066797+00:00",
+  "generated_at_utc": "2026-07-11T16:00:04.230009+00:00",
   "source": {
     "category_url": "https://polymarket.com/weather/high-temperature",
     "gamma_events_query": "https://gamma-api.polymarket.com/events?tag_slug=highest-temperature&active=true&closed=false&limit=100&offset={offset}",
     "tag_slug": "highest-temperature",
     "active": true,
     "closed": false,
-    "event_count": 136,
+    "event_count": 134,
     "location_count": 51,
     "api_page_size": 100,
     "api_offsets_fetched": [
@@ -4442,7 +4442,7 @@
               "question": "Will the highest temperature in Busan be 27\u00b0C or below on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4467,7 +4467,7 @@
               "question": "Will the highest temperature in Busan be 28\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4492,7 +4492,7 @@
               "question": "Will the highest temperature in Busan be 29\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4517,7 +4517,7 @@
               "question": "Will the highest temperature in Busan be 30\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4542,7 +4542,7 @@
               "question": "Will the highest temperature in Busan be 31\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4567,7 +4567,7 @@
               "question": "Will the highest temperature in Busan be 32\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4592,7 +4592,7 @@
               "question": "Will the highest temperature in Busan be 33\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4642,7 +4642,7 @@
               "question": "Will the highest temperature in Busan be 35\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4667,7 +4667,7 @@
               "question": "Will the highest temperature in Busan be 36\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4692,7 +4692,7 @@
               "question": "Will the highest temperature in Busan be 37\u00b0C or higher on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -29894,7 +29894,7 @@
               "question": "Will the highest temperature in Seoul be 23\u00b0C or below on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -29919,7 +29919,7 @@
               "question": "Will the highest temperature in Seoul be 24\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -29944,7 +29944,7 @@
               "question": "Will the highest temperature in Seoul be 25\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -29969,7 +29969,7 @@
               "question": "Will the highest temperature in Seoul be 26\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -29994,7 +29994,7 @@
               "question": "Will the highest temperature in Seoul be 27\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30019,7 +30019,7 @@
               "question": "Will the highest temperature in Seoul be 28\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30044,7 +30044,7 @@
               "question": "Will the highest temperature in Seoul be 29\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30069,7 +30069,7 @@
               "question": "Will the highest temperature in Seoul be 30\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30094,7 +30094,7 @@
               "question": "Will the highest temperature in Seoul be 31\u00b0C on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30144,7 +30144,7 @@
               "question": "Will the highest temperature in Seoul be 33\u00b0C or higher on July 11?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35126,300 +35126,12 @@
       "series_slug": "tokyo-daily-weather",
       "latest_event_slug": "highest-temperature-in-tokyo-on-july-13-2026",
       "latest_event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-july-13-2026",
-      "source_event_count": 3,
+      "source_event_count": 2,
       "source_event_dates": [
-        "2026-07-11",
         "2026-07-12",
         "2026-07-13"
       ],
       "active_events": [
-        {
-          "event_id": "682943",
-          "event_date": "2026-07-11",
-          "event_slug": "highest-temperature-in-tokyo-on-july-11-2026",
-          "event_url": "https://polymarket.com/event/highest-temperature-in-tokyo-on-july-11-2026",
-          "title": "Highest temperature in Tokyo on July 11?",
-          "end_date": "2026-07-11T12:00:00Z",
-          "resolution_source_url": "https://www.wunderground.com/history/daily/jp/tokyo/RJTT",
-          "market_count": 11,
-          "markets": [
-            {
-              "polymarket_market_id": "2854498",
-              "condition_id": "0x8e38810d21206fd050cb668d17da4db3aa467a6d91a4a7886175ec01a79c24d7",
-              "range_label": "26\u00b0C or below",
-              "question": "Will the highest temperature in Tokyo be 26\u00b0C or below on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "58019671846539283831957062915548848957670722420655511888588484452116654370455"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "19574230817012256879888963473554769324556510544414456897058910860045621628983"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "58019671846539283831957062915548848957670722420655511888588484452116654370455",
-                "No": "19574230817012256879888963473554769324556510544414456897058910860045621628983"
-              }
-            },
-            {
-              "polymarket_market_id": "2854499",
-              "condition_id": "0xde575f8c2b780625f1ecf90d6e871642f85da163ead1e797d664877243bc8f17",
-              "range_label": "27\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 27\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "42711499529217200210906786505920515216293475274184493813190409075812809496073"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "76989480174851700617066096005548952052023945757671216264815519117095513878801"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "42711499529217200210906786505920515216293475274184493813190409075812809496073",
-                "No": "76989480174851700617066096005548952052023945757671216264815519117095513878801"
-              }
-            },
-            {
-              "polymarket_market_id": "2854500",
-              "condition_id": "0x290b1bd3e4a20c8cb2e7977962bf0d42a63a7ad646637b28b9ec887795744f6f",
-              "range_label": "28\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 28\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "12873108657943197120348796731851701169285206826502057329064072385598943107564"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "25557473901362816736130844343841031730970206826676125856457966236554892169805"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "12873108657943197120348796731851701169285206826502057329064072385598943107564",
-                "No": "25557473901362816736130844343841031730970206826676125856457966236554892169805"
-              }
-            },
-            {
-              "polymarket_market_id": "2854501",
-              "condition_id": "0xab3bd3ce3fc448af8679ac955d311e389a8a43d7ea4fc4c3c9d6e437c45a721f",
-              "range_label": "29\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 29\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "88505714683354207461744885293164758475381891744770876018913891604633266650386"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "79026386734310831061446935062254320316340688598339727729549118194743870819282"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "88505714683354207461744885293164758475381891744770876018913891604633266650386",
-                "No": "79026386734310831061446935062254320316340688598339727729549118194743870819282"
-              }
-            },
-            {
-              "polymarket_market_id": "2854502",
-              "condition_id": "0x60c513b8e8334935d69be12370c8bc2b3717c7b2f05e2a3774148d58a1dc769a",
-              "range_label": "30\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 30\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "102088392144383911701880884889676008459086306987566034095745390526971781898336"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "13883864706180305442814542788300129356587398613997394239232643009545567716978"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "102088392144383911701880884889676008459086306987566034095745390526971781898336",
-                "No": "13883864706180305442814542788300129356587398613997394239232643009545567716978"
-              }
-            },
-            {
-              "polymarket_market_id": "2854503",
-              "condition_id": "0x3b5f2e6622b394bd4df04ab2cb637e9671fc087b291f27e59b312060ba367897",
-              "range_label": "31\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 31\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "4329848919172561848298959737611508505890116516754390676420349771049645207855"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "92497072770701769307946898781942066536958597600677175928215151720762332086436"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "4329848919172561848298959737611508505890116516754390676420349771049645207855",
-                "No": "92497072770701769307946898781942066536958597600677175928215151720762332086436"
-              }
-            },
-            {
-              "polymarket_market_id": "2854504",
-              "condition_id": "0xee65ba2be0b2c1da64b4fa91262131670ebf224d6c9b56e51d85abb693f267e5",
-              "range_label": "32\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 32\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "84210292157544322815685442068251373319151958356130722599859873978390526937278"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "4017717762998256517886534246337524126514972439892006245282691404994039316988"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "84210292157544322815685442068251373319151958356130722599859873978390526937278",
-                "No": "4017717762998256517886534246337524126514972439892006245282691404994039316988"
-              }
-            },
-            {
-              "polymarket_market_id": "2854505",
-              "condition_id": "0x2ac6f22bcfea833be1e86f3e6456223a6bd11782d6fc5d09c60dd12aaf63140e",
-              "range_label": "33\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 33\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "46876387563260635849954109487744152536340751900218321950945789008268880333976"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "25657457434212656635130548072424816409114910664010453718955238179391619050558"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "46876387563260635849954109487744152536340751900218321950945789008268880333976",
-                "No": "25657457434212656635130548072424816409114910664010453718955238179391619050558"
-              }
-            },
-            {
-              "polymarket_market_id": "2854506",
-              "condition_id": "0xa7c7b68b57b0cf7bd1f682b2648c8e77c370e99aa4e5c11c9393af46f483b13f",
-              "range_label": "34\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 34\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "56252621841452652086675151064284292659743667605066046747518043796915402832924"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "19927011123939876904547026054362261880727064121715322275696350297413256082289"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "56252621841452652086675151064284292659743667605066046747518043796915402832924",
-                "No": "19927011123939876904547026054362261880727064121715322275696350297413256082289"
-              }
-            },
-            {
-              "polymarket_market_id": "2854507",
-              "condition_id": "0xcab87cb243b55efa3df2041b2700a67408528a274637a51600a3ed047b26f8ca",
-              "range_label": "35\u00b0C",
-              "question": "Will the highest temperature in Tokyo be 35\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "15428521545688449267137456932064774374740010911216765983362804303228869962756"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "92814365332584120296899939048389836954397128515927330352269158332844467840393"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "15428521545688449267137456932064774374740010911216765983362804303228869962756",
-                "No": "92814365332584120296899939048389836954397128515927330352269158332844467840393"
-              }
-            },
-            {
-              "polymarket_market_id": "2854508",
-              "condition_id": "0xbfd1ed424d9fac368a8388bb59fc2e1d28e108c880ea14d1668255aee2bd3cd4",
-              "range_label": "36\u00b0C or higher",
-              "question": "Will the highest temperature in Tokyo be 36\u00b0C or higher on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "78613151834833897634064540961172122421208147776813769761097625872196087885582"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "27820158875315607668225807125066369577720147838171178259613292856661722945102"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "78613151834833897634064540961172122421208147776813769761097625872196087885582",
-                "No": "27820158875315607668225807125066369577720147838171178259613292856661722945102"
-              }
-            }
-          ]
-        },
         {
           "event_id": "686637",
           "event_date": "2026-07-12",
@@ -37466,300 +37178,12 @@
       "series_slug": "wellington-daily-weather",
       "latest_event_slug": "highest-temperature-in-wellington-on-july-13-2026",
       "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-july-13-2026",
-      "source_event_count": 3,
+      "source_event_count": 2,
       "source_event_dates": [
-        "2026-07-11",
         "2026-07-12",
         "2026-07-13"
       ],
       "active_events": [
-        {
-          "event_id": "682939",
-          "event_date": "2026-07-11",
-          "event_slug": "highest-temperature-in-wellington-on-july-11-2026",
-          "event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-july-11-2026",
-          "title": "Highest temperature in Wellington on July 11?",
-          "end_date": "2026-07-11T12:00:00Z",
-          "resolution_source_url": "https://www.wunderground.com/history/daily/nz/wellington/NZWN",
-          "market_count": 11,
-          "markets": [
-            {
-              "polymarket_market_id": "2854454",
-              "condition_id": "0x3a2708f8b5b7f682c8cc47c59958fdd41fc8eb2f47553aef57ed2958c1a341ba",
-              "range_label": "5\u00b0C or below",
-              "question": "Will the highest temperature in Wellington be 5\u00b0C or below on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "88714371289721441179176624039791852398276772529999228185369419795395418710005"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "47676717576546877144512686961175014665508581877806111947026332552626504465220"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "88714371289721441179176624039791852398276772529999228185369419795395418710005",
-                "No": "47676717576546877144512686961175014665508581877806111947026332552626504465220"
-              }
-            },
-            {
-              "polymarket_market_id": "2854455",
-              "condition_id": "0x39fd3bfbaeec6482187d387351c95b4a5ee702cafad51074d3dbc8991ac25db9",
-              "range_label": "6\u00b0C",
-              "question": "Will the highest temperature in Wellington be 6\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "57749650991414302789328055884137923104380725178428593377168792609835894094507"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "5039123216581510537327521887522415194911557485941589394911969901779319717994"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "57749650991414302789328055884137923104380725178428593377168792609835894094507",
-                "No": "5039123216581510537327521887522415194911557485941589394911969901779319717994"
-              }
-            },
-            {
-              "polymarket_market_id": "2854456",
-              "condition_id": "0xfc0d248661a6220ebc138be8458dca0eeafd2bf737e75aa0abaf145a48a9c552",
-              "range_label": "7\u00b0C",
-              "question": "Will the highest temperature in Wellington be 7\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "46055953919820137814031845044366053604735522255058655027287388740270492770811"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "8226186354539843240306457219441490903702862199416621959752349253361565197010"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "46055953919820137814031845044366053604735522255058655027287388740270492770811",
-                "No": "8226186354539843240306457219441490903702862199416621959752349253361565197010"
-              }
-            },
-            {
-              "polymarket_market_id": "2854457",
-              "condition_id": "0x770cfe73fd9b2f181cc58229acdc24cd312fd63b05f09a31ef211154e8ddcfaa",
-              "range_label": "8\u00b0C",
-              "question": "Will the highest temperature in Wellington be 8\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "28352527386566694488670834122638891049725142426843174222992542004756947016962"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "22529981975269074488116962537744289022354145445933401173412409857331689659956"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "28352527386566694488670834122638891049725142426843174222992542004756947016962",
-                "No": "22529981975269074488116962537744289022354145445933401173412409857331689659956"
-              }
-            },
-            {
-              "polymarket_market_id": "2854458",
-              "condition_id": "0x2762cc62a1f18acec6de5673bc5e9003ffca02828f4d281cfe6f75e356236a36",
-              "range_label": "9\u00b0C",
-              "question": "Will the highest temperature in Wellington be 9\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "98607240760663856380091543826587324125509114038632577140819611986952919116209"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "69533638570998302660401414787262548242489273255544913505041881574574953997359"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "98607240760663856380091543826587324125509114038632577140819611986952919116209",
-                "No": "69533638570998302660401414787262548242489273255544913505041881574574953997359"
-              }
-            },
-            {
-              "polymarket_market_id": "2854459",
-              "condition_id": "0x3ebb80dbedc551b3b35c02b3df90ceea42dfcb4ce440a2d0792109d50e9915fc",
-              "range_label": "10\u00b0C",
-              "question": "Will the highest temperature in Wellington be 10\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "82979175830643180134322397706346889313211593898939084773967336624878332482741"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "97443471042637824123783319242485711598603166908744951007985531210909678688891"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "82979175830643180134322397706346889313211593898939084773967336624878332482741",
-                "No": "97443471042637824123783319242485711598603166908744951007985531210909678688891"
-              }
-            },
-            {
-              "polymarket_market_id": "2854460",
-              "condition_id": "0x48a2a4fa7881eb0b80814a78e80818d765b90167603de484a793b303cc2d74e2",
-              "range_label": "11\u00b0C",
-              "question": "Will the highest temperature in Wellington be 11\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "80636686604483720461244104246127824266539769122852843900244527365012437851666"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "103476971194375883880423999130428326852275257834815029601713324147067591632073"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "80636686604483720461244104246127824266539769122852843900244527365012437851666",
-                "No": "103476971194375883880423999130428326852275257834815029601713324147067591632073"
-              }
-            },
-            {
-              "polymarket_market_id": "2854461",
-              "condition_id": "0xce07437e426e4e975213bc5855e0f44efa00e0e595146f1ecff1fa05bc78c90f",
-              "range_label": "12\u00b0C",
-              "question": "Will the highest temperature in Wellington be 12\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "108841868451670125519809331266862000861055125517802968115618004934223784886502"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "86470931257044186026848143224965780788701416141234733561260082801071691306933"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "108841868451670125519809331266862000861055125517802968115618004934223784886502",
-                "No": "86470931257044186026848143224965780788701416141234733561260082801071691306933"
-              }
-            },
-            {
-              "polymarket_market_id": "2854462",
-              "condition_id": "0x05174299baf3a9a72700204cefd95fd46c7fe040737755b1feaa4e181f73ae20",
-              "range_label": "13\u00b0C",
-              "question": "Will the highest temperature in Wellington be 13\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "100742800169888718507624638175678519885196182353688960529980777124392109470984"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "61377539945324080034856287468069482548758273199235988284250438192709747980759"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "100742800169888718507624638175678519885196182353688960529980777124392109470984",
-                "No": "61377539945324080034856287468069482548758273199235988284250438192709747980759"
-              }
-            },
-            {
-              "polymarket_market_id": "2854463",
-              "condition_id": "0xf7a33863404caa45c4b8bb55da3c7dbdc81b0517da37f7c80e53781e38b73473",
-              "range_label": "14\u00b0C",
-              "question": "Will the highest temperature in Wellington be 14\u00b0C on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "22883776351831135140805346262329001823670416884179308837832090301970136587855"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "96390245871467212138636806126274229856675464007611206114690937988103669099231"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "22883776351831135140805346262329001823670416884179308837832090301970136587855",
-                "No": "96390245871467212138636806126274229856675464007611206114690937988103669099231"
-              }
-            },
-            {
-              "polymarket_market_id": "2854464",
-              "condition_id": "0x0dbc6f67f6a3b03e0f9bd0b9faae6e064d5eb479c276578a606231c10f518b14",
-              "range_label": "15\u00b0C or higher",
-              "question": "Will the highest temperature in Wellington be 15\u00b0C or higher on July 11?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "78515363669653981489936267832906268600130891601557911655491730606899324681721"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "91529249527643400877654059120008941141968908012740237344250961994252892074114"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "78515363669653981489936267832906268600130891601557911655491730606899324681721",
-                "No": "91529249527643400877654059120008941141968908012740237344250961994252892074114"
-              }
-            }
-          ]
-        },
         {
           "event_id": "686634",
           "event_date": "2026-07-12",

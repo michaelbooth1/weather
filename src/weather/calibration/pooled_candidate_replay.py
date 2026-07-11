@@ -1279,6 +1279,68 @@ def _aggregate_replay_results(day_results, *, manifest, include_reconstructed, l
 
 DEFAULT_REPLAY_CACHE_FRESH_WINDOW_DAYS = 14
 
+HEAVY_DIAGNOSTICS_MANIFEST_SCHEMA_VERSION = "promotion_heavy_diagnostics_v0.1"
+_HEAVY_DIAGNOSTIC_SECTIONS = ("microstructure", "source_state_ablation", "conservative_bridge")
+
+
+def _heavy_diagnostics_manifest_path(args):
+    return Path(args.corpus).parent / "promotion_heavy_diagnostics.json"
+
+
+def _load_heavy_diagnostics_carry(args, artifact_hash):
+    """Reuse microstructure/ablation/bridge diagnostics for an unchanged model.
+
+    These recompute over the full corpus row set (~5.5h at corpus 297) yet
+    their inputs only materially change when the candidate artifact changes,
+    so daily recompute on a stable model is waste. Disabled by default
+    (max-age 0) so shadow contract runs, which share this code path with
+    per-contract artifacts, never touch the shared manifest.
+    """
+    max_age_days = float(getattr(args, "heavy_analysis_max_age_days", 0.0) or 0.0)
+    if max_age_days <= 0 or getattr(args, "force_heavy_analysis", False):
+        return None
+    try:
+        payload = json.loads(_heavy_diagnostics_manifest_path(args).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not artifact_hash or payload.get("artifact_hash") != artifact_hash:
+        return None
+    generated = payload.get("generated_at_utc")
+    try:
+        age_days = (
+            datetime.now(timezone.utc) - datetime.fromisoformat(str(generated))
+        ).total_seconds() / 86400.0
+    except (TypeError, ValueError):
+        return None
+    if age_days < 0 or age_days > max_age_days:
+        return None
+    for key in _HEAVY_DIAGNOSTIC_SECTIONS:
+        section = payload.get(key)
+        if isinstance(section, dict):
+            section["carried_forward"] = True
+            section["carried_from_utc"] = generated
+            section["carry_age_days"] = round(age_days, 2)
+    return payload
+
+
+def _write_heavy_diagnostics_manifest(args, artifact_hash, sections):
+    from weather.io import write_json_atomic
+
+    if float(getattr(args, "heavy_analysis_max_age_days", 0.0) or 0.0) <= 0:
+        return None
+    payload = {
+        "schema_version": HEAVY_DIAGNOSTICS_MANIFEST_SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "artifact_hash": artifact_hash,
+    }
+    payload.update({key: sections.get(key) for key in _HEAVY_DIAGNOSTIC_SECTIONS})
+    try:
+        return write_json_atomic(
+            _heavy_diagnostics_manifest_path(args), payload, trailing_newline=True,
+        )
+    except OSError:
+        return None
+
 
 def replay_cache_fresh_window_cutoff(window_days, today=None):
     """ISO date; entries on/after it are recomputed instead of cache-read.
@@ -1717,29 +1779,40 @@ def run_pooled_candidate_replay(args):
         or "exact_winner" in str(candidate_variant_family)
     ):
         exact_winner_diagnostics = exact_winner_candidate_diagnostics(candidate_rows)
-    microstructure = None
-    if not getattr(args, "skip_microstructure_overlay", False):
-        microstructure = microstructure_shadow_report(
+    heavy_carry = _load_heavy_diagnostics_carry(args, artifact_hash)
+    if heavy_carry is not None:
+        microstructure = heavy_carry.get("microstructure")
+        source_state_ablation = heavy_carry.get("source_state_ablation")
+        conservative_bridge = heavy_carry.get("conservative_bridge")
+    else:
+        microstructure = None
+        if not getattr(args, "skip_microstructure_overlay", False):
+            microstructure = microstructure_shadow_report(
+                candidate_rows,
+                casebook_path=getattr(args, "casebook", DEFAULT_CASEBOOK),
+                artifact_path=getattr(args, "microstructure_artifact", DEFAULT_MICROSTRUCTURE_ARTIFACT),
+                min_train_rows=getattr(args, "microstructure_min_train_rows", 500),
+                variant_out_path=getattr(args, "microstructure_variant_out", DEFAULT_MICROSTRUCTURE_VARIANT_OUT),
+                candidate_artifact_hash=artifact_hash,
+                min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+            )
+        source_state_ablation = source_state_ablation_report(
             candidate_rows,
-            casebook_path=getattr(args, "casebook", DEFAULT_CASEBOOK),
-            artifact_path=getattr(args, "microstructure_artifact", DEFAULT_MICROSTRUCTURE_ARTIFACT),
-            min_train_rows=getattr(args, "microstructure_min_train_rows", 500),
-            variant_out_path=getattr(args, "microstructure_variant_out", DEFAULT_MICROSTRUCTURE_VARIANT_OUT),
+            artifact,
             candidate_artifact_hash=artifact_hash,
+            variant_out_path=getattr(args, "source_state_ablation_variant_out", DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT),
             min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
         )
-    source_state_ablation = source_state_ablation_report(
-        candidate_rows,
-        artifact,
-        candidate_artifact_hash=artifact_hash,
-        variant_out_path=getattr(args, "source_state_ablation_variant_out", DEFAULT_SOURCE_STATE_ABLATION_VARIANT_OUT),
-        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
-    )
-    conservative_bridge = conservative_bridge_report(
-        candidate_rows,
-        variant_out_path=getattr(args, "bridge_variant_out", DEFAULT_BRIDGE_VARIANT_OUT),
-        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
-    )
+        conservative_bridge = conservative_bridge_report(
+            candidate_rows,
+            variant_out_path=getattr(args, "bridge_variant_out", DEFAULT_BRIDGE_VARIANT_OUT),
+            min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+        )
+        _write_heavy_diagnostics_manifest(args, artifact_hash, {
+            "microstructure": microstructure,
+            "source_state_ablation": source_state_ablation,
+            "conservative_bridge": conservative_bridge,
+        })
     market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
     verdict = market_verdict if replay_gate["global_ok"] and blocked_validation.get("passed") else "BLOCK"
     adjacent_calibration = postprocess.get("adjacent_calibration") or {}
