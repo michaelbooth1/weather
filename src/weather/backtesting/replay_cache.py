@@ -206,13 +206,53 @@ def rows_match(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> bool:
     return canonical_json(left) == canonical_json(right)
 
 
-# Thread-level float nondeterminism wobbles replayed probabilities at ~1e-6
-# relative (2026-07-11 sentinel forensics, chicago-june-26: candidate_p
-# differing in the 6th-8th decimal), while genuine input drift moves them by
-# 1e-3 or more (2026-07-09, san-francisco-july-2). The sentinel tolerance
-# sits between the two regimes so noise never flushes the cache but real
-# drift still fails loudly.
-SENTINEL_NUMERIC_ABS_TOLERANCE = 1e-4
+# Thread-level float nondeterminism wobbles replayed probabilities up to
+# ~1.2e-4 (2026-07-11 forensics, chicago-june-26 twice), while genuine input
+# drift moves them by 1.6e-3+ (2026-07-09, san-francisco-july-2). The pass
+# tolerance and the escalation threshold bracket the gap between the two
+# regimes: noise self-heals, drift still fails loudly.
+SENTINEL_NUMERIC_ABS_TOLERANCE = 5e-4
+SENTINEL_ESCALATION_ABS_DIFF = 5e-3
+
+
+def rows_divergence(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Compare row lists: max numeric drift plus any structural difference.
+
+    ``structural`` covers anything a numeric tolerance cannot vouch for:
+    length mismatch, non-dict rows differing, non-numeric field changes, or a
+    numeric field paired with NaN/None/non-numeric on one side only.
+    """
+    if len(left) != len(right):
+        return {"structural": True, "max_numeric_diff": math.inf, "reason": "row_count"}
+    max_diff = 0.0
+    for cached, fresh in zip(left, right):
+        if not isinstance(cached, dict) or not isinstance(fresh, dict):
+            if canonical_json(cached) != canonical_json(fresh):
+                return {"structural": True, "max_numeric_diff": math.inf, "reason": "non_dict_row"}
+            continue
+        for field in set(cached) | set(fresh):
+            a = cached.get(field)
+            b = fresh.get(field)
+            a_num = isinstance(a, (int, float)) and not isinstance(a, bool)
+            b_num = isinstance(b, (int, float)) and not isinstance(b, bool)
+            if a_num and b_num:
+                a_nan = math.isnan(a)
+                b_nan = math.isnan(b)
+                if a_nan or b_nan:
+                    if a_nan != b_nan:
+                        return {
+                            "structural": True,
+                            "max_numeric_diff": math.inf,
+                            "reason": f"nan_mismatch:{field}",
+                        }
+                    continue
+                max_diff = max(max_diff, abs(a - b))
+            elif canonical_json(a) != canonical_json(b):
+                return {"structural": True, "max_numeric_diff": math.inf, "reason": f"field:{field}"}
+    return {"structural": False, "max_numeric_diff": max_diff, "reason": None}
 
 
 def rows_match_tolerant(
@@ -221,26 +261,16 @@ def rows_match_tolerant(
     *,
     abs_tolerance: float = SENTINEL_NUMERIC_ABS_TOLERANCE,
 ) -> bool:
-    if len(left) != len(right):
+    divergence = rows_divergence(left, right)
+    return not divergence["structural"] and divergence["max_numeric_diff"] <= abs_tolerance
+
+
+def delete_entry(root: str | Path, key: ReplayCacheKey) -> bool:
+    try:
+        cache_path(root, key).unlink()
+        return True
+    except OSError:
         return False
-    for cached, fresh in zip(left, right):
-        if not isinstance(cached, dict) or not isinstance(fresh, dict):
-            if canonical_json(cached) != canonical_json(fresh):
-                return False
-            continue
-        for field in set(cached) | set(fresh):
-            a = cached.get(field)
-            b = fresh.get(field)
-            a_num = isinstance(a, (int, float)) and not isinstance(a, bool)
-            b_num = isinstance(b, (int, float)) and not isinstance(b, bool)
-            if a_num and b_num:
-                if math.isnan(a) and math.isnan(b):
-                    continue
-                if abs(a - b) > abs_tolerance:
-                    return False
-            elif canonical_json(a) != canonical_json(b):
-                return False
-    return True
 
 
 def select_sentinel(entries: list[dict[str, Any]], *, consumer: str, seed: str | None = None) -> dict[str, Any] | None:

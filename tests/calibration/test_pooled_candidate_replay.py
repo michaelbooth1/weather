@@ -2095,16 +2095,29 @@ class TestPooledCandidateReplay(unittest.TestCase):
 
         cached = [{"snapshot_id": "1", "candidate_p": 0.34985027050057244, "band_key": "eq_30"}]
         noise = [{"snapshot_id": "1", "candidate_p": 0.3498527123541318, "band_key": "eq_30"}]
+        wide_noise = [{"snapshot_id": "1", "candidate_p": 0.34997, "band_key": "eq_30"}]
         drift = [{"snapshot_id": "1", "candidate_p": 0.3514, "band_key": "eq_30"}]
         renamed = [{"snapshot_id": "1", "candidate_p": 0.34985027050057244, "band_key": "eq_31"}]
 
         self.assertTrue(rows_match_tolerant(cached, noise))
+        self.assertTrue(rows_match_tolerant(cached, wide_noise))  # 1.2e-4 seen live 2026-07-11
         self.assertFalse(rows_match_tolerant(cached, drift))
         self.assertFalse(rows_match_tolerant(cached, renamed))
         self.assertFalse(rows_match_tolerant(cached, []))
         self.assertTrue(rows_match_tolerant(
             [{"p": float("nan")}], [{"p": float("nan")}],
         ))
+
+        from weather.backtesting.replay_cache import rows_divergence
+        mid = [{"snapshot_id": "1", "candidate_p": 0.3520, "band_key": "eq_30"}]
+        d = rows_divergence(cached, mid)  # ~2.1e-3: beyond pass, inside escalation
+        self.assertFalse(d["structural"])
+        self.assertGreater(d["max_numeric_diff"], 5e-4)
+        self.assertLess(d["max_numeric_diff"], 5e-3)
+        d_struct = rows_divergence(cached, renamed)
+        self.assertTrue(d_struct["structural"])
+        d_nan = rows_divergence([{"p": 0.5}], [{"p": float("nan")}])
+        self.assertTrue(d_nan["structural"])
 
     def test_sentinel_forensics_records_changed_fields(self):
         from weather.backtesting import replay_cache

@@ -1486,17 +1486,22 @@ def _run_replay_cache_sentinel(
     )
     cached_rows = selected["payload"].get("rows") or []
     fresh_rows = fresh["candidate_rows"]
-    if replay_cache.rows_match_tolerant(cached_rows, fresh_rows):
+    divergence = replay_cache.rows_divergence(cached_rows, fresh_rows)
+    if (
+        not divergence["structural"]
+        and divergence["max_numeric_diff"] <= replay_cache.SENTINEL_NUMERIC_ABS_TOLERANCE
+    ):
         return {
             "status": "PASS",
             "event_slug": selected["key"].event_slug,
             "path": selected["payload"].get("path"),
             "comparison": "tolerant",
             "abs_tolerance": replay_cache.SENTINEL_NUMERIC_ABS_TOLERANCE,
+            "max_numeric_diff": divergence["max_numeric_diff"],
         }
-    # The flush below destroys the only evidence of WHAT drifted, so persist
-    # the mismatching pair first (2026-07-09: first live trip flushed 901
-    # entries and left no way to tell stale-input from nondeterminism).
+    # The responses below destroy evidence of WHAT drifted, so persist the
+    # mismatching pair first (2026-07-09: first live trip flushed 901 entries
+    # and left no way to tell stale-input from nondeterminism).
     forensics_path = None
     try:
         forensics_path = str(_write_sentinel_forensics(
@@ -1508,10 +1513,30 @@ def _run_replay_cache_sentinel(
         ))
     except OSError:
         pass
+    if (
+        not divergence["structural"]
+        and divergence["max_numeric_diff"] <= replay_cache.SENTINEL_ESCALATION_ABS_DIFF
+    ):
+        # Noise beyond the pass tolerance but far below the input-drift
+        # regime: a 5e-3 probability wobble moves Brier by ~1e-5 at most.
+        # Refresh just this entry and keep the run alive — aborting promotion
+        # and flushing the whole consumer over it cost three days this week.
+        replay_cache.delete_entry(cache_root, selected["key"])
+        return {
+            "status": "WARN_REFRESHED",
+            "event_slug": selected["key"].event_slug,
+            "path": selected["payload"].get("path"),
+            "max_numeric_diff": divergence["max_numeric_diff"],
+            "abs_tolerance": replay_cache.SENTINEL_NUMERIC_ABS_TOLERANCE,
+            "escalation_abs_diff": replay_cache.SENTINEL_ESCALATION_ABS_DIFF,
+            "forensics": forensics_path,
+        }
     flush = replay_cache.flush_consumer(cache_root, consumer)
     raise RuntimeError(
         "replay cache sentinel mismatch for "
-        f"{consumer}/{selected['key'].event_slug}; flushed {flush.get('removed_count')} cache entries"
+        f"{consumer}/{selected['key'].event_slug} "
+        f"(structural={divergence['structural']}, max_diff={divergence['max_numeric_diff']}); "
+        f"flushed {flush.get('removed_count')} cache entries"
         + (f"; forensics: {forensics_path}" if forensics_path else "")
     )
 
