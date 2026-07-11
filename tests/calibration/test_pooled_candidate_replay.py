@@ -2087,6 +2087,25 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertFalse(entry_in_replay_fresh_window({"target_date": "2026-07-02"}, None))
         self.assertIsNone(replay_cache_fresh_window_cutoff(0))
 
+    def test_sentinel_tolerance_separates_float_noise_from_real_drift(self):
+        # 2026-07-11 forensics: thread-level float noise wobbles candidate_p at
+        # ~1e-6 (must PASS, byte-compare flushed 451 good entries); 2026-07-09
+        # reanalysis drift moved it ~1.6e-3 (must FAIL).
+        from weather.backtesting.replay_cache import rows_match_tolerant
+
+        cached = [{"snapshot_id": "1", "candidate_p": 0.34985027050057244, "band_key": "eq_30"}]
+        noise = [{"snapshot_id": "1", "candidate_p": 0.3498527123541318, "band_key": "eq_30"}]
+        drift = [{"snapshot_id": "1", "candidate_p": 0.3514, "band_key": "eq_30"}]
+        renamed = [{"snapshot_id": "1", "candidate_p": 0.34985027050057244, "band_key": "eq_31"}]
+
+        self.assertTrue(rows_match_tolerant(cached, noise))
+        self.assertFalse(rows_match_tolerant(cached, drift))
+        self.assertFalse(rows_match_tolerant(cached, renamed))
+        self.assertFalse(rows_match_tolerant(cached, []))
+        self.assertTrue(rows_match_tolerant(
+            [{"p": float("nan")}], [{"p": float("nan")}],
+        ))
+
     def test_sentinel_forensics_records_changed_fields(self):
         from weather.backtesting import replay_cache
         from weather.calibration.pooled_candidate_replay import _write_sentinel_forensics

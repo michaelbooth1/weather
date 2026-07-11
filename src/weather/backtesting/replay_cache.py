@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -203,6 +204,43 @@ def write_entry(
 
 def rows_match(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> bool:
     return canonical_json(left) == canonical_json(right)
+
+
+# Thread-level float nondeterminism wobbles replayed probabilities at ~1e-6
+# relative (2026-07-11 sentinel forensics, chicago-june-26: candidate_p
+# differing in the 6th-8th decimal), while genuine input drift moves them by
+# 1e-3 or more (2026-07-09, san-francisco-july-2). The sentinel tolerance
+# sits between the two regimes so noise never flushes the cache but real
+# drift still fails loudly.
+SENTINEL_NUMERIC_ABS_TOLERANCE = 1e-4
+
+
+def rows_match_tolerant(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+    *,
+    abs_tolerance: float = SENTINEL_NUMERIC_ABS_TOLERANCE,
+) -> bool:
+    if len(left) != len(right):
+        return False
+    for cached, fresh in zip(left, right):
+        if not isinstance(cached, dict) or not isinstance(fresh, dict):
+            if canonical_json(cached) != canonical_json(fresh):
+                return False
+            continue
+        for field in set(cached) | set(fresh):
+            a = cached.get(field)
+            b = fresh.get(field)
+            a_num = isinstance(a, (int, float)) and not isinstance(a, bool)
+            b_num = isinstance(b, (int, float)) and not isinstance(b, bool)
+            if a_num and b_num:
+                if math.isnan(a) and math.isnan(b):
+                    continue
+                if abs(a - b) > abs_tolerance:
+                    return False
+            elif canonical_json(a) != canonical_json(b):
+                return False
+    return True
 
 
 def select_sentinel(entries: list[dict[str, Any]], *, consumer: str, seed: str | None = None) -> dict[str, Any] | None:

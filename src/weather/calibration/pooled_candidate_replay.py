@@ -1424,11 +1424,13 @@ def _run_replay_cache_sentinel(
     )
     cached_rows = selected["payload"].get("rows") or []
     fresh_rows = fresh["candidate_rows"]
-    if replay_cache.rows_match(cached_rows, fresh_rows):
+    if replay_cache.rows_match_tolerant(cached_rows, fresh_rows):
         return {
             "status": "PASS",
             "event_slug": selected["key"].event_slug,
             "path": selected["payload"].get("path"),
+            "comparison": "tolerant",
+            "abs_tolerance": replay_cache.SENTINEL_NUMERIC_ABS_TOLERANCE,
         }
     # The flush below destroys the only evidence of WHAT drifted, so persist
     # the mismatching pair first (2026-07-09: first live trip flushed 901
