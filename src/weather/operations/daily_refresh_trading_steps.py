@@ -105,7 +105,12 @@ def run_exchange_economics_rule_drift_step(args):
                 or exchange_economics.DEFAULT_TEMPLATE
             ),
             snapshot_path=snapshot_path,
-            target_date=target,
+            # Verify for the wall-clock date, not the settled-analysis target:
+            # the proof must cover TODAY's active-day consumers (MM preflight,
+            # taker), and a today-stamped proof also covers the settled D-1
+            # target via the >= coverage rule. Passed explicitly because a
+            # template that carries its own date would otherwise win over now.
+            target_date=exchange_economics.utc_now(getattr(args, "as_of", None)).date().isoformat(),
             platform=getattr(args, "exchange_economics_platform", exchange_economics.DEFAULT_PLATFORM),
             now=getattr(args, "as_of", None),
         )

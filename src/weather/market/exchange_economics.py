@@ -253,8 +253,14 @@ def _check_snapshot_payload(payload, *, path=None, target_date=None, platform=DE
         "effective_date_not_after_target": (
             target_text is None or effective_date is None or effective_date <= target_text
         ),
+        # A proof taken on date X covers any target on or before X: rules
+        # effective after the target are already rejected by
+        # effective_date_not_after_target, and verified_at_recent enforces
+        # freshness. Strict equality blocked every active-day consumer (MM
+        # preflight, taker) because the daily refresh stamps its verification
+        # once per day (2026-07-11: MM blocked on target 07-11 vs proof 07-10).
         "target_date_matches": (
-            target_text is None or evidence_target is None or evidence_target == target_text
+            target_text is None or evidence_target is None or evidence_target >= target_text
         ),
         "verified_at_recent": recent_utc_timestamp((payload or {}).get("verified_at_utc"), now, max_age),
         "source_urls_recorded": bool(source_urls),

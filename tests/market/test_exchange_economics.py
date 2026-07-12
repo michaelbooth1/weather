@@ -103,6 +103,25 @@ def test_snapshot_blocks_target_date_mismatch(tmp_path):
     assert "target_date_matches" in gate["missing"]
 
 
+def test_snapshot_verified_today_covers_earlier_targets(tmp_path):
+    # 2026-07-11: MM (active day D) was blocked against a proof stamped for
+    # the settled-analysis target D-1, every day, by construction. A proof
+    # taken on date X covers targets on or before X: older-than-target proofs
+    # still block (test above) and rules effective after the target are
+    # rejected by effective_date_not_after_target.
+    payload = _snapshot(target_date="2026-06-24")
+    payload["effective_date"] = "2026-04-03"
+    payload["snapshot_id"] = exchange_economics.snapshot_id(payload)
+    payload["exchange_economics_hash"] = exchange_economics.snapshot_hash(payload)
+    path = _write(tmp_path / "exchange.json", payload)
+
+    gate = exchange_economics.load_exchange_economics_gate(path, "2026-06-23", now=NOW)
+
+    assert gate["status"] == "PASS"
+    assert gate["checks"]["target_date_matches"] is True
+    assert gate["checks"]["effective_date_not_after_target"] is True
+
+
 def test_template_prepares_current_source_verified_snapshot():
     template = exchange_economics.load_snapshot_template()
 

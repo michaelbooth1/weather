@@ -1775,10 +1775,14 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["snapshot_refresh_status"], "PASS")
-        self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-19")
-        self.assertEqual(refreshed_snapshot["verified_for_target_date"], "2026-06-19")
+        # The proof is stamped for the wall-clock day (as_of 2026-06-20) so it
+        # covers BOTH the active-day consumers (MM preflight, taker at target
+        # 06-20) and the settled-analysis target (06-19) via >= coverage —
+        # stamping D-1 blocked MM every day (2026-07-11).
+        self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-20")
+        self.assertEqual(refreshed_snapshot["verified_for_target_date"], "2026-06-20")
         self.assertEqual(payload["current_gate"]["status"], "PASS")
-        self.assertEqual(payload["current_gate"]["verified_for_target_date"], "2026-06-19")
+        self.assertEqual(payload["current_gate"]["verified_for_target_date"], "2026-06-20")
 
     def test_model_market_disagreement_rehydration_step_writes_resolved_revision(self):
         target_date = "2026-06-21"
