@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-12T04:12:37.487862+00:00
+Generated: 2026-07-12T19:23:41.438964+00:00
 Status: `OK`
 
 ## Summary
@@ -38,13 +38,13 @@ Status: `OK`
 | 157 | PARTIAL | 2026-07-12 | BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 160 | PARTIAL | 2026-07-12 | PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 161 | PARTIAL | 2026-06-25 | JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
-| 176 | PARTIAL | 2026-06-22 | SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
+| 176 | PARTIAL | 2026-07-12 | LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 178 | PARTIAL | 2026-06-22 | GATE REFRESHED, VALIDATION BLOCKED | [Serving-Time Ordinal Smoothing Train/Serve Skew](items/item-178-serving-ordinal-smoothing-train-serve-skew.md) |
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 206 | OPEN | 2026-07-12 | OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18 | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-07-12 | V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |

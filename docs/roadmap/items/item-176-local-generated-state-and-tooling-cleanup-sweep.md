@@ -1,4 +1,4 @@
-# 176. Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-06-22 - SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED]
+# 176. Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]
 
 Goal: remove or quarantine stale local generated state, retired research
 stubs, and scratch outputs after active agents finish.
@@ -34,8 +34,8 @@ from tracked source.
   them as documented harness fixtures.
 - [x] Ensure dependency pins are managed from one source or add a sync check
   for `pyproject.toml` and `requirements.txt`.
-- [ ] Run a controlled CRLF-to-LF normalization pass consistent with
-  `.gitattributes`.
+- [x] Run a controlled CRLF-to-LF normalization pass consistent with
+  `.gitattributes` (2026-07-12).
 
 Acceptance: local generated clutter can be cleaned reproducibly, durable
 scratch findings are promoted before deletion, and repo audits no longer have
@@ -122,3 +122,44 @@ Verification:
   passed with `5 passed`.
 - `python tools\research\research_harness.py --validate --smoke --include-fixtures`
   passed with `research inventory OK`.
+
+## 2026-07-12 controlled LF normalization pass
+
+The deferred normalization turned out to be working-tree-only: `git ls-files
+--eol` showed zero index blobs with CRLF (the large 2026-07-11/12 commits had
+already renormalized every tracked blob to LF), while 687 working-tree copies
+still carried CRLF from checkouts made under `core.autocrlf=true`. That same
+setting produced the recurring "LF will be replaced by CRLF" commit warnings.
+
+Actions taken:
+
+- Set repo-local `core.autocrlf false` so the `.gitattributes` `* text=auto
+  eol=lf` policy is the single line-ending authority, ending the checkout
+  drift and the commit warnings.
+- Rewrote 684 tracked working-tree files to LF by deleting and restoring them
+  from the LF-clean index (`git checkout --pathspec-from-file`). No index or
+  HEAD content changed; `git status` was byte-identical before and after for
+  all touched paths, and zero tracked files were left missing.
+- Excluded the files dirty at pass time: `config/location_market_events.json`
+  and `config/locations.json` (perpetually dirty by design — the six-hourly
+  `WeatherLocationConfigRefresh` task rewrites them with CRLF, a cosmetic
+  quirk of its PowerShell writer; their tracked blobs are LF) plus one file
+  under active concurrent edit. These three are the only remaining CRLF
+  working-tree entries.
+
+The refreshed dry-run reports `crlf_files=3` (was 150), all accounted for
+above. Overall dry-run status remains `ACTION_REQUIRED` solely for the
+recurring safe-cache roots (45) and unclassified scratch files (38), which
+stay deferred by this item's own "after active work finishes" guard — the
+worktree had live concurrent agent edits during this pass.
+
+Verification:
+
+- `python -m weather.operations.local_generated_state_cleanup --out
+  data\backtest\local_generated_state_cleanup.json --report
+  data\backtest\local_generated_state_cleanup_report.md` reported
+  `crlf_files=3`.
+- `python -m pytest tests\operations\test_local_generated_state_cleanup.py -q`
+  passed with `2 passed` (`test_schema_registry.py` deliberately skipped: it
+  was under active concurrent edit for the residual-distribution schema work
+  at pass time).

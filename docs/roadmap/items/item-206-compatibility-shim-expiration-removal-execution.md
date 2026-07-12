@@ -1,4 +1,4 @@
-# 206. Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]
+# 206. Compatibility Shim Expiration Removal Execution [OPEN 2026-07-12 - OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18]
 
 Goal: execute the compatibility-shim removal window after 2026-07-18 rather
 than leaving the expiration policy as a completed plan with no active owner.
@@ -52,3 +52,25 @@ Run these after the expiration date:
 Acceptance: after the expiration date, every shim class is either deleted or
 retained with a current owner, external dependency, and next review date; no
 expired shim remains solely because the execution step was missed.
+
+## 2026-07-12 ownership and pre-scan
+
+This item now has an owner: the operations agent executes the checklist on
+2026-07-18 (it runs the daily log reviews and holds the reminder in its
+memory index). Removal remains embargoed until that date per this item's own
+migration-window contract; nothing was deleted today.
+
+Pre-scan results so the execution day is mechanical:
+
+- `python -m pytest tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims -q`
+  passed with `1 passed` — no first-party callers remain.
+- `python -m weather.operations.structure_inventory --report
+  data\backtest\structure_inventory_report.md` reported `tracked=1324
+  source_py=361 shims=103`.
+- Task Scheduler review (full `schtasks` dump, 2026-07-12): every Weather*
+  task action invokes `venv\Scripts\pythonw.exe -m weather.<module>` or
+  `powershell.exe -File scripts\ops\<script>.ps1`. Zero actions reference
+  `src/*.py` wrappers, root `app.py`, or root script shims.
+
+Unless a shim gains a caller between now and July 18, the whole inventory is
+removal-eligible on the day.

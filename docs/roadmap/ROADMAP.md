@@ -379,11 +379,11 @@ infrastructure work remains.
 | 173 | [Post-Agent Large Module Decomposition And Ownership Split [COMPLETE 2026-06-20 - FACADES SPLIT AND SIZE AUDIT RATIFIED]](items/item-173-post-agent-large-module-decomposition-and-ownership-split.md) |
 | 174 | [Configuration Registry Hygiene And Volatile Metadata Refresh [COMPLETE 2026-06-20 - DURABLE CONFIGS AND FRESH GENERATED EVENTS]](items/item-174-configuration-registry-hygiene-and-volatile-metadata-refresh.md) |
 | 175 | [Roadmap Backlog Normalization And Historical Noise Reduction [COMPLETE 2026-06-21 - ACTIVE BACKLOG PARSER AND LINT LIVE]](items/item-175-roadmap-backlog-normalization-and-historical-noise-reduction.md) |
-| 176 | [Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-06-22 - SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
+| 176 | [Local Generated State And Tooling Cleanup Sweep [PARTIAL 2026-07-12 - LF NORMALIZATION APPLIED, RECURRING CACHE SWEEP AWAITS QUIET WORKTREE]](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | [Core Model Validation And Serving Skew Repair [PARTIAL 2026-06-21 - CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN]](items/item-177-core-model-validation-and-serving-skew-repair.md) |
 | 204 | [Roadmap Index Ownership Lint And Duplicate Membership [COMPLETE 2026-06-21 - INDEX LINT GATE LIVE]](items/item-204-roadmap-index-ownership-lint-and-duplicate-membership.md) |
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
-| 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-06-21 - JULY 18 REMOVAL WINDOW NEEDS OWNER]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-07-12 - OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
 | 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
