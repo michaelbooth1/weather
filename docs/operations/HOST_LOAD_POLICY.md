@@ -24,8 +24,28 @@ be rescheduled — is never starved.
 | 12:30–18:00 | capture + light periodic tasks (config refresh, disagreement analysis) | moderate |
 | 18:00–00:05 | near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch | **PROTECTED — nothing heavy, ever** |
 
-Nightly retrain (currently disabled pending the item-321 release bootstrap)
-belongs at 03:30 inside the quiet window when it returns.
+### The training window (adopted 2026-07-12)
+
+The capture-resource admission gate refuses heavy work while capture loops are
+active, and a single host cannot both capture 24/7 and train. Until the model
+earns a second machine, the learning loop runs inside a bounded nightly
+maintenance window:
+
+- **`WeatherTrainingWindow` (01:00 daily)**: preflight (skip unless commit
+  < 70% and disk free > 60 GB) → disable the three capture supervisors and
+  stop the loops → run `nightly_retrain` with a 3-hour hard cap → restore
+  capture in a `finally` block.
+- **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
+  unconditionally re-enables supervisors and ensures all loops, in case the
+  window process dies mid-flight.
+- Script: `scripts\ops\training_window.ps1` (also supports `-RestoreOnly` and
+  `-DryRun`). Log: `data\logs\training_window.log`.
+
+Any day using the window has a deliberate capture gap and is **not a clean
+day** for item-321 Phase 2 proofs. Clean-day streaks are collected on nights
+the window skips, or after a second host removes this trade-off. On
+warm-cache nights the retrain should finish well before the 03:00–05:00
+predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
 
 ## Rules
 
