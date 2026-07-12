@@ -1,6 +1,6 @@
 {
   "schema_version": "model_variant_registry_v0.1",
-  "updated_at_utc": "2026-06-24T22:55:00+00:00",
+  "updated_at_utc": "2026-07-12T19:28:16.936066+00:00",
   "description": "Lifecycle registry for model variants used by shadow and promotion reports.",
   "variants": [
     {
@@ -193,6 +193,34 @@
       "active_for_headline": false,
       "roadmap_items": [148, 149, 150, 151],
       "notes": "Similarity-weighted partial pooling remains excluded from ordinary no-market headline selection until target-only self-comparison clears."
+    },
+    {
+      "variant_id": "residual_distribution_v1",
+      "variant_family": "residual_distribution",
+      "lifecycle": "shadow",
+      "track": "no_market",
+      "roles": [
+        "candidate",
+        "density",
+        "shadow-only",
+        "diagnostic-only",
+        "unqualified"
+      ],
+      "active_for_headline": false,
+      "live_capture_enabled": false,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "blocked",
+      "promotion_block_reason": "candidate_artifact_nested_pit_and_forward_shadow_evidence_not_complete",
+      "artifact_path": "artifacts/candidates/residual_distribution_v1/model.pkl",
+      "artifact_required": true,
+      "prediction_function": "weather.model.residual_distribution_v1:predict_residual_distribution_v1",
+      "prediction_mode": "residual_distribution_v1",
+      "export_family": "residual_distribution",
+      "default_export_path": "data/backtest/residual_distribution_v1_shadow.csv",
+      "postprocess_config_hash": "none_identity_or_global_simplex_temperature",
+      "live_runtime": "residual_distribution_v1",
+      "roadmap_items": [321],
+      "notes": "Implementation-complete but intentionally disabled. Enable live capture only after a candidate-only artifact passes nested whole-fleet-date PIT evaluation; release routing remains unsupported by design."
     },
     {
       "variant_id": "pooled_f_exact_winner_catchup_alpha005",

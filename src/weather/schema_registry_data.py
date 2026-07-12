@@ -2000,6 +2000,12 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "residual_distribution_v1",
+        "weather.model.residual_distribution_v1",
+        "prediction_mode",
+        "ResidualDistributionV1 prediction-mode identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "flat_notional_v1",
         "weather.market.taker_bot_sizing",
         "sizing_policy_id",

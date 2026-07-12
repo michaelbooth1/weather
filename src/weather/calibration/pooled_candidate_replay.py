@@ -65,6 +65,14 @@ from weather.model.continuous_density import (
     native_interval_to_f,
     normalize_density,
 )
+from weather.model.residual_distribution_v1 import (
+    PREDICTION_MODE as RESIDUAL_DISTRIBUTION_V1_MODE,
+    predict_residual_distribution_v1,
+    residual_band_key,
+)
+from weather.calibration.residual_distribution_corpus import (
+    source_diagnostics_from_replay,
+)
 from weather.calibration.pooled_feature_model import (
     DEFAULT_BAND_ARTIFACT,
     FEATURE_SUBSET_FORECAST_PROFILE,
@@ -711,6 +719,236 @@ def build_source_freshness_index(manifest, snapshots_root, family_unit):
     diagnostics["source_freshness_snapshots"] = len(output)
     diagnostics["source_freshness_states"] = dict(sorted(counts.items()))
     return output, diagnostics
+
+
+def _captured_residual_source_diagnostics(record):
+    """Return captured diagnostics without inventing a healthy source state.
+
+    ResidualDistributionV1 requires the replay input to carry either a
+    ``source_diagnostics``/``source_status`` field or captured ``sources``
+    envelopes with explicit ``status``/``ok``/``stale`` evidence.  The source
+    envelopes are canonicalized by the same helper as the residual corpus,
+    relative to the captured timestamp.  A mapping keyed by source is accepted
+    only as a lossless representation of the same captured status rows.
+    """
+
+    for field in ("source_diagnostics", "source_status"):
+        value = (record or {}).get(field)
+        if isinstance(value, (list, tuple)):
+            rows = [dict(row) for row in value if isinstance(row, dict)]
+            return rows if rows else None
+        if isinstance(value, dict):
+            rows = []
+            for source, raw in value.items():
+                if not isinstance(raw, dict):
+                    continue
+                row = dict(raw)
+                row.setdefault("source", source)
+                rows.append(row)
+            return rows if rows else None
+    sources = (record or {}).get("sources")
+    if isinstance(sources, dict) and sources:
+        has_explicit_status = any(
+            isinstance(item, dict)
+            and any(field in item for field in ("status", "ok", "stale"))
+            for item in sources.values()
+        )
+        captured_at = parse_built_at(record)
+        if has_explicit_status and captured_at is not None:
+            rows = source_diagnostics_from_replay(sources, captured_at=captured_at)
+            return rows if rows else None
+    return None
+
+
+def build_residual_source_diagnostics_index(manifest, snapshots_root, family_unit):
+    """Index captured point-in-time source diagnostics for residual replay."""
+
+    output = {}
+    diagnostics = {
+        "residual_source_diagnostics_snapshots": 0,
+        "residual_source_diagnostics_missing_snapshots": 0,
+        "residual_source_diagnostics_expected_fields": [
+            "source_diagnostics",
+            "source_status",
+            "sources.*.(status|ok|stale)",
+        ],
+    }
+    include_reconstructed = bool(manifest.get("include_reconstructed"))
+    for folder in folders_from_manifest(manifest, snapshots_root):
+        market_id = folder_market_id(folder)
+        spec = REGISTRY.get(market_id)
+        if not family_unit_matches(spec, family_unit):
+            continue
+        entry = entry_for_folder(manifest, folder)
+        records = index_records_by_snapshot(load_replay_records(folder))
+        pinned_ids = [str(item) for item in (entry or {}).get("snapshot_ids") or records.keys()]
+        for snapshot_id in pinned_ids:
+            record = records.get(str(snapshot_id))
+            if not record or (is_reconstructed(record) and not include_reconstructed):
+                continue
+            captured = _captured_residual_source_diagnostics(record)
+            if captured is None:
+                diagnostics["residual_source_diagnostics_missing_snapshots"] += 1
+                continue
+            output[(market_id, str(snapshot_id))] = captured
+    diagnostics["residual_source_diagnostics_snapshots"] = len(output)
+    return output, diagnostics
+
+
+def _residual_replay_band_row(row):
+    kind, value, value_hi = snapshot_band_key(row)
+    return {
+        "bin_kind": kind,
+        "bin_value_c": value,
+        "bin_value_hi_c": value_hi,
+        "range_label": row.get("range_label"),
+    }
+
+
+def residual_distribution_v1_replay_payload(
+    *,
+    artifact,
+    feature_vector,
+    source_diagnostics,
+    market_id,
+    unit,
+    band_rows,
+):
+    """Thin replay adapter over the exact pure function used by live capture."""
+
+    return predict_residual_distribution_v1(
+        artifact=artifact,
+        feature_vector=feature_vector,
+        source_diagnostics=source_diagnostics,
+        market_id=market_id,
+        unit=unit,
+        band_rows=band_rows,
+    )
+
+
+def attach_residual_distribution_v1_probabilities(
+    replay_results,
+    feature_rows,
+    source_diagnostics,
+    artifact,
+    family_unit="all",
+):
+    """Score complete replay partitions without any incumbent postprocessing.
+
+    A skipped/failed snapshot remains in coverage with ``candidate_p=None`` and
+    its exact named reason.  No serving probability is substituted.
+    """
+
+    rows = []
+    grouped = defaultdict(list)
+    coverage = {
+        "family_unit": family_unit,
+        "total_replay_rows": len(replay_results.get("all_rows") or []),
+        "family_rows": 0,
+        "candidate_rows": 0,
+        "excluded_non_family_rows": 0,
+        "missing_candidate_rows": 0,
+        "candidate_snapshots": 0,
+        "predicted_snapshots": 0,
+        "abstained_snapshots": 0,
+        "failed_snapshots": 0,
+        "source_diagnostics_missing_snapshots": 0,
+        "prediction_status_counts": {},
+        "failure_reason_counts": {},
+    }
+    for raw in replay_results.get("all_rows") or []:
+        market_id = str(raw.get("market_id") or "")
+        spec = REGISTRY.get(market_id)
+        in_family = family_unit_matches(spec, family_unit) or (
+            spec is None and str(family_unit or "").lower() == "all"
+        )
+        if not in_family:
+            coverage["excluded_non_family_rows"] += 1
+            continue
+        coverage["family_rows"] += 1
+        copy = dict(raw)
+        copy.update(
+            {
+                "candidate_p": None,
+                "candidate_cutoff_hour": None,
+                "candidate_prediction_status": "unscored",
+                "candidate_failure_reason": "",
+                "candidate_failure_detail": "",
+                "candidate_countable": False,
+            }
+        )
+        row_index = len(rows)
+        rows.append(copy)
+        grouped[(market_id, str(raw.get("snapshot_id")))].append(row_index)
+
+    status_counts = Counter()
+    reason_counts = Counter()
+    for (market_id, snapshot_id), indexes in grouped.items():
+        coverage["candidate_snapshots"] += 1
+        spec = REGISTRY.get(market_id)
+        feature_vector = feature_rows.get((market_id, snapshot_id)) or {}
+        captured_diagnostics = source_diagnostics.get((market_id, snapshot_id))
+        replay_band_rows = [_residual_replay_band_row(rows[index]) for index in indexes]
+        if captured_diagnostics is None:
+            coverage["source_diagnostics_missing_snapshots"] += 1
+            payload = {
+                "status": "skipped",
+                "failure_reason": "abstain_source_state",
+                "failure_detail": (
+                    "replay input must contain captured source_diagnostics or "
+                    "source_status, or source envelopes with explicit status/ok/stale; "
+                    "status-free sources are not treated as all-fresh"
+                ),
+            }
+        else:
+            payload = residual_distribution_v1_replay_payload(
+                artifact=artifact,
+                feature_vector=feature_vector,
+                source_diagnostics=captured_diagnostics,
+                market_id=market_id,
+                unit=spec.display_unit if spec is not None else None,
+                band_rows=replay_band_rows,
+            )
+        status = str(payload.get("status") or "failed").lower()
+        failure_reason = str(payload.get("failure_reason") or "")
+        failure_detail = str(payload.get("failure_detail") or "")
+        status_counts[status] += 1
+        if failure_reason:
+            reason_counts[failure_reason] += 1
+        if status == "predicted":
+            coverage["predicted_snapshots"] += 1
+        elif status in {"skipped", "skip"}:
+            coverage["abstained_snapshots"] += 1
+        else:
+            coverage["failed_snapshots"] += 1
+
+        probabilities = payload.get("probabilities") if status == "predicted" else {}
+        for index, band_row in zip(indexes, replay_band_rows):
+            row = rows[index]
+            probability = (probabilities or {}).get(residual_band_key(band_row))
+            if status == "predicted" and _valid_probability(probability):
+                row["candidate_p"] = float(probability)
+                row["candidate_countable"] = True
+            row["candidate_prediction_status"] = status
+            row["candidate_failure_reason"] = failure_reason
+            row["candidate_failure_detail"] = failure_detail
+            row["candidate_cutoff_hour"] = feature_vector.get("cutoff_hour")
+            row["feature_schema_version"] = feature_vector.get("feature_schema_version")
+            row["candidate_density_mean_f"] = payload.get("mean_f")
+            row["candidate_density_sigma_f"] = payload.get("sigma_f")
+            row["candidate_density_floor_bucket"] = payload.get(
+                "printed_observed_floor_bucket"
+            )
+            row["candidate_calibration_temperature"] = payload.get(
+                "calibration_temperature"
+            )
+
+    candidate_rows = sum(1 for row in rows if _valid_probability(row.get("candidate_p")))
+    coverage["candidate_rows"] = candidate_rows
+    coverage["missing_candidate_rows"] = coverage["family_rows"] - candidate_rows
+    coverage["prediction_status_counts"] = dict(sorted(status_counts.items()))
+    coverage["failure_reason_counts"] = dict(sorted(reason_counts.items()))
+    return rows, coverage
 
 
 def build_candidate_distributions(manifest, snapshots_root, artifact):
@@ -1402,6 +1640,28 @@ def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_un
             clob_features=clob_features,
             source_freshness=source_freshness,
         )
+    elif prediction_mode == RESIDUAL_DISTRIBUTION_V1_MODE:
+        feature_rows, diagnostics = build_candidate_features(
+            day_manifest,
+            args.snapshots_root,
+            family_unit,
+            artifact=artifact,
+        )
+        source_diagnostics, source_diagnostics_summary = (
+            build_residual_source_diagnostics_index(
+                day_manifest,
+                args.snapshots_root,
+                family_unit,
+            )
+        )
+        diagnostics.update(source_diagnostics_summary)
+        candidate_rows, coverage = attach_residual_distribution_v1_probabilities(
+            replay_results,
+            feature_rows,
+            source_diagnostics,
+            artifact,
+            family_unit=family_unit,
+        )
     elif prediction_mode == "continuous_density_f":
         feature_rows, diagnostics = build_candidate_features(
             day_manifest,
@@ -1569,8 +1829,10 @@ def run_pooled_candidate_replay(args):
         prediction_function=POOLED_REPLAY_PREDICTION_FUNCTION,
     )
     artifact_hash = artifact.get("artifact_hash") or artifact_hash_for_path(args.artifact)
-    family_unit = artifact.get("family_unit") or "F"
     prediction_mode = artifact.get("prediction_mode") or "bucket_distribution"
+    family_unit = artifact.get("family_unit") or (
+        "all" if prediction_mode == RESIDUAL_DISTRIBUTION_V1_MODE else "F"
+    )
     default_variant_id, default_variant_family = candidate_variant_defaults(
         artifact,
         variant_registry=variant_registry,

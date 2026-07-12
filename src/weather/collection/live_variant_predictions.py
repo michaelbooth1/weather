@@ -25,6 +25,7 @@ SCHEMA_VERSION = schema_version("live_variant_predictions")
 SUPPORTED_TRACKS = {"no_market", "market_informed"}
 KNOWN_LIVE_RUNTIMES = {
     "pooled_candidate_replay",
+    "residual_distribution_v1",
     "conservative_bridge_policy",
     "microstructure_shadow_report",
 }
@@ -380,6 +381,11 @@ def _predict_variant_payload(variant: dict[str, Any], context: dict[str, Any], r
             "unsupported_release_runtime",
             "verified release route selected an unsupported runtime",
         )
+    # The residual-v1 contract is a self-contained shadow runtime.  Do not let
+    # generic model-client hooks, caller runners, or embedded model payloads
+    # substitute another implementation or fallback before it executes.
+    if str(variant.get("live_runtime") or "") == "residual_distribution_v1":
+        return _residual_distribution_v1_payload(variant, context)
     if callable(runner):
         return _call_prediction_callable(runner, variant, context)
 
@@ -436,6 +442,8 @@ def _runtime_variant_payload(variant: dict[str, Any], context: dict[str, Any]) -
     runtime = str(variant.get("live_runtime") or "")
     if runtime == "pooled_candidate_replay":
         return _pooled_candidate_replay_payload(variant, context)
+    if runtime == "residual_distribution_v1":
+        return _residual_distribution_v1_payload(variant, context)
     if runtime == "conservative_bridge_policy":
         return _serving_passthrough_payload(
             variant,
@@ -643,6 +651,101 @@ def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str,
         "postprocess_config_hash": variant.get("postprocess_config_hash"),
         "live_runtime": runtime,
     }
+
+
+def _residual_distribution_v1_payload(
+    variant: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Run the residual-v1 shadow adapter without touching incumbent stages.
+
+    The core predictor owns feature validation, source-health policy, probability
+    construction, and its status taxonomy.  This adapter only binds the verified
+    artifact and registered market unit, forwards the exact live inputs, and
+    attaches tape metadata.  In particular, it must not route the result through
+    the legacy density calibration, pooled postprocessing, partition
+    normalization, current blending, or any serving fallback.
+    """
+
+    runtime = "residual_distribution_v1"
+    try:
+        artifact, artifact_path, error = _load_variant_artifact(variant)
+    except Exception as exc:  # noqa: BLE001 - shadow artifact failure is isolated
+        return _prediction_failure(
+            runtime,
+            "artifact_load_failed",
+            f"{type(exc).__name__}: {exc}",
+        )
+    if error:
+        return _prediction_failure(runtime, "missing_artifact", error)
+
+    market_id = str(context.get("market_id") or "").strip()
+    try:
+        from weather.market.market_registry import REGISTRY
+
+        spec = REGISTRY.get(market_id)
+    except Exception as exc:  # noqa: BLE001 - registry lookup cannot affect serving
+        return _prediction_failure(
+            runtime,
+            "market_registry_unavailable",
+            f"{type(exc).__name__}: {exc}",
+        )
+    if spec is None:
+        return {
+            "status": "skipped",
+            "failure_reason": "abstain_unknown_market",
+            "failure_detail": (
+                "residual distribution requires a registered market_id, "
+                f"got {market_id!r}"
+            ),
+            "live_runtime": runtime,
+        }
+
+    model = context.get("model") or {}
+    feature_vector = model.get("feature_vector") or {}
+    source_diagnostics = model.get("source_diagnostics") or []
+    band_rows = list(context.get("band_rows") or [])
+    unit = str(spec.display_unit).upper()
+
+    try:
+        from weather.model.residual_distribution_v1 import predict_residual_distribution_v1
+
+        result = predict_residual_distribution_v1(
+            artifact=artifact or {},
+            feature_vector=dict(feature_vector) if isinstance(feature_vector, dict) else {},
+            source_diagnostics=(
+                list(source_diagnostics)
+                if isinstance(source_diagnostics, (list, tuple))
+                else source_diagnostics
+            ),
+            market_id=market_id,
+            unit=unit,
+            band_rows=band_rows,
+        )
+    except Exception as exc:  # noqa: BLE001 - a shadow model must never affect incumbent serving
+        return _prediction_failure(
+            runtime,
+            "runtime_exception",
+            f"{type(exc).__name__}: {exc}",
+        )
+
+    if not isinstance(result, dict):
+        return _prediction_failure(
+            runtime,
+            "invalid_runtime_payload",
+            "predict_residual_distribution_v1 did not return a dictionary payload",
+        )
+
+    payload = dict(result)
+    payload.setdefault("model_version", variant.get("variant_id"))
+    payload.setdefault(
+        "artifact_path",
+        str(artifact_path) if artifact_path else _variant_artifact_path(variant),
+    )
+    payload.setdefault("artifact_hash", _artifact_hash(artifact_path, variant))
+    payload.setdefault("postprocess_config_hash", variant.get("postprocess_config_hash"))
+    payload["live_runtime"] = runtime
+    return payload
 
 
 def _band_binary_probabilities(

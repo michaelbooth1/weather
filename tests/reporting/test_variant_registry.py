@@ -34,6 +34,21 @@ def _active_variant(variant_id, **overrides):
 
 
 class TestVariantRegistry(unittest.TestCase):
+    def test_residual_distribution_is_registered_but_inert_until_qualified(self):
+        registry = load_registry(DEFAULT_REGISTRY_PATH)
+        residual = registry["by_id"]["residual_distribution_v1"]
+
+        self.assertEqual(residual["lifecycle"], "shadow")
+        self.assertFalse(residual["active_for_headline"])
+        self.assertFalse(residual["live_capture_enabled"])
+        self.assertFalse(residual["counts_toward_weather_model_promotion"])
+        self.assertEqual(residual["promotion_status"], "blocked")
+        self.assertEqual(residual["live_runtime"], "residual_distribution_v1")
+        self.assertNotIn(
+            residual["variant_id"],
+            {row["variant_id"] for row in active_registry_variants(registry)},
+        )
+
     def test_known_bad_density_variant_is_quarantined_from_headline_and_promotion(self):
         registry = load_registry(DEFAULT_REGISTRY_PATH)
         density = registry["by_id"]["pooled_continuous_density_hgb_v0_1"]

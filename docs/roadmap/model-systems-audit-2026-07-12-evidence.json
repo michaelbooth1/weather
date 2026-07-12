@@ -1,0 +1,316 @@
+{
+  "schema_version": "weather_model_systems_audit_evidence_v1",
+  "audit": {
+    "started_at_local": "2026-07-12T13:01:25.7267419-04:00",
+    "started_at_utc": "2026-07-12T17:01:25.7287418Z",
+    "evidence_snapshot_at_local": "2026-07-12T13:43:42.5113491-04:00",
+    "report_finalized_at_local": "2026-07-12T13:53:20.8649097-04:00",
+    "report_finalized_at_utc": "2026-07-12T17:53:20.8679104Z",
+    "timezone_windows": "Eastern Standard Time",
+    "timezone_iana": "America/Toronto",
+    "repository": "C:\\Users\\micha\\Desktop\\github\\weather",
+    "git_commit": "aaec67fc70fab80a07c05b01608e3e8b9cd6bea1",
+    "git_branch": "master",
+    "preexisting_dirty_paths": [
+      "config/location_market_events.json",
+      "config/locations.json"
+    ],
+    "operational_mutations_performed": false,
+    "heavy_training_or_unbounded_scan_performed": false
+  },
+  "request": {
+    "path": "C:\\Users\\micha\\.codex\\attachments\\78fbd758-a8db-4b19-80bd-7c786b7a5f74\\pasted-text.txt",
+    "bytes": 14160,
+    "last_write_utc": "2026-07-12T17:00:06.4628303Z",
+    "sha256": "52b1cc6312ee4c46a9f1445341b097115ff9885278b56d606102cd572707ed89"
+  },
+  "release_and_runtime": {
+    "active_release_pointer_path": "artifacts/releases/current_release.json",
+    "active_release_pointer_status": "MISSING",
+    "production_gate_status": "BLOCK",
+    "highest_permitted_stage": "NOT_READY",
+    "production_gate_blocker_count": 71,
+    "reconciled_target_date": "2026-07-11",
+    "reconciled_runtime_identity_count": 11,
+    "reconciled_snapshot_row_count": 15994,
+    "current_fleet_runtime_identity_count": 4,
+    "current_fleet_runtime_commits": [
+      "aaec67fc70fa",
+      "28c40a7e5241"
+    ]
+  },
+  "evidence": [
+    {
+      "path": "docs/roadmap/items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md",
+      "last_write_utc": "2026-07-12T03:53:03.3763377Z",
+      "bytes": 46192,
+      "sha256": "57f20034813e9fb387430c9b87296cf8246937355439a8ec988c0aaa0fda9392"
+    },
+    {
+      "path": "docs/roadmap/production-readiness-audit-2026-07-11.md",
+      "last_write_utc": "2026-07-12T03:19:29.1650508Z",
+      "bytes": 16856,
+      "sha256": "7c383fe064dc0c23f44b9805bada66ef557340195457df35d9bd9f5f8778e1df"
+    },
+    {
+      "path": "docs/operations/POINT_IN_TIME_EVALUATION.md",
+      "last_write_utc": "2026-07-12T02:11:33.3507018Z",
+      "bytes": 4535,
+      "sha256": "45aed3bbb26089a81c786b282776fb22d70551938c5d634e17a83b893c8f00f3"
+    },
+    {
+      "path": "config/model_variant_registry.json",
+      "last_write_utc": "2026-07-12T01:29:06.8555505Z",
+      "bytes": 11648,
+      "sha256": "062d7b87026cb2ea8d135ce476f1eda6751f4826afcf28f777be2a7d55df18ef"
+    },
+    {
+      "path": "artifacts/calibration/probability_calibration_f_family.json",
+      "last_write_utc": "2026-07-07T07:34:10.4610006Z",
+      "bytes": 63621,
+      "sha256": "3045d99aca7b953441123dc34de7e894db1590ecec3e504137f769a0ac99c718"
+    },
+    {
+      "path": "artifacts/calibration/forecast_error_model.json",
+      "last_write_utc": "2026-06-23T15:06:33.8064626Z",
+      "bytes": 121325,
+      "sha256": "dc2be7002c07225fef63705649aa03c0e791ae3824b0fe698bba2712821cd948"
+    },
+    {
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
+      "last_write_utc": "2026-06-16T04:33:56.4088518Z",
+      "bytes": 5460537,
+      "sha256": "ee7b65d078961bf21c3f89ff6e359d0acca5f3fedc90e456bf0192e4656867e9"
+    },
+    {
+      "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
+      "last_write_utc": "2026-07-07T07:50:19.2911726Z",
+      "bytes": 6310781,
+      "sha256": "3b472bd32667256c6605a6f48c2c9c4ba7e58f140a89c504c4b4fbfcac6a497c"
+    },
+    {
+      "path": "data/backtest/production_readiness_gate.json",
+      "generated_at_utc": "2026-07-12T16:31:04.394724+00:00",
+      "last_write_utc": "2026-07-12T16:31:06.2454592Z",
+      "bytes": 69704,
+      "sha256": "33146a8e5194e67642682229897dd959cd44de549c769734757a259cd0c781d1"
+    },
+    {
+      "path": "data/backtest/fleet_observability.json",
+      "generated_at_utc": "2026-07-12T16:31:04.235710+00:00",
+      "last_write_utc": "2026-07-12T16:31:04.3762584Z",
+      "bytes": 6523617,
+      "sha256": "6c2bdba2d9a377e45cb3a96bca2a925bb1a48a63a976647268e285b237201d75"
+    },
+    {
+      "path": "data/backtest/live_variant_settlement_scorecard.json",
+      "generated_at_utc": "2026-07-12T16:29:16.089744+00:00",
+      "last_write_utc": "2026-07-12T16:29:36.2094495Z",
+      "bytes": 143476311,
+      "sha256": "161ab9c710887c12a931c298d6fbe3ce757e6e67fee5fc305f836b2b850cd875"
+    },
+    {
+      "path": "data/backtest/runtime_identity_reconciliation.json",
+      "generated_at_utc": "2026-07-12T16:29:15.929728+00:00",
+      "last_write_utc": "2026-07-12T16:29:15.9317386Z",
+      "bytes": 7162,
+      "sha256": "ca35b28946b2d7bb72281ed06d6096f916853641484e42331a373a8bbd3637b0"
+    },
+    {
+      "path": "data/backtest/settled_day_freshness.json",
+      "generated_at_utc": "2026-07-12T16:29:07.093747+00:00",
+      "last_write_utc": "2026-07-12T16:29:07.0977109Z",
+      "bytes": 46699,
+      "sha256": "fea9c0c37b2ebc2515e654cfee3af29b82ccb22b2439c3e3fae82b2b7d47fdbb"
+    },
+    {
+      "path": "data/backtest/event_day_archive_coverage_audit.json",
+      "generated_at_utc": "2026-07-12T03:48:33.659099+00:00",
+      "last_write_utc": "2026-07-12T03:49:09.0834051Z",
+      "bytes": 648937,
+      "sha256": "453f494cf571e2f5c11b0c0ba502f800b26d807183b3fb990b9fb61381e0e90c"
+    },
+    {
+      "path": "data/backtest/data_retention_headroom_probe.json",
+      "generated_at_utc": "2026-07-12T02:44:42.664853+00:00",
+      "last_write_utc": "2026-07-12T02:44:42.6658594Z",
+      "bytes": 2560,
+      "sha256": "b718df24bbee272eea4ce376aba2e33efacc417f10a47daa83445618df5046fa"
+    },
+    {
+      "path": "data/backtest/settlement_source_revision_audit.json",
+      "generated_at_utc": "2026-07-12T15:10:54.124142+00:00",
+      "last_write_utc": "2026-07-12T15:10:59.7808650Z",
+      "bytes": 1187731,
+      "sha256": "cde13ecea3997c72333a5b4869168cd3da28df147a79039ad07cf7fc5047ca58"
+    },
+    {
+      "path": "data/backtest/item321_point_in_time_materialization_pilot.json",
+      "generated_at_utc": "2026-07-12T02:14:47.497832+00:00",
+      "last_write_utc": "2026-07-12T02:14:47.4998330Z",
+      "bytes": 2139,
+      "sha256": "ac8be481e2e9861c973a3d1404a2dda306a24549b23b92e80dfd0e91186c2516"
+    },
+    {
+      "path": "data/backtest/point_in_time_validation_plan.json",
+      "generated_at_utc": "2026-07-12T02:13:58.095954+00:00",
+      "last_write_utc": "2026-07-12T02:13:58.1054029Z",
+      "bytes": 215319,
+      "sha256": "db6be0cdcd94015881c9857ecf2c30cb52426efca78eb0b1185535d0930c2b5d"
+    },
+    {
+      "path": "data/backtest/clean_day_ledger.json",
+      "last_write_utc": "2026-07-12T01:43:04.0613613Z",
+      "bytes": 640,
+      "sha256": "96df9652b7efd034819526b88bf6b252af6aa9c1a80612fd987a9f01d9b73c56"
+    },
+    {
+      "path": "data/backtest/unattended_cycle_ledger.json",
+      "last_write_utc": "2026-07-12T01:43:04.0643621Z",
+      "bytes": 777,
+      "sha256": "54628ee747f975ef3a7e7da8611e977ec4de85eb1e7df5f24d2c567bfa77b46a"
+    },
+    {
+      "path": "data/backtest/data_layer_audit.json",
+      "generated_at_utc": "2026-07-10T03:08:08.972120+00:00",
+      "bytes": 8240339,
+      "sha256": "061f36b6207c31dd5db3e742ec3acb0c5df72f2088ec9973fa3b9f645bb3f54b"
+    },
+    {
+      "path": "data/backtest/data_retention_inventory.json",
+      "generated_at_utc": "2026-07-10T03:33:36.236428+00:00",
+      "bytes": 65335,
+      "sha256": "9e0e531f9113111b7f0896be04ed101f7b5777f405531429b781207abe09c4b4"
+    },
+    {
+      "path": "data/backtest/proper_scoring_reliability_scorecard.json",
+      "last_write_utc": "2026-07-10T02:25:07.2938315Z",
+      "bytes": 146811,
+      "sha256": "a0549292c4e13b0f16a2a3502160ca163cd39137502e3f83a594e1801e70b419"
+    },
+    {
+      "path": "data/backtest/item35_density_live_replay_parity_diagnostic.json",
+      "last_write_utc": "2026-07-12T01:23:06.6246150Z",
+      "bytes": 12238,
+      "sha256": "45c7908607192495ae150627e5bce4fc4f3a42a966def793efe2823dcba78463"
+    },
+    {
+      "path": "data/backtest/source_family_ablation.json",
+      "last_write_utc": "2026-06-24T08:46:38.1631595Z",
+      "bytes": 117180,
+      "sha256": "2f08e0e7de6df6a552c0488d716a6d2a0807f4a387079f131fcbfeb5aa49a315"
+    },
+    {
+      "path": "data/backtest/distribution_stage_attribution.json",
+      "last_write_utc": "2026-07-10T03:30:53.8956816Z",
+      "bytes": 1844305,
+      "sha256": "536ab7fe99ee42741cc3e617ae508eeea26cbe11d598531b9175f0c7329bdbe1"
+    },
+    {
+      "path": "src/weather/model/model_distribution_constants.py",
+      "last_write_utc": "2026-06-30T14:05:09.3357333Z",
+      "bytes": 11104,
+      "sha256": "546a6524ac049a61e1d45b2fbc0b2c40bee846fb47674deb83bd81092156d9e8"
+    }
+  ],
+  "missing_required_evidence": [
+    "artifacts/releases/current_release.json",
+    "data/backtest/live_variant_replay_parity.json",
+    "data/backtest/point_in_time_streaming_evaluation.json"
+  ],
+  "bounded_inventory": {
+    "captured_at_local": "2026-07-12T13:21:12.0696776-04:00",
+    "command_reference": "docs/roadmap/model-systems-audit-2026-07-12.md#reproduce-bounded-live-inventories",
+    "market_day_folders": 453,
+    "folders_with_snapshots_jsonl": 453,
+    "folders_with_source_status_jsonl": 453,
+    "folders_with_forecast_payloads_jsonl": 453,
+    "folders_with_replay_inputs_jsonl": 447,
+    "folders_with_variant_predictions_jsonl": 300,
+    "folders_with_observation_payloads_jsonl": 231,
+    "folders_with_order_books_jsonl": 360,
+    "folders_with_event_day_manifest_json": 48
+  },
+  "bounded_recent_payload_inventory": [
+    {
+      "target_date": "2026-07-11",
+      "market_day_folders": 12,
+      "forecast_metadata_rows": 12952,
+      "forecast_rows_with_raw_payload_path": 0,
+      "observation_metadata_rows": 1586,
+      "observation_rows_with_provider_observed_at": 0
+    },
+    {
+      "target_date": "2026-07-12",
+      "market_day_folders": 12,
+      "forecast_metadata_rows": 3402,
+      "forecast_rows_with_raw_payload_path": 0,
+      "observation_metadata_rows": 426,
+      "observation_rows_with_provider_observed_at": 0
+    }
+  ],
+  "bounded_orphan_inventory": {
+    "scan_completed_at_local": "2026-07-12T13:43:42.5113491-04:00",
+    "clob_capture_status_folders": 288,
+    "clob_capture_status_bytes": 796179390,
+    "observation_raw_file_count": 35795,
+    "observation_raw_bytes": 392770145,
+    "scope_note": "Bounded event-folder and observation-payload enumeration; not a full-tree retention rescan.",
+    "command_reference": "docs/roadmap/model-systems-audit-2026-07-12.md#reproduce-bounded-live-inventories"
+  },
+  "rollout_presence": {
+    "definition": "For each market, rollout-eligible begins on that market's first target date containing the family.",
+    "observation_payloads.jsonl": {
+      "target_date_min": "2026-06-23",
+      "target_date_max": "2026-07-12",
+      "market_count": 12,
+      "present_folders": 231,
+      "rollout_eligible_folders": 231,
+      "rollout_coverage": 1.0
+    },
+    "variant_predictions.jsonl": {
+      "target_date_min": "2026-06-18",
+      "target_date_max": "2026-07-12",
+      "market_count": 12,
+      "present_folders": 300,
+      "rollout_eligible_folders": 300,
+      "rollout_coverage": 1.0
+    },
+    "order_books.jsonl": {
+      "target_date_min": "2026-06-12",
+      "target_date_max": "2026-07-12",
+      "market_count": 12,
+      "present_folders": 360,
+      "rollout_eligible_folders": 372,
+      "rollout_coverage": 0.967741935483871
+    },
+    "clob_capture_status.jsonl": {
+      "target_date_min": "2026-06-19",
+      "target_date_max": "2026-07-12",
+      "market_count": 12,
+      "present_folders": 288,
+      "rollout_eligible_folders": 288,
+      "rollout_coverage": 1.0
+    },
+    "command_reference": "docs/roadmap/model-systems-audit-2026-07-12.md#reproduce-bounded-live-inventories",
+    "denominator_algorithm": "For each market and file family, parse target dates from event slugs, find that market's first folder containing the file, and count every same-market folder on or after that date as rollout-eligible."
+  },
+  "verification": [
+    {
+      "command": "$folders=@(Get-ChildItem -LiteralPath data\\snapshots -Directory | Where-Object {$_.Name -like 'highest-temperature-in-*'}); for each named family, count Test-Path across the bounded folder set",
+      "result": "453 folders; snapshots 453; source status 453; forecast metadata 453; replay 447; variants 300; observation metadata 231; order books 360; event manifests 48"
+    },
+    {
+      "command": "For target dates 2026-07-11 and 2026-07-12 only, Import-Csv forecast_payloads_long.csv and observation_payloads_long.csv; count rows and populated raw_payload_path/provider_observed_at",
+      "result": "July 11: 12952 forecast/0 raw links, 1586 observation/0 provider observed time; July 12 at 13:21:35-04:00: 3402 forecast/0 raw links, 426 observation/0 provider observed time"
+    },
+    {
+      "command": "$env:PYTHONDONTWRITEBYTECODE='1'; python -m pytest tests/calibration/test_blocked_validation.py tests/reporting/test_point_in_time_evaluation.py tests/reporting/test_live_variant_settlement_scorecard.py tests/reporting/test_production_readiness_gate.py -q -p no:cacheprovider",
+      "result": "58 passed in 2.59s"
+    },
+    {
+      "command": "$env:PYTHONDONTWRITEBYTECODE='1'; python -m pytest tests/operations/test_event_day_manifest.py tests/operations/test_closed_market_day_archive.py tests/operations/test_storage_classes.py tests/collection/test_live_variant_predictions.py tests/calibration/test_probability_calibration.py tests/calibration/test_pooled_candidate_replay.py -q -p no:cacheprovider",
+      "result": "120 passed, 26 subtests passed in 4.26s"
+    }
+  ]
+}

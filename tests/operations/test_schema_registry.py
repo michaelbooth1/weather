@@ -15,6 +15,14 @@ from weather.schema_registry import (  # noqa: E402
 
 class TestSchemaRegistry(unittest.TestCase):
     def test_registry_lookup_returns_public_versions(self):
+        self.assertEqual(
+            schema_version("residual_distribution_v1"),
+            "residual_distribution_v1_v0.1",
+        )
+        self.assertEqual(
+            schema_version("residual_distribution_training_corpus"),
+            "residual_distribution_training_corpus_v1",
+        )
         self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.15")
         self.assertEqual(schema_version("feature_quality_quarantine"), "feature_quality_quarantine_v0.1")
         self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.5")

@@ -7,6 +7,55 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "residual_distribution_v1",
+        "residual_distribution_v1_v0.1",
+        "weather.model.residual_distribution_v1",
+        "active",
+        "Shadow-only pooled NWP-residual density model with explicit missingness, source health, legal settlement truncation, and one simplex calibrator.",
+    ),
+    SchemaSpec(
+        "residual_distribution_training_corpus",
+        "residual_distribution_training_corpus_v1",
+        "weather.calibration.residual_distribution_corpus",
+        "active",
+        "Hash-linked one-row-per-market/date/cutoff training corpus materialized from captured replay inputs.",
+    ),
+    SchemaSpec(
+        "residual_distribution_training_corpus_manifest",
+        "residual_distribution_training_corpus_manifest_v1",
+        "weather.calibration.residual_distribution_corpus",
+        "active",
+        "Self-hashed provenance, exclusion, and checkpoint-selection manifest for the residual distribution corpus.",
+    ),
+    SchemaSpec(
+        "simplex_temperature",
+        "simplex_temperature_v1",
+        "weather.calibration.simplex_calibration",
+        "active",
+        "Single global power-temperature calibrator fitted to complete out-of-fold market partitions.",
+    ),
+    SchemaSpec(
+        "residual_distribution_requalification",
+        "residual_distribution_requalification_v0.1",
+        "weather.calibration.residual_distribution_v1",
+        "active",
+        "Nested whole-fleet-date residual-model ablation, calibration, and qualification result.",
+    ),
+    SchemaSpec(
+        "residual_distribution_oof_fit_receipt",
+        "residual_distribution_oof_fit_receipt_v0.1",
+        "weather.calibration.residual_distribution_v1",
+        "active",
+        "Hash-linked receipt for residual scale and simplex calibration fitted only from inner out-of-fold predictions.",
+    ),
+    SchemaSpec(
+        "residual_distribution_final_fit_receipt",
+        "residual_distribution_final_fit_receipt_v0.1",
+        "weather.calibration.residual_distribution_v1",
+        "active",
+        "Hash-linked proof that the final residual model refit excluded every locked evaluation date.",
+    ),
+    SchemaSpec(
         "event_day_archive_coverage_audit",
         "event_day_archive_coverage_audit_v0.2",
         "weather.operations.event_day_archive_coverage",
