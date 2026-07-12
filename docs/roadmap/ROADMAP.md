@@ -121,7 +121,7 @@ infrastructure work remains.
 | 124 | [CLOB Order-Book Retention Coverage And Storage Budget [COMPLETE 2026-06-18 - CLOB MANIFEST AUDIT LIVE]](items/item-124-clob-order-book-retention-coverage-and-storage-budget.md) |
 | 154 | [Backtest Artifact Disk-Budget And Retention Guard [COMPLETE 2026-06-19 - GUARDED EXPORTS AND CLEANUP MANIFEST LIVE]](items/item-154-backtest-artifact-disk-budget-and-retention-guard.md) |
 | 156 | [CLOB Midpoint Continuity For Market-Informed Repair [OPEN 2026-06-20 - LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED]](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
-| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-25 - JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 157 | [Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
 | 158 | [Source-Status Degradation Recovery And Provider Cooldown Proof [COMPLETE 2026-06-20 - SOURCE STATUS PROOF AND ZERO BLOCKED MARKETS]](items/item-158-source-status-degradation-recovery-and-provider-cooldown-proof.md) |
 | 159 | [Daily Refresh Disk-Headroom Preflight And Promotion Export Resume [COMPLETE 2026-06-20 - PREFLIGHT, RESUME, AND LEDGER RECOVERY PROVEN]](items/item-159-daily-refresh-disk-headroom-preflight-and-promotion-export-resume.md) |
 | 185 | [Daily-High Predictor Data-Source Expansion [PARTIAL 2026-06-22 - SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN]](items/item-185-daily-high-predictor-data-source-expansion.md) |
@@ -226,7 +226,7 @@ infrastructure work remains.
 | 152 | [Active-Day Bot Preflight And Disk Liveness [COMPLETE 2026-06-18 - DISK AND DISCOVERY DENY-BY-DEFAULT GATES]](items/item-152-active-day-bot-preflight-and-disk-liveness.md) |
 | 153 | [Live Observation Monotonicity And Settlement-Bin Normalization [COMPLETE 2026-06-18 - SETTLEMENT-NORMALIZED LIVE HIGH LEDGER]](items/item-153-live-observation-monotonicity-and-settlement-bin-normalization.md) |
 | 155 | [Inactive-Market Price-Free Learning And Current-Max Carryover Guard [COMPLETE 2026-06-19 - 2026-06-18 AUDIT GAP]](items/item-155-inactive-market-price-free-learning-and-current-max-carryover-guard.md) |
-| 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-24 - MODEL-READY ACTIVE CANDIDATE, READINESS/PROGRESS BLOCKED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
+| 160 | [Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-07-12 - PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED]](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 162 | [Countable Trading Evidence And Taker Strategy Quality Gate [COMPLETE 2026-06-20 - GATES LIVE, CURRENT EVIDENCE NON-COUNTABLE]](items/item-162-countable-trading-evidence-and-taker-strategy-quality-gate.md) |
 | 163 | [Daily Progress Ledger And Broad Improvement Claim Gate [COMPLETE 2026-06-20 - LEDGER AND CLAIM GATE LIVE, CLAIM BLOCKED]](items/item-163-daily-progress-ledger-and-broad-improvement-claim-gate.md) |
 | 164 | [Settlement-Aware Taker P&L Finalization [COMPLETE]](items/item-164-settlement-aware-taker-pnl-finalization.md) |
@@ -262,7 +262,7 @@ infrastructure work remains.
 | 216 | [Runtime-Identity Segmented Model Evidence [COMPLETE 2026-06-22 - SEGMENTED CLAIM GATES LIVE]](items/item-216-runtime-identity-segmented-model-evidence.md) |
 | 217 | [Pinned Frozen-Baseline Replay Trend For Code-vs-Weather Skill Separation [COMPLETE 2026-06-22 - DAILY REFRESH AND LEDGER WIRING LIVE]](items/item-217-pinned-frozen-baseline-replay-trend.md) |
 | 218 | [Location-Specific F-Family Promotion Allowlist [COMPLETE 2026-06-22 - PER-MARKET ALLOWLIST ENFORCED]](items/item-218-location-specific-f-family-promotion-allowlist.md) |
-| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [COMPLETE 2026-06-24 - ACTIVE TIMESPLIT GATE PASSED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
+| 219 | [Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 220 | [CLOB Overlay Quote-Risk Lane Separation [COMPLETE 2026-06-22 - CLOB QUOTE-RISK LANE SEPARATED]](items/item-220-clob-overlay-quote-risk-lane-separation.md) |
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |

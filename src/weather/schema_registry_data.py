@@ -274,6 +274,20 @@ REGISTERED_SCHEMAS = (
         "All-market raw CLOB order-book refresh summary with per-market freshness and timeout accounting.",
     ),
     SchemaSpec(
+        "clob_enrichment_capture_status",
+        "clob_enrichment_capture_status_v0.1",
+        "weather.market.market_microstructure_capture",
+        "active",
+        "Per-market price-history/WebSocket/derived-feature enrichment status isolated from raw books.",
+    ),
+    SchemaSpec(
+        "clob_enrichment_loop_status",
+        "clob_enrichment_loop_status_v0.1",
+        "weather.market.market_microstructure",
+        "active",
+        "Dedicated non-critical CLOB research-enrichment loop status and cadence contract.",
+    ),
+    SchemaSpec(
         "clob_price_history_raw_response_manifest",
         "clob_price_history_raw_response_manifest_v0.1",
         "weather.market.market_microstructure_capture",
@@ -735,6 +749,13 @@ REGISTERED_SCHEMAS = (
         "Data-tree ownership, retention, restore-gate, and disk-growth inventory.",
     ),
     SchemaSpec(
+        "data_retention_headroom_probe",
+        "data_retention_headroom_probe_v0.1",
+        "weather.reporting.data_quality.data_retention_inventory",
+        "active",
+        "Bounded current-disk headroom proof linked to a recent full retention inventory.",
+    ),
+    SchemaSpec(
         "closed_market_day_archive_manifest",
         "closed_market_day_archive_manifest_v0.1",
         "weather.operations.closed_market_day_archive",
@@ -768,6 +789,13 @@ REGISTERED_SCHEMAS = (
         "weather.operations.event_day_manifest",
         "active",
         "Writer-version stamp for event-day snapshot folder manifests.",
+    ),
+    SchemaSpec(
+        "event_day_archive_coverage_audit",
+        "event_day_archive_coverage_audit_v0.1",
+        "weather.operations.event_day_archive_coverage",
+        "active",
+        "Bounded global index of event-day manifests, archive manifests, and incremental cursor coverage.",
     ),
     SchemaSpec(
         "cleanup_manifest",

@@ -5,9 +5,11 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +17,13 @@ from weather.paths import data_path
 
 import requests
 
-from weather.io import normalize_csv_row, read_csv_rows, write_csv_rows
+from weather.io import (
+    acquire_writer_lock,
+    normalize_csv_row,
+    read_csv_rows,
+    release_writer_lock,
+    write_csv_rows,
+)
 from weather.market.market_config import config_from_event
 from weather.market.market_microstructure_constants import (
     BOOK_LEVEL_COLUMNS,
@@ -43,7 +51,8 @@ from weather.schema_registry import schema_version
 
 
 CLOB_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_capture_status")
-CLOB_RAW_BOOK_REFRESH_SCHEMA_VERSION = "clob_raw_book_refresh_v0.1"
+CLOB_RAW_BOOK_REFRESH_SCHEMA_VERSION = schema_version("clob_raw_book_refresh")
+CLOB_ENRICHMENT_CAPTURE_STATUS_SCHEMA_VERSION = schema_version("clob_enrichment_capture_status")
 CLOB_PRICE_HISTORY_RAW_MANIFEST_SCHEMA_VERSION = schema_version("clob_price_history_raw_response_manifest")
 CLOB_PRICE_HISTORY_REPAIR_SCHEMA_VERSION = schema_version("clob_price_history_repair")
 PRICE_HISTORY_RAW_DIRNAME = "price_history_raw"
@@ -65,6 +74,12 @@ PRICE_HISTORY_POINT_VALUE_FIELDS = (
     "point_time_utc",
     "price",
 )
+_RAW_MARKET_LOCKS: dict[str, threading.Lock] = {}
+_RAW_MARKET_LOCKS_GUARD = threading.Lock()
+
+
+class RawTapeWriterBusy(RuntimeError):
+    """Fail closed when another process owns an event's raw-tape transaction."""
 
 
 def utc_now():
@@ -732,6 +747,7 @@ class MarketMicrostructureStore:
         self.event_slug = event_slug
         self.root = Path(root) if root is not None else data_path() / "snapshots" / str(event_slug)
         self.capture_status_path = self.root / "clob_capture_status.jsonl"
+        self.enrichment_status_path = self.root / "clob_enrichment_status.jsonl"
         self.token_path = self.root / "clob_tokens.csv"
         self.token_jsonl_path = self.root / "clob_tokens.jsonl"
         self.books_summary_path = self.root / "order_books_summary.csv"
@@ -743,6 +759,31 @@ class MarketMicrostructureStore:
         self.price_history_raw_manifest_path = self.root / PRICE_HISTORY_RAW_MANIFEST_FILENAME
         self.ws_events_path = self.root / "market_ws_events.csv"
         self.ws_jsonl_path = self.root / "market_ws.jsonl"
+        self.raw_tape_lock_anchor_path = self.root / "clob_raw_tape"
+
+    @contextmanager
+    def raw_tape_guard(self, operation):
+        """Serialize a short raw-tape write or consistency-sensitive read."""
+
+        lock = acquire_writer_lock(
+            self.raw_tape_lock_anchor_path,
+            owner={
+                "resource": "clob_raw_tape",
+                "event_slug": self.event_slug,
+                "operation": str(operation),
+            },
+            attempts=3,
+            stale_after_seconds=300.0,
+            sleep_seconds=0.025,
+        )
+        if lock is None:
+            raise RawTapeWriterBusy(
+                f"raw tape guard busy for event={self.event_slug}, operation={operation}"
+            )
+        try:
+            yield lock
+        finally:
+            release_writer_lock(lock)
 
     def append_csv(self, path, columns, rows):
         if not rows:
@@ -811,6 +852,9 @@ class MarketMicrostructureStore:
 
     def write_capture_status(self, payload):
         self.append_jsonl(self.capture_status_path, payload)
+
+    def write_enrichment_status(self, payload):
+        self.append_jsonl(self.enrichment_status_path, payload)
 
 
 def capture_status_from_result(
@@ -993,7 +1037,6 @@ def capture_event_books(
     try:
         all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
         token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
-        store.write_token_rows(all_token_rows)
         token_lookup = {str(row["clob_token_id"]): row for row in token_rows if row.get("clob_token_id")}
         stage = "order_books"
         books = clob_client.get_order_books(list(token_lookup), batch_size=batch_size)
@@ -1016,7 +1059,10 @@ def capture_event_books(
                 "token": token_row,
                 "book": book,
             })
-        store.write_books(summaries, level_rows, raw_records)
+        stage = "raw_tape_write"
+        with store.raw_tape_guard("raw_token_book_append"):
+            store.write_token_rows(all_token_rows)
+            store.write_books(summaries, level_rows, raw_records)
 
         history_raw = []
         if include_price_history:
@@ -1070,11 +1116,12 @@ def capture_event_books(
 
         if include_clob_features and (store.root / "snapshots_long.csv").exists():
             try:
-                feature_result = write_clob_feature_rows(
-                    store.root,
-                    max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
-                    market_id=market_id,
-                )
+                with store.raw_tape_guard("derived_feature_read"):
+                    feature_result = write_clob_feature_rows(
+                        store.root,
+                        max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+                        market_id=market_id,
+                    )
             except Exception as exc:  # noqa: BLE001 - derived features should not drop raw CLOB evidence
                 feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
     except Exception as exc:
@@ -1150,6 +1197,284 @@ def capture_event_books(
     return result
 
 
+def _enrichment_status_payload(result, *, store, captured_at, status, error=None):
+    return {
+        "schema_version": CLOB_ENRICHMENT_CAPTURE_STATUS_SCHEMA_VERSION,
+        "captured_at_utc": captured_at.isoformat(),
+        "mode": "research_enrichment",
+        "status": status,
+        "error": error,
+        "market_id": result.get("market_id"),
+        "event_slug": result.get("event_slug"),
+        "target_date": result.get("target_date"),
+        "captured_tokens": int(result.get("captured_tokens") or 0),
+        "include_price_history": bool(result.get("include_price_history")),
+        "include_ws_events": bool(result.get("include_ws_events")),
+        "include_clob_features": bool(result.get("include_clob_features")),
+        "price_history_rows": int(result.get("price_history_rows") or 0),
+        "price_history_new_points": int(result.get("price_history_new_points") or 0),
+        "price_history_duplicate_points": int(result.get("price_history_duplicate_points") or 0),
+        "price_history_error_count": int(result.get("price_history_error_count") or 0),
+        "price_history_errors": result.get("price_history_errors") or [],
+        "ws_messages": int(result.get("ws_messages") or 0),
+        "ws_event_rows": int(result.get("ws_event_rows") or 0),
+        "ws_error": result.get("ws_error"),
+        "clob_feature_rows": int(result.get("clob_feature_rows") or 0),
+        "clob_features_error": result.get("clob_features_error"),
+        "price_history_path": str(store.price_history_path),
+        "price_history_raw_manifest_path": str(store.price_history_raw_manifest_path),
+        "market_ws_path": str(store.ws_events_path),
+        "clob_enrichment_status_path": str(store.enrichment_status_path),
+    }
+
+
+def capture_event_enrichment(
+    event,
+    *,
+    market_id=None,
+    clob_client=None,
+    root=None,
+    outcomes="all",
+    include_price_history=True,
+    history_minutes=60,
+    history_interval=None,
+    fidelity_minutes=1,
+    include_ws_events=True,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    websocket_factory=None,
+    include_clob_features=True,
+    now=None,
+):
+    """Capture optional research streams without touching raw book/token tapes."""
+
+    captured_at = now or utc_now()
+    config = config_from_event(event)
+    market_id = market_id or config.market_id
+    store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
+    clob_client = clob_client or ClobClient()
+    all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
+    token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
+    token_lookup = {
+        str(row["clob_token_id"]): row
+        for row in token_rows
+        if row.get("clob_token_id")
+    }
+    history_rows = []
+    history_raw = []
+    history_errors = []
+    history_write_result = {}
+    ws_result = {"messages": 0}
+    feature_result = {"rows": 0, "csv_path": None, "jsonl_path": None}
+
+    if include_price_history:
+        end_ts = int(captured_at.timestamp())
+        start_ts = end_ts - int(float(history_minutes) * 60)
+        for token_id, token_row in token_lookup.items():
+            try:
+                response = clob_client.get_price_history(
+                    token_id,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    interval=history_interval,
+                    fidelity_minutes=fidelity_minutes,
+                )
+                history_rows.extend(price_history_rows(
+                    response,
+                    token_row,
+                    captured_at,
+                    interval=history_interval,
+                    fidelity_minutes=fidelity_minutes,
+                ))
+                history_raw.append({
+                    "captured_at_utc": captured_at.isoformat(),
+                    "event_slug": config.event_slug,
+                    "market_id": market_id,
+                    "clob_token_id": token_id,
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "interval": history_interval,
+                    "fidelity_minutes": fidelity_minutes,
+                    "response": response,
+                })
+            except Exception as exc:  # noqa: BLE001 - retain other token evidence
+                history_errors.append({
+                    "clob_token_id": token_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+        if history_rows or history_raw:
+            try:
+                history_write_result = store.write_price_history(history_rows, history_raw)
+            except Exception as exc:  # noqa: BLE001 - enrichment must stay isolated
+                history_errors.append({
+                    "clob_token_id": "fleet_write",
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
+
+    if include_ws_events:
+        try:
+            ws_result = record_market_websocket(
+                event,
+                market_id=market_id,
+                root=root,
+                outcomes=outcomes,
+                seconds=ws_seconds,
+                message_limit=ws_message_limit,
+                heartbeat_seconds=ws_heartbeat_seconds,
+                connect_timeout=ws_connect_timeout,
+                websocket_factory=websocket_factory,
+            )
+        except Exception as exc:  # noqa: BLE001 - optional stream is per-market evidence
+            ws_result = {"messages": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+    if include_clob_features and (store.root / "snapshots_long.csv").exists():
+        try:
+            with store.raw_tape_guard("derived_feature_read"):
+                feature_result = write_clob_feature_rows(
+                    store.root,
+                    max_age_seconds=DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+                    market_id=market_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            feature_result = {"rows": 0, "error": f"{type(exc).__name__}: {exc}"}
+
+    errors = [row["error"] for row in history_errors]
+    if ws_result.get("error"):
+        errors.append(str(ws_result["error"]))
+    if feature_result.get("error"):
+        errors.append(str(feature_result["error"]))
+    result = {
+        "mode": "research_enrichment",
+        "status": "DEGRADED" if errors else "PASS",
+        "error": "; ".join(errors) or None,
+        "market_id": market_id,
+        "event_slug": config.event_slug,
+        "target_date": config.target_date.isoformat(),
+        "enrichment_captured_at_utc": captured_at.isoformat(),
+        "captured_tokens": len(token_rows),
+        "include_price_history": bool(include_price_history),
+        "include_ws_events": bool(include_ws_events),
+        "include_clob_features": bool(include_clob_features),
+        "price_history_rows": len(history_rows),
+        **history_write_result,
+        "price_history_error_count": len(history_errors),
+        "price_history_errors": history_errors,
+        "ws_messages": int(ws_result.get("messages") or 0),
+        "ws_event_rows": int(ws_result.get("event_rows") or 0),
+        "ws_error": ws_result.get("error"),
+        "market_ws_path": ws_result.get("market_ws_path"),
+        "clob_feature_rows": int(feature_result.get("rows") or 0),
+        "clob_features_path": feature_result.get("csv_path"),
+        "clob_features_error": feature_result.get("error"),
+        "raw_book_tape_touched": False,
+    }
+    store.write_enrichment_status(_enrichment_status_payload(
+        result,
+        store=store,
+        captured_at=captured_at,
+        status=result["status"],
+        error=result["error"],
+    ))
+    return result
+
+
+def capture_market_enrichment(
+    market_id,
+    *,
+    clob_client=None,
+    root=None,
+    outcomes="all",
+    target_date=None,
+    **kwargs,
+):
+    from weather.operations import event_metadata_validation
+
+    event_client = PolymarketClient(target_date=target_date, market_id=market_id)
+    event = event_client.get_event()
+    config = config_from_event(event, fallback_date=event_client.config.target_date)
+    store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
+    validation = event_metadata_validation.build_validation_payload(
+        target_date=config.target_date,
+        markets=[market_id],
+        live_events=[event],
+        fetch_live=False,
+    )
+    validation_gate = event_metadata_validation.gate_for_market(validation, market_id)
+    if not validation_gate.get("ok"):
+        captured_at = kwargs.get("now") or utc_now()
+        result = {
+            "mode": "research_enrichment",
+            "status": "BLOCK",
+            "blocked": True,
+            "error": validation_gate.get("reason"),
+            "market_id": market_id,
+            "event_slug": config.event_slug,
+            "target_date": config.target_date.isoformat(),
+            "event_metadata_validation": validation_gate,
+            "validation_hash": validation.get("validation_hash"),
+            "captured_tokens": 0,
+            "include_price_history": bool(kwargs.get("include_price_history", True)),
+            "include_ws_events": bool(kwargs.get("include_ws_events", True)),
+            "include_clob_features": bool(kwargs.get("include_clob_features", True)),
+            "price_history_rows": 0,
+            "price_history_error_count": 0,
+            "ws_messages": 0,
+            "ws_event_rows": 0,
+            "clob_feature_rows": 0,
+            "raw_book_tape_touched": False,
+        }
+        store.write_enrichment_status(_enrichment_status_payload(
+            result,
+            store=store,
+            captured_at=captured_at,
+            status="BLOCK",
+            error=result["error"],
+        ))
+        return result
+    return capture_event_enrichment(
+        event,
+        market_id=market_id,
+        clob_client=clob_client,
+        root=root,
+        outcomes=outcomes,
+        **kwargs,
+    )
+
+
+def capture_fleet_enrichment(
+    market_id="all",
+    *,
+    progress_callback=None,
+    capture_fn=None,
+    **kwargs,
+):
+    """Run non-critical enrichment separately with explicit per-market results."""
+
+    market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
+    capture_fn = capture_fn or capture_market_enrichment
+    results = {}
+    for item in market_ids:
+        started = time.perf_counter()
+        try:
+            result = dict(capture_fn(item, **kwargs) or {})
+        except Exception as exc:  # noqa: BLE001 - retain fleet visibility
+            result = {
+                "mode": "research_enrichment",
+                "status": "ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+                "market_id": item,
+                "raw_book_tape_touched": False,
+            }
+        result.setdefault("market_id", item)
+        result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+        results[item] = result
+        if progress_callback is not None:
+            progress_callback(item, result)
+    return results
+
+
 def _raw_refresh_market_result(
     market_id,
     *,
@@ -1161,20 +1486,46 @@ def _raw_refresh_market_result(
     started_at,
 ):
     started_perf = time.perf_counter()
+    with _RAW_MARKET_LOCKS_GUARD:
+        market_lock = _RAW_MARKET_LOCKS.setdefault(str(market_id), threading.Lock())
+    if not market_lock.acquire(blocking=False):
+        finished_at = utc_now()
+        return {
+            "market_id": market_id,
+            "error": "PreviousRawCaptureActive: prior timed-out capture is still running",
+            "prior_capture_still_running": True,
+            "raw_refresh_started_at_utc": started_at.isoformat(),
+            "raw_refresh_finished_at_utc": finished_at.isoformat(),
+            "raw_refresh_elapsed_seconds": round(time.perf_counter() - started_perf, 3),
+            "raw_book_age_seconds_at_finish": None,
+            "raw_book_refresh_ok": False,
+        }
     try:
-        result = capture_fn(
-            market_id,
-            root=root,
-            outcomes=outcomes,
-            target_date=target_date,
-            include_price_history=False,
-            include_ws_events=False,
-            include_clob_features=False,
-            batch_size=batch_size,
-        )
-        result = dict(result or {})
-    except Exception as exc:  # noqa: BLE001 - one market should not stop raw refresh
-        result = {"market_id": market_id, "error": f"{type(exc).__name__}: {exc}"}
+        try:
+            result = capture_fn(
+                market_id,
+                root=root,
+                outcomes=outcomes,
+                target_date=target_date,
+                include_price_history=False,
+                include_ws_events=False,
+                include_clob_features=False,
+                batch_size=batch_size,
+            )
+            result = dict(result or {})
+        except RawTapeWriterBusy as exc:
+            result = {
+                "market_id": market_id,
+                "status": "BLOCK",
+                "blocked": True,
+                "raw_tape_write_blocked": True,
+                "error_stage": "raw_tape_write",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        except Exception as exc:  # noqa: BLE001 - one market should not stop raw refresh
+            result = {"market_id": market_id, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        market_lock.release()
     finished_at = utc_now()
     result.setdefault("market_id", market_id)
     result["raw_refresh_started_at_utc"] = started_at.isoformat()
@@ -1210,6 +1561,7 @@ def capture_fleet_books_parallel(
     per_market_timeout_seconds=30.0,
     freshness_sla_seconds=120.0,
     capture_fn=None,
+    progress_callback=None,
 ):
     """Refresh raw CLOB books for all requested markets concurrently.
 
@@ -1220,6 +1572,7 @@ def capture_fleet_books_parallel(
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
     capture_fn = capture_fn or capture_market_books
     generated_at = utc_now()
+    fleet_started = time.perf_counter()
     workers = max(1, min(len(market_ids) or 1, int(max_workers or len(market_ids) or 1)))
     timeout = float(per_market_timeout_seconds)
     executor = ThreadPoolExecutor(max_workers=workers)
@@ -1246,6 +1599,8 @@ def capture_fleet_books_parallel(
                 results[item] = future.result()
             except Exception as exc:  # noqa: BLE001 - defensive; worker catches normal failures
                 results[item] = {"market_id": item, "error": f"{type(exc).__name__}: {exc}"}
+            if progress_callback is not None:
+                progress_callback(item, results[item])
         timed_out_at = utc_now()
         for future in not_done:
             item, started_at = futures[future]
@@ -1260,6 +1615,8 @@ def capture_fleet_books_parallel(
                 "raw_book_age_seconds_at_finish": None,
                 "raw_book_refresh_ok": False,
             }
+            if progress_callback is not None:
+                progress_callback(item, results[item])
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
@@ -1270,17 +1627,24 @@ def capture_fleet_books_parallel(
     slow_rows = [
         row for row in ordered
         if row.get("raw_refresh_elapsed_seconds") is not None
-        and float(row.get("raw_refresh_elapsed_seconds")) > float(freshness_sla_seconds)
+        and float(row.get("raw_refresh_elapsed_seconds")) >= float(freshness_sla_seconds)
     ]
+    fleet_elapsed = round(time.perf_counter() - fleet_started, 3)
     return {
         "schema_version": CLOB_RAW_BOOK_REFRESH_SCHEMA_VERSION,
         "generated_at_utc": generated_at.isoformat(),
+        "mode": "raw_books",
         "market_id": market_id,
         "market_count": len(market_ids),
         "max_workers": workers,
         "per_market_timeout_seconds": timeout,
         "freshness_sla_seconds": float(freshness_sla_seconds),
-        "ok": len(ok_rows) == len(market_ids),
+        "fleet_elapsed_seconds": fleet_elapsed,
+        "inside_freshness_sla": fleet_elapsed < float(freshness_sla_seconds),
+        "ok": (
+            len(ok_rows) == len(market_ids)
+            and fleet_elapsed < float(freshness_sla_seconds)
+        ),
         "summary": {
             "ok_market_count": len(ok_rows),
             "failed_market_count": len(failed_rows),
@@ -1337,6 +1701,15 @@ def capture_fleet_books(
                 websocket_factory=websocket_factory,
                 include_clob_features=include_clob_features,
             )
+        except RawTapeWriterBusy as exc:
+            results[item] = {
+                "market_id": item,
+                "status": "BLOCK",
+                "blocked": True,
+                "raw_tape_write_blocked": True,
+                "error_stage": "raw_tape_write",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
         except Exception as exc:  # noqa: BLE001 - one market should not stop the fleet
             results[item] = {"error": f"{type(exc).__name__}: {exc}"}
         if progress_callback is not None:

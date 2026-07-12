@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
+import heapq
 import json
+import math
+import os
 import shutil
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,13 +28,21 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("data_retention_inventory")
+HEADROOM_PROBE_SCHEMA_VERSION = schema_version("data_retention_headroom_probe")
 DEFAULT_DATA_ROOT = data_path()
 DEFAULT_OUT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory.json"
 DEFAULT_REPORT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory_report.md"
+DEFAULT_HEADROOM_PROBE_OUT = (
+    DEFAULT_DATA_ROOT / "backtest" / "data_retention_headroom_probe.json"
+)
+DEFAULT_HEADROOM_PROBE_REPORT = (
+    DEFAULT_DATA_ROOT / "backtest" / "data_retention_headroom_probe.md"
+)
 DEFAULT_MIN_FREE_BYTES = 5_000_000_000
 DEFAULT_MIN_GROWTH_HEADROOM_DAYS = 30.0
 DEFAULT_LOOKBACK_HOURS = 24.0
 DEFAULT_TOP_N = 25
+DEFAULT_MAX_SOURCE_AGE_HOURS = 168.0
 
 
 @dataclass(frozen=True)
@@ -230,6 +243,418 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _finite_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _probe_blocker(code: str, detail: str, **evidence: Any) -> dict[str, Any]:
+    return {"code": code, "detail": detail, **evidence}
+
+
+def _disk_usage_path(root: Path) -> Path:
+    candidate = root
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate
+
+
+def build_headroom_probe(
+    source_inventory: str | Path,
+    *,
+    root: str | Path | None = None,
+    max_source_age_hours: float = DEFAULT_MAX_SOURCE_AGE_HOURS,
+    min_growth_headroom_days: float = DEFAULT_MIN_GROWTH_HEADROOM_DAYS,
+    min_free_bytes: int | None = None,
+    expected_source_sha256: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Refresh disk headroom without walking the data tree.
+
+    The prior full inventory remains the sole source of observed write rate.
+    Its exact bytes are read once, hashed, parsed, and validated before the
+    current filesystem free-space value is sampled.
+    """
+
+    if max_source_age_hours <= 0:
+        raise ValueError("max_source_age_hours must be positive")
+    if min_growth_headroom_days <= 0:
+        raise ValueError("min_growth_headroom_days must be positive")
+    if min_free_bytes is not None and min_free_bytes < 0:
+        raise ValueError("min_free_bytes cannot be negative")
+    generated_at = now or datetime.now(timezone.utc)
+    if generated_at.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    generated_at = generated_at.astimezone(timezone.utc)
+
+    source_path = Path(source_inventory)
+    blockers: list[dict[str, Any]] = []
+    source_blocker_codes: list[str] = []
+    source_bytes: bytes | None = None
+    source_hash: str | None = None
+    source_payload: dict[str, Any] = {}
+    try:
+        source_bytes = source_path.read_bytes()
+        source_hash = _sha256_bytes(source_bytes)
+    except OSError as exc:
+        blocker = _probe_blocker(
+            "source_inventory_unreadable",
+            f"cannot read prior full inventory: {exc}",
+            source_path=str(source_path),
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+
+    expected_hash = str(expected_source_sha256 or "").strip().lower() or None
+    if expected_hash and source_hash != expected_hash:
+        blocker = _probe_blocker(
+            "source_inventory_hash_mismatch",
+            "prior full inventory does not match the pinned SHA-256",
+            expected_sha256=expected_hash,
+            actual_sha256=source_hash,
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+
+    if source_bytes is not None:
+        try:
+            decoded = json.loads(source_bytes.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            blocker = _probe_blocker(
+                "source_inventory_malformed",
+                f"prior full inventory is not valid JSON: {exc}",
+            )
+            blockers.append(blocker)
+            source_blocker_codes.append(blocker["code"])
+        else:
+            if isinstance(decoded, dict):
+                source_payload = decoded
+            else:
+                blocker = _probe_blocker(
+                    "source_inventory_malformed",
+                    "prior full inventory must be a JSON object",
+                )
+                blockers.append(blocker)
+                source_blocker_codes.append(blocker["code"])
+
+    source_mode = str(source_payload.get("mode") or "legacy_full_inventory")
+    if source_payload and source_payload.get("schema_version") != SCHEMA_VERSION:
+        blocker = _probe_blocker(
+            "source_inventory_schema_mismatch",
+            "prior inventory schema does not match the active retention inventory schema",
+            expected_schema_version=SCHEMA_VERSION,
+            actual_schema_version=source_payload.get("schema_version"),
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+    if source_payload and source_mode not in {"full_inventory", "legacy_full_inventory"}:
+        blocker = _probe_blocker(
+            "source_inventory_not_full",
+            "bounded probes cannot be chained as the observed write-rate source",
+            source_mode=source_mode,
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+
+    summary = source_payload.get("summary")
+    source_disk = source_payload.get("disk")
+    if source_payload and (
+        not isinstance(summary, dict)
+        or not isinstance(source_disk, dict)
+        or not isinstance(source_payload.get("policy_summaries"), list)
+        or not isinstance(source_payload.get("storage_class_summaries"), list)
+    ):
+        blocker = _probe_blocker(
+            "source_inventory_incomplete",
+            "prior inventory lacks full-inventory summary/classification surfaces",
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+        summary = summary if isinstance(summary, dict) else {}
+        source_disk = source_disk if isinstance(source_disk, dict) else {}
+    summary = summary if isinstance(summary, dict) else {}
+    source_disk = source_disk if isinstance(source_disk, dict) else {}
+
+    source_status = str(source_payload.get("status") or "").strip().upper()
+    if source_payload and source_status not in {"PASS", "BLOCK"}:
+        blocker = _probe_blocker(
+            "source_inventory_status_invalid",
+            "prior full inventory must have a terminal PASS or BLOCK status",
+            source_status=source_status or None,
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+
+    source_generated_at = _parse_utc(source_payload.get("generated_at_utc"))
+    source_age_hours = None
+    if source_payload and source_generated_at is None:
+        blocker = _probe_blocker(
+            "source_inventory_timestamp_invalid",
+            "prior full inventory requires a timezone-aware generated_at_utc",
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+    elif source_generated_at is not None:
+        source_age_hours = (
+            generated_at - source_generated_at
+        ).total_seconds() / 3600.0
+        if source_age_hours < 0:
+            blocker = _probe_blocker(
+                "source_inventory_from_future",
+                "prior inventory generated_at_utc is later than the probe time",
+                source_age_hours=source_age_hours,
+            )
+            blockers.append(blocker)
+            source_blocker_codes.append(blocker["code"])
+        elif source_age_hours > max_source_age_hours:
+            blocker = _probe_blocker(
+                "source_inventory_stale",
+                "prior full inventory is older than the permitted source age",
+                source_age_hours=source_age_hours,
+                max_source_age_hours=max_source_age_hours,
+            )
+            blockers.append(blocker)
+            source_blocker_codes.append(blocker["code"])
+
+    lookback_hours = _finite_number(source_payload.get("lookback_hours"))
+    recent_bytes = _finite_number(summary.get("recent_bytes"))
+    recorded_daily_recent_bytes = _finite_number(source_disk.get("daily_recent_bytes"))
+    if lookback_hours is None or lookback_hours <= 0:
+        blocker = _probe_blocker(
+            "source_lookback_invalid",
+            "prior full inventory lookback_hours must be positive",
+            lookback_hours=source_payload.get("lookback_hours"),
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+    if recent_bytes is None or recent_bytes <= 0:
+        blocker = _probe_blocker(
+            "source_recent_write_rate_nonpositive",
+            "prior full inventory must contain a positive recent-byte write rate",
+            recent_bytes=summary.get("recent_bytes"),
+            daily_recent_bytes=source_disk.get("daily_recent_bytes"),
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+    daily_recent_bytes = (
+        recent_bytes * 24.0 / lookback_hours
+        if recent_bytes is not None
+        and recent_bytes > 0
+        and lookback_hours is not None
+        and lookback_hours > 0
+        else None
+    )
+    if daily_recent_bytes is not None and recorded_daily_recent_bytes is not None:
+        derived_daily_rate = daily_recent_bytes
+        tolerance = max(1.0, derived_daily_rate * 1e-9)
+        if abs(recorded_daily_recent_bytes - derived_daily_rate) > tolerance:
+            blocker = _probe_blocker(
+                "source_recent_write_rate_inconsistent",
+                "prior daily_recent_bytes disagrees with recent_bytes/lookback_hours",
+                daily_recent_bytes=recorded_daily_recent_bytes,
+                derived_daily_recent_bytes=derived_daily_rate,
+                tolerance=tolerance,
+            )
+            blockers.append(blocker)
+            source_blocker_codes.append(blocker["code"])
+
+    source_root_text = str(source_payload.get("root") or "").strip()
+    root_path = Path(root) if root is not None else (
+        Path(source_root_text) if source_root_text else Path(DEFAULT_DATA_ROOT)
+    )
+    root_exists = root_path.exists()
+    if not root_exists:
+        blockers.append(
+            _probe_blocker(
+                "storage_root_missing",
+                "current data root does not exist",
+                root=str(root_path),
+            )
+        )
+    if source_payload and not source_root_text:
+        blocker = _probe_blocker(
+            "source_inventory_root_missing",
+            "prior full inventory does not identify its scanned root",
+        )
+        blockers.append(blocker)
+        source_blocker_codes.append(blocker["code"])
+    elif source_root_text:
+        try:
+            same_root = Path(source_root_text).resolve() == root_path.resolve()
+        except OSError:
+            same_root = False
+        if not same_root:
+            blocker = _probe_blocker(
+                "source_inventory_root_mismatch",
+                "prior full inventory was produced for a different data root",
+                source_root=source_root_text,
+                current_root=str(root_path),
+            )
+            blockers.append(blocker)
+            source_blocker_codes.append(blocker["code"])
+
+    usage = None
+    try:
+        usage = shutil.disk_usage(_disk_usage_path(root_path))
+    except OSError as exc:
+        blockers.append(
+            _probe_blocker(
+                "disk_usage_unavailable",
+                f"cannot read current disk usage: {exc}",
+                root=str(root_path),
+            )
+        )
+
+    source_min_free = _finite_number(source_payload.get("min_free_bytes"))
+    effective_min_free = int(
+        min_free_bytes
+        if min_free_bytes is not None
+        else source_min_free
+        if source_min_free is not None and source_min_free >= 0
+        else DEFAULT_MIN_FREE_BYTES
+    )
+    current_free = int(usage.free) if usage is not None else None
+    current_total = int(usage.total) if usage is not None else None
+    current_used = int(usage.used) if usage is not None else None
+    growth_headroom_days = (
+        float(current_free) / daily_recent_bytes
+        if current_free is not None
+        and daily_recent_bytes is not None
+        and daily_recent_bytes > 0
+        else None
+    )
+    growth_shortfall_days = (
+        max(0.0, min_growth_headroom_days - growth_headroom_days)
+        if growth_headroom_days is not None
+        else min_growth_headroom_days
+    )
+    free_shortfall = (
+        max(0, effective_min_free - current_free)
+        if current_free is not None
+        else effective_min_free
+    )
+    required_headroom_bytes = (
+        daily_recent_bytes * min_growth_headroom_days
+        if daily_recent_bytes is not None and daily_recent_bytes > 0
+        else None
+    )
+    headroom_surplus_bytes = (
+        current_free - required_headroom_bytes
+        if current_free is not None and required_headroom_bytes is not None
+        else None
+    )
+    if current_free is not None and free_shortfall > 0:
+        blockers.append(
+            _probe_blocker(
+                "free_space_below_minimum",
+                "current disk free space is below the configured byte floor",
+                free_bytes=current_free,
+                min_free_bytes=effective_min_free,
+            )
+        )
+    if growth_headroom_days is not None and growth_headroom_days < min_growth_headroom_days:
+        blockers.append(
+            _probe_blocker(
+                "growth_headroom_below_minimum",
+                "current free space does not cover the required observed-write-rate window",
+                growth_headroom_days=growth_headroom_days,
+                min_growth_headroom_days=min_growth_headroom_days,
+            )
+        )
+
+    source_trustworthy = not source_blocker_codes
+    return {
+        "schema_version": HEADROOM_PROBE_SCHEMA_VERSION,
+        "generated_at_utc": generated_at.isoformat(),
+        "mode": "bounded_storage_headroom_probe",
+        "evidence_contract": "prior_full_inventory_rate_plus_current_disk_free",
+        "status": "PASS" if not blockers else "BLOCK",
+        "root": str(root_path),
+        "root_exists": root_exists,
+        "lookback_hours": lookback_hours,
+        "min_free_bytes": effective_min_free,
+        "min_growth_headroom_days": float(min_growth_headroom_days),
+        "max_source_age_hours": float(max_source_age_hours),
+        "source_inventory_path": str(source_path),
+        "source_inventory_sha256": source_hash,
+        "source_inventory": {
+            "path": str(source_path),
+            "sha256": source_hash,
+            "expected_sha256": expected_hash,
+            "hash_matches_expected": not expected_hash or source_hash == expected_hash,
+            "schema_version": source_payload.get("schema_version"),
+            "mode": source_mode,
+            "status": source_status or None,
+            "generated_at_utc": (
+                source_generated_at.isoformat() if source_generated_at else None
+            ),
+            "age_hours": source_age_hours,
+            "max_age_hours": float(max_source_age_hours),
+            "lookback_hours": lookback_hours,
+            "recent_bytes": recent_bytes,
+            "daily_recent_bytes": daily_recent_bytes,
+            "trustworthy": source_trustworthy,
+            "blocker_codes": source_blocker_codes,
+        },
+        "disk": {
+            "sampled_at_utc": generated_at.isoformat(),
+            "total_bytes": current_total,
+            "used_bytes": current_used,
+            "free_bytes": current_free,
+            "free_human": _format_bytes(current_free),
+            "free_shortfall_bytes": free_shortfall,
+            "free_shortfall_human": _format_bytes(free_shortfall),
+            "daily_recent_bytes": (
+                int(daily_recent_bytes) if daily_recent_bytes is not None else 0
+            ),
+            "daily_recent_human": _format_bytes(daily_recent_bytes),
+            "growth_headroom_days": growth_headroom_days,
+            "growth_headroom_shortfall_days": growth_shortfall_days,
+            "required_headroom_bytes": (
+                int(required_headroom_bytes)
+                if required_headroom_bytes is not None
+                else None
+            ),
+            "headroom_surplus_bytes": (
+                int(headroom_surplus_bytes)
+                if headroom_surplus_bytes is not None
+                else None
+            ),
+        },
+        "summary": {
+            "bounded_probe": True,
+            "filesystem_walk_performed": False,
+            "source_inventory_trustworthy": source_trustworthy,
+            "blocker_count": len(blockers),
+        },
+        "blocker_count": len(blockers),
+        "first_blocker": blockers[0] if blockers else None,
+        "blockers": blockers,
+    }
+
+
 def _matches_any(rel_path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(rel_path, pattern) for pattern in patterns)
 
@@ -272,8 +697,14 @@ def _newest_mtime(paths: list[dict[str, Any]]) -> str | None:
     return max(row["modified_at_utc"] for row in paths)
 
 
-def _file_row(path: Path, root: Path, policy: DataRetentionPolicy) -> dict[str, Any]:
-    stat = path.stat()
+def _file_row(
+    path: Path,
+    root: Path,
+    policy: DataRetentionPolicy,
+    *,
+    stat: os.stat_result | None = None,
+) -> dict[str, Any]:
+    stat = stat or path.stat()
     rel = path.relative_to(root).as_posix()
     return {
         "path": rel,
@@ -322,68 +753,85 @@ def build_payload(
     storage_summaries: dict[str, dict[str, Any]] = {}
     top_dirs: dict[str, dict[str, Any]] = {}
     recent_dirs: dict[str, dict[str, Any]] = {}
-    largest_files: list[dict[str, Any]] = []
-    recent_files: list[dict[str, Any]] = []
+    largest_file_heap: list[tuple[int, str, dict[str, Any]]] = []
+    recent_file_heap: list[tuple[int, str, dict[str, Any]]] = []
+    recent_file_count = 0
+    recent_bytes = 0
     file_count = 0
     total_bytes = 0
 
+    def retain_top(
+        heap: list[tuple[int, str, dict[str, Any]]],
+        row: dict[str, Any],
+    ) -> None:
+        limit = max(0, int(top_n))
+        if limit == 0:
+            return
+        item = (int(row["bytes"]), str(row["path"]), row)
+        if len(heap) < limit:
+            heapq.heappush(heap, item)
+        elif item[:2] > heap[0][:2]:
+            heapq.heapreplace(heap, item)
+
     if root.exists():
-        for path in root.rglob("*"):
-            if not path.is_file():
-                continue
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            rel = path.relative_to(root).as_posix()
-            policy = classify_data_path(rel)
-            row = _file_row(path, root, policy)
-            file_count += 1
-            total_bytes += row["bytes"]
-            summary = summaries.setdefault(policy.name, {
-                "policy": policy.name,
-                "owner": policy.owner,
-                "file_count": 0,
-                "bytes": 0,
-                "size_human": "0 B",
-                "largest_file": None,
-                "new_file_count": 0,
-                "new_bytes": 0,
-                "new_size_human": "0 B",
-                "newest_modified_at_utc": None,
-                "delete_gate": {},
-            })
-            summary["file_count"] += 1
-            summary["bytes"] += row["bytes"]
-            storage_summary = storage_summaries.setdefault(
-                row["storage_class"],
-                _storage_summary_row(row["storage_class"]),
-            )
-            storage_summary["file_count"] += 1
-            storage_summary["bytes"] += row["bytes"]
-            if row.get("protected"):
-                storage_summary["protected_files"] += 1
-                storage_summary["protected_bytes"] += row["bytes"]
-            if row.get("artifact_family"):
-                storage_summary["artifact_families"].add(row["artifact_family"])
-            if not summary["largest_file"] or row["bytes"] > summary["largest_file"]["bytes"]:
-                summary["largest_file"] = row
-            modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-            if modified >= cutoff:
-                summary["new_file_count"] += 1
-                summary["new_bytes"] += row["bytes"]
-                storage_summary["new_file_count"] += 1
-                storage_summary["new_bytes"] += row["bytes"]
-                recent_files.append(row)
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for filename in filenames:
+                path = Path(dirpath) / filename
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                rel = path.relative_to(root).as_posix()
+                policy = classify_data_path(rel)
+                row = _file_row(path, root, policy, stat=stat)
+                file_count += 1
+                total_bytes += row["bytes"]
+                summary = summaries.setdefault(policy.name, {
+                    "policy": policy.name,
+                    "owner": policy.owner,
+                    "file_count": 0,
+                    "bytes": 0,
+                    "size_human": "0 B",
+                    "largest_file": None,
+                    "new_file_count": 0,
+                    "new_bytes": 0,
+                    "new_size_human": "0 B",
+                    "newest_modified_at_utc": None,
+                    "delete_gate": {},
+                })
+                summary["file_count"] += 1
+                summary["bytes"] += row["bytes"]
+                storage_summary = storage_summaries.setdefault(
+                    row["storage_class"],
+                    _storage_summary_row(row["storage_class"]),
+                )
+                storage_summary["file_count"] += 1
+                storage_summary["bytes"] += row["bytes"]
+                if row.get("protected"):
+                    storage_summary["protected_files"] += 1
+                    storage_summary["protected_bytes"] += row["bytes"]
+                if row.get("artifact_family"):
+                    storage_summary["artifact_families"].add(row["artifact_family"])
+                if not summary["largest_file"] or row["bytes"] > summary["largest_file"]["bytes"]:
+                    summary["largest_file"] = row
+                modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+                if modified >= cutoff:
+                    summary["new_file_count"] += 1
+                    summary["new_bytes"] += row["bytes"]
+                    storage_summary["new_file_count"] += 1
+                    storage_summary["new_bytes"] += row["bytes"]
+                    recent_file_count += 1
+                    recent_bytes += int(row["bytes"])
+                    retain_top(recent_file_heap, row)
+                    dir_key = rel.split("/", 1)[0]
+                    recent_dir = recent_dirs.setdefault(dir_key, {"path": dir_key, "file_count": 0, "bytes": 0})
+                    recent_dir["file_count"] += 1
+                    recent_dir["bytes"] += row["bytes"]
                 dir_key = rel.split("/", 1)[0]
-                recent_dir = recent_dirs.setdefault(dir_key, {"path": dir_key, "file_count": 0, "bytes": 0})
-                recent_dir["file_count"] += 1
-                recent_dir["bytes"] += row["bytes"]
-            dir_key = rel.split("/", 1)[0]
-            top_dir = top_dirs.setdefault(dir_key, {"path": dir_key, "file_count": 0, "bytes": 0})
-            top_dir["file_count"] += 1
-            top_dir["bytes"] += row["bytes"]
-            largest_files.append(row)
+                top_dir = top_dirs.setdefault(dir_key, {"path": dir_key, "file_count": 0, "bytes": 0})
+                top_dir["file_count"] += 1
+                top_dir["bytes"] += row["bytes"]
+                retain_top(largest_file_heap, row)
 
     for name, summary in summaries.items():
         policy = policies.get(name) or classify_data_path("")
@@ -400,15 +848,14 @@ def build_payload(
         summary["artifact_families"] = sorted(summary["artifact_families"])
         summary["delete_gate"] = delete_gate_for_storage_class(storage_class)
 
-    largest_files.sort(key=lambda row: row["bytes"], reverse=True)
-    recent_files.sort(key=lambda row: row["bytes"], reverse=True)
+    largest_files = [item[2] for item in sorted(largest_file_heap, reverse=True)]
+    recent_files = [item[2] for item in sorted(recent_file_heap, reverse=True)]
     largest_dirs = sorted(top_dirs.values(), key=lambda row: row["bytes"], reverse=True)
     new_dirs = sorted(recent_dirs.values(), key=lambda row: row["bytes"], reverse=True)
     for rows in (largest_dirs, new_dirs):
         for row in rows:
             row["size_human"] = _format_bytes(row["bytes"])
 
-    recent_bytes = sum(row["bytes"] for row in recent_files)
     daily_recent_bytes = (
         float(recent_bytes) * 24.0 / float(lookback_hours)
         if float(lookback_hours) > 0.0
@@ -429,6 +876,8 @@ def build_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at.isoformat(),
+        "mode": "full_inventory",
+        "evidence_contract": "full_data_tree_retention_inventory",
         "status": status,
         "root": str(root),
         "root_exists": root.exists(),
@@ -460,7 +909,7 @@ def build_payload(
                 if (row.get("delete_gate") or {}).get("status") == "REVIEW_REQUIRED"
                 and row.get("bytes", 0) > 0
             ),
-            "recent_file_count": len(recent_files),
+            "recent_file_count": recent_file_count,
             "recent_bytes": recent_bytes,
             "recent_human": _format_bytes(recent_bytes),
         },
@@ -475,7 +924,88 @@ def build_payload(
     }
 
 
+def render_headroom_probe_report(payload: dict[str, Any]) -> str:
+    source = payload.get("source_inventory") or {}
+    disk = payload.get("disk") or {}
+    summary = payload.get("summary") or {}
+    headroom = disk.get("growth_headroom_days")
+    source_age = source.get("age_hours")
+    return "\n".join(
+        [
+            "# Bounded Storage Headroom Probe",
+            "",
+            f"Generated: {payload.get('generated_at_utc')}",
+            f"Status: **{payload.get('status')}**",
+            f"Root: `{payload.get('root')}`",
+            "",
+            "## Evidence Contract",
+            "",
+            *markdown_table(
+                ["Field", "Value"],
+                [
+                    ["Filesystem walk performed", summary.get("filesystem_walk_performed")],
+                    ["Prior full inventory", source.get("path")],
+                    ["Prior inventory SHA-256", source.get("sha256")],
+                    ["Pinned SHA-256", source.get("expected_sha256") or "-"],
+                    ["Pinned hash matches", source.get("hash_matches_expected")],
+                    ["Source inventory mode", source.get("mode")],
+                    ["Source inventory generated", source.get("generated_at_utc")],
+                    [
+                        "Source inventory age",
+                        "-" if source_age is None else f"{source_age:.1f} hours",
+                    ],
+                    ["Maximum source age", f"{payload.get('max_source_age_hours')} hours"],
+                    ["Source inventory trustworthy", source.get("trustworthy")],
+                    ["Observed lookback", f"{source.get('lookback_hours')} hours"],
+                    ["Observed recent bytes", _format_bytes(source.get("recent_bytes"))],
+                    ["Reused daily write rate", disk.get("daily_recent_human")],
+                ],
+            ),
+            "",
+            "## Current Disk Headroom",
+            "",
+            *markdown_table(
+                ["Field", "Value"],
+                [
+                    ["Current free space", disk.get("free_human")],
+                    ["Minimum free space", _format_bytes(payload.get("min_free_bytes"))],
+                    ["Free-space shortfall", disk.get("free_shortfall_human")],
+                    [
+                        "Growth headroom",
+                        "-" if headroom is None else f"{headroom:.1f} days",
+                    ],
+                    [
+                        "Minimum growth headroom",
+                        f"{payload.get('min_growth_headroom_days')} days",
+                    ],
+                    [
+                        "Required headroom bytes",
+                        _format_bytes(disk.get("required_headroom_bytes")),
+                    ],
+                    [
+                        "Headroom surplus bytes",
+                        _format_bytes(disk.get("headroom_surplus_bytes")),
+                    ],
+                ],
+            ),
+            "",
+            "## Blockers",
+            "",
+            *markdown_table(
+                ["Code", "Detail"],
+                [
+                    [row.get("code"), row.get("detail")]
+                    for row in payload.get("blockers") or []
+                ],
+            ),
+            "",
+        ]
+    )
+
+
 def render_report(payload: dict[str, Any]) -> str:
+    if payload.get("mode") == "bounded_storage_headroom_probe":
+        return render_headroom_probe_report(payload)
     summary = payload.get("summary") or {}
     disk = payload.get("disk") or {}
     lines = [
@@ -609,7 +1139,7 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run_full_inventory(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Inventory data ownership, retention policy, and disk growth.")
     parser.add_argument("--root", default=str(DEFAULT_DATA_ROOT))
     parser.add_argument("--out", default=str(DEFAULT_OUT))
@@ -636,6 +1166,61 @@ def main(argv: list[str] | None = None) -> int:
     print(f"JSON written to {out}")
     print(f"Report written to {report}")
     return 0 if payload["status"] in {"PASS", "WARN"} else 2
+
+
+def _run_headroom_probe(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Refresh current storage headroom from a recent hashed full inventory "
+            "without walking the data tree."
+        )
+    )
+    parser.add_argument("--source-inventory", required=True)
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Current data root; defaults to the root recorded by the source inventory.",
+    )
+    parser.add_argument("--out", default=str(DEFAULT_HEADROOM_PROBE_OUT))
+    parser.add_argument("--report", default=str(DEFAULT_HEADROOM_PROBE_REPORT))
+    parser.add_argument(
+        "--max-source-age-hours",
+        type=float,
+        default=DEFAULT_MAX_SOURCE_AGE_HOURS,
+    )
+    parser.add_argument(
+        "--min-growth-headroom-days",
+        type=float,
+        default=DEFAULT_MIN_GROWTH_HEADROOM_DAYS,
+    )
+    parser.add_argument("--min-free-bytes", type=int, default=None)
+    parser.add_argument("--expected-source-sha256", default=None)
+    args = parser.parse_args(argv)
+    if Path(args.source_inventory).resolve() == Path(args.out).resolve():
+        parser.error("--out must differ from --source-inventory")
+    payload = build_headroom_probe(
+        args.source_inventory,
+        root=args.root,
+        max_source_age_hours=args.max_source_age_hours,
+        min_growth_headroom_days=args.min_growth_headroom_days,
+        min_free_bytes=args.min_free_bytes,
+        expected_source_sha256=args.expected_source_sha256,
+    )
+    out = write_json(args.out, payload)
+    report = write_report(args.report, payload)
+    print(f"Data retention headroom probe: {payload['status']}")
+    print(f"JSON written to {out}")
+    print(f"Report written to {report}")
+    return 0 if payload["status"] == "PASS" else 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    command_args = list(sys.argv[1:] if argv is None else argv)
+    if command_args[:1] == ["headroom-probe"]:
+        return _run_headroom_probe(command_args[1:])
+    if command_args[:1] == ["inventory"]:
+        command_args = command_args[1:]
+    return _run_full_inventory(command_args)
 
 
 if __name__ == "__main__":

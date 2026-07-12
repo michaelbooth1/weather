@@ -124,3 +124,11 @@ sweep would repeat the failing comparison above.
 Proof-packet blocker: `weather_only_model_proof_packet.gates.exact_band_distance_zero_gate`.
 Exact-band and settlement-distance-0 work must clear this packet field or be
 kept diagnostic-only.
+
+Open acceptance work:
+
+- [ ] Train a newly identified, leakage-safe no-market candidate with real
+  inference-time signal; the quarantined Item 224 v0.1 chain cannot satisfy
+  this item.
+- [ ] Pass exact-band, distance-0, adjacent-band, ramp, late, per-market, live
+  coverage, and replay/serve parity gates under one immutable release.

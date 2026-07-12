@@ -47,7 +47,10 @@ from weather.sources.reanalysis_synoptic import (
 )
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
 from weather.sources.marine_water_contrast import load_marine_water_contrast_features
-from weather.model.variant_prediction_runtime import apply_continuous_density_calibration
+from weather.model.variant_prediction_runtime import (
+    apply_continuous_density_calibration,
+    apply_density_band_postprocessing,
+)
 from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
@@ -67,10 +70,7 @@ from weather.calibration.pooled_feature_model import (
     FEATURE_SUBSET_FORECAST_PROFILE,
     add_dynamic_source_state_features,
     add_city_features,
-    apply_adjacent_calibration,
     apply_band_postprocessing,
-    apply_exact_winner_catchup,
-    apply_forecast_relative_density_calibration,
     band_prediction_record,
     apply_reanalysis_promotion_lane_to_record,
     market_climate_stats,
@@ -1005,29 +1005,11 @@ def attach_density_candidate_probabilities(
                 },
             )
         if _valid_probability(probability):
-            if density_postprocess.get("enabled"):
-                if density_postprocess.get("adjacent_calibration_enabled", False):
-                    probability = apply_adjacent_calibration(
-                        probability,
-                        band_row,
-                        config={"adjacent_calibration": density_postprocess.get("adjacent_calibration") or {}},
-                    )
-                if density_postprocess.get("exact_winner_catchup_enabled", False):
-                    probability = apply_exact_winner_catchup(
-                        probability,
-                        band_row,
-                        config={"exact_winner_catchup": density_postprocess.get("exact_winner_catchup") or {}},
-                    )
-                if density_postprocess.get("forecast_relative_calibration_enabled", False):
-                    probability = apply_forecast_relative_density_calibration(
-                        probability,
-                        band_row,
-                        config={
-                            "forecast_relative_calibration": (
-                                density_postprocess.get("forecast_relative_calibration") or {}
-                            ),
-                        },
-                    )
+            probability = apply_density_band_postprocessing(
+                probability,
+                band_row,
+                config=density_postprocess,
+            )
             row["candidate_p"] = _clamp_probability(probability)
             row["candidate_density_mean_f"] = payload.get("mean_f")
             row["candidate_density_sigma_f"] = payload.get("sigma_f")

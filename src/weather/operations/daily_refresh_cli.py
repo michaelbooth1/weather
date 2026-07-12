@@ -8,8 +8,9 @@ import os
 import sys
 from pathlib import Path
 
-from weather.operations import nightly_health_checks
+from weather.operations import capture_resource_gate, nightly_health_checks
 from weather.paths import data_path
+from weather.reporting.scorecards import live_variant_settlement_scorecard
 from weather.schema_registry import schema_version
 
 
@@ -93,6 +94,19 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
     parser.add_argument("--disable-long-job-guard", action="store_true")
     parser.add_argument("--force-long-job-lock", action="store_true")
+    parser.add_argument("--scheduler-task-name", default="")
+    parser.add_argument("--scheduler-task-executable", default="")
+    parser.add_argument("--scheduler-task-working-directory", default="")
+    parser.add_argument("--scheduler-correlation-seconds", type=float, default=120.0)
+    parser.add_argument(
+        "--producer-sla-seconds",
+        type=float,
+        default=0.0,
+        help="Predeclared terminal SLA for this exact scheduled stage; zero is non-countable.",
+    )
+    parser.add_argument("--active-release-pointer", default="")
+    parser.add_argument("--releases-root", default="")
+    parser.add_argument("--repo-root", default="")
     parser.set_defaults(heavy_step_subprocess=True)
     parser.add_argument("--heavy-step-subprocess", dest="heavy_step_subprocess", action="store_true")
     parser.add_argument("--disable-heavy-step-subprocess", dest="heavy_step_subprocess", action="store_false")
@@ -105,6 +119,92 @@ def build_run_parser(parser, dependencies=None):
         "--heavy-step-working-set-max-mb",
         type=int,
         default=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
+    )
+    parser.add_argument(
+        "--capture-resource-mode",
+        choices=capture_resource_gate.CAPTURE_MODES,
+        default="live",
+        help=(
+            "Host role for pre-heavy-work admission. Use offline_host only on "
+            "an explicitly non-capture research host."
+        ),
+    )
+    parser.add_argument("--capture-resource-disk-path", default="")
+    parser.add_argument("--capture-resource-out", default="")
+    parser.add_argument("--capture-resource-report", default="")
+    parser.add_argument(
+        "--capture-resource-min-free-memory-bytes",
+        type=int,
+        default=capture_resource_gate.DEFAULT_MIN_FREE_MEMORY_BYTES,
+    )
+    parser.add_argument(
+        "--capture-resource-min-free-disk-bytes",
+        type=int,
+        default=capture_resource_gate.DEFAULT_MIN_FREE_DISK_BYTES,
+    )
+    parser.add_argument(
+        "--capture-resource-daily-disk-growth-bytes",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--capture-resource-min-disk-headroom-days",
+        type=float,
+        default=capture_resource_gate.DEFAULT_MIN_DISK_HEADROOM_DAYS,
+    )
+    parser.add_argument(
+        "--capture-resource-active-window-start-hour",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--capture-resource-active-window-end-hour",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--captured-input-parity-served",
+        action="append",
+        default=[],
+        help="Explicit live-served prediction row file; repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--captured-input-parity-replay",
+        action="append",
+        default=[],
+        help=(
+            "Explicit prediction rows regenerated from the exact captured inputs; "
+            "missing rows block heavy work."
+        ),
+    )
+    parser.add_argument("--captured-input-parity-out", default="")
+    parser.add_argument("--captured-input-parity-report", default="")
+    parser.add_argument(
+        "--captured-input-parity-max-age-hours",
+        type=float,
+        default=live_variant_settlement_scorecard.DEFAULT_PARITY_MAX_INPUT_AGE_HOURS,
+    )
+    parser.add_argument("--skip-captured-input-replay-parity", action="store_true")
+    parser.add_argument(
+        "--production-readiness-evidence",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+    )
+    parser.add_argument(
+        "--production-readiness-served-artifact",
+        action="append",
+        default=[],
+        metavar="ROLE=PATH",
+    )
+    parser.add_argument("--production-readiness-served-route", default="")
+    parser.add_argument("--production-readiness-out", default="")
+    parser.add_argument("--production-readiness-report", default="")
+    parser.add_argument("--skip-production-readiness-gate", action="store_true")
+    parser.add_argument(
+        "--fail-on-production-readiness-block",
+        action="store_true",
+        help="Return a blocking pipeline status when the final read-only readiness gate is not PASS.",
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
@@ -154,6 +254,51 @@ def build_run_parser(parser, dependencies=None):
              "the full corpus.",
     )
     parser.add_argument("--skip-proper-scoring-reliability-scorecard", action="store_true")
+    parser.add_argument("--skip-live-variant-settlement-scorecard", action="store_true")
+    parser.set_defaults(fail_on_live_variant_settlement_scorecard=True)
+    parser.add_argument(
+        "--fail-on-live-variant-settlement-scorecard",
+        dest="fail_on_live_variant_settlement_scorecard",
+        action="store_true",
+        help="Mark the daily refresh critical when an available live tape fails canonical settlement scoring.",
+    )
+    parser.add_argument(
+        "--allow-live-variant-settlement-scorecard-block",
+        dest="fail_on_live_variant_settlement_scorecard",
+        action="store_false",
+        help="Diagnostic-only: preserve the BLOCK artifact without making the parent refresh critical.",
+    )
+    parser.add_argument(
+        "--live-variant-settlement-tapes",
+        default="",
+        help="Comma-separated live variant tape paths. Default selects only --settled-analysis-target-date under snapshots root.",
+    )
+    parser.add_argument(
+        "--live-variant-settlement-target-date",
+        default="",
+        help="Exact target date to score; defaults to the pinned settled-analysis target date.",
+    )
+    parser.add_argument(
+        "--live-variant-settlement-expected-variants-manifest",
+        default="",
+        help="Optional immutable release manifest/registry pinning variants expected in every selected tape.",
+    )
+    parser.add_argument(
+        "--live-variant-settlement-observed-variants-only",
+        action="store_true",
+        help="Diagnostic-only coverage over observed variants; emits DIAGNOSTIC and can never authorize promotion.",
+    )
+    parser.add_argument(
+        "--live-variant-settlement-allow-derived-release-id",
+        action="store_true",
+        help="Diagnostic legacy mode only; production scoring requires explicit release_id rows.",
+    )
+    parser.add_argument("--live-variant-settlement-simplex-tolerance", type=float, default=1e-6)
+    parser.add_argument("--live-variant-settlement-max-tapes", type=int, default=None)
+    parser.add_argument("--live-variant-settlement-max-tape-bytes", type=int, default=None)
+    parser.add_argument("--live-variant-settlement-max-total-bytes", type=int, default=None)
+    parser.add_argument("--live-variant-settlement-json-out", default="")
+    parser.add_argument("--live-variant-settlement-report-out", default="")
     parser.add_argument("--variant-registry", default=str(active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
     parser.add_argument(
         "--variant-evidence-current",
@@ -571,7 +716,9 @@ def cmd_run(args):
     _redirect_default_dry_run_outputs(args)
     if not args.dry_run:
         preflight = lock_preflight(args)
-        lock = acquire_lock(args.lock_path, force=args.force_lock)
+        lock_audit = {}
+        lock = acquire_lock(args.lock_path, force=args.force_lock, audit=lock_audit)
+        setattr(args, "_daily_refresh_lock_acquisition", lock_audit)
         if lock is None:
             blocked = lock_preflight(args)
             print(f"Daily refresh lock blocks run: {args.lock_path}", file=sys.stderr)
@@ -595,7 +742,7 @@ def cmd_run(args):
         print(f"Evidence trigger: {trigger.get('status')} ({trigger.get('task_name')})")
     if payload["status"] == "error":
         return 1
-    if payload["status"] == "critical":
+    if payload["status"] in {"critical", "deferred"}:
         return 2
     return 0
 
@@ -644,6 +791,7 @@ def repair_stale_locks(args):
         "long_job_lock": long_job,
         "long_job_state": long_job_state,
         "removed_lock_count": sum(1 for row in (daily, long_job) if row.get("removed")),
+        "verified_stale_lock_count": sum(1 for row in (daily, long_job) if row.get("stale")),
         "cleared_state_count": 1 if long_job_state.get("cleared") else 0,
         "resume_from_step": getattr(args, "resume_from_step", "") or "daily_learning",
     }
@@ -653,6 +801,7 @@ def cmd_repair_stale_locks(args):
     payload = repair_stale_locks(args)
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     if getattr(args, "run_after_repair", False):
+        setattr(args, "_prior_lock_repair_outcomes", payload)
         return cmd_run(args)
     return 0
 

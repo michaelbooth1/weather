@@ -55,6 +55,14 @@ from weather.operations.supervisor import (
     terminate_python_pid,
 )
 
+from weather.collection.snapshot_capture_batch import (  # noqa: E402
+    DEFAULT_CAPTURE_WORKERS,
+    DEFAULT_CHILD_WORKING_SET_MAX_MB,
+    DEFAULT_FLEET_BUDGET_SECONDS,
+    DEFAULT_MARKET_TIMEOUT_SECONDS,
+    run_bounded_capture_batch,
+    run_isolated_capture,
+)
 from weather.collection.snapshot_store import (  # noqa: E402
     COMPONENT_COLUMNS,
     DEFAULT_MARKET_CONFIG,
@@ -144,7 +152,14 @@ def capture_snapshot(
             "validation_hash": validation.get("validation_hash"),
             "reason": validation_gate.get("reason"),
         }
-    model_client = TorontoHighTempModel(target_date=event_config.target_date, market_id=market_id)
+    model_kwargs = {
+        "target_date": event_config.target_date,
+        "market_id": market_id,
+    }
+    verified_bundle_loader = getattr(store, "verified_serving_bundle", None)
+    if callable(verified_bundle_loader):
+        model_kwargs["serving_bundle"] = verified_bundle_loader()
+    model_client = TorontoHighTempModel(**model_kwargs)
     historical_sources = model_client.fetch_historical_sources()
     live_sources = model_client.fetch_live_sources()
     model = model_client.build(
@@ -163,6 +178,7 @@ def capture_snapshot(
 
 
 SNAPSHOT_DATA_ROOT = data_path() / "snapshots"
+SOURCE_FAMILY_COOLDOWN_PATH = data_path() / "ops" / "live_source_family_cooldown.json"
 PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
@@ -970,12 +986,17 @@ def run_loop(
     sleep_fn=time.sleep,
     now_fn=None,
     target_date=None,
+    capture_workers=DEFAULT_CAPTURE_WORKERS,
+    capture_fleet_budget_seconds=DEFAULT_FLEET_BUDGET_SECONDS,
+    capture_timeout_seconds=DEFAULT_MARKET_TIMEOUT_SECONDS,
+    capture_child_working_set_max_mb=DEFAULT_CHILD_WORKING_SET_MAX_MB,
 ):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
     heartbeat + diagnostics record is written every iteration."""
     now_fn = now_fn or (lambda: datetime.now(TORONTO_TZ))
-    preflight_due_enabled = capture_fn is None
+    production_capture = capture_fn is None
+    preflight_due_enabled = production_capture
     capture_fn = capture_fn or capture_snapshot
     target_date = ensure_date(target_date) if target_date is not None else None
     writer_lock = acquire_writer_lock(
@@ -1006,6 +1027,17 @@ def run_loop(
         "last_snapshot_id": None,
         "last_snapshot_written_at": None,
         "paused": False,
+        "capture_execution": {
+            "mode": (
+                "isolated_subprocess_batch"
+                if production_capture
+                else "inline_test_or_override"
+            ),
+            "worker_count": max(1, int(capture_workers)),
+            "fleet_budget_seconds": float(capture_fleet_budget_seconds),
+            "market_timeout_seconds": float(capture_timeout_seconds),
+            "child_working_set_max_mb": int(capture_child_working_set_max_mb),
+        },
     }
     attach_status_writer(status, writer_lock)
     try:
@@ -1063,7 +1095,11 @@ def run_loop(
                         "readoption_debounce": readopt,
                     })
                 # Capture every registered market each tick; one market's failure is
-                # isolated so it never kills the loop or the other markets.
+                # isolated so it never kills the loop or the other markets. Normal
+                # production passes use bounded child processes. If this parent is
+                # temporarily serving its already-loaded code during the re-adoption
+                # debounce, stay inline: a newly imported child would have a different
+                # runtime fingerprint and must not write into the old-runtime segment.
                 market_results = {}
                 specs = list(all_specs())
                 if preflight_due_enabled:
@@ -1071,61 +1107,257 @@ def run_loop(
                 else:
                     ordered_rows = [(spec, None) for spec in specs]
                 market_cadence = {}
-                for spec, due_state in ordered_rows:
-                    market_started = now_fn()
-                    try:
-                        status["last_market_in_progress"] = spec.id
-                        status["last_heartbeat"] = market_started.isoformat()
-                        write_loop_status(status)
-                        if (
-                            preflight_due_enabled
-                            and not force
-                            and due_state is not None
-                            and not due_state.get("due")
-                        ):
-                            result = {
-                                "written": False,
-                                "snapshot_id": None,
-                                "skipped": True,
-                                "skipped_reason": "not_due_preflight",
-                                "market_id": spec.id,
-                                "event_slug": due_state.get("event_slug"),
-                                "target_date": due_state.get("target_date"),
-                                "next_due_at": due_state.get("next_due_at"),
-                            }
-                        elif target_date is None:
-                            result = capture_fn(force=force, market_id=spec.id)
-                        else:
-                            result = capture_fn(force=force, market_id=spec.id, target_date=target_date)
-                        market_results[spec.id] = result
-                        progress_now = now_fn()
-                        status["last_heartbeat"] = progress_now.isoformat()
-                        if result.get("written"):
-                            status["last_snapshot_id"] = result.get("snapshot_id")
-                            status["last_snapshot_written_at"] = progress_now.isoformat()
-                    except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                        market_results[spec.id] = {"error": f"{type(exc).__name__}: {exc}"}
-                        progress_now = now_fn()
-                        status["last_heartbeat"] = progress_now.isoformat()
-                    market_cadence[spec.id] = market_cadence_attribution(
-                        spec.id,
-                        market_results.get(spec.id) or {},
-                        due_state,
-                        started_at=market_started,
-                        completed_at=progress_now,
+                market_execution = {}
+                parent_runtime_fingerprint = str(
+                    (status.get("runtime_identity") or {}).get("source_fingerprint") or ""
+                )
+                use_isolated_batch = bool(
+                    production_capture
+                    and not stale_code
+                    and parent_runtime_fingerprint
+                )
+                status["capture_execution"]["active_mode"] = (
+                    "isolated_subprocess_batch" if use_isolated_batch else "inline"
+                )
+                status["capture_execution"]["inline_reason"] = (
+                    "runtime_re_adoption_debounce"
+                    if production_capture and stale_code
+                    else (
+                        "runtime_fingerprint_missing"
+                        if production_capture and not parent_runtime_fingerprint
+                        else ("capture_override" if not production_capture else None)
                     )
-                    status["last_market_results"] = {
-                        mid: {
-                            "written": bool(result.get("written")),
-                            "snapshot_id": result.get("snapshot_id"),
-                            "error": result.get("error"),
-                            "skipped_reason": result.get("skipped_reason"),
-                            "next_due_at": result.get("next_due_at"),
-                            "cadence": market_cadence.get(mid),
+                )
+                if use_isolated_batch:
+                    due_requests = []
+                    skipped_records = {}
+                    for spec, due_state in ordered_rows:
+                        if not force and due_state is not None and not due_state.get("due"):
+                            skipped_records[spec.id] = {
+                                "market_id": spec.id,
+                                "started_at": now,
+                                "result": {
+                                    "written": False,
+                                    "snapshot_id": None,
+                                    "skipped": True,
+                                    "skipped_reason": "not_due_preflight",
+                                    "market_id": spec.id,
+                                    "event_slug": due_state.get("event_slug"),
+                                    "target_date": due_state.get("target_date"),
+                                    "next_due_at": due_state.get("next_due_at"),
+                                },
+                                "execution": {
+                                    "mode": "preflight",
+                                    "not_started": True,
+                                    "reason": "not_due_preflight",
+                                },
+                            }
+                            continue
+                        due_requests.append({
+                            "market_id": spec.id,
+                            "force": bool(force),
+                            "target_date": target_date.isoformat() if target_date else None,
+                        })
+
+                    def capture_progress(progress):
+                        progress_now = now_fn()
+                        active_markets = list(progress.get("active_markets") or [])
+                        status["last_heartbeat"] = progress_now.isoformat()
+                        status["markets_in_progress"] = active_markets
+                        status["last_market_in_progress"] = (
+                            active_markets[0] if active_markets else None
+                        )
+                        status["last_capture_batch_progress"] = {
+                            **progress,
+                            "updated_at": progress_now.isoformat(),
                         }
-                        for mid, result in market_results.items()
+                        write_loop_status(status)
+
+                    def isolated_runner(request, timeout_seconds):
+                        return run_isolated_capture(
+                            request,
+                            timeout_seconds,
+                            expected_runtime_fingerprint=parent_runtime_fingerprint,
+                            cwd=REPO_ROOT,
+                            working_set_max_mb=capture_child_working_set_max_mb,
+                            shared_source_cooldown_path=SOURCE_FAMILY_COOLDOWN_PATH,
+                            now_fn=now_fn,
+                        )
+
+                    try:
+                        capture_batch = run_bounded_capture_batch(
+                            due_requests,
+                            worker_count=capture_workers,
+                            fleet_budget_seconds=capture_fleet_budget_seconds,
+                            market_timeout_seconds=capture_timeout_seconds,
+                            runner_fn=isolated_runner,
+                            progress_fn=capture_progress,
+                            now_fn=now_fn,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - preserve loop liveness
+                        failed_at = now_fn()
+                        detail = f"{type(exc).__name__}: {exc}"
+                        capture_batch = {
+                            "records": [
+                                {
+                                    "market_id": request["market_id"],
+                                    "started_at": failed_at,
+                                    "completed_at": failed_at,
+                                    "result": {
+                                        "written": False,
+                                        "error": f"capture_batch_error: {detail}",
+                                        "capture_status": "capture_batch_error",
+                                        "retryable": True,
+                                    },
+                                    "execution": {
+                                        "mode": "isolated_subprocess_batch",
+                                        "batch_error": detail,
+                                    },
+                                }
+                                for request in due_requests
+                            ],
+                            "summary": {
+                                "mode": "isolated_subprocess_batch",
+                                "request_count": len(due_requests),
+                                "error": detail,
+                            },
+                        }
+                    status["last_capture_batch"] = capture_batch.get("summary")
+                    completed_records = {
+                        record["market_id"]: record
+                        for record in capture_batch.get("records") or []
                     }
-                    write_loop_status(status)
+                    pass_completed_at = now_fn()
+                    latest_written = None
+                    for spec, due_state in ordered_rows:
+                        record = completed_records.get(spec.id) or skipped_records.get(spec.id)
+                        if record is None:
+                            missing_at = now_fn()
+                            record = {
+                                "market_id": spec.id,
+                                "started_at": missing_at,
+                                "completed_at": missing_at,
+                                "result": {
+                                    "written": False,
+                                    "error": "capture_batch_result_missing: no market result",
+                                    "capture_status": "capture_batch_result_missing",
+                                    "retryable": True,
+                                },
+                                "execution": {
+                                    "mode": "isolated_subprocess_batch",
+                                    "result_missing": True,
+                                },
+                            }
+                        if "completed_at" not in record:
+                            # Match the old serial attribution: a market that was
+                            # not due at loop start can become due while other
+                            # captures run, and must be visible as skipped drift.
+                            record["completed_at"] = pass_completed_at
+                        result = record.get("result") or {}
+                        market_results[spec.id] = result
+                        market_execution[spec.id] = record.get("execution") or {}
+                        market_cadence[spec.id] = market_cadence_attribution(
+                            spec.id,
+                            result,
+                            due_state,
+                            started_at=record.get("started_at"),
+                            completed_at=record.get("completed_at"),
+                        )
+                        if result.get("written") and (
+                            latest_written is None
+                            or record.get("completed_at") > latest_written.get("completed_at")
+                        ):
+                            latest_written = record
+                    if latest_written is not None:
+                        status["last_snapshot_id"] = (
+                            latest_written.get("result") or {}
+                        ).get("snapshot_id")
+                        status["last_snapshot_written_at"] = latest_written[
+                            "completed_at"
+                        ].isoformat()
+                    status["markets_in_progress"] = []
+                else:
+                    for spec, due_state in ordered_rows:
+                        market_started = now_fn()
+                        try:
+                            status["last_market_in_progress"] = spec.id
+                            status["markets_in_progress"] = [spec.id]
+                            status["last_heartbeat"] = market_started.isoformat()
+                            write_loop_status(status)
+                            if (
+                                preflight_due_enabled
+                                and not force
+                                and due_state is not None
+                                and not due_state.get("due")
+                            ):
+                                result = {
+                                    "written": False,
+                                    "snapshot_id": None,
+                                    "skipped": True,
+                                    "skipped_reason": "not_due_preflight",
+                                    "market_id": spec.id,
+                                    "event_slug": due_state.get("event_slug"),
+                                    "target_date": due_state.get("target_date"),
+                                    "next_due_at": due_state.get("next_due_at"),
+                                }
+                            elif target_date is None:
+                                result = capture_fn(force=force, market_id=spec.id)
+                            else:
+                                result = capture_fn(
+                                    force=force,
+                                    market_id=spec.id,
+                                    target_date=target_date,
+                                )
+                            market_results[spec.id] = result
+                            progress_now = now_fn()
+                            status["last_heartbeat"] = progress_now.isoformat()
+                            if result.get("written"):
+                                status["last_snapshot_id"] = result.get("snapshot_id")
+                                status["last_snapshot_written_at"] = progress_now.isoformat()
+                        except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                            market_results[spec.id] = {
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                            progress_now = now_fn()
+                            status["last_heartbeat"] = progress_now.isoformat()
+                        market_execution[spec.id] = {
+                            "mode": "inline",
+                            "runtime_re_adoption_debounce": bool(stale_code),
+                        }
+                        market_cadence[spec.id] = market_cadence_attribution(
+                            spec.id,
+                            market_results.get(spec.id) or {},
+                            due_state,
+                            started_at=market_started,
+                            completed_at=progress_now,
+                        )
+                        status["last_market_results"] = {
+                            mid: {
+                                "written": bool(result.get("written")),
+                                "snapshot_id": result.get("snapshot_id"),
+                                "error": result.get("error"),
+                                "skipped_reason": result.get("skipped_reason"),
+                                "next_due_at": result.get("next_due_at"),
+                                "execution": market_execution.get(mid),
+                                "cadence": market_cadence.get(mid),
+                            }
+                            for mid, result in market_results.items()
+                        }
+                        write_loop_status(status)
+                    status["markets_in_progress"] = []
+
+                status["last_market_results"] = {
+                    mid: {
+                        "written": bool(result.get("written")),
+                        "snapshot_id": result.get("snapshot_id"),
+                        "error": result.get("error"),
+                        "skipped_reason": result.get("skipped_reason"),
+                        "next_due_at": result.get("next_due_at"),
+                        "execution": market_execution.get(mid),
+                        "cadence": market_cadence.get(mid),
+                    }
+                    for mid, result in market_results.items()
+                }
                 errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
                 if errors:
                     status["consecutive_errors"] += 1
@@ -1193,6 +1425,33 @@ def run_loop(
         release_writer_lock(writer_lock)
 
 
+def capture_runtime_fingerprint_gate(expected_fingerprint, identity=None):
+    """Fail closed when an isolated child is not the parent's code identity."""
+
+    identity = PROCESS_RUNTIME_IDENTITY if identity is None else identity
+    actual = str((identity or {}).get("source_fingerprint") or "")
+    expected = str(expected_fingerprint or "")
+    if not expected:
+        return {"ok": True, "expected": None, "actual": actual or None}
+    return {
+        "ok": bool(actual and actual == expected),
+        "expected": expected,
+        "actual": actual or None,
+        "reason": (
+            None
+            if actual and actual == expected
+            else "isolated capture runtime fingerprint differs from parent loop"
+        ),
+    }
+
+
+def emit_capture_result(result, result_json=None):
+    if result_json:
+        atomic_write_json(Path(result_json), result)
+        return
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+
+
 def main():
     # Under pythonw.exe (the windowless interpreter the supervisor task uses so
     # no console flashes every 10 minutes) sys.stdout/stderr are None and any
@@ -1232,6 +1491,36 @@ def main():
         type=float,
         default=10.0,
         help="Loop interval in minutes.",
+    )
+    parser.add_argument(
+        "--capture-workers",
+        type=int,
+        default=DEFAULT_CAPTURE_WORKERS,
+        help="Maximum concurrent isolated market captures in the managed loop.",
+    )
+    parser.add_argument(
+        "--capture-fleet-budget-seconds",
+        type=float,
+        default=DEFAULT_FLEET_BUDGET_SECONDS,
+        help="Hard admission/timeout budget for one due-market fleet pass.",
+    )
+    parser.add_argument(
+        "--capture-timeout-seconds",
+        type=float,
+        default=DEFAULT_MARKET_TIMEOUT_SECONDS,
+        help="Maximum runtime for one isolated market capture (may tighten to fit fleet budget).",
+    )
+    parser.add_argument(
+        "--capture-child-working-set-max-mb",
+        type=int,
+        default=DEFAULT_CHILD_WORKING_SET_MAX_MB,
+        help="Per-child process-tree memory ceiling for an isolated market capture.",
+    )
+    parser.add_argument("--result-json", default="", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--expected-runtime-fingerprint",
+        default="",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--status",
@@ -1396,16 +1685,36 @@ def main():
                 ],
             }, indent=2, sort_keys=True, default=str))
             return
-        print(json.dumps(
-            capture_snapshot(force=args.force, market_id=args.market, target_date=target_date),
-            indent=2,
-            sort_keys=True,
-            default=str,
-        ))
+        runtime_gate = capture_runtime_fingerprint_gate(args.expected_runtime_fingerprint)
+        if runtime_gate.get("ok"):
+            result = capture_snapshot(
+                force=args.force,
+                market_id=args.market,
+                target_date=target_date,
+            )
+        else:
+            result = {
+                "written": False,
+                "blocked": True,
+                "status": "BLOCK",
+                "error": runtime_gate.get("reason"),
+                "runtime_fingerprint_gate": runtime_gate,
+                "market_id": args.market,
+                "target_date": target_date.isoformat() if target_date else None,
+            }
+        emit_capture_result(result, args.result_json)
         return
 
     configure_json_console_logging()
-    run_loop(force=args.force, interval_minutes=args.interval_minutes, target_date=target_date)
+    run_loop(
+        force=args.force,
+        interval_minutes=args.interval_minutes,
+        target_date=target_date,
+        capture_workers=args.capture_workers,
+        capture_fleet_budget_seconds=args.capture_fleet_budget_seconds,
+        capture_timeout_seconds=args.capture_timeout_seconds,
+        capture_child_working_set_max_mb=args.capture_child_working_set_max_mb,
+    )
 
 
 if __name__ == "__main__":

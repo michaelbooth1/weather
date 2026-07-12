@@ -724,6 +724,133 @@ def apply_exact_winner_catchup(probability, row, config=None):
     return clip_probability(float(probability) * factor)
 
 
+def density_forecast_source_count_bucket(value):
+    try:
+        value = int(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= 1:
+        return "low_count"
+    if value == 2:
+        return "two_sources"
+    return "three_plus_sources"
+
+
+def density_forecast_disagreement_bucket(value):
+    try:
+        value = abs(float(value))
+    except (TypeError, ValueError):
+        return "unknown"
+    if value < 1.0:
+        return "low_disagreement"
+    if value < 2.5:
+        return "moderate_disagreement"
+    return "high_disagreement"
+
+
+def density_forecast_pressure_bucket(value):
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value <= -1.0:
+        return "cool_side"
+    if value >= 1.0:
+        return "warm_side"
+    return "near_forecast"
+
+
+def density_forecast_relative_contexts(row):
+    """Serve-time context fallbacks for density projection calibration."""
+    market_id = row.get("market_id") or "unknown"
+    kind = row.get("band_kind") or "unknown"
+    width = _band_width_label(row)
+    hour_bucket = calibration_hour_bucket(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
+    pressure = density_forecast_pressure_bucket(row.get("band_mid_minus_forecast"))
+    disagreement = density_forecast_disagreement_bucket(row.get("forecast_disagreement"))
+    source_count = density_forecast_source_count_bucket(row.get("forecast_source_count"))
+    floor_gap = calibration_gap_bucket(row.get("band_mid_minus_high_so_far"))
+    return [
+        (
+            f"market={market_id}|hour={hour_bucket}|kind={kind}|width={width}|"
+            f"pressure={pressure}|disagreement={disagreement}|source_count={source_count}|"
+            f"floor_gap={floor_gap}"
+        ),
+        (
+            f"market={market_id}|hour={hour_bucket}|kind={kind}|"
+            f"pressure={pressure}|disagreement={disagreement}|source_count={source_count}"
+        ),
+        (
+            f"market={market_id}|kind={kind}|pressure={pressure}|"
+            f"disagreement={disagreement}|source_count={source_count}"
+        ),
+        f"hour={hour_bucket}|kind={kind}|pressure={pressure}|disagreement={disagreement}",
+        f"kind={kind}|pressure={pressure}|disagreement={disagreement}",
+        f"pressure={pressure}|disagreement={disagreement}",
+        f"pressure={pressure}",
+    ]
+
+
+def forecast_relative_density_factor(row, config=None):
+    config = config or {}
+    calibration = config.get("forecast_relative_calibration") or config
+    contexts = calibration.get("contexts") or {}
+    if not contexts:
+        return 1.0
+    for context in density_forecast_relative_contexts(row):
+        entry = contexts.get(context)
+        if entry is None:
+            continue
+        if isinstance(entry, dict):
+            return float(entry.get("factor", 1.0))
+        return float(entry)
+    return 1.0
+
+
+def apply_forecast_relative_density_calibration(probability, row, config=None):
+    config = config or {}
+    calibration = config.get("forecast_relative_calibration") or config
+    factor = forecast_relative_density_factor(
+        row,
+        config={"forecast_relative_calibration": calibration},
+    )
+    strength = max(0.0, min(1.0, float(calibration.get("strength", 1.0))))
+    if factor == 1.0 or strength <= 0.0:
+        return clip_probability(probability)
+    return clip_probability(float(probability) * (float(factor) ** strength))
+
+
+def apply_density_band_postprocessing(probability, row, config=None):
+    """Apply the density-specific replay postprocessors in canonical order."""
+    config = config or {}
+    if not config.get("enabled"):
+        return max(0.0, min(1.0, float(probability)))
+    probability = clip_probability(probability)
+    if config.get("adjacent_calibration_enabled", False):
+        probability = apply_adjacent_calibration(
+            probability,
+            row,
+            config={"adjacent_calibration": config.get("adjacent_calibration") or {}},
+        )
+    if config.get("exact_winner_catchup_enabled", False):
+        probability = apply_exact_winner_catchup(
+            probability,
+            row,
+            config={"exact_winner_catchup": config.get("exact_winner_catchup") or {}},
+        )
+    if config.get("forecast_relative_calibration_enabled", False):
+        probability = apply_forecast_relative_density_calibration(
+            probability,
+            row,
+            config={
+                "forecast_relative_calibration": (
+                    config.get("forecast_relative_calibration") or {}
+                ),
+            },
+        )
+    return clip_probability(probability)
+
+
 def apply_band_postprocessing(probability, row, config=None):
     config = config or {}
     kind = row.get("band_kind")

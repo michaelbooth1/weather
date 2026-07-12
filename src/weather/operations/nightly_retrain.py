@@ -1,4 +1,4 @@
-"""Nightly retrain -> validate -> promote orchestration."""
+"""Nightly retrain -> validate -> immutable candidate orchestration."""
 
 from __future__ import annotations
 
@@ -16,15 +16,44 @@ from datetime import datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from weather.paths import data_path
-
-from weather.artifacts import DEFAULT_ARTIFACT_REGISTRY_PATH, writable_artifact_path
 from weather.backtesting.settlement_ledger import DEFAULT_LABELS_CSV, DEFAULT_LEDGER_ROOT
+from weather.experiment_contract import (
+    ExperimentContractError,
+    QUEUE_SCHEMA_VERSION,
+    verify_automatic_experiment_queue,
+)
+from weather.operations.capture_resource_gate import (
+    CAPTURE_MODES,
+    DEFAULT_MIN_DISK_HEADROOM_DAYS as DEFAULT_CAPTURE_MIN_DISK_HEADROOM_DAYS,
+    DEFAULT_MIN_FREE_DISK_BYTES as DEFAULT_CAPTURE_MIN_FREE_DISK_BYTES,
+    DEFAULT_MIN_FREE_MEMORY_BYTES as DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
+    NIGHTLY_RETRAIN_WORKLOAD,
+    persist_pipeline_admission,
+)
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
+from weather.operations.release_candidate_build import (
+    prepare_candidate_outputs,
+    run_candidate_release_step,
+)
+from weather.operations.release_manifest import (
+    DEFAULT_RELEASES_ROOT,
+    capture_code_identity,
+    create_release,
+)
+from weather.operations.release_promotion import DEFAULT_CANDIDATES_ROOT
+from weather.operations.producer_provenance import (
+    build_invocation_proof,
+    build_lock_proof,
+    build_stage_sla,
+    producer_release_proof,
+)
+from weather.paths import REPO_ROOT, data_path
+from weather.reporting.scorecards import live_variant_settlement_scorecard
+from weather.reporting.serving_gates import production_readiness_gate
 from weather.schema_registry import schema_version
 
 
@@ -33,8 +62,6 @@ DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_status.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_report.md"
-DEFAULT_FAMILY_SECONDARY_MANIFEST = writable_artifact_path("f_family_secondary_artifacts.json")
-DEFAULT_POOLED_BAND_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_v0_3.pkl")
 DEFAULT_DAILY_LEARNING_OUT = DEFAULT_BACKTEST_ROOT / "daily_learning.json"
 DEFAULT_DAILY_LEARNING_REPORT = DEFAULT_BACKTEST_ROOT / "daily_learning_report.md"
 DEFAULT_EXPERIMENT_QUEUE_RESULTS_OUT = DEFAULT_BACKTEST_ROOT / "experiment_queue_results.json"
@@ -59,6 +86,209 @@ def utc_iso():
 
 def backtest_path(args, name):
     return str(Path(args.backtest_root) / name)
+
+
+def _capture_resource_preflight(args):
+    backtest_root = Path(args.backtest_root)
+    out = (
+        getattr(args, "capture_resource_out", "")
+        or backtest_root / "capture_resource_gate.json"
+    )
+    report = (
+        getattr(args, "capture_resource_report", "")
+        or backtest_root / "capture_resource_gate.md"
+    )
+    return persist_pipeline_admission(
+        workload=NIGHTLY_RETRAIN_WORKLOAD,
+        out=out,
+        report=report,
+        snapshots_root=args.snapshots_root,
+        disk_path=(
+            getattr(args, "capture_resource_disk_path", "")
+            or args.backtest_root
+        ),
+        capture_mode=getattr(args, "capture_resource_mode", "live"),
+        active_window_start_hour=getattr(
+            args,
+            "capture_resource_active_window_start_hour",
+            None,
+        ),
+        active_window_end_hour=getattr(
+            args,
+            "capture_resource_active_window_end_hour",
+            None,
+        ),
+        min_free_memory_bytes=int(
+            getattr(
+                args,
+                "capture_resource_min_free_memory_bytes",
+                DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
+            )
+        ),
+        min_free_disk_bytes=int(
+            getattr(
+                args,
+                "capture_resource_min_free_disk_bytes",
+                DEFAULT_CAPTURE_MIN_FREE_DISK_BYTES,
+            )
+        ),
+        daily_disk_growth_bytes=getattr(
+            args,
+            "capture_resource_daily_disk_growth_bytes",
+            None,
+        ),
+        min_disk_headroom_days=float(
+            getattr(
+                args,
+                "capture_resource_min_disk_headroom_days",
+                DEFAULT_CAPTURE_MIN_DISK_HEADROOM_DAYS,
+            )
+        ),
+    )
+
+
+def _configured_paths(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, (str, Path)):
+        return [str(value)]
+    return [str(path) for path in value if str(path or "").strip()]
+
+
+def _configured_name_paths(value):
+    if isinstance(value, dict):
+        return {str(name): Path(path) for name, path in value.items()}
+    parsed = {}
+    for item in value or []:
+        if "=" not in str(item):
+            parsed[str(item)] = Path("")
+            continue
+        name, path = str(item).split("=", 1)
+        parsed[name.strip()] = Path(path.strip())
+    return parsed
+
+
+def _captured_input_parity_preflight(args, release_identity):
+    backtest_root = Path(args.backtest_root)
+    active_pointer = (
+        getattr(args, "release_pointer", "")
+        or production_readiness_gate.DEFAULT_ACTIVE_RELEASE_POINTER
+    )
+    releases_root = (
+        getattr(args, "releases_root", "")
+        or production_readiness_gate.DEFAULT_RELEASES_ROOT
+    )
+    json_out = (
+        getattr(args, "captured_input_parity_out", "")
+        or backtest_root / "live_variant_replay_parity.json"
+    )
+    report_out = (
+        getattr(args, "captured_input_parity_report", "")
+        or backtest_root / "live_variant_replay_parity.md"
+    )
+    expected_release_id = str((release_identity or {}).get("release_id") or "")
+    expected_manifest_sha256 = str(
+        (release_identity or {}).get("release_manifest_sha256")
+        or (release_identity or {}).get("manifest_sha256")
+        or ""
+    )
+    try:
+        return live_variant_settlement_scorecard.persist_captured_input_replay_parity(
+            _configured_paths(getattr(args, "captured_input_parity_served", [])),
+            _configured_paths(getattr(args, "captured_input_parity_replay", [])),
+            json_out=json_out,
+            report_out=report_out,
+            protected_paths=[active_pointer],
+            protected_roots=[releases_root],
+            expected_release_id=expected_release_id,
+            expected_manifest_sha256=expected_manifest_sha256,
+            max_input_age_hours=float(
+                getattr(
+                    args,
+                    "captured_input_parity_max_age_hours",
+                    live_variant_settlement_scorecard.DEFAULT_PARITY_MAX_INPUT_AGE_HOURS,
+                )
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - terminal BLOCK must still persist
+        return live_variant_settlement_scorecard.persist_captured_input_replay_parity_failure(
+            exc,
+            json_out=json_out,
+            report_out=report_out,
+            protected_paths=[active_pointer],
+            protected_roots=[releases_root],
+            expected_release_id=expected_release_id,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
+
+
+def _production_readiness_status(args):
+    backtest_root = Path(args.backtest_root)
+    evidence_overrides = _configured_name_paths(
+        getattr(args, "production_readiness_evidence", [])
+    )
+    evidence_overrides["replay_parity"] = Path(
+        getattr(args, "captured_input_parity_out", "")
+        or backtest_root / "live_variant_replay_parity.json"
+    )
+    evidence_overrides["capture_resource_gate"] = Path(
+        getattr(args, "capture_resource_out", "")
+        or backtest_root / "capture_resource_gate.json"
+    )
+    gate_kwargs = {
+        "pointer_path": (
+            getattr(args, "release_pointer", "")
+            or production_readiness_gate.DEFAULT_ACTIVE_RELEASE_POINTER
+        ),
+        "releases_root": (
+            getattr(args, "releases_root", "")
+            or production_readiness_gate.DEFAULT_RELEASES_ROOT
+        ),
+        "served_artifact_paths": _configured_name_paths(
+            getattr(args, "production_readiness_served_artifact", [])
+        ),
+        "served_route_path": (
+            getattr(args, "production_readiness_served_route", "") or None
+        ),
+    }
+    resolver = getattr(args, "production_readiness_release_resolver", None)
+    if resolver is not None:
+        gate_kwargs["release_resolver"] = resolver
+    payload, json_path, report_path = (
+        production_readiness_gate.build_and_write_production_readiness_status(
+            backtest_root=backtest_root,
+            evidence_paths=evidence_overrides,
+            json_out=(
+                getattr(args, "production_readiness_out", "")
+                or backtest_root / "production_readiness_gate.json"
+            ),
+            report_out=(
+                getattr(args, "production_readiness_report", "")
+                or backtest_root / "production_readiness_gate.md"
+            ),
+            **gate_kwargs,
+        )
+    )
+    attestation = payload.get("read_only_attestation") or {}
+    return {
+        "status": payload.get("status"),
+        "stage": payload.get("stage"),
+        "blocker_count": payload.get("blocker_count"),
+        "first_blocker": payload.get("first_blocker"),
+        "gate_sha256": payload.get("gate_sha256"),
+        "json_out": str(json_path),
+        "report_out": str(report_path),
+        "read_only": attestation.get("pointer_unchanged") is True,
+        "pointer_mutated": (
+            False
+            if attestation.get("pointer_unchanged") is True
+            else True
+            if attestation.get("pointer_unchanged") is False
+            else None
+        ),
+        "pointer_sha256_before": (attestation.get("pointer_before") or {}).get("sha256"),
+        "pointer_sha256_after": (attestation.get("pointer_after") or {}).get("sha256"),
+    }
 
 
 def write_json(path, payload):
@@ -220,7 +450,7 @@ def daily_learning_command(args):
 
 
 def pooled_feature_command(args):
-    return [
+    command = [
         sys.executable,
         "-m",
         "weather.calibration.pooled_feature_model",
@@ -232,9 +462,16 @@ def pooled_feature_command(args):
         str(args.holdout_year),
         "--artifact",
         args.pooled_band_artifact,
+        "--candidates-root",
+        args.candidates_root,
+        "--releases-root",
+        args.releases_root,
         "--out",
         backtest_path(args, "f_family_pooled_band_model_v0_3_report.md"),
     ]
+    if args.allow_legacy_serving_output:
+        command.append("--allow-legacy-serving-output")
+    return command
 
 
 def artifact_registry_command(args):
@@ -462,74 +699,61 @@ def daily_learning_summary(path):
     }
 
 
-def _queue_item_eligible(item):
-    return (item or {}).get("status") in {"queued", "still_open", "regressed"}
-
-
-def _queue_command(item):
-    command = (item or {}).get("command") or []
-    parts = []
-    if isinstance(command, list):
-        parts = [str(part) for part in command if str(part)]
-    elif isinstance(command, str) and command.strip():
-        parts = command.strip().split()
-    if parts and parts[0].lower() == "python":
-        parts[0] = sys.executable
-    return parts
-
-
 def execute_experiment_queue(args, runner=run_subprocess_step):
+    del runner  # Isolated execution is a separate, still-open Phase 6 gate.
     learning = read_json(args.daily_learning_out)
     queue = learning.get("experiment_queue") or {}
-    items = [item for item in queue.get("items") or [] if _queue_item_eligible(item)]
-    items = items[: max(0, int(args.experiment_queue_top_n))]
-    results = []
     started = utc_iso()
-    for item in items:
-        command = _queue_command(item)
-        result = {
-            "queue_id": item.get("queue_id"),
-            "priority": item.get("priority"),
-            "source": item.get("source"),
-            "category": item.get("category"),
-            "slice": item.get("slice"),
-            "hypothesis": item.get("hypothesis"),
-            "artifact_path": item.get("artifact_path"),
-            "clearance_rule": item.get("clearance_rule"),
-            "command": command,
-            "executed_at_utc": utc_iso(),
-        }
-        if not command:
-            result.update({
-                "status": "recorded",
-                "returncode": 0,
-                "resolution_status": "still_open",
-                "detail": "queue item has no executable command; recorded for operator or future runner",
-            })
-            results.append(result)
-            continue
-        step_result = runner(command, timeout_seconds=args.step_timeout_seconds)
-        returncode = int((step_result or {}).get("returncode") or 0)
-        result.update(step_result or {})
-        result["returncode"] = returncode
-        result["status"] = "executed" if returncode == 0 else "failed"
-        result["resolution_status"] = "still_open" if returncode == 0 else "regressed"
-        result["result_artifact"] = item.get("artifact_path")
-        results.append(result)
+    raw_items = queue.get("items")
+    legacy_empty = queue.get("schema_version") != QUEUE_SCHEMA_VERSION and not raw_items
+    contract_error = None
+    verified_queue = None
+    if not legacy_empty:
+        try:
+            verified_queue = verify_automatic_experiment_queue(
+                queue,
+                repo_root=REPO_ROOT,
+            )
+        except (ExperimentContractError, OSError, TypeError, ValueError) as exc:
+            contract_error = f"{type(exc).__name__}: {exc}"
+    if contract_error is not None:
+        status = "BLOCK"
+        reason = "experiment_queue_contract_invalid"
+        items = []
+    elif legacy_empty:
+        status = "OK"
+        reason = "legacy_empty_queue_noop"
+        items = []
+    else:
+        items = [
+            item
+            for item in verified_queue.get("items") or []
+            if item.get("eligible") is True
+        ][: max(0, int(args.experiment_queue_top_n))]
+        status = "DEFERRED" if items else "OK"
+        reason = (
+            "isolated_experiment_executor_not_implemented"
+            if items
+            else "no_materialized_eligible_experiments"
+        )
     payload = {
         "schema_version": schema_version("experiment_queue_results"),
         "generated_at_utc": utc_iso(),
         "started_at_utc": started,
-        "status": "OK" if not any(row.get("status") == "failed" for row in results) else "ERROR",
+        "status": status,
+        "reason": reason,
+        "contract_error": contract_error,
         "daily_learning": str(args.daily_learning_out),
         "queue_status": queue.get("status"),
         "queue_count": (queue.get("summary") or {}).get("queue_count"),
         "eligible_count": len(items),
-        "executed_count": sum(1 for row in results if row.get("status") == "executed"),
-        "recorded_count": sum(1 for row in results if row.get("status") == "recorded"),
-        "failed_count": sum(1 for row in results if row.get("status") == "failed"),
+        "deferred_count": len(items),
+        "deferred_queue_ids": [item.get("queue_id") for item in items],
+        "executed_count": 0,
+        "recorded_count": 0,
+        "failed_count": 0,
         "top_n": int(args.experiment_queue_top_n),
-        "results": results,
+        "results": [],
     }
     out = write_json(args.experiment_queue_results_out, payload)
     return payload, out
@@ -550,17 +774,28 @@ def run_experiment_queue_step(args, runner):
     }
     try:
         payload, out = execute_experiment_queue(args, runner=runner)
-        step["returncode"] = 0 if payload.get("status") != "ERROR" else 1
-        step["status"] = "ok" if step["returncode"] == 0 else "error"
+        if payload.get("status") == "BLOCK":
+            step["returncode"] = 2
+            step["status"] = "blocked"
+        elif payload.get("status") == "DEFERRED":
+            step["returncode"] = 0
+            step["status"] = "deferred"
+        else:
+            step["returncode"] = 0 if payload.get("status") != "ERROR" else 1
+            step["status"] = "ok" if step["returncode"] == 0 else "error"
         step["stdout"] = f"experiment_queue_results={out}"
         step["result"] = {
             "status": payload.get("status"),
             "out": str(out),
             "queue_count": payload.get("queue_count"),
             "eligible_count": payload.get("eligible_count"),
+            "deferred_count": payload.get("deferred_count"),
             "executed_count": payload.get("executed_count"),
             "recorded_count": payload.get("recorded_count"),
             "failed_count": payload.get("failed_count"),
+            "reason": payload.get("reason"),
+            "contract_error": payload.get("contract_error"),
+            "hard_stop_pipeline": payload.get("status") == "BLOCK",
         }
     except Exception as exc:  # noqa: BLE001
         step["status"] = "error"
@@ -796,8 +1031,14 @@ def render_report(payload):
     learning = payload.get("daily_learning") or {}
     settled = payload.get("settled_day_freshness") or {}
     sla = payload.get("nightly_sla") or {}
+    config = payload.get("config") or {}
+    candidate_guard = config.get("candidate_output_guard") or {}
+    candidate_release = payload.get("candidate_release") or {}
+    admission = payload.get("capture_resource_admission") or {}
+    parity = payload.get("captured_input_replay_parity") or {}
+    readiness = payload.get("production_readiness") or {}
     lines = [
-        "# Nightly Retrain Validate Promote",
+        "# Nightly Retrain Validate Candidate Release",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: `{payload.get('status')}`",
@@ -805,6 +1046,10 @@ def render_report(payload):
         f"Settled-day freshness: `{settled.get('status') or '-'}`",
         f"Promotion verdict: `{promotion.get('verdict') or '-'}`",
         f"Daily learning: `{learning.get('status') or '-'}`",
+        f"Capture-resource decision: `{admission.get('decision') or '-'}`",
+        f"Capture-resource workload: `{admission.get('workload') or '-'}`",
+        f"Captured-input replay parity: `{parity.get('status') or '-'}`",
+        f"Production readiness: `{readiness.get('status') or '-'}`",
         "",
         "## Steps",
         "",
@@ -825,6 +1070,18 @@ def render_report(payload):
         f"- Shadow markets: {', '.join(promotion.get('shadow_markets') or []) or '-'}",
         f"- Blocked markets: {', '.join(promotion.get('blocked_markets') or []) or '-'}",
         f"- Serving gauntlet: {promotion.get('serving_gauntlet_verdict') or '-'}",
+        "",
+        "## Candidate Release",
+        "",
+        f"- Output guard: {candidate_guard.get('status') or '-'}",
+        f"- Candidate ID: {candidate_guard.get('candidate_id') or '-'}",
+        f"- Candidate directory: {candidate_guard.get('candidate_dir') or '-'}",
+        f"- Release status: {candidate_release.get('status') or '-'}",
+        f"- Release ID: {candidate_release.get('release_id') or '-'}",
+        f"- Manifest: {candidate_release.get('manifest_path') or '-'}",
+        f"- Activation: {candidate_release.get('activation') or 'NONE'}",
+        f"- Active pointer unchanged: {candidate_release.get('active_pointer_unchanged') if candidate_release.get('active_pointer_unchanged') is not None else '-'}",
+        f"- Legacy compatibility enabled: {candidate_guard.get('compatibility_flag_enabled', False)}",
         "",
         "## Settled-Day Freshness",
         "",
@@ -988,7 +1245,13 @@ def write_sla_report(path, payload):
     return path
 
 
-def run_nightly_retrain(args, runner=run_subprocess_step):
+def run_nightly_retrain(
+    args,
+    runner=run_subprocess_step,
+    *,
+    release_builder=create_release,
+    code_identity_provider=capture_code_identity,
+):
     guard_enabled = (
         not getattr(args, "dry_run", False)
         and not getattr(args, "disable_long_job_guard", False)
@@ -1001,22 +1264,107 @@ def run_nightly_retrain(args, runner=run_subprocess_step):
         enabled=guard_enabled,
         force_lock=getattr(args, "force_long_job_lock", False),
     ) as guard:
-        return _run_nightly_retrain_guarded(args, runner=runner, long_job_guard_info=guard)
+        return _run_nightly_retrain_guarded(
+            args,
+            runner=runner,
+            long_job_guard_info=guard,
+            release_builder=release_builder,
+            code_identity_provider=code_identity_provider,
+        )
 
 
-def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guard_info=None):
+def _run_nightly_retrain_guarded(
+    args,
+    runner=run_subprocess_step,
+    long_job_guard_info=None,
+    *,
+    release_builder=create_release,
+    code_identity_provider=capture_code_identity,
+):
     started = time.time()
+    started_at = utc_iso()
+    invocation = build_invocation_proof(
+        args,
+        module_name="weather.operations.nightly_retrain",
+        invocation_started_at_utc=started_at,
+    )
+    release_identity = producer_release_proof(args)
+    lock_proof = build_lock_proof(
+        (long_job_guard_info or {}).get("lock_acquisition"),
+        prior_repair=getattr(args, "_prior_lock_repair_outcomes", None),
+        required_kinds=("long_job_guard_lock",),
+    )
     steps = []
-    plan = planned_steps(args)
+    capture_resource_admission = None
+    captured_input_parity = None
+    if not args.dry_run:
+        capture_resource_admission, _proof_path, _proof_report = (
+            _capture_resource_preflight(args)
+        )
+    resource_denied = bool(
+        capture_resource_admission
+        and capture_resource_admission.get("admitted") is not True
+    )
+    if (
+        not args.dry_run
+        and not resource_denied
+        and not getattr(args, "skip_captured_input_replay_parity", False)
+    ):
+        captured_input_parity, _parity_path, _parity_report = (
+            _captured_input_parity_preflight(args, release_identity)
+        )
+    parity_denied = bool(
+        captured_input_parity
+        and captured_input_parity.get("status") != "PASS"
+    )
+    if resource_denied or parity_denied:
+        candidate_guard = {
+            "status": "DEFERRED",
+            "candidate_id": args.candidate_id,
+            "candidate_dir": str(
+                getattr(args, "candidate_dir", "")
+                or Path(args.candidates_root) / args.candidate_id
+            ),
+            "failures": [],
+        }
+    else:
+        candidate_guard = prepare_candidate_outputs(args)
+    plan = (
+        planned_steps(args)
+        if candidate_guard["status"] not in {"BLOCK", "DEFERRED"}
+        else []
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "runner": "nightly_retrain",
         "status": "running",
         "generated_at_utc": None,
-        "started_at_utc": utc_iso(),
+        "started_at_utc": started_at,
         "finished_at_utc": None,
         "duration_seconds": None,
         "dry_run": bool(args.dry_run),
+        "invocation": invocation,
+        "lock_proof": lock_proof,
+        "sla": {
+            "status": "PENDING",
+            "predeclared": float(getattr(args, "producer_sla_seconds", 0.0) or 0.0) > 0,
+            "limit_seconds": float(getattr(args, "producer_sla_seconds", 0.0) or 0.0) or None,
+            "duration_seconds": None,
+        },
+        "release_identity": release_identity,
+        "release_id": release_identity.get("release_id") if release_identity.get("status") == "PASS" else "",
+        "release_manifest_sha256": (
+            release_identity.get("release_manifest_sha256")
+            if release_identity.get("status") == "PASS"
+            else ""
+        ),
+        "release_identity_status": (
+            "verified_serving_binding"
+            if release_identity.get("status") == "PASS"
+            else "unverified"
+        ),
+        "capture_resource_admission": capture_resource_admission,
+        "captured_input_replay_parity": captured_input_parity,
         "config": {
             "family_unit": args.family_unit,
             "snapshots_root": args.snapshots_root,
@@ -1033,15 +1381,129 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
             "experiment_queue_results_out": args.experiment_queue_results_out,
             "experiment_queue_top_n": args.experiment_queue_top_n,
             "skip_when_no_retrain_recommendation": args.skip_when_no_retrain_recommendation,
+            "candidate_id": args.candidate_id,
+            "candidate_dir": candidate_guard.get("candidate_dir"),
+            "candidate_output_guard": candidate_guard,
+            "build_candidate_release": args.build_candidate_release,
+            "release_pointer": args.release_pointer,
             "long_job_guard": long_job_guard_info or {},
+            "capture_resource_mode": getattr(
+                args,
+                "capture_resource_mode",
+                "live",
+            ),
+            "capture_resource_out": str(
+                getattr(args, "capture_resource_out", "")
+                or Path(args.backtest_root) / "capture_resource_gate.json"
+            ),
+            "captured_input_replay_parity_required": not bool(
+                getattr(args, "skip_captured_input_replay_parity", False)
+            ),
+            "captured_input_replay_parity_out": str(
+                getattr(args, "captured_input_parity_out", "")
+                or Path(args.backtest_root) / "live_variant_replay_parity.json"
+            ),
+            "production_readiness_gate_enabled": not bool(
+                getattr(args, "skip_production_readiness_gate", False)
+            ),
+            "fail_on_production_readiness_block": bool(
+                getattr(args, "fail_on_production_readiness_block", False)
+            ),
         },
         "steps": steps,
         "promotion": {},
         "settled_day_freshness": {},
         "daily_learning": {},
+        "candidate_release": {},
         "nightly_sla": {},
     }
-    if args.dry_run:
+    if resource_denied:
+        admission_summary = capture_resource_admission.get("summary") or {}
+        admission_enforcement = capture_resource_admission.get("enforcement") or {}
+        steps.append(
+            {
+                "name": "capture_resource_admission",
+                "command": ["internal", "capture_resource_admission"],
+                "status": "blocked",
+                "returncode": None,
+                "duration_seconds": 0.0,
+                "reason": "heavy_work_deferred_before_child_start",
+                "decision": capture_resource_admission.get("decision"),
+                "admitted": False,
+                "blocker_codes": [
+                    row.get("code")
+                    for row in capture_resource_admission.get("blockers") or []
+                ],
+                "suggested_defer_until_utc": admission_summary.get(
+                    "suggested_defer_until_utc"
+                ),
+                "proof_path": admission_enforcement.get("json_path"),
+            }
+        )
+        payload["promotion"] = promotion_not_run_summary(
+            args.promotion_out,
+            "capture_resource_admission_deferred",
+        )
+        payload["candidate_release"] = {
+            "status": "BLOCK",
+            "reason": "capture_resource_admission_deferred",
+            "activation": "NONE",
+        }
+        payload["status"] = "blocked"
+    elif parity_denied:
+        first_mismatch = captured_input_parity.get("first_mismatch") or {}
+        steps.append(
+            {
+                "name": "captured_input_replay_parity",
+                "command": ["internal", "captured_input_replay_parity"],
+                "status": "blocked",
+                "returncode": None,
+                "duration_seconds": 0.0,
+                "reason": "heavy_work_deferred_before_child_start",
+                "decision": captured_input_parity.get("status"),
+                "mismatch_count": (
+                    captured_input_parity.get("summary") or {}
+                ).get("mismatch_count"),
+                "first_mismatch": first_mismatch,
+                "next_action": first_mismatch.get("next_action")
+                or "generate exact captured-input replay rows and rerun parity",
+                "proof_path": (
+                    captured_input_parity.get("outputs") or {}
+                ).get("json_path"),
+            }
+        )
+        payload["promotion"] = promotion_not_run_summary(
+            args.promotion_out,
+            "captured_input_replay_parity_blocked",
+        )
+        payload["candidate_release"] = {
+            "status": "BLOCK",
+            "reason": "captured_input_replay_parity_blocked",
+            "activation": "NONE",
+        }
+        payload["status"] = "blocked"
+    elif candidate_guard["status"] == "BLOCK":
+        steps.append(
+            {
+                "name": "candidate_output_preflight",
+                "command": ["internal", "candidate_output_guard"],
+                "status": "error",
+                "returncode": -1,
+                "duration_seconds": 0.0,
+                "stderr": "; ".join(row["error"] for row in candidate_guard["failures"]),
+            }
+        )
+        payload["promotion"] = promotion_not_run_summary(
+            args.promotion_out,
+            "candidate_output_preflight_blocked",
+        )
+        payload["candidate_release"] = {
+            "status": "BLOCK",
+            "reason": "candidate_output_preflight_blocked",
+            "activation": "NONE",
+        }
+        payload["status"] = "error"
+    elif args.dry_run:
         steps.extend(
             {
                 "name": name,
@@ -1052,6 +1514,20 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
             }
             for name, command in plan
         )
+        if args.build_candidate_release:
+            steps.append(
+                {
+                    "name": "candidate_release_build",
+                    "command": ["internal", "build_immutable_candidate_release", args.candidate_id],
+                    "status": "planned",
+                    "returncode": None,
+                    "duration_seconds": 0.0,
+                }
+            )
+        payload["candidate_release"] = {
+            "status": "PLANNED" if args.build_candidate_release else "DISABLED",
+            "activation": "MANUAL_POINTER_ONLY" if args.build_candidate_release else "NONE",
+        }
         payload["status"] = "dry_run"
     else:
         for name, command in plan:
@@ -1073,7 +1549,9 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
                         break
                 step = run_step(name, command, args, runner)
             steps.append(step)
-            if step["status"] == "error" and not args.continue_on_error:
+            if (step.get("result") or {}).get("hard_stop_pipeline") or (
+                step["status"] == "error" and not args.continue_on_error
+            ):
                 break
             if name == "daily_learning" and args.fail_on_daily_learning_blocker:
                 payload["daily_learning"] = daily_learning_summary(args.daily_learning_out)
@@ -1124,9 +1602,104 @@ def _run_nightly_retrain_guarded(args, runner=run_subprocess_step, long_job_guar
             payload["daily_learning"],
             fail_on_daily_learning_blocker=args.fail_on_daily_learning_blocker,
         )
+        if not args.build_candidate_release:
+            payload["candidate_release"] = {
+                "status": "DISABLED",
+                "reason": "candidate_release_build_disabled",
+                "activation": "NONE",
+            }
+        elif candidate_guard["status"] != "PASS":
+            payload["candidate_release"] = {
+                "status": "BLOCK",
+                "reason": "legacy_training_output_quarantined",
+                "activation": "NONE",
+            }
+            steps.append(
+                {
+                    "name": "candidate_release_build",
+                    "command": ["internal", "build_immutable_candidate_release", args.candidate_id],
+                    "status": "blocked",
+                    "returncode": None,
+                    "duration_seconds": 0.0,
+                    "reason": "legacy_training_output_quarantined",
+                }
+            )
+            payload["status"] = "blocked"
+        elif payload["status"] == "promote_ready":
+            release_step, release_result = run_candidate_release_step(
+                args,
+                promotion=payload["promotion"],
+                candidate_guard=candidate_guard,
+                release_builder=release_builder,
+                code_identity_provider=code_identity_provider,
+            )
+            steps.append(release_step)
+            payload["candidate_release"] = release_result
+            if release_step["status"] != "ok":
+                payload["status"] = "error"
+        else:
+            payload["candidate_release"] = {
+                "status": "NOT_BUILT",
+                "reason": "existing_validation_gates_not_passed",
+                "activation": "NONE",
+            }
+            steps.append(
+                {
+                    "name": "candidate_release_build",
+                    "command": ["internal", "build_immutable_candidate_release", args.candidate_id],
+                    "status": "skipped",
+                    "returncode": 0,
+                    "duration_seconds": 0.0,
+                    "reason": "existing_validation_gates_not_passed",
+                }
+            )
+    if not args.dry_run and not getattr(args, "skip_production_readiness_gate", False):
+        readiness_started = time.time()
+        readiness_step = {
+            "name": "production_readiness_gate",
+            "command": ["internal", "production_readiness_gate"],
+            "status": "running",
+            "returncode": None,
+            "started_at_utc": utc_iso(),
+            "finished_at_utc": None,
+            "duration_seconds": 0.0,
+        }
+        try:
+            readiness_step["result"] = _production_readiness_status(args)
+            readiness_step["status"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - final status persistence is mandatory
+            readiness_step.update(
+                {
+                    "status": "error",
+                    "returncode": -1,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            payload["status"] = "error"
+        readiness_step["finished_at_utc"] = utc_iso()
+        readiness_step["duration_seconds"] = round(
+            time.time() - readiness_started,
+            3,
+        )
+        steps.append(readiness_step)
+        payload["production_readiness"] = readiness_step.get("result") or {
+            "status": "ERROR",
+            "error": readiness_step.get("error"),
+        }
+        if (
+            getattr(args, "fail_on_production_readiness_block", False)
+            and payload["production_readiness"].get("status") != "PASS"
+            and payload.get("status") != "error"
+        ):
+            payload["status"] = "blocked"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
+    payload["sla"] = build_stage_sla(
+        duration_seconds=payload["duration_seconds"],
+        limit_seconds=getattr(args, "producer_sla_seconds", 0.0),
+    )
     payload["nightly_sla"] = nightly_run_sla_status(
         status_path=args.status_out,
         status_payload=payload,
@@ -1148,9 +1721,36 @@ def build_run_parser(parser):
     parser.add_argument("--min-trust", type=int, default=25)
     parser.add_argument("--min-settled-days", type=int, default=2)
     parser.add_argument("--holdout-year", type=int, default=2025)
-    parser.add_argument("--family-secondary-out", default=str(DEFAULT_FAMILY_SECONDARY_MANIFEST))
-    parser.add_argument("--pooled-band-artifact", default=str(DEFAULT_POOLED_BAND_ARTIFACT))
-    parser.add_argument("--artifact-registry", default=str(DEFAULT_ARTIFACT_REGISTRY_PATH))
+    parser.add_argument("--family-secondary-out", default="")
+    parser.add_argument("--pooled-band-artifact", default="")
+    parser.add_argument("--artifact-registry", default="")
+    parser.add_argument("--candidate-id", default="")
+    parser.add_argument("--candidates-root", default=str(DEFAULT_CANDIDATES_ROOT))
+    parser.add_argument("--releases-root", default=str(DEFAULT_RELEASES_ROOT))
+    parser.add_argument("--release-pointer", default="")
+    parser.add_argument("--release-parent", default="")
+    parser.add_argument("--repo-root", default=str(REPO_ROOT))
+    parser.add_argument(
+        "--expected-live-runtimes",
+        default="snapshot_loop,observation_trigger,market_making,taker_bot",
+    )
+    parser.set_defaults(build_candidate_release=True)
+    parser.add_argument(
+        "--build-candidate-release",
+        dest="build_candidate_release",
+        action="store_true",
+        help="Build an immutable but inactive release only after all existing gates pass (default).",
+    )
+    parser.add_argument(
+        "--skip-candidate-release-build",
+        dest="build_candidate_release",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--allow-legacy-serving-output",
+        action="store_true",
+        help="Temporary compatibility only: permit old output paths but quarantine and block release creation.",
+    )
     parser.add_argument("--promotion-out", default=str(DEFAULT_BACKTEST_ROOT / "f_family_promotion_refresh.json"))
     parser.add_argument("--promotion-report", default=str(DEFAULT_BACKTEST_ROOT / "f_family_promotion_refresh_report.md"))
     parser.add_argument("--daily-learning-out", default=str(DEFAULT_DAILY_LEARNING_OUT))
@@ -1169,6 +1769,92 @@ def build_run_parser(parser):
     parser.add_argument("--ab-current-tol", type=float, default=0.003)
     parser.add_argument("--ab-market-tol", type=float, default=0.003)
     parser.add_argument("--step-timeout-seconds", type=float, default=DEFAULT_STEP_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--capture-resource-mode",
+        choices=CAPTURE_MODES,
+        default="live",
+        help=(
+            "Host role for pre-training admission. Use offline_host only on "
+            "an explicitly non-capture research host."
+        ),
+    )
+    parser.add_argument("--capture-resource-disk-path", default="")
+    parser.add_argument("--capture-resource-out", default="")
+    parser.add_argument("--capture-resource-report", default="")
+    parser.add_argument(
+        "--capture-resource-min-free-memory-bytes",
+        type=int,
+        default=DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
+    )
+    parser.add_argument(
+        "--capture-resource-min-free-disk-bytes",
+        type=int,
+        default=DEFAULT_CAPTURE_MIN_FREE_DISK_BYTES,
+    )
+    parser.add_argument(
+        "--capture-resource-daily-disk-growth-bytes",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--capture-resource-min-disk-headroom-days",
+        type=float,
+        default=DEFAULT_CAPTURE_MIN_DISK_HEADROOM_DAYS,
+    )
+    parser.add_argument(
+        "--capture-resource-active-window-start-hour",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--capture-resource-active-window-end-hour",
+        type=float,
+        default=None,
+    )
+    parser.add_argument(
+        "--captured-input-parity-served",
+        action="append",
+        default=[],
+        help="Explicit live-served prediction row file; repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--captured-input-parity-replay",
+        action="append",
+        default=[],
+        help=(
+            "Explicit prediction rows regenerated from the exact captured inputs; "
+            "missing rows block candidate work."
+        ),
+    )
+    parser.add_argument("--captured-input-parity-out", default="")
+    parser.add_argument("--captured-input-parity-report", default="")
+    parser.add_argument(
+        "--captured-input-parity-max-age-hours",
+        type=float,
+        default=live_variant_settlement_scorecard.DEFAULT_PARITY_MAX_INPUT_AGE_HOURS,
+    )
+    parser.add_argument("--skip-captured-input-replay-parity", action="store_true")
+    parser.add_argument(
+        "--production-readiness-evidence",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+    )
+    parser.add_argument(
+        "--production-readiness-served-artifact",
+        action="append",
+        default=[],
+        metavar="ROLE=PATH",
+    )
+    parser.add_argument("--production-readiness-served-route", default="")
+    parser.add_argument("--production-readiness-out", default="")
+    parser.add_argument("--production-readiness-report", default="")
+    parser.add_argument("--skip-production-readiness-gate", action="store_true")
+    parser.add_argument(
+        "--fail-on-production-readiness-block",
+        action="store_true",
+        help="Return a blocking status when the final read-only readiness gate is not PASS.",
+    )
     parser.add_argument(
         "--promotion-step-timeout-seconds",
         type=float,
@@ -1205,6 +1891,16 @@ def build_run_parser(parser):
     parser.add_argument("--long-job-priority", default="below_normal", choices=["normal", "below_normal", "idle"])
     parser.add_argument("--disable-long-job-guard", action="store_true")
     parser.add_argument("--force-long-job-lock", action="store_true")
+    parser.add_argument("--scheduler-task-name", default="")
+    parser.add_argument("--scheduler-task-executable", default="")
+    parser.add_argument("--scheduler-task-working-directory", default="")
+    parser.add_argument("--scheduler-correlation-seconds", type=float, default=120.0)
+    parser.add_argument(
+        "--producer-sla-seconds",
+        type=float,
+        default=0.0,
+        help="Predeclared terminal SLA for this exact scheduled run; zero is non-countable.",
+    )
     return parser
 
 
@@ -1215,6 +1911,11 @@ def cmd_run(args):
     print(f"Report written to {report_path}")
     if payload["status"] == "error":
         return 1
+    if (
+        args.fail_on_production_readiness_block
+        and (payload.get("production_readiness") or {}).get("status") != "PASS"
+    ):
+        return 2
     if args.fail_on_block and payload["status"] in {"blocked", "shadow"}:
         return 2
     return 0
@@ -1240,7 +1941,9 @@ def cmd_status(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Run nightly retrain, validation, and promotion decision refresh.")
+    parser = argparse.ArgumentParser(
+        description="Run candidate-only nightly retraining, validation, and inactive release construction."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     run = build_run_parser(sub.add_parser("run"))
     run.set_defaults(func=cmd_run)

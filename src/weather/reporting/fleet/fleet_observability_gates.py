@@ -312,16 +312,24 @@ def _clob_recovery_rows(clob):
 def optional_market_event_stream_gate(clob):
     clob = clob or {}
     loop = clob.get("loop") or {}
-    include_history = bool(loop.get("include_price_history"))
-    include_ws = bool(loop.get("include_ws_events"))
-    results = loop.get("last_market_results") or {}
+    enrichment = clob.get("enrichment") or {}
+    separate_enrichment = enrichment.get("state") not in {None, "NOT_CONFIGURED"}
+    source = enrichment if separate_enrichment else loop
+    include_history = bool(source.get("include_price_history"))
+    include_ws = bool(source.get("include_ws_events"))
+    results = source.get("last_market_results") or {}
     issues = []
     if include_history or include_ws:
         for market_id, result in sorted(results.items()):
             if not isinstance(result, dict):
                 continue
             books = int(result.get("books") or 0)
-            if include_history and books > 0 and int(result.get("price_history_rows") or 0) <= 0:
+            stream_expected = (
+                books > 0
+                or int(result.get("captured_tokens") or 0) > 0
+                or separate_enrichment
+            )
+            if include_history and stream_expected and int(result.get("price_history_rows") or 0) <= 0:
                 issues.append({
                     "market_id": market_id,
                     "stream": "price_history",
@@ -344,7 +352,7 @@ def optional_market_event_stream_gate(clob):
                         "ws_messages": ws_messages,
                         "ws_event_rows": ws_rows,
                     })
-                elif books > 0 and ws_messages <= 0 and ws_rows <= 0:
+                elif stream_expected and ws_messages <= 0 and ws_rows <= 0:
                     issues.append({
                         "market_id": market_id,
                         "stream": "websocket_events",
@@ -368,6 +376,8 @@ def optional_market_event_stream_gate(clob):
         "ok": not issues,
         "include_price_history": include_history,
         "include_ws_events": include_ws,
+        "capture_mode": "separate_enrichment" if separate_enrichment else "legacy_loop_or_disabled",
+        "enrichment_state": enrichment.get("state") or "NOT_CONFIGURED",
         "market_count": len(results),
         "issue_count": len(issues),
         "issues": issues,

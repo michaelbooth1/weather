@@ -7,12 +7,15 @@ from pathlib import Path
 
 
 def render_report(payload):
+    admission = payload.get("capture_resource_admission") or {}
     lines = [
         "# Daily Settlement-To-Promotion Refresh",
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: **{payload.get('status')}**",
         f"Duration seconds: `{payload.get('duration_seconds')}`",
+        f"Capture-resource decision: `{admission.get('decision') or '-'}`",
+        f"Capture-resource workload: `{admission.get('workload') or '-'}`",
         "",
         "## Steps",
         "",
@@ -162,7 +165,14 @@ def render_report(payload):
                 )
         elif step.get("name") == "promotion_refresh":
             disk = result.get("disk_preflight") or {}
-            if result.get("status") == "BLOCK" and disk:
+            if result.get("promotion_not_run"):
+                live = result.get("live_variant_settlement_scorecard") or {}
+                first = result.get("first_blocker") or {}
+                detail = (
+                    f"BLOCK; live settlement scorer {live.get('status')}; "
+                    f"promotion not run; {first.get('detail') or result.get('reason') or '-'}"
+                )
+            elif result.get("status") == "BLOCK" and disk:
                 detail = (
                     f"disk BLOCK; free {disk.get('free_bytes')}; "
                     f"required {disk.get('required_free_bytes')}; "
@@ -227,6 +237,22 @@ def render_report(payload):
                     f"{result.get('status')} "
                     f"{(result.get('summary') or {}).get('canonical_rows')} rows; "
                     f"missing {len(result.get('missing_active_variant_ids') or [])}"
+                )
+        elif step.get("name") == "live_variant_settlement_scorecard":
+            if result.get("status") == "SKIPPED":
+                detail = (
+                    f"SKIPPED; target {result.get('target_date')}; "
+                    f"{result.get('reason') or 'no live tape'}"
+                )
+            else:
+                detail = (
+                    f"{result.get('status')}; target {result.get('target_date')}; "
+                    f"tapes {result.get('source_tape_count')}; "
+                    f"coverage {result.get('eligible_prediction_coverage')}; "
+                    f"missing snapshots/bands {result.get('missing_expected_snapshot_partition_count')}/"
+                    f"{result.get('missing_expected_snapshot_band_count')}; "
+                    f"unsupported skips {result.get('unsupported_runtime_skip_band_count')}; "
+                    f"blockers {result.get('blocker_count')}"
                 )
         elif step.get("name") == "proper_scoring_reliability_scorecard":
             if result.get("status") == "SKIPPED":
@@ -434,6 +460,27 @@ def render_report(payload):
             "",
         ]
     scorecard = (payload.get("summary") or {}).get("proper_scoring_reliability_scorecard") or {}
+    live_scorecard = (payload.get("summary") or {}).get("live_variant_settlement_scorecard") or {}
+    if live_scorecard.get("status"):
+        first = live_scorecard.get("first_blocker") or {}
+        lines += [
+            "",
+            "## Live Variant Settlement Scorecard",
+            "",
+            f"Status: `{live_scorecard.get('status')}`",
+            f"Target date: `{live_scorecard.get('target_date') or '-'}`",
+            f"Source tapes: `{live_scorecard.get('source_tape_count')}`",
+            f"Eligible partitions: `{live_scorecard.get('eligible_partition_count')}`",
+            f"Valid partitions: `{live_scorecard.get('valid_prediction_partition_count')}`",
+            f"Prediction coverage: `{live_scorecard.get('eligible_prediction_coverage')}`",
+            f"Expected sibling snapshots: `{live_scorecard.get('expected_snapshot_partition_count')}`",
+            f"Missing sibling snapshots: `{live_scorecard.get('missing_expected_snapshot_partition_count')}`",
+            f"Bands absent across all variants: `{live_scorecard.get('missing_expected_snapshot_band_count')}`",
+            f"Unsupported-runtime skip bands: `{live_scorecard.get('unsupported_runtime_skip_band_count')}`",
+            f"Blockers: `{live_scorecard.get('blocker_count')}`",
+            f"First blocker: {first.get('detail') or live_scorecard.get('reason') or '-'}",
+            "",
+        ]
     if scorecard.get("status"):
         lines += [
             "",

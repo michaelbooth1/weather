@@ -8,6 +8,15 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from weather.experiment_contract import (
+    TERMINAL_DISPOSITIONS,
+    ExperimentContractError,
+    finalize_self_hash,
+    verify_automatic_experiment_queue,
+    verify_experiment_manifest,
+    verify_experiment_result,
+    verify_materialized_experiment_manifest,
+)
 from weather.io import read_json, read_jsonl
 from weather.paths import data_path
 from weather.reporting.daily import daily_rollup_freshness
@@ -168,18 +177,32 @@ def _stable_id(*parts):
 def _status_from_queue_result(result):
     if not result:
         return None
+    disposition = result.get("disposition")
+    if disposition in TERMINAL_DISPOSITIONS:
+        return disposition
     status = result.get("resolution_status") or result.get("experiment_status") or result.get("status")
-    if status in {"resolved", "regressed", "still_open", "blocked", "failed"}:
-        return "regressed" if status in {"failed"} else status
-    return "still_open" if status in {"executed", "recorded"} else status
+    if status in TERMINAL_DISPOSITIONS:
+        return status
+    if status in {"failed", "blocked", "executed", "recorded", "still_open"}:
+        return "regressed" if status == "failed" else "inconclusive"
+    return "inconclusive"
 
 
 def _queue_results_by_id(results_payload):
     results = {}
-    for row in (results_payload or {}).get("results") or []:
+    for index, row in enumerate((results_payload or {}).get("results") or []):
+        if not isinstance(row, dict):
+            raise ExperimentContractError(
+                f"experiment_queue_results.results[{index}] must be an object"
+            )
         queue_id = row.get("queue_id")
         if queue_id:
-            results[str(queue_id)] = row
+            queue_id = str(queue_id)
+            if queue_id in results:
+                raise ExperimentContractError(
+                    f"duplicate experiment result queue_id: {queue_id}"
+                )
+            results[queue_id] = row
     return results
 
 
@@ -187,75 +210,162 @@ def _apply_queue_result(item, results_by_id):
     result = results_by_id.get(str(item.get("queue_id") or ""))
     if not result:
         return item
-    status = _status_from_queue_result(result)
+    manifest = item.get("experiment_manifest")
+    try:
+        verified = verify_experiment_result(result, manifest=manifest)
+    except (ExperimentContractError, TypeError, ValueError) as exc:
+        return {
+            **item,
+            "status": "ineligible_invalid_result",
+            "eligible": False,
+            "materialized_executable": False,
+            "command": [],
+            "argv": [],
+            "last_result": {
+                "contract_status": "LEGACY_OR_INVALID",
+                "contract_error": str(exc),
+                "claimed_status": result.get("status"),
+                "claimed_resolution_status": result.get("resolution_status"),
+                "claimed_disposition": result.get("disposition"),
+                "returncode": result.get("returncode"),
+                "executed_at_utc": result.get("executed_at_utc"),
+                "result_artifact": result.get("result_artifact"),
+                "detail": result.get("detail"),
+            },
+        }
     return {
         **item,
-        "status": status or item.get("status"),
+        "status": verified["disposition"],
+        "eligible": False,
+        "command": [],
+        "argv": [],
         "last_result": {
-            "status": result.get("status"),
-            "resolution_status": result.get("resolution_status"),
-            "returncode": result.get("returncode"),
-            "executed_at_utc": result.get("executed_at_utc"),
-            "result_artifact": result.get("result_artifact"),
-            "detail": result.get("detail"),
+            "contract_status": "PASS",
+            "schema_version": verified["schema_version"],
+            "result_sha256": verified["result_sha256"],
+            "disposition": verified["disposition"],
+            "disposition_reason": verified["disposition_reason"],
+            "returncode": verified.get("returncode"),
+            "finished_at_utc": verified["finished_at_utc"],
         },
     }
 
 
-# Slice/owner text -> runnable research module. Until 2026-07-07 queue items
-# carried hypotheses but no commands, so every nightly experiment_queue run
-# "recorded" its top items without computing anything: the loop ran but never
-# learned. Routes are deliberately high-confidence only; unmatched items stay
-# command-less operator records.
-EXPERIMENT_COMMAND_ROUTES = (
-    (
-        ("warm-tail", "lock_in", "cutoff_regime=late", "late_day_lock_in"),
-        ["python", "-m", "weather.reporting.research.late_day_lock_in_repair"],
-    ),
-    (
-        (
-            "exact_band_calibration",
-            "band_type=eq",
-            "settlement_distance=0",
-            "settlement_distance_0_winner_catchup",
-        ),
-        ["python", "-m", "weather.reporting.research.exact_band_distance_zero_calibration"],
-    ),
-    (
-        (
-            "cold_start",
-            "early-hour",
-            "predawn",
-            "cutoff_07",
-            "cutoff_hour=7",
-            "weak-slot",
-            "weak_slot",
-        ),
-        ["python", "-m", "weather.reporting.research.predawn_weak_slot_repair"],
-    ),
-    (
-        ("source_freshness", "source-state", "source_state"),
-        ["python", "-m", "weather.reporting.research.forecast_source_state_reliability"],
-    ),
-)
-_LATE_LOCAL_HOUR_TOKENS = tuple(f"local_hour={hour}" for hour in range(17, 24)) + tuple(
-    f"cutoff_hour={hour}" for hour in range(17, 24)
-)
+def _with_experiment_contract(
+    base,
+    raw_manifest,
+    *,
+    legacy_command,
+    repo_root=None,
+):
+    legacy = {
+        "hypothesis": base.get("hypothesis"),
+        "artifact_path": base.get("artifact_path"),
+        "clearance_rule": base.get("clearance_rule"),
+        "command": legacy_command,
+        "status": base.get("status"),
+    }
+    try:
+        manifest = verify_experiment_manifest(raw_manifest)
+        if manifest["queue_id"] != base["queue_id"]:
+            raise ExperimentContractError(
+                "experiment manifest queue_id disagrees with the source queue_id"
+            )
+    except (ExperimentContractError, TypeError, ValueError) as exc:
+        return {
+            **base,
+            "status": "ineligible_incomplete_contract",
+            "eligible": False,
+            "contract_eligible": False,
+            "contract_status": "BLOCK",
+            "materialized_executable": False,
+            "materialization_status": "NOT_EVALUATED",
+            "materialization_blockers": ["structural experiment contract is invalid"],
+            "command": [],
+            "argv": [],
+            "experiment_manifest": raw_manifest if isinstance(raw_manifest, dict) else None,
+            "manifest_sha256": (
+                raw_manifest.get("manifest_sha256") if isinstance(raw_manifest, dict) else None
+            ),
+            "owner": None,
+            "candidate_output_root": None,
+            "eligibility": {
+                "status": "INELIGIBLE",
+                "reason": "missing_or_invalid_executable_experiment_manifest",
+                "blockers": [str(exc)],
+            },
+            "legacy": legacy,
+        }
+    materialization_blockers = []
+    if repo_root is None:
+        materialization_blockers.append(
+            "explicit repo_root is required for materialized executable verification"
+        )
+    else:
+        try:
+            verify_materialized_experiment_manifest(
+                manifest,
+                repo_root=repo_root,
+            )
+        except (ExperimentContractError, OSError, TypeError, ValueError) as exc:
+            materialization_blockers.append(str(exc))
+    if materialization_blockers:
+        return {
+            **base,
+            "hypothesis": manifest["hypothesis"],
+            "status": "ineligible_unmaterialized_contract",
+            "eligible": False,
+            "contract_eligible": True,
+            "contract_status": "PASS",
+            "materialized_executable": False,
+            "materialization_status": "BLOCK",
+            "materialization_blockers": materialization_blockers,
+            "command": [],
+            "argv": [],
+            "manifest_argv": list(manifest["argv"]),
+            "experiment_manifest": manifest,
+            "manifest_sha256": manifest["manifest_sha256"],
+            "owner": manifest["owner"],
+            "candidate_output_root": manifest["candidate_output_root"],
+            "eligibility": {
+                "status": "INELIGIBLE",
+                "reason": "materialized_experiment_contract_not_verified",
+                "blockers": materialization_blockers,
+            },
+            "legacy": legacy,
+        }
+    return {
+        **base,
+        "hypothesis": manifest["hypothesis"],
+        "status": "queued",
+        "eligible": True,
+        "contract_eligible": True,
+        "contract_status": "PASS",
+        "materialized_executable": True,
+        "materialization_status": "PASS",
+        "materialization_blockers": [],
+        "command": list(manifest["argv"]),
+        "argv": list(manifest["argv"]),
+        "experiment_manifest": manifest,
+        "manifest_sha256": manifest["manifest_sha256"],
+        "owner": manifest["owner"],
+        "candidate_output_root": manifest["candidate_output_root"],
+        "eligibility": {
+            "status": "ELIGIBLE",
+            "reason": "verified_executable_experiment_manifest",
+            "blockers": [],
+        },
+        "legacy": legacy,
+    }
 
 
-def _default_experiment_command(slice_name, hypothesis, artifact_path):
-    haystack = " ".join(
-        str(part or "").lower() for part in (slice_name, hypothesis, artifact_path)
-    )
-    if any(token in haystack for token in _LATE_LOCAL_HOUR_TOKENS):
-        return list(EXPERIMENT_COMMAND_ROUTES[0][1])
-    for tokens, command in EXPERIMENT_COMMAND_ROUTES:
-        if any(token in haystack for token in tokens):
-            return list(command)
-    return []
-
-
-def _queue_item_from_learning(row, index, *, generated_at_utc):
+def _queue_item_from_learning(
+    row,
+    index,
+    *,
+    generated_at_utc,
+    repo_root=None,
+):
     evidence = row.get("evidence") or {}
     slice_name = first_present(
         evidence.get("slice"),
@@ -282,8 +392,17 @@ def _queue_item_from_learning(row, index, *, generated_at_utc):
         evidence.get("clearance_rule"),
         "Must improve the queued slice without regressing protected promotion gates.",
     )
-    queue_id = evidence.get("queue_id") or f"daily:{_stable_id(row.get('source'), row.get('category'), slice_name, hypothesis)}"
-    return {
+    raw_manifest = evidence.get("experiment_manifest")
+    manifest_queue_id = (
+        raw_manifest.get("queue_id") if isinstance(raw_manifest, dict) else None
+    )
+    queue_id = (
+        evidence.get("queue_id")
+        or manifest_queue_id
+        or f"daily:{_stable_id(row.get('source'), row.get('category'), slice_name, hypothesis)}"
+    )
+    explicit_command = evidence.get("experiment_command") or evidence.get("command")
+    base = {
         "queue_id": queue_id,
         "source": row.get("source"),
         "category": row.get("category"),
@@ -296,15 +415,16 @@ def _queue_item_from_learning(row, index, *, generated_at_utc):
         "estimated_impact": row.get("estimated_impact"),
         "created_at_utc": generated_at_utc,
         "source_learning_index": index,
-        "command": (
-            evidence.get("experiment_command")
-            or evidence.get("command")
-            or _default_experiment_command(slice_name, hypothesis, artifact_path)
-        ),
     }
+    return _with_experiment_contract(
+        base,
+        raw_manifest,
+        legacy_command=explicit_command,
+        repo_root=repo_root,
+    )
 
 
-def _queue_item_from_manifest(row, *, generated_at_utc):
+def _queue_item_from_manifest(row, *, generated_at_utc, repo_root=None):
     manifest_status = row.get("status") or "queued"
     if manifest_status == "eligible":
         status = "queued"
@@ -312,9 +432,16 @@ def _queue_item_from_manifest(row, *, generated_at_utc):
         status = "blocked_missing_evidence"
     else:
         status = manifest_status
-    command = row.get("command") or []
-    return {
-        "queue_id": row.get("queue_id") or f"item301:{_stable_id(row.get('market_id'), row.get('slice'))}",
+    raw_manifest = row.get("experiment_manifest")
+    manifest_queue_id = (
+        raw_manifest.get("queue_id") if isinstance(raw_manifest, dict) else None
+    )
+    base = {
+        "queue_id": (
+            row.get("queue_id")
+            or manifest_queue_id
+            or f"item301:{_stable_id(row.get('market_id'), row.get('slice'))}"
+        ),
         "source": row.get("source") or "june23_location_bias_repair_packet",
         "category": "june23_location_bias_repair",
         "slice": row.get("slice") or row.get("market_id") or "june23_location_bias_repair",
@@ -328,16 +455,35 @@ def _queue_item_from_manifest(row, *, generated_at_utc):
         "market_id": row.get("market_id"),
         "target_date": row.get("target_date"),
         "repair_family": row.get("repair_family"),
-        "command": command,
     }
+    return _with_experiment_contract(
+        base,
+        raw_manifest,
+        legacy_command=row.get("command"),
+        repo_root=repo_root,
+    )
 
 
-def _build_experiment_queue(learnings, payloads, artifacts, *, generated_at_utc, run_date=None):
+def _build_experiment_queue(
+    learnings,
+    payloads,
+    artifacts,
+    *,
+    generated_at_utc,
+    run_date=None,
+    repo_root=None,
+):
     results_by_id = _queue_results_by_id(payloads.get("experiment_queue_results") or {})
     items = []
     june23 = payloads.get("june23_location_bias_repair") or {}
     for manifest in june23.get("experiment_queue_items") or june23.get("repair_manifests") or []:
-        items.append(_queue_item_from_manifest(manifest, generated_at_utc=generated_at_utc))
+        items.append(
+            _queue_item_from_manifest(
+                manifest,
+                generated_at_utc=generated_at_utc,
+                repo_root=repo_root,
+            )
+        )
     retrain_rows = [
         (index, row)
         for index, row in enumerate(learnings or [])
@@ -351,41 +497,87 @@ def _build_experiment_queue(learnings, payloads, artifacts, *, generated_at_utc,
         )
     )
     for index, row in retrain_rows[:EXPERIMENT_QUEUE_RETRAIN_INPUT_LIMIT]:
-        items.append(_queue_item_from_learning(row, index, generated_at_utc=generated_at_utc))
+        items.append(
+            _queue_item_from_learning(
+                row,
+                index,
+                generated_at_utc=generated_at_utc,
+                repo_root=repo_root,
+            )
+        )
 
     deduped = {}
     for item in items:
         queue_id = str(item.get("queue_id") or _stable_id(item.get("source"), item.get("slice"), item.get("hypothesis")))
         item["queue_id"] = queue_id
-        if queue_id not in deduped:
-            deduped[queue_id] = item
+        if queue_id in deduped:
+            raise ExperimentContractError(
+                f"duplicate experiment queue_id: {queue_id}"
+            )
+        deduped[queue_id] = item
     ranked = sorted(
         (_apply_queue_result(item, results_by_id) for item in deduped.values()),
         key=lambda item: (
             _priority_rank(item.get("priority")),
-            item.get("status") not in {"queued", "still_open", "regressed"},
+            item.get("eligible") is not True,
             -maybe_float(item.get("estimated_impact") or 0.0),
             str(item.get("queue_id")),
         ),
     )[:EXPERIMENT_QUEUE_MAX_ITEMS]
     eligible = [
         item for item in ranked
-        if item.get("status") in {"queued", "still_open", "regressed"}
+        if item.get("eligible") is True and item.get("status") == "queued"
     ]
     results_record = artifacts.get("experiment_queue_results") or {}
-    return {
+    verified_terminal = [
+        item
+        for item in ranked
+        if ((item.get("last_result") or {}).get("contract_status") == "PASS")
+        and item.get("status") in TERMINAL_DISPOSITIONS
+    ]
+    blocked = [
+        item
+        for item in ranked
+        if item.get("eligible") is not True and item not in verified_terminal
+    ]
+    queue = {
         "schema_version": schema_version("automatic_experiment_queue"),
         "generated_at_utc": generated_at_utc,
         "run_date": str(run_date or "")[:10],
         "status": "READY" if eligible else "EMPTY",
+        "eligibility_contract": {
+            "policy": "verified_materialized_experiment_manifest_only",
+            "structural_contract_is_not_executable": True,
+            "operational_execution_claimed": False,
+            "legacy_entries_visible": True,
+            "legacy_entries_eligible": False,
+            "commands_or_hashes_inferred": False,
+            "terminal_dispositions": sorted(TERMINAL_DISPOSITIONS),
+        },
         "items": ranked,
         "summary": {
             "queue_count": len(ranked),
             "eligible_count": len(eligible),
-            "blocked_count": sum(1 for item in ranked if str(item.get("status") or "").startswith("blocked")),
-            "resolved_count": sum(1 for item in ranked if item.get("status") == "resolved"),
-            "regressed_count": sum(1 for item in ranked if item.get("status") == "regressed"),
-            "still_open_count": sum(1 for item in ranked if item.get("status") == "still_open"),
+            "contract_eligible_count": sum(
+                1 for item in ranked if item.get("contract_eligible") is True
+            ),
+            "materialized_executable_count": len(eligible),
+            "ineligible_count": len(blocked),
+            "blocked_count": len(blocked),
+            "verified_terminal_count": len(verified_terminal),
+            "legacy_or_invalid_result_count": sum(
+                1
+                for item in ranked
+                if (item.get("last_result") or {}).get("contract_status")
+                == "LEGACY_OR_INVALID"
+            ),
+            **{
+                f"{disposition}_count": sum(
+                    1 for item in verified_terminal if item.get("status") == disposition
+                )
+                for disposition in sorted(TERMINAL_DISPOSITIONS)
+            },
+            "still_open_count": len(eligible),
             "item301_count": sum(1 for item in ranked if item.get("category") == "june23_location_bias_repair"),
         },
         "results_artifact": {
@@ -394,6 +586,8 @@ def _build_experiment_queue(learnings, payloads, artifacts, *, generated_at_utc,
             "generated_at_utc": results_record.get("generated_at_utc"),
         },
     }
+    finalized = finalize_self_hash(queue, hash_field="queue_sha256")
+    return verify_automatic_experiment_queue(finalized, repo_root=repo_root)
 
 
 def _capped_sorted_rows(rows, limit, source, truncated_sources=None, priority_func=None):

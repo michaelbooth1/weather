@@ -1486,3 +1486,62 @@ Verification:
 
 - `python -m pytest tests\model\test_continuous_density.py tests\model\test_market_units.py tests\calibration\test_probability_calibration.py tests\calibration\test_pooled_feature_model.py tests\calibration\test_pooled_candidate_replay.py tests\reporting\test_blocked_market_repair_diagnostics.py tests\reporting\test_winner_underpricing_casebook.py tests\operations\test_schema_registry.py -q`
   passed with `134 passed`, `16 warnings`.
+
+## 2026-07-11 bounded live/replay divergence diagnosis and quarantine
+
+The live collapse now has a reproduced serving defect, not merely an empirical
+replay/live discrepancy. The bounded command
+`python -m weather.operations.density_live_replay_parity` read one existing
+July 10 snapshot plus the corresponding density tape from Toronto and Atlanta.
+It read only `2` snapshot lines and `176` variant lines, and did not start
+capture, training, or corpus replay. Evidence is persisted in:
+
+- `data/backtest/item35_density_live_replay_parity_diagnostic.json`
+- `data/backtest/item35_density_live_replay_parity_diagnostic.md`
+
+The registered v0.1 artifact hash matches both tapes. The captured feature
+vectors use current schema `toronto_feature_store_v1.15`, but contain neither
+`market_id` nor `display_unit`/`unit`. The old live route therefore had two
+opposite unit failures:
+
+- Toronto feature values happened to use the registry helper's Toronto/C
+  default, but its native C market bands were projected with the live route's
+  hard-coded F fallback. The recorded partition put effectively all mass in
+  `>=33 C`; the canonical captured-snapshot replay peaks at `27 C`, with
+  maximum absolute row delta `0.9995817940`.
+- Atlanta's F bands happened to use the correct F projection fallback, but its
+  feature values were canonicalized through the Toronto/C default before
+  inference. The recorded top band is `94-95 F`; the canonical replay top is
+  `90-91 F`, with maximum absolute row delta `0.1920051927`.
+
+The same audit also found dormant route-contract drift: live only invoked
+continuous calibration when `density_postprocess.enabled`, read floor/lock-in
+fields directly instead of deriving the band prediction record, and omitted
+the replay density band postprocessors. The registered v0.1 artifact has no
+enabled density postprocess, so those omissions do not explain its historical
+tape, but they would break parity for a future enabled artifact.
+
+The live route now requires a registered `market_id`, injects the registry's
+explicit native unit before feature canonicalization, rejects conflicting
+feature context, always derives and applies the same continuous calibration
+context as replay, and shares density band postprocessing order with replay.
+On the two captured snapshots, repaired code versus the independent canonical
+calculation has maximum absolute delta `0.0`; Toronto and Atlanta partition
+regressions cover both unit families.
+
+This is a code-parity repair, not model requalification. Historical live tape
+remains invalid and legacy rows lack immutable release/captured-input hashes.
+`pooled_continuous_density_hgb_v0_1` is therefore registry lifecycle `shadow`,
+`active_for_headline=false`, and
+`counts_toward_weather_model_promotion=false`. Its artifact and diagnostics are
+preserved, and explicit `live_capture_enabled=true` continues non-countable
+diagnostic tape needed for the parity proof; those rows cannot generate
+headline or promotion evidence. Item 35
+remains `PARTIAL` until fresh post-fix tape under one immutable release matches
+captured-input replay and a new candidate passes untouched fleet-date-blocked
+qualification; otherwise the lane should be retired.
+
+Focused verification:
+
+- `python -m pytest tests/operations/test_density_live_replay_parity.py tests/collection/test_live_variant_predictions.py tests/reporting/test_variant_registry.py tests/operations/test_schema_registry.py -q`
+  passed with `29 passed`, `2 subtests passed`.

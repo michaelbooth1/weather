@@ -24,10 +24,19 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("forecast_history_coverage"), "forecast_history_coverage_v0.1")
         self.assertEqual(schema_version("forecast_history_long"), "forecast_history_long_v3")
         self.assertEqual(schema_version("daily_learning"), "daily_learning_v0.1")
-        self.assertEqual(schema_version("automatic_experiment_queue"), "automatic_experiment_queue_v0.1")
+        self.assertEqual(schema_version("automatic_experiment_queue"), "automatic_experiment_queue_v0.2")
         self.assertEqual(schema_version("experiment_queue_results"), "experiment_queue_results_v0.1")
+        self.assertEqual(
+            schema_version("executable_experiment_manifest"),
+            "executable_experiment_manifest_v0.1",
+        )
+        self.assertEqual(
+            schema_version("executable_experiment_result"),
+            "executable_experiment_result_v0.1",
+        )
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
-        self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.1")
+        self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.2")
+        self.assertEqual(schema_version("replay_inputs"), "toronto_replay_inputs_v0.2")
         self.assertEqual(schema_version("multi_variant_shadow_attribution"), "multi_variant_shadow_attribution_v0.1")
         self.assertEqual(schema_version("model_variant_registry_audit"), "model_variant_registry_audit_v0.1")
         self.assertEqual(schema_version("roadmap_backlog"), "roadmap_backlog_v0.1")
@@ -40,6 +49,60 @@ class TestSchemaRegistry(unittest.TestCase):
             "proper_scoring_reliability_scorecard_v0.1",
         )
         self.assertEqual(schema_version("winner_rank_parity"), "winner_rank_parity_v0.1")
+        self.assertEqual(
+            schema_version("live_variant_settlement_scorecard"),
+            "live_variant_settlement_scorecard_v0.1",
+        )
+        self.assertEqual(schema_version("release_manifest"), "release_manifest_v0.1")
+        self.assertEqual(
+            schema_version("active_release_pointer"),
+            "active_release_pointer_v0.1",
+        )
+        self.assertEqual(
+            schema_version("release_promotion_decision"),
+            "release_promotion_decision_v0.1",
+        )
+        self.assertEqual(
+            schema_version("release_market_day_boundary"),
+            "release_market_day_boundary_v0.1",
+        )
+        self.assertEqual(
+            schema_version("capture_resource_gate"),
+            "capture_resource_gate_v0.1",
+        )
+        self.assertEqual(
+            schema_version("point_in_time_analytical_contract"),
+            "point_in_time_analytical_contract_v0.1",
+        )
+        self.assertEqual(
+            schema_version("point_in_time_materializer"),
+            "point_in_time_materializer_v0.1",
+        )
+        self.assertEqual(
+            schema_version("point_in_time_validation_plan"),
+            "point_in_time_validation_plan_v0.1",
+        )
+        self.assertEqual(
+            schema_version("point_in_time_streaming_evaluation"),
+            "point_in_time_streaming_evaluation_v0.1",
+        )
+        self.assertEqual(
+            schema_version("base_model_serving_graph"),
+            "base_model_serving_graph_v0.1",
+        )
+        self.assertEqual(
+            schema_version("density_live_replay_parity"),
+            "density_live_replay_parity_v0.1",
+        )
+        self.assertEqual(schema_version("clean_day_ledger"), "clean_day_ledger_v0.1")
+        self.assertEqual(
+            schema_version("unattended_cycle_ledger"),
+            "unattended_cycle_ledger_v0.1",
+        )
+        self.assertEqual(
+            schema_version("production_readiness_gate"),
+            "production_readiness_gate_v0.1",
+        )
         self.assertEqual(schema_version("june23_location_bias_repair"), "june23_location_bias_repair_v0.1")
         self.assertEqual(schema_version("afternoon_residual_centering"), "afternoon_residual_centering_v0.1")
         self.assertEqual(
@@ -152,6 +215,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("market_anchor_time_split_validation"), "market_anchor_time_split_validation_v0.2")
         self.assertEqual(schema_version("clob_coverage_audit"), "clob_coverage_audit_v0.3")
         self.assertEqual(schema_version("clob_capture_status"), "clob_capture_status_v0.1")
+        self.assertEqual(
+            schema_version("clob_enrichment_capture_status"),
+            "clob_enrichment_capture_status_v0.1",
+        )
+        self.assertEqual(
+            schema_version("clob_enrichment_loop_status"),
+            "clob_enrichment_loop_status_v0.1",
+        )
         self.assertEqual(schema_version("data_retention_inventory"), "data_retention_inventory_v0.1")
         self.assertEqual(
             schema_version("closed_market_day_archive_manifest"),

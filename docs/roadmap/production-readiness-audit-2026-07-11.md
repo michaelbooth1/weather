@@ -155,7 +155,7 @@ contaminated CSV makes the radiation gate return
    headroom, but retention/externalization work remains.
 9. **This is a mutable desktop deployment.** Processes run as an interactive
    user, different loops can run different commits, restart depends on the
-   checkout, and there is no immutable service release or external alerting.
+   checkout, and there is no immutable service release.
 10. **A real order adapter is not wired.** Live order mode still resolves to a
     null/fixture adapter. This is intentionally deferred until model and paper
     gates pass.
@@ -181,7 +181,7 @@ sum to one; no unsupported live runtime; replay and served outputs match.
   order credentials.
 - Run capture separately from research/promotion compute.
 - Restart all loops together only at a market-day boundary.
-- Make external health alerts and automatic restart/rollback operational.
+- Make automatic health-based restart and rollback operational.
 
 Exit: one identity, 100% prediction coverage, zero material snapshot/CLOB gaps,
 fresh sources, and three consecutive clean active days.
@@ -221,7 +221,7 @@ authorization.
 | P1 | Streaming evaluator and honest sample accounting | 117, 163 | 14-day scorecard completes without materializing raw corpus; reports dates/market-days/CIs |
 | P1 | Data quality/source reliability repair | 114, 125, 185 | Stale/failed source rate <5%; training exclusions understood; active sidecars complete |
 | P1 | Executable experiment queue | 298 and daily-learning queue | Every queued experiment has command, frozen inputs, owner, decision rule, and recorded result |
-| P1 | Service hardening | operations track | Dedicated account/host, loopback/authenticated UI, external alerts, health rollback |
+| P1 | Service hardening | operations track | Dedicated account/host, loopback/authenticated UI, health rollback |
 | P2 | Live exchange adapter | 67 | Implement only after Stage 2; full order lifecycle and risk-canary tests |
 | P2 | Module/shim cleanup | 130, 173, 206 | Reduce blast radius after critical gates; execute shim removal on/after July 18 |
 

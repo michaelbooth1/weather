@@ -41,6 +41,8 @@ from weather.reporting.daily import daily_progress_ledger
 from weather.reporting.daily import daily_rollup_freshness
 from weather.reporting.fleet import fleet_observability
 from weather.reporting.scorecards import frozen_baseline_replay_trend
+from weather.reporting.scorecards import live_variant_settlement_scorecard
+from weather.reporting.serving_gates import production_readiness_gate
 from weather.reporting.hourly import hourly_model_performance
 from weather.reporting.market import market_beating_objective_scoreboard
 from weather.reporting.candidate_lifecycle import model_market_disagreement_analysis
@@ -52,6 +54,13 @@ from weather.reporting.candidate_lifecycle import active_variant_shadow_refresh
 from weather.operations import replay_status_backfill
 from weather.operations import event_metadata_validation
 from weather.operations import daily_roll_log_hygiene
+from weather.operations.capture_resource_gate import (
+    DAILY_REFRESH_WORKLOAD,
+    DEFAULT_MIN_DISK_HEADROOM_DAYS as DEFAULT_CAPTURE_MIN_DISK_HEADROOM_DAYS,
+    DEFAULT_MIN_FREE_DISK_BYTES as DEFAULT_CAPTURE_MIN_FREE_DISK_BYTES,
+    DEFAULT_MIN_FREE_MEMORY_BYTES as DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
+    persist_pipeline_admission,
+)
 from weather.reporting.candidate_lifecycle import shadow_ab_monitor
 from weather.reporting.scorecards import snapshot_evaluation
 from weather.reporting.scorecards import distribution_stage_attribution
@@ -72,6 +81,12 @@ from weather.operations.long_job_guard import (
     process_is_running,
     touch_long_job_guard,
 )
+from weather.operations.producer_provenance import (
+    build_invocation_proof,
+    build_lock_proof,
+    build_stage_sla,
+    producer_release_proof,
+)
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.schema_registry import schema_version
 from weather.reporting.data_quality.artifact_disk_budget import DEFAULT_ROW_EXPORT_BYTES_PER_ROW
@@ -88,6 +103,7 @@ DEFAULT_EVIDENCE_TASK_NAME = "WeatherEveningEvidenceRefresh"
 DEFAULT_STAGE_A_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_settlement_truth_manifest.json"
 DEFAULT_STAGE_B_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_evidence_learning_manifest.json"
 STAGE_MANIFEST_SCHEMA_VERSION = schema_version("daily_refresh_stage_manifest")
+DAILY_HEAVY_STEPS = frozenset({"promotion_refresh", "active_variant_shadow"})
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
     _remove_lock_if_verified_stale,
@@ -145,6 +161,7 @@ from weather.operations.daily_refresh_steps import (
     run_hourly_model_performance_step,
     run_ingest_quality_gate_step,
     run_june23_location_bias_repair_step,
+    run_live_variant_settlement_scorecard_step,
     run_market_day_labels_finalize,
     run_market_beating_objective_scoreboard_step,
     run_maker_paper_score_step,
@@ -194,6 +211,256 @@ def run_daily_refresh(args, runners=None):
         guard_info = dict(guard or {})
         guard_info["preflight"] = preflight
         return _run_daily_refresh_guarded(args, runners=runners, long_job_guard_info=guard_info)
+
+
+def _capture_resource_preflight(args):
+    backtest_root = Path(args.backtest_root)
+    out = (
+        getattr(args, "capture_resource_out", "")
+        or backtest_root / "capture_resource_gate.json"
+    )
+    report = (
+        getattr(args, "capture_resource_report", "")
+        or backtest_root / "capture_resource_gate.md"
+    )
+    return persist_pipeline_admission(
+        workload=DAILY_REFRESH_WORKLOAD,
+        out=out,
+        report=report,
+        snapshots_root=args.snapshots_root,
+        disk_path=(
+            getattr(args, "capture_resource_disk_path", "")
+            or args.backtest_root
+        ),
+        capture_mode=getattr(args, "capture_resource_mode", "live"),
+        active_window_start_hour=getattr(
+            args,
+            "capture_resource_active_window_start_hour",
+            None,
+        ),
+        active_window_end_hour=getattr(
+            args,
+            "capture_resource_active_window_end_hour",
+            None,
+        ),
+        min_free_memory_bytes=int(
+            getattr(
+                args,
+                "capture_resource_min_free_memory_bytes",
+                DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
+            )
+        ),
+        min_free_disk_bytes=int(
+            getattr(
+                args,
+                "capture_resource_min_free_disk_bytes",
+                DEFAULT_CAPTURE_MIN_FREE_DISK_BYTES,
+            )
+        ),
+        daily_disk_growth_bytes=getattr(
+            args,
+            "capture_resource_daily_disk_growth_bytes",
+            None,
+        ),
+        min_disk_headroom_days=float(
+            getattr(
+                args,
+                "capture_resource_min_disk_headroom_days",
+                DEFAULT_CAPTURE_MIN_DISK_HEADROOM_DAYS,
+            )
+        ),
+    )
+
+
+def _capture_resource_deferred_step(admission):
+    summary = admission.get("summary") or {}
+    enforcement = admission.get("enforcement") or {}
+    return {
+        "name": "capture_resource_admission",
+        "status": "deferred",
+        "started_at_utc": admission.get("generated_at_utc"),
+        "finished_at_utc": admission.get("generated_at_utc"),
+        "duration_seconds": 0.0,
+        "result": {
+            "status": admission.get("status"),
+            "decision": admission.get("decision"),
+            "admitted": admission.get("admitted"),
+            "workload": admission.get("workload"),
+            "blocker_count": summary.get("blocker_count"),
+            "blocker_codes": [
+                row.get("code") for row in admission.get("blockers") or []
+            ],
+            "suggested_defer_until_utc": summary.get(
+                "suggested_defer_until_utc"
+            ),
+            "proof_path": enforcement.get("json_path"),
+            "hard_stop_pipeline": True,
+        },
+    }
+
+
+def _configured_paths(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, (str, Path)):
+        return [str(value)]
+    return [str(path) for path in value if str(path or "").strip()]
+
+
+def _configured_name_paths(value):
+    if isinstance(value, dict):
+        return {str(name): Path(path) for name, path in value.items()}
+    parsed = {}
+    for item in value or []:
+        if "=" not in str(item):
+            parsed[str(item)] = Path("")
+            continue
+        name, path = str(item).split("=", 1)
+        parsed[name.strip()] = Path(path.strip())
+    return parsed
+
+
+def _captured_input_parity_preflight(args, release_identity):
+    backtest_root = Path(args.backtest_root)
+    active_pointer = (
+        getattr(args, "active_release_pointer", "")
+        or production_readiness_gate.DEFAULT_ACTIVE_RELEASE_POINTER
+    )
+    releases_root = (
+        getattr(args, "releases_root", "")
+        or production_readiness_gate.DEFAULT_RELEASES_ROOT
+    )
+    json_out = (
+        getattr(args, "captured_input_parity_out", "")
+        or backtest_root / "live_variant_replay_parity.json"
+    )
+    report_out = (
+        getattr(args, "captured_input_parity_report", "")
+        or backtest_root / "live_variant_replay_parity.md"
+    )
+    expected_release_id = str((release_identity or {}).get("release_id") or "")
+    expected_manifest_sha256 = str(
+        (release_identity or {}).get("release_manifest_sha256")
+        or (release_identity or {}).get("manifest_sha256")
+        or ""
+    )
+    try:
+        return live_variant_settlement_scorecard.persist_captured_input_replay_parity(
+            _configured_paths(getattr(args, "captured_input_parity_served", [])),
+            _configured_paths(getattr(args, "captured_input_parity_replay", [])),
+            json_out=json_out,
+            report_out=report_out,
+            protected_paths=[active_pointer],
+            protected_roots=[releases_root],
+            expected_release_id=expected_release_id,
+            expected_manifest_sha256=expected_manifest_sha256,
+            max_input_age_hours=float(
+                getattr(
+                    args,
+                    "captured_input_parity_max_age_hours",
+                    live_variant_settlement_scorecard.DEFAULT_PARITY_MAX_INPUT_AGE_HOURS,
+                )
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - terminal BLOCK must still persist
+        return live_variant_settlement_scorecard.persist_captured_input_replay_parity_failure(
+            exc,
+            json_out=json_out,
+            report_out=report_out,
+            protected_paths=[active_pointer],
+            protected_roots=[releases_root],
+            expected_release_id=expected_release_id,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
+
+
+def _captured_input_parity_deferred_step(parity):
+    first = parity.get("first_mismatch") or {}
+    return {
+        "name": "captured_input_replay_parity",
+        "status": "deferred",
+        "started_at_utc": parity.get("generated_at_utc"),
+        "finished_at_utc": parity.get("generated_at_utc"),
+        "duration_seconds": 0.0,
+        "result": {
+            "status": parity.get("status"),
+            "mismatch_count": (parity.get("summary") or {}).get("mismatch_count"),
+            "first_mismatch": first,
+            "next_action": first.get("next_action")
+            or "generate exact captured-input replay rows and rerun parity",
+            "proof_path": (parity.get("outputs") or {}).get("json_path"),
+            "hard_stop_pipeline": True,
+        },
+    }
+
+
+def _production_readiness_status(args):
+    backtest_root = Path(args.backtest_root)
+    evidence_overrides = _configured_name_paths(
+        getattr(args, "production_readiness_evidence", [])
+    )
+    evidence_overrides["replay_parity"] = Path(
+        getattr(args, "captured_input_parity_out", "")
+        or backtest_root / "live_variant_replay_parity.json"
+    )
+    evidence_overrides["capture_resource_gate"] = Path(
+        getattr(args, "capture_resource_out", "")
+        or backtest_root / "capture_resource_gate.json"
+    )
+    gate_kwargs = {
+        "pointer_path": (
+            getattr(args, "active_release_pointer", "")
+            or production_readiness_gate.DEFAULT_ACTIVE_RELEASE_POINTER
+        ),
+        "releases_root": (
+            getattr(args, "releases_root", "")
+            or production_readiness_gate.DEFAULT_RELEASES_ROOT
+        ),
+        "served_artifact_paths": _configured_name_paths(
+            getattr(args, "production_readiness_served_artifact", [])
+        ),
+        "served_route_path": (
+            getattr(args, "production_readiness_served_route", "") or None
+        ),
+    }
+    resolver = getattr(args, "production_readiness_release_resolver", None)
+    if resolver is not None:
+        gate_kwargs["release_resolver"] = resolver
+    payload, json_path, report_path = (
+        production_readiness_gate.build_and_write_production_readiness_status(
+            backtest_root=backtest_root,
+            evidence_paths=evidence_overrides,
+            json_out=(
+                getattr(args, "production_readiness_out", "")
+                or backtest_root / "production_readiness_gate.json"
+            ),
+            report_out=(
+                getattr(args, "production_readiness_report", "")
+                or backtest_root / "production_readiness_gate.md"
+            ),
+            **gate_kwargs,
+        )
+    )
+    attestation = payload.get("read_only_attestation") or {}
+    return {
+        "status": payload.get("status"),
+        "stage": payload.get("stage"),
+        "blocker_count": payload.get("blocker_count"),
+        "first_blocker": payload.get("first_blocker"),
+        "gate_sha256": payload.get("gate_sha256"),
+        "json_out": str(json_path),
+        "report_out": str(report_path),
+        "read_only": attestation.get("pointer_unchanged") is True,
+        "pointer_mutated": (
+            False
+            if attestation.get("pointer_unchanged") is True
+            else True
+            if attestation.get("pointer_unchanged") is False
+            else None
+        ),
+        "pointer_sha256_before": (attestation.get("pointer_before") or {}).get("sha256"),
+        "pointer_sha256_after": (attestation.get("pointer_after") or {}).get("sha256"),
+    }
 
 
 def _flush_incremental_status(args, payload):
@@ -271,6 +538,14 @@ def _stage_manifest_payload(args, payload, *, stage, status_path=None, report_pa
         ],
         "barrier": _stage_barrier_summary(payload),
         "steps": payload.get("steps") or [],
+        "invocation": payload.get("invocation") or {},
+        "lock_proof": payload.get("lock_proof") or {},
+        "sla": payload.get("sla") or {},
+        "inside_sla": (payload.get("sla") or {}).get("status") == "PASS",
+        "release_identity": payload.get("release_identity") or {},
+        "release_id": payload.get("release_id") or "",
+        "release_manifest_sha256": payload.get("release_manifest_sha256") or "",
+        "release_identity_status": payload.get("release_identity_status") or "unverified",
     }
 
 
@@ -345,6 +620,14 @@ def _stage_b_start_gate(args):
 
 def _write_stage_skip(args, *, started, started_at, gate):
     finished = utc_iso()
+    duration_seconds = round(time.time() - started, 3)
+    invocation = getattr(args, "_current_producer_invocation", {}) or {}
+    lock_proof = getattr(args, "_current_producer_lock_proof", {}) or {}
+    release_identity = getattr(args, "_current_producer_release_identity", {}) or {}
+    sla = build_stage_sla(
+        duration_seconds=duration_seconds,
+        limit_seconds=getattr(args, "producer_sla_seconds", 0.0),
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": finished,
@@ -355,7 +638,22 @@ def _write_stage_skip(args, *, started, started_at, gate):
         "runner": "daily_refresh",
         "steps": [],
         "summary": pipeline_summary([]),
-        "duration_seconds": round(time.time() - started, 3),
+        "duration_seconds": duration_seconds,
+        "invocation": invocation,
+        "lock_proof": lock_proof,
+        "sla": sla,
+        "release_identity": release_identity,
+        "release_id": release_identity.get("release_id") if release_identity.get("status") == "PASS" else "",
+        "release_manifest_sha256": (
+            release_identity.get("release_manifest_sha256")
+            if release_identity.get("status") == "PASS"
+            else ""
+        ),
+        "release_identity_status": (
+            "verified_serving_binding"
+            if release_identity.get("status") == "PASS"
+            else "unverified"
+        ),
         "config": {
             "snapshots_root": args.snapshots_root,
             "backtest_root": args.backtest_root,
@@ -401,6 +699,21 @@ def _trigger_evidence_stage(args, manifest):
 def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
+    invocation = build_invocation_proof(
+        args,
+        module_name="weather.operations.daily_refresh",
+        invocation_started_at_utc=started_at,
+    )
+    release_identity = producer_release_proof(args)
+    lock_proof = build_lock_proof(
+        getattr(args, "_daily_refresh_lock_acquisition", None),
+        (long_job_guard_info or {}).get("lock_acquisition"),
+        prior_repair=getattr(args, "_prior_lock_repair_outcomes", None),
+        required_kinds=("daily_refresh_lock", "long_job_guard_lock"),
+    )
+    setattr(args, "_current_producer_invocation", invocation)
+    setattr(args, "_current_producer_release_identity", release_identity)
+    setattr(args, "_current_producer_lock_proof", lock_proof)
     stage = _stage_name(args)
     runners = filter_runners_for_stage_and_resume(
         list(runners or DEFAULT_RUNNERS),
@@ -417,6 +730,26 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         "runner": "daily_refresh",
         "steps": [],
         "summary": {},
+        "invocation": invocation,
+        "lock_proof": lock_proof,
+        "sla": {
+            "status": "PENDING",
+            "predeclared": float(getattr(args, "producer_sla_seconds", 0.0) or 0.0) > 0,
+            "limit_seconds": float(getattr(args, "producer_sla_seconds", 0.0) or 0.0) or None,
+            "duration_seconds": None,
+        },
+        "release_identity": release_identity,
+        "release_id": release_identity.get("release_id") if release_identity.get("status") == "PASS" else "",
+        "release_manifest_sha256": (
+            release_identity.get("release_manifest_sha256")
+            if release_identity.get("status") == "PASS"
+            else ""
+        ),
+        "release_identity_status": (
+            "verified_serving_binding"
+            if release_identity.get("status") == "PASS"
+            else "unverified"
+        ),
         "config": {
             "snapshots_root": args.snapshots_root,
             "backtest_root": args.backtest_root,
@@ -425,9 +758,40 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "fail_on_variant_evidence_alert": getattr(args, "fail_on_variant_evidence_alert", True),
             "fail_on_hourly_performance_gate": getattr(args, "fail_on_hourly_performance_gate", True),
             "fail_on_ten_minute_performance_gate": getattr(args, "fail_on_ten_minute_performance_gate", True),
+            "fail_on_live_variant_settlement_scorecard": getattr(
+                args,
+                "fail_on_live_variant_settlement_scorecard",
+                True,
+            ),
             "fail_on_daily_flow_analysis_blocker": getattr(args, "fail_on_daily_flow_analysis_blocker", False),
             "fail_on_nightly_health_critical": getattr(args, "fail_on_nightly_health_critical", False),
             "long_job_guard": long_job_guard_info or {},
+            "capture_resource_mode": getattr(
+                args,
+                "capture_resource_mode",
+                "live",
+            ),
+            "capture_resource_out": str(
+                getattr(args, "capture_resource_out", "")
+                or Path(args.backtest_root) / "capture_resource_gate.json"
+            ),
+            "captured_input_replay_parity_required": not getattr(
+                args,
+                "skip_captured_input_replay_parity",
+                False,
+            ),
+            "captured_input_parity_out": str(
+                getattr(args, "captured_input_parity_out", "")
+                or Path(args.backtest_root) / "live_variant_replay_parity.json"
+            ),
+            "production_readiness_gate_enabled": not getattr(
+                args,
+                "skip_production_readiness_gate",
+                False,
+            ),
+            "fail_on_production_readiness_block": bool(
+                getattr(args, "fail_on_production_readiness_block", False)
+            ),
             "resume_from_step": getattr(args, "resume_from_step", ""),
             "stage": stage,
             "stage_a_manifest": str(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST)),
@@ -467,14 +831,52 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["config"]["carried_forward_step_count"] = len(carried)
         payload["config"]["carried_forward_from_stage"] = STAGE_SETTLEMENT
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+    capture_resource_admission = None
+    capture_resource_deferred = False
+    captured_input_parity = None
+    captured_input_parity_deferred = False
     if args.dry_run:
         payload["steps"] = planned_steps(stage)
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
+            if name in DAILY_HEAVY_STEPS and capture_resource_admission is None:
+                capture_resource_admission, _proof_path, _proof_report = (
+                    _capture_resource_preflight(args)
+                )
+                payload["capture_resource_admission"] = capture_resource_admission
+                if capture_resource_admission.get("admitted") is not True:
+                    step = _capture_resource_deferred_step(
+                        capture_resource_admission
+                    )
+                    payload["steps"].append(step)
+                    _flush_incremental_status(args, payload)
+                    capture_resource_deferred = True
+                    break
+            if (
+                name in DAILY_HEAVY_STEPS
+                and not getattr(args, "skip_captured_input_replay_parity", False)
+                and captured_input_parity is None
+            ):
+                captured_input_parity, _parity_path, _parity_report = (
+                    _captured_input_parity_preflight(
+                        args,
+                        payload.get("release_identity") or {},
+                    )
+                )
+                payload["captured_input_replay_parity"] = captured_input_parity
+                if captured_input_parity.get("status") != "PASS":
+                    step = _captured_input_parity_deferred_step(
+                        captured_input_parity
+                    )
+                    payload["steps"].append(step)
+                    _flush_incremental_status(args, payload)
+                    captured_input_parity_deferred = True
+                    break
             if name in {
                 "market_day_labels_finalize",
                 "settled_day_analysis_barrier",
+                "promotion_refresh",
                 "daily_learning",
                 "daily_flow_analysis",
             }:
@@ -516,7 +918,13 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             ):
                 break
         errors = [step for step in payload["steps"] if step.get("status") == "error"]
-        payload["status"] = "error" if errors else "ok"
+        payload["status"] = (
+            "deferred"
+            if capture_resource_deferred or captured_input_parity_deferred
+            else "error"
+            if errors
+            else "ok"
+        )
         if args.fail_on_fleet_critical:
             fleet_step = next((step for step in payload["steps"] if step.get("name") == "fleet_observability"), {})
             fleet_status = ((fleet_step.get("result") or {}).get("status"))
@@ -553,6 +961,18 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             )
             ten_minute_status = ((ten_minute_step.get("result") or {}).get("status"))
             if ten_minute_status == "BLOCK" and payload["status"] == "ok":
+                payload["status"] = "critical"
+        if getattr(args, "fail_on_live_variant_settlement_scorecard", True):
+            live_score_step = next(
+                (
+                    step
+                    for step in payload["steps"]
+                    if step.get("name") == "live_variant_settlement_scorecard"
+                ),
+                {},
+            )
+            live_score_status = (live_score_step.get("result") or {}).get("status")
+            if live_score_status not in {None, "PASS", "SKIPPED"} and payload["status"] == "ok":
                 payload["status"] = "critical"
         scoring_liveness_blockers = [
             {
@@ -592,9 +1012,50 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             flow_status = ((flow_step.get("result") or {}).get("status"))
             if flow_status in {"BLOCKED", "MISSING_INPUTS"} and payload["status"] == "ok":
                 payload["status"] = "critical"
+    if not args.dry_run and not getattr(args, "skip_production_readiness_gate", False):
+        readiness_started = time.time()
+        readiness_step = {
+            "name": "production_readiness_gate",
+            "status": "running",
+            "started_at_utc": utc_iso(),
+            "finished_at_utc": None,
+            "duration_seconds": 0.0,
+        }
+        try:
+            readiness_step["result"] = _production_readiness_status(args)
+            readiness_step["status"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - final status persistence is mandatory
+            readiness_step.update(
+                {
+                    "status": "error",
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            payload["status"] = "error"
+        readiness_step["finished_at_utc"] = utc_iso()
+        readiness_step["duration_seconds"] = round(
+            time.time() - readiness_started,
+            3,
+        )
+        payload["steps"].append(readiness_step)
+        payload["production_readiness"] = readiness_step.get("result") or {
+            "status": "ERROR",
+            "error": readiness_step.get("error"),
+        }
+        if (
+            getattr(args, "fail_on_production_readiness_block", False)
+            and payload["production_readiness"].get("status") != "PASS"
+            and payload.get("status") != "error"
+        ):
+            payload["status"] = "critical"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
+    payload["sla"] = build_stage_sla(
+        duration_seconds=payload["duration_seconds"],
+        limit_seconds=getattr(args, "producer_sla_seconds", 0.0),
+    )
     payload["summary"] = pipeline_summary(payload["steps"])
     progress_will_write = not args.dry_run and not getattr(args, "skip_daily_progress_ledger", False)
     rollup_overrides = {}

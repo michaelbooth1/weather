@@ -1,10 +1,9 @@
 import json
-import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from weather.artifacts import (
+    CandidateArtifactPathError,
     artifact_candidates,
     artifact_path,
     build_artifact_externalization_manifest,
@@ -12,12 +11,49 @@ from weather.artifacts import (
     build_artifact_size_audit,
     build_artifact_registry,
     legacy_artifact_path,
+    training_artifact_output_policy,
     write_artifact_size_audit,
     write_artifact_registry,
 )
 
 
 class TestArtifactPaths(unittest.TestCase):
+    def test_candidate_training_path_policy_is_shared_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            candidates = root / "candidates"
+            releases = root / "releases"
+            candidate = training_artifact_output_policy(
+                candidates / "r1" / "model.pkl",
+                candidates_root=candidates,
+                releases_root=releases,
+                active_pointer=releases / "current_release.json",
+            )
+            self.assertEqual(candidate["status"], "CANDIDATE_ONLY")
+            with self.assertRaises(CandidateArtifactPathError):
+                training_artifact_output_policy(
+                    root / "models" / "active.pkl",
+                    candidates_root=candidates,
+                    releases_root=releases,
+                    active_pointer=releases / "current_release.json",
+                )
+            quarantined = training_artifact_output_policy(
+                root / "models" / "active.pkl",
+                candidates_root=candidates,
+                releases_root=releases,
+                active_pointer=releases / "current_release.json",
+                allow_legacy_serving_output=True,
+            )
+            self.assertFalse(quarantined["release_eligible"])
+            with self.assertRaises(CandidateArtifactPathError):
+                training_artifact_output_policy(
+                    releases / "r1" / "model.pkl",
+                    candidates_root=candidates,
+                    releases_root=releases,
+                    active_pointer=releases / "current_release.json",
+                    allow_legacy_serving_output=True,
+                )
+
     def test_model_artifacts_route_outside_src_tree(self):
         cases = {
             "feature_model_hgb.pkl": Path("artifacts/models/hgb/feature_model_hgb.pkl"),

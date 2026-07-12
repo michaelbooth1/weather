@@ -21,6 +21,7 @@ from weather.market import mm_paper
 from weather.market import taker_bot
 from weather.market import taker_edge_permission
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
+from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import all_specs
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
@@ -76,6 +77,7 @@ from weather.reporting.market import market_beating_objective_scoreboard
 from weather.reporting.candidate_lifecycle import model_market_disagreement_analysis
 from weather.reporting.candidate_lifecycle import price_free_model_learning
 from weather.reporting.scorecards import proper_scoring_reliability_scorecard
+from weather.reporting.scorecards import live_variant_settlement_scorecard
 from weather.reporting.scorecards import progress_audit
 from weather.reporting.promotion import promotion_refresh
 from weather.reporting.serving_gates import runtime_identity_reconciliation
@@ -89,6 +91,9 @@ from weather.reporting.scorecards import winner_rank_parity
 
 DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS = 8 * 60 * 60
 DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB = 6144
+DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TAPES = 24
+DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TAPE_BYTES = 128 * 1024 * 1024
+DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
 
 def _daily_archive_root(args):
@@ -278,6 +283,48 @@ def _promotion_step_summary(payload, out_path, report_path, disk_preflight, *, s
 
 
 def run_promotion_refresh_step(args):
+    prior_steps = list(getattr(args, "_daily_refresh_steps_so_far", []) or [])
+    live_step = next(
+        (
+            step
+            for step in prior_steps
+            if step.get("name") == "live_variant_settlement_scorecard"
+        ),
+        {},
+    )
+    live_result = live_step.get("result") or {}
+    live_status = (
+        "ERROR"
+        if live_step.get("status") == "error"
+        else str(live_result.get("status") or "MISSING")
+    ).upper()
+    if live_status != "PASS":
+        first_blocker = live_result.get("first_blocker") or {}
+        return {
+            "status": "BLOCK",
+            "reason": "live_variant_settlement_scorecard_not_passable",
+            "candidate_verdict": "BLOCK",
+            "candidate_market_verdict": "BLOCK",
+            "cutover_decision": "DO_NOT_CUT_OVER",
+            "action_counts": {},
+            "promote_markets": [],
+            "shadow_markets": [],
+            "blocked_markets": [],
+            "promotion_not_run": True,
+            "live_variant_settlement_scorecard": {
+                "status": live_status,
+                "target_date": live_result.get("target_date"),
+                "blocker_count": live_result.get("blocker_count"),
+                "first_blocker": first_blocker,
+                "json_out": live_result.get("json_out"),
+            },
+            "first_blocker": {
+                "gate": "live_variant_settlement_scorecard",
+                "detail": first_blocker.get("detail")
+                or live_step.get("error")
+                or f"live variant settlement scorer status is {live_status}",
+            },
+        }
     disk_preflight = promotion_disk_preflight(args, disk_usage_fn=getattr(args, "disk_usage_fn", None))
     if disk_preflight["status"] == "BLOCK":
         raise DiskPreflightError(
@@ -785,6 +832,319 @@ def run_proper_scoring_reliability_scorecard_step(args):
 
 def _comma_paths(value):
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _live_variant_settlement_target_date(args):
+    configured = str(getattr(args, "live_variant_settlement_target_date", "") or "").strip()
+    if configured:
+        return parse_date_arg(configured).isoformat()
+    return settled_analysis_target_date(args).isoformat()
+
+
+def _live_variant_settlement_tape_paths(args, target_date):
+    configured = _comma_paths(getattr(args, "live_variant_settlement_tapes", ""))
+    if configured:
+        return [Path(path) for path in configured], "configured"
+    selected = []
+    root = Path(args.snapshots_root)
+    if root.exists():
+        for path in root.glob("*/variant_predictions_long.csv"):
+            folder_date = date_from_event_slug(path.parent.name)
+            if folder_date is not None and folder_date.isoformat() == target_date:
+                selected.append(path)
+    return sorted(selected), "settled_target_date"
+
+
+def _live_variant_settlement_preflight(args, paths, *, selection_mode, target_date):
+    max_tapes_value = getattr(args, "live_variant_settlement_max_tapes", None)
+    max_tape_bytes_value = getattr(args, "live_variant_settlement_max_tape_bytes", None)
+    max_total_bytes_value = getattr(args, "live_variant_settlement_max_total_bytes", None)
+    max_tapes = int(
+        DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TAPES
+        if max_tapes_value is None
+        else max_tapes_value
+    )
+    max_tape_bytes = int(
+        DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TAPE_BYTES
+        if max_tape_bytes_value is None
+        else max_tape_bytes_value
+    )
+    max_total_bytes = int(
+        DEFAULT_LIVE_VARIANT_SETTLEMENT_MAX_TOTAL_BYTES
+        if max_total_bytes_value is None
+        else max_total_bytes_value
+    )
+    blockers = []
+    sizes = {}
+    snapshot_sizes = {}
+    if max_tapes <= 0 or len(paths) > max_tapes:
+        blockers.append(
+            {
+                "code": "live_tape_count_limit",
+                "detail": f"selected {len(paths)} tapes; bounded limit is {max_tapes}",
+                "selected_tape_count": len(paths),
+                "limit": max_tapes,
+            }
+        )
+    for path in paths:
+        if not path.exists() or not path.is_file():
+            blockers.append(
+                {
+                    "code": "configured_live_tape_missing" if selection_mode == "configured" else "live_tape_missing",
+                    "detail": f"live variant tape does not exist: {path}",
+                    "path": str(path),
+                }
+            )
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            blockers.append(
+                {
+                    "code": "live_tape_stat_failed",
+                    "detail": f"cannot stat live variant tape {path}: {exc}",
+                    "path": str(path),
+                }
+            )
+            continue
+        sizes[str(path)] = size
+        if max_tape_bytes <= 0 or size > max_tape_bytes:
+            blockers.append(
+                {
+                    "code": "live_tape_size_limit",
+                    "detail": f"live variant tape {path} is {size} bytes; per-tape limit is {max_tape_bytes}",
+                    "path": str(path),
+                    "size_bytes": size,
+                    "limit_bytes": max_tape_bytes,
+                }
+            )
+        snapshot_path = path.parent / "snapshots_long.csv"
+        if not snapshot_path.is_file():
+            blockers.append(
+                {
+                    "code": "expected_snapshot_tape_missing",
+                    "detail": (
+                        "sibling snapshots_long.csv is required for the live partition contract: "
+                        f"{snapshot_path}"
+                    ),
+                    "variant_tape": str(path),
+                    "snapshot_tape": str(snapshot_path),
+                }
+            )
+            continue
+        try:
+            snapshot_size = snapshot_path.stat().st_size
+        except OSError as exc:
+            blockers.append(
+                {
+                    "code": "expected_snapshot_tape_stat_failed",
+                    "detail": f"cannot stat sibling snapshot tape {snapshot_path}: {exc}",
+                    "snapshot_tape": str(snapshot_path),
+                }
+            )
+            continue
+        snapshot_sizes[str(snapshot_path)] = snapshot_size
+        if max_tape_bytes <= 0 or snapshot_size > max_tape_bytes:
+            blockers.append(
+                {
+                    "code": "expected_snapshot_tape_size_limit",
+                    "detail": (
+                        f"sibling snapshot tape {snapshot_path} is {snapshot_size} bytes; "
+                        f"per-tape limit is {max_tape_bytes}"
+                    ),
+                    "snapshot_tape": str(snapshot_path),
+                    "size_bytes": snapshot_size,
+                    "limit_bytes": max_tape_bytes,
+                }
+            )
+    total_bytes = sum(sizes.values()) + sum(snapshot_sizes.values())
+    if max_total_bytes <= 0 or total_bytes > max_total_bytes:
+        blockers.append(
+            {
+                "code": "live_tape_total_size_limit",
+                "detail": (
+                    f"selected variant and sibling snapshot tapes total {total_bytes} bytes; "
+                    f"bounded limit is {max_total_bytes}"
+                ),
+                "size_bytes": total_bytes,
+                "limit_bytes": max_total_bytes,
+            }
+        )
+    return {
+        "status": "PASS" if not blockers else "BLOCK",
+        "target_date": target_date,
+        "selection_mode": selection_mode,
+        "selected_tape_count": len(paths),
+        "selected_snapshot_tape_count": len(snapshot_sizes),
+        "selected_total_bytes": total_bytes,
+        "max_tapes": max_tapes,
+        "max_tape_bytes": max_tape_bytes,
+        "max_total_bytes": max_total_bytes,
+        "sizes": sizes,
+        "snapshot_sizes": snapshot_sizes,
+        "blockers": blockers,
+    }
+
+
+def _live_variant_settlement_outputs(args):
+    return {
+        "json_out": Path(
+            getattr(args, "live_variant_settlement_json_out", "")
+            or backtest_path(args, "live_variant_settlement_scorecard.json")
+        ),
+        "report_out": Path(
+            getattr(args, "live_variant_settlement_report_out", "")
+            or backtest_path(args, "live_variant_settlement_scorecard.md")
+        ),
+    }
+
+
+def _write_live_variant_settlement_payload(args, payload):
+    outputs = _live_variant_settlement_outputs(args)
+    json_out, report_out = live_variant_settlement_scorecard.write_outputs(
+        payload,
+        outputs["json_out"],
+        outputs["report_out"],
+    )
+    coverage = payload.get("coverage") or {}
+    return {
+        "status": payload.get("status"),
+        "reason": payload.get("reason"),
+        "target_date": (payload.get("configuration") or {}).get("target_date"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "source_tape_count": (payload.get("inputs") or {}).get("source_path_count"),
+        "source_row_count": (payload.get("inputs") or {}).get("row_count"),
+        "eligible_partition_count": coverage.get("eligible_partition_count"),
+        "valid_prediction_partition_count": coverage.get("valid_prediction_partition_count"),
+        "eligible_prediction_coverage": coverage.get("eligible_prediction_coverage"),
+        "missing_or_invalid_partition_count": coverage.get("missing_or_invalid_partition_count"),
+        "expected_snapshot_partition_count": coverage.get("expected_snapshot_partition_count"),
+        "missing_expected_snapshot_partition_count": coverage.get(
+            "missing_expected_snapshot_partition_count"
+        ),
+        "missing_expected_snapshot_band_count": coverage.get(
+            "missing_expected_snapshot_band_count"
+        ),
+        "unsupported_runtime_skip_band_count": coverage.get("unsupported_runtime_skip_band_count"),
+        "blocker_count": payload.get("blocker_count"),
+        "first_blocker": payload.get("first_blocker") or {},
+        "bounded_preflight": payload.get("bounded_preflight") or {},
+    }
+
+
+def run_live_variant_settlement_scorecard_step(args):
+    """Score only one configured/settled fleet date, one tape at a time."""
+    if getattr(args, "skip_live_variant_settlement_scorecard", False):
+        return {"status": "SKIPPED", "reason": "skip_live_variant_settlement_scorecard"}
+    target_date = _live_variant_settlement_target_date(args)
+    paths, selection_mode = _live_variant_settlement_tape_paths(args, target_date)
+    if not paths and selection_mode != "configured":
+        payload = live_variant_settlement_scorecard.operational_status_payload(
+            "SKIPPED",
+            "no_live_variant_tape_for_target_date",
+            target_date=target_date,
+            generated_at_utc=utc_iso(),
+        )
+        payload["bounded_preflight"] = {
+            "status": "SKIPPED",
+            "target_date": target_date,
+            "selection_mode": selection_mode,
+            "selected_tape_count": 0,
+        }
+        return _write_live_variant_settlement_payload(args, payload)
+
+    preflight = _live_variant_settlement_preflight(
+        args,
+        paths,
+        selection_mode=selection_mode,
+        target_date=target_date,
+    )
+    observed_variants_only = bool(
+        getattr(args, "live_variant_settlement_observed_variants_only", False)
+    )
+    explicit_expected_manifest = str(
+        getattr(args, "live_variant_settlement_expected_variants_manifest", "") or ""
+    ).strip()
+    expected_manifest = "" if observed_variants_only else (
+        explicit_expected_manifest
+        or str(getattr(args, "variant_registry", active_variant_shadow_refresh.DEFAULT_REGISTRY_PATH))
+    )
+    if expected_manifest and not Path(expected_manifest).is_file():
+        preflight["blockers"].append(
+            {
+                "code": "expected_variants_manifest_missing",
+                "detail": f"expected-variant manifest does not exist: {expected_manifest}",
+                "path": expected_manifest,
+            }
+        )
+        preflight["status"] = "BLOCK"
+    if preflight["status"] == "BLOCK":
+        payload = live_variant_settlement_scorecard.operational_status_payload(
+            "BLOCK",
+            "live_variant_settlement_preflight_failed",
+            target_date=target_date,
+            source_paths=[str(path) for path in paths],
+            blockers=preflight["blockers"],
+            generated_at_utc=utc_iso(),
+        )
+        payload["bounded_preflight"] = preflight
+        return _write_live_variant_settlement_payload(args, payload)
+
+    labels = live_variant_settlement_scorecard.read_label_csv(
+        getattr(args, "labels_csv", "") or None
+    )
+    expected_variants = live_variant_settlement_scorecard.load_expected_variants(
+        expected_manifest or None
+    )
+    generated_at = utc_iso()
+    payloads = []
+    for path in paths:
+        rows, source_labels, used_paths = live_variant_settlement_scorecard.load_tape_inputs([path])
+        expected_partitions, expected_partition_blockers = (
+            live_variant_settlement_scorecard.load_snapshot_partition_contracts(
+                [path],
+                source_labels=source_labels,
+            )
+        )
+        payloads.append(
+            live_variant_settlement_scorecard.build_scorecard(
+                rows,
+                labels=labels,
+                source_labels=source_labels,
+                simplex_tolerance=float(
+                    getattr(
+                        args,
+                        "live_variant_settlement_simplex_tolerance",
+                        live_variant_settlement_scorecard.DEFAULT_SIMPLEX_TOLERANCE,
+                    )
+                ),
+                require_explicit_release_id=not bool(
+                    getattr(args, "live_variant_settlement_allow_derived_release_id", False)
+                ),
+                generated_at_utc=generated_at,
+                source_paths=used_paths,
+                expected_variants=expected_variants,
+                expected_partitions=expected_partitions,
+                expected_partition_blockers=expected_partition_blockers,
+                expected_partition_contract="sibling_snapshot_tape",
+            )
+        )
+        del rows
+        del expected_partitions
+        gc.collect()
+    payload = live_variant_settlement_scorecard.merge_scorecards(
+        payloads,
+        generated_at_utc=generated_at,
+        target_date=target_date,
+    )
+    payload["bounded_preflight"] = preflight
+    payload["configuration"]["expected_variants_manifest"] = expected_manifest or None
+    payload["configuration"]["observed_variants_only_diagnostic"] = observed_variants_only
+    if observed_variants_only and payload.get("status") == "PASS":
+        payload["status"] = "DIAGNOSTIC"
+        payload["reason"] = "observed_variants_only_cannot_satisfy_promotion_coverage"
+    return _write_live_variant_settlement_payload(args, payload)
 
 
 def _filter_variant(rows, variant_id):

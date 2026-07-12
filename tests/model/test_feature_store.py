@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 from weather.model.feature_store import (
     FEATURE_AUDIT_COLUMNS,
     FEATURE_COLUMNS,
@@ -1117,6 +1118,39 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(rows[0]["bin_value_hi_c"], "")
         self.assertEqual(rows[1]["snapshot_id"], "new")
         self.assertEqual(rows[1]["bin_value_hi_c"], "91")
+
+    def test_append_csv_schema_widening_streams_existing_rows(self):
+        class StreamingOnlyRows:
+            def __init__(self):
+                self._rows = iter([{"snapshot_id": "old", "bin_value_c": "90"}])
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self._rows)
+
+            def __length_hint__(self):
+                raise AssertionError("CSV migration must not materialize the iterator")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rows.csv"
+            path.write_text("snapshot_id,bin_value_c\nold,90\n", encoding="utf-8")
+            store = SnapshotStore(root=tmp, event_slug="event")
+
+            with patch(
+                "weather.collection.snapshot_store.csv.DictReader",
+                return_value=StreamingOnlyRows(),
+            ):
+                store.append_csv(
+                    path,
+                    ["snapshot_id", "bin_value_c", "bin_value_hi_c"],
+                    [{"snapshot_id": "new", "bin_value_c": 90, "bin_value_hi_c": 91}],
+                )
+            rows = list(csv.DictReader(path.open(encoding="utf-8", newline="")))
+
+        self.assertEqual(rows[0]["snapshot_id"], "old")
+        self.assertEqual(rows[1]["snapshot_id"], "new")
 
     def test_snapshot_component_probability_sums_range_bands(self):
         store = SnapshotStore(root=Path("."), event_slug="event")

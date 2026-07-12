@@ -606,6 +606,41 @@ class TestFleetObservability(unittest.TestCase):
         self.assertFalse(optional["blocks_core_model_review"])
         self.assertEqual(optional["issue_count"], 2)
 
+    def test_optional_stream_gate_reads_separate_enrichment_not_raw_loop(self):
+        collection = {"markets": [{"market_id": "toronto", "action_required": False}]}
+        clob = {
+            "loop": {
+                "state": "RUNNING",
+                "heartbeat_age_seconds": 5.0,
+                "include_price_history": False,
+                "include_ws_events": False,
+                "critical_loop_enrichment_isolated": True,
+                "last_market_results": {"toronto": {"books": 4}},
+            },
+            "enrichment": {
+                "state": "RUNNING",
+                "include_price_history": True,
+                "include_ws_events": True,
+                "last_market_results": {
+                    "toronto": {
+                        "price_history_rows": 10,
+                        "ws_messages": 1,
+                        "ws_event_rows": 1,
+                    }
+                },
+            },
+            "books": {"markets": [{"market_id": "toronto", "ok": True, "captures": 100}]},
+        }
+        observation = {"state": "RUNNING", "heartbeat_age_seconds": 5.0}
+
+        gate = live_forward_slo_gate(collection, clob, observation)
+
+        optional = gate["optional_market_event_streams"]
+        self.assertEqual(optional["status"], "PASS")
+        self.assertEqual(optional["capture_mode"], "separate_enrichment")
+        self.assertEqual(optional["enrichment_state"], "RUNNING")
+        self.assertTrue(gate["counts_toward_live_forward_gate"])
+
     def test_parquet_incremental_status_reads_backlog_and_alerts_on_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "closed_market_day_parquet_incremental.json"

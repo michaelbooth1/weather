@@ -13,6 +13,14 @@ param(
     [string]$EvidenceTaskName = "WeatherEveningEvidenceRefresh",
     [string]$At = "09:30",
     [string[]]$EvidenceAt = @("14:00", "17:00"),
+    [Parameter(Mandatory = $true)]
+    [string[]]$CapturedInputParityServed,
+    [Parameter(Mandatory = $true)]
+    [string[]]$CapturedInputParityReplay,
+    [Parameter(Mandatory = $true)]
+    [string[]]$ProductionReadinessServedArtifact,
+    [Parameter(Mandatory = $true)]
+    [string]$ProductionReadinessServedRoute,
     [switch]$ContinueOnError = $true
 )
 
@@ -21,13 +29,58 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
+function Resolve-RequiredFile([string]$Path, [string]$Label) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label must name an existing regular file: $Path"
+    }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+if (-not $CapturedInputParityServed -or $CapturedInputParityServed.Count -eq 0) {
+    throw "At least one -CapturedInputParityServed file is required."
+}
+if (-not $CapturedInputParityReplay -or $CapturedInputParityReplay.Count -eq 0) {
+    throw "At least one -CapturedInputParityReplay file is required."
+}
+if (-not $ProductionReadinessServedArtifact -or $ProductionReadinessServedArtifact.Count -eq 0) {
+    throw "At least one -ProductionReadinessServedArtifact ROLE=PATH binding is required."
+}
+
+$productionEvidenceContract = "--fail-on-production-readiness-block"
+foreach ($path in $CapturedInputParityServed) {
+    $resolved = Resolve-RequiredFile $path "Captured-input served parity input"
+    $productionEvidenceContract += " --captured-input-parity-served `"$resolved`""
+}
+foreach ($path in $CapturedInputParityReplay) {
+    $resolved = Resolve-RequiredFile $path "Captured-input replay parity input"
+    $productionEvidenceContract += " --captured-input-parity-replay `"$resolved`""
+}
+foreach ($binding in $ProductionReadinessServedArtifact) {
+    $separator = $binding.IndexOf("=")
+    if ($separator -le 0) {
+        throw "Production readiness served artifacts must use ROLE=PATH: $binding"
+    }
+    $role = $binding.Substring(0, $separator).Trim()
+    $path = $binding.Substring($separator + 1).Trim()
+    $resolved = Resolve-RequiredFile $path "Served artifact '$role'"
+    $productionEvidenceContract += " --production-readiness-served-artifact `"$role=$resolved`""
+}
+$servedRoute = Resolve-RequiredFile $ProductionReadinessServedRoute "Production readiness served route"
+$productionEvidenceContract += " --production-readiness-served-route `"$servedRoute`""
+
 $baseArguments = "-m weather.operations.daily_refresh run --fail-on-variant-evidence-alert"
 if ($ContinueOnError) {
     $baseArguments = "$baseArguments --continue-on-error"
 }
 
-$stageAArguments = "$baseArguments --stage settlement --evidence-task-name `"$EvidenceTaskName`""
-$stageBArguments = "$baseArguments --stage evidence --status-out data\backtest\daily_refresh_evidence_status.json --report-out data\backtest\daily_refresh_evidence_report.md"
+$releasePointer = Join-Path $RepoRoot "artifacts\releases\current_release.json"
+$releasesRoot = Join-Path $RepoRoot "artifacts\releases"
+$releaseContract = "--active-release-pointer `"$releasePointer`" --releases-root `"$releasesRoot`" --repo-root `"$RepoRoot`""
+$stageAProvenance = "--scheduler-task-name `"$TaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 14400"
+$stageBProvenance = "--scheduler-task-name `"$EvidenceTaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 28800"
+
+$stageAArguments = "$baseArguments --stage settlement --evidence-task-name `"$EvidenceTaskName`" $stageAProvenance $releaseContract $productionEvidenceContract"
+$stageBArguments = "$baseArguments --stage evidence --status-out data\backtest\daily_refresh_evidence_status.json --report-out data\backtest\daily_refresh_evidence_report.md $stageBProvenance $releaseContract $productionEvidenceContract"
 
 $stageAAction = New-ScheduledTaskAction `
     -Execute $python `

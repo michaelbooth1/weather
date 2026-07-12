@@ -33,6 +33,7 @@ from weather.sources.mrms_precip import derive_mrms_precip_features
 from weather.sources.nbm_probabilistic_tmax import exceedance_probability_from_percentiles
 from weather.model.calibration_runtime import temperature_scale_distribution
 from weather.model.model_constants import _UNLOADED
+from weather.release_serving import ReleaseServingBindingError
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,26 @@ logger = logging.getLogger(__name__)
 class FeatureModelMixin:
     """Feature extraction, HGB/LR feature model, late-day, analogs, transitions."""
 
+    def _bound_base_component(self, component_name):
+        components = getattr(self, "_bound_base_model_components", None)
+        if components is not None:
+            return True, components[component_name]
+        bundle = getattr(self, "serving_bundle", None)
+        if bundle is not None and getattr(bundle, "pointer_present", False):
+            raise ReleaseServingBindingError(
+                f"active release forbids global base-model fallback: {component_name}"
+            )
+        return False, None
+
     def load_feature_model_hgb(self):
         if self._feature_model_hgb is _UNLOADED:
             self._feature_model_hgb = self._read_feature_model_hgb()
         return self._feature_model_hgb
 
     def _read_feature_model_hgb(self):
+        bound, payload = self._bound_base_component("feature_hgb")
+        if bound:
+            return payload
         path = resolve_artifact_path(f"feature_model_hgb{self.spec.artifact_suffix}.pkl")
         if path.exists():
             try:
@@ -62,6 +77,9 @@ class FeatureModelMixin:
         return self._feature_model_coefs
 
     def _read_feature_model_coefs(self):
+        bound, payload = self._bound_base_component("feature_lr_coefficients")
+        if bound:
+            return payload
         path = resolve_artifact_path(f"feature_model_coefs{self.spec.artifact_suffix}.json")
         if path.exists():
             try:
@@ -1418,6 +1436,9 @@ class FeatureModelMixin:
         return self._late_day_model_coefs
 
     def _read_late_day_model_coefs(self):
+        bound, payload = self._bound_base_component("late_day_lr_coefficients")
+        if bound:
+            return payload
         path = resolve_artifact_path(f"late_day_model_coefs{self.spec.artifact_suffix}.json")
         if path.exists():
             try:

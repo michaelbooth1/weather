@@ -1,4 +1,4 @@
-# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-06-25 - JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED]
+# 157. Live-Forward Snapshot Cadence SLO Closure [PARTIAL 2026-07-12 - BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED]
 
 Goal: eliminate active-day snapshot cadence gaps so broad live-forward evidence
 can count for all selected markets.
@@ -142,3 +142,33 @@ The snapshot loop was restarted onto current code and resumed fresh captures,
 but the 11:00-14:44 local gap range is nonrecoverable for June 25. This item
 remains partial until a future active day reports zero snapshot coverage gap
 blocked markets.
+
+## 2026-07-12 Bounded Fleet-Capture Repair
+
+The July 11 scheduled tape confirms that the serial capture topology remained
+an active SLO risk. Every registered market had repeated gaps above 15 minutes;
+worst per-market gaps were approximately 43-48 minutes. Snapshot diagnostics
+also recorded slow fleet iterations of `33.147`, `29.187`, `25.843`, and
+`22.977` minutes, while a later healthy pass completed in `1.148` minutes. This
+shape is consistent with host pressure and repeated code re-adoption amplifying
+the serial tail: the provider/model path is normally fast, but one distressed
+pass can starve every market behind it.
+
+The loop implementation now uses FIFO bounded concurrency for production
+captures. It preserves the existing due/oldest-first admission order and
+per-event `SnapshotStore` single-writer locks, runs at most three markets in
+killable child process trees, emits parent heartbeats while children run, caps
+each child at 1536 MiB, and fits four 12-market waves inside a 540-second fleet
+budget with a 120-second per-market ceiling. Timeouts and process errors are
+attributed to only that market. The parent fingerprint is mandatory in every
+child, and a shared atomic Open-Meteo cooldown preserves retry/backpressure
+across process boundaries. During stale-code re-adoption the already-loaded
+parent stays inline rather than mixing child runtime identities.
+
+Synthetic/focused validation passed: `10` new capture-batch tests, `26`
+source-cache/backpressure tests, and `61` collection robustness plus loop
+supervisor tests; the `12` process-containment tests also pass. No live process
+or schedule was manually changed for this implementation. The open checklist
+item remains open: a controlled deployment restart/re-adoption and a future
+12/12 zero-gap active day are still required; July 11 is explicitly
+non-countable and is not a clean-day claim.

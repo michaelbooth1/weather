@@ -1,6 +1,16 @@
 """Implementation slice extracted from src/weather/calibration/pooled_feature_model.py."""
 
+# ruff: noqa: F405 - implementation slices intentionally share facade globals
+
+import sys
+
 from weather.calibration.pooled_reporting import *  # noqa: F403
+from weather.artifacts import (
+    CandidateArtifactPathError,
+    DEFAULT_CANDIDATE_ARTIFACT_ROOT,
+    DEFAULT_IMMUTABLE_RELEASE_ROOT,
+    training_artifact_output_policy,
+)
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -78,6 +88,28 @@ def preflight_training_artifacts(
     return [check for check in checks if check is not None]
 
 
+def guard_training_artifact_output(args, artifact_path):
+    try:
+        result = training_artifact_output_policy(
+            artifact_path,
+            candidates_root=args.candidates_root,
+            releases_root=args.releases_root,
+            allow_legacy_serving_output=args.allow_legacy_serving_output,
+        )
+    except CandidateArtifactPathError as exc:
+        raise SystemExit(
+            f"Candidate-only training output required: {exc}. "
+            "Choose --artifact below --candidates-root; the temporary "
+            "--allow-legacy-serving-output flag is quarantined and cannot build a release."
+        ) from exc
+    if not result["release_eligible"]:
+        print(
+            "WARNING: legacy serving-path output is quarantined and ineligible for release construction.",
+            file=sys.stderr,
+        )
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train the F-family pooled feature model starter.")
     parser.add_argument("--family-unit", default=None, choices=["F", "all"])
@@ -108,11 +140,19 @@ def main():
                         help="Merge hour-sharded band artifacts trained with --write-merge-payload.")
     parser.add_argument("--artifact", default=None)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--candidates-root", default=str(DEFAULT_CANDIDATE_ARTIFACT_ROOT))
+    parser.add_argument("--releases-root", default=str(DEFAULT_IMMUTABLE_RELEASE_ROOT))
+    parser.add_argument(
+        "--allow-legacy-serving-output",
+        action="store_true",
+        help="Temporary compatibility only; output is quarantined and cannot become a release.",
+    )
     args = parser.parse_args()
     if args.merge_band_shards:
         required_hours = parse_hours(args.hours)
         artifact_path_arg = args.artifact or str(DEFAULT_BAND_ARTIFACT)
         report_path_arg = args.out or str(DEFAULT_BAND_REPORT)
+        guard_training_artifact_output(args, artifact_path_arg)
         preflight_training_artifacts(
             artifact_path_arg,
             report_path_arg,
@@ -162,6 +202,7 @@ def main():
         )
 
     artifact_path_arg, report_path_arg = training_output_paths(args)
+    guard_training_artifact_output(args, artifact_path_arg)
     preflight_training_artifacts(
         artifact_path_arg,
         report_path_arg,

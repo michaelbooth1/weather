@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import pandas as pd
 from weather.market.market_registry import NYC, SEATTLE, TORONTO
@@ -42,6 +43,7 @@ from weather.calibration.pooled_feature_model import (
     fit_exact_winner_catchup,
     fit_market_bias_calibration,
     forecast_anchor_probability,
+    guard_training_artifact_output,
     hard_floor_probability,
     historical_only_source_feature_manifest,
     late_lockin_strength_from_features,
@@ -63,6 +65,29 @@ from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COL
 
 
 class TestPooledFeatureModel(unittest.TestCase):
+    def test_training_export_guard_requires_candidate_path_and_quarantines_legacy_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidates = root / "artifacts" / "candidates"
+            releases = root / "artifacts" / "releases"
+            args = SimpleNamespace(
+                candidates_root=str(candidates),
+                releases_root=str(releases),
+                allow_legacy_serving_output=False,
+            )
+            candidate = candidates / "manual-r1" / "model.pkl"
+            accepted = guard_training_artifact_output(args, candidate)
+            self.assertEqual(accepted["status"], "CANDIDATE_ONLY")
+
+            legacy = root / "artifacts" / "models" / "active.pkl"
+            with self.assertRaisesRegex(SystemExit, "Candidate-only training output required"):
+                guard_training_artifact_output(args, legacy)
+            args.allow_legacy_serving_output = True
+            quarantined = guard_training_artifact_output(args, legacy)
+            self.assertEqual(quarantined["status"], "QUARANTINED_LEGACY_OUTPUT")
+            with self.assertRaisesRegex(SystemExit, "immutable/active release state"):
+                guard_training_artifact_output(args, releases / "r1" / "model.pkl")
+
     def _base_record(self):
         return {
             "high_so_far": 80.0,

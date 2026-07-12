@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import statistics
 import time
@@ -13,7 +14,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-from weather.io import acquire_writer_lock, release_writer_lock, write_json_atomic
+from weather.io import acquire_writer_lock, read_json, release_writer_lock, write_json_atomic
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
@@ -76,6 +77,7 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
     "gfs_graphcast025",
 )
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
+SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
 MAX_RETRY_DELAY_SECONDS = 10.0
 TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_swob": "official_observation",
@@ -485,6 +487,19 @@ class SourceFetchMixin:
 
     def source_family_rate_limit_state(self, source_family):
         until = self._source_family_rate_limited_until.get(source_family)
+        shared_path = os.environ.get(SOURCE_FAMILY_COOLDOWN_PATH_ENV)
+        if shared_path:
+            shared = read_json(shared_path, default={}) or {}
+            raw_until = shared.get(source_family)
+            if raw_until:
+                try:
+                    shared_until = datetime.fromisoformat(str(raw_until).replace("Z", "+00:00"))
+                    if shared_until.tzinfo is None:
+                        shared_until = shared_until.replace(tzinfo=timezone.utc)
+                    if until is None or shared_until > until:
+                        until = shared_until
+                except (TypeError, ValueError):
+                    pass
         if not until:
             return {"active": False, "retry_after_seconds": None}
         remaining = (until - datetime.now(timezone.utc)).total_seconds()
@@ -498,9 +513,40 @@ class SourceFetchMixin:
         if cooldown is None:
             cooldown = OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS
         cooldown = max(float(cooldown), float(OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS))
-        self._source_family_rate_limited_until[source_family] = (
-            datetime.now(timezone.utc) + timedelta(seconds=cooldown)
+        until = datetime.now(timezone.utc) + timedelta(seconds=cooldown)
+        self._source_family_rate_limited_until[source_family] = until
+        shared_path = os.environ.get(SOURCE_FAMILY_COOLDOWN_PATH_ENV)
+        if not shared_path:
+            return
+        path = Path(shared_path)
+        lock = acquire_writer_lock(
+            path,
+            owner={"component": "source_family_rate_limit_cooldown"},
+            attempts=20,
+            # This critical section is one small read/atomic replace. A child
+            # killed on its capture deadline must not suppress fleet cooldown
+            # propagation for the full provider retry window.
+            stale_after_seconds=10.0,
+            sleep_seconds=0.05,
         )
+        if lock is None:
+            logger.warning("Skipping shared source cooldown write because lock is busy: %s", path)
+            return
+        try:
+            shared = read_json(path, default={}) or {}
+            existing = shared.get(source_family)
+            if existing:
+                try:
+                    existing_until = datetime.fromisoformat(str(existing).replace("Z", "+00:00"))
+                    if existing_until.tzinfo is None:
+                        existing_until = existing_until.replace(tzinfo=timezone.utc)
+                    until = max(until, existing_until)
+                except (TypeError, ValueError):
+                    pass
+            shared[source_family] = until.isoformat()
+            write_json_atomic(path, shared)
+        finally:
+            release_writer_lock(lock)
 
     def source_metadata_fields(self, item, name):
         fields = {}

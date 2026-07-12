@@ -25,6 +25,7 @@ STEP_ORDER = (
     "model_market_disagreement_rehydration",
     "settled_day_analysis_barrier",
     "runtime_identity_reconciliation",
+    "live_variant_settlement_scorecard",
     "fleet_observability",
     "promotion_refresh",
     "shadow_ab_monitor",

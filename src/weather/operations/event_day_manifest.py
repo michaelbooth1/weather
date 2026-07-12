@@ -7,14 +7,17 @@ import csv
 import gzip
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+import os
+import shutil
+import tempfile
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations import event_metadata_validation
-from weather.operations.storage_classes import classification_payload, classify_storage_path
+from weather.operations.storage_classes import classification_payload
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
@@ -22,8 +25,9 @@ from weather.schema_registry import schema_version
 
 SCHEMA_VERSION = schema_version("event_day_manifest")
 BACKFILL_SCHEMA_VERSION = "event_day_manifest_backfill_v0.1"
-WRITER_VERSION = "event_day_manifest_writer_v0.1"
+WRITER_VERSION = schema_version("event_day_manifest_writer")
 MANIFEST_FILENAME = "event_day_manifest.json"
+DEFAULT_MIN_GROWTH_HEADROOM_DAYS = 30.0
 DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_BACKFILL_JSON = data_path("backtest", "event_day_manifest_backfill.json")
 DEFAULT_BACKFILL_REPORT = data_path("backtest", "event_day_manifest_backfill_report.md")
@@ -68,6 +72,10 @@ EVENT_DAY_ARTIFACT_FAMILIES = (
     ),
     EventDayArtifactFamily("market_ws_events", ("market_ws.jsonl", "market_ws_events.csv", "market_ws_events.csv.gz")),
     EventDayArtifactFamily("clob_features", ("clob_features*.jsonl", "clob_features*.csv", "clob_features*.csv.gz")),
+    EventDayArtifactFamily(
+        "snapshot_explanations",
+        ("snapshot_explanations*.jsonl", "snapshot_explanations*.csv", "snapshot_explanations*.csv.gz"),
+    ),
     EventDayArtifactFamily("variant_predictions", ("variant_predictions*.jsonl", "variant_predictions*.csv", "variant_predictions*.csv.gz")),
     EventDayArtifactFamily("settlement", ("settlement.json", "settlement*.jsonl", "settlement*.csv")),
     EventDayArtifactFamily("market_making_runs", ("mm_runs/**/*", "market_making/**/*", "paper_trading/**/*")),
@@ -87,6 +95,39 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def _atomic_write_text(path: str | Path, text: str) -> Path:
+    """Durably replace ``path`` without exposing a partial JSON document."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def _atomic_write_json(path: str | Path, payload: dict[str, Any]) -> Path:
+    return _atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    )
+
+
 def event_day_manifest_path(folder: str | Path) -> Path:
     return Path(folder) / MANIFEST_FILENAME
 
@@ -103,22 +144,244 @@ def _folder_relative_path(path: Path, folder: Path) -> str:
     return path.relative_to(folder).as_posix()
 
 
-def _json_schema_version(path: Path) -> str | None:
+_SOURCE_KEYS = ("source", "source_id", "source_family", "provider")
+_RELEASE_KEYS = (
+    "release_id",
+    "serving_release_id",
+    "model_release_id",
+    "model_version",
+    "artifact_hash",
+    "postprocess_config_hash",
+    "calibration_hash",
+    "configuration_hash",
+)
+_MAX_PROVENANCE_VALUES = 25
+_MAX_NESTED_METADATA_OBJECTS = 10_000
+
+
+def _scalar_text(value: Any) -> str | None:
+    if value in (None, "") or isinstance(value, (dict, list, tuple, set)):
+        return None
+    return str(value)
+
+
+def _runtime_identity_from_mapping(row: dict[str, Any]) -> dict[str, Any] | None:
+    nested = row.get("runtime_identity")
+    if isinstance(nested, dict):
+        if isinstance(nested.get("current_identity"), dict):
+            nested = nested["current_identity"]
+        if isinstance(nested.get("process_identity"), dict):
+            nested = nested["process_identity"]
+    else:
+        nested = {}
+    runtime = {
+        "schema_version": (
+            nested.get("schema_version")
+            or row.get("runtime_identity_schema_version")
+        ),
+        "git_branch": nested.get("git_branch") or row.get("runtime_git_branch"),
+        "git_commit": nested.get("git_commit") or row.get("runtime_git_commit"),
+        "git_dirty": nested.get("git_dirty") if "git_dirty" in nested else row.get("runtime_git_dirty"),
+        "dirty_fingerprint": nested.get("dirty_fingerprint") or row.get("runtime_dirty_fingerprint"),
+        "source_fingerprint": nested.get("source_fingerprint") or row.get("runtime_source_fingerprint"),
+        "python_version": nested.get("python_version") or row.get("runtime_python_version"),
+        "runtime_code_state": row.get("runtime_code_state"),
+    }
+    runtime = {key: value for key, value in runtime.items() if value not in (None, "")}
+    if not runtime:
+        return None
+    commit = runtime.get("git_commit") or "unknown_commit"
+    source = runtime.get("source_fingerprint") or "unknown_source"
+    dirty = runtime.get("dirty_fingerprint")
+    if not dirty and runtime.get("git_dirty") not in (None, "", False, "false", "False", 0):
+        dirty = "dirty"
+    runtime["runtime_key"] = f"{commit}|dirty:{dirty or 'clean_or_unknown'}|src:{source}"
+    return runtime
+
+
+def _release_identity_from_mapping(row: dict[str, Any]) -> dict[str, Any] | None:
+    release = {
+        key: _scalar_text(row.get(key))
+        for key in _RELEASE_KEYS
+        if _scalar_text(row.get(key)) is not None
+    }
+    return release or None
+
+
+def _walk_metadata_mappings(payload: Any):
+    pending = [payload]
+    visited = 0
+    while pending and visited < _MAX_NESTED_METADATA_OBJECTS:
+        item = pending.pop()
+        if isinstance(item, dict):
+            visited += 1
+            yield item
+            pending.extend(reversed(list(item.values())))
+        elif isinstance(item, list):
+            pending.extend(reversed(item))
+
+
+def _provenance_accumulator() -> dict[str, Any]:
+    return {
+        "schema_versions": set(),
+        "source_ids": set(),
+        "release_identities": {},
+        "runtime_identities": {},
+        "metadata_object_count": 0,
+        "metadata_scan_truncated": False,
+    }
+
+
+def _collect_mapping_provenance(
+    accumulator: dict[str, Any],
+    row: dict[str, Any],
+    *,
+    collect_schema: bool = True,
+) -> None:
+    accumulator["metadata_object_count"] += 1
+    schema = _scalar_text(row.get("schema_version")) if collect_schema else None
+    if schema:
+        accumulator["schema_versions"].add(schema)
+    for key in _SOURCE_KEYS:
+        value = _scalar_text(row.get(key))
+        if value:
+            accumulator["source_ids"].add(value)
+    release = _release_identity_from_mapping(row)
+    if release:
+        key = json.dumps(release, sort_keys=True, separators=(",", ":"))
+        accumulator["release_identities"][key] = release
+    runtime = _runtime_identity_from_mapping(row)
+    if runtime:
+        accumulator["runtime_identities"][runtime["runtime_key"]] = runtime
+
+
+def _collect_payload_provenance(accumulator: dict[str, Any], payload: Any) -> None:
+    before = accumulator["metadata_object_count"]
+    schema_roots = {id(payload)} if isinstance(payload, dict) else {
+        id(item) for item in payload if isinstance(item, dict)
+    } if isinstance(payload, list) else set()
+    for row in _walk_metadata_mappings(payload):
+        _collect_mapping_provenance(
+            accumulator,
+            row,
+            collect_schema=id(row) in schema_roots,
+        )
+    if accumulator["metadata_object_count"] - before >= _MAX_NESTED_METADATA_OBJECTS:
+        accumulator["metadata_scan_truncated"] = True
+
+
+def _inspection_payload(
+    accumulator: dict[str, Any],
+    *,
+    row_count: int | None,
+    validation_status: str,
+    validation_detail: str | None = None,
+    schema_applicable: bool = True,
+) -> dict[str, Any]:
+    schema_versions = sorted(accumulator["schema_versions"])[:_MAX_PROVENANCE_VALUES]
+    source_ids = sorted(accumulator["source_ids"])[:_MAX_PROVENANCE_VALUES]
+    releases = [
+        accumulator["release_identities"][key]
+        for key in sorted(accumulator["release_identities"])[:_MAX_PROVENANCE_VALUES]
+    ]
+    runtimes = [
+        accumulator["runtime_identities"][key]
+        for key in sorted(accumulator["runtime_identities"])[:_MAX_PROVENANCE_VALUES]
+    ]
+    if not schema_applicable:
+        schema_status = "NOT_APPLICABLE"
+    elif schema_versions:
+        schema_status = "DECLARED"
+    else:
+        schema_status = "MISSING"
+    return {
+        "row_count": row_count,
+        "schema_version": schema_versions[0] if len(schema_versions) == 1 else None,
+        "schema_versions": schema_versions,
+        "schema_status": schema_status,
+        "validation_status": validation_status,
+        "validation_detail": validation_detail,
+        "source_ids": source_ids,
+        "release_identities": releases,
+        "runtime_identities": runtimes,
+        "metadata_object_count": accumulator["metadata_object_count"],
+        "metadata_scan_truncated": accumulator["metadata_scan_truncated"],
+    }
+
+
+def _inspect_file(path: Path) -> dict[str, Any]:
+    """Validate a structured artifact and extract bounded provenance metadata."""
+
+    accumulator = _provenance_accumulator()
+    name = path.name.lower()
+    suffix = path.suffix.lower()
     try:
-        if path.suffix.lower() == ".json":
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            return payload.get("schema_version") if isinstance(payload, dict) else None
-        if path.suffix.lower() == ".jsonl":
+        if suffix == ".jsonl":
+            row_count = 0
             with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
+                for line_number, line in enumerate(handle, start=1):
                     text = line.strip()
                     if not text:
                         continue
-                    payload = json.loads(text)
-                    return payload.get("schema_version") if isinstance(payload, dict) else None
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return None
+                    try:
+                        payload = json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        return _inspection_payload(
+                            accumulator,
+                            row_count=row_count,
+                            validation_status="BLOCK",
+                            validation_detail=f"invalid JSON on line {line_number}: {exc.msg}",
+                        )
+                    row_count += 1
+                    _collect_payload_provenance(accumulator, payload)
+            return _inspection_payload(accumulator, row_count=row_count, validation_status="PASS")
+        if suffix == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            _collect_payload_provenance(accumulator, payload)
+            if isinstance(payload, list):
+                row_count = len(payload)
+            else:
+                row_count = 1 if payload else 0
+            return _inspection_payload(accumulator, row_count=row_count, validation_status="PASS")
+        if suffix == ".csv" or name.endswith(".csv.gz"):
+            opener = gzip.open if name.endswith(".csv.gz") else open
+            row_count = 0
+            with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                if reader.fieldnames is None:
+                    return _inspection_payload(
+                        accumulator,
+                        row_count=0,
+                        validation_status="BLOCK",
+                        validation_detail="CSV header is missing",
+                    )
+                for row in reader:
+                    row_count += 1
+                    _collect_mapping_provenance(accumulator, row)
+            return _inspection_payload(accumulator, row_count=row_count, validation_status="PASS")
+        if suffix == ".parquet":
+            import pyarrow.parquet as pq
+
+            row_count = int(pq.ParquetFile(path).metadata.num_rows)
+            return _inspection_payload(
+                accumulator,
+                row_count=row_count,
+                validation_status="PASS",
+                schema_applicable=False,
+            )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, csv.Error, ValueError) as exc:
+        return _inspection_payload(
+            accumulator,
+            row_count=None,
+            validation_status="BLOCK",
+            validation_detail=f"{type(exc).__name__}: {exc}",
+        )
+    return _inspection_payload(
+        accumulator,
+        row_count=_row_count(path),
+        validation_status="NOT_APPLICABLE",
+        schema_applicable=False,
+    )
 
 
 def _row_count(path: Path) -> int | None:
@@ -164,21 +427,46 @@ def _file_record(
     *,
     folder: Path,
     snapshots_root: Path,
+    previous_record: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stat = path.stat()
     data_rel = _data_relative_path(path, snapshots_root)
     classification = classification_payload(data_rel)
+    if (
+        previous_record
+        and previous_record.get("path") == _folder_relative_path(path, folder)
+        and previous_record.get("data_path") == data_rel
+        and int(previous_record.get("bytes") or -1) == int(stat.st_size)
+        and int(previous_record.get("modified_at_ns") or -1) == int(stat.st_mtime_ns)
+        and previous_record.get("storage_class") == classification["storage_class"]
+        and previous_record.get("artifact_family") == classification["artifact_family"]
+        and previous_record.get("validation_status") != "BLOCK"
+        and len(str(previous_record.get("sha256") or "")) == 64
+    ):
+        # Fast incremental mode trusts nanosecond mtime + size for unchanged
+        # local append-only tapes.  A non-incremental audit always re-hashes.
+        return dict(previous_record)
+    inspection = _inspect_file(path)
     return {
         "path": _folder_relative_path(path, folder),
         "data_path": data_rel,
         "role": classification["storage_class"],
         "storage_class": classification["storage_class"],
         "artifact_family": classification["artifact_family"],
-        "schema_version": _json_schema_version(path),
-        "row_count": _row_count(path),
+        "source": inspection["source_ids"],
+        "schema_version": inspection["schema_version"],
+        "schema_versions": inspection["schema_versions"],
+        "schema_status": inspection["schema_status"],
+        "validation_status": inspection["validation_status"],
+        "validation_detail": inspection["validation_detail"],
+        "row_count": inspection["row_count"],
+        "release_identities": inspection["release_identities"],
+        "runtime_identities": inspection["runtime_identities"],
+        "metadata_scan_truncated": inspection["metadata_scan_truncated"],
         "bytes": int(stat.st_size),
         "sha256": sha256_file(path),
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        "modified_at_ns": int(stat.st_mtime_ns),
         "retention_class": classification["retention_class"],
         "rebuild_source": classification["rebuild_source"],
         "protected": classification["protected"],
@@ -221,10 +509,25 @@ def _event_metadata_validation_proof(
     target_text = target_date.isoformat() if target_date else None
     target_matches = not target_text or gate.get("target_date") == target_text
     event_matches = not gate.get("event_slug") or gate.get("event_slug") == event_slug
-    status = "PASS" if gate.get("ok") and target_matches and event_matches else "BLOCK"
+    # The default operational proof is for one current fleet date. It is not a
+    # negative assertion about every retained historical day. Treat a proof
+    # for another target date as explicitly out of scope; if the target date
+    # does match, an event/market disagreement remains a hard blocker.
+    if target_text and gate.get("target_date") and not target_matches:
+        status = "NOT_APPLICABLE"
+        required = False
+        reason = "event metadata validation artifact covers a different target date"
+    else:
+        status = "PASS" if gate.get("ok") and event_matches else "BLOCK"
+        required = True
+        reason = (
+            "event metadata validation row passes"
+            if status == "PASS"
+            else gate.get("reason")
+        )
     return {
         "status": status,
-        "required": True,
+        "required": required,
         "path": str(path) if path else None,
         "schema_version": payload.get("schema_version"),
         "generated_at_utc": payload.get("generated_at_utc"),
@@ -235,8 +538,180 @@ def _event_metadata_validation_proof(
         "gate": gate,
         "target_matches": target_matches,
         "event_matches": event_matches,
-        "reason": "event metadata validation row passes" if status == "PASS" else gate.get("reason"),
+        "reason": reason,
     }
+
+
+def _release_runtime_identity_summary(file_records: list[dict[str, Any]]) -> dict[str, Any]:
+    sources: set[str] = set()
+    releases: dict[str, dict[str, Any]] = {}
+    runtimes: dict[str, dict[str, Any]] = {}
+    for record in file_records:
+        sources.update(str(value) for value in record.get("source") or [] if value not in (None, ""))
+        for release in record.get("release_identities") or []:
+            key = json.dumps(release, sort_keys=True, separators=(",", ":"))
+            releases[key] = release
+        for runtime in record.get("runtime_identities") or []:
+            key = str(runtime.get("runtime_key") or json.dumps(runtime, sort_keys=True))
+            runtimes[key] = runtime
+    release_rows = [releases[key] for key in sorted(releases)]
+    runtime_rows = [runtimes[key] for key in sorted(runtimes)]
+    return {
+        "source_ids": sorted(sources),
+        "release_identity_status": (
+            "MISSING" if not release_rows else "SINGLE" if len(release_rows) == 1 else "MIXED"
+        ),
+        "release_identity_count": len(release_rows),
+        "release_identities": release_rows,
+        "runtime_identity_status": (
+            "MISSING" if not runtime_rows else "SINGLE" if len(runtime_rows) == 1 else "MIXED"
+        ),
+        "runtime_identity_count": len(runtime_rows),
+        "mixed_runtime_identity": len(runtime_rows) > 1,
+        "runtime_identities": runtime_rows,
+    }
+
+
+def _backup_verification(
+    file_records: list[dict[str, Any]],
+    backup_root: str | Path | None,
+) -> dict[str, Any]:
+    canonical = [record for record in file_records if record.get("storage_class") == "canonical_evidence"]
+    expected_bytes = sum(int(record.get("bytes") or 0) for record in canonical)
+    base = Path(backup_root) if backup_root else None
+    if not canonical:
+        return {
+            "status": "NOT_APPLICABLE",
+            "backup_root": str(base) if base else None,
+            "expected_file_count": 0,
+            "expected_bytes": 0,
+            "verified_file_count": 0,
+            "verified_bytes": 0,
+            "missing_files": [],
+            "changed_files": [],
+        }
+    if base is None:
+        return {
+            "status": "NOT_CONFIGURED",
+            "backup_root": None,
+            "expected_file_count": len(canonical),
+            "expected_bytes": expected_bytes,
+            "verified_file_count": 0,
+            "verified_bytes": 0,
+            "missing_files": [],
+            "changed_files": [],
+        }
+    missing: list[str] = []
+    changed: list[str] = []
+    verified_count = 0
+    verified_bytes = 0
+    for record in canonical:
+        rel = str(record.get("data_path") or record.get("path") or "")
+        mirror = base / Path(rel)
+        if not mirror.is_file():
+            missing.append(rel)
+            continue
+        try:
+            size_matches = int(mirror.stat().st_size) == int(record.get("bytes") or 0)
+            hash_matches = size_matches and sha256_file(mirror) == record.get("sha256")
+        except OSError:
+            hash_matches = False
+        if not hash_matches:
+            changed.append(rel)
+            continue
+        verified_count += 1
+        verified_bytes += int(record.get("bytes") or 0)
+    return {
+        "status": "PASS" if not missing and not changed else "BLOCK",
+        "backup_root": str(base),
+        "expected_file_count": len(canonical),
+        "expected_bytes": expected_bytes,
+        "verified_file_count": verified_count,
+        "verified_bytes": verified_bytes,
+        "missing_files": missing,
+        "changed_files": changed,
+    }
+
+
+def _load_optional_json(path: str | Path | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _restore_proof_verification(
+    file_records: list[dict[str, Any]],
+    *,
+    event_slug: str,
+    restore_proof_path: str | Path | None = None,
+    restore_proof_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    canonical = [record for record in file_records if record.get("storage_class") == "canonical_evidence"]
+    if restore_proof_payload is None:
+        restore_proof_payload = _load_optional_json(restore_proof_path)
+    base = {
+        "path": str(restore_proof_path) if restore_proof_path else None,
+        "expected_file_count": len(canonical),
+        "verified_file_count": 0,
+        "missing_or_changed_files": [],
+    }
+    if not canonical:
+        return {**base, "status": "NOT_APPLICABLE", "reason": "no canonical evidence files"}
+    if not restore_proof_payload:
+        return {**base, "status": "NOT_CONFIGURED", "reason": "restore proof not supplied"}
+    if str(restore_proof_payload.get("status") or "").upper() != "PASS":
+        return {**base, "status": "BLOCK", "reason": "restore proof status is not PASS"}
+    if restore_proof_payload.get("event_slug") != event_slug:
+        return {**base, "status": "BLOCK", "reason": "restore proof event_slug mismatch"}
+    proof_files: dict[str, str] = {}
+    for row in restore_proof_payload.get("files") or []:
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("data_path") or row.get("path") or "")
+        digest = str(row.get("sha256") or "")
+        if path and digest:
+            proof_files[path] = digest
+    missing_or_changed = []
+    verified_count = 0
+    for record in canonical:
+        data_rel = str(record.get("data_path") or "")
+        folder_rel = str(record.get("path") or "")
+        digest = proof_files.get(data_rel) or proof_files.get(folder_rel)
+        if digest != record.get("sha256"):
+            missing_or_changed.append(data_rel or folder_rel)
+        else:
+            verified_count += 1
+    return {
+        **base,
+        "status": "PASS" if not missing_or_changed else "BLOCK",
+        "reason": "all canonical hashes restored and verified" if not missing_or_changed else "restore proof is incomplete or stale",
+        "verified_file_count": verified_count,
+        "missing_or_changed_files": missing_or_changed,
+        "proof_generated_at_utc": restore_proof_payload.get("generated_at_utc"),
+        "proof_hash": hashlib.sha256(
+            json.dumps(restore_proof_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _inventory_hash_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": manifest.get("schema_version"),
+        "writer_version": manifest.get("writer_version"),
+        "identity": manifest.get("identity"),
+        "event_metadata_validation": manifest.get("event_metadata_validation"),
+        "release_runtime_identity": manifest.get("release_runtime_identity"),
+        "artifact_families": manifest.get("artifact_families"),
+    }
+
+
+def inventory_content_hash(manifest: dict[str, Any]) -> str:
+    encoded = json.dumps(_inventory_hash_payload(manifest), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def build_event_day_manifest(
@@ -245,6 +720,11 @@ def build_event_day_manifest(
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     event_metadata_validation_payload: dict[str, Any] | None = None,
     event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
+    backup_root: str | Path | None = None,
+    restore_proof_path: str | Path | None = None,
+    restore_proof_payload: dict[str, Any] | None = None,
+    previous_manifest: dict[str, Any] | None = None,
+    reuse_unchanged: bool = False,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     folder = Path(folder)
@@ -252,6 +732,11 @@ def build_event_day_manifest(
     event_slug = folder.name
     target_date = date_from_event_slug(event_slug)
     market_id = market_id_from_slug(event_slug)
+    previous_records = (
+        {str(row.get("path")): row for row in _manifest_file_records(previous_manifest or {}) if row.get("path")}
+        if reuse_unchanged and previous_manifest and manifest_hash_valid(previous_manifest)
+        else {}
+    )
     families = []
     seen_paths: set[Path] = set()
     for family in EVENT_DAY_ARTIFACT_FAMILIES:
@@ -262,6 +747,7 @@ def build_event_day_manifest(
                 path,
                 folder=folder,
                 snapshots_root=snapshots_root,
+                previous_record=previous_records.get(_folder_relative_path(path, folder)),
             )
             for path in files
         ]
@@ -289,6 +775,7 @@ def build_event_day_manifest(
                 path,
                 folder=folder,
                 snapshots_root=snapshots_root,
+                previous_record=previous_records.get(_folder_relative_path(path, folder)),
             )
             for path in extra_files
         ]
@@ -313,11 +800,44 @@ def build_event_day_manifest(
         path=event_metadata_validation_path,
         payload=event_metadata_validation_payload,
     )
+    release_runtime_identity = _release_runtime_identity_summary(file_records)
+    backup_verification = _backup_verification(file_records, backup_root)
+    restore_verification = _restore_proof_verification(
+        file_records,
+        event_slug=event_slug,
+        restore_proof_path=restore_proof_path,
+        restore_proof_payload=restore_proof_payload,
+    )
+    protection_statuses = {
+        backup_verification.get("status"),
+        restore_verification.get("status"),
+    }
+    if "BLOCK" in protection_statuses:
+        protection_status = "BLOCK"
+    elif protection_statuses <= {"PASS", "NOT_APPLICABLE"}:
+        protection_status = "PASS"
+    else:
+        protection_status = "NOT_READY"
     checks = [
         {"check": "manifest_hash", "status": "PENDING"},
         {
             "check": "unclassified_files",
             "status": "PASS" if not any(row.get("storage_class") == "unclassified" for row in file_records) else "BLOCK",
+        },
+        {
+            "check": "file_validation",
+            "status": "PASS" if not any(row.get("validation_status") == "BLOCK" for row in file_records) else "BLOCK",
+            "blocked_files": sorted(
+                str(row.get("path"))
+                for row in file_records
+                if row.get("validation_status") == "BLOCK"
+            ),
+        },
+        {
+            "check": "runtime_identity",
+            "status": "BLOCK" if release_runtime_identity.get("mixed_runtime_identity") else "PASS",
+            "runtime_identity_status": release_runtime_identity.get("runtime_identity_status"),
+            "runtime_identity_count": release_runtime_identity.get("runtime_identity_count"),
         },
         {
             "check": "required_families",
@@ -327,19 +847,51 @@ def build_event_day_manifest(
             "check": "event_metadata_validation",
             "status": (
                 "PASS"
-                if event_metadata_proof.get("status") in {"PASS", "MISSING"}
+                if event_metadata_proof.get("status") in {"PASS", "MISSING", "NOT_APPLICABLE"}
                 else "BLOCK"
             ),
             "validation_hash": event_metadata_proof.get("validation_hash"),
             "reason": event_metadata_proof.get("reason"),
         },
+        {
+            "check": "off_machine_backup",
+            "status": (
+                "BLOCK" if backup_verification.get("status") == "BLOCK"
+                else "PASS" if backup_verification.get("status") in {"PASS", "NOT_APPLICABLE"}
+                else "WARN"
+            ),
+            "detail": backup_verification.get("status"),
+        },
+        {
+            "check": "restore_proof",
+            "status": (
+                "BLOCK" if restore_verification.get("status") == "BLOCK"
+                else "PASS" if restore_verification.get("status") in {"PASS", "NOT_APPLICABLE"}
+                else "WARN"
+            ),
+            "detail": restore_verification.get("status"),
+        },
     ]
-    validation_status = "BLOCK" if any(check["status"] == "BLOCK" for check in checks) else "PASS"
+    if any(check["status"] == "BLOCK" for check in checks):
+        validation_status = "BLOCK"
+    elif any(check["status"] == "WARN" for check in checks):
+        validation_status = "WARN"
+    else:
+        validation_status = "PASS"
+    class_bytes = {
+        storage_class: sum(
+            int(row.get("bytes") or 0)
+            for row in file_records
+            if row.get("storage_class") == storage_class
+        )
+        for storage_class in ("canonical_evidence", "analysis_projection", "operator_cache", "unclassified")
+    }
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
         "writer": "weather.operations.event_day_manifest",
         "writer_version": WRITER_VERSION,
+        "inventory_hash": "",
         "manifest_hash": "",
         "folder": str(folder),
         "identity": {
@@ -355,15 +907,30 @@ def build_event_day_manifest(
             "canonical_evidence_files": sum(1 for row in file_records if row.get("storage_class") == "canonical_evidence"),
             "analysis_projection_files": sum(1 for row in file_records if row.get("storage_class") == "analysis_projection"),
             "operator_cache_files": sum(1 for row in file_records if row.get("storage_class") == "operator_cache"),
+            "unclassified_files": sum(1 for row in file_records if row.get("storage_class") == "unclassified"),
+            "canonical_evidence_bytes": class_bytes["canonical_evidence"],
+            "analysis_projection_bytes": class_bytes["analysis_projection"],
+            "operator_cache_bytes": class_bytes["operator_cache"],
+            "unclassified_bytes": class_bytes["unclassified"],
+            "bytes_requiring_off_machine_backup": class_bytes["canonical_evidence"],
+            "backup_status": backup_verification.get("status"),
+            "restore_status": restore_verification.get("status"),
             "event_metadata_validation_hash": event_metadata_proof.get("validation_hash"),
         },
         "event_metadata_validation": event_metadata_proof,
+        "release_runtime_identity": release_runtime_identity,
+        "protection": {
+            "status": protection_status,
+            "backup": backup_verification,
+            "restore": restore_verification,
+        },
         "validation": {
             "status": validation_status,
             "checks": checks,
         },
         "artifact_families": families,
     }
+    manifest["inventory_hash"] = inventory_content_hash(manifest)
     manifest["manifest_hash"] = manifest_content_hash(manifest)
     manifest["validation"]["checks"][0]["status"] = "PASS"
     manifest["manifest_hash"] = manifest_content_hash(manifest)
@@ -376,17 +943,38 @@ def write_event_day_manifest(
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     event_metadata_validation_payload: dict[str, Any] | None = None,
     event_metadata_validation_path: str | Path | None = DEFAULT_EVENT_METADATA_VALIDATION,
+    backup_root: str | Path | None = None,
+    restore_proof_path: str | Path | None = None,
+    restore_proof_payload: dict[str, Any] | None = None,
+    incremental: bool = False,
     generated_at_utc: str | None = None,
 ) -> Path:
+    path = event_day_manifest_path(folder)
+    existing = read_event_day_manifest(path) if incremental else None
     manifest = build_event_day_manifest(
         folder,
         snapshots_root=snapshots_root,
         event_metadata_validation_payload=event_metadata_validation_payload,
         event_metadata_validation_path=event_metadata_validation_path,
+        backup_root=backup_root,
+        restore_proof_path=restore_proof_path,
+        restore_proof_payload=restore_proof_payload,
+        previous_manifest=existing,
+        reuse_unchanged=incremental,
         generated_at_utc=generated_at_utc,
     )
-    path = event_day_manifest_path(folder)
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if (
+        existing
+        and existing.get("writer_version") == WRITER_VERSION
+        and existing.get("inventory_hash") == manifest.get("inventory_hash")
+        and manifest_hash_valid(existing)
+        and (
+            (backup_root is None and restore_proof_path is None and restore_proof_payload is None)
+            or existing.get("protection") == manifest.get("protection")
+        )
+    ):
+        return path
+    _atomic_write_json(path, manifest)
     return path
 
 
@@ -404,6 +992,7 @@ def validate_event_day_manifest(
     *,
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     check_hashes: bool = True,
+    check_row_counts: bool = True,
     fail_on_extra: bool = True,
 ) -> dict[str, Any]:
     folder = Path(folder)
@@ -417,6 +1006,14 @@ def validate_event_day_manifest(
         checks.append({"check": "manifest_hash", "status": "PASS"})
     else:
         checks.append({"check": "manifest_hash", "status": "BLOCK"})
+    inventory_hash = manifest.get("inventory_hash")
+    if inventory_hash:
+        checks.append({
+            "check": "inventory_hash",
+            "status": "PASS" if inventory_hash == inventory_content_hash(manifest) else "BLOCK",
+        })
+    else:
+        checks.append({"check": "inventory_hash", "status": "WARN", "detail": "legacy manifest"})
 
     records = _manifest_file_records(manifest)
     manifest_paths = {row.get("path") for row in records if row.get("path")}
@@ -433,8 +1030,8 @@ def validate_event_day_manifest(
             checks.append({"check": "file_hash", "status": "BLOCK", "path": rel})
         else:
             checks.append({"check": "file_current", "status": "PASS", "path": rel})
-        current_row_count = _row_count(path)
-        if record.get("row_count") is not None and current_row_count != record.get("row_count"):
+        current_row_count = _row_count(path) if check_row_counts else record.get("row_count")
+        if check_row_counts and record.get("row_count") is not None and current_row_count != record.get("row_count"):
             checks.append({
                 "check": "row_count",
                 "status": "BLOCK",
@@ -450,6 +1047,15 @@ def validate_event_day_manifest(
                 "path": rel,
                 "expected": record.get("storage_class"),
                 "actual": current_classification["storage_class"],
+            })
+        if record.get("storage_class") == "unclassified":
+            checks.append({"check": "unclassified_file", "status": "BLOCK", "path": rel})
+        if record.get("validation_status") == "BLOCK":
+            checks.append({
+                "check": "file_validation",
+                "status": "BLOCK",
+                "path": rel,
+                "detail": record.get("validation_detail"),
             })
         if record.get("storage_class") == "analysis_projection" and not record.get("rebuild_source"):
             checks.append({"check": "projection_rebuild_source", "status": "BLOCK", "path": rel})
@@ -475,6 +1081,44 @@ def validate_event_day_manifest(
         checks.append({"check": "required_families", "status": "BLOCK", "families": missing_required})
     else:
         checks.append({"check": "required_families", "status": "PASS"})
+    runtime_identity = manifest.get("release_runtime_identity") or {}
+    checks.append({
+        "check": "runtime_identity",
+        "status": "BLOCK" if runtime_identity.get("mixed_runtime_identity") else "PASS",
+        "runtime_identity_count": runtime_identity.get("runtime_identity_count"),
+    })
+    event_metadata_proof = manifest.get("event_metadata_validation") or {}
+    event_metadata_status = str(event_metadata_proof.get("status") or "MISSING")
+    event_metadata_required = bool(event_metadata_proof.get("required"))
+    event_metadata_pass = event_metadata_status == "PASS" or (
+        event_metadata_status in {"MISSING", "NOT_APPLICABLE"}
+        and not event_metadata_required
+    )
+    checks.append({
+        "check": "event_metadata_validation",
+        "status": "PASS" if event_metadata_pass else "BLOCK",
+        "detail": event_metadata_status,
+        "required": event_metadata_required,
+        "target_matches": event_metadata_proof.get("target_matches"),
+        "event_matches": event_metadata_proof.get("event_matches"),
+        "validation_hash": event_metadata_proof.get("validation_hash"),
+    })
+    embedded_validation = manifest.get("validation") or {}
+    if embedded_validation:
+        embedded_status = str(embedded_validation.get("status") or "MISSING")
+        checks.append({
+            "check": "embedded_manifest_validation",
+            "status": "BLOCK" if embedded_status == "BLOCK" else "PASS",
+            "detail": embedded_status,
+        })
+    protection = manifest.get("protection") or {}
+    for check_name in ("backup", "restore"):
+        proof = protection.get(check_name) or {}
+        checks.append({
+            "check": f"{check_name}_proof",
+            "status": "BLOCK" if proof.get("status") == "BLOCK" else "PASS",
+            "detail": proof.get("status") or "legacy_not_recorded",
+        })
     status = "BLOCK" if any(check.get("status") == "BLOCK" for check in checks) else "PASS"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -569,18 +1213,39 @@ def summarize_event_day_manifests(
                 "path": str(path),
                 "folder": str(folder),
                 "event_slug": (manifest.get("identity") or {}).get("event_slug"),
+                "target_date": (manifest.get("identity") or {}).get("target_date"),
                 "manifest_hash": manifest.get("manifest_hash"),
+                "inventory_hash": manifest.get("inventory_hash"),
                 "status": validation.get("status"),
                 "file_count": (manifest.get("summary") or {}).get("file_count"),
+                "total_bytes": (manifest.get("summary") or {}).get("total_bytes"),
                 "canonical_evidence_files": (manifest.get("summary") or {}).get("canonical_evidence_files"),
+                "canonical_evidence_bytes": (manifest.get("summary") or {}).get("canonical_evidence_bytes"),
                 "analysis_projection_files": (manifest.get("summary") or {}).get("analysis_projection_files"),
+                "unclassified_files": (manifest.get("summary") or {}).get("unclassified_files"),
+                "backup_status": ((manifest.get("protection") or {}).get("backup") or {}).get("status"),
+                "restore_status": ((manifest.get("protection") or {}).get("restore") or {}).get("status"),
+                "runtime_identity_count": (manifest.get("release_runtime_identity") or {}).get("runtime_identity_count"),
             })
+    target_dates = sorted({str(row.get("target_date")) for row in rows if row.get("target_date")})
     return {
         "snapshots_root": str(root),
         "manifest_count": len(rows),
         "pass_count": sum(1 for row in rows if row.get("status") == "PASS"),
         "block_count": sum(1 for row in rows if row.get("status") == "BLOCK"),
         "unreadable_count": sum(1 for row in rows if row.get("status") == "UNREADABLE"),
+        "target_date_count": len(target_dates),
+        "oldest_target_date": target_dates[0] if target_dates else None,
+        "newest_target_date": target_dates[-1] if target_dates else None,
+        "total_bytes": sum(int(row.get("total_bytes") or 0) for row in rows),
+        "canonical_evidence_bytes": sum(int(row.get("canonical_evidence_bytes") or 0) for row in rows),
+        "unclassified_file_count": sum(int(row.get("unclassified_files") or 0) for row in rows),
+        "backup_pass_count": sum(1 for row in rows if row.get("backup_status") == "PASS"),
+        "backup_block_count": sum(1 for row in rows if row.get("backup_status") == "BLOCK"),
+        "backup_not_configured_count": sum(1 for row in rows if row.get("backup_status") == "NOT_CONFIGURED"),
+        "restore_pass_count": sum(1 for row in rows if row.get("restore_status") == "PASS"),
+        "restore_block_count": sum(1 for row in rows if row.get("restore_status") == "BLOCK"),
+        "restore_not_configured_count": sum(1 for row in rows if row.get("restore_status") == "NOT_CONFIGURED"),
         "manifests": rows[:50],
     }
 
@@ -589,54 +1254,242 @@ def iter_snapshot_folders(
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     *,
     event_slugs: list[str] | tuple[str, ...] | None = None,
+    target_dates: list[str] | tuple[str, ...] | None = None,
     limit: int | None = None,
 ) -> list[Path]:
     root = Path(snapshots_root)
     folders = [root / slug for slug in event_slugs] if event_slugs else sorted(path for path in root.iterdir() if path.is_dir()) if root.exists() else []
     folders = [folder for folder in folders if folder.exists() and folder.is_dir()]
+    if target_dates:
+        allowed_dates = {str(value) for value in target_dates}
+        folders = [
+            folder
+            for folder in folders
+            if date_from_event_slug(folder.name)
+            and date_from_event_slug(folder.name).isoformat() in allowed_dates
+        ]
     return folders[: int(limit)] if limit is not None else folders
+
+
+def _restore_proof_path_for_folder(
+    restore_proof_root: str | Path | None,
+    folder: Path,
+) -> Path | None:
+    if not restore_proof_root:
+        return None
+    return Path(restore_proof_root) / f"{folder.name}.json"
+
+
+def _existing_manifest_state(
+    existing: dict[str, Any] | None,
+    candidate: dict[str, Any],
+    folder: Path,
+    *,
+    snapshots_root: Path,
+    path_exists: bool,
+    compare_protection: bool,
+    full_audit: bool,
+) -> tuple[str, dict[str, Any] | None]:
+    if not path_exists:
+        return "MISSING", None
+    if existing is None:
+        return "UNREADABLE", None
+    existing_validation = validate_event_day_manifest(
+        existing,
+        folder,
+        snapshots_root=snapshots_root,
+        check_hashes=full_audit,
+        check_row_counts=full_audit,
+        fail_on_extra=True,
+    )
+    inventory_matches = (
+        existing.get("writer_version") == WRITER_VERSION
+        and existing.get("inventory_hash") == candidate.get("inventory_hash")
+        and manifest_hash_valid(existing)
+    )
+    protection_matches = (
+        not compare_protection
+        or existing.get("protection") == candidate.get("protection")
+    )
+    if inventory_matches and protection_matches and existing_validation.get("status") == "PASS":
+        return "CURRENT", existing_validation
+    return "CHANGED", existing_validation
+
+
+def _storage_gate_summary(
+    rows: list[dict[str, Any]],
+    *,
+    usage_path: Path,
+    daily_growth_bytes: int | None,
+    min_growth_headroom_days: float,
+) -> dict[str, Any]:
+    usage = shutil.disk_usage(usage_path if usage_path.exists() else usage_path.parent)
+    growth = int(daily_growth_bytes) if daily_growth_bytes is not None else None
+    headroom_days = float(usage.free) / growth if growth and growth > 0 else None
+    if headroom_days is None:
+        headroom_status = "NOT_EVALUATED"
+    elif headroom_days >= float(min_growth_headroom_days):
+        headroom_status = "PASS"
+    else:
+        headroom_status = "BLOCK"
+    backup_statuses = {str(row.get("backup_status") or "NOT_CONFIGURED") for row in rows}
+    restore_statuses = {str(row.get("restore_status") or "NOT_CONFIGURED") for row in rows}
+    if "BLOCK" in backup_statuses or "BLOCK" in restore_statuses or headroom_status == "BLOCK":
+        status = "BLOCK"
+    elif (
+        headroom_status == "PASS"
+        and backup_statuses <= {"PASS", "NOT_APPLICABLE"}
+        and restore_statuses <= {"PASS", "NOT_APPLICABLE"}
+    ):
+        status = "PASS"
+    else:
+        status = "NOT_READY"
+    return {
+        "status": status,
+        "required_growth_headroom_days": float(min_growth_headroom_days),
+        "daily_growth_bytes": growth,
+        "disk_total_bytes": int(usage.total),
+        "disk_used_bytes": int(usage.used),
+        "disk_free_bytes": int(usage.free),
+        "growth_headroom_days": headroom_days,
+        "growth_headroom_status": headroom_status,
+        "event_day_bytes": sum(int(row.get("total_bytes") or 0) for row in rows),
+        "canonical_evidence_bytes": sum(int(row.get("canonical_evidence_bytes") or 0) for row in rows),
+        "bytes_requiring_off_machine_backup": sum(
+            int(row.get("canonical_evidence_bytes") or 0)
+            for row in rows
+            if row.get("backup_status") not in {"PASS", "NOT_APPLICABLE"}
+        ),
+        "backup_pass_count": sum(1 for row in rows if row.get("backup_status") == "PASS"),
+        "backup_block_count": sum(1 for row in rows if row.get("backup_status") == "BLOCK"),
+        "backup_not_configured_count": sum(1 for row in rows if row.get("backup_status") == "NOT_CONFIGURED"),
+        "restore_pass_count": sum(1 for row in rows if row.get("restore_status") == "PASS"),
+        "restore_block_count": sum(1 for row in rows if row.get("restore_status") == "BLOCK"),
+        "restore_not_configured_count": sum(1 for row in rows if row.get("restore_status") == "NOT_CONFIGURED"),
+    }
 
 
 def build_backfill_payload(
     *,
     snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
     apply: bool = False,
+    mode: str | None = None,
+    incremental: bool = False,
     event_slugs: list[str] | tuple[str, ...] | None = None,
+    target_dates: list[str] | tuple[str, ...] | None = None,
+    backup_root: str | Path | None = None,
+    restore_proof_root: str | Path | None = None,
+    daily_growth_bytes: int | None = None,
+    min_growth_headroom_days: float = DEFAULT_MIN_GROWTH_HEADROOM_DAYS,
     limit: int | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     root = Path(snapshots_root)
     generated = generated_at_utc or utc_iso()
+    effective_mode = mode or ("apply" if apply else "plan")
+    if effective_mode not in {"audit", "plan", "apply"}:
+        raise ValueError(f"unsupported event-day manifest mode: {effective_mode}")
+    should_apply = effective_mode == "apply"
     rows = []
-    for folder in iter_snapshot_folders(root, event_slugs=event_slugs, limit=limit):
-        manifest = build_event_day_manifest(folder, snapshots_root=root, generated_at_utc=generated)
-        validation = validate_event_day_manifest(manifest, folder, snapshots_root=root, check_hashes=True)
+    folders = iter_snapshot_folders(
+        root,
+        event_slugs=event_slugs,
+        target_dates=target_dates,
+        limit=limit,
+    )
+    for folder in folders:
+        proof_path = _restore_proof_path_for_folder(restore_proof_root, folder)
+        path = event_day_manifest_path(folder)
+        existing = read_event_day_manifest(path)
+        manifest = build_event_day_manifest(
+            folder,
+            snapshots_root=root,
+            backup_root=backup_root,
+            restore_proof_path=proof_path,
+            previous_manifest=existing,
+            reuse_unchanged=incremental,
+            generated_at_utc=generated,
+        )
+        validation = validate_event_day_manifest(
+            manifest,
+            folder,
+            snapshots_root=root,
+            check_hashes=False,
+            check_row_counts=False,
+        )
+        state, existing_validation = _existing_manifest_state(
+            existing,
+            manifest,
+            folder,
+            snapshots_root=root,
+            path_exists=path.exists(),
+            compare_protection=backup_root is not None or restore_proof_root is not None,
+            full_audit=not incremental,
+        )
+        audit_status = "PASS" if state == "CURRENT" and validation["status"] == "PASS" else "BLOCK"
+        row_status = audit_status if effective_mode == "audit" else validation["status"]
+        summary = manifest.get("summary") or {}
         row = {
             "event_slug": folder.name,
+            "target_date": (manifest.get("identity") or {}).get("target_date"),
             "folder": str(folder),
-            "status": validation["status"],
+            "path": str(path),
+            "status": row_status,
+            "candidate_validation_status": validation["status"],
+            "existing_validation_status": (existing_validation or {}).get("status"),
+            "manifest_state": state,
             "manifest_hash": manifest.get("manifest_hash"),
-            "file_count": (manifest.get("summary") or {}).get("file_count"),
-            "canonical_evidence_files": (manifest.get("summary") or {}).get("canonical_evidence_files"),
-            "analysis_projection_files": (manifest.get("summary") or {}).get("analysis_projection_files"),
+            "inventory_hash": manifest.get("inventory_hash"),
+            "file_count": summary.get("file_count"),
+            "total_bytes": summary.get("total_bytes"),
+            "canonical_evidence_files": summary.get("canonical_evidence_files"),
+            "canonical_evidence_bytes": summary.get("canonical_evidence_bytes"),
+            "analysis_projection_files": summary.get("analysis_projection_files"),
+            "unclassified_files": summary.get("unclassified_files"),
+            "backup_status": summary.get("backup_status"),
+            "restore_status": summary.get("restore_status"),
+            "runtime_identity_count": (manifest.get("release_runtime_identity") or {}).get("runtime_identity_count"),
             "written": False,
+            "action": "audit_only" if effective_mode == "audit" else "would_write",
         }
-        if apply:
-            event_day_manifest_path(folder).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_needed = not incremental or state != "CURRENT"
+        if should_apply and write_needed:
+            _atomic_write_json(path, manifest)
             row["written"] = True
-            row["path"] = str(event_day_manifest_path(folder))
+            row["action"] = "written"
+        elif should_apply:
+            row["action"] = "reused_current"
+        elif effective_mode == "plan" and incremental and state == "CURRENT":
+            row["action"] = "reuse_current"
         rows.append(row)
+    storage_gate = _storage_gate_summary(
+        rows,
+        usage_path=root,
+        daily_growth_bytes=daily_growth_bytes,
+        min_growth_headroom_days=min_growth_headroom_days,
+    )
     return {
         "schema_version": BACKFILL_SCHEMA_VERSION,
         "generated_at_utc": generated,
-        "mode": "apply" if apply else "plan",
+        "mode": effective_mode,
+        "incremental": bool(incremental),
         "status": "BLOCK" if any(row.get("status") == "BLOCK" for row in rows) else "PASS",
         "snapshots_root": str(root),
+        "backup_root": str(backup_root) if backup_root else None,
+        "restore_proof_root": str(restore_proof_root) if restore_proof_root else None,
+        "storage_gate": storage_gate,
         "summary": {
             "folder_count": len(rows),
             "pass_count": sum(1 for row in rows if row.get("status") == "PASS"),
             "block_count": sum(1 for row in rows if row.get("status") == "BLOCK"),
+            "missing_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "MISSING"),
+            "changed_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "CHANGED"),
+            "unreadable_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "UNREADABLE"),
+            "current_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "CURRENT"),
+            "unclassified_file_count": sum(int(row.get("unclassified_files") or 0) for row in rows),
+            "canonical_evidence_bytes": storage_gate["canonical_evidence_bytes"],
             "written_count": sum(1 for row in rows if row.get("written")),
+            "reused_count": sum(1 for row in rows if row.get("action") in {"reused_current", "reuse_current"}),
         },
         "market_days": rows,
     }
@@ -644,6 +1497,7 @@ def build_backfill_payload(
 
 def render_backfill_report(payload: dict[str, Any]) -> str:
     summary = payload.get("summary") or {}
+    storage_gate = payload.get("storage_gate") or {}
     lines = [
         "# Event-Day Manifest Backfill",
         "",
@@ -659,18 +1513,27 @@ def render_backfill_report(payload: dict[str, Any]) -> str:
             [[key, value] for key, value in summary.items()],
         ),
         "",
+        "## Production Storage Gate Inputs",
+        "",
+        *markdown_table(
+            ["Metric", "Value"],
+            [[key, value] for key, value in storage_gate.items()],
+        ),
+        "",
         "## Market Days",
         "",
         *markdown_table(
-            ["Event Slug", "Status", "Files", "Canonical", "Projection", "Written"],
+            ["Event Slug", "Status", "State", "Files", "Canonical", "Backup", "Restore", "Action"],
             [
                 [
                     row.get("event_slug"),
                     row.get("status"),
+                    row.get("manifest_state"),
                     row.get("file_count"),
                     row.get("canonical_evidence_files"),
-                    row.get("analysis_projection_files"),
-                    row.get("written"),
+                    row.get("backup_status"),
+                    row.get("restore_status"),
+                    row.get("action"),
                 ]
                 for row in payload.get("market_days") or []
             ],
@@ -687,18 +1550,36 @@ def write_backfill_outputs(
 ) -> tuple[Path, Path]:
     json_path = Path(json_path)
     report_path = Path(report_path)
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    report_path.write_text(render_backfill_report(payload), encoding="utf-8")
+    _atomic_write_json(json_path, payload)
+    _atomic_write_text(report_path, render_backfill_report(payload))
     return json_path, report_path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build or backfill event-day snapshot folder manifests.")
-    parser.add_argument("mode", choices=("plan", "apply"))
+    parser = argparse.ArgumentParser(
+        description="Audit, plan, or atomically write event-day evidence manifests."
+    )
+    parser.add_argument(
+        "mode",
+        choices=("audit", "plan", "apply"),
+        help="audit performs no writes; plan writes only the aggregate report; apply writes manifests atomically.",
+    )
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--event-slug", action="append", default=[])
+    parser.add_argument("--target-date", action="append", default=[])
+    parser.add_argument("--incremental", action="store_true", help="Reuse a current manifest instead of rewriting it.")
+    parser.add_argument(
+        "--backup-root",
+        default=None,
+        help="Optional off-machine data-root mirror; canonical files are verified by relative path and SHA-256.",
+    )
+    parser.add_argument(
+        "--restore-proof-root",
+        default=None,
+        help="Optional folder containing <event-slug>.json restore proofs with per-file SHA-256 values.",
+    )
+    parser.add_argument("--daily-growth-bytes", type=int, default=None)
+    parser.add_argument("--min-growth-headroom-days", type=float, default=DEFAULT_MIN_GROWTH_HEADROOM_DAYS)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--out", default=str(DEFAULT_BACKFILL_JSON))
     parser.add_argument("--report", default=str(DEFAULT_BACKFILL_REPORT))
@@ -710,19 +1591,30 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     args = parser.parse_args(argv)
     payload = build_backfill_payload(
         snapshots_root=args.snapshots_root,
-        apply=args.mode == "apply",
+        mode=args.mode,
+        incremental=args.incremental,
         event_slugs=args.event_slug or None,
+        target_dates=args.target_date or None,
+        backup_root=args.backup_root,
+        restore_proof_root=args.restore_proof_root,
+        daily_growth_bytes=args.daily_growth_bytes,
+        min_growth_headroom_days=args.min_growth_headroom_days,
         limit=args.limit,
     )
-    json_out, report_out = write_backfill_outputs(payload, json_path=args.out, report_path=args.report)
+    json_out = report_out = None
+    if args.mode != "audit":
+        json_out, report_out = write_backfill_outputs(payload, json_path=args.out, report_path=args.report)
     print(
         "Event-day manifest backfill: "
         f"{payload['status']} mode={payload['mode']} "
         f"folders={payload['summary']['folder_count']} "
         f"written={payload['summary']['written_count']}"
     )
-    print(f"JSON written to {json_out}")
-    print(f"Report written to {report_out}")
+    if json_out and report_out:
+        print(f"JSON written to {json_out}")
+        print(f"Report written to {report_out}")
+    else:
+        print("Audit-only mode: no files written")
     return payload
 
 

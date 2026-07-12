@@ -4,9 +4,12 @@ from pathlib import Path
 
 from weather.reporting.candidate_lifecycle.variant_registry import (
     AUDIT_SCHEMA_VERSION,
+    DEFAULT_REGISTRY_PATH,
     SCHEMA_VERSION,
+    active_registry_variants,
     active_export_paths,
     audit_registry,
+    load_registry,
     variant_contract_for_artifact,
 )
 
@@ -31,6 +34,21 @@ def _active_variant(variant_id, **overrides):
 
 
 class TestVariantRegistry(unittest.TestCase):
+    def test_known_bad_density_variant_is_quarantined_from_headline_and_promotion(self):
+        registry = load_registry(DEFAULT_REGISTRY_PATH)
+        density = registry["by_id"]["pooled_continuous_density_hgb_v0_1"]
+
+        self.assertEqual(density["lifecycle"], "shadow")
+        self.assertFalse(density["active_for_headline"])
+        self.assertTrue(density["live_capture_enabled"])
+        self.assertFalse(density["counts_toward_weather_model_promotion"])
+        self.assertEqual(density["promotion_status"], "blocked")
+        self.assertIn("live-replay-divergence-quarantined", density["roles"])
+        self.assertNotIn(
+            density["variant_id"],
+            {row["variant_id"] for row in active_registry_variants(registry)},
+        )
+
     def test_audit_passes_active_contracts_and_evidence_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

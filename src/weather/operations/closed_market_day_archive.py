@@ -24,6 +24,9 @@ import pyarrow.parquet as pq
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.operations.closed_market_day_archive_manifest_contract import (
+    validate_manifest_shape as validate_manifest_shape_contract,
+)
 from weather.operations.event_day_manifest import (
     event_day_manifest_path,
     read_event_day_manifest,
@@ -254,79 +257,7 @@ def artifact_family_contract_rows() -> list[dict[str, Any]]:
 def validate_manifest_shape(manifest: dict[str, Any]) -> list[str]:
     """Validate the v0.1 manifest shape, not source-file contents."""
 
-    errors: list[str] = []
-    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
-        errors.append("schema_version must be closed_market_day_archive_manifest_v0.1")
-    if manifest.get("archive_root_version") != ARCHIVE_ROOT_VERSION:
-        errors.append(f"archive_root_version must be {ARCHIVE_ROOT_VERSION}")
-    for key in ("generated_at_utc", "writer", "writer_version", "source_folder", "manifest_hash"):
-        if not manifest.get(key):
-            errors.append(f"{key} is required")
-
-    partition = manifest.get("partition")
-    if not isinstance(partition, dict):
-        errors.append("partition must be an object")
-    else:
-        for key in MARKET_DAY_PARTITION_KEYS:
-            if not partition.get(key):
-                errors.append(f"partition.{key} is required")
-
-    finalization = manifest.get("finalization")
-    if not isinstance(finalization, dict):
-        errors.append("finalization must be an object")
-    else:
-        state = finalization.get("state")
-        if state not in ELIGIBLE_FINALIZATION_STATES:
-            errors.append(
-                "finalization.state must be one of "
-                + ", ".join(ELIGIBLE_FINALIZATION_STATES)
-            )
-        if "countable" not in finalization:
-            errors.append("finalization.countable is required")
-        if state == "settled_countable" and finalization.get("quality_grade") not in COUNTABLE_QUALITY_GRADES:
-            errors.append("settled_countable finalization requires a countable quality_grade")
-
-    validation = manifest.get("validation")
-    if not isinstance(validation, dict):
-        errors.append("validation must be an object")
-    elif validation.get("status") not in {"PASS", "WARN", "BLOCK"}:
-        errors.append("validation.status must be PASS, WARN, or BLOCK")
-
-    families = manifest.get("artifact_families")
-    if not isinstance(families, list) or not families:
-        errors.append("artifact_families must be a non-empty list")
-        return errors
-
-    for index, family in enumerate(families):
-        if not isinstance(family, dict):
-            errors.append(f"artifact_families[{index}] must be an object")
-            continue
-        name = family.get("artifact_family")
-        if name not in ARTIFACT_FAMILIES_BY_NAME:
-            errors.append(f"artifact_families[{index}].artifact_family is unknown")
-        status = family.get("status")
-        if status not in {"parquet", "raw_reference_only", "missing_source", "skipped"}:
-            errors.append(f"artifact_families[{index}].status is invalid")
-        if status in {"parquet", "raw_reference_only"} and not family.get("source_files"):
-            errors.append(f"artifact_families[{index}].source_files is required")
-
-        for source_index, source in enumerate(family.get("source_files") or []):
-            for key in ("path", "bytes", "sha256", "role"):
-                if key not in source:
-                    errors.append(
-                        f"artifact_families[{index}].source_files[{source_index}].{key} is required"
-                    )
-
-        if status == "parquet":
-            parquet = family.get("parquet")
-            if not isinstance(parquet, dict):
-                errors.append(f"artifact_families[{index}].parquet is required")
-            else:
-                for key in ("path", "bytes", "sha256", "row_count", "codec", "schema_fingerprint"):
-                    if key not in parquet:
-                        errors.append(f"artifact_families[{index}].parquet.{key} is required")
-
-    return errors
+    return validate_manifest_shape_contract(manifest)
 
 
 def parquet_reader_allowed(manifest: dict[str, Any]) -> bool:

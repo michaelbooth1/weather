@@ -190,3 +190,36 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
 
+## 2026-07-12 Leakage-Safe Evidence Regeneration
+
+The June 23 permutation bundle remains preserved as contaminated,
+non-countable research evidence because it admitted the generated
+`target_market_z` label as a predictor. It was not overwritten or rehabilitated.
+
+Regenerated the significance evidence with the shared fail-closed feature
+policy and a new immutable prefix:
+
+```powershell
+python -m tools.research.input_variable_significance `
+  --output-dir data/backtest `
+  --prefix item187_input_variable_significance_2026_07_12_leakage_safe_full `
+  --max-hgb-features 160
+```
+
+The corrected corpus contains `59,062` rows across `414` market-days and `153`
+analyzable features. The canonical feature-selection mode rejected no allowed
+input, `target_market_z` is absent from the `152` HGB features, and the shared
+gate reports zero forbidden label/outcome features.
+
+Reran the canonical radiation gate against the corrected full permutation
+bundle. `data/backtest/item187_forecast_radiation_gate.json` is now current at
+`2026-07-12T00:34:54Z` and returns `PASS` with all `15` expected
+radiation/cloud features present and no blockers. The isolated positive-market
+lane remains Austin, Dallas, and Houston: aggregate candidate Brier `0.04117`,
+current `0.04490`, and market `0.04151` (`-0.00373` versus current and
+`-0.00034` versus market). All other markets remain quarantined exactly as the
+lane contract requires.
+
+This restores the permutation-evidence leg of Item 187 without changing its
+narrow positive-market disposition or making a broad all-market claim.
+

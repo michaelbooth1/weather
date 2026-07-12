@@ -258,12 +258,27 @@ def lock_preflight(args):
     }
 
 
-def acquire_lock(path, force=False):
+def acquire_lock(path, force=False, audit=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    audit = audit if isinstance(audit, dict) else {}
+    audit.update({
+        "instrumented": True,
+        "kind": "daily_refresh_lock",
+        "path": str(path),
+        "guard_enabled": True,
+        "nested": False,
+        "force_requested": bool(force),
+        "forced_lock_acquisition_count": int(bool(force)),
+        "forced_lock_repair_count": 0,
+        "stale_lock_detected_count": 0,
+        "stale_lock_repair_count": 0,
+        "acquired": False,
+    })
     if force:
         try:
             path.unlink()
+            audit["forced_lock_repair_count"] += 1
         except FileNotFoundError:
             pass
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
@@ -271,6 +286,10 @@ def acquire_lock(path, force=False):
         fd = os.open(str(path), flags)
     except FileExistsError:
         stale = _remove_lock_if_verified_stale(path, kind="daily_refresh_lock")
+        if stale.get("stale"):
+            audit["stale_lock_detected_count"] += 1
+        if stale.get("removed"):
+            audit["stale_lock_repair_count"] += 1
         if not stale.get("removed"):
             return None
         try:
@@ -283,6 +302,7 @@ def acquire_lock(path, force=False):
     }
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, sort_keys=True)
+    audit["acquired"] = True
     return path
 
 

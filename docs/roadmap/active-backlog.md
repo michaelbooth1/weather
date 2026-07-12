@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-11T23:33:43.474856+00:00
+Generated: 2026-07-12T04:12:37.487862+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 315 |
-| Active items | 27 |
+| Active items | 28 |
 | OPEN | 4 |
-| PARTIAL | 23 |
-| COMPLETE | 288 |
+| PARTIAL | 24 |
+| COMPLETE | 287 |
 | ROADMAP rows | 315 |
 | ROADMAP primary rows | 315 |
 | Metadata manifest rows | 315 |
@@ -35,8 +35,8 @@ Status: `OK`
 | 144 | PARTIAL | 2026-06-18 | GUARDRAIL LIVE, MARKOUT EVIDENCE BLOCKED | [Early-Hour Market-Aware Risk Guardrail](items/item-144-early-hour-market-aware-risk-guardrail.md) |
 | 147 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY BASELINE | [Early-Hour Winner-Centering Candidate](items/item-147-early-hour-winner-centering-candidate.md) |
 | 156 | OPEN | 2026-06-20 | LOCAL RAW RESTORE ABSENT, FUTURE TRAIN DAYS NEEDED | [CLOB Midpoint Continuity For Market-Informed Repair](items/item-156-clob-midpoint-continuity-for-market-informed-repair.md) |
-| 157 | PARTIAL | 2026-06-25 | JUNE 25 CADENCE BLOCKED, CLEAN DAY NEEDED | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
-| 160 | PARTIAL | 2026-06-24 | MODEL-READY ACTIVE CANDIDATE, READINESS/PROGRESS BLOCKED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
+| 157 | PARTIAL | 2026-07-12 | BOUNDED CAPTURE IMPLEMENTED, DEPLOYMENT/CLEAN DAY NEEDED | [Live-Forward Snapshot Cadence SLO Closure](items/item-157-live-forward-snapshot-cadence-slo-closure.md) |
+| 160 | PARTIAL | 2026-07-12 | PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED | [Early-Hour Model Skill Remediation To Positive Daily-First Gate](items/item-160-early-hour-model-skill-remediation-to-positive-daily-first-gate.md) |
 | 161 | PARTIAL | 2026-06-25 | JUNE 25 SOAK BLOCKED, NEW CLEAN SOAK NEEDED | [Loop Restart Noise And Current-Code Cadence Proof](items/item-161-loop-restart-noise-and-current-code-cadence-proof.md) |
 | 176 | PARTIAL | 2026-06-22 | SAFE CACHE SWEEP APPLIED, LF NORMALIZATION DEFERRED | [Local Generated State And Tooling Cleanup Sweep](items/item-176-local-generated-state-and-tooling-cleanup-sweep.md) |
 | 177 | PARTIAL | 2026-06-21 | CLIMATOLOGY CACHE BOUNDED, CHILD REPAIRS OPEN | [Core Model Validation And Serving Skew Repair](items/item-177-core-model-validation-and-serving-skew-repair.md) |
@@ -45,6 +45,7 @@ Status: `OK`
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 219 | PARTIAL | 2026-07-12 | V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-25 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |

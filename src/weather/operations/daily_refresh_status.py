@@ -76,6 +76,9 @@ def pipeline_summary(steps):
     settled_barrier = ((by_name.get("settled_day_analysis_barrier") or {}).get("result") or {})
     shadow_ab = ((by_name.get("shadow_ab_monitor") or {}).get("result") or {})
     active_variant_shadow = ((by_name.get("active_variant_shadow") or {}).get("result") or {})
+    live_variant_settlement = (
+        (by_name.get("live_variant_settlement_scorecard") or {}).get("result") or {}
+    )
     proper_scorecard = ((by_name.get("proper_scoring_reliability_scorecard") or {}).get("result") or {})
     frozen_baseline = ((by_name.get("frozen_baseline_replay_trend") or {}).get("result") or {})
     variant_evidence = ((by_name.get("model_variant_evidence_growth") or {}).get("result") or {})
@@ -209,12 +212,20 @@ def pipeline_summary(steps):
             "taker_unsettled_order_count": trading.get("taker_unsettled_order_count"),
         },
         "promotion": {
+            "status": promotion.get("status"),
+            "reason": promotion.get("reason"),
             "candidate_verdict": promotion.get("candidate_verdict"),
             "cutover_decision": promotion.get("cutover_decision"),
             "action_counts": promotion.get("action_counts") or {},
             "promote_markets": promotion.get("promote_markets") or [],
             "shadow_markets": promotion.get("shadow_markets") or [],
             "blocked_markets": promotion.get("blocked_markets") or [],
+            "promotion_not_run": promotion.get("promotion_not_run"),
+            "live_variant_settlement_scorecard": promotion.get(
+                "live_variant_settlement_scorecard"
+            )
+            or {},
+            "first_blocker": promotion.get("first_blocker") or {},
         },
         "clob_order_book_tiering": {
             "status": clob_tiering.get("status"),
@@ -295,6 +306,38 @@ def pipeline_summary(steps):
             "summary": active_variant_shadow.get("summary") or {},
             "missing_active_variant_ids": active_variant_shadow.get("missing_active_variant_ids") or [],
             "blockers": active_variant_shadow.get("blockers") or [],
+        },
+        "live_variant_settlement_scorecard": {
+            "status": live_variant_settlement.get("status"),
+            "reason": live_variant_settlement.get("reason"),
+            "target_date": live_variant_settlement.get("target_date"),
+            "source_tape_count": live_variant_settlement.get("source_tape_count"),
+            "source_row_count": live_variant_settlement.get("source_row_count"),
+            "eligible_partition_count": live_variant_settlement.get("eligible_partition_count"),
+            "valid_prediction_partition_count": live_variant_settlement.get(
+                "valid_prediction_partition_count"
+            ),
+            "eligible_prediction_coverage": live_variant_settlement.get(
+                "eligible_prediction_coverage"
+            ),
+            "missing_or_invalid_partition_count": live_variant_settlement.get(
+                "missing_or_invalid_partition_count"
+            ),
+            "expected_snapshot_partition_count": live_variant_settlement.get(
+                "expected_snapshot_partition_count"
+            ),
+            "missing_expected_snapshot_partition_count": live_variant_settlement.get(
+                "missing_expected_snapshot_partition_count"
+            ),
+            "missing_expected_snapshot_band_count": live_variant_settlement.get(
+                "missing_expected_snapshot_band_count"
+            ),
+            "unsupported_runtime_skip_band_count": live_variant_settlement.get(
+                "unsupported_runtime_skip_band_count"
+            ),
+            "blocker_count": live_variant_settlement.get("blocker_count"),
+            "first_blocker": live_variant_settlement.get("first_blocker") or {},
+            "bounded_preflight": live_variant_settlement.get("bounded_preflight") or {},
         },
         "proper_scoring_reliability_scorecard": {
             "status": proper_scorecard.get("status"),

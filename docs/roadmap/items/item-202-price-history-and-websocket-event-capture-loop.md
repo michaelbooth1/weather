@@ -45,6 +45,17 @@ recent price path and WebSocket event summaries into reviewed cases, and fleet
 observability surfaces optional stream WARNs without blocking the broad
 `market_ws` artifacts was verified.
 
+2026-07-12 production-cadence correction: the optional streams remain
+implemented, but they no longer run inside the latency-critical raw-book loop.
+Live status showed each 12-market iteration loading `63,624` price-history rows
+for only `493` new points and `63,131` duplicates, plus WebSocket and derived
+feature work, stretching fast-mode cycles to roughly `108-114` seconds. The
+managed book loop is now fail-closed raw-only. Price history, bounded WebSocket
+sampling, and derived features run through the explicit `enrichment-loop` mode
+on a separate default 15-minute cadence, writer lock, diagnostics file, runtime
+identity, and per-market status. This preserves Item 202's evidence streams
+without allowing them to delay the unbackfillable raw book tape.
+
 ## Completion Notes
 
 Validated in the 2026-06-24 complete-roadmap sweep:

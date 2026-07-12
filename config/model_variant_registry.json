@@ -134,10 +134,14 @@
     {
       "variant_id": "pooled_continuous_density_hgb_v0_1",
       "variant_family": "pooled_continuous_density",
-      "lifecycle": "active",
+      "lifecycle": "shadow",
       "track": "no_market",
-      "roles": ["candidate", "density", "expanded-evidence"],
-      "active_for_headline": true,
+      "roles": ["candidate", "density", "diagnostic-only", "live-replay-divergence-quarantined"],
+      "active_for_headline": false,
+      "live_capture_enabled": true,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "blocked",
+      "promotion_block_reason": "continuous_density_live_replay_parity_not_proven_on_fresh_tape",
       "artifact_path": "artifacts/models/hgb/item35_density_full_candidate.pkl",
       "artifact_required": true,
       "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
@@ -146,7 +150,8 @@
       "default_export_path": "data/backtest/item35_density_full_shadow_variants.csv",
       "postprocess_config_hash": "pooled_continuous_density_hgb_v0.1",
       "live_runtime": "pooled_candidate_replay",
-      "roadmap_items": [35, 85]
+      "roadmap_items": [35, 85, 321],
+      "notes": "Quarantined 2026-07-11: historical live density tapes omitted explicit market/unit context. Toronto C bands were projected as F, while F-market feature values were canonicalized through the Toronto default. The route is repaired, but fresh live/replay parity and untouched requalification evidence are required before headline or promotion use."
     },
     {
       "variant_id": "item224_active_timesplit_logistic_repair_v0_1",

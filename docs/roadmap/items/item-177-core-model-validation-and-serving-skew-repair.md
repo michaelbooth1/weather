@@ -21,13 +21,13 @@ state-cleanup tasks it still owns directly.
 ## Delegated findings (tracked as standalone items)
 
 - [ ] Item 178 — Serving-Time Ordinal Smoothing Train/Serve Skew (H1).
-- [ ] Item 179 — Honest Blocked Validation For Feature-Model Tuning (H2).
-- [ ] Item 180 — Unit-Safe Missing-Feature Handling (M1).
-- [ ] Item 181 — Forecast Signal Double-Counting And Dead Capture-Hour (M2).
-- [ ] Item 182 — Distribution Stage-Attribution Harness (M3, measurement
+- [x] Item 179 — Honest Blocked Validation For Feature-Model Tuning (H2).
+- [x] Item 180 — Unit-Safe Missing-Feature Handling (M1).
+- [x] Item 181 — Forecast Signal Double-Counting And Dead Capture-Hour (M2).
+- [x] Item 182 — Distribution Stage-Attribution Harness (M3, measurement
   substrate for the rest).
-- [ ] Item 183 — Correlated Forecast-Source Clustering On Fallback Path (M4).
-- [ ] Item 184 — Per-Market Climatological Fallback Prior (M5).
+- [x] Item 183 — Correlated Forecast-Source Clustering On Fallback Path (M4).
+- [x] Item 184 — Per-Market Climatological Fallback Prior (M5).
 
 ## Retained scope (owned here)
 

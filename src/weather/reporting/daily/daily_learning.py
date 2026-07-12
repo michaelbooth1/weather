@@ -14,6 +14,7 @@ import random
 from pathlib import Path
 
 from weather.io import write_json_atomic
+from weather.paths import REPO_ROOT
 from weather.reporting.daily import daily_rollup_freshness
 from weather.reporting.daily.daily_learning_render import render_report
 from weather.reporting.formatting import fmt_num, fmt_signed
@@ -1890,6 +1891,7 @@ def build_learning_payload(
         artifacts,
         generated_at_utc=generated,
         run_date=effective_run_date,
+        repo_root=REPO_ROOT,
     )
     retrain_recommendation = _retrain_recommendation(
         scorecard,

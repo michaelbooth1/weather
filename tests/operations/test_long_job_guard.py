@@ -1,7 +1,9 @@
 import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from weather.operations.long_job_guard import (  # noqa: E402
@@ -9,6 +11,7 @@ from weather.operations.long_job_guard import (  # noqa: E402
     LongJobBusy,
     acquire_long_job_lock,
     long_job_guard,
+    process_is_running,
     release_long_job_lock,
     run_isolated_subprocess,
     touch_long_job_guard,
@@ -24,6 +27,14 @@ class TestLongJobGuard(unittest.TestCase):
             os.environ.pop(ACTIVE_ENV_VAR, None)
         else:
             os.environ[ACTIVE_ENV_VAR] = self._original_guard_env
+
+    def wait_for_process_exit(self, pid, timeout=10):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not process_is_running(pid):
+                return True
+            time.sleep(0.05)
+        return not process_is_running(pid)
 
     @unittest.skipUnless(os.name == "nt", "Windows SetPriorityClass path")
     def test_lower_process_priority_applies_on_windows(self):
@@ -223,11 +234,104 @@ class TestLongJobGuard(unittest.TestCase):
         self.assertEqual(result["returncode"], 0)
         self.assertFalse(result["timed_out"])
         self.assertIn("isolated-ok", result["stdout"])
+        self.assertEqual(result["containment"]["status"], "PASS")
+        self.assertTrue(result["containment"]["process_tree_contained"])
+        self.assertFalse(result["termination"]["triggered"])
         self.assertTrue(result["working_set_limit"]["requested"])
         if os.name == "nt":
-            self.assertIn("applied", result["working_set_limit"])
+            self.assertTrue(result["working_set_limit"]["applied"])
+            self.assertEqual(result["containment"]["method"], "windows_job_object")
+            self.assertTrue(result["containment"]["assigned_before_resume"])
+            self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 2)
         else:
             self.assertEqual(result["working_set_limit"]["reason"], "non_windows")
+
+    def test_timeout_kills_launcher_descendants_without_touching_unrelated_process(self):
+        base_python = getattr(sys, "_base_executable", sys.executable)
+        sentinel = subprocess.Popen([base_python, "-c", "import time; time.sleep(60)"])
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                child_pid_path = Path(tmp) / "child.pid"
+                launcher = (
+                    "import pathlib,subprocess,sys,time;"
+                    "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],"
+                    "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+                    f"pathlib.Path({str(child_pid_path)!r}).write_text(str(child.pid));"
+                    "print('launcher-ready', flush=True);"
+                    "time.sleep(60)"
+                )
+                result = run_isolated_subprocess(
+                    [sys.executable, "-c", launcher],
+                    timeout_seconds=1,
+                    working_set_max_bytes=256 * 1024 * 1024,
+                )
+                child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(result["timed_out"], result)
+            self.assertEqual(result["containment"]["status"], "PASS")
+            self.assertTrue(result["termination"]["triggered"])
+            self.assertEqual(result["termination"]["reason"], "timeout")
+            self.assertTrue(self.wait_for_process_exit(result["pid"]))
+            self.assertTrue(self.wait_for_process_exit(child_pid))
+            self.assertTrue(process_is_running(sentinel.pid))
+            if os.name == "nt":
+                self.assertEqual(result["termination"]["method"], "TerminateJobObject")
+                self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 3)
+            else:
+                self.assertEqual(result["termination"]["method"], "os.killpg")
+        finally:
+            sentinel.terminate()
+            try:
+                sentinel.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                sentinel.kill()
+                sentinel.wait(timeout=5)
+
+    def test_nonzero_launcher_exit_cleans_up_background_descendant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            child_pid_path = Path(tmp) / "child.pid"
+            launcher = (
+                "import pathlib,subprocess,sys;"
+                "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],"
+                "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+                f"pathlib.Path({str(child_pid_path)!r}).write_text(str(child.pid));"
+                "sys.exit(7)"
+            )
+            result = run_isolated_subprocess(
+                [sys.executable, "-c", launcher],
+                timeout_seconds=20,
+                working_set_max_bytes=256 * 1024 * 1024,
+            )
+            child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(result["returncode"], 7)
+        self.assertFalse(result["timed_out"])
+        self.assertEqual(result["containment"]["status"], "PASS")
+        self.assertTrue(result["termination"]["triggered"])
+        self.assertEqual(result["termination"]["reason"], "descendant_cleanup")
+        self.assertTrue(self.wait_for_process_exit(child_pid))
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object memory limit")
+    def test_job_memory_limit_applies_to_real_venv_interpreter_descendant(self):
+        maximum = 96 * 1024 * 1024
+        result = run_isolated_subprocess(
+            [
+                sys.executable,
+                "-c",
+                "payload=bytearray(256*1024*1024);print(len(payload))",
+            ],
+            timeout_seconds=30,
+            working_set_max_bytes=maximum,
+        )
+
+        self.assertNotEqual(result["returncode"], 0, result)
+        self.assertEqual(result["containment"]["status"], "PASS")
+        self.assertTrue(result["working_set_limit"]["job_commit_cap"])
+        self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 2)
+        self.assertLessEqual(
+            result["containment"]["accounting"]["peak_job_memory_bytes"],
+            maximum,
+        )
 
 
 if __name__ == "__main__":

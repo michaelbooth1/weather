@@ -1,13 +1,20 @@
 import json
+import os
+import shutil
 import tempfile
 import unittest
+from collections import namedtuple
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.operations.closed_market_day_archive import build_backfill_payload, plan_market_day
 from weather.operations.event_day_manifest import (
     MANIFEST_FILENAME,
     SCHEMA_VERSION,
     build_event_day_manifest,
+    build_backfill_payload as build_event_day_manifest_backfill,
+    inventory_content_hash,
+    main,
     manifest_hash_valid,
     validate_deletion_candidates,
     validate_event_day_manifest,
@@ -38,6 +45,15 @@ class TestEventDayManifest(unittest.TestCase):
         self.write_text(
             folder / "replay_inputs.jsonl",
             json.dumps({"schema_version": "toronto_replay_inputs_v0.1", "snapshot_id": "s1"}) + "\n",
+        )
+        self.write_text(
+            folder / "snapshot_explanations.jsonl",
+            json.dumps({"schema_version": "snapshot_explanations_v0.1", "snapshot_id": "s1"}) + "\n",
+        )
+        self.write_text(
+            folder / "snapshot_explanations_long.csv",
+            "snapshot_id,market_id,explanation\n"
+            "s1,austin,forecast anchor\n",
         )
         self.write_text(folder / "order_books.jsonl", '{"token_id":"t1"}\n')
         self.write_text(
@@ -98,6 +114,17 @@ class TestEventDayManifest(unittest.TestCase):
         self.assertEqual(by_path["snapshots_long.csv"]["row_count"], 2)
         self.assertEqual(by_path["snapshots_long.csv"]["rebuild_source"], "snapshot_jsonl_evidence")
         self.assertIn("sha256", by_path["snapshots_long.csv"])
+        explanations = {
+            row["path"]: row for row in families["snapshot_explanations"]["files"]
+        }
+        self.assertEqual(
+            explanations["snapshot_explanations.jsonl"]["role"],
+            "canonical_evidence",
+        )
+        self.assertEqual(
+            explanations["snapshot_explanations_long.csv"]["role"],
+            "analysis_projection",
+        )
         mm_record = families["market_making_runs"]["files"][0]
         self.assertEqual(mm_record["role"], "canonical_evidence")
 
@@ -134,6 +161,50 @@ class TestEventDayManifest(unittest.TestCase):
         self.assertEqual(manifest["summary"]["event_metadata_validation_hash"], "event-validation-hash")
         checks = {row["check"]: row for row in manifest["validation"]["checks"]}
         self.assertEqual(checks["event_metadata_validation"]["status"], "PASS")
+
+    def test_validator_rejects_manifest_with_mismatched_required_event_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            slug = "highest-temperature-in-austin-on-june-22-2026"
+            folder = self.make_folder(root, slug=slug)
+            validation_payload = {
+                "schema_version": "event_metadata_validation_v0.1",
+                "status": "PASS",
+                "target_date": "2026-06-22",
+                "validation_hash": "wrong-day-validation-hash",
+                "market_rows": [
+                    {
+                        "market_id": "austin",
+                        "target_date": "2026-06-22",
+                        "event_slug": "highest-temperature-in-austin-on-june-23-2026",
+                        "status": "PASS",
+                        "ok": True,
+                        "reason": "validated",
+                    }
+                ],
+            }
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                event_metadata_validation_payload=validation_payload,
+            )
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        self.assertEqual(manifest["event_metadata_validation"]["status"], "BLOCK")
+        self.assertEqual(manifest["validation"]["status"], "BLOCK")
+        self.assertEqual(validation["status"], "BLOCK")
+        blocked = {
+            row["check"]
+            for row in validation["checks"]
+            if row["status"] == "BLOCK"
+        }
+        self.assertIn("event_metadata_validation", blocked)
+        self.assertIn("embedded_manifest_validation", blocked)
 
     def test_deletion_candidate_gate_requires_manifest_record(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,6 +286,215 @@ class TestEventDayManifest(unittest.TestCase):
 
         self.assertEqual(payload["event_day_manifests"]["manifest_count"], 1)
         self.assertEqual(payload["event_day_manifests"]["pass_count"], 1)
+
+    def test_manifest_extracts_source_release_runtime_and_file_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            payload = {
+                "schema_version": "snapshot_tape_v0.2",
+                "source": "weather_and_market_collector",
+                "release_id": "release-2026-06-22-a",
+                "model_version": "model-v7",
+                "artifact_hash": "artifact-hash",
+                "runtime_identity": {
+                    "schema_version": "runtime_identity_v0.1",
+                    "git_branch": "master",
+                    "git_commit": "abc123",
+                    "source_fingerprint": "source-fingerprint",
+                    "python_version": "3.12.1",
+                },
+            }
+            self.write_text(folder / "snapshots.jsonl", json.dumps(payload) + "\n")
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+
+        records = {
+            row["path"]: row
+            for family in manifest["artifact_families"]
+            for row in family["files"]
+        }
+        snapshot = records["snapshots.jsonl"]
+        self.assertEqual(snapshot["validation_status"], "PASS")
+        self.assertEqual(snapshot["schema_versions"], ["snapshot_tape_v0.2"])
+        self.assertEqual(snapshot["source"], ["weather_and_market_collector"])
+        self.assertEqual(snapshot["release_identities"][0]["release_id"], "release-2026-06-22-a")
+        identity = manifest["release_runtime_identity"]
+        self.assertEqual(identity["runtime_identity_status"], "SINGLE")
+        self.assertEqual(identity["runtime_identities"][0]["git_commit"], "abc123")
+        self.assertEqual(manifest["inventory_hash"], inventory_content_hash(manifest))
+
+    def test_malformed_jsonl_and_unclassified_file_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            self.write_text(folder / "order_books.jsonl", '{"token_id":"t1"}\nnot-json\n')
+            self.write_text(folder / "unknown.durable", "opaque evidence")
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        self.assertEqual(manifest["validation"]["status"], "BLOCK")
+        self.assertEqual(validation["status"], "BLOCK")
+        blocked = {row["check"] for row in validation["checks"] if row["status"] == "BLOCK"}
+        self.assertIn("file_validation", blocked)
+        self.assertIn("unclassified_file", blocked)
+
+    def test_backup_and_restore_proof_require_every_canonical_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            first = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+            canonical = [
+                row
+                for family in first["artifact_families"]
+                for row in family["files"]
+                if row["storage_class"] == "canonical_evidence"
+            ]
+            backup_root = root / "off-machine"
+            for row in canonical:
+                destination = backup_root / row["data_path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(folder / row["path"], destination)
+            restore_proof = {
+                "status": "PASS",
+                "event_slug": folder.name,
+                "generated_at_utc": "2026-06-24T00:00:00+00:00",
+                "files": [
+                    {"data_path": row["data_path"], "sha256": row["sha256"]}
+                    for row in canonical
+                ],
+            }
+
+            proven = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                backup_root=backup_root,
+                restore_proof_payload=restore_proof,
+            )
+            first_backup = backup_root / canonical[0]["data_path"]
+            first_backup.write_text("changed", encoding="utf-8")
+            stale_backup = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                backup_root=backup_root,
+                restore_proof_payload=restore_proof,
+            )
+            incomplete_proof = {**restore_proof, "files": restore_proof["files"][:-1]}
+            stale_restore = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                restore_proof_payload=incomplete_proof,
+            )
+
+        self.assertEqual(proven["protection"]["status"], "PASS")
+        self.assertEqual(proven["protection"]["backup"]["verified_file_count"], len(canonical))
+        self.assertEqual(proven["protection"]["restore"]["verified_file_count"], len(canonical))
+        self.assertEqual(stale_backup["protection"]["backup"]["status"], "BLOCK")
+        self.assertEqual(stale_restore["protection"]["restore"]["status"], "BLOCK")
+
+    def test_audit_detects_missing_and_incremental_apply_reuses_then_rewrites_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+
+            audit_missing = build_event_day_manifest_backfill(
+                snapshots_root=root / "snapshots",
+                mode="audit",
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            first_apply = build_event_day_manifest_backfill(
+                snapshots_root=root / "snapshots",
+                mode="apply",
+                incremental=True,
+                generated_at_utc="2026-06-23T00:00:00+00:00",
+            )
+            manifest_path = folder / MANIFEST_FILENAME
+            first_mtime = manifest_path.stat().st_mtime_ns
+            with patch(
+                "weather.operations.event_day_manifest._inspect_file",
+                side_effect=AssertionError("unchanged files must be reused"),
+            ):
+                second_apply = build_event_day_manifest_backfill(
+                    snapshots_root=root / "snapshots",
+                    mode="apply",
+                    incremental=True,
+                    generated_at_utc="2026-06-24T00:00:00+00:00",
+                )
+            second_mtime = manifest_path.stat().st_mtime_ns
+            with (folder / "price_history.csv").open("a", encoding="utf-8") as handle:
+                handle.write("s2,t1,0.52\n")
+            changed_apply = build_event_day_manifest_backfill(
+                snapshots_root=root / "snapshots",
+                mode="apply",
+                incremental=True,
+                generated_at_utc="2026-06-25T00:00:00+00:00",
+            )
+
+        self.assertEqual(audit_missing["status"], "BLOCK")
+        self.assertEqual(audit_missing["summary"]["missing_manifest_count"], 1)
+        self.assertEqual(first_apply["summary"]["written_count"], 1)
+        self.assertEqual(second_apply["summary"]["written_count"], 0)
+        self.assertEqual(second_apply["summary"]["reused_count"], 1)
+        self.assertEqual(second_apply["market_days"][0]["manifest_state"], "CURRENT")
+        self.assertEqual(first_mtime, second_mtime)
+        self.assertEqual(changed_apply["summary"]["written_count"], 1)
+        self.assertEqual(changed_apply["market_days"][0]["manifest_state"], "CHANGED")
+
+    def test_atomic_writer_and_audit_cli_have_explicit_write_boundaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            with patch(
+                "weather.operations.event_day_manifest.os.replace",
+                wraps=os.replace,
+            ) as replace:
+                write_event_day_manifest(folder, snapshots_root=root / "snapshots")
+            out = root / "audit.json"
+            report = root / "audit.md"
+            payload = main([
+                "audit",
+                "--snapshots-root",
+                str(root / "snapshots"),
+                "--out",
+                str(out),
+                "--report",
+                str(report),
+            ])
+            out_exists = out.exists()
+            report_exists = report.exists()
+
+        self.assertEqual(replace.call_count, 1)
+        self.assertEqual(payload["mode"], "audit")
+        self.assertFalse(out_exists)
+        self.assertFalse(report_exists)
+
+    def test_storage_gate_exposes_thirty_day_headroom_inputs(self):
+        usage = namedtuple("usage", "total used free")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_folder(root)
+            with patch(
+                "weather.operations.event_day_manifest.shutil.disk_usage",
+                return_value=usage(total=100_000, used=40_000, free=60_000),
+            ):
+                payload = build_event_day_manifest_backfill(
+                    snapshots_root=root / "snapshots",
+                    mode="plan",
+                    daily_growth_bytes=1_000,
+                    min_growth_headroom_days=30,
+                )
+
+        gate = payload["storage_gate"]
+        self.assertEqual(gate["growth_headroom_status"], "PASS")
+        self.assertEqual(gate["growth_headroom_days"], 60.0)
+        self.assertEqual(gate["required_growth_headroom_days"], 30.0)
+        self.assertGreater(gate["canonical_evidence_bytes"], 0)
+        self.assertGreater(gate["bytes_requiring_off_machine_backup"], 0)
 
 
 if __name__ == "__main__":

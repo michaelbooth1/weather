@@ -47,12 +47,16 @@ from weather.operations.supervisor import (
     terminate_python_pid,
 )
 from weather.paths import REPO_ROOT
+from weather.schema_registry import schema_version
 
 from weather.market.market_microstructure_constants import (  # noqa: E402
     BOOK_LEVEL_COLUMNS,
     BOOK_SUMMARY_COLUMNS,
     CLOB_BASE_URL,
     CLOB_DIAGNOSTICS_PATH,
+    CLOB_ENRICHMENT_DIAGNOSTICS_PATH,
+    CLOB_ENRICHMENT_PAUSE_FLAG_PATH,
+    CLOB_ENRICHMENT_STATUS_PATH,
     CLOB_LOOP_CONSOLE_LOG_PATH,
     CLOB_LOOP_STATUS_PATH,
     CLOB_PAUSE_FLAG_PATH,
@@ -61,11 +65,15 @@ from weather.market.market_microstructure_constants import (  # noqa: E402
     DEFAULT_BATCH_SIZE,
     DEFAULT_BOOK_INTERVAL_SECONDS,
     DEFAULT_CLOB_FEATURE_MAX_AGE_SECONDS,
+    DEFAULT_ENRICHMENT_HISTORY_MINUTES,
+    DEFAULT_ENRICHMENT_INTERVAL_SECONDS,
     DEFAULT_FAST_INTERVAL_SECONDS,
     DEFAULT_INCLUDE_PRICE_HISTORY,
     DEFAULT_INCLUDE_WS_EVENTS,
     DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
     DEFAULT_LOOP_INCLUDE_WS_EVENTS,
+    DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
+    DEFAULT_RAW_MAX_WORKERS,
     DEFAULT_WS_CONNECT_TIMEOUT,
     DEFAULT_WS_HEARTBEAT_SECONDS,
     DEFAULT_WS_MESSAGE_LIMIT,
@@ -80,10 +88,13 @@ from weather.market.market_microstructure_capture import (  # noqa: E402
     ClobClient,
     MarketMicrostructureStore,
     capture_event_books,
+    capture_event_enrichment,
+    capture_fleet_enrichment,
     capture_fleet_books,
     capture_fleet_books_parallel,
     capture_id_for_book,
     capture_market_books,
+    capture_market_enrichment,
     chunked,
     depth_within,
     filter_token_rows,
@@ -137,6 +148,8 @@ CLOB_SUPERVISOR = SupervisorSpec(
     restart_backoff_max_seconds=3600.0,
 )
 
+CLOB_ENRICHMENT_LOOP_SCHEMA_VERSION = schema_version("clob_enrichment_loop_status")
+
 
 def runtime_clob_supervisor_spec():
     return CLOB_SUPERVISOR.with_paths(
@@ -158,6 +171,18 @@ def read_clob_loop_status(path=None):
 
 def write_clob_loop_status(status, path=None):
     return atomic_write_json(path or CLOB_LOOP_STATUS_PATH, status)
+
+
+def read_clob_enrichment_status(path=None):
+    return read_json_file(path or CLOB_ENRICHMENT_STATUS_PATH)
+
+
+def write_clob_enrichment_status(status, path=None):
+    return atomic_write_json(path or CLOB_ENRICHMENT_STATUS_PATH, status)
+
+
+def append_clob_enrichment_diagnostic(record, path=None):
+    return append_jsonl(path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH, record)
 
 
 def append_clob_diagnostic(record, path=None):
@@ -262,6 +287,9 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
     last_iteration_elapsed = to_number(status.get("last_iteration_elapsed_seconds")) or 0.0
     max_recent_iteration_elapsed = to_number(status.get("max_recent_iteration_elapsed_seconds")) or 0.0
     recent_iteration_elapsed = max(last_iteration_elapsed, max_recent_iteration_elapsed)
+    enrichment_isolated = not bool(status.get("include_price_history")) and not bool(
+        status.get("include_ws_events")
+    )
     sleep_seconds = to_number(status.get("last_sleep_seconds"))
     if sleep_seconds is None:
         sleep_seconds = interval
@@ -276,7 +304,13 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         state = "DEAD"
     elif errors >= 3:
         state = "ERRORING"
-    elif error_markets or target_date_mismatch_markets or not discovery_sanity.get("ok", True):
+    elif (
+        error_markets
+        or target_date_mismatch_markets
+        or not discovery_sanity.get("ok", True)
+        or not enrichment_isolated
+        or status.get("raw_freshness_sla_breach") is True
+    ):
         state = "DEGRADED"
     else:
         state = "RUNNING"
@@ -304,6 +338,17 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "fast_interval_seconds": status.get("fast_interval_seconds"),
         "include_price_history": status.get("include_price_history"),
         "include_ws_events": status.get("include_ws_events"),
+        "capture_mode": status.get("capture_mode") or (
+            "legacy_mixed" if not enrichment_isolated else "raw_books"
+        ),
+        "critical_loop_enrichment_isolated": enrichment_isolated,
+        "isolation_blocker": (
+            None
+            if enrichment_isolated
+            else "price_history_or_websocket_enabled_in_latency_critical_loop"
+        ),
+        "raw_freshness_sla_breach": status.get("raw_freshness_sla_breach") is True,
+        "last_raw_capture_contract": status.get("last_raw_capture_contract") or {},
         "websocket_message_limit": status.get("websocket_message_limit"),
         "last_mode": status.get("last_mode"),
         "last_sleep_seconds": status.get("last_sleep_seconds"),
@@ -335,6 +380,55 @@ def clob_loop_health(status, now=None, interval_seconds=DEFAULT_BOOK_INTERVAL_SE
         "max_iteration_elapsed_seconds": status.get("max_iteration_elapsed_seconds"),
         "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
         "recent_iteration_elapsed_seconds": round(recent_iteration_elapsed, 1),
+    }
+
+
+def clob_enrichment_health(status, now=None, interval_seconds=DEFAULT_ENRICHMENT_INTERVAL_SECONDS):
+    """Liveness for the optional, non-critical enrichment loop."""
+
+    now = now or utc_now()
+    if not status:
+        return {
+            "state": "NOT_CONFIGURED",
+            "detail": "no separate CLOB enrichment status file",
+            "counts_toward_raw_book_freshness": False,
+        }
+    interval = to_number(status.get("interval_seconds")) or float(interval_seconds)
+    heartbeat_age = _age_seconds(now, status.get("last_heartbeat"))
+    last_elapsed = to_number(status.get("last_iteration_elapsed_seconds")) or 0.0
+    dead_after = max(2 * interval + 60.0, last_elapsed + interval + 60.0)
+    errors = int(status.get("consecutive_errors") or 0)
+    error_markets = status.get("error_markets") or []
+    if status.get("paused"):
+        state = "PAUSED"
+    elif heartbeat_age is None or heartbeat_age > dead_after:
+        state = "DEAD"
+    elif errors >= 3:
+        state = "ERRORING"
+    elif error_markets:
+        state = "DEGRADED"
+    else:
+        state = "RUNNING"
+    return {
+        "state": state,
+        "mode": "research_enrichment",
+        "pid": status.get("pid"),
+        "runtime_identity": status.get("runtime_identity"),
+        "heartbeat_age_seconds": round(heartbeat_age, 1) if heartbeat_age is not None else None,
+        "interval_seconds": interval,
+        "dead_after_seconds": round(dead_after, 1),
+        "include_price_history": bool(status.get("include_price_history")),
+        "include_ws_events": bool(status.get("include_ws_events")),
+        "include_clob_features": bool(status.get("include_clob_features")),
+        "consecutive_errors": errors,
+        "error_markets": error_markets,
+        "last_error": status.get("last_error"),
+        "last_heartbeat": status.get("last_heartbeat"),
+        "last_enrichment_completed_at": status.get("last_enrichment_completed_at"),
+        "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
+        "last_market_results": status.get("last_market_results") or {},
+        "counts_toward_raw_book_freshness": False,
+        "blocks_raw_book_capture": False,
     }
 
 
@@ -702,6 +796,8 @@ def summarize_loop_results(results):
             summary[market_id] = {"error": f"unexpected result type {type(value).__name__}"}
             continue
         summary[market_id] = {
+            "mode": value.get("mode"),
+            "status": value.get("status"),
             "event_slug": value.get("event_slug"),
             "target_date": value.get("target_date"),
             "books": value.get("books"),
@@ -712,6 +808,8 @@ def summarize_loop_results(results):
             "captured_tokens": value.get("captured_tokens"),
             "levels": value.get("levels"),
             "price_history_rows": value.get("price_history_rows"),
+            "price_history_error_count": value.get("price_history_error_count"),
+            "price_history_errors": value.get("price_history_errors"),
             "price_history_new_points": value.get("price_history_new_points"),
             "price_history_duplicate_points": value.get("price_history_duplicate_points"),
             "price_history_corrected_points": value.get("price_history_corrected_points"),
@@ -725,6 +823,9 @@ def summarize_loop_results(results):
             "ws_error": value.get("ws_error"),
             "clob_feature_rows": value.get("clob_feature_rows"),
             "clob_features_error": value.get("clob_features_error"),
+            "enrichment_captured_at_utc": value.get("enrichment_captured_at_utc"),
+            "raw_book_tape_touched": value.get("raw_book_tape_touched"),
+            "elapsed_seconds": value.get("elapsed_seconds"),
             "error": value.get("error"),
         }
     return summary
@@ -832,6 +933,15 @@ def stop_clob_loop(now=None):
     return {"stopped": bool(cleanup["stopped_count"]), "pid": pid, "cleanup": cleanup, "writer_lock": lock_cleanup}
 
 
+def _assert_raw_loop_contract(include_price_history, include_ws_events):
+    if include_price_history or include_ws_events:
+        raise ValueError(
+            "the latency-critical CLOB loop is raw-book-only; run "
+            "`python -m weather.market.market_microstructure enrichment-loop` "
+            "for price history, WebSocket events, and derived features"
+        )
+
+
 def _clob_loop_command(
     market_id="all",
     target_date=None,
@@ -848,7 +958,10 @@ def _clob_loop_command(
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    raw_max_workers=DEFAULT_RAW_MAX_WORKERS,
+    raw_market_timeout_seconds=DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
 ):
+    _assert_raw_loop_contract(include_price_history, include_ws_events)
     command = [
         sys.executable,
         "-m",
@@ -870,23 +983,13 @@ def _clob_loop_command(
         str(fast_on_mid_change_bps),
         "--batch-size",
         str(batch_size),
+        "--raw-max-workers",
+        str(raw_max_workers),
+        "--raw-market-timeout-seconds",
+        str(raw_market_timeout_seconds),
     ]
     if target_date:
         command.extend(["--date", str(target_date)])
-    if not include_price_history:
-        command.append("--no-price-history")
-    if not include_ws_events:
-        command.append("--no-websocket-events")
-    command.extend([
-        "--websocket-seconds",
-        str(ws_seconds),
-        "--websocket-message-limit",
-        str(ws_message_limit),
-        "--websocket-heartbeat-seconds",
-        str(ws_heartbeat_seconds),
-        "--websocket-connect-timeout",
-        str(ws_connect_timeout),
-    ])
     return command
 
 
@@ -906,9 +1009,12 @@ def start_clob_loop_detached(
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    raw_max_workers=DEFAULT_RAW_MAX_WORKERS,
+    raw_market_timeout_seconds=DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
     now=None,
 ):
     now = now or utc_now()
+    _assert_raw_loop_contract(include_price_history, include_ws_events)
     lock_cleanup = _cleanup_clob_writer_lock(attempts=3, sleep_seconds=0.1)
     if lock_cleanup.get("reason") == "writer lock owner is still live":
         append_clob_diagnostic({
@@ -935,6 +1041,8 @@ def start_clob_loop_detached(
             ws_message_limit=ws_message_limit,
             ws_heartbeat_seconds=ws_heartbeat_seconds,
             ws_connect_timeout=ws_connect_timeout,
+            raw_max_workers=raw_max_workers,
+            raw_market_timeout_seconds=raw_market_timeout_seconds,
         ),
         cwd=CLOB_SUPERVISOR.cwd,
         console_log_path=CLOB_LOOP_CONSOLE_LOG_PATH,
@@ -955,6 +1063,8 @@ def start_clob_loop_detached(
         "fast_after_local_hour": fast_after_local_hour,
         "fast_on_mid_change_bps": fast_on_mid_change_bps,
         "batch_size": batch_size,
+        "capture_mode": "raw_books",
+        "critical_loop_enrichment_isolated": True,
         "include_price_history": include_price_history,
         "include_ws_events": include_ws_events,
         "websocket_seconds": ws_seconds,
@@ -963,6 +1073,10 @@ def start_clob_loop_detached(
         "websocket_connect_timeout": ws_connect_timeout,
         "iterations": 0,
         "raw_book_useful_iterations": 0,
+        "raw_max_workers": int(raw_max_workers),
+        "raw_market_timeout_seconds": float(raw_market_timeout_seconds),
+        "raw_normal_freshness_sla_seconds": 120.0,
+        "raw_near_close_freshness_sla_seconds": 30.0,
         "consecutive_errors": 0,
         "error_markets": [],
         "last_error": None,
@@ -1010,6 +1124,8 @@ def ensure_clob_loop(
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    raw_max_workers=DEFAULT_RAW_MAX_WORKERS,
+    raw_market_timeout_seconds=DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
     now=None,
 ):
     now = now or utc_now()
@@ -1092,6 +1208,8 @@ def ensure_clob_loop(
                 ws_message_limit=ws_message_limit,
                 ws_heartbeat_seconds=ws_heartbeat_seconds,
                 ws_connect_timeout=ws_connect_timeout,
+                raw_max_workers=raw_max_workers,
+                raw_market_timeout_seconds=raw_market_timeout_seconds,
                 now=now,
             )
         elif action == "start":
@@ -1112,6 +1230,8 @@ def ensure_clob_loop(
                 ws_message_limit=ws_message_limit,
                 ws_heartbeat_seconds=ws_heartbeat_seconds,
                 ws_connect_timeout=ws_connect_timeout,
+                raw_max_workers=raw_max_workers,
+                raw_market_timeout_seconds=raw_market_timeout_seconds,
                 now=now,
             )
         if action != "noop":
@@ -1138,12 +1258,14 @@ def run_book_loop(
     ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
     ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
     ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    raw_max_workers=DEFAULT_RAW_MAX_WORKERS,
+    raw_market_timeout_seconds=DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
     max_iterations=None,
     capture_fn=None,
     sleep_fn=time.sleep,
     now_fn=utc_now,
 ):
-    capture_fn = capture_fn or capture_fleet_books
+    _assert_raw_loop_contract(include_price_history, include_ws_events)
     writer_lock = acquire_writer_lock(
         CLOB_LOOP_STATUS_PATH,
         owner={"loop": CLOB_SUPERVISOR.name, "module": CLOB_SUPERVISOR.module},
@@ -1176,8 +1298,15 @@ def run_book_loop(
         "fast_after_local_hour": fast_after_local_hour,
         "fast_on_mid_change_bps": fast_on_mid_change_bps,
         "batch_size": batch_size,
+        "capture_mode": "raw_books",
+        "critical_loop_enrichment_isolated": True,
         "include_price_history": include_price_history,
         "include_ws_events": include_ws_events,
+        "include_clob_features": False,
+        "raw_max_workers": int(raw_max_workers),
+        "raw_market_timeout_seconds": float(raw_market_timeout_seconds),
+        "raw_normal_freshness_sla_seconds": 120.0,
+        "raw_near_close_freshness_sla_seconds": 30.0,
         "websocket_seconds": ws_seconds,
         "websocket_message_limit": ws_message_limit,
         "websocket_heartbeat_seconds": ws_heartbeat_seconds,
@@ -1217,19 +1346,74 @@ def run_book_loop(
                             status["last_books_captured_at"] = progress_now.isoformat()
                         write_clob_loop_status(status)
 
-                    results = capture_fn(
-                        market_id=market_id,
-                        outcomes=outcomes,
-                        include_price_history=include_price_history,
-                        include_ws_events=include_ws_events,
-                        ws_seconds=ws_seconds,
-                        ws_message_limit=ws_message_limit,
-                        ws_heartbeat_seconds=ws_heartbeat_seconds,
-                        ws_connect_timeout=ws_connect_timeout,
-                        batch_size=batch_size,
-                        target_date=target_date,
-                        progress_callback=progress_callback,
+                    pre_capture_fast = should_use_fast_interval(
+                        configs,
+                        loop_started,
+                        last_midpoints,
+                        last_midpoints,
+                        fast_hours_before_close,
+                        fast_after_local_hour,
+                        fast_on_mid_change_bps,
                     )
+                    raw_freshness_sla = 30.0 if pre_capture_fast else 120.0
+                    raw_timeout = min(
+                        float(raw_market_timeout_seconds),
+                        25.0 if pre_capture_fast else 90.0,
+                    )
+                    if capture_fn is None:
+                        raw_payload = capture_fleet_books_parallel(
+                            market_id=market_id,
+                            outcomes=outcomes,
+                            target_date=target_date,
+                            batch_size=batch_size,
+                            max_workers=raw_max_workers,
+                            per_market_timeout_seconds=raw_timeout,
+                            freshness_sla_seconds=raw_freshness_sla,
+                            progress_callback=progress_callback,
+                        )
+                        results = {
+                            str(row.get("market_id")): row
+                            for row in raw_payload.get("markets") or []
+                            if row.get("market_id")
+                        }
+                        status["last_raw_capture_contract"] = {
+                            key: raw_payload.get(key)
+                            for key in (
+                                "schema_version",
+                                "mode",
+                                "market_count",
+                                "max_workers",
+                                "per_market_timeout_seconds",
+                                "freshness_sla_seconds",
+                                "fleet_elapsed_seconds",
+                                "inside_freshness_sla",
+                                "ok",
+                                "summary",
+                            )
+                        }
+                    else:
+                        results = capture_fn(
+                            market_id=market_id,
+                            outcomes=outcomes,
+                            include_price_history=False,
+                            include_ws_events=False,
+                            include_clob_features=False,
+                            ws_seconds=ws_seconds,
+                            ws_message_limit=ws_message_limit,
+                            ws_heartbeat_seconds=ws_heartbeat_seconds,
+                            ws_connect_timeout=ws_connect_timeout,
+                            batch_size=batch_size,
+                            target_date=target_date,
+                            progress_callback=progress_callback,
+                        )
+                        status["last_raw_capture_contract"] = {
+                            "mode": "raw_books",
+                            "freshness_sla_seconds": raw_freshness_sla,
+                            "per_market_timeout_seconds": raw_timeout,
+                            "inside_freshness_sla": None,
+                            "ok": None,
+                            "injected_capture": True,
+                        }
                     current_midpoints = {}
                     for result in results.values():
                         if isinstance(result, dict):
@@ -1252,9 +1436,20 @@ def run_book_loop(
                     }
                     elapsed_seconds = (now_fn() - loop_started).total_seconds()
                     full_error = bool(summary) and len(errors) == len(summary)
+                    raw_contract = status.get("last_raw_capture_contract") or {}
+                    raw_sla_breach = raw_contract.get("inside_freshness_sla") is False
                     status["consecutive_errors"] = status["consecutive_errors"] + 1 if full_error else 0
                     status["error_markets"] = sorted(errors)
-                    status["last_error"] = "; ".join(f"{item}: {err}" for item, err in errors.items()) or None
+                    error_text = "; ".join(f"{item}: {err}" for item, err in errors.items())
+                    if raw_sla_breach:
+                        sla_text = (
+                            "raw fleet capture missed strict freshness SLA: "
+                            f"elapsed={raw_contract.get('fleet_elapsed_seconds')}s, "
+                            f"limit={raw_contract.get('freshness_sla_seconds')}s"
+                        )
+                        error_text = f"{error_text}; {sla_text}" if error_text else sla_text
+                    status["raw_freshness_sla_breach"] = raw_sla_breach
+                    status["last_error"] = error_text or None
                     status["last_market_results"] = summary
                     status["last_market_in_progress"] = None
                     raw_by_market = {
@@ -1352,6 +1547,157 @@ def run_book_loop(
 
 
 
+def run_enrichment_loop(
+    market_id="all",
+    target_date=None,
+    interval_seconds=DEFAULT_ENRICHMENT_INTERVAL_SECONDS,
+    outcomes="all",
+    include_price_history=True,
+    history_minutes=DEFAULT_ENRICHMENT_HISTORY_MINUTES,
+    history_interval=None,
+    fidelity_minutes=1,
+    include_ws_events=True,
+    ws_seconds=DEFAULT_WS_SECONDS,
+    ws_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+    ws_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+    ws_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
+    include_clob_features=True,
+    max_iterations=None,
+    capture_fn=None,
+    sleep_fn=time.sleep,
+    now_fn=utc_now,
+):
+    """Run optional enrichment on its own cadence and status writer."""
+
+    if not (include_price_history or include_ws_events or include_clob_features):
+        raise ValueError("enrichment-loop requires at least one enrichment stream")
+    capture_fn = capture_fn or capture_fleet_enrichment
+    writer_lock = acquire_writer_lock(
+        CLOB_ENRICHMENT_STATUS_PATH,
+        owner={"loop": "clob_enrichment", "module": CLOB_SUPERVISOR.module},
+        stale_after_seconds=max(300.0, float(interval_seconds) * 3.0),
+    )
+    if writer_lock is None:
+        existing = read_writer_lock(CLOB_ENRICHMENT_STATUS_PATH)
+        append_clob_enrichment_diagnostic({
+            "time": now_fn().isoformat(),
+            "status": "duplicate_writer_blocked",
+            "existing_writer": existing,
+            "pid": os.getpid(),
+        })
+        return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
+    status = {
+        "schema_version": CLOB_ENRICHMENT_LOOP_SCHEMA_VERSION,
+        "pid": os.getpid(),
+        "started_at": now_fn().isoformat(),
+        "last_heartbeat": now_fn().isoformat(),
+        "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "mode": "research_enrichment",
+        "market_id": market_id,
+        "target_date": target_date,
+        "date_selection": "fixed_target_date" if target_date else "market_local_date",
+        "outcomes": outcomes,
+        "interval_seconds": float(interval_seconds),
+        "history_minutes": int(history_minutes),
+        "history_interval": history_interval,
+        "fidelity_minutes": int(fidelity_minutes),
+        "include_price_history": bool(include_price_history),
+        "include_ws_events": bool(include_ws_events),
+        "include_clob_features": bool(include_clob_features),
+        "websocket_seconds": float(ws_seconds),
+        "websocket_message_limit": ws_message_limit,
+        "websocket_heartbeat_seconds": float(ws_heartbeat_seconds),
+        "websocket_connect_timeout": float(ws_connect_timeout),
+        "counts_toward_raw_book_freshness": False,
+        "blocks_raw_book_capture": False,
+        "iterations": 0,
+        "consecutive_errors": 0,
+        "error_markets": [],
+        "last_error": None,
+        "paused": False,
+    }
+    attach_status_writer(status, writer_lock)
+    try:
+        while True:
+            loop_started = now_fn()
+            status["iterations"] += 1
+            status["last_heartbeat"] = loop_started.isoformat()
+            status["paused"] = CLOB_ENRICHMENT_PAUSE_FLAG_PATH.exists()
+            if status["paused"]:
+                status["last_mode"] = "paused"
+                status["last_sleep_seconds"] = float(interval_seconds)
+                write_clob_enrichment_status(status)
+            else:
+                partial_results = {}
+
+                def progress_callback(item, result):
+                    partial_results[item] = result
+                    status["last_heartbeat"] = now_fn().isoformat()
+                    status["last_market_in_progress"] = item
+                    status["current_iteration_market_results"] = summarize_loop_results(partial_results)
+                    write_clob_enrichment_status(status)
+
+                try:
+                    results = capture_fn(
+                        market_id=market_id,
+                        target_date=target_date,
+                        outcomes=outcomes,
+                        include_price_history=include_price_history,
+                        history_minutes=history_minutes,
+                        history_interval=history_interval,
+                        fidelity_minutes=fidelity_minutes,
+                        include_ws_events=include_ws_events,
+                        ws_seconds=ws_seconds,
+                        ws_message_limit=ws_message_limit,
+                        ws_heartbeat_seconds=ws_heartbeat_seconds,
+                        ws_connect_timeout=ws_connect_timeout,
+                        include_clob_features=include_clob_features,
+                        progress_callback=progress_callback,
+                    )
+                    summary = summarize_loop_results(results)
+                    errors = {
+                        item: value.get("error") or value.get("status")
+                        for item, value in summary.items()
+                        if value.get("error") or value.get("status") in {"BLOCK", "ERROR", "DEGRADED"}
+                    }
+                    elapsed = (now_fn() - loop_started).total_seconds()
+                    full_error = bool(summary) and len(errors) == len(summary)
+                    status["consecutive_errors"] = status["consecutive_errors"] + 1 if full_error else 0
+                    status["error_markets"] = sorted(errors)
+                    status["last_error"] = "; ".join(f"{item}: {error}" for item, error in errors.items()) or None
+                    status["last_market_results"] = summary
+                    status["current_iteration_market_results"] = {}
+                    status["last_market_in_progress"] = None
+                    status["last_enrichment_completed_at"] = now_fn().isoformat()
+                    status["last_iteration_elapsed_seconds"] = round(elapsed, 3)
+                    status["last_mode"] = "research_enrichment"
+                    status["last_sleep_seconds"] = float(interval_seconds)
+                    write_clob_enrichment_status(status)
+                    append_clob_enrichment_diagnostic({
+                        "time": loop_started.isoformat(),
+                        "mode": "research_enrichment",
+                        "elapsed_seconds": status["last_iteration_elapsed_seconds"],
+                        "markets": summary,
+                    })
+                except Exception as exc:  # noqa: BLE001 - optional loop stays observable
+                    status["consecutive_errors"] += 1
+                    status["last_error"] = f"{type(exc).__name__}: {exc}"
+                    status["last_mode"] = "error"
+                    status["last_sleep_seconds"] = float(interval_seconds)
+                    write_clob_enrichment_status(status)
+                    append_clob_enrichment_diagnostic({
+                        "time": loop_started.isoformat(),
+                        "status": "error",
+                        "error": status["last_error"],
+                    })
+            if max_iterations is not None and status["iterations"] >= max_iterations:
+                return status
+            elapsed = (now_fn() - loop_started).total_seconds()
+            sleep_fn(max(1.0, float(interval_seconds) - elapsed))
+    finally:
+        release_writer_lock(writer_lock)
+
+
 def _market_choices():
     return ["all"] + [spec.id for spec in all_specs()]
 
@@ -1366,10 +1712,20 @@ def add_loop_options(parser):
     parser.add_argument("--fast-after-local-hour", type=float, default=15.0)
     parser.add_argument("--fast-on-mid-change-bps", type=float, default=500.0)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    add_capture_enrichment_options(
-        parser,
-        default_price_history=DEFAULT_LOOP_INCLUDE_PRICE_HISTORY,
-        default_websocket_events=DEFAULT_LOOP_INCLUDE_WS_EVENTS,
+    parser.add_argument("--raw-max-workers", type=int, default=DEFAULT_RAW_MAX_WORKERS)
+    parser.add_argument(
+        "--raw-market-timeout-seconds",
+        type=float,
+        default=DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
+    )
+    parser.set_defaults(
+        price_history=False,
+        websocket_events=False,
+        clob_features=False,
+        websocket_seconds=DEFAULT_WS_SECONDS,
+        websocket_message_limit=DEFAULT_WS_MESSAGE_LIMIT,
+        websocket_heartbeat_seconds=DEFAULT_WS_HEARTBEAT_SECONDS,
+        websocket_connect_timeout=DEFAULT_WS_CONNECT_TIMEOUT,
     )
 
 
@@ -1442,6 +1798,37 @@ def main():
 
     loop = subparsers.add_parser("loop", help="Run a fast CLOB book capture loop.")
     add_loop_options(loop)
+
+    enrichment_loop = subparsers.add_parser(
+        "enrichment-loop",
+        help="Run price-history/WebSocket/feature enrichment separately from raw books.",
+    )
+    enrichment_loop.add_argument("--market", choices=_market_choices(), default="all")
+    enrichment_loop.add_argument("--date", default=None)
+    enrichment_loop.add_argument("--outcomes", default="all")
+    enrichment_loop.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=DEFAULT_ENRICHMENT_INTERVAL_SECONDS,
+    )
+    enrichment_loop.add_argument(
+        "--history-minutes",
+        type=int,
+        default=DEFAULT_ENRICHMENT_HISTORY_MINUTES,
+    )
+    enrichment_loop.add_argument("--history-interval", default=None)
+    enrichment_loop.add_argument("--fidelity-minutes", type=int, default=1)
+    add_capture_enrichment_options(enrichment_loop)
+
+    enrichment_status = subparsers.add_parser(
+        "enrichment-status",
+        help="Print separate non-critical CLOB enrichment health.",
+    )
+    enrichment_status.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=DEFAULT_ENRICHMENT_INTERVAL_SECONDS,
+    )
 
     status = subparsers.add_parser("status", help="Print the managed CLOB loop health and exit.")
     status.add_argument("--interval-seconds", type=float, default=DEFAULT_BOOK_INTERVAL_SECONDS)
@@ -1557,7 +1944,36 @@ def main():
             ws_message_limit=args.websocket_message_limit,
             ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
             ws_connect_timeout=args.websocket_connect_timeout,
+            raw_max_workers=args.raw_max_workers,
+            raw_market_timeout_seconds=args.raw_market_timeout_seconds,
         )
+        return
+    if command == "enrichment-loop":
+        configure_json_console_logging()
+        run_enrichment_loop(
+            market_id=args.market,
+            target_date=args.date,
+            interval_seconds=args.interval_seconds,
+            outcomes=args.outcomes,
+            include_price_history=args.price_history,
+            history_minutes=args.history_minutes,
+            history_interval=args.history_interval,
+            fidelity_minutes=args.fidelity_minutes,
+            include_ws_events=args.websocket_events,
+            ws_seconds=args.websocket_seconds,
+            ws_message_limit=args.websocket_message_limit,
+            ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
+            ws_connect_timeout=args.websocket_connect_timeout,
+            include_clob_features=args.clob_features,
+        )
+        return
+    if command == "enrichment-status":
+        health = clob_enrichment_health(
+            read_clob_enrichment_status(),
+            now=utc_now(),
+            interval_seconds=args.interval_seconds,
+        )
+        print(json.dumps(health, indent=2, sort_keys=True, default=str))
         return
     if command == "status":
         health = clob_loop_health(
@@ -1620,6 +2036,8 @@ def main():
                 ws_message_limit=args.websocket_message_limit,
                 ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
                 ws_connect_timeout=args.websocket_connect_timeout,
+                raw_max_workers=args.raw_max_workers,
+                raw_market_timeout_seconds=args.raw_market_timeout_seconds,
             ), indent=2, sort_keys=True, default=str))
         finally:
             release_clob_supervisor_lock(lock_handle)
@@ -1648,6 +2066,8 @@ def main():
                     ws_message_limit=args.websocket_message_limit,
                     ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
                     ws_connect_timeout=args.websocket_connect_timeout,
+                    raw_max_workers=args.raw_max_workers,
+                    raw_market_timeout_seconds=args.raw_market_timeout_seconds,
                 ),
             }
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
@@ -1671,6 +2091,8 @@ def main():
             ws_message_limit=args.websocket_message_limit,
             ws_heartbeat_seconds=args.websocket_heartbeat_seconds,
             ws_connect_timeout=args.websocket_connect_timeout,
+            raw_max_workers=args.raw_max_workers,
+            raw_market_timeout_seconds=args.raw_market_timeout_seconds,
         ), indent=2, sort_keys=True, default=str))
         return
     if command == "websocket":

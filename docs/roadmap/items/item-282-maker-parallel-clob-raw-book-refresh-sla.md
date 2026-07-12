@@ -52,6 +52,17 @@ raw-book age/useful iterations from derived-feature lag/errors, and maker
 preflight remediation now points stale CLOB book blockers at the fast raw-refresh
 path.
 
+2026-07-12 supervisor-contract closure: the managed loop now uses the bounded
+parallel raw-refresh path by default, with at most 12 workers, a 20-second
+per-market deadline, strict `<120s` normal and `<30s` near-close fleet
+contracts, named timeout/failure markets, and a non-overlap lock that prevents
+a timed-out market worker from racing a later raw-tape writer. Enrichment flags
+are rejected in the critical loop rather than silently restoring the previous
+mixed path. The separate enrichment loop cannot write token/book tapes or the
+raw loop status. Deployment and a clean forward cadence proof remain Item 321
+operational evidence; no live task was manually restarted for this
+implementation (the existing supervisor may re-adopt changed code on its own).
+
 Acceptance: an unattended all-market CLOB supervisor or remediation command
 keeps all 12 active markets' raw CLOB books within the maker freshness SLA
 without manual per-market shell fan-out, surfaces any slow markets by name, and

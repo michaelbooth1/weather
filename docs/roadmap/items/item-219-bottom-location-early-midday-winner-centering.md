@@ -1,4 +1,4 @@
-# 219. Bottom-Location Early/Midday Winner-Centering Repair [COMPLETE 2026-06-24 - ACTIVE TIMESPLIT GATE PASSED]
+# 219. Bottom-Location Early/Midday Winner-Centering Repair [PARTIAL 2026-07-12 - V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED]
 
 Goal: build a no-market centering candidate for the bottom locations,
 especially Seattle, NYC, and Miami, focused on early and midday winner mass
@@ -138,3 +138,23 @@ Verification:
 python -m weather.reporting.research.bottom_location_winner_centering
 python -m pytest tests\reporting\test_bottom_location_winner_centering.py tests\reporting\test_item224_active_timesplit_logistic_repair.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q
 ```
+
+## 2026-07-12 Evidence Invalidation And Reopen
+
+The June 24 completion depended on
+`item224_active_timesplit_logistic_repair_v0_1`. Item 224's July 11 audit proved
+that candidate used post-settlement `settlement_distance_bucket` directly and
+through derived missingness/casebook state. The bottom-location `PASS` therefore
+does not establish an inference-available repair and cannot remain acceptance
+evidence for this item.
+
+The implementation and historical diagnostics remain useful, but Item 219 is
+reopened. The old rows and reports stay diagnostic-only and must not be
+overwritten under the same identity.
+
+- [ ] Train a new candidate identity from the canonical point-in-time,
+  inference-available feature contract with a passing leakage audit.
+- [ ] Re-run Seattle, NYC, and Miami weak-slot, early, midday, late, and lock-in
+  gates on fleet-date-blocked rolling validation with date-clustered intervals.
+- [ ] Clear live coverage and captured-input replay/serve parity under one
+  immutable release before restoring the completion disposition.

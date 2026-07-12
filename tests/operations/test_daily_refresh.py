@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +13,7 @@ from weather.market.taker_bot import ORDER_COLUMNS
 from weather.market.market_config import event_slug_for_date
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
+    _captured_input_parity_preflight,
     acquire_lock,
     build_parser,
     load_status,
@@ -28,6 +29,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_frozen_baseline_replay_trend_step,
     run_ingest_quality_gate_step,
     run_june23_location_bias_repair_step,
+    run_live_variant_settlement_scorecard_step,
     run_market_day_labels_finalize,
     run_maker_paper_score_step,
     run_market_beating_objective_scoreboard_step,
@@ -48,9 +50,11 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_taker_tail_casebook_step,
     run_trading_evidence_step,
     run_winner_rank_parity_step,
+    pipeline_summary,
 )
 from weather.operations.daily_refresh_registry import carried_forward_steps, step_names_for_stage
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
+from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
 
 
@@ -92,7 +96,45 @@ def _args(tmp, **overrides):
         "heavy_step_subprocess": False,
         "heavy_step_timeout_seconds": 60.0,
         "heavy_step_working_set_max_mb": 0,
+        "capture_resource_mode": "offline_host",
+        "capture_resource_disk_path": str(root),
+        "capture_resource_out": str(root / "backtest" / "capture_resource_gate.json"),
+        "capture_resource_report": str(root / "backtest" / "capture_resource_gate.md"),
+        "capture_resource_min_free_memory_bytes": 0,
+        "capture_resource_min_free_disk_bytes": 0,
+        "capture_resource_daily_disk_growth_bytes": None,
+        "capture_resource_min_disk_headroom_days": 30.0,
+        "capture_resource_active_window_start_hour": None,
+        "capture_resource_active_window_end_hour": None,
+        "captured_input_parity_served": [],
+        "captured_input_parity_replay": [],
+        "captured_input_parity_out": str(
+            root / "backtest" / "live_variant_replay_parity.json"
+        ),
+        "captured_input_parity_report": str(
+            root / "backtest" / "live_variant_replay_parity.md"
+        ),
+        "captured_input_parity_max_age_hours": 48.0,
+        "skip_captured_input_replay_parity": True,
+        "production_readiness_evidence": [],
+        "production_readiness_served_artifact": [],
+        "production_readiness_served_route": "",
+        "production_readiness_out": str(
+            root / "backtest" / "production_readiness_gate.json"
+        ),
+        "production_readiness_report": str(
+            root / "backtest" / "production_readiness_gate.md"
+        ),
+        "skip_production_readiness_gate": True,
+        "fail_on_production_readiness_block": False,
         "skip_proper_scoring_reliability_scorecard": False,
+        "_daily_refresh_steps_so_far": [
+            {
+                "name": "live_variant_settlement_scorecard",
+                "status": "ok",
+                "result": {"status": "PASS"},
+            }
+        ],
         "variant_registry": str(root / "config" / "model_variant_registry.json"),
         "skip_frozen_baseline_replay_trend": False,
         "frozen_baseline_current_predictions": "",
@@ -377,6 +419,9 @@ class TestDailyRefresh(unittest.TestCase):
             saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
             guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
             report_exists = Path(report_path).exists()
+            capture_proof = json.loads(
+                Path(args.capture_resource_out).read_text(encoding="utf-8")
+            )
 
         self.assertEqual(calls, [
             "market_day_labels_finalize",
@@ -386,6 +431,12 @@ class TestDailyRefresh(unittest.TestCase):
             "fleet_observability",
         ])
         self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["capture_resource_admission"]["admitted"])
+        self.assertEqual(payload["capture_resource_admission"]["decision"], "ADMIT")
+        self.assertEqual(
+            capture_proof["enforcement"]["status"],
+            "PASS",
+        )
         self.assertEqual(saved["status"], "ok")
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
         self.assertFalse(saved["config"]["long_job_guard"]["nested"])
@@ -393,6 +444,228 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["progress"]["last_completed_step"], "fleet_observability")
         self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
         self.assertTrue(report_exists)
+
+    def test_live_capture_denial_stops_before_any_daily_heavy_child(self):
+        calls = []
+
+        def heavy(_args):
+            calls.append("heavy_child_started")
+            return {"status": "PASS"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, capture_resource_mode="live")
+            snapshots = Path(args.snapshots_root)
+            snapshots.mkdir(parents=True)
+            now = datetime.now(timezone.utc).isoformat()
+            status = snapshots / "loop_status.json"
+            status.write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "last_heartbeat": now,
+                        "interval_seconds": 600,
+                        "consecutive_errors": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status.with_name(f".{status.name}.writer.lock").write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "loop": "snapshot",
+                        "module": "weather.collection.snapshot_tracker",
+                        "acquired_at_utc": now,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload, status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("promotion_refresh", heavy),
+                    ("active_variant_shadow", heavy),
+                ],
+            )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            proof = json.loads(Path(args.capture_resource_out).read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "deferred")
+        self.assertEqual(payload["steps"][-1]["name"], "capture_resource_admission")
+        self.assertEqual(payload["steps"][-1]["status"], "deferred")
+        self.assertEqual(saved["status"], "deferred")
+        self.assertFalse(proof["admitted"])
+        self.assertEqual(proof["decision"], "DEFER")
+        self.assertEqual(
+            proof["enforcement"]["outcome"],
+            "DEFERRED_BEFORE_HEAVY_WORK",
+        )
+        self.assertIn(
+            "live_capture_loop_active",
+            {row["code"] for row in proof["blockers"]},
+        )
+
+    def test_missing_captured_input_replay_blocks_before_daily_heavy_child(self):
+        calls = []
+
+        def heavy(_args):
+            calls.append("heavy_child_started")
+            return {"status": "PASS"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            served = root / "captured" / "served.json"
+            served.parent.mkdir(parents=True)
+            served.write_text("[]\n", encoding="utf-8")
+            args = _args(
+                tmp,
+                skip_captured_input_replay_parity=False,
+                captured_input_parity_served=[str(served)],
+                captured_input_parity_replay=[
+                    str(root / "captured" / "replay.json")
+                ],
+            )
+            with patch(
+                "weather.operations.daily_refresh.producer_release_proof",
+                return_value={
+                    "status": "PASS",
+                    "release_id": "active-r1",
+                    "release_manifest_sha256": "a" * 64,
+                },
+            ):
+                payload, status_path, _report_path = run_daily_refresh(
+                    args,
+                    runners=[
+                        ("promotion_refresh", heavy),
+                        ("active_variant_shadow", heavy),
+                    ],
+                )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            parity = json.loads(
+                Path(args.captured_input_parity_out).read_text(encoding="utf-8")
+            )
+            report_exists = Path(args.captured_input_parity_report).is_file()
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "deferred")
+        self.assertEqual(payload["steps"][-1]["name"], "captured_input_replay_parity")
+        self.assertEqual(payload["steps"][-1]["status"], "deferred")
+        self.assertTrue(payload["steps"][-1]["result"]["hard_stop_pipeline"])
+        self.assertIn("generate exact captured-input replay rows", payload["steps"][-1]["result"]["next_action"])
+        self.assertEqual(saved["status"], "deferred")
+        self.assertEqual(parity["status"], "BLOCK")
+        self.assertIn(
+            "replay_parity_input_missing",
+            {row["code"] for row in parity["mismatches"]},
+        )
+        self.assertTrue(report_exists)
+
+    def test_production_readiness_is_final_read_only_daily_status_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pointer = root / "releases" / "current_release.json"
+            args = _args(
+                tmp,
+                skip_production_readiness_gate=False,
+                active_release_pointer=str(pointer),
+                releases_root=str(root / "releases"),
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("fleet_observability", lambda _args: {"status": "PASS"}),
+                ],
+            )
+            gate = json.loads(
+                Path(args.production_readiness_out).read_text(encoding="utf-8")
+            )
+            gate_report_exists = Path(args.production_readiness_report).is_file()
+
+        self.assertEqual(payload["steps"][-1]["name"], "production_readiness_gate")
+        self.assertEqual(payload["steps"][-1]["status"], "ok")
+        self.assertEqual(payload["production_readiness"]["status"], "BLOCK")
+        self.assertTrue(payload["production_readiness"]["read_only"])
+        self.assertFalse(payload["production_readiness"]["pointer_mutated"])
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertFalse(pointer.exists())
+        self.assertTrue(gate_report_exists)
+
+    def test_parity_exception_persists_current_block_and_still_runs_final_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                skip_captured_input_replay_parity=False,
+                skip_production_readiness_gate=False,
+            )
+            with patch(
+                "weather.operations.daily_refresh.live_variant_settlement_scorecard.persist_captured_input_replay_parity",
+                side_effect=ValueError("bad parity configuration"),
+            ):
+                payload, _status, _report = run_daily_refresh(
+                    args,
+                    runners=[("promotion_refresh", lambda _args: self.fail("heavy work started"))],
+                )
+            parity = json.loads(Path(args.captured_input_parity_out).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "deferred")
+        self.assertEqual(payload["steps"][-1]["name"], "production_readiness_gate")
+        self.assertEqual(parity["status"], "BLOCK")
+        self.assertEqual(parity["first_mismatch"]["code"], "parity_preflight_exception")
+        parity_step = next(row for row in payload["steps"] if row["name"] == "captured_input_replay_parity")
+        self.assertEqual(parity_step["result"]["proof_path"], args.captured_input_parity_out)
+
+    def test_parity_output_alias_cannot_modify_active_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pointer = root / "releases" / "current_release.json"
+            pointer.parent.mkdir(parents=True)
+            original = b'{"release_id":"active-r1"}\n'
+            pointer.write_bytes(original)
+            args = _args(
+                tmp,
+                captured_input_parity_out=str(pointer),
+                captured_input_parity_report=str(root / "backtest" / "parity.md"),
+                active_release_pointer=str(pointer),
+                releases_root=str(pointer.parent),
+            )
+            with patch(
+                "weather.operations.daily_refresh.live_variant_settlement_scorecard.persist_captured_input_replay_parity_failure"
+            ) as failure_persistence:
+                parity, proof_path, report_path = _captured_input_parity_preflight(
+                    args,
+                    {
+                        "release_id": "active-r1",
+                        "release_manifest_sha256": "a" * 64,
+                    },
+                )
+
+            self.assertEqual(pointer.read_bytes(), original)
+            self.assertEqual(parity["status"], "BLOCK")
+            self.assertEqual(
+                parity["first_mismatch"]["code"],
+                "parity_output_protected_path",
+            )
+            self.assertIsNone(proof_path)
+            self.assertIsNone(report_path)
+            self.assertFalse((root / "backtest" / "parity.md").exists())
+            failure_persistence.assert_not_called()
+
+    def test_readiness_block_policy_marks_daily_pipeline_critical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                skip_production_readiness_gate=False,
+                fail_on_production_readiness_block=True,
+            )
+            payload, _status, _report = run_daily_refresh(
+                args,
+                runners=[("fleet_observability", lambda _args: {"status": "PASS"})],
+            )
+
+        self.assertEqual(payload["production_readiness"]["status"], "BLOCK")
+        self.assertEqual(payload["status"], "critical")
 
     def test_stage_step_slices_split_after_fleet_observability(self):
         settlement = step_names_for_stage("settlement")
@@ -421,6 +694,38 @@ class TestDailyRefresh(unittest.TestCase):
                 disable_stage_trigger=True,
                 settled_analysis_target_date="2026-07-07",
             )
+            args.producer_sla_seconds = 3600.0
+            args._producer_invocation = {
+                "status": "PASS",
+                "mode": "scheduled",
+                "scheduler_attested": True,
+                "task_name": "WeatherDailySettlementPromotionRefresh",
+                "task_definition_sha256": "a" * 64,
+                "manual_intervention": False,
+                "manual_intervention_reasons": [],
+                "resume_from_step": "",
+                "resumed": False,
+                "dry_run": False,
+                "contract": {"status": "PASS", "contract_sha256": "b" * 64},
+                "task_run_correlation": {"status": "PASS"},
+            }
+            args._producer_release_identity = {
+                "status": "PASS",
+                "served_bindings_verified": True,
+                "release_id": "release-fixture",
+                "release_manifest_sha256": "c" * 64,
+            }
+            args._daily_refresh_lock_acquisition = {
+                "instrumented": True,
+                "kind": "daily_refresh_lock",
+                "guard_enabled": True,
+                "nested": False,
+                "stale_lock_detected_count": 0,
+                "stale_lock_repair_count": 0,
+                "forced_lock_acquisition_count": 0,
+                "forced_lock_repair_count": 0,
+                "acquired": True,
+            }
             payload, _status_path, _report_path = run_daily_refresh(
                 args,
                 runners=[
@@ -448,6 +753,12 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(manifest["target_date"], "2026-07-07")
         self.assertEqual(manifest["barrier"]["status"], "OK")
         self.assertEqual(manifest["evidence_trigger"]["status"], "PENDING")
+        self.assertEqual(manifest["invocation"]["status"], "PASS")
+        self.assertTrue(manifest["invocation"]["scheduler_attested"])
+        self.assertEqual(manifest["lock_proof"]["status"], "PASS")
+        self.assertEqual(manifest["sla"]["status"], "PASS")
+        self.assertEqual(manifest["release_identity"]["status"], "PASS")
+        self.assertEqual(manifest["release_id"], "release-fixture")
 
     def test_evidence_stage_skips_when_stage_a_manifest_missing(self):
         calls = []
@@ -1146,6 +1457,9 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(args.heavy_step_subprocess)
         self.assertEqual(args.heavy_step_timeout_seconds, 8 * 60 * 60)
         self.assertEqual(args.heavy_step_working_set_max_mb, 6144)
+        self.assertEqual(args.capture_resource_mode, "live")
+        self.assertFalse(args.skip_captured_input_replay_parity)
+        self.assertFalse(args.skip_production_readiness_gate)
 
         disabled = parser.parse_args([
             "run",
@@ -1155,10 +1469,13 @@ class TestDailyRefresh(unittest.TestCase):
             "5",
             "--heavy-step-working-set-max-mb",
             "256",
+            "--capture-resource-mode",
+            "offline_host",
         ])
         self.assertFalse(disabled.heavy_step_subprocess)
         self.assertEqual(disabled.heavy_step_timeout_seconds, 5)
         self.assertEqual(disabled.heavy_step_working_set_max_mb, 256)
+        self.assertEqual(disabled.capture_resource_mode, "offline_host")
 
     def test_cli_run_injects_lock_diagnostic_before_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1768,6 +2085,10 @@ class TestDailyRefresh(unittest.TestCase):
                     disk_usage_fn=lambda _path: SimpleNamespace(total=2000, used=1900, free=100),
                 ),
                 runners=[
+                    (
+                        "live_variant_settlement_scorecard",
+                        lambda _args: {"status": "PASS"},
+                    ),
                     ("promotion_refresh", run_promotion_refresh_step),
                     ("daily_learning", after),
                 ],
@@ -1776,8 +2097,8 @@ class TestDailyRefresh(unittest.TestCase):
 
         run_refresh.assert_not_called()
         self.assertEqual(payload["status"], "error")
-        self.assertEqual(len(payload["steps"]), 1)
-        step = payload["steps"][0]
+        self.assertEqual(len(payload["steps"]), 2)
+        step = payload["steps"][1]
         result = step["result"]
         disk = result["disk_preflight"]
         self.assertEqual(step["status"], "error")
@@ -3491,6 +3812,307 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertEqual(result["summary"]["historical_gap_covered_issue_days"], 2)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             self.assertEqual(payload["raw_summary"]["markets_with_sparse_days"], 1)
+
+    def test_live_variant_settlement_scorer_precedes_promotion_and_heavy_shadow(self):
+        names = [name for name, _ in DEFAULT_RUNNERS]
+        self.assertLess(
+            names.index("live_variant_settlement_scorecard"),
+            names.index("promotion_refresh"),
+        )
+        self.assertLess(
+            names.index("live_variant_settlement_scorecard"),
+            names.index("active_variant_shadow"),
+        )
+        self.assertIn(
+            "live_variant_settlement_scorecard",
+            step_names_for_stage("settlement"),
+        )
+
+    def test_live_variant_settlement_step_writes_skipped_artifacts_when_no_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                settled_analysis_target_date="2026-07-01",
+            )
+            result = run_live_variant_settlement_scorecard_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+            report = Path(result["report_out"]).read_text(encoding="utf-8")
+
+        self.assertEqual(result["status"], "SKIPPED")
+        self.assertEqual(result["reason"], "no_live_variant_tape_for_target_date")
+        self.assertEqual(payload["schema_version"], "live_variant_settlement_scorecard_v0.1")
+        self.assertEqual(payload["blocker_count"], 0)
+        self.assertIn("Status: **SKIPPED**", report)
+
+    def test_live_variant_settlement_step_scores_only_pinned_target_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                settled_analysis_target_date="2026-07-01",
+            )
+            folder = Path(args.snapshots_root) / event_slug_for_date(date(2026, 7, 1), "nyc")
+            folder.mkdir(parents=True)
+            tape = folder / "variant_predictions_long.csv"
+            fields = [
+                "target_date",
+                "market_id",
+                "snapshot_id",
+                "variant_id",
+                "release_id",
+                "claim_lane",
+                "band_key",
+                "bin_kind",
+                "bin_value_c",
+                "bin_value_hi_c",
+                "prediction_status",
+                "variant_probability",
+                "market_yes",
+            ]
+            rows = [
+                ["2026-07-01", "nyc", "s1", "candidate", "release-1", "weather_only_core_model", "lte69", "lte", 69, 69, "predicted", 0.2, 0.1],
+                ["2026-07-01", "nyc", "s1", "candidate", "release-1", "weather_only_core_model", "eq70", "eq", 70, 70, "predicted", 0.6, 0.7],
+                ["2026-07-01", "nyc", "s1", "candidate", "release-1", "weather_only_core_model", "gte71", "gte", 71, 71, "predicted", 0.2, 0.2],
+            ]
+            with tape.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(fields)
+                writer.writerows(rows)
+            (folder / "snapshots_long.csv").write_text(
+                tape.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            (folder / "settlement.json").write_text(
+                json.dumps(
+                    {
+                        "target_date": "2026-07-01",
+                        "market_id": "nyc",
+                        "settlement_bucket": 70,
+                        "promotion_countable": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            registry = Path(args.variant_registry)
+            registry.parent.mkdir(parents=True, exist_ok=True)
+            registry.write_text(
+                json.dumps(
+                    {
+                        "variants": [
+                            {
+                                "variant_id": "candidate",
+                                "lifecycle": "active",
+                                "track": "no_market",
+                                "roles": ["candidate"],
+                                "active_for_headline": True,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            # A different day exists but must never enter this bounded step.
+            other = Path(args.snapshots_root) / event_slug_for_date(date(2026, 6, 30), "nyc")
+            other.mkdir(parents=True)
+            (other / "variant_predictions_long.csv").write_text("not,read\n", encoding="utf-8")
+
+            result = run_live_variant_settlement_scorecard_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["source_tape_count"], 1)
+        self.assertEqual(result["eligible_prediction_coverage"], 1.0)
+        self.assertEqual(payload["bounded_preflight"]["selected_tape_count"], 1)
+        self.assertEqual(payload["bounded_preflight"]["selected_snapshot_tape_count"], 1)
+        self.assertEqual(payload["configuration"]["target_date"], "2026-07-01")
+        self.assertEqual(
+            payload["configuration"]["expected_partition_contract"],
+            "sibling_snapshot_tape",
+        )
+        self.assertEqual(payload["coverage"]["expected_snapshot_partition_count"], 1)
+        self.assertEqual(
+            payload["configuration"]["expected_variants_manifest"],
+            str(registry),
+        )
+
+    def test_live_variant_settlement_preflight_blocks_missing_configured_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing.csv"
+            args = _args(
+                tmp,
+                settled_analysis_target_date="2026-07-01",
+                live_variant_settlement_tapes=str(missing),
+            )
+            result = run_live_variant_settlement_scorecard_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(payload["first_blocker"]["code"], "configured_live_tape_missing")
+        self.assertEqual(payload["bounded_preflight"]["status"], "BLOCK")
+
+    def test_live_variant_settlement_preflight_requires_bounded_sibling_snapshot_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "snapshots" / "fixture"
+            folder.mkdir(parents=True)
+            tape = folder / "variant_predictions_long.csv"
+            tape.write_text("variant_id\nfixture\n", encoding="utf-8")
+            args = _args(
+                tmp,
+                settled_analysis_target_date="2026-07-01",
+                live_variant_settlement_tapes=str(tape),
+            )
+
+            result = run_live_variant_settlement_scorecard_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(payload["bounded_preflight"]["status"], "BLOCK")
+        self.assertTrue(
+            any(
+                row["code"] == "expected_snapshot_tape_missing"
+                for row in payload["blockers"]
+            )
+        )
+
+    def test_blocked_live_settlement_scorecard_prevents_promotion_work(self):
+        args = _args(tempfile.gettempdir())
+        args._daily_refresh_steps_so_far = [
+            {
+                "name": "live_variant_settlement_scorecard",
+                "status": "ok",
+                "result": {
+                    "status": "BLOCK",
+                    "blocker_count": 1,
+                    "first_blocker": {"detail": "simplex mismatch"},
+                    "json_out": "scorecard.json",
+                },
+            }
+        ]
+        with patch(
+            "weather.operations.daily_refresh_reporting_steps.promotion_disk_preflight"
+        ) as disk_preflight:
+            result = run_promotion_refresh_step(args)
+
+        disk_preflight.assert_not_called()
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["candidate_verdict"], "BLOCK")
+        self.assertEqual(result["cutover_decision"], "DO_NOT_CUT_OVER")
+        self.assertTrue(result["promotion_not_run"])
+
+    def test_skipped_or_missing_live_settlement_scorecard_prevents_promotion(self):
+        for prior_steps, expected_status in (
+            (
+                [
+                    {
+                        "name": "live_variant_settlement_scorecard",
+                        "status": "ok",
+                        "result": {
+                            "status": "SKIPPED",
+                            "reason": "no_live_variant_tape_for_target_date",
+                        },
+                    }
+                ],
+                "SKIPPED",
+            ),
+            ([], "MISSING"),
+        ):
+            with self.subTest(expected_status=expected_status):
+                args = _args(tempfile.gettempdir())
+                args._daily_refresh_steps_so_far = prior_steps
+                with patch(
+                    "weather.operations.daily_refresh_reporting_steps.promotion_disk_preflight"
+                ) as disk_preflight:
+                    result = run_promotion_refresh_step(args)
+                disk_preflight.assert_not_called()
+                self.assertEqual(result["status"], "BLOCK")
+                self.assertEqual(result["cutover_decision"], "DO_NOT_CUT_OVER")
+                self.assertEqual(
+                    result["live_variant_settlement_scorecard"]["status"],
+                    expected_status,
+                )
+
+    def test_live_settlement_status_is_summarized_and_rendered(self):
+        steps = [
+            {
+                "name": "live_variant_settlement_scorecard",
+                "status": "ok",
+                "duration_seconds": 0.1,
+                "result": {
+                    "status": "BLOCK",
+                    "target_date": "2026-07-01",
+                    "source_tape_count": 1,
+                    "eligible_partition_count": 2,
+                    "valid_prediction_partition_count": 1,
+                    "eligible_prediction_coverage": 0.5,
+                    "expected_snapshot_partition_count": 3,
+                    "missing_expected_snapshot_partition_count": 1,
+                    "missing_expected_snapshot_band_count": 1,
+                    "unsupported_runtime_skip_band_count": 3,
+                    "blocker_count": 1,
+                    "first_blocker": {"detail": "unsupported runtime"},
+                },
+            }
+        ]
+        summary = pipeline_summary(steps)
+        report = render_daily_refresh_report(
+            {
+                "generated_at_utc": "2026-07-02T00:00:00+00:00",
+                "status": "critical",
+                "duration_seconds": 1,
+                "steps": steps,
+                "summary": summary,
+            }
+        )
+
+        self.assertEqual(summary["live_variant_settlement_scorecard"]["status"], "BLOCK")
+        self.assertEqual(summary["live_variant_settlement_scorecard"]["eligible_prediction_coverage"], 0.5)
+        self.assertEqual(
+            summary["live_variant_settlement_scorecard"][
+                "missing_expected_snapshot_partition_count"
+            ],
+            1,
+        )
+        self.assertIn("## Live Variant Settlement Scorecard", report)
+        self.assertIn("Missing sibling snapshots: `1`", report)
+        self.assertIn("unsupported runtime", report)
+
+    def test_live_settlement_block_is_critical_but_no_tape_skip_is_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "weather.operations.daily_refresh.build_rollup_freshness_status",
+            return_value={"status": "PASS"},
+        ):
+            blocked_args = _args(
+                tmp,
+                disable_long_job_guard=True,
+                skip_daily_progress_ledger=True,
+            )
+            blocked, _, _ = run_daily_refresh(
+                blocked_args,
+                runners=[
+                    (
+                        "live_variant_settlement_scorecard",
+                        lambda _args: {"status": "BLOCK", "blocker_count": 1},
+                    )
+                ],
+            )
+            skipped_args = _args(
+                tmp,
+                status_out=str(Path(tmp) / "backtest" / "skip_status.json"),
+                report_out=str(Path(tmp) / "backtest" / "skip_report.md"),
+                disable_long_job_guard=True,
+                skip_daily_progress_ledger=True,
+            )
+            skipped, _, _ = run_daily_refresh(
+                skipped_args,
+                runners=[
+                    (
+                        "live_variant_settlement_scorecard",
+                        lambda _args: {"status": "SKIPPED", "reason": "no_live_variant_tape_for_target_date"},
+                    )
+                ],
+            )
+
+        self.assertEqual(blocked["status"], "critical")
+        self.assertEqual(skipped["status"], "ok")
 
 
 if __name__ == "__main__":

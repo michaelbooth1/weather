@@ -725,34 +725,24 @@ class TestDailyLearning(unittest.TestCase):
             gate["consistency"]["failed_invariants"],
         )
 
-    def test_default_experiment_commands_route_known_slices(self):
-        # Regression (2026-07-07): queue items had hypotheses but no commands,
-        # so nightly experiment_queue runs recorded top items without
-        # computing anything. Known slices must route to runnable research
-        # modules; unknown slices stay command-less operator records.
+    def test_known_slice_never_infers_an_executable_command(self):
         from weather.reporting.daily.daily_learning_scorecard import (
-            _default_experiment_command,
+            _queue_item_from_learning,
         )
 
-        cases = {
-            ("warm-tail dampening=cutoff_regime=late", "", ""): "late_day_lock_in_repair",
-            ("cutoff_regime=lock_in", "", ""): "late_day_lock_in_repair",
-            ("local_hour=20", "warm-tail dampening", ""): "late_day_lock_in_repair",
-            ("band_type=eq", "", "data/backtest/experiments/exact_band_calibration_daily_first.json"): "exact_band_distance_zero_calibration",
-            ("settlement_distance=0", "winner catch-up", ""): "exact_band_distance_zero_calibration",
-            ("cutoff_hour=7", "07:00 cold-start calibration", "data/backtest/experiments/cutoff_07_cold_start_daily_first.json"): "predawn_weak_slot_repair",
-            ("hourly_performance_gate", "early-hour model trails market", ""): "predawn_weak_slot_repair",
-            ("source_freshness=all_fresh", "", ""): "forecast_source_state_reliability",
-        }
-        for (slice_name, hypothesis, artifact), expected_module in cases.items():
-            command = _default_experiment_command(slice_name, hypothesis, artifact)
-            self.assertTrue(command, (slice_name, hypothesis))
-            self.assertIn(expected_module, command[-1], (slice_name, command))
-            self.assertEqual(command[0], "python")
+        item = _queue_item_from_learning(
+            {
+                "source": "hourly_model_performance",
+                "category": "chronic_or_priority_slice",
+                "evidence": {"slice": "cutoff_regime=late"},
+            },
+            0,
+            generated_at_utc="2026-07-07T12:00:00+00:00",
+        )
 
-        # local_hour=10 is midday, not the late lock-in window.
-        self.assertEqual(_default_experiment_command("local_hour=10", "", ""), [])
-        self.assertEqual(_default_experiment_command("market/miami", "residual calibration", ""), [])
+        self.assertFalse(item["eligible"])
+        self.assertEqual(item["status"], "ineligible_incomplete_contract")
+        self.assertEqual(item["command"], [])
 
     def test_queue_items_from_learnings_carry_routed_commands(self):
         from weather.reporting.daily.daily_learning_scorecard import (
@@ -776,9 +766,10 @@ class TestDailyLearning(unittest.TestCase):
             generated_at_utc="2026-07-07T12:00:00+00:00",
         )
 
-        self.assertEqual(item["status"], "queued")
-        self.assertIn("late_day_lock_in_repair", item["command"][-1])
-        # Evidence-provided commands still win over routed defaults.
+        self.assertEqual(item["status"], "ineligible_incomplete_contract")
+        self.assertFalse(item["eligible"])
+        self.assertEqual(item["command"], [])
+        # A legacy explicit command remains visible, but cannot grant eligibility.
         explicit = _queue_item_from_learning(
             {
                 "source": "x",
@@ -788,7 +779,9 @@ class TestDailyLearning(unittest.TestCase):
             1,
             generated_at_utc="2026-07-07T12:00:00+00:00",
         )
-        self.assertEqual(explicit["command"], ["python", "-m", "custom.module"])
+        self.assertEqual(explicit["command"], [])
+        self.assertEqual(explicit["legacy"]["command"], ["python", "-m", "custom.module"])
+        self.assertFalse(explicit["eligible"])
 
     def test_label_admission_total_helper(self):
         from weather.reporting.daily.daily_learning_scorecard import _label_total_for_admission
@@ -2306,10 +2299,19 @@ class TestDailyLearning(unittest.TestCase):
             queued = {row["queue_id"]: row for row in queue["items"]}
             report = render_report(payload)
 
-        self.assertEqual(queue["schema_version"], "automatic_experiment_queue_v0.1")
+        self.assertEqual(queue["schema_version"], "automatic_experiment_queue_v0.2")
         self.assertEqual(queue["summary"]["item301_count"], 1)
-        self.assertEqual(queued[queue_id]["status"], "resolved")
-        self.assertEqual(queued[queue_id]["last_result"]["resolution_status"], "resolved")
+        self.assertEqual(queued[queue_id]["status"], "ineligible_invalid_result")
+        self.assertFalse(queued[queue_id]["eligible"])
+        self.assertEqual(
+            queued[queue_id]["last_result"]["contract_status"],
+            "LEGACY_OR_INVALID",
+        )
+        self.assertEqual(
+            queued[queue_id]["last_result"]["claimed_resolution_status"],
+            "resolved",
+        )
+        self.assertEqual(queue["summary"]["verified_terminal_count"], 0)
         self.assertIn("Experiment Queue", report)
 
     def test_build_learning_payload_suppresses_retrain_recommendation_without_clean_triggers(self):

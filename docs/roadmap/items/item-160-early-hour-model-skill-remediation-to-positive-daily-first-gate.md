@@ -1,4 +1,4 @@
-# 160. Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-06-24 - MODEL-READY ACTIVE CANDIDATE, READINESS/PROGRESS BLOCKED]
+# 160. Early-Hour Model Skill Remediation To Positive Daily-First Gate [PARTIAL 2026-07-12 - PRIOR CANDIDATE QUARANTINED, CLEAN FORWARD PROOF REQUIRED]
 
 Goal: close the early-hour model gap that blocks promotion despite directional
 all-day progress.
@@ -1137,3 +1137,21 @@ fleet/readiness evidence stale relative to runtime reconciliation. Item 160
 still remains `PARTIAL`; the remaining blockers are substantive production
 readiness, daily-first trend, promotion-grade evidence, independent evidence
 growth, and runtime-identity reconciliation criteria.
+
+## 2026-07-12 Candidate Invalidation
+
+The earlier "model-ready active candidate" wording is no longer valid. Its
+acceptance chain depended on Item 224 v0.1, which used post-settlement fields
+that are unavailable at inference. The v0.1 lane and every dependent Item 160
+`PASS` are quarantined as diagnostic-only. Current served performance still
+trails the market in the two-week audit, so operational readiness alone cannot
+close this item.
+
+- [ ] Produce a newly identified, leakage-safe early-hour candidate from
+  point-in-time inputs and fit every transform/calibrator inside fleet-date
+  rolling folds.
+- [ ] Clear current, hourly, weak-slot, and protected-market Brier and log-loss
+  gates on a locked evaluation window without using it for selection.
+- [ ] Accumulate the Item 321 forward window with non-negative daily-first
+  skill, at least 84 countable market-days, singular release identity, complete
+  live coverage, and replay/serve parity.

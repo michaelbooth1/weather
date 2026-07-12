@@ -12,6 +12,7 @@ serving-time calibration/runtime helpers belong in
 import json
 import logging
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import datetime
 
 from weather.artifacts import resolve_artifact_path
@@ -53,6 +54,14 @@ from weather.model.calibration_runtime import (
     load_probability_calibration,
     load_settlement_lag_model,
 )
+from weather.release_contract import BASE_MODEL_MARKET_COMPONENT_KINDS
+from weather.release_serving import (
+    STATUS_BOUND,
+    STATUS_RESEARCH_UNBOUND,
+    ReleaseServingBindingError,
+    get_process_active_serving_bundle,
+    materialize_verified_base_model_market,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,22 +77,109 @@ class TorontoHighTempModel(
     _historical_target_cache = OrderedDict()
     _historical_target_cache_max_entries = 128
 
-    def __init__(self, timeout=8, target_date=None, market_id=DEFAULT_MARKET_ID):
+    def __init__(
+        self,
+        timeout=8,
+        target_date=None,
+        market_id=DEFAULT_MARKET_ID,
+        serving_bundle=None,
+    ):
         self.timeout = timeout
         self.market_id = market_id
+        self.serving_bundle = serving_bundle or get_process_active_serving_bundle()
+        if self.serving_bundle.status not in {STATUS_BOUND, STATUS_RESEARCH_UNBOUND}:
+            raise ReleaseServingBindingError(
+                "base-model construction blocked by active-release binding: "
+                f"{self.serving_bundle.status}: {self.serving_bundle.reason}"
+            )
+        if self.serving_bundle.status == STATUS_BOUND and not self.serving_bundle.base_model_bound:
+            raise ReleaseServingBindingError(
+                "active release is bound but its complete base-model graph is not"
+            )
         self.set_target_date(target_date or TARGET_DATE)
+        self._last_family_secondary_gate = {}
+        self._last_probability_calibration_context = {}
+        self.active_model_kind = "empirical"
+        self._bound_base_model_components = None
+        self._bound_base_model_shared_components = None
+        self._configure_base_model_components()
+
+    def _configure_base_model_components(self):
+        if self.serving_bundle.status == STATUS_BOUND:
+            self._bind_release_base_model_components()
+            return
+        self._bound_base_model_components = None
+        self._bound_base_model_shared_components = None
+        self._feature_model_hgb = _UNLOADED
+        self._feature_model_coefs = _UNLOADED
+        self._late_day_model_coefs = _UNLOADED
         self.calibrated_weights = self.load_calibrated_weights()
         self.forecast_error_model = self.load_forecast_error_model()
         self.afternoon_residual_centering = self.load_afternoon_residual_centering()
         self.settlement_lag_model = self.load_settlement_lag_model()
         self.probability_calibration = self.load_probability_calibration()
         self.family_secondary_artifacts = self.load_family_secondary_artifacts()
-        self._last_family_secondary_gate = {}
-        self._last_probability_calibration_context = {}
-        self.active_model_kind = "empirical"
-        self._feature_model_hgb = _UNLOADED
-        self._feature_model_coefs = _UNLOADED
-        self._late_day_model_coefs = _UNLOADED
+
+    def _bind_release_base_model_components(self):
+        route = self.serving_bundle.route.get("markets", {}).get(self.market_id)
+        components = materialize_verified_base_model_market(
+            self.serving_bundle,
+            self.market_id,
+        )
+        shared = self.serving_bundle.base_model_shared_artifacts
+        locations = self.serving_bundle.json_artifacts.get("locations_config") or {}
+        location = next(
+            (
+                row
+                for row in locations.get("locations") or []
+                if isinstance(row, Mapping) and row.get("id") == self.market_id
+            ),
+            None,
+        )
+        if (
+            not isinstance(route, Mapping)
+            or route.get("decision") not in {"promote", "shadow"}
+            or route.get("base_model_market_id") != self.market_id
+            or not isinstance(components, Mapping)
+            or set(components) != set(BASE_MODEL_MARKET_COMPONENT_KINDS)
+            or not isinstance(shared, Mapping)
+            or set(shared) != {
+                "afternoon_residual_centering",
+                "family_secondary_artifacts",
+            }
+            or not isinstance(location, Mapping)
+            or self.spec.id != self.market_id
+        ):
+            raise ReleaseServingBindingError(
+                f"active release has no complete exact base-model route for {self.market_id!r}"
+            )
+        settlement = location.get("settlement") or {}
+        polymarket = location.get("polymarket") or {}
+        if (
+            location.get("market_unit") != self.spec.unit
+            or settlement.get("unit") != self.spec.unit
+            or polymarket.get("event_slug_prefix") != self.spec.slug_prefix
+        ):
+            raise ReleaseServingBindingError(
+                f"active release location semantics disagree with runtime code for {self.market_id!r}"
+            )
+        self._bound_base_model_components = components
+        self._bound_base_model_shared_components = shared
+        self._feature_model_hgb = components["feature_hgb"]
+        self._feature_model_coefs = components["feature_lr_coefficients"]
+        self._late_day_model_coefs = components["late_day_lr_coefficients"]
+        self.calibrated_weights = components["calibrated_weights"]
+        self.forecast_error_model = components["forecast_error_model"]
+        self.settlement_lag_model = components["settlement_lag_model"]
+        self.probability_calibration = components["probability_calibration"]
+        self.afternoon_residual_centering = shared["afternoon_residual_centering"]
+        self.family_secondary_artifacts = shared["family_secondary_artifacts"]
+
+    def _assert_global_base_path_allowed(self, component_name):
+        if self.serving_bundle.pointer_present:
+            raise ReleaseServingBindingError(
+                f"active release forbids global base-model fallback: {component_name}"
+            )
 
     def set_target_date(self, target_date):
         self.config = config_for_date(target_date, getattr(self, "market_id", DEFAULT_MARKET_ID))
@@ -97,8 +193,12 @@ class TorontoHighTempModel(
         if config.market_id != self.market_id or config.target_date != self.target_date:
             self.market_id = config.market_id
             self.set_target_date(config.target_date)
+            self._configure_base_model_components()
 
     def load_calibrated_weights(self):
+        if self._bound_base_model_components is not None:
+            return self._bound_base_model_components["calibrated_weights"]
+        self._assert_global_base_path_allowed("calibrated_weights")
         path = resolve_artifact_path(f"calibrated_weights{self.spec.artifact_suffix}.json")
         if path.exists():
             try:
@@ -109,22 +209,37 @@ class TorontoHighTempModel(
         return None
 
     def load_probability_calibration(self):
+        if self._bound_base_model_components is not None:
+            return self._bound_base_model_components["probability_calibration"]
+        self._assert_global_base_path_allowed("probability_calibration")
         path = resolve_artifact_path(f"probability_calibration{self.spec.artifact_suffix}.json")
         return load_probability_calibration(path)
 
     def load_forecast_error_model(self):
+        if self._bound_base_model_components is not None:
+            return self._bound_base_model_components["forecast_error_model"]
+        self._assert_global_base_path_allowed("forecast_error_model")
         path = resolve_artifact_path(f"forecast_error_model{self.spec.artifact_suffix}.json")
         return load_forecast_error_model(path)
 
     def load_afternoon_residual_centering(self):
+        if self._bound_base_model_shared_components is not None:
+            return self._bound_base_model_shared_components["afternoon_residual_centering"]
+        self._assert_global_base_path_allowed("afternoon_residual_centering")
         path = resolve_artifact_path("afternoon_residual_centering.json")
         return load_afternoon_residual_centering(path)
 
     def load_settlement_lag_model(self):
+        if self._bound_base_model_components is not None:
+            return self._bound_base_model_components["settlement_lag_model"]
+        self._assert_global_base_path_allowed("settlement_lag_model")
         path = resolve_artifact_path(f"settlement_lag_model{self.spec.artifact_suffix}.json")
         return load_settlement_lag_model(path)
 
     def load_family_secondary_artifacts(self):
+        if self._bound_base_model_shared_components is not None:
+            return self._bound_base_model_shared_components["family_secondary_artifacts"]
+        self._assert_global_base_path_allowed("family_secondary_artifacts")
         path = resolve_artifact_path("f_family_secondary_artifacts.json")
         return load_family_secondary_manifest(path)
 

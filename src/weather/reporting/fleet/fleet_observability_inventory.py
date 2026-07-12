@@ -27,9 +27,11 @@ from weather.market.market_making_preflight import REMEDIATION_RULES
 from weather.market.market_microstructure import (
     BOOK_AUDIT_MAX_GAP_SECONDS,
     CLOB_SUPERVISOR,
+    clob_enrichment_health,
     clob_loop_health,
     fleet_book_audit,
     read_clob_loop_status,
+    read_clob_enrichment_status,
 )
 from weather.market.market_registry import all_specs
 from weather.runtime_identity import (
@@ -500,7 +502,8 @@ def clob_summary(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, now=None, max_gap_second
         now=now,
         max_gap_seconds=max_gap_seconds,
     )
-    return {"loop": loop, "books": books}
+    enrichment = clob_enrichment_health(read_clob_enrichment_status(), now=now)
+    return {"loop": loop, "enrichment": enrichment, "books": books}
 
 
 def clob_alerts(clob):

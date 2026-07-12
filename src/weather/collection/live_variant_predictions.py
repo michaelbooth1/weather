@@ -7,10 +7,15 @@ import pickle
 from datetime import timezone
 from functools import lru_cache
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 
 from weather.paths import REPO_ROOT
+from weather.release_serving import (
+    STATUS_BOUND,
+    STATUS_RESEARCH_UNBOUND,
+    VerifiedServingBundle,
+    serving_bundle_lineage,
+)
 from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 from weather.schema_registry import schema_version
 from weather.market.snapshot_cadence_quality import cadence_adjusted_probability, snapshot_cadence_quality
@@ -33,6 +38,13 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
     "market_id",
     "target_date",
     "event_updated_at",
+    "release_id",
+    "release_manifest_sha256",
+    "release_pointer_sha256",
+    "release_sequence",
+    "release_identity_status",
+    "release_identity_reason",
+    "captured_input_hash",
     "runtime_identity_schema_version",
     "runtime_git_branch",
     "runtime_git_commit",
@@ -61,6 +73,8 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
     "active_for_headline",
     "model_version",
     "serving_model_version",
+    "serving_model_binding_status",
+    "serving_model_binding_reason",
     "artifact_hash",
     "artifact_path",
     "postprocess_config_hash",
@@ -96,15 +110,18 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
 
 
 def active_live_variants(registry: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return active non-control variants that should have live tape rows."""
+    """Return non-control variants explicitly eligible for live tape rows."""
     variants = []
     for row in registry.get("variants") or []:
         roles = {str(role) for role in row.get("roles") or []}
-        if row.get("lifecycle") != "active":
-            continue
-        if not bool(row.get("active_for_headline", True)):
-            continue
         if "control" in roles:
+            continue
+        lifecycle = str(row.get("lifecycle") or "")
+        headline_active = lifecycle == "active" and bool(row.get("active_for_headline", True))
+        diagnostic_live = lifecycle in {"active", "shadow"} and bool(
+            row.get("live_capture_enabled", False)
+        )
+        if not headline_active and not diagnostic_live:
             continue
         variants.append(dict(row))
     return variants
@@ -122,20 +139,41 @@ def build_live_variant_prediction_rows(
     market_id: str,
     target_date: Any,
     serving_model_version: str,
+    release_lineage: dict[str, Any] | None = None,
+    captured_input_hash: str = "",
     runtime_fields: dict[str, Any] | None = None,
     snapshot_cadence: str = "scheduled",
     cadence_quality: dict[str, Any] | None = None,
     trigger_summary: dict[str, Any] | None = None,
     registry_path: str | Path = DEFAULT_REGISTRY_PATH,
     runner: Any = None,
+    serving_bundle: VerifiedServingBundle | None = None,
 ) -> list[dict[str, Any]]:
     """Build one probability or explicit skip/failure row per active variant/band."""
-    registry = load_registry(registry_path)
-    variants = active_live_variants(registry)
+    binding = (
+        serving_bundle
+        if isinstance(serving_bundle, VerifiedServingBundle)
+        else VerifiedServingBundle(
+            status=STATUS_RESEARCH_UNBOUND,
+            reason="no verified serving bundle supplied; diagnostic capture is non-countable",
+            pointer_present=False,
+        )
+    )
+    if binding.status == STATUS_BOUND:
+        variants = _release_bound_variants(binding, market_id)
+    elif binding.status == STATUS_RESEARCH_UNBOUND:
+        registry = load_registry(registry_path)
+        variants = active_live_variants(registry)
+    else:
+        variants = [_binding_failure_variant(binding)]
     if not variants or not band_rows:
         return []
 
     runtime_fields = runtime_fields or {}
+    # Never trust caller-provided identity. Only the opaque verified bundle
+    # returned by weather.release_serving may stamp a release on tape rows.
+    del release_lineage
+    release_lineage = serving_bundle_lineage(binding)
     trigger_summary = trigger_summary or {}
     cadence_quality = snapshot_cadence_quality({
         "snapshot_cadence": snapshot_cadence,
@@ -156,6 +194,7 @@ def build_live_variant_prediction_rows(
         "market_id": market_id,
         "target_date": target_date_value,
         "serving_model_version": serving_model_version,
+        "serving_bundle": binding,
     }
     for variant in variants:
         try:
@@ -180,17 +219,167 @@ def build_live_variant_prediction_rows(
                 "market_id": market_id,
                 "target_date": target_date_value,
                 "event_updated_at": (event or {}).get("updatedAt"),
+                "release_id": str(release_lineage.get("release_id") or ""),
+                "release_manifest_sha256": str(
+                    release_lineage.get("release_manifest_sha256") or ""
+                ),
+                "release_pointer_sha256": str(
+                    release_lineage.get("release_pointer_sha256") or ""
+                ),
+                "release_sequence": release_lineage.get("release_sequence"),
+                "release_identity_status": str(
+                    release_lineage.get("release_identity_status") or "unavailable"
+                ),
+                "release_identity_reason": str(
+                    release_lineage.get("release_identity_reason") or ""
+                ),
+                "captured_input_hash": str(captured_input_hash or ""),
                 **runtime_fields,
                 "snapshot_cadence": snapshot_cadence,
                 **cadence_quality,
                 **trigger_summary,
                 "serving_model_version": serving_model_version,
+                "serving_model_binding_status": (
+                    "release_unbound_legacy_base_model"
+                    if not binding.base_model_bound
+                    else "verified_release_base_model"
+                ),
+                "serving_model_binding_reason": binding.base_model_binding_reason,
             },
         ))
     return rows
 
 
+def _release_bound_variants(
+    bundle: VerifiedServingBundle,
+    market_id: str,
+) -> list[dict[str, Any]]:
+    markets = bundle.route.get("markets") if isinstance(bundle.route, Mapping) else None
+    route = markets.get(str(market_id)) if isinstance(markets, Mapping) else None
+    if not isinstance(route, Mapping):
+        return [
+            {
+                "variant_id": "release_route_missing",
+                "variant_family": "release_binding",
+                "lifecycle": "shadow",
+                "track": "no_market",
+                "roles": ["release-bound", "skip"],
+                "active_for_headline": False,
+                "_release_bound": True,
+                "_binding_skip_reason": "release_route_missing",
+                "_binding_skip_detail": f"verified release has no route for market {market_id!r}",
+            }
+        ]
+    decision = str(route.get("decision") or "")
+    variant_id = str(route.get("candidate_variant_id") or "release_route_blocked")
+    if decision not in {"promote", "shadow"}:
+        return [
+            {
+                "variant_id": variant_id,
+                "variant_family": "release_binding",
+                "lifecycle": "shadow",
+                "track": "no_market",
+                "roles": ["release-bound", "skip"],
+                "active_for_headline": False,
+                "_release_bound": True,
+                "_binding_skip_reason": "release_route_not_candidate",
+                "_binding_skip_detail": (
+                    f"verified release route decision for {market_id!r} is {decision!r}"
+                ),
+            }
+        ]
+    registry_rows = (
+        bundle.model_variant_registry.get("variants")
+        if isinstance(bundle.model_variant_registry, Mapping)
+        else None
+    )
+    registry_variant = next(
+        (
+            row
+            for row in registry_rows or []
+            if isinstance(row, Mapping) and str(row.get("variant_id") or "") == variant_id
+        ),
+        None,
+    )
+    model_path = bundle.artifact_paths.get("pooled_band_model")
+    model_hash = bundle.artifact_hashes.get("pooled_band_model")
+    postprocess_hash = bundle.artifact_hashes.get("pooled_postprocessor_metadata")
+    registry_path = str((registry_variant or {}).get("artifact_path") or "").replace("\\", "/")
+    if (
+        not isinstance(registry_variant, Mapping)
+        or registry_variant.get("artifact_role") != "pooled_band_model"
+        or registry_variant.get("artifact_sha256") != model_hash
+        or not model_path
+        or not str(model_path).replace("\\", "/").endswith("/" + registry_path)
+    ):
+        return [
+            {
+                "variant_id": variant_id,
+                "variant_family": "release_binding",
+                "lifecycle": "shadow",
+                "track": "no_market",
+                "roles": ["release-bound", "skip"],
+                "active_for_headline": False,
+                "_release_bound": True,
+                "_binding_skip_reason": "release_registry_route_mismatch",
+                "_binding_skip_detail": (
+                    "frozen route candidate does not exactly bind the verified registry/model role"
+                ),
+            }
+        ]
+    return [
+        {
+            **dict(registry_variant),
+            "variant_id": variant_id,
+            "lifecycle": "active" if decision == "promote" else "shadow",
+            "roles": [*list(registry_variant.get("roles") or []), decision],
+            "active_for_headline": decision == "promote",
+            "artifact_path": model_path,
+            "artifact_sha256": model_hash,
+            "postprocess_config_hash": postprocess_hash,
+            "live_runtime": "pooled_candidate_replay",
+            "_release_bound": True,
+            "_bound_artifact": bundle.model_bundle,
+            "_bound_artifact_path": model_path,
+        }
+    ]
+
+
+def _binding_failure_variant(bundle: VerifiedServingBundle) -> dict[str, Any]:
+    return {
+        "variant_id": "active_release_binding",
+        "variant_family": "release_binding",
+        "lifecycle": "shadow",
+        "track": "no_market",
+        "roles": ["release-binding-failed", "skip"],
+        "active_for_headline": False,
+        "_release_bound": True,
+        "_binding_skip_reason": (
+            "release_restart_required"
+            if bundle.status == "RESTART_REQUIRED"
+            else "release_binding_failed"
+        ),
+        "_binding_skip_detail": bundle.reason,
+    }
+
+
 def _predict_variant_payload(variant: dict[str, Any], context: dict[str, Any], runner: Any = None) -> dict[str, Any]:
+    if variant.get("_binding_skip_reason"):
+        return {
+            "status": "skipped",
+            "failure_reason": variant["_binding_skip_reason"],
+            "failure_detail": variant.get("_binding_skip_detail") or "",
+            "live_runtime": "release_binding",
+        }
+    if variant.get("_release_bound"):
+        runtime_payload = _runtime_variant_payload(variant, context)
+        if runtime_payload is not None:
+            return runtime_payload
+        return _prediction_failure(
+            "release_binding",
+            "unsupported_release_runtime",
+            "verified release route selected an unsupported runtime",
+        )
     if callable(runner):
         return _call_prediction_callable(runner, variant, context)
 
@@ -302,6 +491,12 @@ def _load_pickle_artifact(path_text: str, mtime_ns: int) -> dict[str, Any]:
 
 
 def _load_variant_artifact(variant: dict[str, Any]) -> tuple[dict[str, Any] | None, Path | None, str | None]:
+    if variant.get("_release_bound"):
+        artifact = variant.get("_bound_artifact")
+        path_text = variant.get("_bound_artifact_path")
+        if not isinstance(artifact, dict) or not path_text:
+            return None, Path(path_text) if path_text else None, "verified release model binding is missing"
+        return artifact, Path(path_text), None
     artifact_path = _variant_artifact_path(variant)
     if not artifact_path:
         return None, None, "registry entry has no artifact path"
@@ -427,7 +622,12 @@ def _pooled_candidate_replay_payload(variant: dict[str, Any], context: dict[str,
     mode = str((artifact or {}).get("prediction_mode") or "band_binary")
     try:
         if mode == "continuous_density_f":
-            probabilities = _density_probabilities(artifact or {}, feature_vector, band_rows)
+            probabilities = _density_probabilities(
+                artifact or {},
+                feature_vector,
+                band_rows,
+                market_id=str(context.get("market_id") or ""),
+            )
         else:
             probabilities = _band_binary_probabilities(artifact or {}, feature_vector, band_rows, context)
     except Exception as exc:  # noqa: BLE001 - one variant must not block serving tape
@@ -488,34 +688,63 @@ def _density_probabilities(
     artifact: dict[str, Any],
     feature_vector: dict[str, Any],
     band_rows: list[dict[str, Any]],
+    *,
+    market_id: str,
 ) -> dict[str, float]:
+    from weather.market.market_registry import REGISTRY
     from weather.model.variant_prediction_runtime import (
         apply_continuous_density_calibration,
+        apply_density_band_postprocessing,
         density_band_probability_from_distribution,
         density_projection_index,
         density_projection_probability,
         predict_density_rows_for_bundle,
     )
 
-    payloads = predict_density_rows_for_bundle(artifact, [feature_vector])
+    market_id = str(market_id or "").strip()
+    spec = REGISTRY.get(market_id)
+    if spec is None:
+        raise ValueError(f"density runtime requires a registered market_id, got {market_id!r}")
+    unit = str(spec.display_unit).upper()
+    existing_market_id = str(feature_vector.get("market_id") or "").strip()
+    if existing_market_id and existing_market_id != market_id:
+        raise ValueError(
+            "density runtime market_id mismatch: "
+            f"feature_vector={existing_market_id!r}, context={market_id!r}"
+        )
+    for field in ("display_unit", "unit"):
+        existing_unit = str(feature_vector.get(field) or "").strip().upper()
+        if existing_unit and existing_unit != unit:
+            raise ValueError(
+                "density runtime unit mismatch: "
+                f"feature_vector.{field}={existing_unit!r}, registry={unit!r}"
+            )
+
+    runtime_features = dict(feature_vector)
+    runtime_features["market_id"] = market_id
+    runtime_features["display_unit"] = unit
+    runtime_features["unit"] = unit
+    records = _band_prediction_records(runtime_features, band_rows)
+    if not records:
+        return {}
+
+    payloads = predict_density_rows_for_bundle(artifact, [runtime_features])
     payload = payloads[0] if payloads else None
     if not payload:
         return {}
     postprocess = artifact.get("density_postprocess") or {}
-    if postprocess.get("enabled"):
-        payload = apply_continuous_density_calibration(
-            payload,
-            artifact,
-            floor_bucket=feature_vector.get("observed_floor_bucket"),
-            unit=feature_vector.get("display_unit") or feature_vector.get("unit") or "F",
-            resolution_weight=feature_vector.get("late_lockin_strength", 0.0),
-            cutoff_hour=feature_vector.get("cutoff_hour"),
-        )
+    context_record = records[0]
+    payload = apply_continuous_density_calibration(
+        payload,
+        artifact,
+        floor_bucket=context_record.get("observed_floor_bucket"),
+        unit=unit,
+        resolution_weight=context_record.get("late_lockin_strength", 0.0),
+        cutoff_hour=runtime_features.get("cutoff_hour"),
+    )
     index = density_projection_index(payload)
     probabilities = {}
-    unit = feature_vector.get("display_unit") or feature_vector.get("unit") or "F"
-    spec = SimpleNamespace(display_unit=unit, unit=unit)
-    for band in band_rows:
+    for band, record in zip(band_rows, records):
         kind = _band_value(band, "bin_kind")
         value = _band_value(band, "bin_value_c")
         value_hi = _band_value(band, "bin_value_hi_c")
@@ -527,6 +756,11 @@ def _density_probabilities(
                 {"kind": kind, "value": value, "value_hi": value_hi, "unit": unit},
             )
         if _maybe_float(probability) is not None:
+            probability = apply_density_band_postprocessing(
+                probability,
+                record,
+                config=postprocess,
+            )
             probabilities[band_key(band)] = max(0.0, min(1.0, float(probability)))
     if postprocess.get("enabled") and postprocess.get("partition_normalization_enabled", False):
         probabilities = _normalize_probability_partition(

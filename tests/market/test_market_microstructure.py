@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,7 +13,9 @@ from unittest.mock import patch
 import weather.market.market_microstructure as mm  # noqa: E402
 from weather.market.market_microstructure import (  # noqa: E402
     audit_book_tape,
+    capture_event_enrichment,
     clob_ensure_decision,
+    clob_enrichment_health,
     clob_loop_health,
     clob_loop_command_matches,
     capture_event_books,
@@ -23,6 +27,7 @@ from weather.market.market_microstructure import (  # noqa: E402
     record_market_websocket,
     repair_price_history_store,
     run_book_loop,
+    run_enrichment_loop,
     running_clob_loop_processes,
     should_use_fast_interval,
     start_clob_loop_detached,
@@ -32,6 +37,7 @@ from weather.market.market_microstructure import (  # noqa: E402
 )
 from weather.market.market_microstructure_features import snapshot_band_key  # noqa: E402
 from weather.market.market_config import config_for_date  # noqa: E402
+from weather.io import writer_lock_path  # noqa: E402
 from weather.operations.supervisor import acquire_writer_lock, release_writer_lock  # noqa: E402
 
 
@@ -382,6 +388,85 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse((root / "clob_features_long.csv").exists())
         self.assertFalse(status_rows[0]["include_clob_features"])
 
+    def test_parallel_raw_refresh_fails_closed_on_cross_process_tape_contention(self):
+        fake = FakeClobClient()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = mm.MarketMicrostructureStore(root=root, event_slug=sample_event()["slug"])
+            lock_path = writer_lock_path(store.raw_tape_lock_anchor_path)
+            lock_path.write_text(
+                json.dumps({"pid": 424242, "operation": "external_raw_writer"}),
+                encoding="utf-8",
+            )
+
+            def contended_capture(market_id, **kwargs):
+                return capture_event_books(
+                    sample_event(),
+                    market_id=market_id,
+                    clob_client=fake,
+                    root=kwargs["root"],
+                    outcomes=kwargs["outcomes"],
+                    include_price_history=False,
+                    include_ws_events=False,
+                    include_clob_features=False,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+
+            payload = capture_fleet_books_parallel(
+                market_id="toronto",
+                root=root,
+                capture_fn=contended_capture,
+                per_market_timeout_seconds=2,
+            )
+            row = payload["markets"][0]
+            status = json.loads(
+                (root / "clob_capture_status.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+
+            self.assertEqual(len(fake.book_requests), 1, "network fetch must precede the short write lock")
+            self.assertFalse((root / "clob_tokens.csv").exists())
+            self.assertFalse((root / "order_books_summary.csv").exists())
+            self.assertFalse((root / "order_books_long.csv").exists())
+            self.assertFalse((root / "order_books.jsonl").exists())
+            self.assertFalse(payload["ok"])
+            self.assertEqual(row["status"], "BLOCK")
+            self.assertTrue(row["raw_tape_write_blocked"])
+            self.assertEqual(row["error_stage"], "raw_tape_write")
+            self.assertIn("RawTapeWriterBusy", row["error"])
+            self.assertEqual(status["error_stage"], "raw_tape_write")
+
+    def test_enrichment_feature_reader_refuses_partial_raw_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "snapshots_long.csv").write_text(
+                "snapshot_id,captured_at_utc,event_slug,range_label,bin_kind,bin_value_c,market_yes\n",
+                encoding="utf-8",
+            )
+            store = mm.MarketMicrostructureStore(root=root, event_slug=sample_event()["slug"])
+            writer_lock_path(store.raw_tape_lock_anchor_path).write_text(
+                json.dumps({"pid": 424242, "operation": "external_raw_writer"}),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "weather.market.market_microstructure_capture.write_clob_feature_rows"
+            ) as write_features:
+                result = capture_event_enrichment(
+                    sample_event(),
+                    market_id="toronto",
+                    root=root,
+                    outcomes="yes",
+                    include_price_history=False,
+                    include_ws_events=False,
+                    include_clob_features=True,
+                    now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+                )
+
+            write_features.assert_not_called()
+            self.assertEqual(result["status"], "DEGRADED")
+            self.assertIn("RawTapeWriterBusy", result["clob_features_error"])
+            self.assertFalse(result["raw_book_tape_touched"])
+
     def test_derived_clob_feature_failure_does_not_drop_raw_book_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -454,6 +539,143 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertIsNotNone(by_market["toronto"]["raw_book_age_seconds_at_finish"])
         self.assertIn("book endpoint unavailable", by_market["nyc"]["error"])
         self.assertEqual(sorted(market for market, _kwargs in calls), ["nyc", "toronto"])
+
+    def test_parallel_raw_refresh_returns_at_deadline_and_preserves_per_market_timeout(self):
+        slow_finished = threading.Event()
+
+        def fake_capture(market_id, **_kwargs):
+            if market_id == "nyc":
+                time.sleep(0.15)
+                slow_finished.set()
+            return {
+                "market_id": market_id,
+                "books": 1,
+                "captured_at_utc": "2026-06-12T15:00:00+00:00",
+            }
+
+        started = time.perf_counter()
+        with patch(
+            "weather.market.market_microstructure_capture.all_specs",
+            return_value=[SimpleNamespace(id="toronto"), SimpleNamespace(id="nyc")],
+        ):
+            payload = capture_fleet_books_parallel(
+                market_id="all",
+                capture_fn=fake_capture,
+                max_workers=2,
+                per_market_timeout_seconds=0.03,
+                freshness_sla_seconds=0.1,
+            )
+        elapsed = time.perf_counter() - started
+
+        by_market = {row["market_id"]: row for row in payload["markets"]}
+        self.assertLess(elapsed, 0.12)
+        self.assertTrue(by_market["toronto"]["raw_book_refresh_ok"])
+        self.assertTrue(by_market["nyc"]["timeout"])
+        self.assertEqual(payload["summary"]["timeout_markets"], ["nyc"])
+        self.assertTrue(payload["inside_freshness_sla"])
+        self.assertTrue(slow_finished.wait(timeout=1.0))
+        time.sleep(0.01)
+
+    def test_timed_out_raw_market_cannot_overlap_next_tape_writer(self):
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        calls = []
+
+        def fake_capture(market_id, **_kwargs):
+            calls.append(market_id)
+            entered.set()
+            release.wait(timeout=1.0)
+            finished.set()
+            return {
+                "market_id": market_id,
+                "books": 1,
+                "captured_at_utc": "2026-06-12T15:00:00+00:00",
+            }
+
+        first = capture_fleet_books_parallel(
+            market_id="toronto",
+            capture_fn=fake_capture,
+            max_workers=1,
+            per_market_timeout_seconds=0.02,
+        )
+        self.assertTrue(entered.is_set())
+        second = capture_fleet_books_parallel(
+            market_id="toronto",
+            capture_fn=fake_capture,
+            max_workers=1,
+            per_market_timeout_seconds=0.02,
+        )
+        release.set()
+        self.assertTrue(finished.wait(timeout=1.0))
+        time.sleep(0.01)
+
+        self.assertTrue(first["markets"][0]["timeout"])
+        self.assertTrue(second["markets"][0]["prior_capture_still_running"])
+        self.assertIn("PreviousRawCaptureActive", second["markets"][0]["error"])
+        self.assertEqual(calls, ["toronto"])
+
+    def test_enrichment_capture_never_fetches_or_writes_raw_book_tape(self):
+        class NoBookClient(FakeClobClient):
+            def get_order_books(self, *_args, **_kwargs):
+                raise AssertionError("enrichment attempted raw book fetch")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            client = NoBookClient()
+            result = capture_event_enrichment(
+                sample_event(),
+                market_id="toronto",
+                clob_client=client,
+                root=root,
+                include_price_history=True,
+                include_ws_events=False,
+                include_clob_features=False,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+            status = json.loads(
+                (root / "clob_enrichment_status.jsonl").read_text(encoding="utf-8").splitlines()[0]
+            )
+            raw_paths_exist = {
+                name: (root / name).exists()
+                for name in (
+                    "order_books_summary.csv",
+                    "order_books_long.csv",
+                    "order_books.jsonl",
+                    "clob_tokens.csv",
+                )
+            }
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertFalse(result["raw_book_tape_touched"])
+        self.assertEqual(client.book_requests, [])
+        self.assertFalse(any(raw_paths_exist.values()))
+        self.assertEqual(status["mode"], "research_enrichment")
+        self.assertEqual(status["schema_version"], "clob_enrichment_capture_status_v0.1")
+
+    def test_enrichment_token_failure_is_degraded_without_losing_other_history(self):
+        class PartialHistoryClient(FakeClobClient):
+            def get_price_history(self, token_id, **kwargs):
+                if token_id == "no-token":
+                    raise RuntimeError("history unavailable")
+                return super().get_price_history(token_id, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = capture_event_enrichment(
+                sample_event(),
+                market_id="toronto",
+                clob_client=PartialHistoryClient(),
+                root=tmp,
+                include_price_history=True,
+                include_ws_events=False,
+                include_clob_features=False,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(result["status"], "DEGRADED")
+        self.assertEqual(result["price_history_rows"], 1)
+        self.assertEqual(result["price_history_error_count"], 1)
+        self.assertIn("history unavailable", result["error"])
 
     def test_websocket_failure_does_not_drop_rest_book_capture(self):
         def failing_websocket(_url, timeout=30):
@@ -948,6 +1170,40 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse(clob_loop_command_matches(rows[1]["command_line"]))
         self.assertEqual([row["pid"] for row in matches], [100, 103])
 
+    def test_managed_loop_command_declares_raw_only_deadline_contract(self):
+        command = mm._clob_loop_command()
+
+        self.assertNotIn("--price-history", command)
+        self.assertNotIn("--no-price-history", command)
+        self.assertNotIn("--websocket-events", command)
+        self.assertNotIn("--no-websocket-events", command)
+        self.assertNotIn("--websocket-seconds", command)
+        self.assertNotIn("--websocket-message-limit", command)
+        self.assertNotIn("--websocket-heartbeat-seconds", command)
+        self.assertNotIn("--websocket-connect-timeout", command)
+        self.assertEqual(command[command.index("--raw-max-workers") + 1], "12")
+        self.assertEqual(
+            command[command.index("--raw-market-timeout-seconds") + 1],
+            "20.0",
+        )
+
+    def test_managed_loop_command_is_accepted_by_raw_only_cli(self):
+        command = mm._clob_loop_command()
+
+        with (
+            patch.object(sys, "argv", [command[2], *command[3:]]),
+            patch.object(mm, "configure_json_console_logging"),
+            patch.object(mm, "run_book_loop") as run_loop,
+        ):
+            mm.main()
+
+        run_loop.assert_called_once()
+        kwargs = run_loop.call_args.kwargs
+        self.assertFalse(kwargs["include_price_history"])
+        self.assertFalse(kwargs["include_ws_events"])
+        self.assertEqual(kwargs["raw_max_workers"], 12)
+        self.assertEqual(kwargs["raw_market_timeout_seconds"], 20.0)
+
     def test_stop_clob_loop_processes_stops_matching_orphans(self):
         stopped = []
         rows = [
@@ -967,14 +1223,15 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(result["stopped_count"], 1)
         self.assertEqual(result["kept_pids"], [101])
 
-    def test_run_book_loop_writes_status_and_diagnostics(self):
+    def test_run_book_loop_is_raw_only_and_writes_isolation_status(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
 
         def capture_fn(**kwargs):
             self.assertEqual(kwargs["market_id"], "toronto")
             self.assertEqual(kwargs["target_date"], "2026-06-27")
-            self.assertTrue(kwargs["include_price_history"])
-            self.assertTrue(kwargs["include_ws_events"])
+            self.assertFalse(kwargs["include_price_history"])
+            self.assertFalse(kwargs["include_ws_events"])
+            self.assertFalse(kwargs["include_clob_features"])
             return {
                 "toronto": {
                     "event_slug": "highest-temperature-in-toronto-on-june-27-2026",
@@ -982,12 +1239,12 @@ class TestMarketMicrostructure(unittest.TestCase):
                     "books": 2,
                     "captured_at_utc": now.isoformat(),
                     "raw_books_captured_at_utc": now.isoformat(),
-                    "derived_features_captured_at_utc": now.isoformat(),
-                    "include_clob_features": True,
+                    "derived_features_captured_at_utc": None,
+                    "include_clob_features": False,
                     "captured_tokens": 2,
                     "levels": 8,
-                    "price_history_rows": 4,
-                    "ws_messages": 1,
+                    "price_history_rows": 0,
+                    "ws_messages": 0,
                     "midpoint_by_token": {"yes-token": 0.45},
                 }
             }
@@ -1019,25 +1276,74 @@ class TestMarketMicrostructure(unittest.TestCase):
         )
         self.assertEqual(written["last_market_results"]["toronto"]["target_date"], "2026-06-27")
         self.assertEqual(written["last_market_results"]["toronto"]["books"], 2)
-        self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 4)
-        self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 1)
-        self.assertTrue(written["include_price_history"])
-        self.assertTrue(written["include_ws_events"])
+        self.assertEqual(written["last_market_results"]["toronto"]["price_history_rows"], 0)
+        self.assertEqual(written["last_market_results"]["toronto"]["ws_messages"], 0)
+        self.assertFalse(written["include_price_history"])
+        self.assertFalse(written["include_ws_events"])
+        self.assertEqual(written["capture_mode"], "raw_books")
+        self.assertTrue(written["critical_loop_enrichment_isolated"])
         self.assertEqual(written["last_mode"], "baseline")
         self.assertEqual(written["last_books_captured_at"], now.isoformat())
         self.assertEqual(written["last_raw_books_captured_at"], now.isoformat())
         self.assertEqual(written["last_raw_books_by_market"], {"toronto": now.isoformat()})
         self.assertEqual(written["raw_book_useful_iterations"], 1)
-        self.assertEqual(written["last_derived_features_captured_at"], now.isoformat())
-        self.assertEqual(written["last_derived_features_by_market"], {"toronto": now.isoformat()})
+        self.assertNotIn("last_derived_features_captured_at", written)
+        self.assertNotIn("last_derived_features_by_market", written)
         self.assertEqual(written["derived_feature_error_markets"], [])
         self.assertEqual(written["last_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["recent_iteration_elapsed_seconds"], [0.0])
         self.assertEqual(written["max_iteration_elapsed_seconds"], 0.0)
         self.assertEqual(written["max_recent_iteration_elapsed_seconds"], 0.0)
+        self.assertEqual(written["last_raw_capture_contract"]["mode"], "raw_books")
+        self.assertTrue(written["last_raw_capture_contract"]["injected_capture"])
         self.assertEqual(written["status_writer"]["loop"], "clob_capture")
         self.assertEqual(written["status_writer"]["pid"], os.getpid())
         self.assertEqual(len(diagnostics), 1)
+
+    def test_default_near_close_loop_uses_parallel_raw_deadline_contract(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        raw_payload = {
+            "schema_version": "clob_raw_book_refresh_v0.1",
+            "mode": "raw_books",
+            "market_count": 1,
+            "max_workers": 12,
+            "per_market_timeout_seconds": 20.0,
+            "freshness_sla_seconds": 30.0,
+            "fleet_elapsed_seconds": 20.1,
+            "inside_freshness_sla": True,
+            "ok": True,
+            "summary": {"ok_market_count": 1},
+            "markets": [{
+                "market_id": "toronto",
+                "event_slug": "highest-temperature-in-toronto-on-june-12-2026",
+                "target_date": "2026-06-12",
+                "books": 2,
+                "captured_at_utc": now.isoformat(),
+                "raw_books_captured_at_utc": now.isoformat(),
+                "midpoint_by_token": {"yes-token": 0.45},
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", root / "clob_loop_status.json"), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_PAUSE_FLAG_PATH", root / "clob_loop_pause.flag"), \
+                    patch.object(mm, "should_use_fast_interval", return_value=True), \
+                    patch.object(mm, "capture_fleet_books_parallel", return_value=raw_payload) as capture:
+                status = run_book_loop(
+                    market_id="toronto",
+                    max_iterations=1,
+                    sleep_fn=lambda _seconds: None,
+                    now_fn=lambda: now,
+                )
+
+        kwargs = capture.call_args.kwargs
+        self.assertEqual(kwargs["freshness_sla_seconds"], 30.0)
+        self.assertEqual(kwargs["per_market_timeout_seconds"], 20.0)
+        self.assertEqual(kwargs["max_workers"], 12)
+        self.assertFalse(kwargs.get("include_price_history", False))
+        self.assertEqual(status["last_raw_capture_contract"]["fleet_elapsed_seconds"], 20.1)
+        self.assertFalse(status["raw_freshness_sla_breach"])
 
     def test_run_book_loop_blocks_duplicate_status_writer(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
@@ -1063,6 +1369,106 @@ class TestMarketMicrostructure(unittest.TestCase):
 
         self.assertEqual(result["status"], "duplicate_writer_blocked")
         self.assertIn("duplicate_writer_blocked", diagnostics)
+
+    def test_raw_loop_rejects_mixed_enrichment_configuration_before_capture(self):
+        capture_called = False
+
+        def capture_fn(**_kwargs):
+            nonlocal capture_called
+            capture_called = True
+            return {}
+
+        with self.assertRaisesRegex(ValueError, "raw-book-only"):
+            run_book_loop(
+                market_id="toronto",
+                include_price_history=True,
+                include_ws_events=False,
+                max_iterations=1,
+                capture_fn=capture_fn,
+            )
+
+        self.assertFalse(capture_called)
+
+    def test_enrichment_loop_has_independent_status_and_per_market_failure(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+
+        def capture_fn(**kwargs):
+            results = {
+                "toronto": {
+                    "mode": "research_enrichment",
+                    "status": "PASS",
+                    "market_id": "toronto",
+                    "price_history_rows": 2,
+                    "raw_book_tape_touched": False,
+                },
+                "nyc": {
+                    "mode": "research_enrichment",
+                    "status": "DEGRADED",
+                    "market_id": "nyc",
+                    "error": "RuntimeError: history failed",
+                    "price_history_rows": 0,
+                    "raw_book_tape_touched": False,
+                },
+            }
+            for market, result in results.items():
+                kwargs["progress_callback"](market, result)
+            return results
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(mm, "CLOB_ENRICHMENT_STATUS_PATH", root / "clob_enrichment_status.json"), \
+                    patch.object(mm, "CLOB_ENRICHMENT_DIAGNOSTICS_PATH", root / "clob_enrichment_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_ENRICHMENT_PAUSE_FLAG_PATH", root / "clob_enrichment_pause.flag"), \
+                    patch.object(mm, "CLOB_LOOP_STATUS_PATH", root / "raw_status_must_not_exist.json"):
+                status = run_enrichment_loop(
+                    market_id="all",
+                    interval_seconds=900,
+                    max_iterations=1,
+                    capture_fn=capture_fn,
+                    sleep_fn=lambda _seconds: None,
+                    now_fn=lambda: now,
+                )
+                saved = json.loads(
+                    (root / "clob_enrichment_status.json").read_text(encoding="utf-8")
+                )
+                raw_status_exists = (root / "raw_status_must_not_exist.json").exists()
+
+        self.assertEqual(status["error_markets"], ["nyc"])
+        self.assertEqual(saved["mode"], "research_enrichment")
+        self.assertFalse(saved["counts_toward_raw_book_freshness"])
+        self.assertFalse(saved["blocks_raw_book_capture"])
+        self.assertEqual(saved["schema_version"], "clob_enrichment_loop_status_v0.1")
+        self.assertIn("runtime_identity", saved)
+        self.assertFalse(raw_status_exists)
+        self.assertEqual(
+            clob_enrichment_health(saved, now=now)["state"],
+            "DEGRADED",
+        )
+
+    def test_health_marks_legacy_mixed_loop_degraded(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        status = {
+            "pid": 123,
+            "started_at": now.isoformat(),
+            "last_heartbeat": now.isoformat(),
+            "last_books_captured_at": now.isoformat(),
+            "last_raw_books_captured_at": now.isoformat(),
+            "interval_seconds": 60,
+            "include_price_history": True,
+            "include_ws_events": True,
+            "last_market_results": {
+                "toronto": {"captured_tokens": 2, "books": 2},
+            },
+        }
+
+        health = clob_loop_health(status, now=now)
+
+        self.assertEqual(health["state"], "DEGRADED")
+        self.assertFalse(health["critical_loop_enrichment_isolated"])
+        self.assertEqual(
+            health["isolation_blocker"],
+            "price_history_or_websocket_enabled_in_latency_critical_loop",
+        )
 
     def _write_summary_tape(self, root, times):
         path = Path(root) / "order_books_summary.csv"
@@ -1284,8 +1690,10 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertIn("--date", calls["command"])
         self.assertIn("2026-06-27", calls["command"])
         self.assertIn("--interval-seconds", calls["command"])
-        self.assertIn("--no-price-history", calls["command"])
-        self.assertIn("--no-websocket-events", calls["command"])
+        self.assertNotIn("--price-history", calls["command"])
+        self.assertNotIn("--no-price-history", calls["command"])
+        self.assertNotIn("--websocket-events", calls["command"])
+        self.assertNotIn("--no-websocket-events", calls["command"])
         self.assertEqual(diagnostic["supervisor"], "start")
         self.assertEqual(diagnostic["market_id"], "toronto")
         self.assertEqual(diagnostic["target_date"], "2026-06-27")

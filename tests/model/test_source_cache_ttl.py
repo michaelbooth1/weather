@@ -350,6 +350,30 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(fetched["eccc_gem"]["status"], "rate_limited")
         self.assertEqual(fetched["eccc_gem"]["cache_status"], "provider_cooldown")
 
+    def test_open_meteo_cooldown_is_shared_across_isolated_capture_process_state(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cooldown_path = Path(tmpdir) / "source_family_cooldown.json"
+            first_process = TorontoHighTempModel(target_date="2026-05-28")
+            first_process._source_family_rate_limited_until = {}
+            second_process = TorontoHighTempModel(target_date="2026-05-28")
+            second_process._source_family_rate_limited_until = {}
+
+            with patch.dict(
+                os.environ,
+                {"WEATHER_SOURCE_FAMILY_COOLDOWN_PATH": str(cooldown_path)},
+            ):
+                first_process.record_source_family_rate_limit(
+                    "open_meteo",
+                    retry_after_seconds=90,
+                )
+                state = second_process.source_family_rate_limit_state("open_meteo")
+
+            payload = json.loads(cooldown_path.read_text(encoding="utf-8"))
+
+        self.assertTrue(state["active"])
+        self.assertGreater(state["retry_after_seconds"], 60)
+        self.assertIn("open_meteo", payload)
+
     def test_open_meteo_same_cycle_cooldown_still_serves_ttl_valid_family_cache(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model = TorontoHighTempModel(target_date="2026-05-28")

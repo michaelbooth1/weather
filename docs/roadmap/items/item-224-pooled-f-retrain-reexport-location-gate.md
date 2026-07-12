@@ -2035,3 +2035,52 @@ trained and replayed from inference-available features only, with fresh
 time-split, partition, location, and production-readiness evidence. Historical
 v0.1 artifacts must remain diagnostic-only and must not be regenerated in
 place as if they retained the earlier proof status.
+
+## 2026-07-12 quarantine-contract diagnostic refresh
+
+The corrected inference-only implementation regenerated
+`item224_active_timesplit_logistic_repair_rows.csv`, but deliberately retained
+the historical `item224_active_timesplit_logistic_repair_v0_1` identity and its
+registry quarantine. This is a diagnostic invalidation run, not a new candidate
+and not restored promotion evidence.
+
+Fresh quarantine-prefixed outputs show the honest disposition:
+
+- `item224_v0_1_quarantine_replay_summary_20260712.json` returns `BLOCK` /
+  `DO_NOT_CUT_OVER` on `33,924` rows, `22` market-days, and `11` markets.
+  Candidate Brier is `0.04482` versus current `0.05068`, but still trails market
+  `0.03856` by `+0.00626`; candidate log loss trails market by `+0.0221`.
+- `item224_v0_1_quarantine_hourly_20260712.json` also returns `BLOCK`. The
+  00:00-08:00 Brier improves current by `-0.0063` but remains `+0.0056` behind
+  market, outside the `+0.0030` tolerance, and the market log-loss gap is
+  `+0.0222`.
+- The legacy 10-minute evaluator was stopped without publishing an artifact
+  after its child process grew to roughly `7.7 GB` resident / `14 GB` private
+  memory on the live-capture host. Completing that diagnostic now depends on
+  the bounded/streaming evaluator and process-tree resource containment; it is
+  not acceptable to endanger collection to recreate a quarantined proof.
+
+No historical v0.1 replay, promotion, location, Item 160, proof-packet, or
+objective-scoreboard `PASS` was reused. A genuinely new variant ID, canonical
+live settlement scorecard, active replay/export contract, and the full fresh
+dependent chain remain required for Item 224 acceptance.
+
+### Clean vNext acceptance checklist
+
+The four checked implementation boxes near the top describe the historical
+v0.1 execution and are retained as audit history; they do not satisfy the
+reopened item. A clean successor must complete all of the following:
+
+- [ ] Freeze a new variant and candidate identity with a recursive leakage
+  audit over visible fields, derived hashes, feature-family manifests,
+  calibration, guardrails, and routing inputs.
+- [ ] Train and calibrate only on point-in-time rows inside fleet-date-blocked
+  rolling folds with a 3-7 day embargo and fold-local preprocessing.
+- [ ] Lock a recent evaluation window before candidate selection and regenerate
+  replay, hourly, 10-minute, location, stage-attribution, promotion, Item 160,
+  proof-packet, and objective-scoreboard artifacts under the new identity.
+- [ ] Pass the canonical sibling-snapshot settlement scorer with complete
+  partitions, 100% eligible coverage, zero unsupported-runtime skips, and
+  equal-market-day/date-clustered evidence.
+- [ ] Pass captured-input replay/serve parity and forward requalification under
+  one immutable release; never overwrite or rehabilitate v0.1 artifacts.

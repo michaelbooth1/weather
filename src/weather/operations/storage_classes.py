@@ -84,6 +84,9 @@ ARTIFACT_FAMILIES = (
             "snapshots/*/source_status*.jsonl",
             "snapshots/*/forecast_payloads*.jsonl",
             "snapshots/*/forecast_payloads/**/*.json",
+            "snapshots/*/snapshot_explanations.jsonl",
+            "snapshots/*/variant_predictions.jsonl",
+            "snapshots/*/live_variant_predictions.jsonl",
             "snapshots/diagnostics.jsonl",
             "snapshots/observation_trigger*.json",
             "snapshots/observation_trigger*.jsonl",
@@ -94,7 +97,12 @@ ARTIFACT_FAMILIES = (
         "not rebuildable from providers with the same live timing and source state",
         "canonical_evidence_review_gate",
         True,
-        examples=("data/snapshots/<event>/snapshots.jsonl", "data/snapshots/<event>/features.jsonl"),
+        examples=(
+            "data/snapshots/<event>/snapshots.jsonl",
+            "data/snapshots/<event>/features.jsonl",
+            "data/snapshots/<event>/snapshot_explanations.jsonl",
+            "data/snapshots/<event>/variant_predictions.jsonl",
+        ),
     ),
     ArtifactFamilyClassification(
         "replay_inputs",

@@ -19,12 +19,12 @@ see.
 
 ## Children (new items)
 
-- [ ] **186** — Soil-moisture & antecedent land-surface dryness predictor.
-- [ ] **187** — Forecast shortwave-radiation & peak-window insolation features.
+- [x] **186** — Soil-moisture & antecedent land-surface dryness predictor.
+- [x] **187** — Forecast shortwave-radiation & peak-window insolation features.
 - [ ] **188** — Aerosol & wildfire-smoke suppression features.
 - [ ] **189** — ECMWF & ML-NWP ensemble forecast members.
 - [x] **190** — NBM native probabilistic Tmax consumption.
-- [ ] **191** — Lake/sea surface-temperature contrast feature.
+- [x] **191** — Lake/sea surface-temperature contrast feature.
 
 ## Already owned elsewhere (referenced, not duplicated)
 

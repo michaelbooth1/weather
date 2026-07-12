@@ -1,8 +1,9 @@
-# Nightly Retrain Validate Promote Runbook
+# Nightly Retrain, Validate, And Build Candidate Release Runbook
 
 This runbook covers the overnight self-improvement job that refreshes daily
 learning, retrains candidate artifacts, validates promotion evidence, and
-writes one operator-readable status report.
+writes one operator-readable status report. It never activates a model: the
+scheduled job can only build an immutable, inactive candidate release.
 
 ## Register The Task
 
@@ -45,6 +46,20 @@ Expected outputs:
 - `data/backtest/nightly_retrain_report.md`
 - `data/backtest/nightly_retrain_sla_status.json`
 - `data/backtest/nightly_retrain_sla_status_report.md`
+- `artifacts/candidates/nightly-<UTC timestamp>/...` for mutable training outputs
+- `artifacts/releases/nightly-<UTC timestamp>/release_manifest.json` only when
+  every existing validation gate passes and the source tree is clean
+
+The active pointer remains `artifacts/releases/current_release.json`. Nightly
+retraining does not create or modify it. Promotion remains a separate reviewed
+operation through `python -m weather.operations.release_lifecycle promote`,
+which requires both a matching promotion-decision proof and a fresh
+market-day-boundary proof.
+
+Training output paths are candidate-only by default. An old serving path fails
+before training begins. `--allow-legacy-serving-output` is a temporary migration
+flag: it marks the run quarantined, blocks immutable release construction, and
+cannot permit writes into `artifacts/releases` or the active pointer.
 
 If daily learning is blocked, the nightly report should show status `blocked`,
 only the `daily_learning` step should have run, and the Daily-Learning Blockers

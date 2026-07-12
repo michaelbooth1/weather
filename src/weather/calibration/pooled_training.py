@@ -1,6 +1,7 @@
 """Implementation slice extracted from src/weather/calibration/pooled_feature_model.py."""
 
 from weather.calibration.pooled_band_training import *  # noqa: F403
+from weather.model.corpus_lineage import build_pooled_corpus_lineage
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -707,6 +708,11 @@ def train_pooled_band_models(
         for bundle in artifact["models"].values()
         for feature in (bundle.get("feature_names") or [])
     })
+    artifact["corpus_lineage"] = build_pooled_corpus_lineage(
+        records,
+        holdout_year=holdout_year,
+        model_input_fields=model_feature_names,
+    )
     artifact["weak_input_family_preflight"] = weak_input_training_preflight(
         model_feature_names,
         weak_family_disposition,

@@ -163,3 +163,12 @@ Current blockers:
 Keep weak families diagnostic or regime-backfill only. Do not treat the active
 artifact as pruned until training preflight is `PASS` and upstream source-state
 reliability gates clear.
+
+Open acceptance work:
+
+- [ ] Train a new immutable candidate whose recursive feature/semantic contract
+  excludes diagnostic-only families or binds each retained family to a passing
+  predeclared regime gate.
+- [ ] Make the weak-family training preflight and upstream source-state gate
+  pass on fleet-date-blocked point-in-time validation before any active release
+  can claim pruning complete.

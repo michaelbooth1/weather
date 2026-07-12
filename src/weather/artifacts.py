@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import ARTIFACTS_ROOT, REPO_ROOT, SRC_ROOT, config_path, relative_to_repo
+from weather.release_artifacts import (
+    ReleaseArtifactVerificationError as ReleaseArtifactVerificationError,
+    resolve_verified_active_release as resolve_verified_active_release,
+)
 from weather.schema_registry import schema_version
 
 
@@ -28,6 +32,9 @@ DEFAULT_ARTIFACT_SIZE_AUDIT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifac
 DEFAULT_ARTIFACT_EXTERNALIZATION_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_externalization.json"
 DEFAULT_ARTIFACT_PROMOTION_PREFLIGHT_PATH = ARTIFACTS_ROOT / "manifests" / "model_artifact_promotion_preflight.json"
 DEFAULT_VARIANT_REGISTRY_PATH = config_path() / "model_variant_registry.json"
+DEFAULT_CANDIDATE_ARTIFACT_ROOT = ARTIFACTS_ROOT / "candidates"
+DEFAULT_IMMUTABLE_RELEASE_ROOT = ARTIFACTS_ROOT / "releases"
+DEFAULT_ACTIVE_RELEASE_POINTER = DEFAULT_IMMUTABLE_RELEASE_ROOT / "current_release.json"
 
 MIB = 1024 * 1024
 DEFAULT_INDIVIDUAL_ARTIFACT_WARNING_BYTES = 90 * MIB
@@ -46,6 +53,73 @@ VARIANT_CONTRACT_FIELDS = (
     "live_runtime",
 )
 FEATURE_SCHEMA_RE = re.compile(r"^(?P<family>.+)_v(?P<major>\d+)(?:\.(?P<minor>\d+))?$")
+
+
+class CandidateArtifactPathError(ValueError):
+    """A training output violates the candidate-only artifact path policy."""
+
+
+def assert_candidate_artifact_output(
+    output_path: str | Path,
+    *,
+    candidates_root: str | Path = DEFAULT_CANDIDATE_ARTIFACT_ROOT,
+    releases_root: str | Path = DEFAULT_IMMUTABLE_RELEASE_ROOT,
+    active_pointer: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
+) -> Path:
+    """Allow a training write only below a disjoint candidate artifact root."""
+
+    output = Path(output_path).resolve()
+    candidates = Path(candidates_root).resolve()
+    releases = Path(releases_root).resolve()
+    pointer = Path(active_pointer).resolve()
+    if candidates == releases or candidates.is_relative_to(releases) or releases.is_relative_to(candidates):
+        raise CandidateArtifactPathError("candidate and release roots must be disjoint")
+    if output == candidates:
+        raise CandidateArtifactPathError("candidate output must name a child path, not the candidate root")
+    if not output.is_relative_to(candidates):
+        raise CandidateArtifactPathError(f"candidate-only guard rejected output outside candidate root: {output}")
+    if output == pointer or output.is_relative_to(releases):
+        raise CandidateArtifactPathError(f"candidate-only guard rejected active/immutable release output: {output}")
+    return output
+
+
+def training_artifact_output_policy(
+    output_path: str | Path,
+    *,
+    candidates_root: str | Path = DEFAULT_CANDIDATE_ARTIFACT_ROOT,
+    releases_root: str | Path = DEFAULT_IMMUTABLE_RELEASE_ROOT,
+    active_pointer: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
+    allow_legacy_serving_output: bool = False,
+) -> dict[str, Any]:
+    """Guard trainer output while quarantining an explicit legacy escape hatch."""
+
+    output = Path(output_path).resolve()
+    releases = Path(releases_root).resolve()
+    pointer = Path(active_pointer).resolve()
+    if output == pointer or output == releases or output.is_relative_to(releases):
+        raise CandidateArtifactPathError(
+            f"trainer output cannot target immutable/active release state: {output}"
+        )
+    try:
+        guarded = assert_candidate_artifact_output(
+            output,
+            candidates_root=candidates_root,
+            releases_root=releases,
+            active_pointer=pointer,
+        )
+    except CandidateArtifactPathError:
+        if not allow_legacy_serving_output:
+            raise
+        return {
+            "status": "QUARANTINED_LEGACY_OUTPUT",
+            "path": str(output),
+            "release_eligible": False,
+        }
+    return {
+        "status": "CANDIDATE_ONLY",
+        "path": str(guarded),
+        "release_eligible": True,
+    }
 
 
 def parse_feature_schema_version(version: str | None) -> dict[str, Any] | None:

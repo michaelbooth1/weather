@@ -44,12 +44,21 @@ from weather.model.feature_store import (
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.release_artifacts import canonical_payload_sha256
+from weather.release_serving import (
+    ReleaseServingBindingError,
+    VerifiedServingBundle,
+    clear_process_serving_bundle_cache,
+    get_process_active_serving_bundle,
+    serving_bundle_lineage,
+)
 from weather.runtime_identity import (
     current_identity_for,
     format_runtime_identity,
     get_runtime_identity,
     identities_match,
 )
+from weather.schema_registry import schema_version
 
 SNAPSHOT_INTERVAL = timedelta(minutes=10)
 # The managed loop fires on a period equal to SNAPSHOT_INTERVAL, so every
@@ -72,10 +81,44 @@ MODEL_VERSION = MODEL_VERSION_HGB
 # exact build `now`, so any future model version can be re-run over the captured
 # day and scored against settlement. This turns every captured snapshot into a
 # permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
-REPLAY_SCHEMA_VERSION = "toronto_replay_inputs_v0.1"
+REPLAY_SCHEMA_VERSION = schema_version("replay_inputs")
+CAPTURED_INPUT_HASH_ALGORITHM = "sha256-canonical-json;omit=captured_input_hash"
 REPLAY_RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
+
+
+def _verified_serving_bundle_once_per_process() -> VerifiedServingBundle:
+    """Resolve the sticky process bundle while detecting pointer changes."""
+
+    return get_process_active_serving_bundle()
+
+
+def _verified_release_lineage_once_per_process():
+    return serving_bundle_lineage(_verified_serving_bundle_once_per_process())
+
+
+def _assert_snapshot_model_serving_binding(
+    serving_bundle: VerifiedServingBundle,
+    model_client,
+) -> None:
+    model_bundle = getattr(model_client, "serving_bundle", None)
+    if serving_bundle.pointer_present:
+        if (
+            model_bundle is not serving_bundle
+            or not serving_bundle.base_model_bound
+            or not getattr(model_bundle, "base_model_bound", False)
+        ):
+            raise ReleaseServingBindingError(
+                "snapshot model construction and persistence do not share one verified "
+                "active-release base-model bundle"
+            )
+    elif model_bundle is not None and getattr(model_bundle, "pointer_present", False):
+        raise ReleaseServingBindingError(
+            "snapshot persistence is research-unbound but its model client is release-bound"
+        )
+
+
 # Scope the long-running collection process identity to the code it actually
 # imports, so a commit to an unrelated module (reporting/promotion/calibration a
 # collection loop never imports) does not flip the loop to stale and tear down
@@ -419,6 +462,8 @@ class SnapshotStore:
             raise RuntimeError(runtime_guard.get("detail") or "stale snapshot runtime identity")
         runtime_identity = runtime_guard.get("process_identity") or {}
         runtime_fields = self.runtime_identity_fields(runtime_identity, runtime_guard.get("state"))
+        serving_bundle = self.verified_serving_bundle()
+        _assert_snapshot_model_serving_binding(serving_bundle, model_client)
         trigger_context = self.normalized_trigger_context(trigger_context)
         trigger_summary = self.trigger_summary(trigger_context)
         distribution = model.get("distribution", {}) or {}
@@ -526,6 +571,26 @@ class SnapshotStore:
             model_client,
             calibration_context=calibration_context,
         )
+        release_lineage = serving_bundle_lineage(serving_bundle)
+        replay_input_payload = self.build_replay_input_payload(
+            snapshot_id,
+            captured_at,
+            model,
+            model_client,
+            model_version,
+            model_identity,
+            runtime_identity,
+            runtime_guard,
+            cadence=cadence,
+            cadence_quality=cadence_quality,
+            trigger_context=trigger_context,
+            release_lineage=release_lineage,
+        )
+        captured_input_hash = (
+            str(replay_input_payload.get("captured_input_hash") or "")
+            if replay_input_payload
+            else ""
+        )
         variant_prediction_rows = []
         variant_prediction_error = None
         try:
@@ -540,10 +605,13 @@ class SnapshotStore:
                 market_id=event_config.market_id,
                 target_date=event_config.target_date,
                 serving_model_version=model_version,
+                release_lineage=release_lineage,
+                captured_input_hash=captured_input_hash,
                 runtime_fields=runtime_fields,
                 snapshot_cadence=cadence,
                 cadence_quality=cadence_quality,
                 trigger_summary=trigger_summary,
+                serving_bundle=serving_bundle,
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
             variant_prediction_error = f"{type(exc).__name__}: {exc}"
@@ -656,6 +724,14 @@ class SnapshotStore:
             for row in source_status_rows:
                 self.append_jsonl(self.source_status_jsonl_path, row)
 
+        # The replay payload is built and hashed before variant inference, then
+        # persisted first so no served row can reference an absent captured
+        # input.  Both artifacts receive the exact same fail-closed lineage
+        # status and input hash; release_id stays blank until serving loaders
+        # are demonstrably bound to the verified manifest.
+        if replay_input_payload:
+            self.append_jsonl(self.replay_inputs_path, replay_input_payload)
+
         if variant_prediction_rows:
             self.append_csv(
                 self.variant_predictions_long_path,
@@ -664,20 +740,6 @@ class SnapshotStore:
             )
             for row in variant_prediction_rows:
                 self.append_jsonl(self.variant_predictions_jsonl_path, row)
-
-        self.write_replay_input(
-            snapshot_id,
-            captured_at,
-            model,
-            model_client,
-            model_version,
-            model_identity,
-            runtime_identity,
-            runtime_guard,
-            cadence=cadence,
-            cadence_quality=cadence_quality,
-            trigger_context=trigger_context,
-        )
 
         return {
             "written": True,
@@ -704,6 +766,13 @@ class SnapshotStore:
             "variant_predictions_path": str(self.variant_predictions_long_path),
             "variant_predictions_jsonl_path": str(self.variant_predictions_jsonl_path),
             "variant_prediction_error": variant_prediction_error,
+            "release_id": release_lineage.get("release_id") or "",
+            "release_identity_status": release_lineage.get("release_identity_status"),
+            "base_model_release_bound": bool(
+                release_lineage.get("base_model_release_bound", False)
+            ),
+            "base_model_binding_reason": release_lineage.get("base_model_binding_reason") or "",
+            "captured_input_hash": captured_input_hash,
             "next_due_at": self.next_due_at(
                 captured_at if cadence == "scheduled" else None,
                 cadence="scheduled",
@@ -1568,31 +1637,53 @@ class SnapshotStore:
         write_header = not path.exists()
         columns = list(columns)
         if not write_header:
-            try:
-                with path.open("r", encoding="utf-8", newline="") as handle:
-                    existing_header = next(csv.reader(handle), None)
-                if existing_header:
-                    missing_columns = [column for column in columns if column not in existing_header]
-                    columns = list(existing_header) + missing_columns
-                    if missing_columns:
-                        with path.open("r", encoding="utf-8", newline="") as handle:
-                            existing_rows = list(csv.DictReader(handle))
-                        tmp_path = path.with_name(f"{path.name}.tmp")
-                        with tmp_path.open("w", encoding="utf-8", newline="") as handle:
-                            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                existing_header = next(csv.reader(handle), None)
+            if existing_header:
+                missing_columns = [column for column in columns if column not in existing_header]
+                columns = list(existing_header) + missing_columns
+                if missing_columns:
+                    # Never materialize a live day-wide CSV in memory. Some
+                    # retained projections are already large enough to hit the
+                    # isolated capture tree cap. Stream the schema migration to
+                    # a unique sibling and atomically replace only after fsync.
+                    tmp_path = path.with_name(
+                        f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+                    )
+                    try:
+                        with (
+                            path.open("r", encoding="utf-8", newline="") as source,
+                            tmp_path.open("x", encoding="utf-8", newline="") as destination,
+                        ):
+                            reader = csv.DictReader(source)
+                            writer = csv.DictWriter(
+                                destination,
+                                fieldnames=columns,
+                                extrasaction="ignore",
+                                restval="",
+                            )
                             writer.writeheader()
-                            writer.writerows(existing_rows)
-                        tmp_path.replace(path)
-                else:
-                    write_header = True
-            except (OSError, csv.Error):
-                pass
+                            for existing_row in reader:
+                                writer.writerow(existing_row)
+                            destination.flush()
+                            os.fsync(destination.fileno())
+                        os.replace(tmp_path, path)
+                    except BaseException:
+                        try:
+                            tmp_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                        raise
+            else:
+                write_header = True
         with path.open("a", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore", restval="")
             if write_header:
                 writer.writeheader()
             for row in rows:
                 writer.writerow(row)
+            handle.flush()
+            os.fsync(handle.fileno())
 
     def append_jsonl(self, path, payload):
         with path.open("a", encoding="utf-8") as handle:
@@ -1964,6 +2055,95 @@ class SnapshotStore:
             "trigger_observed_at": primary.get("observed_at") or context.get("observed_at"),
         }
 
+    @staticmethod
+    def verified_release_lineage():
+        """Resolve immutable serving lineage without crossing into operations."""
+
+        # Return a copy so a caller cannot mutate process-global cached state.
+        return dict(_verified_release_lineage_once_per_process())
+
+    @staticmethod
+    def verified_serving_bundle():
+        """Return the process-frozen serving bundle or explicit unbound state."""
+
+        return _verified_serving_bundle_once_per_process()
+
+    @staticmethod
+    def clear_verified_release_lineage_cache():
+        """Reset process lineage state for tests or an explicit runtime restart."""
+
+        clear_process_serving_bundle_cache()
+
+    def build_replay_input_payload(
+        self,
+        snapshot_id,
+        captured_at,
+        model,
+        model_client,
+        model_version,
+        model_identity=None,
+        runtime_identity=None,
+        runtime_guard=None,
+        cadence="scheduled",
+        cadence_quality=None,
+        trigger_context=None,
+        release_lineage=None,
+    ):
+        """Build and canonically hash the exact captured-input replay payload.
+
+        The merged ``sources`` dict is exactly what ``estimate_distribution`` consumes
+        (it is pure given sources + the build ``now``), and it is already
+        JSON-serializable. ``recorded_distribution`` is kept alongside as a fidelity
+        canary: replaying with the same code version must reproduce it.
+        """
+        sources = self.strip_raw_payloads(model.get("sources"))
+        if not sources:
+            return None
+        release_lineage = release_lineage or self.verified_release_lineage()
+        target_date = getattr(model_client, "target_date", None)
+        payload = {
+            "schema_version": REPLAY_SCHEMA_VERSION,
+            "snapshot_id": snapshot_id,
+            "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
+            "captured_at_local": captured_at.isoformat(),
+            "event_slug": self.event_slug,
+            "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
+            "model_version": model_version,
+            "release_id": str(release_lineage.get("release_id") or ""),
+            "release_manifest_sha256": str(
+                release_lineage.get("release_manifest_sha256") or ""
+            ),
+            "release_pointer_sha256": str(
+                release_lineage.get("release_pointer_sha256") or ""
+            ),
+            "release_sequence": release_lineage.get("release_sequence"),
+            "release_identity_status": str(
+                release_lineage.get("release_identity_status") or "unavailable"
+            ),
+            "release_identity_reason": str(
+                release_lineage.get("release_identity_reason") or ""
+            ),
+            "base_model_release_bound": bool(
+                release_lineage.get("base_model_release_bound", False)
+            ),
+            "base_model_binding_reason": str(
+                release_lineage.get("base_model_binding_reason") or ""
+            ),
+            "captured_input_hash_algorithm": CAPTURED_INPUT_HASH_ALGORITHM,
+            "model_identity": model_identity if model_identity is not None else self.model_identity(model_client),
+            "runtime_identity": runtime_identity,
+            "runtime_guard": runtime_guard,
+            "snapshot_cadence": cadence,
+            "snapshot_cadence_quality": cadence_quality or snapshot_cadence_quality({"snapshot_cadence": cadence}),
+            "trigger_context": trigger_context,
+            # The timestamp the build actually used (falls back to the write time).
+            "built_at": model.get("built_at") or captured_at.isoformat(),
+            "recorded_distribution": model.get("distribution") or {},
+            "sources": sources,
+        }
+        payload["captured_input_hash"] = canonical_payload_sha256(payload)
+        return payload
+
     def write_replay_input(
         self,
         snapshot_id,
@@ -1977,37 +2157,27 @@ class SnapshotStore:
         cadence="scheduled",
         cadence_quality=None,
         trigger_context=None,
+        release_lineage=None,
     ):
-        """Persist the full model inputs for this snapshot so it can be replayed.
+        """Build and persist one captured-input replay payload."""
 
-        The merged ``sources`` dict is exactly what ``estimate_distribution`` consumes
-        (it is pure given sources + the build ``now``), and it is already
-        JSON-serializable. ``recorded_distribution`` is kept alongside as a fidelity
-        canary: replaying with the same code version must reproduce it.
-        """
-        sources = self.strip_raw_payloads(model.get("sources"))
-        if not sources:
-            return
-        target_date = getattr(model_client, "target_date", None)
-        self.append_jsonl(self.replay_inputs_path, {
-            "schema_version": REPLAY_SCHEMA_VERSION,
-            "snapshot_id": snapshot_id,
-            "captured_at_utc": captured_at.astimezone(timezone.utc).isoformat(),
-            "captured_at_local": captured_at.isoformat(),
-            "event_slug": self.event_slug,
-            "target_date": target_date.isoformat() if hasattr(target_date, "isoformat") else target_date,
-            "model_version": model_version,
-            "model_identity": model_identity if model_identity is not None else self.model_identity(model_client),
-            "runtime_identity": runtime_identity,
-            "runtime_guard": runtime_guard,
-            "snapshot_cadence": cadence,
-            "snapshot_cadence_quality": cadence_quality or snapshot_cadence_quality({"snapshot_cadence": cadence}),
-            "trigger_context": trigger_context,
-            # The timestamp the build actually used (falls back to the write time).
-            "built_at": model.get("built_at") or captured_at.isoformat(),
-            "recorded_distribution": model.get("distribution") or {},
-            "sources": sources,
-        })
+        payload = self.build_replay_input_payload(
+            snapshot_id,
+            captured_at,
+            model,
+            model_client,
+            model_version,
+            model_identity,
+            runtime_identity,
+            runtime_guard,
+            cadence=cadence,
+            cadence_quality=cadence_quality,
+            trigger_context=trigger_context,
+            release_lineage=release_lineage,
+        )
+        if payload:
+            self.append_jsonl(self.replay_inputs_path, payload)
+        return payload
 
     def acquire_lock(self):
         self.root.mkdir(parents=True, exist_ok=True)
