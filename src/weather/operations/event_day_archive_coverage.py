@@ -23,9 +23,12 @@ from weather.operations.closed_market_day_archive_manifest_contract import (
     validate_manifest_shape as validate_archive_manifest_shape,
 )
 from weather.operations.event_day_manifest import (
+    EVENT_DAY_ARTIFACT_FAMILIES,
     MANIFEST_FILENAME as EVENT_MANIFEST_FILENAME,
+    REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES,
     inventory_content_hash,
     manifest_hash_valid as event_manifest_hash_valid,
+    release_runtime_identity_summary,
 )
 from weather.paths import data_path
 from weather.schema_registry import schema_version
@@ -98,18 +101,22 @@ def _same_path(left: Any, right: Path) -> bool:
 
 def _event_manifest_shape_errors(payload: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
+    bounded_file_records: list[dict[str, Any]] = []
     if not payload.get("writer_version"):
         errors.append("writer_version_missing")
     families = payload.get("artifact_families")
     if not isinstance(families, list) or not families:
         errors.append("artifact_families_missing")
     else:
+        by_name: dict[str, list[Mapping[str, Any]]] = {}
         for index, family in enumerate(families):
             if not isinstance(family, Mapping):
                 errors.append(f"artifact_families[{index}]_invalid")
                 continue
             if not str(family.get("artifact_family") or "").strip():
                 errors.append(f"artifact_families[{index}].artifact_family_missing")
+            else:
+                by_name.setdefault(str(family.get("artifact_family")), []).append(family)
             if family.get("status") not in EVENT_FAMILY_STATUSES:
                 errors.append(f"artifact_families[{index}].status_invalid")
             files = family.get("files")
@@ -120,6 +127,7 @@ def _event_manifest_shape_errors(payload: Mapping[str, Any]) -> list[str]:
                 if not isinstance(row, Mapping):
                     errors.append(f"artifact_families[{index}].files[{file_index}]_invalid")
                     continue
+                bounded_file_records.append(dict(row))
                 for key in ("path", "bytes", "sha256", "role", "storage_class"):
                     if key not in row:
                         errors.append(
@@ -129,12 +137,91 @@ def _event_manifest_shape_errors(payload: Mapping[str, Any]) -> list[str]:
                     errors.append(
                         f"artifact_families[{index}].files[{file_index}].sha256_invalid"
                     )
+        required_contracts = {
+            family.name: family
+            for family in EVENT_DAY_ARTIFACT_FAMILIES
+            if family.required
+        }
+        for required_name in REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES:
+            family_contract = required_contracts[required_name]
+            matches = by_name.get(required_name) or []
+            if len(matches) != 1:
+                errors.append(
+                    f"required_family.{required_name}."
+                    + ("missing" if not matches else "duplicate")
+                )
+                continue
+            family = matches[0]
+            qualifying = [
+                row
+                for row in family.get("files") or []
+                if isinstance(row, Mapping)
+                and row.get("storage_class") == "canonical_evidence"
+                and row.get("validation_status") == "PASS"
+                and (
+                    not family_contract.required_member_patterns
+                    or any(
+                        Path(str(row.get("path") or "")).match(pattern)
+                        for pattern in family_contract.required_member_patterns
+                    )
+                )
+                and (
+                    row.get("row_count") is None
+                    or (
+                        isinstance(row.get("row_count"), int)
+                        and int(row.get("row_count")) > 0
+                    )
+                )
+            ]
+            if (
+                family.get("required") is not True
+                or family.get("requires_canonical_evidence") is not True
+                or family.get("required_member_patterns")
+                != list(family_contract.required_member_patterns)
+                or family.get("status") != "present"
+                or not qualifying
+            ):
+                errors.append(f"required_family.{required_name}.evidence_incomplete")
+            declared_evidence = family.get("required_evidence")
+            if (
+                not isinstance(declared_evidence, Mapping)
+                or declared_evidence.get("status") != "PASS"
+                or declared_evidence.get("required_member_patterns")
+                != list(family_contract.required_member_patterns)
+                or not isinstance(
+                    declared_evidence.get("qualifying_required_member_count"), int
+                )
+                or int(declared_evidence.get("qualifying_required_member_count") or 0) <= 0
+            ):
+                errors.append(f"required_family.{required_name}.evidence_summary_invalid")
     validation = payload.get("validation")
     if not isinstance(validation, Mapping) or validation.get("status") not in {
         "PASS",
         "WARN",
     }:
         errors.append("embedded_validation_not_pass_or_warn")
+    payload_blob_links = payload.get("payload_blob_links")
+    if not isinstance(payload_blob_links, Mapping):
+        errors.append("payload_blob_links_missing")
+    else:
+        link_families = payload_blob_links.get("families")
+        family_names = {
+            str(row.get("artifact_family") or "")
+            for row in link_families or []
+            if isinstance(row, Mapping)
+        }
+        if (
+            payload_blob_links.get("status") != "PASS"
+            or not isinstance(link_families, list)
+            or family_names != {"forecast_payloads", "observation_payloads"}
+            or any(
+                not isinstance(row, Mapping)
+                or row.get("status") != "PASS"
+                or row.get("issue_count") != 0
+                for row in link_families or []
+            )
+        ):
+            errors.append("payload_blob_links_not_pass")
     protection = payload.get("protection")
     if not isinstance(protection, Mapping):
         errors.append("protection_missing")
@@ -144,6 +231,36 @@ def _event_manifest_shape_errors(payload: Mapping[str, Any]) -> list[str]:
                 protection.get(role) or {}
             ).get("status"):
                 errors.append(f"protection.{role}_invalid")
+    release_runtime_identity = payload.get("release_runtime_identity")
+    if not isinstance(release_runtime_identity, Mapping):
+        errors.append("release_runtime_identity_missing")
+    else:
+        if (
+            release_runtime_identity.get("release_identity_status") != "SINGLE"
+            or release_runtime_identity.get("release_identity_count") != 1
+        ):
+            errors.append("release_identity_not_singular")
+        if (
+            release_runtime_identity.get("runtime_identity_status") != "SINGLE"
+            or release_runtime_identity.get("runtime_identity_count") != 1
+            or release_runtime_identity.get("mixed_runtime_identity") is not False
+        ):
+            errors.append("runtime_identity_not_singular")
+        if release_runtime_identity.get("proof_grade_status") != "PASS":
+            errors.append("release_runtime_identity_not_proof_grade")
+        computed_identity = release_runtime_identity_summary(bounded_file_records)
+        identity_fields = (
+            "release_identity_status",
+            "release_identity_count",
+            "runtime_identity_status",
+            "runtime_identity_count",
+            "proof_grade_status",
+        )
+        if any(
+            release_runtime_identity.get(field) != computed_identity.get(field)
+            for field in identity_fields
+        ):
+            errors.append("release_runtime_identity_summary_mismatch")
     inventory_hash = str(payload.get("inventory_hash") or "")
     if not HASH_RE.fullmatch(inventory_hash):
         errors.append("inventory_hash_missing_or_invalid")

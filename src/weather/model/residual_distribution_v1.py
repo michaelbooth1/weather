@@ -33,7 +33,7 @@ from weather.model.continuous_density import (
 from weather.units import round_half_up
 
 
-ARTIFACT_SCHEMA_VERSION = "residual_distribution_v1_v0.1"
+ARTIFACT_SCHEMA_VERSION = "residual_distribution_v1_v0.2"
 PREDICTION_MODE = "residual_distribution_v1"
 
 FEATURE_KINDS = frozenset(
@@ -89,7 +89,7 @@ def default_feature_contract(
     feature_schema_version: str,
     *,
     required_sources: Sequence[str] = ("open_meteo",),
-    allowed_source_states: Sequence[str] = tuple(sorted(SOURCE_STATES)),
+    allowed_source_states: Sequence[str] = ("fresh",),
 ) -> dict[str, Any]:
     """Return the artifact-like feature template used before a model is fitted.
 
@@ -183,7 +183,7 @@ def _ridge_pipeline(value: Any) -> Pipeline:
 
 
 def validate_artifact(artifact: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Validate and normalize the strict v0.1 pickle payload."""
+    """Validate and normalize the strict v0.2 pickle payload."""
 
     if not isinstance(artifact, Mapping):
         raise ResidualArtifactError("artifact must be a mapping")
@@ -298,6 +298,7 @@ def validate_artifact(artifact: Mapping[str, Any] | None) -> dict[str, Any]:
                 "required": required_features,
             },
             "source_health_policy": {
+                **dict(source_policy),
                 "required_sources": required_sources,
                 "allowed_states": sorted(allowed_states),
             },
@@ -360,6 +361,11 @@ def _source_health_features(
         age = _finite_float(raw.get("age_minutes"))
         ttl = _finite_float(raw.get("ttl_minutes"))
         age_ratio = age / ttl if age is not None and ttl is not None and ttl > 0 else None
+        # A nominally healthy provider record cannot override its own expired
+        # freshness evidence.  Age beyond TTL is a stale permission state and
+        # therefore triggers the artifact's widening/abstention policy.
+        if state == "fresh" and age_ratio is not None and age_ratio > 1.0:
+            state = "stale"
         if current is None:
             by_source[source] = {"state": state, "age_ratio": age_ratio}
         else:
@@ -615,6 +621,17 @@ def _validated_band_partition(
         ):
             raise ValueError("market bands must be contiguous and non-overlapping")
     return intervals
+
+
+def validate_market_band_partition(
+    band_rows: Sequence[Mapping[str, Any]],
+    *,
+    unit: str,
+) -> list[dict[str, Any]]:
+    """Fail closed unless rows form one complete settlement partition."""
+
+    _validated_band_partition(band_rows, str(unit).upper())
+    return [dict(row) for row in band_rows]
 
 
 def project_density_to_bands(

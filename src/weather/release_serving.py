@@ -33,6 +33,7 @@ from weather.release_contract import (
 
 
 STATUS_BOUND = "BOUND"
+STATUS_SHADOW_BOUND = "SHADOW_BOUND"
 STATUS_RESEARCH_UNBOUND = "RESEARCH_UNBOUND"
 STATUS_BLOCKED = "BLOCKED"
 STATUS_RESTART_REQUIRED = "RESTART_REQUIRED"
@@ -531,6 +532,153 @@ def load_verified_active_serving_bundle(
     )
 
 
+def load_verified_residual_distribution_v1_shadow_bundle(
+    release_dir: str | Path,
+    *,
+    repo_root: str | Path = REPO_ROOT,
+    expected_manifest_sha256: str | None = None,
+    check_runtime: bool = True,
+    current_runtime_versions: Mapping[str, Any] | None = None,
+    current_runtime_identity: Mapping[str, Any] | None = None,
+) -> VerifiedServingBundle:
+    """Bind one immutable residual-v1 release for forward shadow capture only.
+
+    This path is deliberately independent of the active-release pointer.  Its
+    distinct status is accepted by the live prediction tape adapter, but not by
+    production model serving or base-model materialization.
+    """
+
+    from weather.model.residual_distribution_v1 import PREDICTION_MODE
+    from weather.residual_distribution_release import (
+        ROLE_PATH_KINDS,
+        verify_residual_distribution_v1_release,
+    )
+
+    release_root = Path(release_dir).resolve()
+    verified = verify_residual_distribution_v1_release(
+        release_root,
+        repo_root=repo_root,
+        expected_manifest_sha256=expected_manifest_sha256,
+        check_runtime=check_runtime,
+        current_runtime_versions=current_runtime_versions,
+        current_runtime_identity=current_runtime_identity,
+    )
+    if verified.get("status") != "PASS" or not verified.get(
+        "residual_distribution_v1_verified"
+    ):
+        raise ReleaseServingBindingError(
+            "inactive residual distribution release did not pass exact verification"
+        )
+
+    manifest = verified["manifest"]
+    roles = _inventory_by_role(manifest)
+    model_role = "residual_distribution_v1_model"
+    registry_role = "model_variant_registry"
+    model_row = roles.get(model_role)
+    registry_row = roles.get(registry_role)
+    if (
+        not isinstance(model_row, Mapping)
+        or model_row.get("kind") != "model"
+        or model_row.get("path") != ROLE_PATH_KINDS[model_role][0]
+    ):
+        raise ReleaseServingBindingError(
+            "verified residual distribution release has no exact model role"
+        )
+    if (
+        not isinstance(registry_row, Mapping)
+        or registry_row.get("kind") != "registry"
+        or registry_row.get("path") != ROLE_PATH_KINDS[registry_role][0]
+    ):
+        raise ReleaseServingBindingError(
+            "verified residual distribution release has no exact registry role"
+        )
+
+    registry_path = release_root / str(registry_row["path"])
+    model_path = release_root / str(model_row["path"])
+    registry = _checked_json(
+        registry_path,
+        expected_sha256=str(registry_row["sha256"]),
+        label="residual distribution model variant registry",
+    )
+    candidate_id = str(verified.get("candidate_id") or "")
+    candidates = [
+        row
+        for row in registry.get("variants") or []
+        if isinstance(row, Mapping) and str(row.get("variant_id") or "") == candidate_id
+    ]
+    if len(candidates) != 1:
+        raise ReleaseServingBindingError(
+            "verified residual distribution registry has no singular candidate entry"
+        )
+    candidate = candidates[0]
+    if (
+        candidate.get("prediction_mode") != PREDICTION_MODE
+        or candidate.get("live_runtime") != PREDICTION_MODE
+        or candidate.get("lifecycle") != "shadow"
+        or candidate.get("active_for_headline") is not False
+        or candidate.get("live_capture_enabled") is not False
+        or candidate.get("counts_toward_weather_model_promotion") is not False
+    ):
+        raise ReleaseServingBindingError(
+            "verified residual distribution registry candidate is not shadow-only"
+        )
+    route = manifest.get("route") or {}
+    if (
+        route.get("candidate_id") != candidate_id
+        or route.get("prediction_mode") != PREDICTION_MODE
+        or route.get("live_runtime") != PREDICTION_MODE
+        or route.get("active_for_headline") is not False
+    ):
+        raise ReleaseServingBindingError(
+            "verified residual distribution route and registry candidate disagree"
+        )
+
+    model_bundle = _checked_pickle(
+        model_path,
+        expected_sha256=str(model_row["sha256"]),
+        label="residual distribution v1 model",
+    )
+    if (
+        model_bundle.get("candidate_id") != candidate_id
+        or model_bundle.get("prediction_mode") != PREDICTION_MODE
+    ):
+        raise ReleaseServingBindingError(
+            "verified residual distribution model identity disagrees with its release"
+        )
+
+    return VerifiedServingBundle(
+        status=STATUS_SHADOW_BOUND,
+        reason=(
+            "immutable residual distribution release model, registry, and manifest "
+            "verified for shadow capture only"
+        ),
+        pointer_present=False,
+        release_id=str(verified["release_id"]),
+        manifest_sha256=str(verified["manifest_sha256"]),
+        release_dir=str(release_root),
+        route=_deep_freeze(route),
+        model_variant_registry=_deep_freeze(registry),
+        model_bundle=model_bundle,
+        json_artifacts=MappingProxyType({registry_role: _deep_freeze(registry)}),
+        artifact_paths=MappingProxyType(
+            {
+                model_role: str(model_path),
+                registry_role: str(registry_path),
+            }
+        ),
+        artifact_hashes=MappingProxyType(
+            {
+                model_role: str(model_row["sha256"]),
+                registry_role: str(registry_row["sha256"]),
+            }
+        ),
+        base_model_bound=True,
+        base_model_binding_reason=(
+            "exact immutable residual distribution artifact is the verified shadow base graph"
+        ),
+    )
+
+
 def get_process_active_serving_bundle(
     *,
     pointer_path: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
@@ -589,13 +737,17 @@ def clear_process_serving_bundle_cache() -> None:
 
 
 def serving_bundle_lineage(bundle: VerifiedServingBundle) -> dict[str, Any]:
-    if bundle.status == STATUS_BOUND:
+    if bundle.status in {STATUS_BOUND, STATUS_SHADOW_BOUND}:
         return {
             "release_id": bundle.release_id,
             "release_manifest_sha256": bundle.manifest_sha256,
             "release_pointer_sha256": bundle.pointer_sha256,
             "release_sequence": bundle.sequence,
-            "release_identity_status": "verified_variant_serving_bundle",
+            "release_identity_status": (
+                "verified_variant_serving_bundle"
+                if bundle.status == STATUS_BOUND
+                else "verified_inactive_shadow_bundle"
+            ),
             "release_identity_reason": bundle.reason,
             "base_model_release_bound": bundle.base_model_bound,
             "base_model_binding_reason": bundle.base_model_binding_reason,

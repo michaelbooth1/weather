@@ -73,6 +73,40 @@ CONTRACTS_BY_CLASS = {contract.name: contract for contract in STORAGE_CLASS_CONT
 
 ARTIFACT_FAMILIES = (
     ArtifactFamilyClassification(
+        "observation_payload_evidence",
+        "collection/sources",
+        CANONICAL_EVIDENCE,
+        (
+            "snapshots/*/observation_payloads.jsonl",
+            "snapshots/*/observation_payloads/*.json",
+            "snapshots/*/observation_payloads/**/*.json",
+        ),
+        "permanent_first_seen_observation_payloads",
+        "not rebuildable with the original provider response, first-seen time, and parser state",
+        "canonical_evidence_review_gate",
+        True,
+        examples=(
+            "data/snapshots/<event>/observation_payloads.jsonl",
+            "data/snapshots/<event>/observation_payloads/<snapshot>_<source>_<hash>.json",
+        ),
+        notes="Settlement and PIT evidence; must be covered by event manifests, backup, and restore proof.",
+    ),
+    ArtifactFamilyClassification(
+        "clob_capture_status_evidence",
+        "market",
+        CANONICAL_EVIDENCE,
+        (
+            "snapshots/*/clob_capture_status.jsonl",
+            "snapshots/*/clob_capture_status*.jsonl",
+        ),
+        "permanent_clob_capture_health_tape",
+        "not rebuildable; records whether a live capture succeeded, failed, or returned no usable market state",
+        "canonical_evidence_review_gate",
+        True,
+        examples=("data/snapshots/<event>/clob_capture_status.jsonl",),
+        notes="A named failure is valid evidence; an absent status tape is not.",
+    ),
+    ArtifactFamilyClassification(
         "snapshot_jsonl_evidence",
         "collection/model/market",
         CANONICAL_EVIDENCE,
@@ -255,6 +289,20 @@ ARTIFACT_FAMILIES = (
         examples=("data/backtest/promotion_corpus.json", "data/backtest/location_trust.json"),
     ),
     ArtifactFamilyClassification(
+        "observation_payload_projection",
+        "collection/sources",
+        ANALYSIS_PROJECTION,
+        (
+            "snapshots/*/observation_payloads*.csv",
+            "snapshots/*/observation_payloads*.csv.gz",
+        ),
+        "rebuildable_observation_payload_projection",
+        "observation_payload_evidence",
+        "projection_rebuild_source_gate",
+        False,
+        examples=("data/snapshots/<event>/observation_payloads_long.csv",),
+    ),
+    ArtifactFamilyClassification(
         "snapshot_csv_long_tables",
         "collection/model/market",
         ANALYSIS_PROJECTION,
@@ -303,7 +351,7 @@ ARTIFACT_FAMILIES = (
             "archive/closed_market_days/**/closed_market_day_archive_manifest.json",
         ),
         "rebuildable_closed_day_projection",
-        "event_day_manifest and canonical snapshot/CLOB tapes",
+        "event_day_manifest and canonical snapshot/forecast/observation/CLOB-status tapes",
         "projection_rebuild_source_gate",
         False,
         examples=("data/archive/closed_market_days/v0.1/local_date=.../artifact_family=order_books_long/data.parquet",),

@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import os
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -398,16 +399,25 @@ def parity_rows(probabilities=(0.2, 0.6, 0.2), *, route_id="route-a", include_ha
                 "artifact_hash": "artifact-123",
                 "postprocess_config_hash": "postprocess-123",
                 "release_manifest_sha256": "a" * 64,
+                "parity_branch_scenario": "fresh",
             }
         )
     return rows
+
+
+PARITY_COVERAGE = {
+    "candidate_id": "weather-v1",
+    "expected_market_ids": ["test-market"],
+    "expected_branch_scenarios": ["fresh"],
+    "expected_band_count_by_market": {"test-market": 3},
+}
 
 
 def test_captured_input_replay_parity_passes_within_tolerance():
     served = parity_rows()
     replay = parity_rows((0.2 + 1e-13, 0.6 - 1e-13, 0.2))
 
-    payload = compare_replay_to_served(served, replay)
+    payload = compare_replay_to_served(served, replay, coverage_contract=PARITY_COVERAGE)
 
     assert payload["status"] == "PASS"
     assert payload["summary"]["compared_row_count"] == 3
@@ -417,11 +427,58 @@ def test_captured_input_replay_parity_passes_within_tolerance():
     assert payload["manifest_sha256"] == "a" * 64
 
 
+def test_captured_input_replay_parity_blocks_matched_one_row_subset():
+    served = parity_rows()[:1]
+    replay = parity_rows()[:1]
+
+    payload = compare_replay_to_served(
+        served,
+        replay,
+        coverage_contract=PARITY_COVERAGE,
+    )
+
+    assert payload["status"] == "BLOCK"
+    assert payload["coverage_contract"]["checks"][
+        "complete_band_count_each_market_branch"
+    ] is False
+
+
+def test_captured_input_replay_parity_blocks_missing_branch_and_passes_exact_matrix():
+    contract = {
+        **PARITY_COVERAGE,
+        "expected_branch_scenarios": ["fresh", "stale"],
+    }
+    fresh = parity_rows()
+    blocked = compare_replay_to_served(
+        fresh,
+        parity_rows(),
+        coverage_contract=contract,
+    )
+    stale = parity_rows()
+    for row in stale:
+        row["snapshot_id"] = "snapshot-stale"
+        row["captured_input_hash"] = "captured-input-stale"
+        row["parity_branch_scenario"] = "stale"
+    exhaustive = [*fresh, *stale]
+    passed = compare_replay_to_served(
+        exhaustive,
+        deepcopy(exhaustive),
+        coverage_contract=contract,
+    )
+
+    assert blocked["status"] == "BLOCK"
+    assert blocked["coverage_contract"]["missing_market_branch_pairs"] == [
+        {"market_id": "test-market", "branch_scenario": "stale"}
+    ]
+    assert passed["status"] == "PASS"
+    assert passed["coverage_contract"]["status"] == "PASS"
+
+
 def test_captured_input_replay_parity_fails_closed_on_identity_hash_and_probability():
     served = parity_rows(include_hash=False)
     replay = parity_rows((0.25, 0.55, 0.2), route_id="route-b", include_hash=False)
 
-    payload = compare_replay_to_served(served, replay)
+    payload = compare_replay_to_served(served, replay, coverage_contract=PARITY_COVERAGE)
 
     assert payload["status"] == "BLOCK"
     codes = {row["code"] for row in payload["mismatches"]}
@@ -438,7 +495,7 @@ def test_captured_input_replay_parity_compares_skip_decisions_and_row_coverage()
     replay = parity_rows()
     replay.pop()
 
-    payload = compare_replay_to_served(served, replay)
+    payload = compare_replay_to_served(served, replay, coverage_contract=PARITY_COVERAGE)
 
     codes = {row["code"] for row in payload["mismatches"]}
     assert payload["status"] == "BLOCK"
@@ -467,6 +524,7 @@ def test_captured_input_parity_path_contract_blocks_missing_stale_and_wrong_rele
         replay,
         expected_release_id="release-1",
         expected_manifest_sha256="a" * 64,
+        coverage_contract=PARITY_COVERAGE,
         now=now,
     )
     missing = build_captured_input_replay_parity(
@@ -474,6 +532,7 @@ def test_captured_input_parity_path_contract_blocks_missing_stale_and_wrong_rele
         tmp_path / "missing-replay.csv",
         expected_release_id="release-1",
         expected_manifest_sha256="a" * 64,
+        coverage_contract=PARITY_COVERAGE,
         now=now,
     )
     old = now - timedelta(hours=49)
@@ -483,6 +542,7 @@ def test_captured_input_parity_path_contract_blocks_missing_stale_and_wrong_rele
         replay,
         expected_release_id="release-1",
         expected_manifest_sha256="a" * 64,
+        coverage_contract=PARITY_COVERAGE,
         now=now,
     )
     mismatch = build_captured_input_replay_parity(
@@ -490,6 +550,7 @@ def test_captured_input_parity_path_contract_blocks_missing_stale_and_wrong_rele
         replay,
         expected_release_id="other-release",
         expected_manifest_sha256="b" * 64,
+        coverage_contract=PARITY_COVERAGE,
         max_input_age_hours=72,
         now=now,
     )
@@ -531,12 +592,17 @@ def test_parity_write_failure_replaces_or_removes_seeded_pass(tmp_path, monkeypa
         report_out=report_out,
         expected_release_id="release-1",
         expected_manifest_sha256="a" * 64,
+        coverage_contract=PARITY_COVERAGE,
     )
     persisted = json.loads(json_out.read_text(encoding="utf-8"))
 
     assert payload["status"] == "BLOCK"
     assert proof_path == json_out
     assert persisted["status"] == "BLOCK"
+    assert persisted["parity_sha256"] == scorecard_module.finalize_self_hash(
+        persisted,
+        hash_field="parity_sha256",
+    )["parity_sha256"]
     assert any(row["code"] == "parity_output_persistence_failed" for row in persisted["mismatches"])
 
     json_out.write_text('{"status":"PASS"}\n', encoding="utf-8")
@@ -548,6 +614,7 @@ def test_parity_write_failure_replaces_or_removes_seeded_pass(tmp_path, monkeypa
         report_out=report_out,
         expected_release_id="release-1",
         expected_manifest_sha256="a" * 64,
+        coverage_contract=PARITY_COVERAGE,
     )
     assert payload["status"] == "BLOCK"
     assert proof_path is None
@@ -559,8 +626,10 @@ def test_cli_parity_runs_independently_and_writes_new_outputs(tmp_path):
     replay = tmp_path / "replay.csv"
     json_out = tmp_path / "parity.json"
     report_out = tmp_path / "parity.md"
+    coverage_path = tmp_path / "coverage.json"
     _write_csv(served, parity_rows())
     _write_csv(replay, parity_rows())
+    coverage_path.write_text(json.dumps(PARITY_COVERAGE), encoding="utf-8")
 
     exit_code = main(
         [
@@ -569,6 +638,8 @@ def test_cli_parity_runs_independently_and_writes_new_outputs(tmp_path):
             str(served),
             "--replay",
             str(replay),
+            "--coverage-contract",
+            str(coverage_path),
             "--json-out",
             str(json_out),
             "--report-out",

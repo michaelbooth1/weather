@@ -6,9 +6,11 @@ copies; the per-market JSONL ledgers under ``data/settlements`` are the source
 of truth that scoring tools should consult first.
 """
 import csv
+import hashlib
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,6 +56,13 @@ PROMOTION_RECONCILIATION_STATUSES = {"match"}
 
 LABEL_COLUMNS = [
     "schema_version",
+    "ledger_record_type",
+    "revision_id",
+    "revision_number",
+    "recorded_at_utc",
+    "supersedes_revision_id",
+    "previous_label_hash",
+    "label_hash",
     "event_slug",
     "market_id",
     "city",
@@ -396,8 +405,48 @@ def override_bucket(overrides, spec, target_date, event_slug):
     keys = [event_slug, f"{spec.id}:{iso}" if spec else None, iso]
     for key in keys:
         if key and key in overrides:
-            return int(overrides[key])
+            value = overrides[key]
+            if isinstance(value, dict):
+                value = value.get("settlement_bucket", value.get("bucket", value.get("value")))
+            return int(value)
     return None
+
+
+def settlement_override_provenance(overrides, spec, target_date, event_slug):
+    if not overrides or target_date is None:
+        return {}
+    iso = target_date.isoformat()
+    keys = [event_slug, f"{spec.id}:{iso}" if spec else None, iso]
+    for key in keys:
+        if not key or key not in overrides:
+            continue
+        raw = overrides[key]
+        detail = dict(raw) if isinstance(raw, dict) else {"settlement_bucket": raw}
+        return {
+            "override_key": key,
+            "settlement_bucket": detail.get(
+                "settlement_bucket", detail.get("bucket", detail.get("value"))
+            ),
+            "actor": detail.get("actor") or detail.get("author"),
+            "reason": detail.get("reason"),
+            "approved_at_utc": detail.get("approved_at_utc") or detail.get("created_at_utc"),
+            "source_reference": detail.get("source_reference") or detail.get("source_url"),
+            "override_record_sha256": _canonical_sha256({"key": key, "value": raw}),
+        }
+    return {}
+
+
+def file_sha256(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def snapshot_settlement_high(frame):
@@ -773,14 +822,257 @@ def write_jsonl(path, rows):
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+LEDGER_REVISION_METADATA_FIELDS = {
+    "ledger_record_type",
+    "revision_id",
+    "revision_number",
+    "recorded_at_utc",
+    "supersedes_revision_id",
+    "previous_label_hash",
+    "label_hash",
+    "revision_changes",
+    "revision_provenance",
+}
+
+
+def _canonical_sha256(payload):
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _label_payload(row):
+    return {
+        key: value
+        for key, value in dict(row or {}).items()
+        if key not in LEDGER_REVISION_METADATA_FIELDS
+    }
+
+
+def _label_hash(row):
+    recorded = (row or {}).get("label_hash")
+    return str(recorded) if recorded else _canonical_sha256(_label_payload(row))
+
+
+def _revision_number(row, fallback=0):
+    try:
+        return int((row or {}).get("revision_number") or fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _revision_id(row):
+    if not row:
+        return None
+    return row.get("revision_id") or f"sha256:legacy:{_label_hash(row)}"
+
+
+def ledger_history_for_slug(event_slug, ledger_root=None, market_id=None):
+    root = resolve_ledger_root(ledger_root)
+    spec = spec_for_slug(event_slug)
+    resolved_market_id = market_id or (spec.id if spec else None)
+    paths = (
+        [ledger_path_for_market(resolved_market_id, root)]
+        if resolved_market_id
+        else sorted(root.glob("*/ledger.jsonl"))
+    )
+    history = []
+    for path in paths:
+        history.extend(
+            row for row in read_jsonl(path) if row.get("event_slug") == event_slug
+        )
+    return history
+
+
+def current_ledger_label(rows, event_slug):
+    candidates = [row for row in rows if row.get("event_slug") == event_slug]
+    if not candidates:
+        return None
+    # File order is the tie-breaker for imported legacy rows. New rows carry a
+    # monotonic per-event revision number and are always appended.
+    _, selected = max(
+        enumerate(candidates),
+        key=lambda pair: (_revision_number(pair[1]), pair[0]),
+    )
+    return dict(selected)
+
+
+def verify_ledger_history(rows, event_slug=None):
+    """Verify hashes and supersession links for one physical ledger history."""
+
+    selected = [
+        dict(row) for row in rows
+        if event_slug is None or row.get("event_slug") == event_slug
+    ]
+    blockers = []
+    previous_by_slug = {}
+    for index, row in enumerate(selected):
+        slug = row.get("event_slug")
+        if row.get("ledger_record_type") != "settlement_revision":
+            previous_by_slug[slug] = row
+            continue
+        recomputed = _canonical_sha256(_label_payload(row))
+        if row.get("label_hash") != recomputed:
+            blockers.append({"index": index, "event_slug": slug, "code": "label_hash_mismatch"})
+        previous = previous_by_slug.get(slug)
+        expected_revision_number = _revision_number(previous) + 1
+        if _revision_number(row) != expected_revision_number:
+            blockers.append({
+                "index": index,
+                "event_slug": slug,
+                "code": "revision_number_mismatch",
+            })
+        revision_seed = {
+            "event_slug": slug,
+            "revision_number": row.get("revision_number"),
+            "recorded_at_utc": row.get("recorded_at_utc"),
+            "label_hash": row.get("label_hash"),
+            "supersedes_revision_id": row.get("supersedes_revision_id"),
+        }
+        if row.get("revision_id") != f"sha256:{_canonical_sha256(revision_seed)}":
+            blockers.append({"index": index, "event_slug": slug, "code": "revision_id_mismatch"})
+        if row.get("revision_changes") != _revision_changes(previous, row):
+            blockers.append({"index": index, "event_slug": slug, "code": "revision_changes_mismatch"})
+        if previous is not None:
+            if row.get("supersedes_revision_id") != _revision_id(previous):
+                blockers.append({
+                    "index": index,
+                    "event_slug": slug,
+                    "code": "supersedes_revision_id_mismatch",
+                })
+            if row.get("previous_label_hash") != _label_hash(previous):
+                blockers.append({
+                    "index": index,
+                    "event_slug": slug,
+                    "code": "previous_label_hash_mismatch",
+                })
+        previous_by_slug[slug] = row
+    return {
+        "status": "PASS" if not blockers else "BLOCK",
+        "record_count": len(selected),
+        "revision_count": sum(
+            row.get("ledger_record_type") == "settlement_revision" for row in selected
+        ),
+        "blockers": blockers,
+    }
+
+
+def _revision_changes(previous, current):
+    before = _label_payload(previous or {})
+    after = _label_payload(current or {})
+    changes = []
+    for field in sorted(set(before) | set(after)):
+        if before.get(field) != after.get(field):
+            changes.append({
+                "field": field,
+                "old": before.get(field),
+                "new": after.get(field),
+            })
+    return changes
+
+
+def _revision_provenance(label):
+    evidence = label.get("evidence") if isinstance(label.get("evidence"), dict) else {}
+    return {
+        "five_time_provenance": evidence.get("five_time_provenance") or {},
+        "raw_resolution_hashes": evidence.get("raw_resolution_hashes") or {},
+        "override_provenance": evidence.get("override_provenance") or {},
+        "finalized_at_utc": label.get("finalized_at_utc"),
+    }
+
+
+def _acquire_ledger_lock(path, attempts=200, stale_after_seconds=300.0):
+    lock_path = Path(path).with_suffix(Path(path).suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(attempts):
+        try:
+            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(handle, str(os.getpid()).encode("ascii"))
+            return handle, lock_path
+        except FileExistsError:
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+                if age > stale_after_seconds:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue
+            time.sleep(0.01)
+    raise TimeoutError(f"timed out acquiring settlement ledger lock: {lock_path}")
+
+
+def _release_ledger_lock(handle, lock_path):
+    try:
+        os.close(handle)
+    finally:
+        Path(lock_path).unlink(missing_ok=True)
+
+
 def upsert_ledger_record(label, ledger_root=None):
+    """Append an immutable settlement revision while preserving the old API.
+
+    The historical name remains for callers, but no existing row is rewritten
+    or removed. Repeating byte-equivalent label content is idempotent.
+    """
+
     path = ledger_path_for_market(label["market_id"], ledger_root)
-    rows = [row for row in read_jsonl(path) if row.get("event_slug") != label.get("event_slug")]
-    label = dict(label)
-    label["ledger_path"] = str(path)
-    rows.append(label)
-    rows.sort(key=lambda row: (row.get("target_date") or "", row.get("event_slug") or ""))
-    write_jsonl(path, rows)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_handle, lock_path = _acquire_ledger_lock(path)
+    try:
+        rows = read_jsonl(path)
+        event_slug = label.get("event_slug")
+        verification = verify_ledger_history(rows, event_slug=event_slug)
+        if verification["status"] != "PASS":
+            codes = ",".join(item["code"] for item in verification["blockers"])
+            raise RuntimeError(
+                f"refusing to extend corrupt settlement ledger for {event_slug}: {codes}"
+            )
+        previous = current_ledger_label(rows, event_slug)
+        record = dict(label)
+        record["ledger_path"] = str(path)
+        record_hash = _canonical_sha256(_label_payload(record))
+        if previous is not None and _label_hash(previous) == record_hash:
+            # Return the extant revision to mutable mapping callers so folder
+            # sidecars can still mirror the current ledger row.
+            if isinstance(label, dict):
+                label.update(previous)
+            return path
+
+        previous_hash = _label_hash(previous) if previous else None
+        previous_revision = _revision_number(previous)
+        recorded_at = datetime.now(timezone.utc).isoformat()
+        revision_seed = {
+            "event_slug": event_slug,
+            "revision_number": previous_revision + 1,
+            "recorded_at_utc": recorded_at,
+            "label_hash": record_hash,
+            "supersedes_revision_id": _revision_id(previous),
+        }
+        record.update({
+            "ledger_record_type": "settlement_revision",
+            "revision_id": f"sha256:{_canonical_sha256(revision_seed)}",
+            "revision_number": previous_revision + 1,
+            "recorded_at_utc": recorded_at,
+            "supersedes_revision_id": _revision_id(previous),
+            "previous_label_hash": previous_hash,
+            "label_hash": record_hash,
+            "revision_changes": _revision_changes(previous, record),
+            "revision_provenance": _revision_provenance(record),
+        })
+        encoded = json.dumps(record, sort_keys=True, default=str) + "\n"
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if isinstance(label, dict):
+            label.update(record)
+    finally:
+        _release_ledger_lock(lock_handle, lock_path)
     return path
 
 
@@ -789,9 +1081,14 @@ def ledger_label_for_slug(event_slug, ledger_root=None):
     root = resolve_ledger_root(ledger_root)
     paths = [ledger_path_for_market(spec.id, root)] if spec else sorted(root.glob("*/ledger.jsonl"))
     for path in paths:
-        for row in read_jsonl(path):
-            if row.get("event_slug") == event_slug:
-                return row
+        history = read_jsonl(path)
+        verification = verify_ledger_history(history, event_slug=event_slug)
+        if verification["status"] != "PASS":
+            codes = ",".join(item["code"] for item in verification["blockers"])
+            raise RuntimeError(f"settlement ledger integrity failure for {event_slug}: {codes}")
+        selected = current_ledger_label(history, event_slug)
+        if selected is not None:
+            return selected
     return None
 
 
@@ -863,7 +1160,8 @@ def build_label(
     if settlement["source"] in {"snapshot_high", "none"} or "sparse" in str(settlement["source"]):
         core_columns.append(high_column or SNAPSHOT_HIGH_COLUMNS[-1])
     missing_core = missing_fraction(frame, core_columns)
-    coverage = coverage_summary(captured_times(frame), interval_minutes, gap_tolerance, target_date=target_date)
+    capture_times = captured_times(frame)
+    coverage = coverage_summary(capture_times, interval_minutes, gap_tolerance, target_date=target_date)
     coverage_clean = bool(coverage.get("clean"))
     grade = quality_grade(
         snapshot_count,
@@ -903,6 +1201,39 @@ def build_label(
         else polymarket_winning_band
     )
     ledger_path = ledger_path_for_market(spec.id, ledger_root)
+    polymarket_metadata = polymarket_event if isinstance(polymarket_event, dict) else {}
+    raw_resolution_hashes = {
+        "snapshot_tape_sha256": file_sha256(tape),
+        "daily_summary_sha256": file_sha256(daily_summary_path),
+        "polymarket_response_sha256": (
+            _canonical_sha256(polymarket_event) if polymarket_event is not None else None
+        ),
+        "resolution_spec_sha256": _canonical_sha256(resolution),
+    }
+    raw_resolution_hashes = {
+        key: value for key, value in raw_resolution_hashes.items() if value
+    }
+    five_time_provenance = {
+        "request_started_at": polymarket_metadata.get("request_started_at")
+        or polymarket_metadata.get("requested_at"),
+        "response_received_at": polymarket_metadata.get("response_received_at")
+        or polymarket_metadata.get("received_at")
+        or polymarket_metadata.get("fetched_at"),
+        "first_seen_at": polymarket_metadata.get("first_seen_at")
+        or polymarket_metadata.get("available_at"),
+        "source_observed_at": (settlement.get("summary") or {}).get("source_observed_at")
+        if isinstance(settlement.get("summary"), dict)
+        else None,
+        "first_snapshot_captured_at": min(capture_times).isoformat() if capture_times else None,
+        "last_snapshot_captured_at": max(capture_times).isoformat() if capture_times else None,
+        "label_finalized_at": finalized_at.isoformat(),
+    }
+    override_provenance = settlement_override_provenance(
+        overrides or {},
+        spec,
+        target_date,
+        event_slug,
+    )
     material = material_coverage_grade(
         snapshot_count,
         band_count,
@@ -969,6 +1300,9 @@ def build_label(
             "summary": settlement.get("summary"),
             "polymarket_reconciliation": reconciliation,
             "resolution_spec": resolution,
+            "five_time_provenance": five_time_provenance,
+            "raw_resolution_hashes": raw_resolution_hashes,
+            "override_provenance": override_provenance,
         },
         "polymarket_reconciliation": reconciliation,
         "reconciliation_status": reconciliation.get("status"),
@@ -1021,9 +1355,11 @@ def finalize_folder(
     )
     if not label:
         return None
-    write_folder_label(folder, label)
     ledger_path = upsert_ledger_record(label, ledger_root)
     label["ledger_path"] = str(ledger_path)
+    # The folder copy mirrors the current immutable ledger revision, including
+    # its revision id and supersession link.
+    write_folder_label(folder, label)
     append_mismatch_alert(label, ledger_root)
     return label
 

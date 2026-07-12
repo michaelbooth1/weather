@@ -335,6 +335,19 @@ def test_identity_calibration_is_supported_as_temperature_one():
             },
             "abstain_source_state",
         ),
+        (
+            {
+                "source_diagnostics": [
+                    {
+                        "source": "open_meteo",
+                        "status": "fresh",
+                        "age_minutes": 61.0,
+                        "ttl_minutes": 60.0,
+                    }
+                ]
+            },
+            "abstain_source_state",
+        ),
         ({"source_diagnostics": []}, "abstain_source_state"),
         ({"source_diagnostics": "fresh"}, "abstain_source_state"),
     ],

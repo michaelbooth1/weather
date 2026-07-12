@@ -25,9 +25,13 @@ def test_fetch_source_group_runs_without_model_facade():
     assert result["ok_source"]["ok"] is True
     assert result["ok_source"]["data"] == {"value": 3}
     assert result["ok_source"]["fetched_at"] == "2026-06-16T12:00:00+00:00"
+    assert result["ok_source"]["request_started_at"] == "2026-06-16T12:00:00+00:00"
+    assert result["ok_source"]["response_received_at"] == "2026-06-16T12:00:00+00:00"
     assert result["bad_source"]["ok"] is False
     assert "boom" in result["bad_source"]["error"]
     assert result["bad_source"]["fetched_at"] == "2026-06-16T12:00:00+00:00"
+    assert result["bad_source"]["request_started_at"] == "2026-06-16T12:00:00+00:00"
+    assert result["bad_source"]["response_received_at"] == "2026-06-16T12:00:00+00:00"
 
 
 def test_fetch_source_group_strips_success_metadata():
@@ -77,3 +81,24 @@ def test_fetch_source_group_surfaces_http_429_metadata():
     assert result["open_meteo"]["status"] == "rate_limited"
     assert result["open_meteo"]["http_status"] == 429
     assert result["open_meteo"]["retry_after_seconds"] == 7.0
+
+
+def test_fetch_source_group_records_distinct_attempt_boundaries():
+    tz = ZoneInfo("UTC")
+    timestamps = iter(
+        [
+            datetime(2026, 7, 12, 10, 59, 58, tzinfo=tz),
+            datetime(2026, 7, 12, 11, 0, 2, tzinfo=tz),
+        ]
+    )
+    result = fetch_source_group(
+        {"nws_grid": lambda: {"value": 3}},
+        timezone=tz,
+        now_fn=lambda: next(timestamps),
+        max_workers=1,
+    )
+
+    row = result["nws_grid"]
+    assert row["request_started_at"] == "2026-07-12T10:59:58+00:00"
+    assert row["response_received_at"] == "2026-07-12T11:00:02+00:00"
+    assert row["fetched_at"] == row["response_received_at"]

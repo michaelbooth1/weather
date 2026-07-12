@@ -89,6 +89,8 @@ REQUIRED_FIT_STAGES = (
     "postprocessing",
     "regime_router",
 )
+FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM = "sha256"
+FIT_RECEIPT_PAYLOAD_CANONICALIZATION = "canonical_json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 LANE_ALIASES = {
@@ -690,6 +692,9 @@ def materialize_point_in_time_table(
                     "source_file_hash": provenance.get("source_file_hash"),
                     "parquet_file_hash": provenance.get("parquet_file_hash"),
                     "manifest_hash": provenance.get("manifest_hash"),
+                    "event_manifest_hash": provenance.get("event_manifest_hash"),
+                    "release_id": provenance.get("release_id"),
+                    "runtime_identity_key": provenance.get("runtime_identity_key"),
                     "fallback_reason": provenance.get("fallback_reason"),
                 }
             )
@@ -1005,9 +1010,14 @@ def build_fit_receipt(
     implementation_identity: str,
     fit_rows: Sequence[Mapping[str, Any]],
     validation_rows: Sequence[Mapping[str, Any]],
+    fit_output_rows: Sequence[Mapping[str, Any]] | None = None,
+    validation_output_rows: Sequence[Mapping[str, Any]] | None = None,
+    stage_input_payload: Any = None,
+    stage_output_payload: Any = None,
+    upstream_stage_output_sha256: str | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
-    """Build a hash-linked receipt proving a stage saw training rows only."""
+    """Build a training-only receipt, optionally binding stage inputs to outputs."""
 
     scope = str(fold_scope).strip()
     stage = str(stage_name).strip()
@@ -1023,6 +1033,10 @@ def build_fit_receipt(
             "fit_receipt_date_mismatch",
             "fit receipt rows do not exactly match the declared fold",
         )
+    fit_input_sha = sha256_text(canonical_json([_jsonable(row) for row in fit_rows]))
+    validation_input_sha = sha256_text(
+        canonical_json([_jsonable(row) for row in validation_rows])
+    )
     receipt = {
         "schema_version": FIT_RECEIPT_SCHEMA_VERSION,
         "artifact_type": "training_only_fit_receipt",
@@ -1038,12 +1052,181 @@ def build_fit_receipt(
         "embargo_days": fold.embargo_days,
         "fit_row_count": len(fit_rows),
         "validation_row_count": len(validation_rows),
-        "fit_input_sha256": sha256_text(canonical_json([_jsonable(row) for row in fit_rows])),
-        "validation_input_sha256": sha256_text(
-            canonical_json([_jsonable(row) for row in validation_rows])
-        ),
+        "fit_input_sha256": fit_input_sha,
+        "validation_input_sha256": validation_input_sha,
     }
+    output_binding_requested = (
+        fit_output_rows is not None
+        or validation_output_rows is not None
+        or stage_input_payload is not None
+        or stage_output_payload is not None
+        or upstream_stage_output_sha256 is not None
+    )
+    if output_binding_requested:
+        if fit_output_rows is None or validation_output_rows is None:
+            raise ValueError(
+                "fit_output_rows and validation_output_rows are required for output binding"
+            )
+        if not fit_output_rows or not validation_output_rows:
+            raise ValueError("fit and validation output rows cannot be empty")
+        fit_output_dates = {
+            str(row.get("target_date") or "") for row in fit_output_rows
+        }
+        validation_output_dates = {
+            str(row.get("target_date") or "") for row in validation_output_rows
+        }
+        if (
+            fit_output_dates != set(fold.train_dates)
+            or validation_output_dates != set(fold.validation_dates)
+        ):
+            raise ContractViolation(
+                "fit_receipt_output_date_mismatch",
+                "fit receipt outputs do not exactly match the declared fold",
+            )
+        if upstream_stage_output_sha256 is not None and not SHA256_RE.fullmatch(
+            str(upstream_stage_output_sha256)
+        ):
+            raise ValueError("upstream_stage_output_sha256 must be SHA-256 when supplied")
+        fit_output_sha = sha256_text(
+            canonical_json([_jsonable(row) for row in fit_output_rows])
+        )
+        validation_output_sha = sha256_text(
+            canonical_json([_jsonable(row) for row in validation_output_rows])
+        )
+        declared_input = _jsonable(
+            stage_input_payload
+            if stage_input_payload is not None
+            else {"kind": "training_only_stage_input"}
+        )
+        declared_output = _jsonable(
+            stage_output_payload
+            if stage_output_payload is not None
+            else {"kind": "transformed_rows"}
+        )
+        input_payload = {
+            "fit_input_sha256": fit_input_sha,
+            "validation_input_sha256": validation_input_sha,
+            "fit_row_count": len(fit_rows),
+            "validation_row_count": len(validation_rows),
+            "train_dates": list(fold.train_dates),
+            "validation_dates": list(fold.validation_dates),
+            "upstream_stage_output_sha256": upstream_stage_output_sha256,
+            "declared_stage_input": declared_input,
+        }
+        output_payload = {
+            "fit_output_sha256": fit_output_sha,
+            "validation_output_sha256": validation_output_sha,
+            "fit_output_row_count": len(fit_output_rows),
+            "validation_output_row_count": len(validation_output_rows),
+            "train_dates": list(fold.train_dates),
+            "validation_dates": list(fold.validation_dates),
+            "declared_stage_output": declared_output,
+        }
+        receipt.update({
+            "payload_hash_algorithm": FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM,
+            "payload_canonicalization": FIT_RECEIPT_PAYLOAD_CANONICALIZATION,
+            "fit_output_row_count": len(fit_output_rows),
+            "validation_output_row_count": len(validation_output_rows),
+            "fit_output_sha256": fit_output_sha,
+            "validation_output_sha256": validation_output_sha,
+            "stage_input_payload": input_payload,
+            "stage_input_sha256": sha256_text(canonical_json(input_payload)),
+            "stage_output_payload": output_payload,
+            "stage_output_sha256": sha256_text(canonical_json(output_payload)),
+        })
     return _finalize_hash(receipt, "receipt_sha256")
+
+
+def _verify_output_bound_fit_receipt(receipt: Mapping[str, Any]) -> None:
+    """Recompute one receipt's declared stage input and output payload hashes."""
+
+    if (
+        receipt.get("payload_hash_algorithm") != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt payload hash contract is missing",
+        )
+    input_payload = receipt.get("stage_input_payload")
+    output_payload = receipt.get("stage_output_payload")
+    if not isinstance(input_payload, Mapping) or not isinstance(output_payload, Mapping):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt input/output payloads are missing",
+        )
+    input_sha = str(receipt.get("stage_input_sha256") or "")
+    output_sha = str(receipt.get("stage_output_sha256") or "")
+    if (
+        not SHA256_RE.fullmatch(input_sha)
+        or input_sha != sha256_text(canonical_json(input_payload))
+    ):
+        raise ContractViolation(
+            "fit_receipt_input_payload_hash_mismatch",
+            "fit receipt input payload hash does not recompute",
+        )
+    if (
+        not SHA256_RE.fullmatch(output_sha)
+        or output_sha != sha256_text(canonical_json(output_payload))
+    ):
+        raise ContractViolation(
+            "fit_receipt_output_payload_hash_mismatch",
+            "fit receipt output payload hash does not recompute",
+        )
+    expected_input = {
+        "fit_input_sha256": receipt.get("fit_input_sha256"),
+        "validation_input_sha256": receipt.get("validation_input_sha256"),
+        "fit_row_count": receipt.get("fit_row_count"),
+        "validation_row_count": receipt.get("validation_row_count"),
+        "train_dates": list(receipt.get("train_dates") or ()),
+        "validation_dates": list(receipt.get("validation_dates") or ()),
+        "upstream_stage_output_sha256": input_payload.get(
+            "upstream_stage_output_sha256"
+        ),
+        "declared_stage_input": input_payload.get("declared_stage_input"),
+    }
+    if dict(input_payload) != expected_input:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt input payload is inconsistent with its receipt",
+        )
+    expected_output = {
+        "fit_output_sha256": receipt.get("fit_output_sha256"),
+        "validation_output_sha256": receipt.get("validation_output_sha256"),
+        "fit_output_row_count": receipt.get("fit_output_row_count"),
+        "validation_output_row_count": receipt.get("validation_output_row_count"),
+        "train_dates": list(receipt.get("train_dates") or ()),
+        "validation_dates": list(receipt.get("validation_dates") or ()),
+        "declared_stage_output": output_payload.get("declared_stage_output"),
+    }
+    if dict(output_payload) != expected_output:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output payload is inconsistent with its receipt",
+        )
+    if (
+        not SHA256_RE.fullmatch(str(receipt.get("fit_output_sha256") or ""))
+        or not SHA256_RE.fullmatch(
+            str(receipt.get("validation_output_sha256") or "")
+        )
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output row hashes are invalid",
+        )
+    try:
+        output_counts_positive = (
+            int(receipt.get("fit_output_row_count") or 0) > 0
+            and int(receipt.get("validation_output_row_count") or 0) > 0
+        )
+    except (TypeError, ValueError):
+        output_counts_positive = False
+    if not output_counts_positive or output_payload.get("declared_stage_output") is None:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output declaration is incomplete",
+        )
 
 
 def run_training_only_pipeline(
@@ -1087,6 +1270,7 @@ def run_training_only_pipeline(
     fit_receipts: list[Mapping[str, Any]] = []
     train_state = train_rows
     validation_state = validation_rows
+    upstream_stage_output_sha256: str | None = None
     for name, factory in hook_factories:
         if not str(name).strip():
             raise ValueError("training-only hook name is required")
@@ -1094,21 +1278,37 @@ def run_training_only_pipeline(
         if hook is None:
             raise ValueError(f"hook factory returned None: {name}")
         hook.fit(train_state)
-        fit_receipts.append(
-            build_fit_receipt(
-                fold,
-                fold_scope=fold_scope or f"outer/{fold.fold_id}",
-                stage_name=str(name),
-                implementation_identity=(
-                    f"{type(hook).__module__}.{type(hook).__qualname__}"
-                ),
-                fit_rows=train_state,
-                validation_rows=validation_state,
-                generated_at_utc=generated_at_utc,
-            )
+        transformed_train = tuple(hook.transform(train_state))
+        transformed_validation = tuple(hook.transform(validation_state))
+        implementation_identity = f"{type(hook).__module__}.{type(hook).__qualname__}"
+        stage_output_declaration: Any = {
+            "kind": "transformed_rows",
+            "implementation_identity": implementation_identity,
+        }
+        receipt_output = getattr(hook, "receipt_output_payload", None)
+        if callable(receipt_output):
+            stage_output_declaration = receipt_output()
+        receipt = build_fit_receipt(
+            fold,
+            fold_scope=fold_scope or f"outer/{fold.fold_id}",
+            stage_name=str(name),
+            implementation_identity=implementation_identity,
+            fit_rows=train_state,
+            validation_rows=validation_state,
+            fit_output_rows=transformed_train,
+            validation_output_rows=transformed_validation,
+            stage_input_payload={
+                "kind": "training_only_stage_input",
+                "stage_name": str(name),
+            },
+            stage_output_payload=stage_output_declaration,
+            upstream_stage_output_sha256=upstream_stage_output_sha256,
+            generated_at_utc=generated_at_utc,
         )
-        train_state = tuple(hook.transform(train_state))
-        validation_state = tuple(hook.transform(validation_state))
+        fit_receipts.append(receipt)
+        upstream_stage_output_sha256 = str(receipt["stage_output_sha256"])
+        train_state = transformed_train
+        validation_state = transformed_validation
         fitted_hooks.append(hook)
         stage_names.append(str(name))
     return FoldPipelineResult(
@@ -1138,6 +1338,7 @@ def validation_plan_payload(
     materialization_manifest_hash: str | None = None,
     fit_receipts: Sequence[Mapping[str, Any]] = (),
     required_fit_stages: Sequence[str] = REQUIRED_FIT_STAGES,
+    require_output_bound_receipts: bool = False,
 ) -> dict[str, Any]:
     dates = _unique_dates(fleet_dates)
     nested = build_nested_rolling_origin_folds(
@@ -1190,8 +1391,12 @@ def validation_plan_payload(
         "fit_receipt_contract": {
             "fit_scope": "training_only",
             "required_stages": list(stages),
+            "stage_order": list(stages),
             "required_fold_scopes": sorted(fold_scopes),
             "receipt_hash_field": "receipt_sha256",
+            "payload_binding_required": bool(require_output_bound_receipts),
+            "payload_hash_algorithm": FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM,
+            "payload_canonicalization": FIT_RECEIPT_PAYLOAD_CANONICALIZATION,
         },
         "fit_receipts": receipts,
     }
@@ -1332,8 +1537,19 @@ def verify_validation_plan_payload(
         or set(declared_scopes) != set(scopes)
     ):
         raise ContractViolation("invalid_fit_receipts", "fit receipt contract is inconsistent")
-    if require_fit_receipts and set(stages) != set(REQUIRED_FIT_STAGES):
-        raise ContractViolation("invalid_fit_receipts", "required fit stage inventory is incomplete")
+    if require_fit_receipts and (
+        tuple(stages) != REQUIRED_FIT_STAGES
+        or receipt_contract.get("payload_binding_required") is not True
+        or receipt_contract.get("payload_hash_algorithm")
+        != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt_contract.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+        or tuple(receipt_contract.get("stage_order") or ()) != REQUIRED_FIT_STAGES
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipts",
+            "production fit receipt stage/output binding contract is incomplete",
+        )
     receipts = payload.get("fit_receipts")
     if not isinstance(receipts, list):
         raise ContractViolation("invalid_fit_receipts", "fit receipts are missing")
@@ -1366,12 +1582,52 @@ def verify_validation_plan_payload(
             or not SHA256_RE.fullmatch(str(receipt.get("validation_input_sha256") or ""))
         ):
             raise ContractViolation("invalid_fit_receipts", f"fit receipt is invalid: {key}")
+        has_payload_binding = any(
+            field in receipt
+            for field in (
+                "stage_input_payload",
+                "stage_input_sha256",
+                "stage_output_payload",
+                "stage_output_sha256",
+            )
+        )
+        if require_fit_receipts or has_payload_binding:
+            _verify_output_bound_fit_receipt(receipt)
         receipt_by_key[key] = receipt
     expected_keys = {(scope, stage) for scope in scopes for stage in stages}
     if require_fit_receipts and set(receipt_by_key) != expected_keys:
         raise ContractViolation(
             "invalid_fit_receipts", "fit receipts do not cover every fold and stage"
         )
+    if require_fit_receipts:
+        for scope in scopes:
+            prior: Mapping[str, Any] | None = None
+            for stage in stages:
+                receipt = receipt_by_key[(scope, stage)]
+                input_payload = receipt["stage_input_payload"]
+                upstream = input_payload.get("upstream_stage_output_sha256")
+                if prior is None:
+                    if upstream is not None:
+                        raise ContractViolation(
+                            "fit_receipt_stage_chain_mismatch",
+                            f"first fit stage declares an upstream output: {(scope, stage)}",
+                        )
+                elif (
+                    upstream != prior.get("stage_output_sha256")
+                    or receipt.get("fit_input_sha256")
+                    != prior.get("fit_output_sha256")
+                    or receipt.get("validation_input_sha256")
+                    != prior.get("validation_output_sha256")
+                    or receipt.get("fit_row_count")
+                    != prior.get("fit_output_row_count")
+                    or receipt.get("validation_row_count")
+                    != prior.get("validation_output_row_count")
+                ):
+                    raise ContractViolation(
+                        "fit_receipt_stage_chain_mismatch",
+                        f"fit stage input is not bound to the prior output: {(scope, stage)}",
+                    )
+                prior = receipt
     return dict(payload)
 
 
@@ -1741,6 +1997,8 @@ class StreamingPointInTimeEvaluator:
         evaluation_started_at_utc: str | None = None,
         candidate_id: str | None = None,
         release_id: str | None = None,
+        manifest_sha256: str | None = None,
+        candidate_artifact_sha256: str | None = None,
         validation_plan_hash: str | None = None,
         materialization_manifest_hash: str | None = None,
     ) -> dict[str, Any]:
@@ -1860,10 +2118,22 @@ class StreamingPointInTimeEvaluator:
         }
         normalized_candidate = _optional_identity(candidate_id, "candidate_id")
         normalized_release = _optional_identity(release_id, "release_id")
+        normalized_manifest = str(manifest_sha256 or "").strip().lower()
+        normalized_artifact = str(candidate_artifact_sha256 or "").strip().lower()
+        for field_name, value in (
+            ("manifest_sha256", normalized_manifest),
+            ("candidate_artifact_sha256", normalized_artifact),
+        ):
+            if value and not SHA256_RE.fullmatch(value):
+                raise ValueError(f"{field_name} must be a SHA-256 hex digest")
         if normalized_candidate is not None:
             payload["candidate_id"] = normalized_candidate
         if normalized_release is not None:
             payload["release_id"] = normalized_release
+        if normalized_manifest:
+            payload["manifest_sha256"] = normalized_manifest
+        if normalized_artifact:
+            payload["candidate_artifact_sha256"] = normalized_artifact
         if validation_plan_hash is not None or materialization_manifest_hash is not None:
             payload["contract_binding"] = {
                 "validation_plan_hash": str(validation_plan_hash or ""),
@@ -1884,6 +2154,8 @@ def evaluate_point_in_time_rows(
     evaluation_started_at_utc: str | None = None,
     candidate_id: str | None = None,
     release_id: str | None = None,
+    manifest_sha256: str | None = None,
+    candidate_artifact_sha256: str | None = None,
     validation_plan_hash: str | None = None,
     materialization_manifest_hash: str | None = None,
 ) -> dict[str, Any]:
@@ -1902,6 +2174,8 @@ def evaluate_point_in_time_rows(
         evaluation_started_at_utc=started,
         candidate_id=candidate_id,
         release_id=release_id,
+        manifest_sha256=manifest_sha256,
+        candidate_artifact_sha256=candidate_artifact_sha256,
         validation_plan_hash=validation_plan_hash,
         materialization_manifest_hash=materialization_manifest_hash,
     )
@@ -1993,6 +2267,8 @@ def evaluate_point_in_time_parquet(
     evaluation_started_at_utc: str | None = None,
     candidate_id: str | None = None,
     release_id: str | None = None,
+    manifest_sha256: str | None = None,
+    candidate_artifact_sha256: str | None = None,
     validation_plan_hash: str | None = None,
 ) -> dict[str, Any]:
     manifest = verify_materialization_manifest(
@@ -2020,6 +2296,8 @@ def evaluate_point_in_time_parquet(
         evaluation_started_at_utc=started,
         candidate_id=candidate_id,
         release_id=release_id,
+        manifest_sha256=manifest_sha256,
+        candidate_artifact_sha256=candidate_artifact_sha256,
         validation_plan_hash=validation_plan_hash,
         materialization_manifest_hash=str(manifest.get("manifest_hash") or ""),
     )
@@ -2041,6 +2319,8 @@ def verify_streaming_evaluation_payload(
     *,
     expected_candidate_id: str | None = None,
     expected_release_id: str | None = None,
+    expected_manifest_sha256: str | None = None,
+    expected_candidate_artifact_sha256: str | None = None,
     expected_corpus_sha256: str | None = None,
     expected_manifest_hash: str | None = None,
     expected_validation_plan_hash: str | None = None,
@@ -2077,6 +2357,23 @@ def verify_streaming_evaluation_payload(
         raise ContractViolation("streaming_evaluation_identity_mismatch", "candidate identity mismatch")
     if expected_release_id is not None and payload.get("release_id") != expected_release_id:
         raise ContractViolation("streaming_evaluation_identity_mismatch", "release identity mismatch")
+    if (
+        expected_manifest_sha256 is not None
+        and payload.get("manifest_sha256") != expected_manifest_sha256
+    ):
+        raise ContractViolation(
+            "streaming_evaluation_identity_mismatch",
+            "immutable release manifest identity mismatch",
+        )
+    if (
+        expected_candidate_artifact_sha256 is not None
+        and payload.get("candidate_artifact_sha256")
+        != expected_candidate_artifact_sha256
+    ):
+        raise ContractViolation(
+            "streaming_evaluation_identity_mismatch",
+            "candidate artifact identity mismatch",
+        )
 
     input_row = payload.get("input")
     if expected_corpus_sha256 is not None:
@@ -2277,6 +2574,7 @@ def verify_production_point_in_time_artifacts(
         "fleet_dates": len(fleet_dates),
         "locked_window_days": len(locked_dates),
         "fit_receipt_count": len(plan.get("fit_receipts") or ()),
+        "fit_receipt_output_binding_verified": True,
     }
 
 

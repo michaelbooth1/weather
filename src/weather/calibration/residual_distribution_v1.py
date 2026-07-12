@@ -24,6 +24,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from joblib import hash as joblib_hash
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import Ridge
@@ -37,10 +38,24 @@ from weather.artifacts import (
 )
 from weather.calibration.simplex_calibration import (
     apply_simplex_calibrator,
+    categorical_partition_scores,
     fit_global_simplex_temperature,
     score_probability_rows,
+    simplex_power_transform,
 )
-from weather.experiment_contract import canonical_json, finalize_self_hash
+from weather.calibration.residual_distribution_lock import (
+    DEFAULT_COMPARATORS,
+    find_matching_preselection_lock,
+    read_preselection_lock_ledger,
+)
+from weather.calibration.residual_distribution_corpus import (
+    verify_residual_corpus_manifest,
+)
+from weather.experiment_contract import (
+    canonical_json,
+    finalize_self_hash,
+    verify_self_hash,
+)
 from weather.model.continuous_density import f_to_native
 from weather.model.residual_distribution_v1 import (
     ARTIFACT_SCHEMA_VERSION,
@@ -53,6 +68,11 @@ from weather.model.residual_distribution_v1 import (
     truncate_at_printed_observed_high,
     validate_artifact,
 )
+from weather.point_in_time_contract import (
+    FIT_RECEIPT_PAYLOAD_CANONICALIZATION,
+    FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM,
+    verify_output_bound_fit_receipt,
+)
 from weather.reporting.validation.point_in_time_evaluation import (
     RollingOriginFold,
     build_fit_receipt,
@@ -61,7 +81,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
 )
 
 
-TRAINING_SCHEMA_VERSION = "residual_distribution_requalification_v0.1"
+TRAINING_SCHEMA_VERSION = "residual_distribution_requalification_v0.2"
 OOF_RECEIPT_SCHEMA_VERSION = "residual_distribution_oof_fit_receipt_v0.1"
 FINAL_FIT_RECEIPT_SCHEMA_VERSION = "residual_distribution_final_fit_receipt_v0.1"
 IMPLEMENTATION_IDENTITY = "weather.calibration.residual_distribution_v1"
@@ -72,6 +92,10 @@ DEFAULT_GRID_STEP_F = 0.1
 DEFAULT_SIGMA_FLOOR = 0.50
 DEFAULT_SIGMA_CAP = 10.0
 DEFAULT_NONINFERIORITY = 0.002
+DEFAULT_MINIMUM_OUTER_DATES = 14
+DEFAULT_MINIMUM_LOCKED_DATES = 14
+DEFAULT_CLUSTER_BOOTSTRAP_SAMPLES = 1000
+REQUIRED_RELEASE_EVIDENCE_STATUSES = frozenset({"PASS"})
 
 
 class ResidualTrainingError(ValueError):
@@ -461,12 +485,60 @@ def _attach_probability_weights(rows: list[dict[str, Any]]) -> list[dict[str, An
     return rows
 
 
+def _payload_sha256(payload: Any) -> str:
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _pipeline_payload_sha256(pipeline: Pipeline) -> str:
+    # joblib's structural object hash is stable across a pickle round trip;
+    # raw pickle bytes are not because sklearn may reconstruct equivalent
+    # internal memo/layout state in a different byte order.
+    structural_hash = joblib_hash(pipeline)
+    return hashlib.sha256(f"joblib:{structural_hash}".encode("utf-8")).hexdigest()
+
+
+def _prediction_binding_rows(
+    rows: Sequence[Mapping[str, Any]],
+    predictions: Sequence[float],
+) -> list[dict[str, Any]]:
+    if len(rows) != len(predictions):
+        raise ResidualTrainingError("prediction binding row count mismatch")
+    return [
+        {
+            "target_date": str(row.get("target_date") or ""),
+            "market_id": str(row.get("market_id") or ""),
+            "cutoff_hour": int(row.get("cutoff_hour") or 0),
+            "snapshot_id": str(row.get("snapshot_id") or ""),
+            "predicted_residual_f": float(prediction),
+        }
+        for row, prediction in zip(rows, predictions)
+    ]
+
+
+def _probability_binding_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "identity": list(_identity(item.get("row") or item)),
+            "predicted_residual_f": item.get("predicted_residual_f"),
+            "residual_error_f": item.get("residual_error_f"),
+            "probabilities": dict(item.get("probabilities") or {}),
+        }
+        for item in rows
+    ]
+
+
 def build_oof_fit_receipt(
     *,
     outer_fold: RollingOriginFold,
     oof_rows: Sequence[Mapping[str, Any]],
     parent_receipt_sha256s: Sequence[str],
     stage_name: str,
+    calibrated_rows: Sequence[Mapping[str, Any]] = (),
+    parent_stage_output_sha256s: Sequence[str] = (),
+    sigma_f: float | None = None,
+    calibrator: Mapping[str, Any] | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     oof_dates = sorted({str((item.get("row") or item).get("target_date") or "") for item in oof_rows})
@@ -477,12 +549,37 @@ def build_oof_fit_receipt(
     parents = sorted({str(value) for value in parent_receipt_sha256s if value})
     if not parents:
         raise ResidualTrainingError("OOF receipt requires parent inner-model receipts")
-    hash_rows = [{
-        "identity": _identity(item.get("row") or item),
-        "predicted_residual_f": item.get("predicted_residual_f"),
-        "residual_error_f": item.get("residual_error_f"),
-        "probabilities": item.get("probabilities"),
-    } for item in oof_rows]
+    parent_outputs = sorted(
+        {str(value) for value in parent_stage_output_sha256s if value}
+    )
+    if not parent_outputs or len(parent_outputs) != len(parents):
+        raise ResidualTrainingError(
+            "OOF receipt requires one parent stage output for every inner-model receipt"
+        )
+    if len(calibrated_rows) != len(oof_rows) or not calibrated_rows:
+        raise ResidualTrainingError(
+            "OOF receipt requires calibrated output for every OOF input row"
+        )
+    if sigma_f is None or calibrator is None:
+        raise ResidualTrainingError("OOF receipt requires fitted scale and calibrator payloads")
+    input_rows = _probability_binding_rows(oof_rows)
+    output_rows = _probability_binding_rows(calibrated_rows)
+    oof_payload_sha256 = _payload_sha256(input_rows)
+    calibrated_payload_sha256 = _payload_sha256(output_rows)
+    stage_input_payload = {
+        "parent_receipt_sha256s": parents,
+        "parent_stage_output_sha256s": parent_outputs,
+        "oof_payload_sha256": oof_payload_sha256,
+        "oof_row_count": len(input_rows),
+        "oof_dates": oof_dates,
+    }
+    stage_output_payload = {
+        "calibrated_oof_payload_sha256": calibrated_payload_sha256,
+        "calibrated_oof_row_count": len(output_rows),
+        "oof_dates": oof_dates,
+        "residual_sigma_f": float(sigma_f),
+        "calibrator": dict(calibrator),
+    }
     return finalize_self_hash({
         "schema_version": OOF_RECEIPT_SCHEMA_VERSION,
         "artifact_type": "training_oof_fit_receipt",
@@ -494,9 +591,97 @@ def build_oof_fit_receipt(
         "outer_train_dates": list(outer_fold.train_dates),
         "outer_validation_dates": list(outer_fold.validation_dates),
         "parent_receipt_sha256s": parents,
+        "parent_stage_output_sha256s": parent_outputs,
         "oof_row_count": len(oof_rows),
-        "oof_payload_sha256": hashlib.sha256(canonical_json(hash_rows).encode("utf-8")).hexdigest(),
+        "oof_payload_sha256": oof_payload_sha256,
+        "calibrated_oof_payload_sha256": calibrated_payload_sha256,
+        "payload_hash_algorithm": FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM,
+        "payload_canonicalization": FIT_RECEIPT_PAYLOAD_CANONICALIZATION,
+        "stage_input_payload": stage_input_payload,
+        "stage_input_sha256": _payload_sha256(stage_input_payload),
+        "stage_output_payload": stage_output_payload,
+        "stage_output_sha256": _payload_sha256(stage_output_payload),
     }, hash_field="receipt_sha256")
+
+
+def _verify_inner_model_receipt(receipt: Mapping[str, Any]) -> None:
+    try:
+        verify_self_hash(receipt, hash_field="receipt_sha256")
+        verify_output_bound_fit_receipt(receipt)
+    except Exception as exc:
+        raise ResidualTrainingError(
+            f"inner-model output-bound receipt is invalid: {exc}"
+        ) from exc
+
+
+def verify_residual_oof_receipt(
+    receipt: Mapping[str, Any],
+    parent_receipts: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Verify the inner-model output hashes chained into OOF calibration."""
+
+    try:
+        verify_self_hash(receipt, hash_field="receipt_sha256")
+    except Exception as exc:
+        raise ResidualTrainingError(f"OOF receipt self-hash is invalid: {exc}") from exc
+    if (
+        receipt.get("schema_version") != OOF_RECEIPT_SCHEMA_VERSION
+        or receipt.get("artifact_type") != "training_oof_fit_receipt"
+        or receipt.get("payload_hash_algorithm")
+        != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+    ):
+        raise ResidualTrainingError("OOF receipt payload-binding contract is invalid")
+    for parent in parent_receipts:
+        _verify_inner_model_receipt(parent)
+    expected_parent_receipts = sorted(
+        {str(parent.get("receipt_sha256") or "") for parent in parent_receipts}
+    )
+    expected_parent_outputs = sorted(
+        {str(parent.get("stage_output_sha256") or "") for parent in parent_receipts}
+    )
+    if (
+        not expected_parent_receipts
+        or list(receipt.get("parent_receipt_sha256s") or ())
+        != expected_parent_receipts
+        or list(receipt.get("parent_stage_output_sha256s") or ())
+        != expected_parent_outputs
+    ):
+        raise ResidualTrainingError(
+            "OOF receipt is not chained to the exact parent model outputs"
+        )
+    input_payload = receipt.get("stage_input_payload")
+    output_payload = receipt.get("stage_output_payload")
+    if not isinstance(input_payload, Mapping) or not isinstance(output_payload, Mapping):
+        raise ResidualTrainingError("OOF receipt input/output payload is missing")
+    if (
+        str(receipt.get("stage_input_sha256") or "")
+        != _payload_sha256(input_payload)
+        or str(receipt.get("stage_output_sha256") or "")
+        != _payload_sha256(output_payload)
+    ):
+        raise ResidualTrainingError("OOF receipt input/output payload hash mismatch")
+    expected_input = {
+        "parent_receipt_sha256s": expected_parent_receipts,
+        "parent_stage_output_sha256s": expected_parent_outputs,
+        "oof_payload_sha256": receipt.get("oof_payload_sha256"),
+        "oof_row_count": receipt.get("oof_row_count"),
+        "oof_dates": list(receipt.get("oof_dates") or ()),
+    }
+    if dict(input_payload) != expected_input:
+        raise ResidualTrainingError("OOF receipt declared input payload is inconsistent")
+    if (
+        output_payload.get("calibrated_oof_payload_sha256")
+        != receipt.get("calibrated_oof_payload_sha256")
+        or output_payload.get("calibrated_oof_row_count")
+        != receipt.get("oof_row_count")
+        or list(output_payload.get("oof_dates") or ())
+        != list(receipt.get("oof_dates") or ())
+        or not isinstance(output_payload.get("calibrator"), Mapping)
+    ):
+        raise ResidualTrainingError("OOF receipt declared output payload is inconsistent")
+    return dict(receipt)
 
 
 def _rows_for_dates(rows: Sequence[Mapping[str, Any]], dates: Sequence[str]) -> list[dict[str, Any]]:
@@ -526,7 +711,13 @@ def generate_oof_predictions(
             alpha=alpha,
             target_permutation=spec.target_permutation,
         )
+        fit_predictions = predict_residual_means(pipeline, train_rows, feature_names)
         predictions = predict_residual_means(pipeline, validation_rows, feature_names)
+        fit_prediction_rows = _prediction_binding_rows(train_rows, fit_predictions)
+        validation_prediction_rows = _prediction_binding_rows(
+            validation_rows, predictions
+        )
+        model_payload_sha256 = _pipeline_payload_sha256(pipeline)
         receipt = build_fit_receipt(
             fold,
             fold_scope=f"{fold_scope_prefix}/{fold.fold_id}",
@@ -534,6 +725,24 @@ def generate_oof_predictions(
             implementation_identity=IMPLEMENTATION_IDENTITY,
             fit_rows=train_rows,
             validation_rows=validation_rows,
+            fit_output_rows=fit_prediction_rows,
+            validation_output_rows=validation_prediction_rows,
+            stage_input_payload={
+                "arm_id": spec.arm_id,
+                "feature_names": list(feature_names),
+                "ridge_alpha": float(alpha),
+                "target_permutation": bool(spec.target_permutation),
+            },
+            stage_output_payload={
+                "arm_id": spec.arm_id,
+                "model_payload_sha256": model_payload_sha256,
+                "fit_predictions_sha256": _payload_sha256(fit_prediction_rows),
+                "validation_predictions_sha256": _payload_sha256(
+                    validation_prediction_rows
+                ),
+                "feature_names": list(feature_names),
+                "ridge_alpha": float(alpha),
+            },
         )
         receipts.append(receipt)
         for row, prediction in zip(validation_rows, predictions):
@@ -594,7 +803,14 @@ def tune_inner_oof(
             oof_rows=probability_rows,
             parent_receipt_sha256s=[row["receipt_sha256"] for row in receipts],
             stage_name=f"{spec.arm_id}:residual_scale_and_simplex_calibration",
+            calibrated_rows=calibrated_rows,
+            parent_stage_output_sha256s=[
+                row["stage_output_sha256"] for row in receipts
+            ],
+            sigma_f=sigma_f,
+            calibrator=calibrator,
         )
+        verify_residual_oof_receipt(oof_receipt, receipts)
         candidates.append({
             "alpha": float(alpha),
             "sigma_f": sigma_f,
@@ -667,6 +883,7 @@ def _score_outer_arm(
     calibrated = [
         {
             **item,
+            "identity_probabilities": dict(item["probabilities"]),
             "probabilities": apply_simplex_calibrator(
                 item["probabilities"], inner_result["calibrator"]
             ),
@@ -685,6 +902,153 @@ def _aggregate_partition_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, fl
     return score_probability_rows(copies)
 
 
+def _aggregate_probability_field(
+    rows: Sequence[Mapping[str, Any]],
+    field: str,
+) -> dict[str, float] | None:
+    if not rows:
+        return None
+    copies = []
+    for row in rows:
+        probabilities = row.get(field)
+        if not isinstance(probabilities, Mapping):
+            return None
+        copies.append({**dict(row), "probabilities": dict(probabilities)})
+    return _aggregate_partition_rows(copies)
+
+
+def _per_date_scores(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, float]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        source = row.get("row") or {}
+        grouped[str(source.get("target_date") or "")].append(dict(row))
+    output = {}
+    for target_date, date_rows in sorted(grouped.items()):
+        score = _aggregate_partition_rows(date_rows)
+        if target_date and score is not None:
+            output[target_date] = score
+    return output
+
+
+def clustered_date_confidence_intervals(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    samples: int = DEFAULT_CLUSTER_BOOTSTRAP_SAMPLES,
+    seed: int = 20260712,
+) -> dict[str, Any] | None:
+    """Return deterministic whole-fleet-date bootstrap intervals.
+
+    Each date is reduced to one equally weighted score before resampling, so a
+    date with more snapshots or bands cannot masquerade as independent
+    evidence.
+    """
+
+    per_date = _per_date_scores(rows)
+    dates = sorted(per_date)
+    if len(dates) < 2:
+        return None
+    metrics = (
+        "brier",
+        "log_loss",
+        "rps",
+        "ece",
+        "entropy",
+        "quadratic_concentration",
+        "top_band_hit",
+        "winner_rank",
+    )
+    point = {
+        metric: math.fsum(per_date[target_date][metric] for target_date in dates) / len(dates)
+        for metric in metrics
+    }
+    rng = np.random.default_rng(int(seed))
+    draws = {metric: [] for metric in metrics}
+    sample_count = max(200, int(samples))
+    for _ in range(sample_count):
+        indexes = rng.integers(0, len(dates), size=len(dates))
+        for metric in metrics:
+            draws[metric].append(
+                math.fsum(per_date[dates[int(index)]][metric] for index in indexes) / len(dates)
+            )
+    return {
+        "cluster_unit": "whole_fleet_target_date",
+        "effective_n": len(dates),
+        "bootstrap_samples": sample_count,
+        "seed": int(seed),
+        "intervals": {
+            metric: {
+                "point": point[metric],
+                "lower_95": float(np.quantile(values, 0.025)),
+                "upper_95": float(np.quantile(values, 0.975)),
+            }
+            for metric, values in draws.items()
+        },
+    }
+
+
+def _climatology_partitions(
+    train_rows: Sequence[Mapping[str, Any]],
+    validation_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Train a fold-local market climatology without using NWP predictors."""
+
+    if not train_rows or not validation_rows:
+        return []
+    by_market: dict[str, list[float]] = defaultdict(list)
+    all_highs = []
+    for row in train_rows:
+        settled = _finite(row.get("forecast_anchor_f"), "forecast_anchor_f") + _finite(
+            row.get("residual_target_f"), "residual_target_f"
+        )
+        by_market[str(row.get("market_id") or "")].append(settled)
+        all_highs.append(settled)
+    global_mean = math.fsum(all_highs) / len(all_highs)
+    market_means = {
+        market_id: math.fsum(values) / len(values)
+        for market_id, values in by_market.items()
+    }
+    errors = [
+        settled - market_means.get(str(row.get("market_id") or ""), global_mean)
+        for row, settled in zip(
+            train_rows,
+            [
+                _finite(row.get("forecast_anchor_f"), "forecast_anchor_f")
+                + _finite(row.get("residual_target_f"), "residual_target_f")
+                for row in train_rows
+            ],
+        )
+    ]
+    sigma = _weighted_sigma(errors, hierarchical_checkpoint_weights(train_rows))
+    partitions = []
+    for row in validation_rows:
+        expected_high = market_means.get(str(row.get("market_id") or ""), global_mean)
+        predicted_residual = expected_high - _finite(row.get("forecast_anchor_f"), "forecast_anchor_f")
+        partitions.append(_probability_row(row, predicted_residual, sigma))
+    return _attach_probability_weights(partitions)
+
+
+def _captured_comparator_partition(
+    row: Mapping[str, Any],
+    comparator_id: str,
+) -> dict[str, Any] | None:
+    comparators = row.get("comparator_probabilities")
+    if not isinstance(comparators, Mapping):
+        return None
+    probabilities = comparators.get(comparator_id)
+    if not isinstance(probabilities, Mapping):
+        return None
+    winner_key = residual_band_key(row.get("winning_band") or {})
+    try:
+        categorical_partition_scores(probabilities, winner_key=winner_key)
+    except Exception:
+        return None
+    return {
+        "row": row,
+        "probabilities": dict(probabilities),
+        "winner_key": winner_key,
+    }
+
+
 def run_nested_evaluation(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -694,6 +1058,9 @@ def run_nested_evaluation(
     inner_min_train_dates: int = 7,
     embargo_days: int = 3,
     noninferiority_margin: float = DEFAULT_NONINFERIORITY,
+    minimum_outer_dates: int = DEFAULT_MINIMUM_OUTER_DATES,
+    required_comparators: Sequence[str] = DEFAULT_COMPARATORS,
+    cluster_bootstrap_samples: int = DEFAULT_CLUSTER_BOOTSTRAP_SAMPLES,
 ) -> dict[str, Any]:
     examples = validate_training_examples(rows)
     dates = sorted({row["target_date"] for row in examples})
@@ -710,11 +1077,27 @@ def run_nested_evaluation(
     contract = default_feature_contract(feature_schema)
     outer_results = []
     by_arm_partitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    comparator_ids = tuple(dict.fromkeys(str(value) for value in required_comparators))
+    by_comparator_partitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
     selected_partitions: list[dict[str, Any]] = []
     for nested_fold in usable_nested:
         outer = nested_fold.outer
         train_rows = _rows_for_dates(examples, outer.train_dates)
         validation_rows = _rows_for_dates(examples, outer.validation_dates)
+        by_comparator_partitions["climatology"].extend(
+            _climatology_partitions(train_rows, validation_rows)
+        )
+        for comparator_id in comparator_ids:
+            if comparator_id == "climatology":
+                continue
+            by_comparator_partitions[comparator_id].extend(
+                partition
+                for partition in (
+                    _captured_comparator_partition(row, comparator_id)
+                    for row in validation_rows
+                )
+                if partition is not None
+            )
         arm_results = []
         for spec in ablations:
             names = feature_names_for_ablation(spec, contract)
@@ -772,7 +1155,28 @@ def run_nested_evaluation(
         for arm_id, partitions in by_arm_partitions.items()
     }
     selected_score = _aggregate_partition_rows(selected_partitions)
+    identity_calibration_score = _aggregate_probability_field(
+        selected_partitions,
+        "identity_probabilities",
+    )
     anchor_score = arm_scores.get("anchor_only")
+    comparator_scores = {
+        comparator_id: _aggregate_partition_rows(by_comparator_partitions.get(comparator_id, []))
+        for comparator_id in comparator_ids
+    }
+    selected_row_count = len(selected_partitions)
+    comparator_coverage = {
+        comparator_id: {
+            "rows": len(by_comparator_partitions.get(comparator_id, [])),
+            "expected_rows": selected_row_count,
+            "coverage": (
+                len(by_comparator_partitions.get(comparator_id, [])) / selected_row_count
+                if selected_row_count
+                else 0.0
+            ),
+        }
+        for comparator_id in comparator_ids
+    }
     negative_scores = {
         arm_id: score
         for arm_id, score in arm_scores.items()
@@ -790,8 +1194,28 @@ def run_nested_evaluation(
                 "log_loss_delta": selected_market_score["log_loss"] - anchor_market_score["log_loss"],
             }
     selected_counts = Counter(row["selected_arm"] for row in outer_results)
+    clustered_intervals = clustered_date_confidence_intervals(
+        selected_partitions,
+        samples=int(cluster_bootstrap_samples),
+    )
+    frozen_current = comparator_scores.get("frozen_current_release")
+    complete_comparators = bool(comparator_ids) and all(
+        math.isclose(
+            float(comparator_coverage[comparator_id]["coverage"]),
+            1.0,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+        and comparator_scores.get(comparator_id) is not None
+        for comparator_id in comparator_ids
+    )
     criteria = {
-        "minimum_outer_fleet_dates": len({date for row in outer_results for date in row["validation_dates"]}) >= 14,
+        "minimum_outer_fleet_dates": len({date for row in outer_results for date in row["validation_dates"]}) >= int(minimum_outer_dates),
+        "clustered_intervals_have_minimum_effective_n": bool(
+            clustered_intervals
+            and int(clustered_intervals.get("effective_n") or 0) >= int(minimum_outer_dates)
+        ),
+        "required_comparator_coverage_complete": complete_comparators,
         "brier_improves_anchor_by_0_002": bool(
             selected_score and anchor_score
             and selected_score["brier"] <= anchor_score["brier"] - 0.002
@@ -807,6 +1231,15 @@ def run_nested_evaluation(
             score is None or selected_score is None
             or score["log_loss"] >= selected_score["log_loss"]
             for score in negative_scores.values()
+        ),
+        "beats_frozen_current_release_on_both_primary_metrics": bool(
+            selected_score
+            and frozen_current
+            and selected_score["brier"] < frozen_current["brier"]
+            and selected_score["log_loss"] < frozen_current["log_loss"]
+        ),
+        "served_calibration_is_literal_simplex_transform": bool(
+            selected_score and identity_calibration_score
         ),
     }
     return {
@@ -832,8 +1265,33 @@ def run_nested_evaluation(
             "selected_arm_counts": dict(sorted(selected_counts.items())),
         },
         "selected_outer_score": selected_score,
+        "selected_clustered_intervals": clustered_intervals,
         "anchor_outer_score": anchor_score,
         "arm_outer_scores": arm_scores,
+        "comparator_outer_scores": comparator_scores,
+        "comparator_coverage": comparator_coverage,
+        "calibration_ablation": {
+            "identity": identity_calibration_score,
+            "served_simplex": selected_score,
+            "transform": "p ** (1 / T), normalized once",
+            "binary_selector_present": False,
+        },
+        "serving_graph_attribution": {
+            "graph": [
+                "point_in_time_features",
+                "source_health_permission",
+                "pooled_residual_mean",
+                "gaussian_residual_width",
+                "settlement_valid_truncation",
+                "native_band_projection",
+                "global_simplex_temperature",
+            ],
+            "router_count": 0,
+            "legacy_postprocess_stage_count": 0,
+            "legacy_stages_invoked": [],
+            "feature_stage_ablations": sorted(arm_scores),
+            "calibration_remove_one_reported": True,
+        },
         "market_deltas_vs_anchor": market_deltas,
         "qualification_criteria": criteria,
         "outer_results": outer_results,
@@ -850,6 +1308,273 @@ def _chosen_final_spec(
     if not eligible:
         raise ResidualTrainingError("nested evaluation did not select an eligible final arm")
     return min(eligible, key=lambda spec: (-int(counts[spec.arm_id]), spec.complexity, spec.arm_id))
+
+
+def training_corpus_sha256(rows: Sequence[Mapping[str, Any]]) -> str:
+    return hashlib.sha256(
+        canonical_json(validate_training_examples(rows)).encode("utf-8")
+    ).hexdigest()
+
+
+def _runtime_identity_token(row: Mapping[str, Any]) -> str | None:
+    identity = row.get("runtime_identity")
+    if not isinstance(identity, Mapping) or not identity:
+        return None
+    stable_keys = (
+        "source_fingerprint",
+        "runtime_id",
+        "git_commit",
+        "config_sha256",
+        "release_manifest_sha256",
+        "release_id",
+    )
+    stable = {
+        key: identity.get(key)
+        for key in stable_keys
+        if identity.get(key) not in (None, "")
+    }
+    if not stable:
+        stable = dict(identity)
+    return hashlib.sha256(canonical_json(stable).encode("utf-8")).hexdigest()
+
+
+def fleet_coverage_report(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    target_dates: Sequence[str],
+    expected_market_ids: Sequence[str],
+    expected_cutoff_hours: Sequence[int],
+) -> dict[str, Any]:
+    dates = sorted({str(value) for value in target_dates})
+    markets = sorted({str(value) for value in expected_market_ids})
+    cutoffs = sorted({int(value) for value in expected_cutoff_hours})
+    expected = {(market_id, cutoff) for market_id in markets for cutoff in cutoffs}
+    by_date: dict[str, set[tuple[str, int]]] = defaultdict(set)
+    for row in rows:
+        target_date = str(row.get("target_date") or "")
+        if target_date in dates:
+            by_date[target_date].add(
+                (str(row.get("market_id") or ""), int(row.get("cutoff_hour") or 0))
+            )
+    missing_by_date = {
+        target_date: [
+            {"market_id": market_id, "cutoff_hour": cutoff}
+            for market_id, cutoff in sorted(expected - by_date.get(target_date, set()))
+        ]
+        for target_date in dates
+        if by_date.get(target_date, set()) != expected
+    }
+    extra_by_date = {
+        target_date: [
+            {"market_id": market_id, "cutoff_hour": cutoff}
+            for market_id, cutoff in sorted(by_date.get(target_date, set()) - expected)
+        ]
+        for target_date in dates
+        if by_date.get(target_date, set()) - expected
+    }
+    return {
+        "status": "PASS" if dates and expected and not missing_by_date and not extra_by_date else "BLOCK",
+        "target_dates": dates,
+        "expected_market_ids": markets,
+        "expected_cutoff_hours": cutoffs,
+        "expected_rows": len(dates) * len(expected),
+        "observed_rows": sum(len(by_date.get(target_date, set())) for target_date in dates),
+        "missing_by_date": missing_by_date,
+        "extra_by_date": extra_by_date,
+    }
+
+
+def _status_pass(payload: Mapping[str, Any] | None) -> bool:
+    return bool(
+        isinstance(payload, Mapping)
+        and str(payload.get("status") or "").upper() in REQUIRED_RELEASE_EVIDENCE_STATUSES
+    )
+
+
+def _parity_evidence_passes(
+    payload: Mapping[str, Any] | None,
+    *,
+    candidate_id: str,
+    release_id: str | None = None,
+) -> bool:
+    if not _status_pass(payload):
+        return False
+    named_candidate = str(
+        payload.get("candidate_id")
+        or payload.get("variant_id")
+        or payload.get("model_version")
+        or ""
+    )
+    summary = payload.get("summary") or {}
+    inputs = payload.get("inputs") or {}
+    mismatch_count = int(
+        payload.get("mismatch_count")
+        or summary.get("mismatch_count")
+        or 0
+    )
+    served_rows = int(inputs.get("served_row_count") or 0)
+    replay_rows = int(inputs.get("replay_row_count") or 0)
+    compared_rows = int(summary.get("compared_row_count") or 0)
+    identity_matches = not named_candidate or named_candidate == str(candidate_id)
+    release_matches = not release_id or str(payload.get("release_id") or "") == release_id
+    return (
+        str(payload.get("mode") or "") == "captured_input_replay_vs_served_parity"
+        and identity_matches
+        and release_matches
+        and mismatch_count == 0
+        and served_rows > 0
+        and served_rows == replay_rows == compared_rows
+        and bool(str(payload.get("manifest_sha256") or ""))
+    )
+
+
+def _streaming_evidence_passes(
+    payload: Mapping[str, Any] | None,
+    *,
+    candidate_id: str,
+    minimum_dates: int,
+    release_id: str | None = None,
+) -> bool:
+    if not _status_pass(payload):
+        return False
+    named_candidate = str(
+        payload.get("candidate_id")
+        or payload.get("variant_id")
+        or payload.get("model_version")
+        or ""
+    )
+    counts = payload.get("counts") or {}
+    complete_dates = int(
+        payload.get("complete_fleet_dates")
+        or counts.get("complete_fleet_dates")
+        or counts.get("fleet_dates")
+        or counts.get("target_dates")
+        or 0
+    )
+    unsupported = int(
+        payload.get("unsupported_runtime_skips")
+        or counts.get("unsupported_runtime_skips")
+        or 0
+    )
+    runtime_identities = list(payload.get("runtime_identities") or [])
+    identities = int(payload.get("runtime_identity_count") or len(runtime_identities))
+    input_rows = int(counts.get("input_rows") or 0)
+    window_rows = int(counts.get("window_rows") or 0)
+    outside_rows = int(counts.get("outside_window_rows") or 0)
+    excluded_rows = int(counts.get("excluded_rows") or 0)
+    excluded_cutoffs = int(counts.get("excluded_cutoffs") or 0)
+    window_lock = payload.get("window_lock") or {}
+    locked_dates = list(window_lock.get("target_dates") or [])
+    release_matches = not release_id or str(payload.get("release_id") or "") == release_id
+    return (
+        named_candidate == str(candidate_id)
+        and release_matches
+        and complete_dates >= int(minimum_dates)
+        and unsupported == 0
+        and identities == 1
+        and input_rows > 0
+        and input_rows == window_rows
+        and outside_rows == 0
+        and excluded_rows == 0
+        and excluded_cutoffs == 0
+        and len(set(locked_dates)) >= int(minimum_dates)
+        and (not window_lock.get("status") or window_lock.get("status") == "PASS")
+    )
+
+
+def score_locked_window(
+    artifact: Mapping[str, Any],
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    locked_dates: Sequence[str],
+    required_comparators: Sequence[str] = DEFAULT_COMPARATORS,
+) -> dict[str, Any]:
+    locked = sorted({str(value) for value in locked_dates})
+    development = [dict(row) for row in rows if str(row.get("target_date")) not in set(locked)]
+    evaluation_rows = [dict(row) for row in rows if str(row.get("target_date")) in set(locked)]
+    if not evaluation_rows:
+        return {
+            "status": "BLOCK",
+            "target_dates": locked,
+            "row_count": 0,
+            "reason": "locked_window_has_no_rows",
+        }
+    predictions = predict_residual_means(
+        artifact["pipeline"],
+        evaluation_rows,
+        artifact["feature_names"],
+    )
+    identity_partitions = _attach_probability_weights([
+        _probability_row(row, prediction, float(artifact["residual_sigma_f"]))
+        for row, prediction in zip(evaluation_rows, predictions)
+    ])
+    temperature = float((artifact.get("calibration") or {}).get("temperature", 1.0))
+    served_partitions = [
+        {
+            **item,
+            "identity_probabilities": dict(item["probabilities"]),
+            "probabilities": simplex_power_transform(item["probabilities"], temperature),
+        }
+        for item in identity_partitions
+    ]
+    comparator_ids = tuple(dict.fromkeys(str(value) for value in required_comparators))
+    comparator_partitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    if "climatology" in comparator_ids:
+        comparator_partitions["climatology"].extend(
+            _climatology_partitions(development, evaluation_rows)
+        )
+    for comparator_id in comparator_ids:
+        if comparator_id == "climatology":
+            continue
+        comparator_partitions[comparator_id].extend(
+            partition
+            for partition in (
+                _captured_comparator_partition(row, comparator_id)
+                for row in evaluation_rows
+            )
+            if partition is not None
+        )
+    comparator_scores = {
+        comparator_id: _aggregate_partition_rows(comparator_partitions.get(comparator_id, []))
+        for comparator_id in comparator_ids
+    }
+    coverage = {
+        comparator_id: (
+            len(comparator_partitions.get(comparator_id, [])) / len(evaluation_rows)
+            if evaluation_rows
+            else 0.0
+        )
+        for comparator_id in comparator_ids
+    }
+    served_score = _aggregate_partition_rows(served_partitions)
+    frozen = comparator_scores.get("frozen_current_release")
+    criteria = {
+        "has_locked_rows": bool(evaluation_rows),
+        "required_comparator_coverage_complete": bool(comparator_ids) and all(
+            math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12)
+            for value in coverage.values()
+        ),
+        "beats_frozen_current_release_on_both_primary_metrics": bool(
+            served_score
+            and frozen
+            and served_score["brier"] < frozen["brier"]
+            and served_score["log_loss"] < frozen["log_loss"]
+        ),
+    }
+    return {
+        "status": "PASS" if all(criteria.values()) else "BLOCK",
+        "target_dates": locked,
+        "row_count": len(evaluation_rows),
+        "served_score": served_score,
+        "identity_calibration_score": _aggregate_probability_field(
+            served_partitions,
+            "identity_probabilities",
+        ),
+        "clustered_intervals": clustered_date_confidence_intervals(served_partitions),
+        "comparator_scores": comparator_scores,
+        "comparator_coverage": coverage,
+        "criteria": criteria,
+    }
 
 
 def _observed_source_states(rows: Sequence[Mapping[str, Any]], source: str) -> list[str]:
@@ -890,12 +1615,35 @@ def _final_fit_receipt(
     *,
     locked_dates: Sequence[str],
     pipeline: Pipeline,
+    feature_names: Sequence[str],
+    parent_oof_receipt: Mapping[str, Any],
 ) -> dict[str, Any]:
     lineage_rows = _safe_lineage_rows(rows)
     train_dates = sorted({str(row.get("target_date")) for row in rows})
     locked = sorted({str(value) for value in locked_dates})
     if set(train_dates) & set(locked):
         raise ResidualTrainingError("final fit receipt overlaps the locked evaluation window")
+    predictions = predict_residual_means(pipeline, rows, feature_names)
+    prediction_rows = _prediction_binding_rows(rows, predictions)
+    fit_input_sha256 = _payload_sha256(lineage_rows)
+    fit_predictions_sha256 = _payload_sha256(prediction_rows)
+    model_payload_sha256 = _pipeline_payload_sha256(pipeline)
+    stage_input_payload = {
+        "fit_input_sha256": fit_input_sha256,
+        "fit_row_count": len(rows),
+        "train_dates": train_dates,
+        "locked_dates": locked,
+        "parent_oof_receipt_sha256": parent_oof_receipt.get("receipt_sha256"),
+        "parent_stage_output_sha256": parent_oof_receipt.get(
+            "stage_output_sha256"
+        ),
+    }
+    stage_output_payload = {
+        "model_payload_sha256": model_payload_sha256,
+        "fit_predictions_sha256": fit_predictions_sha256,
+        "fit_prediction_row_count": len(prediction_rows),
+        "feature_names": list(feature_names),
+    }
     return finalize_self_hash({
         "schema_version": FINAL_FIT_RECEIPT_SCHEMA_VERSION,
         "artifact_type": "residual_distribution_final_fit_receipt",
@@ -904,13 +1652,122 @@ def _final_fit_receipt(
         "train_dates": train_dates,
         "locked_dates": locked,
         "fit_row_count": len(rows),
-        "fit_input_sha256": hashlib.sha256(
-            canonical_json(lineage_rows).encode("utf-8")
-        ).hexdigest(),
-        "model_payload_sha256": hashlib.sha256(
-            pickle.dumps(pipeline, protocol=pickle.HIGHEST_PROTOCOL)
-        ).hexdigest(),
+        "fit_input_sha256": fit_input_sha256,
+        "fit_predictions_sha256": fit_predictions_sha256,
+        "model_payload_sha256": model_payload_sha256,
+        "parent_oof_receipt_sha256": parent_oof_receipt.get("receipt_sha256"),
+        "parent_stage_output_sha256": parent_oof_receipt.get(
+            "stage_output_sha256"
+        ),
+        "payload_hash_algorithm": FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM,
+        "payload_canonicalization": FIT_RECEIPT_PAYLOAD_CANONICALIZATION,
+        "stage_input_payload": stage_input_payload,
+        "stage_input_sha256": _payload_sha256(stage_input_payload),
+        "stage_output_payload": stage_output_payload,
+        "stage_output_sha256": _payload_sha256(stage_output_payload),
     }, hash_field="receipt_sha256")
+
+
+def verify_final_fit_receipt(
+    receipt: Mapping[str, Any],
+    *,
+    parent_oof_receipt: Mapping[str, Any],
+    pipeline: Pipeline,
+) -> dict[str, Any]:
+    try:
+        verify_self_hash(receipt, hash_field="receipt_sha256")
+    except Exception as exc:
+        raise ResidualTrainingError(
+            f"final fit receipt self-hash is invalid: {exc}"
+        ) from exc
+    if (
+        receipt.get("schema_version") != FINAL_FIT_RECEIPT_SCHEMA_VERSION
+        or receipt.get("artifact_type") != "residual_distribution_final_fit_receipt"
+        or receipt.get("payload_hash_algorithm")
+        != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+    ):
+        raise ResidualTrainingError("final fit receipt payload-binding contract is invalid")
+    input_payload = receipt.get("stage_input_payload")
+    output_payload = receipt.get("stage_output_payload")
+    if not isinstance(input_payload, Mapping) or not isinstance(output_payload, Mapping):
+        raise ResidualTrainingError("final fit receipt input/output payload is missing")
+    if (
+        receipt.get("stage_input_sha256") != _payload_sha256(input_payload)
+        or receipt.get("stage_output_sha256") != _payload_sha256(output_payload)
+    ):
+        raise ResidualTrainingError("final fit receipt input/output payload hash mismatch")
+    if (
+        receipt.get("parent_oof_receipt_sha256")
+        != parent_oof_receipt.get("receipt_sha256")
+        or receipt.get("parent_stage_output_sha256")
+        != parent_oof_receipt.get("stage_output_sha256")
+        or input_payload.get("parent_oof_receipt_sha256")
+        != parent_oof_receipt.get("receipt_sha256")
+        or input_payload.get("parent_stage_output_sha256")
+        != parent_oof_receipt.get("stage_output_sha256")
+    ):
+        raise ResidualTrainingError("final fit receipt is not chained to the OOF output")
+    model_payload_sha256 = _pipeline_payload_sha256(pipeline)
+    if (
+        receipt.get("model_payload_sha256") != model_payload_sha256
+        or output_payload.get("model_payload_sha256") != model_payload_sha256
+        or output_payload.get("fit_predictions_sha256")
+        != receipt.get("fit_predictions_sha256")
+        or output_payload.get("fit_prediction_row_count")
+        != receipt.get("fit_row_count")
+    ):
+        raise ResidualTrainingError("final fit receipt output payload is inconsistent")
+    expected_input = {
+        "fit_input_sha256": receipt.get("fit_input_sha256"),
+        "fit_row_count": receipt.get("fit_row_count"),
+        "train_dates": list(receipt.get("train_dates") or ()),
+        "locked_dates": list(receipt.get("locked_dates") or ()),
+        "parent_oof_receipt_sha256": receipt.get("parent_oof_receipt_sha256"),
+        "parent_stage_output_sha256": receipt.get("parent_stage_output_sha256"),
+    }
+    if dict(input_payload) != expected_input:
+        raise ResidualTrainingError("final fit receipt declared input is inconsistent")
+    return dict(receipt)
+
+
+def verify_artifact_training_receipts(
+    artifact: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Recompute the complete inner-model -> OOF -> final-fit receipt graph."""
+
+    lineage = artifact.get("training_lineage")
+    if not isinstance(lineage, Mapping):
+        raise ResidualTrainingError("artifact training lineage is missing")
+    parent_receipts = lineage.get("fit_receipts")
+    oof_receipt = lineage.get("oof_receipt")
+    final_receipt = lineage.get("final_fit_receipt")
+    pipeline = artifact.get("pipeline")
+    if (
+        not isinstance(parent_receipts, list)
+        or not parent_receipts
+        or not isinstance(oof_receipt, Mapping)
+        or not isinstance(final_receipt, Mapping)
+        or pipeline is None
+    ):
+        raise ResidualTrainingError("artifact receipt graph is incomplete")
+    verify_residual_oof_receipt(oof_receipt, parent_receipts)
+    verify_final_fit_receipt(
+        final_receipt,
+        parent_oof_receipt=oof_receipt,
+        pipeline=pipeline,
+    )
+    calibration = artifact.get("calibration") or {}
+    if (
+        calibration.get("oof_receipt_sha256") != oof_receipt.get("receipt_sha256")
+        or calibration.get("model_payload_sha256")
+        != final_receipt.get("model_payload_sha256")
+    ):
+        raise ResidualTrainingError(
+            "artifact calibration is not bound to its OOF/final-fit receipts"
+        )
+    return dict(artifact)
 
 
 def fit_final_candidate(
@@ -968,12 +1825,15 @@ def fit_final_candidate(
         target_permutation=False,
     )
     required_sources = list(template["source_health_policy"]["required_sources"])
-    allowed_states = sorted({
-        state
+    observed_source_states = {
+        source: _observed_source_states(examples, source)
         for source in required_sources
-        for state in _observed_source_states(examples, source)
-        if state in SOURCE_STATES
-    }) or ["unknown"]
+    }
+    # Source state is a permission boundary, not a learned feature.  Training
+    # support for stale/failed/unknown inputs must never silently make those
+    # states valid for serving; they require a separately qualified widening
+    # policy or a named abstention.  V1 currently chooses abstention.
+    allowed_states = ["fresh"]
     calibrator_method = (
         "identity" if math.isclose(float(final_oof["calibrator"]["temperature"]), 1.0)
         else "simplex_temperature"
@@ -983,15 +1843,24 @@ def fit_final_candidate(
         examples,
         locked_dates=sorted(locked),
         pipeline=pipeline,
+        feature_names=feature_names,
+        parent_oof_receipt=final_oof["oof_receipt"],
+    )
+    verify_residual_oof_receipt(
+        final_oof["oof_receipt"], final_oof["fit_receipts"]
+    )
+    verify_final_fit_receipt(
+        final_fit_receipt,
+        parent_oof_receipt=final_oof["oof_receipt"],
+        pipeline=pipeline,
     )
     promotion_countable_rows = sum(
         1 for row in examples if row.get("promotion_training_countable")
     )
-    qualification_status = (
-        evaluation.get("status")
-        if promotion_countable_rows > 0
-        else "BLOCK"
-    )
+    # A fitted artifact is never promotion-eligible by itself.  The separate
+    # finalizer binds corpus/lock/parity/forward evidence and is the only place
+    # that may produce qualification PASS.
+    qualification_status = "BLOCK"
     artifact = {
         "schema_version": ARTIFACT_SCHEMA_VERSION,
         "artifact_type": "residual_distribution_model",
@@ -1011,7 +1880,9 @@ def fit_final_candidate(
         "source_health_policy": {
             "required_sources": required_sources,
             "allowed_states": allowed_states,
-            "support_source": "observed_training_rows",
+            "observed_training_states": observed_source_states,
+            "support_source": "fail_closed_safety_policy",
+            "degraded_state_action": "named_abstention",
         },
         "pipeline": pipeline,
         "ridge_alpha": float(final_oof["alpha"]),
@@ -1054,11 +1925,243 @@ def fit_final_candidate(
             "criteria": {
                 **(evaluation.get("qualification_criteria") or {}),
                 "has_release_bound_training_evidence": promotion_countable_rows > 0,
+                "output_bound_training_receipts_verified": True,
+                "evidence_finalization_complete": False,
             },
             "outer_validation_dates": (evaluation.get("fold_contract") or {}).get("outer_validation_dates") or [],
         },
     }
-    return validate_artifact(artifact)
+    validated = validate_artifact(artifact)
+    verify_artifact_training_receipts(validated)
+    return validated
+
+
+def finalize_candidate_qualification(
+    artifact: Mapping[str, Any],
+    rows: Sequence[Mapping[str, Any]],
+    evaluation: Mapping[str, Any],
+    *,
+    locked_dates: Sequence[str],
+    preselection_locks: Sequence[Mapping[str, Any]] = (),
+    corpus_manifest: Mapping[str, Any] | None = None,
+    parity_evidence: Mapping[str, Any] | None = None,
+    streaming_evidence: Mapping[str, Any] | None = None,
+    required_comparators: Sequence[str] = DEFAULT_COMPARATORS,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Attach the fail-closed evidence gate to a fitted candidate.
+
+    Fitting a valid sklearn object is intentionally insufficient.  This step
+    can establish offline release eligibility from singular identity,
+    complete fleet-date coverage, a preselection lock, and untouched-window
+    results.  Promotion remains impossible here: exact parity and forward
+    streaming are verified only after this artifact is frozen into one
+    immutable inactive release.
+    """
+
+    verify_artifact_training_receipts(artifact)
+    examples = validate_training_examples(rows)
+    candidate_id = str(artifact.get("candidate_id") or PREDICTION_MODE)
+    corpus_hash = training_corpus_sha256(examples)
+    manifest_verified = False
+    manifest_error = None
+    verified_manifest: dict[str, Any] | None = None
+    if isinstance(corpus_manifest, Mapping):
+        try:
+            verified_manifest = verify_residual_corpus_manifest(examples, corpus_manifest)
+            manifest_verified = verified_manifest.get("corpus_sha256") == corpus_hash
+        except Exception as exc:  # noqa: BLE001 - malformed lineage is a qualification BLOCK
+            manifest_error = f"{type(exc).__name__}: {exc}"
+    locked = sorted({str(value) for value in locked_dates})
+    lock = None
+    lock_error = None
+    try:
+        lock = find_matching_preselection_lock(
+            preselection_locks,
+            candidate_id=candidate_id,
+            corpus_sha256=corpus_hash,
+            locked_dates=locked,
+            evaluation_generated_at_utc=str(evaluation.get("generated_at_utc") or "") or None,
+        )
+    except Exception as exc:  # noqa: BLE001 - malformed evidence becomes BLOCK, never a crash-pass
+        lock_error = f"{type(exc).__name__}: {exc}"
+
+    expected_markets = list((lock or {}).get("expected_market_ids") or [])
+    expected_cutoffs = list((lock or {}).get("expected_cutoff_hours") or [])
+    minimum_outer_dates = int(
+        (lock or {}).get("minimum_outer_dates") or DEFAULT_MINIMUM_OUTER_DATES
+    )
+    minimum_locked_dates = int(
+        (lock or {}).get("minimum_locked_dates") or DEFAULT_MINIMUM_LOCKED_DATES
+    )
+    development_dates = sorted({
+        str(row.get("target_date"))
+        for row in examples
+        if str(row.get("target_date")) not in set(locked)
+    })
+    development_coverage = fleet_coverage_report(
+        examples,
+        target_dates=development_dates,
+        expected_market_ids=expected_markets,
+        expected_cutoff_hours=expected_cutoffs,
+    )
+    locked_coverage = fleet_coverage_report(
+        examples,
+        target_dates=locked,
+        expected_market_ids=expected_markets,
+        expected_cutoff_hours=expected_cutoffs,
+    )
+    release_ids = sorted({str(row.get("release_id") or "") for row in examples})
+    runtime_tokens = [_runtime_identity_token(row) for row in examples]
+    nonempty_runtime_tokens = sorted({value for value in runtime_tokens if value})
+    all_release_bound = all(
+        row.get("training_evidence_class") == "release_bound"
+        and bool(row.get("promotion_training_countable"))
+        and bool(str(row.get("release_id") or ""))
+        for row in examples
+    )
+    required_sources = list(
+        (artifact.get("source_health_policy") or {}).get("required_sources") or []
+    )
+    source_rows_serve_eligible = True
+    for row in examples:
+        by_source = {
+            str(item.get("source") or ""): str(item.get("status") or "").lower()
+            for item in row.get("source_health") or []
+            if isinstance(item, Mapping)
+        }
+        if any(by_source.get(source) not in {"fresh", "ok", "healthy", "complete", "pass"} for source in required_sources):
+            source_rows_serve_eligible = False
+            break
+
+    locked_evaluation = score_locked_window(
+        artifact,
+        examples,
+        locked_dates=locked,
+        required_comparators=required_comparators,
+    )
+    outer_dates = list((evaluation.get("fold_contract") or {}).get("outer_validation_dates") or [])
+    outer_criteria = dict(evaluation.get("qualification_criteria") or {})
+    criteria = {
+        "nested_requalification_pass": evaluation.get("status") == "PASS",
+        "all_nested_criteria_pass": bool(outer_criteria) and all(outer_criteria.values()),
+        "minimum_outer_fleet_dates": len(set(outer_dates)) >= minimum_outer_dates,
+        "preselection_lock_registered_before_evaluation": lock is not None and lock_error is None,
+        "corpus_manifest_verified": manifest_verified,
+        "corpus_manifest_input_contract_pass": bool(
+            verified_manifest
+            and (verified_manifest.get("qualification_input_contract") or {}).get("status")
+            == "PASS"
+        ),
+        "preselection_lock_binds_corpus_manifest": bool(
+            lock
+            and verified_manifest
+            and lock.get("corpus_manifest_sha256")
+            == verified_manifest.get("manifest_sha256")
+        ),
+        "minimum_locked_fleet_dates": len(set(locked)) >= minimum_locked_dates,
+        "locked_window_pass": locked_evaluation.get("status") == "PASS",
+        "development_fleet_coverage_complete": development_coverage.get("status") == "PASS",
+        "locked_fleet_coverage_complete": locked_coverage.get("status") == "PASS",
+        "all_rows_release_bound_and_countable": all_release_bound,
+        "singular_nonmissing_release_id": len(release_ids) == 1 and release_ids != [""],
+        "singular_nonmissing_runtime_identity": (
+            len(nonempty_runtime_tokens) == 1
+            and len(runtime_tokens) == len(examples)
+            and all(runtime_tokens)
+        ),
+        "source_health_rows_match_serving_permission": source_rows_serve_eligible,
+        "output_bound_training_receipts_verified": True,
+        # Forward evidence cannot truthfully bind this artifact until the
+        # artifact is inside an immutable, inactive release.  Phase two is an
+        # external attestation over that exact release; training must never
+        # self-certify these criteria from pre-release files.
+        "live_replay_parity_pass": False,
+        "release_bound_forward_streaming_pass": False,
+    }
+    # Qualification is deliberately two-phase.  The fitted artifact and all
+    # offline evidence must be frozen into an immutable, inactive release
+    # before release-bound parity/forward evidence can exist.  Do not collapse
+    # OFFLINE_PASS into promotion PASS: only the external forward attestation
+    # may complete the second phase.
+    forward_criteria_names = {
+        "live_replay_parity_pass",
+        "release_bound_forward_streaming_pass",
+    }
+    offline_criteria = {
+        key: value for key, value in criteria.items()
+        if key not in forward_criteria_names
+    }
+    forward_criteria = {
+        key: criteria[key] for key in sorted(forward_criteria_names)
+    }
+    offline_status = (
+        "PASS" if offline_criteria and all(offline_criteria.values()) else "BLOCK"
+    )
+    forward_status = (
+        "PASS" if forward_criteria and all(forward_criteria.values()) else "BLOCK"
+    )
+    status = (
+        "PASS"
+        if offline_status == "PASS" and forward_status == "PASS"
+        else "OFFLINE_PASS"
+        if offline_status == "PASS"
+        else "BLOCK"
+    )
+    qualified = dict(artifact)
+    qualified["training_lineage"] = {
+        **dict(qualified.get("training_lineage") or {}),
+        "full_corpus_sha256": corpus_hash,
+        "release_ids": release_ids,
+        "runtime_identity_sha256s": nonempty_runtime_tokens,
+        "preselection_lock": lock,
+        "preselection_lock_error": lock_error,
+        "corpus_manifest_sha256": (
+            verified_manifest.get("manifest_sha256") if verified_manifest else None
+        ),
+        "corpus_manifest_error": manifest_error,
+    }
+    qualified["qualification"] = {
+        "status": status,
+        "offline_status": offline_status,
+        "forward_status": forward_status,
+        "criteria": criteria,
+        "offline_criteria": offline_criteria,
+        "forward_criteria": forward_criteria,
+        "nested_criteria": outer_criteria,
+        "outer_validation_dates": outer_dates,
+        "locked_window": locked_evaluation,
+        "development_coverage": development_coverage,
+        "locked_coverage": locked_coverage,
+        "parity_evidence": {},
+        "streaming_evidence": {},
+        "forward_evidence_policy": "external_post_release_attestation_required",
+        "ignored_pre_release_forward_evidence": bool(
+            parity_evidence or streaming_evidence
+        ),
+        "required_comparators": list(required_comparators),
+    }
+    report = {
+        "status": status,
+        "offline_status": offline_status,
+        "forward_status": forward_status,
+        "candidate_id": candidate_id,
+        "corpus_sha256": corpus_hash,
+        "criteria": criteria,
+        "offline_criteria": offline_criteria,
+        "forward_criteria": forward_criteria,
+        "locked_window": locked_evaluation,
+        "development_coverage": development_coverage,
+        "locked_coverage": locked_coverage,
+        "preselection_lock": lock,
+        "preselection_lock_error": lock_error,
+        "corpus_manifest_sha256": (
+            verified_manifest.get("manifest_sha256") if verified_manifest else None
+        ),
+        "corpus_manifest_error": manifest_error,
+        "release_ids": release_ids,
+        "runtime_identity_sha256s": nonempty_runtime_tokens,
+    }
+    return validate_artifact(qualified), report
 
 
 def train_residual_distribution_v1(
@@ -1066,13 +2169,22 @@ def train_residual_distribution_v1(
     *,
     locked_dates: Sequence[str] = (),
     candidate_id: str = PREDICTION_MODE,
+    preselection_locks: Sequence[Mapping[str, Any]] = (),
+    corpus_manifest: Mapping[str, Any] | None = None,
+    parity_evidence: Mapping[str, Any] | None = None,
+    streaming_evidence: Mapping[str, Any] | None = None,
+    required_comparators: Sequence[str] = DEFAULT_COMPARATORS,
     **evaluation_options: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     locked = {str(value) for value in locked_dates}
     development_rows = [
         row for row in rows if str(row.get("target_date")) not in locked
     ]
-    evaluation = run_nested_evaluation(development_rows, **evaluation_options)
+    evaluation = run_nested_evaluation(
+        development_rows,
+        required_comparators=required_comparators,
+        **evaluation_options,
+    )
     final_options = {
         key: evaluation_options[key]
         for key in ("ablations", "alpha_grid", "embargo_days")
@@ -1087,7 +2199,18 @@ def train_residual_distribution_v1(
         locked_dates=sorted(locked),
         **final_options,
     )
-    return artifact, evaluation
+    artifact, qualification = finalize_candidate_qualification(
+        artifact,
+        rows,
+        evaluation,
+        locked_dates=sorted(locked),
+        preselection_locks=preselection_locks,
+        corpus_manifest=corpus_manifest,
+        parity_evidence=parity_evidence,
+        streaming_evidence=streaming_evidence,
+        required_comparators=required_comparators,
+    )
+    return artifact, {**evaluation, "qualification": qualification, "status": qualification["status"]}
 
 
 def write_candidate_artifact(
@@ -1098,6 +2221,7 @@ def write_candidate_artifact(
     releases_root: str | Path = DEFAULT_IMMUTABLE_RELEASE_ROOT,
 ) -> dict[str, Any]:
     validated = validate_artifact(artifact)
+    verify_artifact_training_receipts(validated)
     policy = training_artifact_output_policy(
         path,
         candidates_root=candidates_root,
@@ -1114,6 +2238,17 @@ def write_candidate_artifact(
         "bytes": len(payload),
         "sha256": hashlib.sha256(payload).hexdigest(),
         "qualification_status": (validated.get("qualification") or {}).get("status"),
+        "offline_qualification_status": (
+            (validated.get("qualification") or {}).get("offline_status")
+        ),
+        "forward_qualification_status": (
+            (validated.get("qualification") or {}).get("forward_status")
+        ),
+        "candidate_release_eligible": (
+            (validated.get("qualification") or {}).get("status") == "OFFLINE_PASS"
+            and (validated.get("qualification") or {}).get("offline_status") == "PASS"
+            and (validated.get("qualification") or {}).get("forward_status") == "BLOCK"
+        ),
         "promotion_eligible": (
             (validated.get("qualification") or {}).get("status") == "PASS"
         ),
@@ -1123,7 +2258,9 @@ def write_candidate_artifact(
 def load_candidate_artifact(path: str | Path) -> dict[str, Any]:
     with Path(path).open("rb") as handle:
         artifact = pickle.load(handle)
-    return validate_artifact(artifact)
+    validated = validate_artifact(artifact)
+    verify_artifact_training_receipts(validated)
+    return validated
 
 
 def load_training_corpus_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -1185,6 +2322,25 @@ def _read_locked_dates(path: str | Path | None) -> list[str]:
     raise ResidualTrainingError("locked-date file must be a JSON list/object or one date per line")
 
 
+def _read_json_mapping(path: str | Path | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    source = Path(path)
+    if not source.exists():
+        return None
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ResidualTrainingError(f"evidence file must contain one JSON object: {source}")
+    return payload
+
+
+def _parse_csv_strings(value: str) -> tuple[str, ...]:
+    values = tuple(dict.fromkeys(item.strip() for item in str(value).split(",") if item.strip()))
+    if not values:
+        raise argparse.ArgumentTypeError("at least one comma-separated value is required")
+    return values
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Train the shadow-only ResidualDistributionV1 candidate from a PIT JSONL corpus."
@@ -1200,6 +2356,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--candidate-id", default=PREDICTION_MODE)
     parser.add_argument("--locked-dates-file", default="")
+    parser.add_argument("--corpus-manifest", default="")
+    parser.add_argument(
+        "--preselection-lock-ledger",
+        default="data/backtest/residual_distribution_v1_preselection_locks.jsonl",
+    )
+    parser.add_argument(
+        "--parity-evidence",
+        default="data/backtest/live_variant_replay_parity.json",
+    )
+    parser.add_argument(
+        "--streaming-evidence",
+        default="data/backtest/point_in_time_streaming_evaluation.json",
+    )
+    parser.add_argument(
+        "--required-comparators",
+        type=_parse_csv_strings,
+        default=DEFAULT_COMPARATORS,
+    )
     parser.add_argument("--outer-min-train-dates", type=int, default=14)
     parser.add_argument("--inner-min-train-dates", type=int, default=7)
     parser.add_argument("--embargo-days", type=int, choices=range(3, 8), default=3)
@@ -1210,9 +2384,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     rows = load_training_corpus_jsonl(args.corpus)
     locked_dates = _read_locked_dates(args.locked_dates_file)
+    corpus_manifest = _read_json_mapping(args.corpus_manifest)
+    preselection_locks = read_preselection_lock_ledger(args.preselection_lock_ledger)
+    parity_evidence = _read_json_mapping(args.parity_evidence)
+    streaming_evidence = _read_json_mapping(args.streaming_evidence)
     artifact, report = train_residual_distribution_v1(
         rows,
         candidate_id=args.candidate_id,
+        corpus_manifest=corpus_manifest,
+        preselection_locks=preselection_locks,
+        parity_evidence=parity_evidence,
+        streaming_evidence=streaming_evidence,
+        required_comparators=args.required_comparators,
         locked_dates=locked_dates,
         outer_min_train_dates=args.outer_min_train_dates,
         inner_min_train_dates=args.inner_min_train_dates,

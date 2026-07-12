@@ -638,14 +638,17 @@ class ObservationTriggerTests(unittest.TestCase):
             result = store.write(event, model, FakeModelClient(), captured_at)
             manifest_rows = list(csv.DictReader((root / "forecast_payloads_long.csv").open(encoding="utf-8", newline="")))
             replay = json.loads((root / "replay_inputs.jsonl").read_text(encoding="utf-8").strip())
+            raw_payload_path = Path(manifest_rows[0]["raw_payload_path"])
+            raw_payload_exists = raw_payload_path.exists()
 
         self.assertEqual(result["forecast_payload_rows"], 1)
         self.assertEqual(manifest_rows[0]["source"], "weather_forecast")
         self.assertEqual(manifest_rows[0]["provider_issue_time"], "2026-06-13T15:45:00+00:00")
         self.assertTrue(manifest_rows[0]["payload_hash"])
         self.assertGreater(int(manifest_rows[0]["payload_bytes"]), 0)
-        self.assertEqual(manifest_rows[0]["raw_payload_path"], "")
-        self.assertFalse((root / "forecast_payloads").exists())
+        self.assertTrue(raw_payload_exists)
+        self.assertEqual(raw_payload_path.name, f'{manifest_rows[0]["payload_hash"]}.json')
+        self.assertEqual(manifest_rows[0]["payload_hash_algorithm"], "sha256-canonical-json")
         self.assertNotIn("raw_payload", replay["sources"]["weather_forecast"]["data"])
         self.assertEqual(
             replay["sources"]["weather_forecast"]["data"]["provider_update_time"],

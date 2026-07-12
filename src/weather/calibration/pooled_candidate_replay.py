@@ -70,6 +70,13 @@ from weather.model.residual_distribution_v1 import (
     predict_residual_distribution_v1,
     residual_band_key,
 )
+from weather.model.current_blend import (
+    blend_with_current,
+    current_blend_context_rule_matches,
+    current_blend_context_value,
+    resolve_current_blend_alpha as current_blend_alpha,
+    source_freshness_state_from_diagnostics,
+)
 from weather.calibration.residual_distribution_corpus import (
     source_diagnostics_from_replay,
 )
@@ -713,7 +720,10 @@ def build_source_freshness_index(manifest, snapshots_root, family_unit):
                 continue
             if is_reconstructed(record) and not include_reconstructed:
                 continue
-            group = source_freshness_group(record)
+            # Use the same diagnostic collapse as live serving.  In particular,
+            # an absent/empty source envelope is explicit missingness, never a
+            # distinct replay-only health state.
+            group = source_freshness_state_from_diagnostics(record.get("sources"))
             output[(market_id, str(snapshot_id))] = group
             counts[group] += 1
     diagnostics["source_freshness_snapshots"] = len(output)
@@ -891,24 +901,14 @@ def attach_residual_distribution_v1_probabilities(
         replay_band_rows = [_residual_replay_band_row(rows[index]) for index in indexes]
         if captured_diagnostics is None:
             coverage["source_diagnostics_missing_snapshots"] += 1
-            payload = {
-                "status": "skipped",
-                "failure_reason": "abstain_source_state",
-                "failure_detail": (
-                    "replay input must contain captured source_diagnostics or "
-                    "source_status, or source envelopes with explicit status/ok/stale; "
-                    "status-free sources are not treated as all-fresh"
-                ),
-            }
-        else:
-            payload = residual_distribution_v1_replay_payload(
-                artifact=artifact,
-                feature_vector=feature_vector,
-                source_diagnostics=captured_diagnostics,
-                market_id=market_id,
-                unit=spec.display_unit if spec is not None else None,
-                band_rows=replay_band_rows,
-            )
+        payload = residual_distribution_v1_replay_payload(
+            artifact=artifact,
+            feature_vector=feature_vector,
+            source_diagnostics=captured_diagnostics,
+            market_id=market_id,
+            unit=spec.display_unit if spec is not None else None,
+            band_rows=replay_band_rows,
+        )
         status = str(payload.get("status") or "failed").lower()
         failure_reason = str(payload.get("failure_reason") or "")
         failure_detail = str(payload.get("failure_detail") or "")
@@ -1119,8 +1119,6 @@ def attach_band_candidate_probabilities(
                 )
             rows[row_index]["candidate_p"] = probability
 
-    for row in rows:
-        row.pop("_band_postprocess_row", None)
     if postprocess.get("partition_normalization_enabled", True):
         normalize_partition_probabilities(
             rows,
@@ -1128,6 +1126,8 @@ def attach_band_candidate_probabilities(
         )
     if postprocess.get("current_blend_enabled", False):
         apply_current_blend_guardrail(rows, postprocess)
+    for row in rows:
+        row.pop("_band_postprocess_row", None)
 
     candidate_rows = sum(1 for row in rows if _valid_probability(row.get("candidate_p")))
     coverage["candidate_rows"] = candidate_rows
@@ -1286,70 +1286,6 @@ def normalize_partition_probabilities(rows, gamma=1.25):
     return rows
 
 
-def current_blend_alpha(row, config):
-    market_alpha = config.get("current_blend_market_alpha") or {}
-    market_id = row.get("market_id")
-    if market_id in market_alpha:
-        alpha = market_alpha[market_id]
-    else:
-        alpha = config.get("current_blend_default_alpha", 1.0)
-    source_alpha = config.get("current_blend_source_freshness_alpha") or {}
-    if source_alpha:
-        source_state = row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
-        source_default = config.get("current_blend_source_freshness_default_alpha", 0.0)
-        source_state_alpha = source_alpha.get(source_state, source_default)
-        try:
-            alpha = min(float(alpha), float(source_state_alpha))
-        except (TypeError, ValueError):
-            alpha = source_state_alpha
-    for rule in config.get("current_blend_context_alpha") or []:
-        if current_blend_context_rule_matches(row, rule):
-            alpha = rule.get("alpha", alpha)
-    try:
-        return max(0.0, min(1.0, float(alpha)))
-    except (TypeError, ValueError):
-        return 1.0
-
-
-def current_blend_context_value(row, key):
-    if key == "source_freshness_state":
-        return row.get("source_freshness_state") or row.get("source_status_group") or "unknown"
-    if key == "cutoff_regime":
-        return (
-            row.get("cutoff_regime")
-            or row.get("candidate_cutoff_regime")
-            or cutoff_regime(row.get("cutoff_hour") or row.get("candidate_cutoff_hour"))
-            or ""
-        )
-    if key == "cutoff_hour":
-        return row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or ""
-    return row.get(key)
-
-
-def current_blend_context_rule_matches(row, rule):
-    for key, expected in (rule or {}).items():
-        if key in {"alpha", "policy_id", "description"}:
-            continue
-        if key.endswith("_min") or key.endswith("_max"):
-            base_key = key[:-4]
-            actual = current_blend_context_value(row, base_key)
-            try:
-                actual_value = float(actual)
-                expected_value = float(expected)
-            except (TypeError, ValueError):
-                return False
-            if key.endswith("_min") and actual_value < expected_value:
-                return False
-            if key.endswith("_max") and actual_value > expected_value:
-                return False
-            continue
-        actual = current_blend_context_value(row, key)
-        expected_values = expected if isinstance(expected, list) else [expected]
-        if str(actual) not in {str(value) for value in expected_values}:
-            return False
-    return True
-
-
 def apply_current_blend_guardrail(rows, config):
     """Blend pooled candidate probabilities with incumbent replay probabilities."""
     for row in rows:
@@ -1357,12 +1293,14 @@ def apply_current_blend_guardrail(rows, config):
             continue
         if not _valid_probability(row.get("replayed_p")):
             continue
-        alpha = current_blend_alpha(row, config)
-        if alpha >= 1.0:
-            continue
-        candidate = _clamp_probability(row["candidate_p"])
-        incumbent = _clamp_probability(row["replayed_p"])
-        row["candidate_p"] = (alpha * candidate) + ((1.0 - alpha) * incumbent)
+        blend_context = dict(row.get("_band_postprocess_row") or {})
+        blend_context.update(row)
+        row["candidate_p"] = blend_with_current(
+            row["candidate_p"],
+            row["replayed_p"],
+            row=blend_context,
+            config=config,
+        )
     return rows
 
 

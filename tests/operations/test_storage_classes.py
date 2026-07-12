@@ -25,6 +25,9 @@ class TestStorageClassRegistry(unittest.TestCase):
         examples = {
             "data/snapshots/event/snapshots.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/replay_inputs.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/observation_payloads.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/observation_payloads/s1_metar_hash.json": CANONICAL_EVIDENCE,
+            "data/snapshots/event/clob_capture_status.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/order_books.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/market_ws.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshot_explanations.jsonl": CANONICAL_EVIDENCE,
@@ -34,6 +37,7 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/taker_runs/run-1/orders.jsonl": CANONICAL_EVIDENCE,
             "data/wunderground/cyyz/manifest.json": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshots_long.csv": ANALYSIS_PROJECTION,
+            "data/snapshots/event/observation_payloads_long.csv": ANALYSIS_PROJECTION,
             "data/snapshots/event/snapshot_explanations_long.csv": ANALYSIS_PROJECTION,
             "data/snapshots/event/variant_predictions_long.csv": ANALYSIS_PROJECTION,
             "data/snapshots/event/order_books_long.csv": ANALYSIS_PROJECTION,
@@ -61,6 +65,8 @@ class TestStorageClassRegistry(unittest.TestCase):
                 probe = "data/snapshots/event/market_ws_events.csv"
             elif family == "variant_predictions_long":
                 probe = "data/snapshots/event/variant_predictions_long.csv"
+            elif family == "clob_capture_status":
+                probe = "data/snapshots/event/clob_capture_status.jsonl"
             else:
                 probe = f"data/snapshots/event/{family}.csv"
             classification = classify_storage_path(probe)

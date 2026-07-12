@@ -482,21 +482,213 @@ def feature_blocked_validation_plan(records, mode="holdout_year"):
     }
 
 
-def hgb_matrices_for_split(x_frame, train_idx, val_idx, feature_cols):
+def fold_local_feature_matrices(
+    x_frame,
+    train_idx,
+    val_idx,
+    feature_cols,
+    numeric_feature_count,
+):
+    """Fit preprocessing on one training fold and transform its validation fold.
+
+    Validation rows never participate in median imputation or numeric scaling.
+    HGB receives native NaNs for the feature families whose serving contract
+    distinguishes "missing" from a median value; LR receives the fold-imputed,
+    fold-scaled matrix.
+    """
+
+    train_idx = [int(index) for index in np.atleast_1d(train_idx)]
+    val_idx = [int(index) for index in np.atleast_1d(val_idx)]
     train_frame = x_frame.iloc[train_idx]
     val_frame = x_frame.iloc[val_idx]
     imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-    x_train = imputer.fit_transform(train_frame)
-    x_val = imputer.transform(val_frame)
+    x_train_imputed = imputer.fit_transform(train_frame)
+    x_val_imputed = imputer.transform(val_frame)
+
+    x_train_lr = x_train_imputed.copy()
+    x_val_lr = x_val_imputed.copy()
+    scaler = None
+    numeric_feature_count = max(0, int(numeric_feature_count or 0))
+    if numeric_feature_count:
+        scaler = StandardScaler()
+        x_train_lr[:, :numeric_feature_count] = scaler.fit_transform(
+            x_train_imputed[:, :numeric_feature_count]
+        )
+        x_val_lr[:, :numeric_feature_count] = scaler.transform(
+            x_val_imputed[:, :numeric_feature_count]
+        )
+
+    x_train_hgb = x_train_imputed.copy()
+    x_val_hgb = x_val_imputed.copy()
     native_nan_cols = [
         column for column in NATIVE_NAN_FEATURE_COLUMNS
         if column in feature_cols
     ]
     if native_nan_cols:
         native_idx = [feature_cols.index(column) for column in native_nan_cols]
-        x_train[:, native_idx] = train_frame[native_nan_cols].to_numpy(dtype=float)
-        x_val[:, native_idx] = val_frame[native_nan_cols].to_numpy(dtype=float)
-    return x_train, x_val
+        x_train_hgb[:, native_idx] = train_frame[native_nan_cols].to_numpy(dtype=float)
+        x_val_hgb[:, native_idx] = val_frame[native_nan_cols].to_numpy(dtype=float)
+    return {
+        "lr_train": x_train_lr,
+        "lr_validation": x_val_lr,
+        "hgb_train": x_train_hgb,
+        "hgb_validation": x_val_hgb,
+        "imputer": imputer,
+        "scaler": scaler,
+        "train_indices": train_idx,
+        "validation_indices": val_idx,
+    }
+
+
+def hgb_matrices_for_split(x_frame, train_idx, val_idx, feature_cols):
+    matrices = fold_local_feature_matrices(
+        x_frame,
+        train_idx,
+        val_idx,
+        feature_cols,
+        numeric_feature_count=0,
+    )
+    return matrices["hgb_train"], matrices["hgb_validation"]
+
+
+def inner_hgb_calibration_rows(
+    x_frame,
+    y,
+    records,
+    bucket_space,
+    feature_cols,
+    numeric_feature_count,
+    outer_train_indices,
+):
+    """Build inner blocked OOF predictions using only an outer fold's training rows."""
+
+    outer_train_indices = tuple(sorted({int(index) for index in outer_train_indices}))
+    if len(outer_train_indices) < 3:
+        return []
+    inner_records = [records[index] for index in outer_train_indices]
+    years = {
+        _as_date(record.get("date") or record.get("target_date")).year
+        for record in inner_records
+        if record.get("date") is not None or record.get("target_date") is not None
+    }
+    inner_mode = "holdout_year" if len(years) >= 2 else "leave_one_market_day"
+    splits = validation_splits(
+        inner_records,
+        modes=(inner_mode,),
+        default_market_id="feature_model",
+    )
+    rows = []
+    for split in splits:
+        train_indices = [
+            outer_train_indices[int(index)]
+            for index in split.get("train_indices") or []
+        ]
+        validation_indices = [
+            outer_train_indices[int(index)]
+            for index in split.get("validation_indices") or []
+        ]
+        if (
+            not train_indices
+            or not validation_indices
+            or len(set(y.iloc[train_indices])) < 2
+        ):
+            continue
+        matrices = fold_local_feature_matrices(
+            x_frame,
+            train_indices,
+            validation_indices,
+            feature_cols,
+            numeric_feature_count,
+        )
+        hgb = HistGradientBoostingClassifier(
+            max_iter=50,
+            max_leaf_nodes=15,
+            learning_rate=0.05,
+            random_state=42,
+        )
+        hgb.fit(matrices["hgb_train"], y.iloc[train_indices])
+        raw_probabilities = hgb.predict_proba(matrices["hgb_validation"])
+        p_clim = smoothed_dist(
+            [records[index]["final_bucket"] for index in train_indices],
+            bucket_space,
+            alpha=0.10,
+        )
+        for offset, validation_index in enumerate(validation_indices):
+            raw_distribution = {
+                int(cls): float(probability)
+                for cls, probability in zip(hgb.classes_, raw_probabilities[offset])
+            }
+            rows.append((
+                p_clim,
+                raw_distribution,
+                int(y.iloc[validation_index]),
+            ))
+    return rows
+
+
+def nested_temperature_blend_predictions(
+    outer_rows,
+    *,
+    x_frame,
+    y,
+    records,
+    bucket_space,
+    feature_cols,
+    numeric_feature_count,
+    blend_weights,
+    inner_row_builder=None,
+    calibration_fitter=None,
+):
+    """Calibrate each outer block using inner OOF rows from its training data only."""
+
+    inner_row_builder = inner_row_builder or inner_hgb_calibration_rows
+    calibration_fitter = calibration_fitter or fit_temperature_blend_grid
+    by_outer_train = defaultdict(list)
+    for row in outer_rows or []:
+        key = tuple(int(index) for index in row.get("train_indices") or [])
+        by_outer_train[key].append(row)
+
+    results = []
+    for outer_train_indices, held_out_rows in by_outer_train.items():
+        inner_rows = inner_row_builder(
+            x_frame,
+            y,
+            records,
+            bucket_space,
+            feature_cols,
+            numeric_feature_count,
+            outer_train_indices,
+        )
+        if inner_rows:
+            calibration = calibration_fitter(
+                inner_rows,
+                blend_weights=blend_weights,
+            )
+            status = "nested_inner_oof"
+        else:
+            calibration = {
+                "temperature": 1.0,
+                "blend_weight": 0.80,
+                "logloss": None,
+            }
+            status = "nested_unavailable_legacy_fallback"
+        temperature = float(calibration["temperature"])
+        blend_weight = float(calibration["blend_weight"])
+        for row in held_out_rows:
+            distribution = blend(
+                row["climatology"].copy(),
+                temperature_scale_distribution(row["raw_model"], temperature),
+                blend_weight,
+            )
+            results.append({
+                **row,
+                "distribution": distribution,
+                "temperature": temperature,
+                "blend_weight": blend_weight,
+                "calibration_fit_rows": len(inner_rows),
+                "calibration_status": status,
+            })
+    return sorted(results, key=lambda row: int(row.get("validation_index", 0)))
 
 
 def evaluate_feature_family_segments(
@@ -1055,32 +1247,14 @@ def main(market_id="toronto"):
 
             X = df[feature_cols].copy()
             y = df["final_bucket"].copy()
-
-            # Impute missing values (forecast features are median-filled where absent;
-            # pre-archive that degenerates to a constant high / a redundant gap, so it
-            # is benign, while post-archive rows carry the real forecast signal).
-            imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-            X_imputed = imputer.fit_transform(X)
-
-            # Standardize the numeric columns (the leading n_numeric columns).
-            scaler = StandardScaler()
-            X_scaled = X_imputed.copy()
-            X_scaled[:, :n_numeric] = scaler.fit_transform(X_imputed[:, :n_numeric])
-
-            # HGB version: keep the forecast columns as native NaN where absent (pre
-            # archive) instead of median-filling, so the tree learns "forecast
-            # unknown" rather than splitting on a fake value. (LR can't do NaN, so it
-            # keeps the imputed+scaled matrix above.)
+            # Preprocessing is intentionally not fitted here. Every blocked
+            # validation fold fits its own imputer/scaler below; only the final
+            # serving refit may learn preprocessing from the full matrix.
             forecast_idx = [
                 feature_cols.index(column)
                 for column in NATIVE_NAN_FEATURE_COLUMNS
                 if column in feature_cols
             ]
-            X_hgb = X_imputed.copy()
-            if forecast_idx:
-                X_hgb[:, forecast_idx] = X[
-                    [feature_cols[index] for index in forecast_idx]
-                ].to_numpy(dtype=float)
             matrix_build_seconds = time.perf_counter() - build_started
         performance_warnings = performance_warning_count(caught)
         model_fit_seconds = 0.0
@@ -1113,6 +1287,7 @@ def main(market_id="toronto"):
         briers_hgb = []
         cc_hgb = []
         hgb_fold_data = []  # (p_clim, raw_hgb_prob_dict, val_actual) for weight tuning
+        hgb_outer_rows = []
         ablation_losses = defaultdict(list)
         ablation_briers = defaultdict(list)
         skipped_loo = 0
@@ -1120,14 +1295,11 @@ def main(market_id="toronto"):
         for val_idx in range(n_samples):
             # Split train and validation
             train_indices = blocked_train_by_validation.get(val_idx) or []
-            train_mask = np.zeros(n_samples, dtype=bool)
-            if train_indices:
-                train_mask[train_indices] = True
 
             # Validation date
             val_date = df.iloc[val_idx]["date"]
             val_actual = df.iloc[val_idx]["final_bucket"]
-            if not train_indices or len(set(y[train_mask])) < 2:
+            if not train_indices or len(set(y.iloc[train_indices])) < 2:
                 skipped_loo += 1
                 continue
 
@@ -1180,12 +1352,21 @@ def main(market_id="toronto"):
             briers_baseline.append(brier_score(scores_base, val_actual))
             cc_baseline.append((scores_base[base_top], 1.0 if base_top == val_actual else 0.0))
             
-            # Train and fit splits (LR uses scaled+imputed; HGB uses the
-            # native-NaN matrix so it sees missing forecasts as missing).
-            X_train, y_train = X_scaled[train_mask], y[train_mask]
-            X_val = X_scaled[val_idx].reshape(1, -1)
-            X_hgb_train = X_hgb[train_mask]
-            X_hgb_val = X_hgb[val_idx].reshape(1, -1)
+            # Fit all preprocessing strictly inside this blocked fold. LR uses
+            # fold-imputed/scaled values; HGB restores native NaNs after the
+            # fold-local imputer so missingness retains its serving meaning.
+            fold_matrices = fold_local_feature_matrices(
+                X,
+                train_indices,
+                [val_idx],
+                feature_cols,
+                n_numeric,
+            )
+            X_train = fold_matrices["lr_train"]
+            X_val = fold_matrices["lr_validation"]
+            X_hgb_train = fold_matrices["hgb_train"]
+            X_hgb_val = fold_matrices["hgb_validation"]
+            y_train = y.iloc[train_indices]
 
             # --- 2. Train & Predict Logistic Regression ---
             # Using simple Logistic Regression
@@ -1226,6 +1407,14 @@ def main(market_id="toronto"):
             briers_hgb.append(hgb_brier)
             cc_hgb.append((hgb_prob_blended[hgb_top], 1.0 if hgb_top == val_actual else 0.0))
             hgb_fold_data.append((p_clim, hgb_prob_dict, val_actual))
+            hgb_outer_rows.append({
+                "validation_index": val_idx,
+                "validation_date": val_date,
+                "train_indices": tuple(train_indices),
+                "climatology": p_clim,
+                "raw_model": hgb_prob_dict,
+                "actual": int(val_actual),
+            })
 
             for family, family_columns in feature_families.items():
                 X_hgb_val_ablated = neutralize_feature_family(
@@ -1257,14 +1446,16 @@ def main(market_id="toronto"):
                 )
 
         if RUN_LOO:
-            honest_validation_rows.append({
+            honest_validation_row = {
                 "hour": hour,
                 "mode": blocked_plan["mode"],
                 "split_count": blocked_plan["audit"].get("split_count", 0),
                 "validation_rows": len(blocked_train_by_validation),
                 "scored_rows": len(losses_hgb),
                 "skipped_rows": skipped_loo,
-            })
+                "preprocessing_fit_scope": "outer_training_fold_only",
+            }
+            honest_validation_rows.append(honest_validation_row)
             # Print metrics summary
             base_ll = np.mean(losses_baseline)
             base_acc = np.mean(accs_baseline)
@@ -1282,22 +1473,33 @@ def main(market_id="toronto"):
             overall_cc["lr"].extend(cc_lr)
             overall_cc["hgb"].extend(cc_hgb)
 
-            # Grid-search the HGB probability temperature plus the
-            # climatology<->HGB blend weight that minimizes LOO log loss for
-            # this hour. temperature=1.00 and weight=0.80 (the old behavior)
-            # are in the grids, so the tuned pair can never be worse on log loss.
+            # Select the final serving pair from full-corpus blocked OOF rows.
+            # Reported tuned metrics below are different: every outer block is
+            # calibrated by an inner blocked OOF run built solely from that
+            # outer block's training rows. Thus no reported validation outcome
+            # participates in choosing the transform used to score itself.
             WEIGHT_GRID = [0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.97]
-            calibration = fit_temperature_blend_grid(
+            serving_calibration = fit_temperature_blend_grid(
                 hgb_fold_data,
                 blend_weights=WEIGHT_GRID,
             )
-            best_t = calibration["temperature"]
-            best_w = calibration["blend_weight"]
+            best_t = serving_calibration["temperature"]
+            best_w = serving_calibration["blend_weight"]
             tuned_blend_weight[str(hour)] = best_w
             tuned_probability_temperature[str(hour)] = best_t
+            nested_rows = nested_temperature_blend_predictions(
+                hgb_outer_rows,
+                x_frame=X,
+                y=y,
+                records=records,
+                bucket_space=bucket_space,
+                feature_cols=feature_cols,
+                numeric_feature_count=n_numeric,
+                blend_weights=WEIGHT_GRID,
+            )
             tuned_blended = [
-                (blend(pc.copy(), temperature_scale_distribution(hd, best_t), best_w), ya)
-                for pc, hd, ya in hgb_fold_data
+                (row["distribution"], row["actual"])
+                for row in nested_rows
             ]
             tuned_ll = np.mean([log_loss(pb, ya) for pb, ya in tuned_blended])
             tuned_brier = np.mean([brier_score(pb, ya) for pb, ya in tuned_blended])
@@ -1306,6 +1508,16 @@ def main(market_id="toronto"):
             overall_cc["hgb_tuned"].extend(tuned_cc)
             hour_ece_fixed = expected_calibration_error(cc_hgb)
             hour_ece_tuned = expected_calibration_error(tuned_cc)
+            nested_fallback_rows = sum(
+                row["calibration_status"] != "nested_inner_oof"
+                for row in nested_rows
+            )
+            honest_validation_row.update({
+                "calibration_evaluation": "nested_inner_oof_by_outer_train_block",
+                "nested_calibration_rows": len(nested_rows),
+                "nested_calibration_fallback_rows": nested_fallback_rows,
+                "serving_calibration_fit_scope": "full_corpus_blocked_oof",
+            })
             calibration_rows.append(
                 f"| {hour:02d}:00 | {best_t:.2f} | {best_w:.2f} | {hgb_ll:.4f} | {tuned_ll:.4f} | "
                 f"{hgb_ll - tuned_ll:+.4f} | {hour_ece_fixed:.4f} | {hour_ece_tuned:.4f} |"
@@ -1466,7 +1678,8 @@ def main(market_id="toronto"):
                 "The empirical baseline and ML arms now use the same blocked "
                 "training indices for each validation row. The default mode is "
                 "`holdout_year`, so no validation year's adjacent days remain in "
-                "the ML training fold while the baseline excludes them.\n"
+                "the ML training fold while the baseline excludes them. Imputation "
+                "and scaling are fitted independently inside every outer fold.\n"
             )
             report_lines.append("| Cutoff | Mode | Splits | Validation rows | Scored rows | Skipped rows |")
             report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
@@ -1483,7 +1696,10 @@ def main(market_id="toronto"):
             "to the raw HGB distribution before blending. Blend weight = fraction "
             "on the calibrated HGB prediction vs the climatology prior. The legacy "
             "temperature=1.00 / weight=0.80 pair remains in the grid; the selected "
-            "pair is stored in the serving bundle.\n")
+            "pair is stored in the serving bundle after selection on the complete "
+            "blocked-OOF corpus. LogLoss/ECE labelled tuned are honest nested "
+            "metrics: each outer block uses calibration selected only from inner "
+            "blocked-OOF predictions built from that block's training rows.\n")
         report_lines.append("| Cutoff | Temperature | Tuned w | LogLoss legacy | LogLoss tuned | Delta | ECE legacy | ECE tuned |")
         report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
         report_lines.extend(calibration_rows)

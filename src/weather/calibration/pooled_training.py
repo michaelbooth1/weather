@@ -449,6 +449,37 @@ def train_pooled_band_models(
             exact_winner_shadow_blend=not all_market_band,
         ),
     }
+    # This legacy trainer has only one outer holdout.  Learned temperature,
+    # adjacent, exact-winner, and market-bias transforms used to be fitted on
+    # that same holdout and then reported on it.  Until a nested inner-OOF
+    # implementation exists, the only honest served setting is identity.  The
+    # standalone fit helpers remain available for explicitly diagnostic work,
+    # but this artifact writer must never serialize their same-holdout output.
+    artifact["postprocess"].update({
+        "adjacent_calibration_enabled": False,
+        "adjacent_calibration": {},
+        "exact_winner_catchup_enabled": False,
+        "exact_winner_catchup": {},
+        "market_bias_calibration_enabled": False,
+        "market_bias_calibration": {},
+    })
+    artifact["postprocess_fit_contract"] = {
+        "schema_version": "legacy_pooled_postprocess_fit_contract_v1",
+        "status": "PASS",
+        "policy": "identity_until_nested_inner_oof",
+        "outer_holdout_used_for_parameter_fit": False,
+        "outer_holdout_fit_rows": 0,
+        "served_parameters": {
+            "temperature": 1.0,
+            "adjacent_calibration": "identity_disabled",
+            "exact_winner_catchup": "identity_disabled",
+            "market_bias_calibration": "identity_disabled",
+        },
+        "requested_diagnostic_lanes": {
+            "exact_winner_catchup": bool(exact_winner_catchup),
+        },
+        "promotion_permission": "forbidden_without_nested_inner_oof_receipts",
+    }
     if feature_subset == FEATURE_SUBSET_FORECAST_PROFILE:
         artifact["forecast_profile_calibration"] = {
             "schema_version": "forecast_profile_calibration_v0.1",
@@ -506,8 +537,6 @@ def train_pooled_band_models(
         apply_source_freshness_guardrail(artifact)
     apply_reanalysis_lane_metadata(artifact, reanalysis_promotion_lane)
     validation_rows = []
-    calibration_rows = []
-    calibration_probabilities = []
     merge_payload_rows = []
     merge_payload_probabilities = []
     for hour, hour_rows in sorted(by_hour.items()):
@@ -544,7 +573,9 @@ def train_pooled_band_models(
                     temperature=1.0,
                 )
                 raw_eval_score = evaluate_band_predictions(eval_band_rows, raw_probs)
-                temperature, tuned_brier = tune_temperature(eval_band_rows, raw_probs)
+                # The outer holdout estimates performance only.  It never
+                # selects a served transform.
+                temperature = 1.0
                 tuned_probs = [
                     temperature_scale_probability(probability, temperature=temperature)
                     for probability in raw_probs
@@ -560,8 +591,6 @@ def train_pooled_band_models(
                 if write_merge_payload:
                     merge_payload_rows.extend(eval_band_rows)
                     merge_payload_probabilities.extend(post_probs)
-                calibration_rows.extend(eval_band_rows)
-                calibration_probabilities.extend(post_probs)
                 eval_score = evaluate_band_predictions(eval_band_rows, post_probs)
                 for market_id in sorted({row["market_id"] for row in eval_band_rows}):
                     subset = [
@@ -606,101 +635,12 @@ def train_pooled_band_models(
             "market_scores": market_scores,
             "training_metrics": train_metrics,
             "blocked_validation": blocked_validation_audit(hour_rows),
-            "_eval_band_rows": eval_band_rows if eval_source_rows else [],
-            "_post_probs": post_probs if eval_source_rows else [],
+            "postprocess_fit_contract": {
+                "policy": "identity_until_nested_inner_oof",
+                "outer_holdout_scored_rows": len(eval_band_rows),
+                "outer_holdout_fit_rows": 0,
+            },
         })
-    calibration = fit_adjacent_calibration(calibration_rows, calibration_probabilities)
-    artifact["postprocess"]["adjacent_calibration"] = calibration
-    exact_rows = []
-    exact_probabilities = []
-    for validation in validation_rows:
-        eval_band_rows = validation.pop("_eval_band_rows", [])
-        post_probs = validation.pop("_post_probs", [])
-        if not eval_band_rows or not post_probs:
-            continue
-        adjacent_probs = [
-            apply_adjacent_calibration(
-                probability,
-                row,
-                config=artifact["postprocess"],
-            )
-            for row, probability in zip(eval_band_rows, post_probs)
-        ]
-        if exact_winner_catchup:
-            exact_rows.extend(eval_band_rows)
-            exact_probabilities.extend(adjacent_probs)
-        validation["_eval_band_rows_for_exact"] = eval_band_rows
-        validation["_adjacent_probs_for_exact"] = adjacent_probs
-
-    if exact_winner_catchup:
-        exact_calibration = fit_exact_winner_catchup(
-            exact_rows,
-            exact_probabilities,
-            guardrail_rows=exact_rows,
-            guardrail_probabilities=exact_probabilities,
-            normalization_gamma=artifact["postprocess"].get("partition_normalization_gamma", 1.25),
-        )
-        artifact["postprocess"]["exact_winner_catchup"] = exact_calibration
-
-    market_bias_rows = []
-    market_bias_probabilities = []
-    for validation in validation_rows:
-        eval_band_rows = validation.pop("_eval_band_rows_for_exact", [])
-        adjacent_probs = validation.pop("_adjacent_probs_for_exact", [])
-        if not eval_band_rows or not adjacent_probs:
-            continue
-        calibrated_probs = adjacent_probs
-        if exact_winner_catchup:
-            calibrated_probs = [
-                apply_exact_winner_catchup(
-                    probability,
-                    row,
-                    config=artifact["postprocess"],
-                )
-                for row, probability in zip(eval_band_rows, adjacent_probs)
-            ]
-        validation["_eval_band_rows_for_market_bias"] = eval_band_rows
-        validation["_probabilities_for_market_bias"] = calibrated_probs
-        market_bias_rows.extend(eval_band_rows)
-        market_bias_probabilities.extend(calibrated_probs)
-
-    market_bias_calibration = fit_market_bias_calibration(
-        market_bias_rows,
-        market_bias_probabilities,
-    )
-    artifact["postprocess"]["market_bias_calibration"] = market_bias_calibration
-    artifact["postprocess"]["market_bias_calibration_enabled"] = bool(
-        market_bias_calibration.get("enabled")
-    )
-
-    for validation in validation_rows:
-        eval_band_rows = validation.pop("_eval_band_rows_for_market_bias", [])
-        calibrated_probs = validation.pop("_probabilities_for_market_bias", [])
-        if not eval_band_rows or not calibrated_probs:
-            continue
-        final_probs = [
-            apply_market_bias_calibration(
-                probability,
-                row,
-                config=artifact["postprocess"],
-            )
-            for row, probability in zip(eval_band_rows, calibrated_probs)
-        ]
-        validation["eval_score"] = evaluate_band_predictions(eval_band_rows, final_probs)
-        market_scores = []
-        for market_id in sorted({row["market_id"] for row in eval_band_rows}):
-            subset = [
-                (row, probability)
-                for row, probability in zip(eval_band_rows, final_probs)
-                if row["market_id"] == market_id
-            ]
-            score = evaluate_band_predictions(
-                [row for row, _ in subset],
-                [probability for _, probability in subset],
-            )
-            if score:
-                market_scores.append({"market_id": market_id, **score})
-        validation["market_scores"] = market_scores
     for bundle in artifact["models"].values():
         bundle["postprocess"] = dict(artifact["postprocess"])
     model_feature_names = sorted({

@@ -46,10 +46,12 @@ from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
 from weather.release_artifacts import canonical_payload_sha256
 from weather.release_serving import (
+    STATUS_SHADOW_BOUND,
     ReleaseServingBindingError,
     VerifiedServingBundle,
     clear_process_serving_bundle_cache,
     get_process_active_serving_bundle,
+    load_verified_residual_distribution_v1_shadow_bundle,
     serving_bundle_lineage,
 )
 from weather.runtime_identity import (
@@ -82,10 +84,19 @@ MODEL_VERSION = MODEL_VERSION_HGB
 # day and scored against settlement. This turns every captured snapshot into a
 # permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
 REPLAY_SCHEMA_VERSION = schema_version("replay_inputs")
+FORECAST_PAYLOAD_SCHEMA_VERSION = schema_version("forecast_payload_manifest")
+OBSERVATION_PAYLOAD_SCHEMA_VERSION = schema_version("observation_payload_manifest")
 CAPTURED_INPUT_HASH_ALGORITHM = "sha256-canonical-json;omit=captured_input_hash"
 REPLAY_RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
+RESIDUAL_SHADOW_RELEASE_DIR_ENV = (
+    "WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_RELEASE_DIR"
+)
+RESIDUAL_SHADOW_MANIFEST_SHA256_ENV = (
+    "WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_MANIFEST_SHA256"
+)
+_SHADOW_CAPTURE_BUNDLES: dict[tuple[str, str], VerifiedServingBundle] = {}
 
 
 def _verified_serving_bundle_once_per_process() -> VerifiedServingBundle:
@@ -96,6 +107,33 @@ def _verified_serving_bundle_once_per_process() -> VerifiedServingBundle:
 
 def _verified_release_lineage_once_per_process():
     return serving_bundle_lineage(_verified_serving_bundle_once_per_process())
+
+
+def _verified_residual_shadow_bundle_once_per_process() -> VerifiedServingBundle | None:
+    """Resolve an opt-in inactive release without changing active serving state."""
+
+    release_dir = str(os.environ.get(RESIDUAL_SHADOW_RELEASE_DIR_ENV) or "").strip()
+    if not release_dir:
+        return None
+    manifest_sha256 = str(
+        os.environ.get(RESIDUAL_SHADOW_MANIFEST_SHA256_ENV) or ""
+    ).strip().lower()
+    if len(manifest_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in manifest_sha256
+    ):
+        raise ReleaseServingBindingError(
+            f"{RESIDUAL_SHADOW_MANIFEST_SHA256_ENV} must pin an exact SHA-256"
+        )
+    key = (str(Path(release_dir).resolve()), manifest_sha256)
+    cached = _SHADOW_CAPTURE_BUNDLES.get(key)
+    if cached is not None:
+        return cached
+    bundle = load_verified_residual_distribution_v1_shadow_bundle(
+        key[0],
+        expected_manifest_sha256=manifest_sha256,
+    )
+    _SHADOW_CAPTURE_BUNDLES[key] = bundle
+    return bundle
 
 
 def _assert_snapshot_model_serving_binding(
@@ -133,6 +171,7 @@ OPEN_METEO_SOURCE_FAMILY = {
     "eccc_gem",
 }
 FORECAST_RAW_PAYLOAD_RETENTION_ENV = "WEATHER_RETAIN_RAW_FORECAST_PAYLOADS"
+OBSERVATION_RAW_PAYLOAD_RETENTION_ENV = "WEATHER_RETAIN_RAW_OBSERVATION_PAYLOADS"
 
 
 RUNTIME_IDENTITY_COLUMNS = [
@@ -276,6 +315,7 @@ SOURCE_STATUS_COLUMNS = [
 ]
 
 FORECAST_PAYLOAD_COLUMNS = [
+    "schema_version",
     "snapshot_id",
     "captured_at_utc",
     "captured_at_local",
@@ -292,11 +332,33 @@ FORECAST_PAYLOAD_COLUMNS = [
     "ttl_minutes",
     "provider_issue_time",
     "provider_update_time",
+    "request_started_at",
+    "response_received_at",
+    "first_seen_at",
+    "first_seen_basis",
+    "forecast_run_time",
+    "ensemble_member",
+    "grid_id",
+    "parser_version",
+    "payload_schema_version",
+    "payload_hash_algorithm",
     "payload_hash",
     "payload_bytes",
+    "raw_payload_retained",
+    "payload_blob_created",
     "row_count",
     "source_url",
     "raw_payload_path",
+    *RUNTIME_IDENTITY_COLUMNS,
+    "release_id",
+    "release_manifest_sha256",
+    "release_pointer_sha256",
+    "release_sequence",
+    "release_identity_status",
+    "config_identity_hash",
+    "model_identity_hash",
+    "provenance_complete",
+    "provenance_missing_fields",
 ]
 
 OBSERVATION_PAYLOAD_SOURCES = {
@@ -309,6 +371,7 @@ OBSERVATION_PAYLOAD_SOURCES = {
 }
 
 OBSERVATION_PAYLOAD_COLUMNS = [
+    "schema_version",
     "snapshot_id",
     "captured_at_utc",
     "captured_at_local",
@@ -326,11 +389,33 @@ OBSERVATION_PAYLOAD_COLUMNS = [
     "provider_observed_at",
     "provider_station_id",
     "provider_update_time",
+    "request_started_at",
+    "response_received_at",
+    "first_seen_at",
+    "first_seen_basis",
+    "forecast_run_time",
+    "ensemble_member",
+    "grid_id",
+    "parser_version",
+    "payload_schema_version",
+    "payload_hash_algorithm",
     "payload_hash",
     "payload_bytes",
+    "raw_payload_retained",
+    "payload_blob_created",
     "row_count",
     "source_url",
     "raw_payload_path",
+    *RUNTIME_IDENTITY_COLUMNS,
+    "release_id",
+    "release_manifest_sha256",
+    "release_pointer_sha256",
+    "release_sequence",
+    "release_identity_status",
+    "config_identity_hash",
+    "model_identity_hash",
+    "provenance_complete",
+    "provenance_missing_fields",
 ]
 
 SNAPSHOT_EXPLANATION_COLUMNS = [
@@ -365,6 +450,7 @@ class SnapshotStore:
         event_slug=None,
         due_tolerance=SNAPSHOT_DUE_TOLERANCE,
         retain_raw_forecast_payloads=None,
+        retain_raw_observation_payloads=None,
     ):
         self.interval = interval
         # A scheduled capture is due once at least `interval - due_tolerance` has
@@ -376,6 +462,11 @@ class SnapshotStore:
             self.raw_forecast_payload_retention_enabled()
             if retain_raw_forecast_payloads is None
             else bool(retain_raw_forecast_payloads)
+        )
+        self.retain_raw_observation_payloads = (
+            self.raw_observation_payload_retention_enabled()
+            if retain_raw_observation_payloads is None
+            else bool(retain_raw_observation_payloads)
         )
         self.fixed_root = root is not None
         self._set_paths(Path(root) if root is not None else None, event_slug or DEFAULT_MARKET_CONFIG.event_slug)
@@ -406,6 +497,7 @@ class SnapshotStore:
         self.replay_inputs_path = self.root / "replay_inputs.jsonl"
         self.snapshot_explanations_long_path = self.root / "snapshot_explanations_long.csv"
         self.snapshot_explanations_jsonl_path = self.root / "snapshot_explanations.jsonl"
+        self._payload_first_seen_cache = {}
 
     def maybe_write(self, event, model, model_client, force=False, cadence="scheduled", trigger_context=None):
         event_config = config_from_event(event, fallback_date=getattr(model_client, "target_date", None))
@@ -464,11 +556,22 @@ class SnapshotStore:
         runtime_fields = self.runtime_identity_fields(runtime_identity, runtime_guard.get("state"))
         serving_bundle = self.verified_serving_bundle()
         _assert_snapshot_model_serving_binding(serving_bundle, model_client)
+        release_lineage = serving_bundle_lineage(serving_bundle)
         trigger_context = self.normalized_trigger_context(trigger_context)
         trigger_summary = self.trigger_summary(trigger_context)
         distribution = model.get("distribution", {}) or {}
         model_version = model.get("model_version") or MODEL_VERSION
         model_identity = model.get("model_identity") or self.model_identity(model_client)
+        config_identity = {
+            "event_slug": self.event_slug,
+            "market_id": getattr(event_config, "market_id", None),
+            "polymarket_url": getattr(event_config, "polymarket_url", None),
+            "target_date": (
+                event_config.target_date.isoformat()
+                if hasattr(getattr(event_config, "target_date", None), "isoformat")
+                else getattr(event_config, "target_date", None)
+            ),
+        }
         feature_schema_version = (model.get("feature_vector") or {}).get("feature_schema_version")
         top_temp = model.get("top_temp")
         top_probability = distribution.get(top_temp) if top_temp is not None else None
@@ -488,12 +591,20 @@ class SnapshotStore:
             snapshot_id,
             captured_at,
             model_version,
+            runtime_identity=runtime_identity,
+            release_lineage=release_lineage,
+            model_identity=model_identity,
+            config_identity=config_identity,
         )
         observation_payload_rows = self.write_observation_payloads(
             sources,
             snapshot_id,
             captured_at,
             model_version,
+            runtime_identity=runtime_identity,
+            release_lineage=release_lineage,
+            model_identity=model_identity,
+            config_identity=config_identity,
         )
         previous_scheduled = self.last_snapshot_time(cadence="scheduled")
         cadence_gap_seconds = None
@@ -571,7 +682,6 @@ class SnapshotStore:
             model_client,
             calibration_context=calibration_context,
         )
-        release_lineage = serving_bundle_lineage(serving_bundle)
         replay_input_payload = self.build_replay_input_payload(
             snapshot_id,
             captured_at,
@@ -594,6 +704,15 @@ class SnapshotStore:
         variant_prediction_rows = []
         variant_prediction_error = None
         try:
+            shadow_capture_bundle = self.verified_shadow_capture_bundle()
+            variant_capture_bundle = shadow_capture_bundle or serving_bundle
+            if (
+                shadow_capture_bundle is not None
+                and shadow_capture_bundle.status != STATUS_SHADOW_BOUND
+            ):
+                raise ReleaseServingBindingError(
+                    "shadow capture loader returned a non-shadow serving status"
+                )
             variant_prediction_rows = build_live_variant_prediction_rows(
                 snapshot_id=snapshot_id,
                 captured_at=captured_at,
@@ -611,7 +730,7 @@ class SnapshotStore:
                 snapshot_cadence=cadence,
                 cadence_quality=cadence_quality,
                 trigger_summary=trigger_summary,
-                serving_bundle=serving_bundle,
+                serving_bundle=variant_capture_bundle,
             )
         except Exception as exc:  # noqa: BLE001 - variant tape must not block serving snapshots
             variant_prediction_error = f"{type(exc).__name__}: {exc}"
@@ -1016,6 +1135,208 @@ class SnapshotStore:
         raw = json.dumps(payload, sort_keys=True, default=str)
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def canonical_raw_payload(payload):
+        """Return the exact canonical bytes addressed by raw-evidence hashes."""
+
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+
+    def write_content_addressed_payload(self, directory, payload):
+        """Persist one immutable SHA-256 blob, deduplicating repeated content."""
+
+        raw = self.canonical_raw_payload(payload)
+        digest = hashlib.sha256(raw).hexdigest()
+        path = Path(directory) / "sha256" / digest[:2] / f"{digest}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        created = False
+        try:
+            with path.open("xb") as handle:
+                handle.write(raw + b"\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            created = True
+        except FileExistsError:
+            # A content-addressed path must never point at different/corrupt
+            # bytes. Fail closed instead of silently blessing bad evidence.
+            existing = path.read_bytes()
+            if existing.endswith(b"\n"):
+                existing = existing[:-1]
+            if hashlib.sha256(existing).hexdigest() != digest:
+                raise RuntimeError(f"content-addressed payload hash mismatch: {path}")
+        return path, digest, len(raw), created
+
+    @staticmethod
+    def provenance_value(item, data, payload, *keys):
+        containers = [item, data]
+        if isinstance(payload, dict):
+            containers.append(payload)
+            if isinstance(payload.get("provenance"), dict):
+                containers.append(payload["provenance"])
+        for key in keys:
+            for container in containers:
+                if not isinstance(container, dict):
+                    continue
+                value = container.get(key)
+                if value not in (None, "", [], {}):
+                    if isinstance(value, (dict, list, tuple)):
+                        return json.dumps(value, sort_keys=True, default=str)
+                    return value
+        return None
+
+    def payload_first_seen(self, kind, payload_hash, candidate, captured_utc):
+        cache = self._payload_first_seen_cache.get(kind)
+        if cache is None:
+            cache = {}
+            manifest_path = (
+                self.forecast_payloads_jsonl_path
+                if kind == "forecast"
+                else self.observation_payloads_jsonl_path
+            )
+            if manifest_path.exists():
+                for row in self.read_jsonl(manifest_path):
+                    digest = row.get("payload_hash")
+                    first_seen = row.get("first_seen_at") or row.get("captured_at_utc")
+                    if digest and first_seen and digest not in cache:
+                        cache[digest] = (
+                            first_seen,
+                            row.get("first_seen_basis") or "existing_manifest",
+                        )
+            self._payload_first_seen_cache[kind] = cache
+        if payload_hash not in cache:
+            cache[payload_hash] = (
+                candidate or captured_utc,
+                "provider_first_seen" if candidate else "snapshot_capture",
+            )
+        return cache[payload_hash]
+
+    def payload_provenance(
+        self,
+        *,
+        kind,
+        item,
+        data,
+        payload,
+        payload_hash,
+        captured_utc,
+        provider_time,
+        runtime_identity=None,
+        release_lineage=None,
+        model_identity=None,
+        config_identity=None,
+    ):
+        request_started_at = self.provenance_value(
+            item,
+            data,
+            payload,
+            "request_started_at",
+            "request_start_time",
+            "requested_at",
+        )
+        response_received_at = self.provenance_value(
+            item,
+            data,
+            payload,
+            "response_received_at",
+            "response_received_time",
+            "received_at",
+            "fetched_at",
+        )
+        explicit_first_seen = self.provenance_value(
+            item,
+            data,
+            payload,
+            "first_seen_at",
+            "available_at",
+            "availability_time",
+        )
+        first_seen_at, first_seen_basis = self.payload_first_seen(
+            kind,
+            payload_hash,
+            explicit_first_seen,
+            captured_utc,
+        )
+        forecast_run_time = self.provenance_value(
+            item,
+            data,
+            payload,
+            "forecast_run_time",
+            "model_run_time",
+            "run_time",
+            "cycle_time",
+            "provider_issue_time",
+            "issued_at",
+        )
+        parser_version = self.provenance_value(
+            item,
+            data,
+            payload,
+            "parser_version",
+            "decoder_version",
+            "parser",
+        )
+        payload_schema_version = self.provenance_value(
+            item,
+            data,
+            payload,
+            "payload_schema_version",
+            "schema_version",
+            "api_version",
+        )
+        runtime_fields = self.runtime_identity_fields(runtime_identity)
+        release_lineage = release_lineage or {}
+        model_identity = model_identity or {}
+        config_identity = config_identity or {}
+        model_identity_hash = model_identity.get("identity_hash") or (
+            canonical_payload_sha256(model_identity) if model_identity else ""
+        )
+        config_identity_hash = (
+            canonical_payload_sha256(config_identity) if config_identity else ""
+        )
+        required = {
+            "request_started_at": request_started_at,
+            "response_received_at": response_received_at,
+            "first_seen_at": first_seen_at,
+            "provider_time": provider_time,
+            "runtime_identity": runtime_identity,
+            "release_identity": release_lineage.get("release_id"),
+            "config_identity": config_identity_hash,
+            "parser_version": parser_version,
+            "payload_schema_version": payload_schema_version,
+        }
+        missing = sorted(key for key, value in required.items() if value in (None, "", {}, []))
+        return {
+            "request_started_at": request_started_at,
+            "response_received_at": response_received_at,
+            "first_seen_at": first_seen_at,
+            "first_seen_basis": first_seen_basis,
+            "forecast_run_time": forecast_run_time,
+            "ensemble_member": self.provenance_value(
+                item, data, payload, "ensemble_member", "member", "model_member"
+            ),
+            "grid_id": self.provenance_value(
+                item, data, payload, "grid_id", "grid_name", "gridpoint", "grid_resolution"
+            ),
+            "parser_version": parser_version,
+            "payload_schema_version": payload_schema_version,
+            "payload_hash_algorithm": "sha256-canonical-json",
+            **runtime_fields,
+            "release_id": release_lineage.get("release_id") or "",
+            "release_manifest_sha256": release_lineage.get("release_manifest_sha256") or "",
+            "release_pointer_sha256": release_lineage.get("release_pointer_sha256") or "",
+            "release_sequence": release_lineage.get("release_sequence"),
+            "release_identity_status": release_lineage.get("release_identity_status") or "unavailable",
+            "config_identity_hash": config_identity_hash,
+            "model_identity_hash": model_identity_hash,
+            "provenance_complete": not missing,
+            "provenance_missing_fields": json.dumps(missing, separators=(",", ":")),
+        }
+
     def source_row_count(self, data):
         if data is None:
             return 0
@@ -1031,11 +1352,26 @@ class SnapshotStore:
             return 0
         return 1 if data else 0
 
-    def write_forecast_payloads(self, sources, snapshot_id, captured_at, model_version):
+    def write_forecast_payloads(
+        self,
+        sources,
+        snapshot_id,
+        captured_at,
+        model_version,
+        *,
+        runtime_identity=None,
+        release_lineage=None,
+        model_identity=None,
+        config_identity=None,
+    ):
         rows = []
         captured_utc = captured_at.astimezone(timezone.utc).isoformat()
         captured_local = captured_at.isoformat()
         for source, item in sorted((sources or {}).items()):
+            # Observation payloads have their own manifest/blob family. Do not
+            # duplicate the same bytes into the forecast blob tree.
+            if source in OBSERVATION_PAYLOAD_SOURCES:
+                continue
             item = item or {}
             data = item.get("data") or {}
             if not isinstance(data, dict) or "raw_payload" not in data:
@@ -1050,17 +1386,39 @@ class SnapshotStore:
             ttl_minutes = item.get("ttl_minutes")
             if ttl_minutes is None:
                 ttl_minutes = self.source_ttl_minutes(source)
-            raw_text = json.dumps(payload, sort_keys=True, default=str)
-            payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
+            raw_bytes = self.canonical_raw_payload(payload)
+            payload_hash = hashlib.sha256(raw_bytes).hexdigest()
             raw_payload_path = ""
+            payload_blob_created = False
             if self.retain_raw_forecast_payloads:
-                safe_source = self.safe_filename_part(source)
-                filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
-                payload_path = self.forecast_payload_dir / filename
-                self.forecast_payload_dir.mkdir(parents=True, exist_ok=True)
-                payload_path.write_text(raw_text + "\n", encoding="utf-8")
+                payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
+                    self.forecast_payload_dir,
+                    payload,
+                )
+                if stored_hash != payload_hash:
+                    raise RuntimeError("forecast raw-payload hash changed during persistence")
                 raw_payload_path = str(payload_path)
+            provider_issue_time = data.get("provider_issue_time") or data.get("issued_at")
+            provider_update_time = (
+                data.get("provider_update_time")
+                or data.get("last_updated")
+                or data.get("valid_time_utc")
+            )
+            provenance = self.payload_provenance(
+                kind="forecast",
+                item=item,
+                data=data,
+                payload=payload,
+                payload_hash=payload_hash,
+                captured_utc=captured_utc,
+                provider_time=provider_issue_time or provider_update_time,
+                runtime_identity=runtime_identity,
+                release_lineage=release_lineage,
+                model_identity=model_identity,
+                config_identity=config_identity,
+            )
             row = {
+                "schema_version": FORECAST_PAYLOAD_SCHEMA_VERSION,
                 "snapshot_id": snapshot_id,
                 "captured_at_utc": captured_utc,
                 "captured_at_local": captured_local,
@@ -1075,14 +1433,13 @@ class SnapshotStore:
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
-                "provider_issue_time": data.get("provider_issue_time") or data.get("issued_at"),
-                "provider_update_time": (
-                    data.get("provider_update_time")
-                    or data.get("last_updated")
-                    or data.get("valid_time_utc")
-                ),
+                "provider_issue_time": provider_issue_time,
+                "provider_update_time": provider_update_time,
+                **provenance,
                 "payload_hash": payload_hash,
-                "payload_bytes": len(raw_text.encode("utf-8")),
+                "payload_bytes": len(raw_bytes),
+                "raw_payload_retained": bool(raw_payload_path),
+                "payload_blob_created": payload_blob_created,
                 "row_count": self.source_row_count(data),
                 "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
                 "raw_payload_path": raw_payload_path,
@@ -1091,10 +1448,21 @@ class SnapshotStore:
         if rows:
             self.append_csv(self.forecast_payloads_long_path, FORECAST_PAYLOAD_COLUMNS, rows)
             for row in rows:
-                self.append_jsonl(self.forecast_payloads_jsonl_path, row)
+                self.append_jsonl(self.forecast_payloads_jsonl_path, row, durable=True)
         return rows
 
-    def write_observation_payloads(self, sources, snapshot_id, captured_at, model_version):
+    def write_observation_payloads(
+        self,
+        sources,
+        snapshot_id,
+        captured_at,
+        model_version,
+        *,
+        runtime_identity=None,
+        release_lineage=None,
+        model_identity=None,
+        config_identity=None,
+    ):
         rows = []
         captured_utc = captured_at.astimezone(timezone.utc).isoformat()
         captured_local = captured_at.isoformat()
@@ -1115,14 +1483,40 @@ class SnapshotStore:
             ttl_minutes = item.get("ttl_minutes")
             if ttl_minutes is None:
                 ttl_minutes = self.source_ttl_minutes(source)
-            raw_text = json.dumps(payload, sort_keys=True, default=str)
-            payload_hash = hashlib.sha1(raw_text.encode("utf-8")).hexdigest()
-            safe_source = self.safe_filename_part(source)
-            filename = f"{snapshot_id}_{safe_source}_{payload_hash[:12]}.json"
-            payload_path = self.observation_payload_dir / filename
-            self.observation_payload_dir.mkdir(parents=True, exist_ok=True)
-            payload_path.write_text(raw_text + "\n", encoding="utf-8")
+            raw_bytes = self.canonical_raw_payload(payload)
+            payload_hash = hashlib.sha256(raw_bytes).hexdigest()
+            raw_payload_path = ""
+            payload_blob_created = False
+            if self.retain_raw_observation_payloads:
+                payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
+                    self.observation_payload_dir,
+                    payload,
+                )
+                if stored_hash != payload_hash:
+                    raise RuntimeError("observation raw-payload hash changed during persistence")
+                raw_payload_path = str(payload_path)
+            provider_observed_at = (
+                data.get("provider_observed_at")
+                or data.get("observation_time")
+                or data.get("observed_at")
+                or data.get("local_time")
+            )
+            provider_update_time = data.get("provider_update_time") or data.get("last_updated")
+            provenance = self.payload_provenance(
+                kind="observation",
+                item=item,
+                data=data,
+                payload=payload,
+                payload_hash=payload_hash,
+                captured_utc=captured_utc,
+                provider_time=provider_observed_at or provider_update_time,
+                runtime_identity=runtime_identity,
+                release_lineage=release_lineage,
+                model_identity=model_identity,
+                config_identity=config_identity,
+            )
             row = {
+                "schema_version": OBSERVATION_PAYLOAD_SCHEMA_VERSION,
                 "snapshot_id": snapshot_id,
                 "captured_at_utc": captured_utc,
                 "captured_at_local": captured_local,
@@ -1137,25 +1531,23 @@ class SnapshotStore:
                 "fetched_at": item.get("fetched_at"),
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
-                "provider_observed_at": (
-                    data.get("provider_observed_at")
-                    or data.get("observation_time")
-                    or data.get("observed_at")
-                    or data.get("local_time")
-                ),
+                "provider_observed_at": provider_observed_at,
                 "provider_station_id": data.get("station_id") or data.get("station") or data.get("icao"),
-                "provider_update_time": data.get("provider_update_time") or data.get("last_updated"),
+                "provider_update_time": provider_update_time,
+                **provenance,
                 "payload_hash": payload_hash,
-                "payload_bytes": len(raw_text.encode("utf-8")),
+                "payload_bytes": len(raw_bytes),
+                "raw_payload_retained": bool(raw_payload_path),
+                "payload_blob_created": payload_blob_created,
                 "row_count": self.source_row_count(data),
                 "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
-                "raw_payload_path": str(payload_path),
+                "raw_payload_path": raw_payload_path,
             }
             rows.append(row)
         if rows:
             self.append_csv(self.observation_payloads_long_path, OBSERVATION_PAYLOAD_COLUMNS, rows)
             for row in rows:
-                self.append_jsonl(self.observation_payloads_jsonl_path, row)
+                self.append_jsonl(self.observation_payloads_jsonl_path, row, durable=True)
         return rows
 
     def snapshot_explanation_payload(
@@ -1325,8 +1717,17 @@ class SnapshotStore:
 
     @staticmethod
     def raw_forecast_payload_retention_enabled():
-        value = os.environ.get(FORECAST_RAW_PAYLOAD_RETENTION_ENV, "")
-        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+        value = os.environ.get(FORECAST_RAW_PAYLOAD_RETENTION_ENV)
+        if value is None:
+            return True
+        return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+    @staticmethod
+    def raw_observation_payload_retention_enabled():
+        value = os.environ.get(OBSERVATION_RAW_PAYLOAD_RETENTION_ENV)
+        if value is None:
+            return True
+        return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
     def strip_raw_payloads(self, value):
         if isinstance(value, dict):
@@ -1685,9 +2086,12 @@ class SnapshotStore:
             handle.flush()
             os.fsync(handle.fileno())
 
-    def append_jsonl(self, path, payload):
+    def append_jsonl(self, path, payload, *, durable=False):
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
+            if durable:
+                handle.flush()
+                os.fsync(handle.fileno())
 
     def existing_explanation_snapshot_ids(self):
         ids = set()
@@ -1909,6 +2313,7 @@ class SnapshotStore:
                     column: row.get(column)
                     for column in OBSERVATION_PAYLOAD_COLUMNS
                 }
+                output["schema_version"] = OBSERVATION_PAYLOAD_SCHEMA_VERSION
                 output["provider_observed_at"] = row.get("provider_observed_at") or row.get("provider_update_time")
                 output["provider_station_id"] = row.get("provider_station_id")
                 rows.append(output)
@@ -1917,7 +2322,7 @@ class SnapshotStore:
         if rows:
             self.append_csv(self.observation_payloads_long_path, OBSERVATION_PAYLOAD_COLUMNS, rows)
             for row in rows:
-                self.append_jsonl(self.observation_payloads_jsonl_path, row)
+                self.append_jsonl(self.observation_payloads_jsonl_path, row, durable=True)
         return {
             "schema_version": "observation_payload_backfill_v0.1",
             "folder": str(self.root),
@@ -2069,10 +2474,17 @@ class SnapshotStore:
         return _verified_serving_bundle_once_per_process()
 
     @staticmethod
+    def verified_shadow_capture_bundle():
+        """Return the optional residual-only bundle used for variant tape rows."""
+
+        return _verified_residual_shadow_bundle_once_per_process()
+
+    @staticmethod
     def clear_verified_release_lineage_cache():
         """Reset process lineage state for tests or an explicit runtime restart."""
 
         clear_process_serving_bundle_cache()
+        _SHADOW_CAPTURE_BUNDLES.clear()
 
     def build_replay_input_payload(
         self,

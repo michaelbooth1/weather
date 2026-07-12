@@ -128,7 +128,14 @@ def categorical_partition_scores(
     outcomes: Mapping[str, float] | Sequence[float] | None = None,
     winner_key: str | int | None = None,
 ) -> dict[str, float]:
-    """Return multiclass Brier score and categorical negative log likelihood."""
+    """Return proper, ordinal, calibration-support, and rank metrics.
+
+    The partition order is meaningful for temperature bands, so the ranked
+    probability score (RPS) is reported in addition to the unordered
+    categorical Brier score.  Entropy and quadratic concentration are emitted
+    as sharpness diagnostics; neither is used as a stand-alone selection
+    objective.
+    """
 
     validate_complete_partition(probabilities)
     values, outcome_values = _outcome_vector(
@@ -140,8 +147,40 @@ def categorical_partition_scores(
     winning_probability = math.fsum(
         probability * outcome for probability, outcome in zip(values, outcome_values)
     )
+    cumulative_probability = 0.0
+    cumulative_outcome = 0.0
+    rps = 0.0
+    for probability, outcome in zip(values[:-1], outcome_values[:-1]):
+        cumulative_probability += probability
+        cumulative_outcome += outcome
+        rps += (cumulative_probability - cumulative_outcome) ** 2
+    entropy = -math.fsum(
+        probability * math.log(probability)
+        for probability in values
+        if probability > 0.0
+    )
+    predicted_index = min(
+        range(len(values)),
+        key=lambda index: (-values[index], index),
+    )
+    winner_index = outcome_values.index(1.0)
+    sorted_indexes = sorted(
+        range(len(values)),
+        key=lambda index: (-values[index], index),
+    )
     log_loss = math.inf if winning_probability <= 0.0 else -math.log(winning_probability)
-    return {"brier": brier, "log_loss": log_loss}
+    return {
+        "brier": brier,
+        "log_loss": log_loss,
+        "rps": rps,
+        "entropy": entropy,
+        "quadratic_concentration": math.fsum(value * value for value in values),
+        "winning_probability": winning_probability,
+        "top_band_hit": 1.0 if predicted_index == winner_index else 0.0,
+        "winner_rank": float(sorted_indexes.index(winner_index) + 1),
+        "top_confidence": values[predicted_index],
+        "top_correct": 1.0 if predicted_index == winner_index else 0.0,
+    }
 
 
 def score_probability_rows(
@@ -156,6 +195,13 @@ def score_probability_rows(
     total_weight = 0.0
     weighted_brier = 0.0
     weighted_log_loss = 0.0
+    weighted_rps = 0.0
+    weighted_entropy = 0.0
+    weighted_concentration = 0.0
+    weighted_winning_probability = 0.0
+    weighted_top_band_hit = 0.0
+    weighted_winner_rank = 0.0
+    calibration_rows: list[tuple[float, float, float]] = []
     for row in rows:
         probabilities = row.get("probabilities")
         if probabilities is None:
@@ -172,9 +218,39 @@ def score_probability_rows(
         total_weight += weight
         weighted_brier += weight * score["brier"]
         weighted_log_loss += weight * score["log_loss"]
+        weighted_rps += weight * score["rps"]
+        weighted_entropy += weight * score["entropy"]
+        weighted_concentration += weight * score["quadratic_concentration"]
+        weighted_winning_probability += weight * score["winning_probability"]
+        weighted_top_band_hit += weight * score["top_band_hit"]
+        weighted_winner_rank += weight * score["winner_rank"]
+        calibration_rows.append((score["top_confidence"], score["top_correct"], weight))
+    # Weighted top-label ECE.  Fixed bins are diagnostic only; proper scores
+    # remain the candidate-selection objectives.
+    ece = 0.0
+    for bin_index in range(10):
+        low = bin_index / 10.0
+        high = (bin_index + 1) / 10.0
+        bucket = [
+            row for row in calibration_rows
+            if row[0] >= low and (row[0] < high or (bin_index == 9 and row[0] <= high))
+        ]
+        bucket_weight = math.fsum(row[2] for row in bucket)
+        if bucket_weight <= 0.0:
+            continue
+        confidence = math.fsum(row[0] * row[2] for row in bucket) / bucket_weight
+        accuracy = math.fsum(row[1] * row[2] for row in bucket) / bucket_weight
+        ece += (bucket_weight / total_weight) * abs(confidence - accuracy)
     return {
         "brier": weighted_brier / total_weight,
         "log_loss": weighted_log_loss / total_weight,
+        "rps": weighted_rps / total_weight,
+        "ece": ece,
+        "entropy": weighted_entropy / total_weight,
+        "quadratic_concentration": weighted_concentration / total_weight,
+        "winning_probability": weighted_winning_probability / total_weight,
+        "top_band_hit": weighted_top_band_hit / total_weight,
+        "winner_rank": weighted_winner_rank / total_weight,
         "weight_sum": total_weight,
         "row_count": len(rows),
     }

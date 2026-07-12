@@ -1253,7 +1253,7 @@ def build_historical_feature_record(
     rise_from_7am = (
         current_temp - temp_7am
         if current_temp is not None and temp_7am is not None
-        else 0.0
+        else None
     )
     
     # warming_rate_2h
@@ -1261,7 +1261,7 @@ def build_historical_feature_record(
     warming_rate_2h = (
         current_temp - temp_2h_ago
         if current_temp is not None and temp_2h_ago is not None
-        else 0.0
+        else None
     )
     
     # hours_at_peak
@@ -1273,7 +1273,7 @@ def build_historical_feature_record(
     hours_at_peak = (
         (cutoff_minutes - first_reached_min) / 60.0
         if first_reached_min is not None
-        else 0.0
+        else None
     )
 
     dewpoint = row_dewpoint_native(current_obs)
@@ -1297,7 +1297,7 @@ def build_historical_feature_record(
     pressure_trend_3h = (
         pressure - pressure_3h
         if pressure is not None and pressure_3h is not None
-        else 0.0
+        else None
     )
     wind_group = (
         wind_group_fn(current_obs.get("wind"))
@@ -1379,7 +1379,7 @@ def build_historical_feature_record(
         "pressure_trend_3h": pressure_trend_3h,
         "wind_speed_kmh": current_obs.get("wind_kmh"),
         "wind_gust_kmh": row_value(current_obs, "gust_kmh", "wind_gust_kmh", "wind_gust"),
-        "wind_shift_3h_degrees": wind_shift_3h if wind_shift_3h is not None else 0.0,
+        "wind_shift_3h_degrees": wind_shift_3h,
         **microclimate,
         "forecast_high": forecast_high,
         "forecast_gap": forecast_gap,
@@ -1388,11 +1388,11 @@ def build_historical_feature_record(
             if forecast_source_count is not None
             else (1 if forecast_high is not None else 0)
         ),
-        "forecast_disagreement": forecast_disagreement if forecast_disagreement is not None else 0.0,
+        "forecast_disagreement": forecast_disagreement,
         "forecast_robust_high": forecast_high,
         "forecast_trimmed_high": forecast_high,
         "forecast_warm_outlier_flag": 0.0,
-        "forecast_warm_outlier_gap": 0.0,
+        "forecast_warm_outlier_gap": None,
         "forecast_source_family_count": (
             forecast_source_count
             if forecast_source_count is not None

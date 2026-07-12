@@ -139,28 +139,51 @@ def source_exception_metadata(exc):
     return metadata
 
 
-def fetch_source(name, fetcher, *, fetched_at, clock=time.perf_counter):
+def _attempt_timestamp(now_fn=None, fallback=None):
+    if now_fn is not None:
+        value = now_fn()
+        return value.isoformat() if hasattr(value, "isoformat") else str(value)
+    if fallback not in (None, ""):
+        return str(fallback)
+    return datetime.now(timezone.utc).isoformat()
+
+
+def fetch_source(
+    name,
+    fetcher,
+    *,
+    fetched_at=None,
+    now_fn=None,
+    clock=time.perf_counter,
+):
+    request_started_at = _attempt_timestamp(now_fn, fetched_at)
     started = clock()
     try:
         data, metadata = source_fetch_metadata(fetcher())
+        response_received_at = _attempt_timestamp(now_fn, fetched_at)
         payload = {
             "ok": True,
             "data": data,
             "latency_ms": round((clock() - started) * 1000.0, 1),
-            "fetched_at": fetched_at,
+            "fetched_at": response_received_at,
         }
         payload.update(metadata)
+        payload["request_started_at"] = request_started_at
+        payload["response_received_at"] = response_received_at
         return name, {
             **payload,
         }
     except Exception as exc:  # noqa: BLE001 - source failures are surfaced as data
+        response_received_at = _attempt_timestamp(now_fn, fetched_at)
         payload = {
             "ok": False,
             "error": str(exc),
             "latency_ms": round((clock() - started) * 1000.0, 1),
-            "fetched_at": fetched_at,
+            "fetched_at": response_received_at,
         }
         payload.update(source_exception_metadata(exc))
+        payload["request_started_at"] = request_started_at
+        payload["response_received_at"] = response_received_at
         return name, payload
 
 
@@ -169,12 +192,11 @@ def fetch_source_group(fetchers, *, timezone, now_fn=None, max_workers=None):
     if not fetchers:
         return {}
     now_fn = now_fn or (lambda: datetime.now(timezone))
-    fetched_at = now_fn().isoformat()
     results = {}
     workers = max_workers or len(fetchers)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(fetch_source, name, fetcher, fetched_at=fetched_at): name
+            executor.submit(fetch_source, name, fetcher, now_fn=now_fn): name
             for name, fetcher in fetchers.items()
         }
         for future in as_completed(futures):

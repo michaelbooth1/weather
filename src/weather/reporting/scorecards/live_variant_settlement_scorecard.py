@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from weather.backtesting.settlement_io import load_market_day_label, resolve_outcome
+from weather.experiment_contract import finalize_self_hash
 from weather.io import write_json_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_pct, markdown_table
@@ -1993,11 +1994,117 @@ def _normalize_parity_row(raw: Mapping[str, Any], side: str) -> dict[str, Any]:
         )
         or ""
     ).strip()
+    normalized["parity_branch_scenario"] = str(
+        _first(raw, "parity_branch_scenario", "branch_scenario") or ""
+    ).strip()
     return normalized
 
 
 def _parity_row_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
     return _key(row, PARTITION_KEY_FIELDS) + (row.get("band_identity"),)
+
+
+def _parity_coverage_contract(
+    rows: Sequence[Mapping[str, Any]],
+    declared: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Require the exact predeclared candidate/market/branch cross product."""
+
+    contract = dict(declared or {})
+    candidate_id = str(contract.get("candidate_id") or "").strip()
+    expected_markets = sorted({
+        str(value).strip()
+        for value in contract.get("expected_market_ids") or []
+        if str(value).strip()
+    })
+    expected_branches = sorted({
+        str(value).strip()
+        for value in contract.get("expected_branch_scenarios") or []
+        if str(value).strip()
+    })
+    raw_band_counts = contract.get("expected_band_count_by_market")
+    expected_band_counts = {
+        str(market_id): int(count)
+        for market_id, count in (raw_band_counts or {}).items()
+        if str(market_id) and int(count) > 0
+    } if isinstance(raw_band_counts, Mapping) else {}
+    expected_pairs = {
+        (market_id, branch)
+        for market_id in expected_markets
+        for branch in expected_branches
+    }
+    observed_candidates = sorted({
+        str(row.get("variant_id") or "") for row in rows if row.get("variant_id")
+    })
+    missing_scenario_rows = sum(
+        not str(row.get("parity_branch_scenario") or "").strip() for row in rows
+    )
+    observed_pairs = {
+        (
+            str(row.get("market_id") or ""),
+            str(row.get("parity_branch_scenario") or ""),
+        )
+        for row in rows
+        if row.get("market_id") and row.get("parity_branch_scenario")
+    }
+    observed_bands_by_pair: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for row in rows:
+        pair = (
+            str(row.get("market_id") or ""),
+            str(row.get("parity_branch_scenario") or ""),
+        )
+        if all(pair) and row.get("band_identity"):
+            observed_bands_by_pair[pair].add(str(row["band_identity"]))
+    missing_pairs = sorted(expected_pairs - observed_pairs)
+    extra_pairs = sorted(observed_pairs - expected_pairs)
+    checks = {
+        "predeclared_contract_present": bool(
+            candidate_id
+            and expected_markets
+            and expected_branches
+            and set(expected_band_counts) == set(expected_markets)
+        ),
+        "exact_candidate_set": observed_candidates == [candidate_id],
+        "all_rows_name_branch_scenario": missing_scenario_rows == 0,
+        "expected_market_branch_cross_product_complete": not missing_pairs,
+        "no_unexpected_market_branch_pairs": not extra_pairs,
+        "complete_band_count_each_market_branch": bool(expected_pairs)
+        and all(
+            len(observed_bands_by_pair.get(pair, set()))
+            == expected_band_counts.get(pair[0])
+            for pair in expected_pairs
+        ),
+    }
+    return {
+        "status": "PASS" if checks and all(checks.values()) else "BLOCK",
+        "candidate_id": candidate_id,
+        "expected_market_ids": expected_markets,
+        "expected_branch_scenarios": expected_branches,
+        "expected_band_count_by_market": expected_band_counts,
+        "observed_candidate_ids": observed_candidates,
+        "observed_market_branch_pairs": [
+            {"market_id": market_id, "branch_scenario": branch}
+            for market_id, branch in sorted(observed_pairs)
+        ],
+        "missing_market_branch_pairs": [
+            {"market_id": market_id, "branch_scenario": branch}
+            for market_id, branch in missing_pairs
+        ],
+        "unexpected_market_branch_pairs": [
+            {"market_id": market_id, "branch_scenario": branch}
+            for market_id, branch in extra_pairs
+        ],
+        "missing_branch_scenario_row_count": missing_scenario_rows,
+        "observed_band_count_by_market_branch": [
+            {
+                "market_id": market_id,
+                "branch_scenario": branch,
+                "band_count": len(bands),
+            }
+            for (market_id, branch), bands in sorted(observed_bands_by_pair.items())
+        ],
+        "checks": checks,
+    }
 
 
 def compare_replay_to_served(
@@ -2009,6 +2116,7 @@ def compare_replay_to_served(
     generated_at_utc: str | None = None,
     served_source: str = "",
     replay_source: str = "",
+    coverage_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare exact captured-input replay output with served tape output."""
     served = [_normalize_parity_row(row, "served") for row in served_rows]
@@ -2031,6 +2139,16 @@ def compare_replay_to_served(
         str(row.get("release_manifest_sha256") or "")
         for row in identity_rows
         if row.get("release_manifest_sha256")
+    }
+    candidate_ids = {
+        str(row.get("variant_id") or "")
+        for row in identity_rows
+        if row.get("variant_id")
+    }
+    artifact_sha256s = {
+        str(row.get("artifact_hash") or "").lower()
+        for row in identity_rows
+        if row.get("artifact_hash")
     }
     if not identity_rows or any(
         row.get("release_id_source") != "explicit" for row in identity_rows
@@ -2184,15 +2302,32 @@ def compare_replay_to_served(
                     )
     if compared_rows == 0:
         mismatches.insert(0, _issue("no_comparable_rows", "served and replay inputs contain no one-to-one comparable rows"))
-    return {
+    coverage = _parity_coverage_contract(identity_rows, coverage_contract)
+    if coverage["status"] != "PASS":
+        mismatches.append(
+            _issue(
+                "parity_coverage_contract_block",
+                "served/replay parity does not cover the exact predeclared candidate, markets, and branch scenarios",
+            )
+        )
+    return finalize_self_hash({
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
         "mode": "captured_input_replay_vs_served_parity",
         "status": "PASS" if not mismatches else "BLOCK",
+        "candidate_id": (
+            next(iter(candidate_ids)) if len(candidate_ids) == 1 else ""
+        ),
+        "candidate_ids": sorted(candidate_ids),
         "release_id": next(iter(release_ids)) if len(release_ids) == 1 else "",
         "manifest_sha256": (
             next(iter(manifest_hashes)) if len(manifest_hashes) == 1 else ""
         ),
+        "candidate_artifact_sha256": (
+            next(iter(artifact_sha256s)) if len(artifact_sha256s) == 1 else ""
+        ),
+        "artifact_sha256s": sorted(artifact_sha256s),
+        "coverage_contract": coverage,
         "inputs": {
             "served_source": served_source,
             "replay_source": replay_source,
@@ -2213,7 +2348,7 @@ def compare_replay_to_served(
         },
         "first_mismatch": mismatches[0] if mismatches else None,
         "mismatches": mismatches,
-    }
+    }, hash_field="parity_sha256")
 
 
 def _prediction_path_sha256(path: Path) -> str:
@@ -2245,6 +2380,15 @@ def _append_parity_issues(
     return payload
 
 
+def _finalize_parity_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebind parity evidence after persistence metadata or issues change."""
+
+    return finalize_self_hash(
+        {key: value for key, value in payload.items() if key != "parity_sha256"},
+        hash_field="parity_sha256",
+    )
+
+
 def build_captured_input_replay_parity(
     served_paths: str | Path | Sequence[str | Path] | None,
     replay_paths: str | Path | Sequence[str | Path] | None,
@@ -2254,6 +2398,7 @@ def build_captured_input_replay_parity(
     max_input_age_hours: float = DEFAULT_PARITY_MAX_INPUT_AGE_HOURS,
     probability_atol: float = DEFAULT_PARITY_ATOL,
     probability_rtol: float = DEFAULT_PARITY_RTOL,
+    coverage_contract: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Load explicit served/replay rows and apply the canonical comparator.
@@ -2367,6 +2512,7 @@ def build_captured_input_replay_parity(
         generated_at_utc=current.isoformat(),
         served_source=",".join(str(path) for path in _parity_paths(served_paths)),
         replay_source=",".join(str(path) for path in _parity_paths(replay_paths)),
+        coverage_contract=coverage_contract,
     )
     payload["inputs"].update(
         {
@@ -2411,7 +2557,8 @@ def build_captured_input_replay_parity(
         "release_id": expected_release or None,
         "manifest_sha256": expected_manifest or None,
     }
-    return _append_parity_issues(payload, issues)
+    payload = _append_parity_issues(payload, issues)
+    return _finalize_parity_payload(payload)
 
 
 def persist_captured_input_replay_parity(
@@ -2480,16 +2627,19 @@ def persist_captured_input_replay_parity(
         )
         payload["outputs"]["persistence_status"] = "BLOCK"
         if resolved_json not in input_paths:
+            payload["outputs"]["report_path"] = None
+            payload = _finalize_parity_payload(payload)
             persisted = _persist_current_parity_block(payload, json_path, None)
             if not persisted:
                 payload["outputs"]["json_path"] = None
-            payload["outputs"]["report_path"] = None
+                payload = _finalize_parity_payload(payload)
             return payload, json_path if persisted else None, None
         payload["outputs"]["json_path"] = None
         payload["outputs"]["report_path"] = None
-        return payload, None, None
+        return _finalize_parity_payload(payload), None, None
     try:
         payload["outputs"]["persistence_status"] = "PASS"
+        payload = _finalize_parity_payload(payload)
         json_path, report_path = write_outputs(
             payload,
             json_path,
@@ -2510,6 +2660,7 @@ def persist_captured_input_replay_parity(
             ],
         )
         payload["outputs"]["persistence_status"] = "BLOCK"
+        payload = _finalize_parity_payload(payload)
         json_persisted = _persist_current_parity_block(
             payload,
             json_path,
@@ -2519,6 +2670,8 @@ def persist_captured_input_replay_parity(
             payload["outputs"]["json_path"] = None
         if not report_path.exists():
             payload["outputs"]["report_path"] = None
+        if not json_persisted or not report_path.exists():
+            payload = _finalize_parity_payload(payload)
         return (
             payload,
             json_path if json_persisted else None,
@@ -2621,7 +2774,7 @@ def _in_memory_parity_output_block(
             "persistence_status": "BLOCK",
         },
     }
-    return payload, None, None
+    return _finalize_parity_payload(payload), None, None
 
 
 def _persist_current_parity_block(
@@ -2727,11 +2880,14 @@ def persist_captured_input_replay_parity_failure(
             "persistence_status": "BLOCK",
         },
     }
+    payload = _finalize_parity_payload(payload)
     persisted = _persist_current_parity_block(payload, json_path, report_path)
     if not persisted:
         payload["outputs"]["json_path"] = None
     if not report_path.exists():
         payload["outputs"]["report_path"] = None
+    if not persisted or not report_path.exists():
+        payload = _finalize_parity_payload(payload)
     return (
         payload,
         json_path if persisted else None,
@@ -2938,6 +3094,11 @@ def build_parser() -> argparse.ArgumentParser:
     parity.add_argument("--replay", required=True)
     parity.add_argument("--probability-atol", type=float, default=DEFAULT_PARITY_ATOL)
     parity.add_argument("--probability-rtol", type=float, default=DEFAULT_PARITY_RTOL)
+    parity.add_argument(
+        "--coverage-contract",
+        required=True,
+        help="JSON file predeclaring candidate_id, expected_market_ids, and expected_branch_scenarios.",
+    )
     parity.add_argument("--json-out", default=str(DEFAULT_PARITY_JSON_OUT))
     parity.add_argument("--report-out", default=str(DEFAULT_PARITY_REPORT_OUT))
     parity.add_argument("--fail-on-block", action="store_true")
@@ -3002,6 +3163,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         served = read_rows(args.served)
         replay = read_rows(args.replay)
+        coverage_contract = json.loads(
+            Path(args.coverage_contract).read_text(encoding="utf-8")
+        )
+        if not isinstance(coverage_contract, Mapping):
+            raise ValueError("parity coverage contract must be a JSON object")
         payload = compare_replay_to_served(
             served,
             replay,
@@ -3009,6 +3175,7 @@ def main(argv: list[str] | None = None) -> int:
             probability_rtol=args.probability_rtol,
             served_source=args.served,
             replay_source=args.replay,
+            coverage_contract=coverage_contract,
         )
         json_path, report_path = write_outputs(payload, args.json_out, args.report_out, parity=True)
         print(

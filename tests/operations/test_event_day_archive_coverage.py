@@ -19,9 +19,42 @@ from weather.operations.event_day_archive_coverage import (
     write_outputs,
 )
 from weather.operations.event_day_manifest import (
+    EVENT_DAY_ARTIFACT_FAMILIES,
+    REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES,
     inventory_content_hash,
     manifest_content_hash,
 )
+
+
+_REQUIRED_FAMILY_CONTRACTS = {
+    family.name: family for family in EVENT_DAY_ARTIFACT_FAMILIES if family.required
+}
+_REQUIRED_TEST_PATHS = {
+    "snapshots": "snapshots.jsonl",
+    "forecast_payloads": "forecast_payloads.jsonl",
+    "observation_payloads": f"observation_payloads/sha256/cc/{'c' * 64}.json",
+    "source_status": "source_status.jsonl",
+    "replay_inputs": "replay_inputs.jsonl",
+    "clob_capture_status": "clob_capture_status.jsonl",
+}
+
+
+def _release_runtime_identity():
+    return {
+        "release_identity_status": "SINGLE",
+        "release_identity_count": 1,
+        "release_identities": [{"release_id": "release-test"}],
+        "runtime_identity_status": "SINGLE",
+        "runtime_identity_count": 1,
+        "mixed_runtime_identity": False,
+        "runtime_identities": [{
+            "git_commit": "a" * 40,
+            "source_fingerprint": "source-test-v1",
+            "runtime_key": f"{'a' * 40}|dirty:clean_or_unknown|src:source-test-v1",
+        }],
+        "proof_grade_status": "PASS",
+        "proof_grade_blockers": [],
+    }
 
 
 def _event_manifest(slug, target_date, market_id="toronto"):
@@ -35,13 +68,75 @@ def _event_manifest(slug, target_date, market_id="toronto"):
             "market_id": market_id,
         },
         "event_metadata_validation": {},
-        "release_runtime_identity": {},
+        "release_runtime_identity": _release_runtime_identity(),
+        "payload_blob_links": {
+            "status": "PASS",
+            "families": [
+                {
+                    "artifact_family": family_name,
+                    "status": "PASS",
+                    "manifest_paths": [f"{family_name}.jsonl"],
+                    "manifest_row_count": 1,
+                    "blob_count": 1,
+                    "linked_blob_count": 1,
+                    "issue_count": 0,
+                    "issues": [],
+                }
+                for family_name in ("forecast_payloads", "observation_payloads")
+            ],
+            "summary": {
+                "manifest_row_count": 2,
+                "blob_count": 2,
+                "linked_blob_count": 2,
+                "issue_count": 0,
+            },
+        },
         "artifact_families": [
             {
-                "artifact_family": "snapshots",
-                "status": "missing_optional",
-                "files": [],
+                "artifact_family": family_name,
+                "required": True,
+                "requires_canonical_evidence": True,
+                "required_member_patterns": list(
+                    _REQUIRED_FAMILY_CONTRACTS[family_name].required_member_patterns
+                ),
+                "required_evidence": {
+                    "status": "PASS",
+                    "requires_canonical_evidence": True,
+                    "required_member_patterns": list(
+                        _REQUIRED_FAMILY_CONTRACTS[family_name].required_member_patterns
+                    ),
+                    "canonical_file_count": 1,
+                    "qualifying_canonical_file_count": 1,
+                    "qualifying_required_member_count": 1,
+                },
+                "status": "present",
+                "files": [{
+                    "path": _REQUIRED_TEST_PATHS[family_name],
+                    "bytes": 1,
+                    "sha256": "c" * 64,
+                    "role": "canonical_evidence",
+                    "storage_class": "canonical_evidence",
+                    "validation_status": "PASS",
+                    "row_count": 1,
+                    "release_identities": (
+                        [{"release_id": "release-test"}]
+                        if family_name == "snapshots"
+                        else []
+                    ),
+                    "runtime_identities": (
+                        [{
+                            "git_commit": "a" * 40,
+                            "source_fingerprint": "source-test-v1",
+                            "runtime_key": (
+                                f"{'a' * 40}|dirty:clean_or_unknown|src:source-test-v1"
+                            ),
+                        }]
+                        if family_name == "snapshots"
+                        else []
+                    ),
+                }],
             }
+            for family_name in REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES
         ],
         "validation": {"status": "PASS"},
         "protection": {
@@ -69,7 +164,12 @@ def _archive_manifest(slug, target_date, event_hash, market_id="toronto"):
         },
         "finalization": {"state": "closed_unlabeled", "countable": False},
         "validation": {"status": "PASS"},
-        "event_day_manifest": {"manifest_hash": event_hash},
+        "event_day_manifest": {
+            "path": f"{slug}/event_day_manifest.json",
+            "manifest_hash": event_hash,
+            "status": "PASS",
+        },
+        "release_runtime_identity": _release_runtime_identity(),
         "artifact_families": [
             {
                 "artifact_family": "snapshots_long",

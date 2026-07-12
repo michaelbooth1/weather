@@ -230,7 +230,9 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["wind_shift_3h_degrees"], 90.0)  # W -> S
         self.assertEqual(serve["forecast_gap"], 2.0)           # 26 - 24
         self.assertEqual(serve["forecast_source_count"], 1)
-        self.assertEqual(serve["forecast_disagreement"], 0.0)
+        # One source provides no cross-source disagreement observation.  It is
+        # missing, not evidence of perfect agreement.
+        self.assertIsNone(serve["forecast_disagreement"])
         self.assertEqual(serve["wind_group"], "S-SW")
         self.assertEqual(serve["cloud_group"], "Fair/clear")
 

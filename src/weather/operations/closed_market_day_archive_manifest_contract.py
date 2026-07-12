@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from weather.schema_registry import schema_version
@@ -18,6 +19,7 @@ ELIGIBLE_FINALIZATION_STATES = (
     "settled_non_countable",
     "closed_unlabeled",
 )
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ARTIFACT_FAMILY_NAMES = frozenset(
     {
         "snapshots_long",
@@ -25,9 +27,11 @@ ARTIFACT_FAMILY_NAMES = frozenset(
         "components_long",
         "forecasts_long",
         "forecast_payloads_long",
+        "observation_payloads_long",
         "source_status_long",
         "replay_inputs",
         "replay_input_status",
+        "clob_capture_status",
         "clob_tokens",
         "order_books_summary",
         "order_books_long",
@@ -37,6 +41,13 @@ ARTIFACT_FAMILY_NAMES = frozenset(
         "variant_predictions_long",
     }
 )
+
+
+def _integer(value: Any, default: int = -1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def manifest_content_hash(manifest: dict[str, Any]) -> str:
@@ -105,6 +116,51 @@ def validate_manifest_shape(manifest: dict[str, Any]) -> list[str]:
         errors.append("validation must be an object")
     elif validation.get("status") not in {"PASS", "WARN", "BLOCK"}:
         errors.append("validation.status must be PASS, WARN, or BLOCK")
+
+    event_manifest = manifest.get("event_day_manifest")
+    if not isinstance(event_manifest, dict):
+        errors.append("event_day_manifest must be an object")
+    else:
+        if event_manifest.get("status") != "PASS":
+            errors.append("event_day_manifest.status must be PASS")
+        if not event_manifest.get("path"):
+            errors.append("event_day_manifest.path is required")
+        if not SHA256_RE.fullmatch(str(event_manifest.get("manifest_hash") or "")):
+            errors.append("event_day_manifest.manifest_hash must be SHA-256")
+
+    release_runtime_identity = manifest.get("release_runtime_identity")
+    if not isinstance(release_runtime_identity, dict):
+        errors.append("release_runtime_identity must be an object")
+    else:
+        if (
+            release_runtime_identity.get("release_identity_status") != "SINGLE"
+            or _integer(release_runtime_identity.get("release_identity_count")) != 1
+        ):
+            errors.append("release_runtime_identity must contain one release identity")
+        release_rows = release_runtime_identity.get("release_identities")
+        if (
+            not isinstance(release_rows, list)
+            or len(release_rows) != 1
+            or not isinstance(release_rows[0], dict)
+            or not str(release_rows[0].get("release_id") or "").strip()
+        ):
+            errors.append("release_runtime_identity.release_identities must name one release")
+        if (
+            release_runtime_identity.get("runtime_identity_status") != "SINGLE"
+            or _integer(release_runtime_identity.get("runtime_identity_count")) != 1
+            or release_runtime_identity.get("mixed_runtime_identity") is not False
+        ):
+            errors.append("release_runtime_identity must contain one runtime identity")
+        runtime_rows = release_runtime_identity.get("runtime_identities")
+        if (
+            not isinstance(runtime_rows, list)
+            or len(runtime_rows) != 1
+            or not isinstance(runtime_rows[0], dict)
+            or not str(runtime_rows[0].get("runtime_key") or "").strip()
+        ):
+            errors.append("release_runtime_identity.runtime_identities must name one runtime")
+        if release_runtime_identity.get("proof_grade_status") != "PASS":
+            errors.append("release_runtime_identity.proof_grade_status must be PASS")
 
     families = manifest.get("artifact_families")
     if not isinstance(families, list) or not families:

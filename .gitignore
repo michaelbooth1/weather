@@ -15,6 +15,11 @@ env/
 # hourly/daily artifacts are derived from these.
 data/
 
+# Candidate-only training outputs are reproducible, unqualified runtime state.
+# Immutable releases copy only explicitly verified artifacts into their own
+# write-once manifests; a research/BLOCK pickle must never enter source control.
+artifacts/candidates/
+
 # --- Runtime / transient state (not source of truth) ---
 *.log
 scratch/

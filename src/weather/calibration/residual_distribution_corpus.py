@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 import os
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -31,16 +32,46 @@ from weather.market.market_registry import REGISTRY
 from weather.model.continuous_density import native_to_f
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.model.model_constants import INTRADAY_CUTOFF_HOURS
+from weather.model.residual_distribution_v1 import (
+    residual_band_key,
+    validate_market_band_partition,
+)
 from weather.operations.closed_market_day_archive import DEFAULT_SNAPSHOTS_ROOT
+from weather.operations.event_day_manifest import (
+    REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES,
+    manifest_hash_valid as event_day_manifest_hash_valid,
+    read_event_day_manifest,
+    validate_event_day_manifest,
+)
 from weather.paths import data_path
 
 
-CORPUS_SCHEMA_VERSION = "residual_distribution_training_corpus_v1"
-MANIFEST_SCHEMA_VERSION = "residual_distribution_training_corpus_manifest_v1"
+CORPUS_SCHEMA_VERSION = "residual_distribution_training_corpus_v2"
+MANIFEST_SCHEMA_VERSION = "residual_distribution_training_corpus_manifest_v2"
 DEFAULT_MAX_CHECKPOINT_LATENESS_MINUTES = 15
 REPLAY_INPUT_FILENAME = "replay_inputs.jsonl"
 SETTLEMENT_FILENAME = "settlement.json"
 SNAPSHOTS_LONG_FILENAME = "snapshots_long.csv"
+VARIANT_PREDICTIONS_FILENAME = "variant_predictions.jsonl"
+COMPARATOR_VARIANT_IDS = {
+    "item50": "item50_pooled_forecast_v3_candidate",
+    "dynamic_source": "pooled_f_dynamic_source_state_v0_1",
+}
+VERIFIED_RELEASE_IDENTITY_STATUSES = frozenset({
+    "verified_inactive_shadow_bundle",
+    "verified_serving_binding",
+    "verified_variant_serving_bundle",
+})
+QUALIFICATION_INPUT_FILENAMES = (
+    "event_day_manifest.json",
+    REPLAY_INPUT_FILENAME,
+    SETTLEMENT_FILENAME,
+    SNAPSHOTS_LONG_FILENAME,
+    VARIANT_PREDICTIONS_FILENAME,
+    "forecast_payloads.jsonl",
+    "observation_payloads.jsonl",
+    "clob_capture_status.jsonl",
+)
 FORBIDDEN_FEATURE_TOKENS = (
     "settlement",
     "winning_band",
@@ -106,6 +137,459 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _folder_input_lineage(folder: Path) -> dict[str, Any]:
+    files = {
+        filename: {
+            "exists": (folder / filename).is_file(),
+            "sha256": sha256_file(folder / filename) if (folder / filename).is_file() else None,
+            "bytes": (folder / filename).stat().st_size if (folder / filename).is_file() else None,
+        }
+        for filename in QUALIFICATION_INPUT_FILENAMES
+    }
+    missing = [filename for filename, row in files.items() if not row["exists"]]
+    manifest_path = folder / "event_day_manifest.json"
+    manifest = read_event_day_manifest(manifest_path)
+    semantic_validation: dict[str, Any] | None = None
+    semantic_error: str | None = None
+    if manifest is not None:
+        try:
+            semantic_validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=folder.parent,
+                check_hashes=True,
+                check_row_counts=True,
+                fail_on_extra=True,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            semantic_error = f"{type(exc).__name__}: {exc}"
+
+    records = [
+        {
+            **dict(record),
+            "_manifest_family": str(family.get("artifact_family") or ""),
+        }
+        for family in (manifest or {}).get("artifact_families") or []
+        if isinstance(family, Mapping)
+        for record in family.get("files") or []
+        if isinstance(record, Mapping)
+    ]
+    records_by_path: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for record in records:
+        records_by_path[str(record.get("path") or "")].append(record)
+    exact_file_proofs: dict[str, dict[str, Any]] = {}
+    for filename in QUALIFICATION_INPUT_FILENAMES:
+        if filename == "event_day_manifest.json":
+            exact_file_proofs[filename] = {
+                "record_count": 1 if manifest is not None else 0,
+                "manifest_record_sha256": (
+                    str((manifest or {}).get("manifest_hash") or "") or None
+                ),
+                "actual_sha256": files[filename]["sha256"],
+                "status": (
+                    "PASS"
+                    if manifest is not None
+                    and files[filename]["exists"]
+                    and event_day_manifest_hash_valid(manifest)
+                    else "BLOCK"
+                ),
+            }
+            continue
+        matches = records_by_path.get(filename) or []
+        declared_hash = str(matches[0].get("sha256") or "") if len(matches) == 1 else ""
+        exact_file_proofs[filename] = {
+            "record_count": len(matches),
+            "manifest_record_sha256": declared_hash or None,
+            "actual_sha256": files[filename]["sha256"],
+            "status": (
+                "PASS"
+                if len(matches) == 1
+                and bool(files[filename]["exists"])
+                and declared_hash == files[filename]["sha256"]
+                else "BLOCK"
+            ),
+        }
+
+    required_family_check = next(
+        (
+            check
+            for check in (semantic_validation or {}).get("checks") or []
+            if check.get("check") == "required_families"
+        ),
+        {},
+    )
+    identity = (manifest or {}).get("release_runtime_identity") or {}
+    release_rows = identity.get("release_identities") or []
+    runtime_rows = identity.get("runtime_identities") or []
+    expected_release_id = (
+        str(release_rows[0].get("release_id") or "")
+        if len(release_rows) == 1 and isinstance(release_rows[0], Mapping)
+        else ""
+    )
+    expected_runtime_identity = (
+        dict(runtime_rows[0])
+        if len(runtime_rows) == 1 and isinstance(runtime_rows[0], Mapping)
+        else {}
+    )
+    manifest_bound_hashes = _manifest_bound_identity_hashes(folder, records)
+    embedded_status = str(
+        (((manifest or {}).get("validation") or {}).get("status") or "MISSING")
+    )
+    semantic_criteria = {
+        "manifest_readable": manifest is not None,
+        "manifest_self_hash_valid": bool(
+            manifest is not None and event_day_manifest_hash_valid(manifest)
+        ),
+        "embedded_manifest_status_accepted": embedded_status in {"PASS", "WARN"},
+        "operational_semantic_validation_pass": (
+            (semantic_validation or {}).get("status") == "PASS"
+        ),
+        "mandatory_family_exact_evidence_pass": (
+            required_family_check.get("status") == "PASS"
+            and required_family_check.get("required_families")
+            == list(REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES)
+        ),
+        "qualification_files_exactly_manifest_proven": bool(exact_file_proofs)
+        and all(row["status"] == "PASS" for row in exact_file_proofs.values()),
+        "release_identity_singular": (
+            identity.get("release_identity_status") == "SINGLE"
+            and identity.get("release_identity_count") == 1
+            and bool(expected_release_id)
+        ),
+        "runtime_identity_singular_and_complete": (
+            identity.get("runtime_identity_status") == "SINGLE"
+            and identity.get("runtime_identity_count") == 1
+            and bool(expected_runtime_identity.get("git_commit"))
+            and bool(expected_runtime_identity.get("source_fingerprint"))
+        ),
+        "proof_grade_identity_pass": identity.get("proof_grade_status") == "PASS",
+    }
+    semantic_manifest = {
+        "path": str(manifest_path),
+        "file_sha256": files["event_day_manifest.json"]["sha256"],
+        "schema_version": (manifest or {}).get("schema_version"),
+        "manifest_hash": (manifest or {}).get("manifest_hash"),
+        "embedded_validation_status": embedded_status,
+        "operational_validation_status": (semantic_validation or {}).get("status")
+        or "BLOCK",
+        "operational_validation_blockers": [
+            str(check.get("check") or "unknown")
+            for check in (semantic_validation or {}).get("checks") or []
+            if check.get("status") == "BLOCK"
+        ],
+        "semantic_error": semantic_error,
+        "required_families": list(REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES),
+        "exact_file_proofs": exact_file_proofs,
+        "expected_release_id": expected_release_id or None,
+        "expected_runtime_identity": expected_runtime_identity,
+        "manifest_bound_release_manifest_sha256s": manifest_bound_hashes[
+            "release_manifest_sha256s"
+        ],
+        "manifest_bound_configuration_sha256s": manifest_bound_hashes[
+            "configuration_sha256s"
+        ],
+        "expected_release_manifest_sha256": manifest_bound_hashes[
+            "expected_release_manifest_sha256"
+        ],
+        "expected_configuration_sha256": manifest_bound_hashes[
+            "expected_configuration_sha256"
+        ],
+        "criteria": semantic_criteria,
+        "status": "PASS" if all(semantic_criteria.values()) else "BLOCK",
+    }
+    lineage = {
+        "folder": str(folder),
+        "files": files,
+        "missing_required_files": missing,
+        "semantic_event_day_manifest": semantic_manifest,
+        "status": (
+            "PASS"
+            if not missing and semantic_manifest["status"] == "PASS"
+            else "BLOCK"
+        ),
+    }
+    lineage["lineage_sha256"] = hashlib.sha256(
+        canonical_json(lineage).encode("utf-8")
+    ).hexdigest()
+    return lineage
+
+
+def _is_sha256(value: Any) -> bool:
+    text = str(value or "")
+    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _unwrapped_runtime_identity(value: Any) -> dict[str, Any]:
+    identity = _mapping(value)
+    for key in ("current_identity", "process_identity"):
+        nested = identity.get(key)
+        if isinstance(nested, Mapping):
+            identity = nested
+    return dict(identity)
+
+
+def _identity_values(
+    containers: Sequence[Mapping[str, Any]],
+    aliases: Sequence[str],
+) -> list[str]:
+    return sorted({
+        str(container.get(alias)).strip()
+        for container in containers
+        for alias in aliases
+        if container.get(alias) not in (None, "")
+    })
+
+
+def _manifest_bound_identity_hashes(
+    folder: Path,
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Extract singular hash identities only from exact manifest-bound records.
+
+    The operational manifest's current aggregate identity summary retains the
+    release ID and runtime fingerprint but not every release/config hash alias.
+    The underlying file records do bind their exact bytes.  Read only the
+    identity-bearing canonical tapes whose current hash equals the declared
+    record, and treat every declared value as a candidate so disagreement is a
+    hard blocker rather than a first-value-wins fallback.
+    """
+
+    release_manifest_hashes: set[str] = set()
+    configuration_hashes: set[str] = set()
+    identity_families = {
+        "snapshots",
+        "replay_inputs",
+        "variant_predictions",
+        "snapshot_explanations",
+        "forecast_payloads",
+        "source_status",
+    }
+
+    def collect(container: Mapping[str, Any]) -> None:
+        release_manifest_hashes.update(
+            _identity_values([container], ("release_manifest_sha256",))
+        )
+        configuration_hashes.update(
+            _identity_values(
+                [container],
+                ("configuration_sha256", "config_sha256", "release_config_sha256"),
+            )
+        )
+
+    for record in records:
+        if record.get("_manifest_family") not in identity_families:
+            continue
+        relative_path = str(record.get("path") or "")
+        path = folder / relative_path
+        if (
+            not relative_path
+            or path.suffix.lower() not in {".json", ".jsonl"}
+            or not path.is_file()
+            or record.get("validation_status") != "PASS"
+            or sha256_file(path) != record.get("sha256")
+        ):
+            continue
+        for declared_identity in record.get("release_identities") or []:
+            if isinstance(declared_identity, Mapping):
+                collect(declared_identity)
+                configuration_hashes.update(
+                    _identity_values([declared_identity], ("configuration_hash",))
+                )
+        try:
+            payloads = read_jsonl(path) if path.suffix.lower() == ".jsonl" else [
+                json.loads(path.read_text(encoding="utf-8"))
+            ]
+            for payload in payloads:
+                if not isinstance(payload, Mapping):
+                    continue
+                collect(payload)
+                for key in (
+                    "release_identity",
+                    "release_lineage",
+                    "runtime_identity",
+                    "runtime_guard",
+                    "model_identity",
+                    "config_identity",
+                ):
+                    nested = payload.get(key)
+                    if isinstance(nested, Mapping):
+                        collect(nested)
+        except (OSError, json.JSONDecodeError, ResidualCorpusError):
+            # The operational semantic validator records structured-file
+            # failures separately; absence here simply withholds identity PASS.
+            continue
+
+    release_rows = sorted(release_manifest_hashes)
+    configuration_rows = sorted(configuration_hashes)
+    return {
+        "release_manifest_sha256s": release_rows,
+        "configuration_sha256s": configuration_rows,
+        "expected_release_manifest_sha256": (
+            release_rows[0]
+            if len(release_rows) == 1 and _is_sha256(release_rows[0])
+            else None
+        ),
+        "expected_configuration_sha256": (
+            configuration_rows[0]
+            if len(configuration_rows) == 1 and _is_sha256(configuration_rows[0])
+            else None
+        ),
+    }
+
+
+def _release_identity_proof(
+    replay_row: Mapping[str, Any],
+    *,
+    input_lineage: Mapping[str, Any],
+    replay_file_sha256: str,
+    settlement_sha256: str,
+) -> dict[str, Any]:
+    model_identity = _mapping(replay_row.get("model_identity"))
+    runtime_guard = _mapping(replay_row.get("runtime_guard"))
+    runtime_identity = _unwrapped_runtime_identity(replay_row.get("runtime_identity"))
+    containers = [
+        replay_row,
+        _mapping(replay_row.get("release_identity")),
+        _mapping(replay_row.get("release_lineage")),
+        model_identity,
+        runtime_guard,
+        runtime_identity,
+    ]
+    release_ids = _identity_values(
+        containers,
+        ("release_id", "serving_release_id", "model_release_id"),
+    )
+    release_manifest_hashes = _identity_values(
+        containers,
+        ("release_manifest_sha256",),
+    )
+    configuration_hashes = _identity_values(
+        containers,
+        ("configuration_sha256", "config_sha256", "release_config_sha256"),
+    )
+    semantic_manifest = _mapping(
+        input_lineage.get("semantic_event_day_manifest")
+    )
+    expected_runtime = _mapping(semantic_manifest.get("expected_runtime_identity"))
+    expected_release_id = str(semantic_manifest.get("expected_release_id") or "")
+    expected_release_manifest_sha256 = str(
+        semantic_manifest.get("expected_release_manifest_sha256") or ""
+    )
+    expected_configuration_sha256 = str(
+        semantic_manifest.get("expected_configuration_sha256") or ""
+    )
+    runtime_candidates = [runtime_identity]
+    for key in ("process_identity", "current_identity"):
+        candidate = runtime_guard.get(key)
+        if isinstance(candidate, Mapping):
+            runtime_candidates.append(_unwrapped_runtime_identity(candidate))
+    runtime_pairs = {
+        (
+            str(candidate.get("git_commit") or ""),
+            str(candidate.get("source_fingerprint") or ""),
+        )
+        for candidate in runtime_candidates
+        if candidate
+    }
+    exact_proofs = _mapping(semantic_manifest.get("exact_file_proofs"))
+    replay_proof = _mapping(exact_proofs.get(REPLAY_INPUT_FILENAME))
+    settlement_proof = _mapping(exact_proofs.get(SETTLEMENT_FILENAME))
+    release_status = str(replay_row.get("release_identity_status") or "")
+    criteria = {
+        "semantic_event_manifest_pass": semantic_manifest.get("status") == "PASS",
+        "qualification_lineage_pass": input_lineage.get("status") == "PASS",
+        "replay_file_exact_manifest_hash_match": (
+            replay_proof.get("status") == "PASS"
+            and replay_proof.get("actual_sha256") == replay_file_sha256
+        ),
+        "settlement_file_exact_manifest_hash_match": (
+            settlement_proof.get("status") == "PASS"
+            and settlement_proof.get("actual_sha256") == settlement_sha256
+        ),
+        "verified_release_binding": release_status in VERIFIED_RELEASE_IDENTITY_STATUSES,
+        "base_model_release_bound": replay_row.get("base_model_release_bound") is True,
+        "release_id_singular_and_complete": len(release_ids) == 1,
+        "release_id_matches_event_manifest": (
+            len(release_ids) == 1
+            and bool(expected_release_id)
+            and release_ids[0] == expected_release_id
+        ),
+        "release_manifest_sha256_singular_and_valid": (
+            len(release_manifest_hashes) == 1
+            and _is_sha256(release_manifest_hashes[0])
+        ),
+        "release_manifest_sha256_matches_manifest_bound_identity": (
+            len(release_manifest_hashes) == 1
+            and bool(expected_release_manifest_sha256)
+            and release_manifest_hashes[0] == expected_release_manifest_sha256
+        ),
+        "configuration_sha256_singular_and_valid": (
+            len(configuration_hashes) == 1
+            and _is_sha256(configuration_hashes[0])
+        ),
+        "configuration_sha256_matches_manifest_bound_identity": (
+            len(configuration_hashes) == 1
+            and bool(expected_configuration_sha256)
+            and configuration_hashes[0] == expected_configuration_sha256
+        ),
+        "runtime_identity_complete": (
+            bool(runtime_identity.get("git_commit"))
+            and bool(runtime_identity.get("source_fingerprint"))
+        ),
+        "runtime_identity_consistent": len(runtime_pairs) == 1,
+        "runtime_identity_matches_event_manifest": (
+            bool(runtime_identity.get("git_commit"))
+            and bool(runtime_identity.get("source_fingerprint"))
+            and runtime_identity.get("git_commit") == expected_runtime.get("git_commit")
+            and runtime_identity.get("source_fingerprint")
+            == expected_runtime.get("source_fingerprint")
+        ),
+    }
+    return {
+        "status": "PASS" if all(criteria.values()) else "BLOCK",
+        "criteria": criteria,
+        "blockers": sorted(name for name, passed in criteria.items() if not passed),
+        "qualification_input_lineage_sha256": input_lineage.get("lineage_sha256"),
+        "event_day_manifest_sha256": semantic_manifest.get("file_sha256"),
+        "event_day_manifest_hash": semantic_manifest.get("manifest_hash"),
+        "release_identity_status": release_status or None,
+        "observed_release_ids": release_ids,
+        "expected_release_id": expected_release_id or None,
+        "observed_release_manifest_sha256s": release_manifest_hashes,
+        "expected_release_manifest_sha256": expected_release_manifest_sha256 or None,
+        "observed_configuration_sha256s": configuration_hashes,
+        "expected_configuration_sha256": expected_configuration_sha256 or None,
+        "runtime_identity_sha256": _runtime_identity_sha256(runtime_identity),
+        "runtime_git_commit": runtime_identity.get("git_commit"),
+        "runtime_source_fingerprint": runtime_identity.get("source_fingerprint"),
+        "expected_runtime_git_commit": expected_runtime.get("git_commit"),
+        "expected_runtime_source_fingerprint": expected_runtime.get("source_fingerprint"),
+    }
+
+
+def _runtime_identity_sha256(identity: Any) -> str | None:
+    if not isinstance(identity, Mapping) or not identity:
+        return None
+    stable_keys = (
+        "source_fingerprint",
+        "runtime_id",
+        "git_commit",
+        "config_sha256",
+        "release_manifest_sha256",
+        "release_id",
+    )
+    stable = {
+        key: identity.get(key)
+        for key in stable_keys
+        if identity.get(key) not in (None, "")
+    } or dict(identity)
+    return hashlib.sha256(canonical_json(stable).encode("utf-8")).hexdigest()
 
 
 def replay_input_sha256(row: Mapping[str, Any]) -> str:
@@ -256,7 +740,7 @@ def source_diagnostics_from_replay(
     return diagnostics
 
 
-def complete_band_definition(path: str | Path) -> list[dict[str, Any]]:
+def complete_band_definition(path: str | Path, *, unit: str = "F") -> list[dict[str, Any]]:
     """Read one ordered, complete market partition from a snapshot tape."""
 
     path = Path(path)
@@ -283,7 +767,73 @@ def complete_band_definition(path: str | Path) -> list[dict[str, Any]]:
             })
     if not bands:
         raise ResidualCorpusError(f"market band tape has no usable partition: {path}")
-    return bands
+    try:
+        return validate_market_band_partition(bands, unit=unit)
+    except ValueError as exc:
+        raise ResidualCorpusError(
+            f"market band tape is not a complete settlement partition: {path}: {exc}"
+        ) from exc
+
+
+def captured_comparator_probabilities(
+    path: str | Path,
+    *,
+    snapshot_ids: Sequence[str],
+    bands: Sequence[Mapping[str, Any]],
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Load exact served and named challenger simplexes for selected captures."""
+
+    source = Path(path)
+    selected = {str(value) for value in snapshot_ids if str(value)}
+    if not source.is_file() or not selected:
+        return {}
+    band_keys = [residual_band_key(band) for band in bands]
+    values: dict[str, dict[str, dict[str, list[float]]]] = {
+        snapshot_id: defaultdict(lambda: defaultdict(list))
+        for snapshot_id in selected
+    }
+    variant_to_comparator = {
+        variant_id: comparator_id
+        for comparator_id, variant_id in COMPARATOR_VARIANT_IDS.items()
+    }
+    for row in read_jsonl(source):
+        snapshot_id = str(row.get("snapshot_id") or "")
+        if snapshot_id not in selected or row.get("prediction_status") != "predicted":
+            continue
+        band_key = str(row.get("band_key") or "")
+        if band_key not in band_keys:
+            continue
+        served = _finite(row.get("serving_model_probability"))
+        if served is not None:
+            values[snapshot_id]["frozen_current_release"][band_key].append(served)
+        comparator_id = variant_to_comparator.get(str(row.get("variant_id") or ""))
+        variant_probability = _finite(row.get("variant_probability"))
+        if comparator_id and variant_probability is not None:
+            values[snapshot_id][comparator_id][band_key].append(variant_probability)
+
+    output: dict[str, dict[str, dict[str, float]]] = {}
+    for snapshot_id, comparators in values.items():
+        complete: dict[str, dict[str, float]] = {}
+        for comparator_id, by_band in comparators.items():
+            simplex: dict[str, float] = {}
+            valid = True
+            for band_key in band_keys:
+                candidates = by_band.get(band_key) or []
+                if not candidates or any(
+                    not math.isclose(candidates[0], value, rel_tol=0.0, abs_tol=1e-12)
+                    for value in candidates[1:]
+                ):
+                    valid = False
+                    break
+                simplex[band_key] = float(candidates[0])
+            if (
+                valid
+                and all(value >= 0.0 for value in simplex.values())
+                and math.isclose(math.fsum(simplex.values()), 1.0, rel_tol=0.0, abs_tol=1e-6)
+            ):
+                complete[comparator_id] = simplex
+        output[snapshot_id] = complete
+    return output
 
 
 def _default_feature_builder(
@@ -296,6 +846,7 @@ def _default_feature_builder(
     """Rebuild the shared V1 context from the captured source envelope."""
 
     from weather.model.residual_distribution_v1 import (
+        SOURCE_STATES,
         canonical_candidate_features,
         default_feature_contract,
     )
@@ -313,7 +864,14 @@ def _default_feature_builder(
     vector = model.extract_live_features(sources, int(cutoff_hour), now=captured)
     diagnostics = model.source_diagnostics(sources)
     feature_schema_version = str(vector.get("feature_schema_version") or "").strip()
-    contract = default_feature_contract(feature_schema_version)
+    # Materialization preserves degraded rows for research and fault-slice
+    # analysis.  Promotion qualification separately requires every row to
+    # satisfy the fitted artifact's serving permission (currently fresh-only),
+    # so this cannot turn stale/unknown evidence into a release PASS.
+    contract = default_feature_contract(
+        feature_schema_version,
+        allowed_source_states=tuple(sorted(SOURCE_STATES)),
+    )
     context = canonical_candidate_features(
         artifact=contract,
         feature_vector=vector,
@@ -383,6 +941,32 @@ def validate_residual_training_row(row: Mapping[str, Any]) -> dict[str, Any]:
     bands = row.get("market_bands")
     if not isinstance(bands, list) or len(bands) < 2:
         raise ResidualCorpusError("training row requires a complete market-band partition")
+    proof = row.get("release_identity_proof")
+    if not isinstance(proof, Mapping):
+        raise ResidualCorpusError("training row requires a release_identity_proof")
+    evidence_class = str(row.get("training_evidence_class") or "")
+    if evidence_class not in {"release_bound", "research_only"}:
+        raise ResidualCorpusError("training_evidence_class must be release_bound or research_only")
+    proof_pass = proof.get("status") == "PASS"
+    if (evidence_class == "release_bound") != proof_pass:
+        raise ResidualCorpusError(
+            "training_evidence_class does not match release_identity_proof status"
+        )
+    if bool(row.get("promotion_training_countable")):
+        if not bool(row.get("settlement_countable")) or not proof_pass:
+            raise ResidualCorpusError(
+                "promotion_training_countable requires countable settlement and identity proof"
+            )
+        if not str(row.get("release_id") or ""):
+            raise ResidualCorpusError("promotion-countable row requires release_id")
+        for field in ("release_manifest_sha256", "configuration_sha256"):
+            if not _is_sha256(row.get(field)):
+                raise ResidualCorpusError(f"promotion-countable row requires valid {field}")
+        runtime_hash = _runtime_identity_sha256(row.get("runtime_identity"))
+        if not runtime_hash or proof.get("runtime_identity_sha256") != runtime_hash:
+            raise ResidualCorpusError(
+                "promotion-countable row runtime identity does not match its proof"
+            )
     return dict(row)
 
 
@@ -393,8 +977,10 @@ def materialize_market_day_rows(
     max_lateness_minutes: int = DEFAULT_MAX_CHECKPOINT_LATENESS_MINUTES,
     require_countable_settlement: bool = True,
     feature_builder: Callable[..., Mapping[str, Any]] | None = None,
+    qualification_input_lineage: Mapping[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     folder = Path(folder)
+    input_lineage = dict(qualification_input_lineage or _folder_input_lineage(folder))
     settlement_path = folder / SETTLEMENT_FILENAME
     replay_path = folder / REPLAY_INPUT_FILENAME
     if not settlement_path.exists() or not replay_path.exists():
@@ -420,7 +1006,16 @@ def materialize_market_day_rows(
     if not target_date or settlement_high_native is None:
         return [], [{"folder": str(folder), "reason": "missing_settlement_target"}]
     settlement_high_f = native_to_f(settlement_high_native, unit)
-    bands = complete_band_definition(folder / SNAPSHOTS_LONG_FILENAME)
+    try:
+        bands = complete_band_definition(folder / SNAPSHOTS_LONG_FILENAME, unit=unit)
+    except ResidualCorpusError as exc:
+        return [], [{
+            "folder": str(folder),
+            "market_id": market_id,
+            "target_date": target_date,
+            "reason": "invalid_market_band_partition",
+            "detail": str(exc),
+        }]
     selected, exclusions = collapse_to_predeclared_checkpoints(
         read_jsonl(replay_path),
         target_date=target_date,
@@ -428,6 +1023,11 @@ def materialize_market_day_rows(
         max_lateness_minutes=max_lateness_minutes,
     )
     output: list[dict[str, Any]] = []
+    comparators_by_snapshot = captured_comparator_probabilities(
+        folder / VARIANT_PREDICTIONS_FILENAME,
+        snapshot_ids=[str(row.get("snapshot_id") or "") for row in selected],
+        bands=bands,
+    )
     builder = feature_builder or _default_feature_builder
     settlement_hash = sha256_file(settlement_path)
     replay_file_hash = sha256_file(replay_path)
@@ -451,6 +1051,17 @@ def materialize_market_day_rows(
             feature_hash = hashlib.sha256(
                 canonical_json(features).encode("utf-8")
             ).hexdigest()
+            identity_proof = _release_identity_proof(
+                selected_row,
+                input_lineage=input_lineage,
+                replay_file_sha256=replay_file_hash,
+                settlement_sha256=settlement_hash,
+            )
+            release_ids = identity_proof["observed_release_ids"]
+            release_manifest_hashes = identity_proof[
+                "observed_release_manifest_sha256s"
+            ]
+            configuration_hashes = identity_proof["observed_configuration_sha256s"]
             row = {
                 "schema_version": CORPUS_SCHEMA_VERSION,
                 "target_date": target_date,
@@ -483,22 +1094,40 @@ def materialize_market_day_rows(
                 },
                 "settlement_quality": settlement.get("quality_grade"),
                 "settlement_countable": bool(settlement.get("promotion_countable")),
-                "release_id": str(
-                    selected_row.get("release_id")
-                    or (selected_row.get("model_identity") or {}).get("release_id")
-                    or ""
+                "release_id": release_ids[0] if len(release_ids) == 1 else "",
+                "release_manifest_sha256": (
+                    release_manifest_hashes[0]
+                    if len(release_manifest_hashes) == 1
+                    else ""
+                ),
+                "configuration_sha256": (
+                    configuration_hashes[0]
+                    if len(configuration_hashes) == 1
+                    else ""
                 ),
                 "replay_input_sha256": selected_row["_captured_replay_input_sha256"],
                 "replay_file_sha256": replay_file_hash,
                 "settlement_sha256": settlement_hash,
-                "runtime_identity": selected_row.get("runtime_identity") or {},
+                "runtime_identity": _unwrapped_runtime_identity(
+                    selected_row.get("runtime_identity")
+                ),
                 "model_identity": selected_row.get("model_identity") or {},
+                "release_identity_proof": identity_proof,
+                "comparator_probabilities": _json_safe(
+                    selected_row.get("comparator_probabilities")
+                    or selected_row.get("variant_probabilities")
+                    or selected_row.get("recorded_band_probabilities")
+                    or comparators_by_snapshot.get(str(selected_row.get("snapshot_id") or ""))
+                    or {}
+                ),
             }
             row["training_evidence_class"] = (
-                "release_bound" if row["release_id"] else "research_only"
+                "release_bound"
+                if identity_proof["status"] == "PASS"
+                else "research_only"
             )
             row["promotion_training_countable"] = bool(
-                row["settlement_countable"] and row["release_id"]
+                row["settlement_countable"] and identity_proof["status"] == "PASS"
             )
             output.append(validate_residual_training_row(_json_safe(row)))
         except (ResidualCorpusError, TypeError, ValueError) as exc:
@@ -536,28 +1165,18 @@ def materialize_residual_training_corpus(
     inputs: list[dict[str, Any]] = []
     for raw_folder in sorted({str(Path(value).resolve()) for value in folders}):
         folder = Path(raw_folder)
+        input_lineage = _folder_input_lineage(folder)
         market_rows, market_exclusions = materialize_market_day_rows(
             folder,
             cutoff_hours=cutoff_hours,
             max_lateness_minutes=max_lateness_minutes,
             require_countable_settlement=require_countable_settlement,
             feature_builder=feature_builder,
+            qualification_input_lineage=input_lineage,
         )
         rows.extend(market_rows)
         exclusions.extend(market_exclusions)
-        inputs.append({
-            "folder": str(folder),
-            "replay_input_sha256": (
-                sha256_file(folder / REPLAY_INPUT_FILENAME)
-                if (folder / REPLAY_INPUT_FILENAME).exists()
-                else None
-            ),
-            "settlement_sha256": (
-                sha256_file(folder / SETTLEMENT_FILENAME)
-                if (folder / SETTLEMENT_FILENAME).exists()
-                else None
-            ),
-        })
+        inputs.append(input_lineage)
     rows.sort(key=lambda row: (
         row["target_date"],
         row["market_id"],
@@ -572,6 +1191,44 @@ def materialize_residual_training_corpus(
     corpus_hash = hashlib.sha256(
         canonical_json(rows).encode("utf-8")
     ).hexdigest()
+    release_ids = sorted({str(row.get("release_id") or "") for row in rows})
+    runtime_identities = sorted({
+        token
+        for row in rows
+        for token in [_runtime_identity_sha256(row.get("runtime_identity"))]
+        if token
+    })
+    all_release_bound = bool(rows) and all(
+        row.get("training_evidence_class") == "release_bound"
+        and bool(row.get("promotion_training_countable"))
+        and _mapping(row.get("release_identity_proof")).get("status") == "PASS"
+        for row in rows
+    )
+    input_lineage_complete = bool(inputs) and all(row["status"] == "PASS" for row in inputs)
+    required_files_hashed = bool(inputs) and all(
+        all(
+            _mapping(_mapping(input_row.get("files")).get(filename)).get("exists") is True
+            and _is_sha256(
+                _mapping(_mapping(input_row.get("files")).get(filename)).get("sha256")
+            )
+            for filename in QUALIFICATION_INPUT_FILENAMES
+        )
+        for input_row in inputs
+    )
+    identity_criteria = {
+        "all_rows_release_bound_and_countable": all_release_bound,
+        "singular_nonmissing_release_id": len(release_ids) == 1 and release_ids != [""],
+        "singular_nonmissing_runtime_identity": (
+            len(runtime_identities) == 1
+            and all(bool(row.get("runtime_identity")) for row in rows)
+        ),
+        "per_input_folder_semantic_manifest_verified": input_lineage_complete,
+        "all_required_files_present_and_hashed": required_files_hashed,
+        "all_row_identity_proofs_pass": bool(rows) and all(
+            _mapping(row.get("release_identity_proof")).get("status") == "PASS"
+            for row in rows
+        ),
+    }
     manifest = finalize_self_hash({
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "artifact_type": "residual_distribution_training_corpus_manifest",
@@ -588,6 +1245,17 @@ def materialize_residual_training_corpus(
             "require_countable_settlement": bool(require_countable_settlement),
             "join_after_feature_construction": True,
         },
+        "qualification_input_contract": {
+            "required_files": list(QUALIFICATION_INPUT_FILENAMES),
+            "all_required_files_are_hashed": required_files_hashed,
+            "semantic_event_manifest_verification_required": True,
+            "per_input_folder_semantic_verification_required": True,
+            "operational_validator": "weather.operations.event_day_manifest.validate_event_day_manifest",
+            "criteria": identity_criteria,
+            "status": "PASS" if all(identity_criteria.values()) else "BLOCK",
+            "release_ids": release_ids,
+            "runtime_identity_sha256s": runtime_identities,
+        },
         "counts": {
             "input_market_days": len(inputs),
             "accepted_rows": len(rows),
@@ -599,6 +1267,12 @@ def materialize_residual_training_corpus(
             ),
             "research_only_rows": sum(
                 1 for row in rows if row.get("training_evidence_class") == "research_only"
+            ),
+            "semantic_manifest_pass_market_days": sum(
+                1 for row in inputs if row.get("status") == "PASS"
+            ),
+            "semantic_manifest_block_market_days": sum(
+                1 for row in inputs if row.get("status") != "PASS"
             ),
         },
         "inputs": inputs,
@@ -627,6 +1301,91 @@ def verify_residual_corpus_manifest(
     corpus_hash = hashlib.sha256(canonical_json(validated).encode("utf-8")).hexdigest()
     if manifest.get("corpus_sha256") != corpus_hash:
         raise ResidualCorpusError("residual corpus hash mismatch")
+    contract = manifest.get("qualification_input_contract")
+    if not isinstance(contract, Mapping):
+        raise ResidualCorpusError("qualification_input_contract is missing")
+    if contract.get("required_files") != list(QUALIFICATION_INPUT_FILENAMES):
+        raise ResidualCorpusError("qualification input required-files contract mismatch")
+    if contract.get("semantic_event_manifest_verification_required") is not True:
+        raise ResidualCorpusError("semantic event-manifest verification is not required")
+    if contract.get("per_input_folder_semantic_verification_required") is not True:
+        raise ResidualCorpusError("per-folder semantic verification is not required")
+
+    recorded_inputs = manifest.get("inputs")
+    if not isinstance(recorded_inputs, list):
+        raise ResidualCorpusError("residual corpus inputs must be a list")
+    current_inputs: list[dict[str, Any]] = []
+    for input_row in recorded_inputs:
+        if not isinstance(input_row, Mapping) or not str(input_row.get("folder") or ""):
+            raise ResidualCorpusError("residual corpus input lineage is malformed")
+        recorded_payload = {
+            key: value for key, value in input_row.items() if key != "lineage_sha256"
+        }
+        expected_lineage_hash = hashlib.sha256(
+            canonical_json(recorded_payload).encode("utf-8")
+        ).hexdigest()
+        if input_row.get("lineage_sha256") != expected_lineage_hash:
+            raise ResidualCorpusError("residual corpus input lineage self-hash mismatch")
+        current = _folder_input_lineage(Path(str(input_row["folder"])))
+        if (
+            current.get("lineage_sha256") != input_row.get("lineage_sha256")
+            or current.get("status") != input_row.get("status")
+        ):
+            raise ResidualCorpusError(
+                "residual corpus input no longer matches semantic event-manifest proof"
+            )
+        current_inputs.append(current)
+
+    release_ids = sorted({str(row.get("release_id") or "") for row in validated})
+    runtime_identities = sorted({
+        token
+        for row in validated
+        for token in [_runtime_identity_sha256(row.get("runtime_identity"))]
+        if token
+    })
+    all_release_bound = bool(validated) and all(
+        row.get("training_evidence_class") == "release_bound"
+        and bool(row.get("promotion_training_countable"))
+        and _mapping(row.get("release_identity_proof")).get("status") == "PASS"
+        for row in validated
+    )
+    required_files_hashed = bool(current_inputs) and all(
+        all(
+            _mapping(_mapping(input_row.get("files")).get(filename)).get("exists") is True
+            and _is_sha256(
+                _mapping(_mapping(input_row.get("files")).get(filename)).get("sha256")
+            )
+            for filename in QUALIFICATION_INPUT_FILENAMES
+        )
+        for input_row in current_inputs
+    )
+    expected_criteria = {
+        "all_rows_release_bound_and_countable": all_release_bound,
+        "singular_nonmissing_release_id": len(release_ids) == 1 and release_ids != [""],
+        "singular_nonmissing_runtime_identity": (
+            len(runtime_identities) == 1
+            and all(bool(row.get("runtime_identity")) for row in validated)
+        ),
+        "per_input_folder_semantic_manifest_verified": bool(current_inputs)
+        and all(row.get("status") == "PASS" for row in current_inputs),
+        "all_required_files_present_and_hashed": required_files_hashed,
+        "all_row_identity_proofs_pass": bool(validated)
+        and all(
+            _mapping(row.get("release_identity_proof")).get("status") == "PASS"
+            for row in validated
+        ),
+    }
+    if contract.get("criteria") != expected_criteria:
+        raise ResidualCorpusError("qualification input criteria do not match corpus evidence")
+    expected_contract_status = "PASS" if all(expected_criteria.values()) else "BLOCK"
+    if contract.get("status") != expected_contract_status:
+        raise ResidualCorpusError("qualification input contract status is inconsistent")
+    if contract.get("all_required_files_are_hashed") is not required_files_hashed:
+        raise ResidualCorpusError("qualification input hash status is inconsistent")
+    if contract.get("release_ids") != release_ids:
+        raise ResidualCorpusError("qualification input release IDs are inconsistent")
+    if contract.get("runtime_identity_sha256s") != runtime_identities:
+        raise ResidualCorpusError("qualification runtime identities are inconsistent")
     return dict(manifest)
 
 

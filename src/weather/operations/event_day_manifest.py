@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -32,6 +33,11 @@ DEFAULT_SNAPSHOTS_ROOT = data_path("snapshots")
 DEFAULT_BACKFILL_JSON = data_path("backtest", "event_day_manifest_backfill.json")
 DEFAULT_BACKFILL_REPORT = data_path("backtest", "event_day_manifest_backfill_report.md")
 DEFAULT_EVENT_METADATA_VALIDATION = data_path("backtest", "event_metadata_validation.json")
+PAYLOAD_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+PAYLOAD_BLOB_LINK_FAMILIES = (
+    ("forecast_payloads", "forecast_payloads"),
+    ("observation_payloads", "observation_payloads"),
+)
 
 
 @dataclass(frozen=True)
@@ -39,20 +45,75 @@ class EventDayArtifactFamily:
     name: str
     patterns: tuple[str, ...]
     required: bool = False
+    requires_canonical_evidence: bool = False
+    required_member_patterns: tuple[str, ...] = ()
     description: str = ""
 
 
 EVENT_DAY_ARTIFACT_FAMILIES = (
-    EventDayArtifactFamily("snapshots", ("snapshots*.jsonl", "snapshots*.csv", "snapshots*.csv.gz")),
+    EventDayArtifactFamily(
+        "snapshots",
+        ("snapshots*.jsonl", "snapshots*.csv", "snapshots*.csv.gz"),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=("snapshots*.jsonl",),
+        description="Serving-time snapshot tape and its analysis projections.",
+    ),
     EventDayArtifactFamily("features", ("features*.jsonl", "features*.csv", "features*.csv.gz")),
     EventDayArtifactFamily("components", ("components*.jsonl", "components*.csv", "components*.csv.gz")),
     EventDayArtifactFamily("forecasts", ("forecasts*.jsonl", "forecasts*.csv", "forecasts*.csv.gz")),
     EventDayArtifactFamily(
         "forecast_payloads",
         ("forecast_payloads*.jsonl", "forecast_payloads*.csv", "forecast_payloads/**/*.json"),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=(
+            "forecast_payloads*.jsonl",
+            "forecast_payloads/sha256/*/*.json",
+            "forecast_payloads/**/*.json",
+        ),
+        description="First-seen forecast payload evidence and its analysis projection.",
     ),
-    EventDayArtifactFamily("source_status", ("source_status*.jsonl", "source_status*.csv", "source_status*.csv.gz")),
-    EventDayArtifactFamily("replay_inputs", ("replay_inputs*.jsonl", "replay_input_status.json")),
+    EventDayArtifactFamily(
+        "observation_payloads",
+        (
+            "observation_payloads*.jsonl",
+            "observation_payloads*.csv",
+            "observation_payloads/**/*.json",
+        ),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=(
+            "observation_payloads/sha256/*/*.json",
+            "observation_payloads/*.json",
+            "observation_payloads/**/*.json",
+        ),
+        description="Raw provider observation payloads used to reconstruct settlement-valid labels.",
+    ),
+    EventDayArtifactFamily(
+        "source_status",
+        ("source_status*.jsonl", "source_status*.csv", "source_status*.csv.gz"),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=("source_status*.jsonl",),
+        description="Serving-time source availability, freshness, and degradation state.",
+    ),
+    EventDayArtifactFamily(
+        "replay_inputs",
+        ("replay_inputs*.jsonl", "replay_input_status.json"),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=("replay_inputs*.jsonl",),
+        description="Point-in-time replay inputs and reconstruction status.",
+    ),
+    EventDayArtifactFamily(
+        "clob_capture_status",
+        ("clob_capture_status*.jsonl", "clob_capture_status*.csv", "clob_capture_status*.csv.gz"),
+        required=True,
+        requires_canonical_evidence=True,
+        required_member_patterns=("clob_capture_status*.jsonl",),
+        description="Attempt-level CLOB capture health, including named failures and empty captures.",
+    ),
     EventDayArtifactFamily("clob_tokens", ("clob_tokens.csv", "clob_tokens.jsonl")),
     EventDayArtifactFamily(
         "order_books",
@@ -80,6 +141,10 @@ EVENT_DAY_ARTIFACT_FAMILIES = (
     EventDayArtifactFamily("settlement", ("settlement.json", "settlement*.jsonl", "settlement*.csv")),
     EventDayArtifactFamily("market_making_runs", ("mm_runs/**/*", "market_making/**/*", "paper_trading/**/*")),
     EventDayArtifactFamily("taker_runs", ("taker_runs/**/*",)),
+)
+
+REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES = tuple(
+    family.name for family in EVENT_DAY_ARTIFACT_FAMILIES if family.required
 )
 
 
@@ -542,7 +607,7 @@ def _event_metadata_validation_proof(
     }
 
 
-def _release_runtime_identity_summary(file_records: list[dict[str, Any]]) -> dict[str, Any]:
+def release_runtime_identity_summary(file_records: list[dict[str, Any]]) -> dict[str, Any]:
     sources: set[str] = set()
     releases: dict[str, dict[str, Any]] = {}
     runtimes: dict[str, dict[str, Any]] = {}
@@ -554,21 +619,368 @@ def _release_runtime_identity_summary(file_records: list[dict[str, Any]]) -> dic
         for runtime in record.get("runtime_identities") or []:
             key = str(runtime.get("runtime_key") or json.dumps(runtime, sort_keys=True))
             runtimes[key] = runtime
-    release_rows = [releases[key] for key in sorted(releases)]
+    observed_release_rows = [releases[key] for key in sorted(releases)]
     runtime_rows = [runtimes[key] for key in sorted(runtimes)]
+    release_aliases = ("release_id", "serving_release_id", "model_release_id")
+    releases_by_id: dict[str, dict[str, Any]] = {}
+    partial_release_rows = []
+    for row in observed_release_rows:
+        explicit_values = {
+            str(row.get(key))
+            for key in release_aliases
+            if row.get(key) not in (None, "")
+        }
+        if not explicit_values:
+            partial_release_rows.append(row)
+            continue
+        for release_id in sorted(explicit_values):
+            summary = releases_by_id.setdefault(
+                release_id,
+                {
+                    "release_id": release_id,
+                    "identity_aliases": set(),
+                    "evidence_row_count": 0,
+                },
+            )
+            summary["evidence_row_count"] += 1
+            summary["identity_aliases"].update(
+                key for key in release_aliases if str(row.get(key) or "") == release_id
+            )
+    release_rows = [
+        {
+            **releases_by_id[release_id],
+            "identity_aliases": sorted(releases_by_id[release_id]["identity_aliases"]),
+        }
+        for release_id in sorted(releases_by_id)
+    ]
+    if not release_rows:
+        release_status = "MISSING" if not observed_release_rows else "INCOMPLETE"
+    elif len(release_rows) == 1:
+        release_status = "SINGLE"
+    else:
+        release_status = "MIXED"
+    if not runtime_rows:
+        runtime_status = "MISSING"
+    elif len(runtime_rows) > 1:
+        runtime_status = "MIXED"
+    elif not runtime_rows[0].get("git_commit") or not runtime_rows[0].get("source_fingerprint"):
+        runtime_status = "INCOMPLETE"
+    else:
+        runtime_status = "SINGLE"
+    proof_grade_blockers = []
+    if release_status != "SINGLE":
+        proof_grade_blockers.append(f"release_identity_{release_status.lower()}")
+    if runtime_status != "SINGLE":
+        proof_grade_blockers.append(f"runtime_identity_{runtime_status.lower()}")
     return {
         "source_ids": sorted(sources),
-        "release_identity_status": (
-            "MISSING" if not release_rows else "SINGLE" if len(release_rows) == 1 else "MIXED"
-        ),
+        "release_identity_status": release_status,
         "release_identity_count": len(release_rows),
         "release_identities": release_rows,
-        "runtime_identity_status": (
-            "MISSING" if not runtime_rows else "SINGLE" if len(runtime_rows) == 1 else "MIXED"
-        ),
+        "partial_release_identity_count": len(partial_release_rows),
+        "partial_release_identities": partial_release_rows,
+        "runtime_identity_status": runtime_status,
         "runtime_identity_count": len(runtime_rows),
         "mixed_runtime_identity": len(runtime_rows) > 1,
         "runtime_identities": runtime_rows,
+        "proof_grade_status": "PASS" if not proof_grade_blockers else "BLOCK",
+        "proof_grade_blockers": proof_grade_blockers,
+    }
+
+
+def _qualifying_canonical_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return nonempty, structurally valid canonical records for a required family."""
+
+    qualifying = []
+    for record in records:
+        if (
+            record.get("storage_class") != "canonical_evidence"
+            or record.get("validation_status") != "PASS"
+        ):
+            continue
+        row_count = record.get("row_count")
+        if row_count is not None:
+            try:
+                if int(row_count) <= 0:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        qualifying.append(record)
+    return qualifying
+
+
+def _required_family_evidence(
+    family: EventDayArtifactFamily,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    canonical = _qualifying_canonical_records(records)
+    required_members = [
+        record
+        for record in canonical
+        if not family.required_member_patterns
+        or any(
+            Path(str(record.get("path") or "")).match(pattern)
+            for pattern in family.required_member_patterns
+        )
+    ]
+    if not family.required:
+        status = "NOT_REQUIRED"
+    elif not records:
+        status = "MISSING"
+    elif family.requires_canonical_evidence and not canonical:
+        status = "CANONICAL_EVIDENCE_MISSING_OR_EMPTY"
+    elif family.required_member_patterns and not required_members:
+        status = "REQUIRED_CANONICAL_MEMBER_MISSING_OR_EMPTY"
+    else:
+        status = "PASS"
+    return {
+        "status": status,
+        "requires_canonical_evidence": family.requires_canonical_evidence,
+        "required_member_patterns": list(family.required_member_patterns),
+        "canonical_file_count": sum(
+            1 for record in records if record.get("storage_class") == "canonical_evidence"
+        ),
+        "qualifying_canonical_file_count": len(canonical),
+        "qualifying_required_member_count": len(required_members),
+    }
+
+
+def _canonical_payload_bytes(payload: Any) -> bytes:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    ).encode("utf-8")
+
+
+def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
+    """Verify manifest-row links to immutable content-addressed payloads.
+
+    File-level inventory hashes are not enough here: the JSONL row must name
+    the one canonical path implied by its payload hash, and those exact bytes
+    must recompute the same hash. Unreferenced blobs fail closed as orphans.
+    """
+
+    folder = folder.resolve()
+    family_results: list[dict[str, Any]] = []
+    total_rows = 0
+    total_blobs = 0
+    total_linked = 0
+    total_issues = 0
+    for artifact_family, path_prefix in PAYLOAD_BLOB_LINK_FAMILIES:
+        manifest_paths = sorted(
+            path
+            for path in folder.glob(f"{path_prefix}*.jsonl")
+            if path.is_file() and not path.is_symlink()
+        )
+        blob_root = folder / path_prefix
+        blob_paths = sorted(
+            path
+            for path in blob_root.rglob("*.json")
+            if path.is_file() or path.is_symlink()
+        ) if blob_root.exists() else []
+        issues: list[dict[str, Any]] = []
+        referenced_paths: set[Path] = set()
+        row_count = 0
+
+        if not manifest_paths:
+            issues.append({
+                "code": "payload_manifest_missing",
+                "artifact_family": artifact_family,
+            })
+
+        for manifest_path in manifest_paths:
+            manifest_rel = _folder_relative_path(manifest_path, folder)
+            try:
+                handle = manifest_path.open("r", encoding="utf-8")
+            except OSError as exc:
+                issues.append({
+                    "code": "payload_manifest_unreadable",
+                    "artifact_family": artifact_family,
+                    "manifest_path": manifest_rel,
+                    "detail": f"{type(exc).__name__}: {exc}",
+                })
+                continue
+            with handle:
+                for line_number, line in enumerate(handle, start=1):
+                    text = line.strip()
+                    if not text:
+                        continue
+                    row_count += 1
+                    try:
+                        row = json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        issues.append({
+                            "code": "payload_manifest_row_invalid_json",
+                            "artifact_family": artifact_family,
+                            "manifest_path": manifest_rel,
+                            "line_number": line_number,
+                            "detail": exc.msg,
+                        })
+                        continue
+                    if not isinstance(row, dict):
+                        issues.append({
+                            "code": "payload_manifest_row_not_object",
+                            "artifact_family": artifact_family,
+                            "manifest_path": manifest_rel,
+                            "line_number": line_number,
+                        })
+                        continue
+
+                    digest = str(row.get("payload_hash") or "")
+                    raw_path_text = str(row.get("raw_payload_path") or "").strip()
+                    row_ref = {
+                        "artifact_family": artifact_family,
+                        "manifest_path": manifest_rel,
+                        "line_number": line_number,
+                        "snapshot_id": row.get("snapshot_id"),
+                        "source": row.get("source"),
+                    }
+                    if not PAYLOAD_HASH_RE.fullmatch(digest):
+                        issues.append({**row_ref, "code": "payload_hash_invalid"})
+                        continue
+                    if not raw_path_text:
+                        issues.append({**row_ref, "code": "raw_payload_path_missing"})
+                        continue
+
+                    raw_path = Path(raw_path_text)
+                    candidate = (
+                        raw_path.resolve()
+                        if raw_path.is_absolute()
+                        else (folder / raw_path).resolve()
+                    )
+                    try:
+                        candidate.relative_to(folder)
+                    except ValueError:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_path_outside_event_folder",
+                            "raw_payload_path": raw_path_text,
+                        })
+                        continue
+
+                    expected = (
+                        blob_root
+                        / "sha256"
+                        / digest[:2]
+                        / f"{digest}.json"
+                    ).resolve()
+                    if candidate != expected:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_path_not_content_addressed",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "expected_path": _folder_relative_path(expected, folder),
+                        })
+                        continue
+                    referenced_paths.add(candidate)
+                    if candidate.is_symlink():
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_symlink_forbidden",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                        })
+                        continue
+                    if not candidate.is_file():
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_missing",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                        })
+                        continue
+                    try:
+                        stored = candidate.read_bytes()
+                    except OSError as exc:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_unreadable",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "detail": f"{type(exc).__name__}: {exc}",
+                        })
+                        continue
+                    canonical_bytes = stored[:-1] if stored.endswith(b"\n") else stored
+                    actual_digest = hashlib.sha256(canonical_bytes).hexdigest()
+                    if actual_digest != digest:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_hash_mismatch",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "actual_payload_hash": actual_digest,
+                        })
+                        continue
+                    try:
+                        decoded = json.loads(canonical_bytes.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_invalid_json",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "detail": f"{type(exc).__name__}: {exc}",
+                        })
+                        continue
+                    if _canonical_payload_bytes(decoded) != canonical_bytes:
+                        issues.append({
+                            **row_ref,
+                            "code": "raw_payload_blob_not_canonical_json",
+                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                        })
+                        continue
+                    declared_bytes = row.get("payload_bytes")
+                    if declared_bytes not in (None, ""):
+                        try:
+                            bytes_match = int(declared_bytes) == len(canonical_bytes)
+                        except (TypeError, ValueError):
+                            bytes_match = False
+                        if not bytes_match:
+                            issues.append({
+                                **row_ref,
+                                "code": "payload_bytes_mismatch",
+                                "raw_payload_path": _folder_relative_path(candidate, folder),
+                                "actual_payload_bytes": len(canonical_bytes),
+                            })
+
+        blob_path_set = {path.resolve() for path in blob_paths}
+        for orphan in sorted(blob_path_set - referenced_paths):
+            issues.append({
+                "code": "raw_payload_blob_orphan",
+                "artifact_family": artifact_family,
+                "raw_payload_path": _folder_relative_path(orphan, folder),
+            })
+
+        result = {
+            "artifact_family": artifact_family,
+            "status": "PASS" if row_count > 0 and not issues else "BLOCK",
+            "manifest_paths": [
+                _folder_relative_path(path, folder) for path in manifest_paths
+            ],
+            "manifest_row_count": row_count,
+            "blob_count": len(blob_path_set),
+            "linked_blob_count": len(blob_path_set & referenced_paths),
+            "issue_count": len(issues),
+            "issues": issues,
+        }
+        family_results.append(result)
+        total_rows += row_count
+        total_blobs += len(blob_path_set)
+        total_linked += len(blob_path_set & referenced_paths)
+        total_issues += len(issues)
+
+    return {
+        "status": (
+            "PASS"
+            if family_results
+            and all(row["status"] == "PASS" for row in family_results)
+            else "BLOCK"
+        ),
+        "families": family_results,
+        "summary": {
+            "manifest_row_count": total_rows,
+            "blob_count": total_blobs,
+            "linked_blob_count": total_linked,
+            "issue_count": total_issues,
+        },
     }
 
 
@@ -705,6 +1117,7 @@ def _inventory_hash_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "identity": manifest.get("identity"),
         "event_metadata_validation": manifest.get("event_metadata_validation"),
         "release_runtime_identity": manifest.get("release_runtime_identity"),
+        "payload_blob_links": manifest.get("payload_blob_links"),
         "artifact_families": manifest.get("artifact_families"),
     }
 
@@ -751,10 +1164,18 @@ def build_event_day_manifest(
             )
             for path in files
         ]
+        required_evidence = _required_family_evidence(family, records)
         families.append({
             "artifact_family": family.name,
             "required": family.required,
-            "status": "present" if records else ("missing_required" if family.required else "missing_optional"),
+            "requires_canonical_evidence": family.requires_canonical_evidence,
+            "required_member_patterns": list(family.required_member_patterns),
+            "required_evidence": required_evidence,
+            "status": (
+                "present"
+                if records and (not family.required or required_evidence["status"] == "PASS")
+                else ("missing_required" if family.required else "missing_optional")
+            ),
             "description": family.description,
             "files": records,
             "file_count": len(records),
@@ -800,7 +1221,8 @@ def build_event_day_manifest(
         path=event_metadata_validation_path,
         payload=event_metadata_validation_payload,
     )
-    release_runtime_identity = _release_runtime_identity_summary(file_records)
+    release_runtime_identity = release_runtime_identity_summary(file_records)
+    payload_blob_links = _payload_blob_link_validation(folder)
     backup_verification = _backup_verification(file_records, backup_root)
     restore_verification = _restore_proof_verification(
         file_records,
@@ -834,14 +1256,35 @@ def build_event_day_manifest(
             ),
         },
         {
+            "check": "release_identity",
+            "status": (
+                "PASS"
+                if release_runtime_identity.get("release_identity_status") == "SINGLE"
+                else "BLOCK"
+            ),
+            "release_identity_status": release_runtime_identity.get("release_identity_status"),
+            "release_identity_count": release_runtime_identity.get("release_identity_count"),
+        },
+        {
             "check": "runtime_identity",
-            "status": "BLOCK" if release_runtime_identity.get("mixed_runtime_identity") else "PASS",
+            "status": (
+                "PASS"
+                if release_runtime_identity.get("runtime_identity_status") == "SINGLE"
+                else "BLOCK"
+            ),
             "runtime_identity_status": release_runtime_identity.get("runtime_identity_status"),
             "runtime_identity_count": release_runtime_identity.get("runtime_identity_count"),
         },
         {
             "check": "required_families",
             "status": "PASS" if not any(family.get("status") == "missing_required" for family in families) else "BLOCK",
+        },
+        {
+            "check": "payload_blob_links",
+            "status": payload_blob_links.get("status"),
+            "issue_count": (payload_blob_links.get("summary") or {}).get(
+                "issue_count"
+            ),
         },
         {
             "check": "event_metadata_validation",
@@ -916,9 +1359,14 @@ def build_event_day_manifest(
             "backup_status": backup_verification.get("status"),
             "restore_status": restore_verification.get("status"),
             "event_metadata_validation_hash": event_metadata_proof.get("validation_hash"),
+            "payload_blob_link_status": payload_blob_links.get("status"),
+            "payload_blob_link_issue_count": (
+                payload_blob_links.get("summary") or {}
+            ).get("issue_count"),
         },
         "event_metadata_validation": event_metadata_proof,
         "release_runtime_identity": release_runtime_identity,
+        "payload_blob_links": payload_blob_links,
         "protection": {
             "status": protection_status,
             "backup": backup_verification,
@@ -1015,6 +1463,34 @@ def validate_event_day_manifest(
     else:
         checks.append({"check": "inventory_hash", "status": "WARN", "detail": "legacy manifest"})
 
+    declared_payload_links = manifest.get("payload_blob_links")
+    current_payload_links = _payload_blob_link_validation(folder)
+    if not isinstance(declared_payload_links, dict):
+        checks.append({
+            "check": "payload_blob_links_declared",
+            "status": "BLOCK",
+            "detail": "payload blob link evidence is missing",
+        })
+    elif declared_payload_links != current_payload_links:
+        checks.append({
+            "check": "payload_blob_links_current",
+            "status": "BLOCK",
+            "detail": "payload blob link evidence changed or does not recompute",
+        })
+    elif current_payload_links.get("status") != "PASS":
+        checks.append({
+            "check": "payload_blob_links_current",
+            "status": "BLOCK",
+            "detail": "payload manifest-to-blob links are not complete and valid",
+            "issues": [
+                issue
+                for family in current_payload_links.get("families") or []
+                for issue in family.get("issues") or []
+            ],
+        })
+    else:
+        checks.append({"check": "payload_blob_links_current", "status": "PASS"})
+
     records = _manifest_file_records(manifest)
     manifest_paths = {row.get("path") for row in records if row.get("path")}
     for record in records:
@@ -1072,19 +1548,83 @@ def validate_event_day_manifest(
         else:
             checks.append({"check": "extra_files", "status": "PASS"})
 
-    missing_required = [
-        family.get("artifact_family")
-        for family in manifest.get("artifact_families") or []
-        if family.get("status") == "missing_required"
-    ]
-    if missing_required:
-        checks.append({"check": "required_families", "status": "BLOCK", "families": missing_required})
-    else:
-        checks.append({"check": "required_families", "status": "PASS"})
-    runtime_identity = manifest.get("release_runtime_identity") or {}
+    manifest_families = manifest.get("artifact_families") or []
+    family_rows_by_name: dict[str, list[dict[str, Any]]] = {}
+    for family_row in manifest_families:
+        if isinstance(family_row, dict):
+            family_rows_by_name.setdefault(str(family_row.get("artifact_family") or ""), []).append(family_row)
+    required_family_failures: list[dict[str, Any]] = []
+    for family_contract in EVENT_DAY_ARTIFACT_FAMILIES:
+        if not family_contract.required:
+            continue
+        matches = family_rows_by_name.get(family_contract.name) or []
+        if len(matches) != 1:
+            required_family_failures.append({
+                "artifact_family": family_contract.name,
+                "reason": "missing_family" if not matches else "duplicate_family",
+                "family_count": len(matches),
+            })
+            continue
+        family_row = matches[0]
+        family_records = [
+            record for record in family_row.get("files") or [] if isinstance(record, dict)
+        ]
+        evidence = _required_family_evidence(family_contract, family_records)
+        if (
+            family_row.get("required") is not True
+            or family_row.get("requires_canonical_evidence")
+            is not family_contract.requires_canonical_evidence
+            or family_row.get("required_member_patterns")
+            != list(family_contract.required_member_patterns)
+            or family_row.get("status") != "present"
+            or evidence.get("status") != "PASS"
+            or family_row.get("required_evidence") != evidence
+        ):
+            required_family_failures.append({
+                "artifact_family": family_contract.name,
+                "reason": "required_evidence_incomplete",
+                "declared_status": family_row.get("status"),
+                "evidence": evidence,
+            })
+    checks.append({
+        "check": "required_families",
+        "status": "BLOCK" if required_family_failures else "PASS",
+        "required_families": list(REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES),
+        "failures": required_family_failures,
+    })
+
+    declared_identity = manifest.get("release_runtime_identity") or {}
+    runtime_identity = release_runtime_identity_summary(records)
+    identity_fields = (
+        "release_identity_status",
+        "release_identity_count",
+        "release_identities",
+        "partial_release_identity_count",
+        "partial_release_identities",
+        "runtime_identity_status",
+        "runtime_identity_count",
+        "runtime_identities",
+        "proof_grade_status",
+        "proof_grade_blockers",
+    )
+    identity_summary_current = all(
+        declared_identity.get(field) == runtime_identity.get(field)
+        for field in identity_fields
+    )
+    checks.append({
+        "check": "release_runtime_identity_summary",
+        "status": "PASS" if identity_summary_current else "BLOCK",
+    })
+    checks.append({
+        "check": "release_identity",
+        "status": "PASS" if runtime_identity.get("release_identity_status") == "SINGLE" else "BLOCK",
+        "release_identity_status": runtime_identity.get("release_identity_status"),
+        "release_identity_count": runtime_identity.get("release_identity_count"),
+    })
     checks.append({
         "check": "runtime_identity",
-        "status": "BLOCK" if runtime_identity.get("mixed_runtime_identity") else "PASS",
+        "status": "PASS" if runtime_identity.get("runtime_identity_status") == "SINGLE" else "BLOCK",
+        "runtime_identity_status": runtime_identity.get("runtime_identity_status"),
         "runtime_identity_count": runtime_identity.get("runtime_identity_count"),
     })
     event_metadata_proof = manifest.get("event_metadata_validation") or {}

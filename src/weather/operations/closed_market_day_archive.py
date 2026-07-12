@@ -86,6 +86,9 @@ class ArtifactReadProvenance:
     manifest_hash: str | None = None
     source_file_hash: str | None = None
     parquet_file_hash: str | None = None
+    event_manifest_hash: str | None = None
+    release_id: str | None = None
+    runtime_identity_key: str | None = None
     fallback_reason: str | None = None
 
 
@@ -128,8 +131,25 @@ ARTIFACT_FAMILIES = (
         "forecast_payloads_long",
         DATASET_FILENAME,
         ("forecast_payloads_long.csv", "forecast_payloads_long.csv.gz"),
-        ("forecast_payloads.jsonl", "*_weather_forecast_*_reconstructed.json", "*_open_meteo_*_reconstructed.json"),
+        (
+            "forecast_payloads.jsonl",
+            "forecast_payloads/*.json",
+            "forecast_payloads/**/*.json",
+            "*_weather_forecast_*_reconstructed.json",
+            "*_open_meteo_*_reconstructed.json",
+        ),
         notes="Forecast payload analysis table with raw payload references.",
+    ),
+    ArtifactFamilyContract(
+        "observation_payloads_long",
+        DATASET_FILENAME,
+        ("observation_payloads_long.csv", "observation_payloads_long.csv.gz"),
+        (
+            "observation_payloads.jsonl",
+            "observation_payloads/*.json",
+            "observation_payloads/**/*.json",
+        ),
+        notes="Observation payload analysis table backed by immutable provider payload evidence.",
     ),
     ArtifactFamilyContract(
         "source_status_long",
@@ -152,6 +172,13 @@ ARTIFACT_FAMILIES = (
         ("replay_input_status.json",),
         parquet_default_for_closed_days=False,
         notes="Small status artifact; Parquet is optional unless row counts justify it.",
+    ),
+    ArtifactFamilyContract(
+        "clob_capture_status",
+        DATASET_FILENAME,
+        ("clob_capture_status.jsonl",),
+        ("clob_capture_status.jsonl",),
+        notes="Attempt-level CLOB capture health, including failures and empty captures.",
     ),
     ArtifactFamilyContract(
         "clob_tokens",
@@ -536,6 +563,11 @@ def read_market_day_artifact(
             manifest_hash=manifest_hash,
         )
     source_record = _analysis_source_record(family_manifest)
+    release_runtime_identity = manifest.get("release_runtime_identity") or {}
+    release_rows = release_runtime_identity.get("release_identities") or []
+    runtime_rows = release_runtime_identity.get("runtime_identities") or []
+    release_row = release_rows[0] if release_rows and isinstance(release_rows[0], dict) else {}
+    runtime_row = runtime_rows[0] if runtime_rows and isinstance(runtime_rows[0], dict) else {}
     return ArtifactReadResult(
         frame=frame,
         provenance=ArtifactReadProvenance(
@@ -549,6 +581,9 @@ def read_market_day_artifact(
             manifest_hash=manifest_hash,
             source_file_hash=(source_record or {}).get("sha256"),
             parquet_file_hash=parquet_hash,
+            event_manifest_hash=(manifest.get("event_day_manifest") or {}).get("manifest_hash"),
+            release_id=release_row.get("release_id"),
+            runtime_identity_key=runtime_row.get("runtime_key"),
         ),
     )
 
@@ -862,6 +897,7 @@ def _event_day_manifest_status(folder: Path, *, snapshots_root: Path) -> dict[st
         "exists": True,
         "status": validation.get("status"),
         "manifest_hash": manifest.get("manifest_hash"),
+        "release_runtime_identity": manifest.get("release_runtime_identity") or {},
         "validation": validation,
     }
 
@@ -896,12 +932,16 @@ def _existing_manifest_current(
     manifest: dict[str, Any] | None,
     families: list[dict[str, Any]],
     partition_root: Path,
+    *,
+    event_manifest_hash: str | None,
 ) -> bool:
     if not manifest or validate_manifest_shape(manifest):
         return False
     if (manifest.get("validation") or {}).get("status") != "PASS":
         return False
     if not manifest_hash_valid(manifest):
+        return False
+    if (manifest.get("event_day_manifest") or {}).get("manifest_hash") != event_manifest_hash:
         return False
     if not _parquet_records_available(manifest, partition_root):
         return False
@@ -932,7 +972,9 @@ def plan_market_day(
     if lock_paths:
         blockers.append("active_writer_lock")
     event_day_manifest = _event_day_manifest_status(folder, snapshots_root=snapshots_root)
-    if event_day_manifest.get("exists") and event_day_manifest.get("status") != "PASS":
+    if not event_day_manifest.get("exists"):
+        blockers.append("missing_event_day_manifest")
+    elif event_day_manifest.get("status") != "PASS":
         blockers.append("stale_event_day_manifest")
 
     families = [
@@ -953,7 +995,12 @@ def plan_market_day(
     action = "blocked"
     status = "blocked"
     if not blockers:
-        if _existing_manifest_current(existing_manifest, families, partition_root):
+        if _existing_manifest_current(
+            existing_manifest,
+            families,
+            partition_root,
+            event_manifest_hash=event_day_manifest.get("manifest_hash"),
+        ):
             action = "skip_current_manifest"
             status = "skipped"
         else:
@@ -1051,6 +1098,37 @@ def apply_market_day(
 ) -> dict[str, Any]:
     if plan.get("blockers"):
         return dict(plan)
+    current_event_manifest = _event_day_manifest_status(
+        Path(str(plan.get("source_folder") or "")),
+        snapshots_root=Path(snapshots_root),
+    )
+    if not current_event_manifest.get("exists") or current_event_manifest.get("status") != "PASS":
+        row = dict(plan)
+        blocker = (
+            "missing_event_day_manifest"
+            if not current_event_manifest.get("exists")
+            else "stale_event_day_manifest"
+        )
+        row.update({
+            "status": "blocked",
+            "action": "blocked",
+            "blockers": sorted(set([*(plan.get("blockers") or []), blocker])),
+            "event_day_manifest": current_event_manifest,
+        })
+        return row
+    planned_event_manifest = plan.get("event_day_manifest") or {}
+    if current_event_manifest.get("manifest_hash") != planned_event_manifest.get("manifest_hash"):
+        row = dict(plan)
+        row.update({
+            "status": "blocked",
+            "action": "blocked",
+            "blockers": sorted(set([
+                *(plan.get("blockers") or []),
+                "event_day_manifest_changed_since_plan",
+            ])),
+            "event_day_manifest": current_event_manifest,
+        })
+        return row
     if plan.get("action") == "skip_current_manifest":
         row = dict(plan)
         row["status"] = "skipped"
@@ -1078,13 +1156,12 @@ def apply_market_day(
             {"check": "parquet_family_count", "status": "PASS", "value": parquet_count},
             {"check": "source_files_preserved", "status": "PASS", "deleted_source_count": 0},
         ]
-        event_manifest = plan.get("event_day_manifest") or {}
-        if event_manifest.get("exists"):
-            validation_checks.append({
-                "check": "event_day_manifest_current",
-                "status": "PASS",
-                "manifest_hash": event_manifest.get("manifest_hash"),
-            })
+        event_manifest = current_event_manifest
+        validation_checks.append({
+            "check": "event_day_manifest_current",
+            "status": "PASS",
+            "manifest_hash": event_manifest.get("manifest_hash"),
+        })
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "archive_root_version": ARCHIVE_ROOT_VERSION,
@@ -1105,9 +1182,8 @@ def apply_market_day(
                     "manifest_hash": event_manifest.get("manifest_hash"),
                     "status": event_manifest.get("status"),
                 }
-                if event_manifest.get("exists")
-                else None
             ),
+            "release_runtime_identity": event_manifest.get("release_runtime_identity") or {},
             "validation": {
                 "status": "PASS",
                 "checks": validation_checks,

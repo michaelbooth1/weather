@@ -150,6 +150,29 @@ class TestPooledFeatureModel(unittest.TestCase):
 
     def _band_shard_artifact(self, hour, objective="binary_market_band_brier_source_reliability"):
         postprocess = default_band_postprocess()
+        postprocess.update({
+            "adjacent_calibration_enabled": False,
+            "adjacent_calibration": {},
+            "exact_winner_catchup_enabled": False,
+            "exact_winner_catchup": {},
+            "market_bias_calibration_enabled": False,
+            "market_bias_calibration": {},
+        })
+        postprocess_fit_contract = {
+            "schema_version": "legacy_pooled_postprocess_fit_contract_v1",
+            "status": "PASS",
+            "policy": "identity_until_nested_inner_oof",
+            "outer_holdout_used_for_parameter_fit": False,
+            "outer_holdout_fit_rows": 0,
+            "served_parameters": {
+                "temperature": 1.0,
+                "adjacent_calibration": "identity_disabled",
+                "exact_winner_catchup": "identity_disabled",
+                "market_bias_calibration": "identity_disabled",
+            },
+            "requested_diagnostic_lanes": {"exact_winner_catchup": False},
+            "promotion_permission": "forbidden_without_nested_inner_oof_receipts",
+        }
         rows = []
         probabilities = []
         for idx in range(12):
@@ -181,10 +204,12 @@ class TestPooledFeatureModel(unittest.TestCase):
             "reanalysis_promotion_lane": {"allowed_markets": ["austin"]},
             "support": {"F": {"low": 70, "high": 110}},
             "postprocess": postprocess,
+            "postprocess_fit_contract": postprocess_fit_contract,
             "models": {
                 str(hour): {
                     "feature_names": ["forecast_high"],
                     "postprocess": dict(postprocess),
+                    "temperature": 1.0,
                     "train_rows": 12,
                     "source_rows": 3,
                 },
@@ -197,7 +222,7 @@ class TestPooledFeatureModel(unittest.TestCase):
             },
         }
 
-    def test_merge_pooled_band_artifacts_refits_postprocess_and_combines_hours(self):
+    def test_merge_pooled_band_artifacts_preserves_identity_and_combines_hours(self):
         merged = merge_pooled_band_artifacts(
             [
                 self._band_shard_artifact(7),
@@ -209,9 +234,19 @@ class TestPooledFeatureModel(unittest.TestCase):
 
         self.assertEqual(sorted(merged["models"]), ["7", "8"])
         self.assertEqual(merged["training_shards"]["shard_count"], 2)
-        self.assertEqual(merged["training_shards"]["postprocess_fit_rows"], 24)
-        self.assertIn("adjacent_calibration", merged["postprocess"])
-        self.assertIn("market_bias_calibration", merged["postprocess"])
+        self.assertEqual(merged["training_shards"]["postprocess_fit_rows"], 0)
+        self.assertEqual(
+            merged["training_shards"]["outer_holdout_payload_rows_ignored"],
+            24,
+        )
+        self.assertFalse(merged["postprocess"]["adjacent_calibration_enabled"])
+        self.assertEqual(merged["postprocess"]["adjacent_calibration"], {})
+        self.assertFalse(merged["postprocess"]["market_bias_calibration_enabled"])
+        self.assertEqual(merged["postprocess"]["market_bias_calibration"], {})
+        self.assertEqual(
+            merged["postprocess_fit_contract"]["outer_holdout_fit_rows"],
+            0,
+        )
         self.assertEqual(
             merged["models"]["7"]["postprocess"],
             merged["postprocess"],
@@ -229,6 +264,48 @@ class TestPooledFeatureModel(unittest.TestCase):
             merge_pooled_band_artifacts([
                 self._band_shard_artifact(7),
                 self._band_shard_artifact(8, objective="different_objective"),
+            ])
+
+    def test_merge_pooled_band_artifacts_rejects_legacy_shard_without_identity_contract(self):
+        legacy = self._band_shard_artifact(8)
+        legacy.pop("postprocess_fit_contract")
+        with self.assertRaisesRegex(ValueError, "legacy band shard"):
+            merge_pooled_band_artifacts([
+                self._band_shard_artifact(7),
+                legacy,
+            ])
+
+    def test_merge_pooled_band_artifacts_rejects_mixed_postprocess_contracts(self):
+        mixed = self._band_shard_artifact(8)
+        mixed["postprocess_fit_contract"]["requested_diagnostic_lanes"] = {
+            "exact_winner_catchup": True,
+        }
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            merge_pooled_band_artifacts([
+                self._band_shard_artifact(7),
+                mixed,
+            ])
+
+    def test_merge_pooled_band_artifacts_rejects_learned_outer_holdout_postprocess(self):
+        leaked = self._band_shard_artifact(8)
+        leaked["postprocess"]["market_bias_calibration_enabled"] = True
+        leaked["postprocess"]["market_bias_calibration"] = {"enabled": True}
+        leaked["models"]["8"]["postprocess"] = dict(leaked["postprocess"])
+        leaked["postprocess_fit_contract"]["outer_holdout_used_for_parameter_fit"] = True
+        leaked["postprocess_fit_contract"]["outer_holdout_fit_rows"] = 12
+        with self.assertRaisesRegex(ValueError, "non-identity postprocess_fit_contract"):
+            merge_pooled_band_artifacts([
+                self._band_shard_artifact(7),
+                leaked,
+            ])
+
+    def test_merge_pooled_band_artifacts_rejects_nonidentity_model_temperature(self):
+        tuned = self._band_shard_artifact(8)
+        tuned["models"]["8"]["temperature"] = 1.2
+        with self.assertRaisesRegex(ValueError, "non-identity temperature"):
+            merge_pooled_band_artifacts([
+                self._band_shard_artifact(7),
+                tuned,
             ])
 
     def test_city_features_and_market_one_hot_enter_frame(self):
@@ -441,6 +518,31 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertIn("market_id_toronto", feature_names)
         self.assertIn("market_bias_calibration", artifact["postprocess"])
         self.assertIn("market_bias_calibration_enabled", artifact["models"]["12"]["postprocess"])
+        self.assertFalse(artifact["postprocess"]["adjacent_calibration_enabled"])
+        self.assertFalse(artifact["postprocess"]["market_bias_calibration_enabled"])
+        self.assertEqual(artifact["models"]["12"]["temperature"], 1.0)
+        self.assertEqual(
+            artifact["postprocess_fit_contract"],
+            {
+                "schema_version": "legacy_pooled_postprocess_fit_contract_v1",
+                "status": "PASS",
+                "policy": "identity_until_nested_inner_oof",
+                "outer_holdout_used_for_parameter_fit": False,
+                "outer_holdout_fit_rows": 0,
+                "served_parameters": {
+                    "temperature": 1.0,
+                    "adjacent_calibration": "identity_disabled",
+                    "exact_winner_catchup": "identity_disabled",
+                    "market_bias_calibration": "identity_disabled",
+                },
+                "requested_diagnostic_lanes": {"exact_winner_catchup": False},
+                "promotion_permission": "forbidden_without_nested_inner_oof_receipts",
+            },
+        )
+        self.assertTrue(all(
+            row["postprocess_fit_contract"]["outer_holdout_fit_rows"] == 0
+            for row in validation_rows
+        ))
         self.assertTrue(validation_rows)
 
     def test_all_market_exact_winner_keeps_item35_blend_and_source_guardrail(self):
@@ -483,7 +585,16 @@ class TestPooledFeatureModel(unittest.TestCase):
             artifact["objective"],
             "binary_native_market_band_brier_all_market_exact_winner_catchup",
         )
-        self.assertTrue(postprocess["exact_winner_catchup_enabled"])
+        self.assertFalse(postprocess["exact_winner_catchup_enabled"])
+        self.assertEqual(postprocess["exact_winner_catchup"], {})
+        self.assertTrue(
+            artifact["postprocess_fit_contract"]["requested_diagnostic_lanes"]
+            ["exact_winner_catchup"]
+        )
+        self.assertEqual(
+            artifact["postprocess_fit_contract"]["promotion_permission"],
+            "forbidden_without_nested_inner_oof_receipts",
+        )
         self.assertEqual(postprocess["current_blend_default_alpha"], 1.0)
         self.assertEqual(postprocess["current_blend_market_alpha"]["nyc"], 0.20)
         self.assertEqual(postprocess["current_blend_source_freshness_default_alpha"], 0.0)

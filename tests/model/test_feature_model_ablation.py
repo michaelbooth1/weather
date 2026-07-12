@@ -14,9 +14,12 @@ from weather.calibration.feature_model import (
     evaluate_late_day_records,
     feature_blocked_validation_plan,
     feature_family_columns,
+    fold_local_feature_matrices,
+    inner_hgb_calibration_rows,
     feature_family_promotion_decisions,
     late_day_feature_columns,
     neutralize_feature_family,
+    nested_temperature_blend_predictions,
     summarize_ablation_by_family,
     summarize_ablation_by_group,
     train_late_day_continuation_models,
@@ -25,6 +28,106 @@ from weather.model.toronto_model import TorontoHighTempModel
 
 
 class TestFeatureModelAblation(unittest.TestCase):
+    def test_blocked_preprocessing_is_fit_only_on_training_rows(self):
+        frame = pd.DataFrame({
+            "high_so_far": [10.0, 12.0, 1000.0],
+            "forecast_high": [20.0, np.nan, np.nan],
+            "wind_W-NW": [0.0, 1.0, 1.0],
+        })
+        matrices = fold_local_feature_matrices(
+            frame,
+            train_idx=[0, 1],
+            val_idx=[2],
+            feature_cols=list(frame.columns),
+            numeric_feature_count=2,
+        )
+
+        self.assertEqual(matrices["imputer"].statistics_.tolist(), [11.0, 20.0, 0.5])
+        self.assertEqual(matrices["scaler"].mean_.tolist(), [11.0, 20.0])
+        self.assertEqual(matrices["lr_train"][:, 0].tolist(), [-1.0, 1.0])
+        self.assertGreater(matrices["lr_validation"][0, 0], 900.0)
+        self.assertTrue(np.isnan(matrices["hgb_validation"][0, 1]))
+
+    def test_nested_calibration_never_fits_on_the_outer_rows_it_scores(self):
+        outer_rows = [
+            {
+                "validation_index": 0,
+                "train_indices": (2, 3),
+                "climatology": {0: 0.5, 1: 0.5},
+                "raw_model": {0: 0.8, 1: 0.2},
+                "actual": 90,
+            },
+            {
+                "validation_index": 1,
+                "train_indices": (0, 1),
+                "climatology": {0: 0.5, 1: 0.5},
+                "raw_model": {0: 0.2, 1: 0.8},
+                "actual": 91,
+            },
+        ]
+        builder_calls = []
+        fitter_actuals = []
+
+        def inner_builder(*args):
+            outer_train_indices = tuple(args[-1])
+            builder_calls.append(outer_train_indices)
+            inner_actual = 10 if outer_train_indices == (0, 1) else 11
+            return [({0: 0.5, 1: 0.5}, {0: 0.6, 1: 0.4}, inner_actual)]
+
+        def fitter(rows, *, blend_weights):
+            fitter_actuals.append([row[2] for row in rows])
+            self.assertEqual(blend_weights, [0.8])
+            return {"temperature": 1.0, "blend_weight": 0.8, "logloss": 0.1}
+
+        results = nested_temperature_blend_predictions(
+            outer_rows,
+            x_frame=pd.DataFrame({"x": [0.0, 1.0, 2.0, 3.0]}),
+            y=pd.Series([0, 1, 0, 1]),
+            records=[{"final_bucket": value} for value in (0, 1, 0, 1)],
+            bucket_space=[0, 1],
+            feature_cols=["x"],
+            numeric_feature_count=1,
+            blend_weights=[0.8],
+            inner_row_builder=inner_builder,
+            calibration_fitter=fitter,
+        )
+
+        self.assertEqual(set(builder_calls), {(0, 1), (2, 3)})
+        self.assertEqual({actual for call in fitter_actuals for actual in call}, {10, 11})
+        self.assertTrue({90, 91}.isdisjoint(actual for call in fitter_actuals for actual in call))
+        self.assertEqual([row["validation_index"] for row in results], [0, 1])
+        self.assertTrue(all(row["calibration_status"] == "nested_inner_oof" for row in results))
+
+    def test_inner_calibration_rows_are_blocked_oof_with_fold_local_missingness(self):
+        records = []
+        values = []
+        outcomes = []
+        for year in (2023, 2024, 2025):
+            for day in range(1, 5):
+                outcome = day % 2
+                records.append({
+                    "date": date(year, 6, day),
+                    "final_bucket": outcome,
+                })
+                values.append({
+                    "high_so_far": float(day + outcome),
+                    "forecast_high": np.nan if day == 4 else float(day + 2),
+                })
+                outcomes.append(outcome)
+        rows = inner_hgb_calibration_rows(
+            pd.DataFrame(values),
+            pd.Series(outcomes),
+            records,
+            bucket_space=[0, 1],
+            feature_cols=["high_so_far", "forecast_high"],
+            numeric_feature_count=2,
+            outer_train_indices=range(len(records)),
+        )
+
+        self.assertEqual(len(rows), len(records))
+        self.assertTrue(all(actual in {0, 1} for _clim, _raw, actual in rows))
+        self.assertTrue(all(abs(sum(raw.values()) - 1.0) < 1e-9 for _clim, raw, _actual in rows))
+
     def test_feature_family_columns_groups_schema_features(self):
         feature_cols = [
             "high_so_far",

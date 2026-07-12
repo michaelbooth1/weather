@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -24,6 +25,45 @@ from weather.reporting.data_quality.data_retention_inventory import build_payloa
 from weather.schema_registry import schema_version
 
 
+def write_payload_evidence(
+    folder: Path,
+    family: str,
+    payload: dict,
+    *,
+    snapshot_id: str,
+    source: str,
+) -> tuple[Path, dict]:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    blob = folder / family / "sha256" / digest[:2] / f"{digest}.json"
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    blob.write_bytes(canonical + b"\n")
+    row = {
+        "schema_version": f"{family}_manifest_v1",
+        "snapshot_id": snapshot_id,
+        "source": source,
+        "payload_hash_algorithm": "sha256-canonical-json",
+        "payload_hash": digest,
+        "payload_bytes": len(canonical),
+        "raw_payload_retained": True,
+        "raw_payload_path": str(blob),
+    }
+    return blob, row
+
+
+def payload_link_issue_codes(manifest: dict) -> set[str]:
+    return {
+        str(issue.get("code"))
+        for family in (manifest.get("payload_blob_links") or {}).get("families") or []
+        for issue in family.get("issues") or []
+    }
+
+
 class TestEventDayManifest(unittest.TestCase):
     def write_text(self, path: Path, text: str):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -32,9 +72,23 @@ class TestEventDayManifest(unittest.TestCase):
 
     def make_folder(self, root: Path, slug="highest-temperature-in-austin-on-june-22-2026"):
         folder = root / "snapshots" / slug
+        proof_identity = {
+            "release_id": "release-2026-06-22-a",
+            "runtime_identity": {
+                "schema_version": "runtime_identity_v0.1",
+                "git_branch": "test",
+                "git_commit": "a" * 40,
+                "source_fingerprint": "source-test-v1",
+                "python_version": "3.12",
+            },
+        }
         self.write_text(
             folder / "snapshots.jsonl",
-            json.dumps({"schema_version": "snapshot_tape_v0.1", "snapshot_id": "s1"}) + "\n",
+            json.dumps({
+                "schema_version": "snapshot_tape_v0.1",
+                "snapshot_id": "s1",
+                **proof_identity,
+            }) + "\n",
         )
         self.write_text(
             folder / "snapshots_long.csv",
@@ -45,6 +99,36 @@ class TestEventDayManifest(unittest.TestCase):
         self.write_text(
             folder / "replay_inputs.jsonl",
             json.dumps({"schema_version": "toronto_replay_inputs_v0.1", "snapshot_id": "s1"}) + "\n",
+        )
+        _, forecast_row = write_payload_evidence(
+            folder,
+            "forecast_payloads",
+            {"forecast": [92, 94], "provider": "nbm"},
+            snapshot_id="s1",
+            source="nbm",
+        )
+        self.write_text(
+            folder / "forecast_payloads.jsonl",
+            json.dumps(forecast_row) + "\n",
+        )
+        self.write_text(
+            folder / "source_status.jsonl",
+            json.dumps({"schema_version": "source_status_v0.1", "snapshot_id": "s1", "source": "nbm", "status": "OK"}) + "\n",
+        )
+        _, observation_row = write_payload_evidence(
+            folder,
+            "observation_payloads",
+            {"station_id": "KAUS", "temperature": 94},
+            snapshot_id="s1",
+            source="metar",
+        )
+        self.write_text(
+            folder / "observation_payloads.jsonl",
+            json.dumps(observation_row) + "\n",
+        )
+        self.write_text(
+            folder / "clob_capture_status.jsonl",
+            json.dumps({"schema_version": "clob_capture_status_v0.1", "status": "OK"}) + "\n",
         )
         self.write_text(
             folder / "snapshot_explanations.jsonl",
@@ -100,11 +184,22 @@ class TestEventDayManifest(unittest.TestCase):
 
         self.assertTrue(manifest_hash_valid(manifest))
         self.assertEqual(validation["status"], "PASS")
+        self.assertEqual(manifest["payload_blob_links"]["status"], "PASS")
+        self.assertEqual(
+            manifest["payload_blob_links"]["summary"]["linked_blob_count"],
+            2,
+        )
         self.assertEqual(manifest["identity"]["event_slug"], "highest-temperature-in-austin-on-june-22-2026")
         self.assertGreaterEqual(manifest["summary"]["canonical_evidence_files"], 4)
         self.assertGreaterEqual(manifest["summary"]["analysis_projection_files"], 2)
         families = {row["artifact_family"]: row for row in manifest["artifact_families"]}
         self.assertEqual(families["market_ws_events"]["status"], "missing_optional")
+        self.assertEqual(families["observation_payloads"]["status"], "present")
+        self.assertEqual(families["clob_capture_status"]["status"], "present")
+        self.assertEqual(
+            families["observation_payloads"]["required_evidence"]["status"],
+            "PASS",
+        )
         self.assertEqual(families["market_making_runs"]["status"], "present")
         snapshots = families["snapshots"]["files"]
         by_path = {row["path"]: row for row in snapshots}
@@ -306,6 +401,10 @@ class TestEventDayManifest(unittest.TestCase):
                 },
             }
             self.write_text(folder / "snapshots.jsonl", json.dumps(payload) + "\n")
+            self.write_text(
+                folder / "features.jsonl",
+                json.dumps({"schema_version": "feature_tape_v0.1", "model_version": "model-v7"}) + "\n",
+            )
 
             manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
 
@@ -320,9 +419,103 @@ class TestEventDayManifest(unittest.TestCase):
         self.assertEqual(snapshot["source"], ["weather_and_market_collector"])
         self.assertEqual(snapshot["release_identities"][0]["release_id"], "release-2026-06-22-a")
         identity = manifest["release_runtime_identity"]
+        self.assertEqual(identity["release_identity_status"], "SINGLE")
+        self.assertEqual(identity["release_identity_count"], 1)
+        self.assertEqual(identity["partial_release_identity_count"], 1)
         self.assertEqual(identity["runtime_identity_status"], "SINGLE")
         self.assertEqual(identity["runtime_identities"][0]["git_commit"], "abc123")
+        self.assertEqual(identity["proof_grade_status"], "PASS")
         self.assertEqual(manifest["inventory_hash"], inventory_content_hash(manifest))
+
+    def test_proof_grade_manifest_blocks_missing_core_family_and_missing_identities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            (folder / "observation_payloads.jsonl").unlink()
+            shutil.rmtree(folder / "observation_payloads")
+            self.write_text(folder / "observation_payloads_long.csv", "snapshot_id,source\ns1,metar\n")
+            self.write_text(
+                folder / "snapshots.jsonl",
+                json.dumps({"schema_version": "snapshot_tape_v0.1", "snapshot_id": "s1"}) + "\n",
+            )
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        families = {row["artifact_family"]: row for row in manifest["artifact_families"]}
+        self.assertEqual(families["observation_payloads"]["status"], "missing_required")
+        self.assertEqual(manifest["release_runtime_identity"]["proof_grade_status"], "BLOCK")
+        blocked = {row["check"] for row in validation["checks"] if row["status"] == "BLOCK"}
+        self.assertTrue({"required_families", "release_identity", "runtime_identity"}.issubset(blocked))
+
+    def test_payload_blob_link_validation_blocks_missing_blob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            next((folder / "forecast_payloads").rglob("*.json")).unlink()
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        self.assertEqual(manifest["payload_blob_links"]["status"], "BLOCK")
+        self.assertIn("raw_payload_blob_missing", payload_link_issue_codes(manifest))
+        self.assertEqual(validation["status"], "BLOCK")
+
+    def test_payload_blob_link_validation_blocks_corrupt_blob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            blob = next((folder / "observation_payloads").rglob("*.json"))
+            blob.write_text('{"corrupt":true}\n', encoding="utf-8")
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+
+        self.assertEqual(manifest["payload_blob_links"]["status"], "BLOCK")
+        self.assertIn("raw_payload_blob_hash_mismatch", payload_link_issue_codes(manifest))
+
+    def test_payload_blob_link_validation_blocks_mislinked_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            observation_blob = next((folder / "observation_payloads").rglob("*.json"))
+            manifest_path = folder / "forecast_payloads.jsonl"
+            row = json.loads(manifest_path.read_text(encoding="utf-8"))
+            row["raw_payload_path"] = str(observation_blob)
+            manifest_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+
+        self.assertEqual(manifest["payload_blob_links"]["status"], "BLOCK")
+        self.assertIn(
+            "raw_payload_path_not_content_addressed",
+            payload_link_issue_codes(manifest),
+        )
+
+    def test_payload_blob_link_validation_blocks_orphan_blob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            orphan, _ = write_payload_evidence(
+                folder,
+                "forecast_payloads",
+                {"orphan": True},
+                snapshot_id="unreferenced",
+                source="nbm",
+            )
+
+            manifest = build_event_day_manifest(folder, snapshots_root=root / "snapshots")
+
+        self.assertTrue(orphan.name.endswith(".json"))
+        self.assertEqual(manifest["payload_blob_links"]["status"], "BLOCK")
+        self.assertIn("raw_payload_blob_orphan", payload_link_issue_codes(manifest))
 
     def test_malformed_jsonl_and_unclassified_file_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,6 +548,16 @@ class TestEventDayManifest(unittest.TestCase):
                 for row in family["files"]
                 if row["storage_class"] == "canonical_evidence"
             ]
+            canonical_paths = {row["path"] for row in canonical}
+            self.assertIn("observation_payloads.jsonl", canonical_paths)
+            self.assertTrue(
+                any(
+                    path.startswith("observation_payloads/sha256/")
+                    and path.endswith(".json")
+                    for path in canonical_paths
+                )
+            )
+            self.assertIn("clob_capture_status.jsonl", canonical_paths)
             backup_root = root / "off-machine"
             for row in canonical:
                 destination = backup_root / row["data_path"]

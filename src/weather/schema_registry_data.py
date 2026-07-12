@@ -123,10 +123,32 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "settlement_ledger",
-        "settlement_ledger_v1",
+        "settlement_ledger_v2",
         "weather.backtesting.settlement_ledger",
         "active",
-        "Frozen settlement labels.",
+        "Append-only settlement-label revisions with supersession and evidence provenance.",
+        supersedes=("settlement_ledger_v1",),
+    ),
+    SchemaSpec(
+        "settlement_ledger_legacy",
+        "settlement_ledger_v1",
+        "weather.backtesting.settlement_ledger",
+        "legacy",
+        "Legacy mutable settlement-label rows.",
+    ),
+    SchemaSpec(
+        "forecast_payload_manifest",
+        "forecast_payload_manifest_v1",
+        "weather.collection.snapshot_store",
+        "active",
+        "SHA-256 content-addressed raw forecast payload manifest and point-in-time provenance.",
+    ),
+    SchemaSpec(
+        "observation_payload_manifest",
+        "observation_payload_manifest_v1",
+        "weather.collection.snapshot_store",
+        "active",
+        "SHA-256 content-addressed raw observation payload manifest and point-in-time provenance.",
     ),
     SchemaSpec(
         "resolution_spec",
@@ -1999,6 +2021,12 @@ SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
+    SchemaLiteralExclusion(
+        "predict_residual_distribution_v1",
+        "weather.model_stage_retirement",
+        "function_identifier",
+        "Qualified pure runtime function name, not a serialized artifact schema.",
+    ),
     SchemaLiteralExclusion(
         "residual_distribution_v1",
         "weather.model.residual_distribution_v1",

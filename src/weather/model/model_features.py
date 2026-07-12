@@ -411,7 +411,9 @@ class FeatureModelMixin:
             "forecast_high": median_high,
             "forecast_source": source,
             "forecast_source_count": len(values),
-            "forecast_disagreement": max(highs) - min(highs) if len(highs) >= 2 else 0.0,
+            # With one source there is no observed cross-source disagreement;
+            # zero would falsely assert agreement rather than missing support.
+            "forecast_disagreement": max(highs) - min(highs) if len(highs) >= 2 else None,
             "forecast_robust_high": trimmed_high if warm_outlier_flag else median_high,
             "forecast_trimmed_high": trimmed_high,
             "forecast_warm_outlier_flag": 1.0 if warm_outlier_flag else 0.0,
@@ -835,8 +837,6 @@ class FeatureModelMixin:
         if obs_2h_candidates:
             closest_2h = min(obs_2h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 120)))
             temp_2h_ago = self.row_temp_native(closest_2h)
-        if temp_2h_ago is None:
-            temp_2h_ago = current_temp # fallback if no recent data
         warming_rate_2h = (
             current_temp - temp_2h_ago
             if current_temp is not None and temp_2h_ago is not None
@@ -852,7 +852,7 @@ class FeatureModelMixin:
         hours_at_peak = (
             ((cutoff_minutes - first_reached_min) / 60.0)
             if first_reached_min is not None
-            else (None if high_so_far is None else 0.0)
+            else None
         )
 
         # dewpoint_c, humidity, pressure
@@ -871,7 +871,7 @@ class FeatureModelMixin:
 
         # pressure_trend_3h
         obs_3h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 240) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 120) and r.get("pressure") is not None]
-        pressure_trend_3h = 0.0
+        pressure_trend_3h = None
         if pressure is not None and obs_3h_candidates:
             closest_3h = min(obs_3h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 180)))
             press_3h_ago = closest_3h["pressure"]
@@ -1066,7 +1066,7 @@ class FeatureModelMixin:
             "pressure_trend_3h": pressure_trend_3h,
             "wind_speed_kmh": wind_speed,
             "wind_gust_kmh": wind_gust,
-            "wind_shift_3h_degrees": wind_shift_3h if wind_shift_3h is not None else 0.0,
+            "wind_shift_3h_degrees": wind_shift_3h,
             **microclimate,
             "wind_group": wind_group,
             "cloud_group": cloud_group,

@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import pickle
 import tempfile
@@ -20,6 +21,7 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.model.feature_store import MARINE_CONTEXT_FEATURE_COLUMNS, REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.operations.closed_market_day_archive import build_backfill_payload
+from weather.operations.event_day_manifest import write_event_day_manifest
 from weather.sources.open_meteo_archives import (
     OpenMeteoArchiveStore,
     normalize_open_meteo_air_quality_archive,
@@ -49,6 +51,29 @@ def write_csv(path, rows):
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_payload_evidence(folder, family, payload, *, snapshot_id, source):
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    blob = Path(folder) / family / "sha256" / digest[:2] / f"{digest}.json"
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    blob.write_bytes(canonical + b"\n")
+    return {
+        "schema_version": f"{family}_manifest_v1",
+        "snapshot_id": snapshot_id,
+        "source": source,
+        "payload_hash_algorithm": "sha256-canonical-json",
+        "payload_hash": digest,
+        "payload_bytes": len(canonical),
+        "raw_payload_retained": True,
+        "raw_payload_path": str(blob),
+    }
 
 
 class TestSourceFamilyInventory(unittest.TestCase):
@@ -546,6 +571,66 @@ class TestSourceFamilyInventory(unittest.TestCase):
                     }
                 ],
             )
+            (folder / "snapshots.jsonl").write_text(
+                json.dumps({
+                    "schema_version": "snapshot_tape_v0.1",
+                    "snapshot_id": "s1",
+                    "release_id": "release-2026-06-18-a",
+                    "runtime_identity": {
+                        "schema_version": "runtime_identity_v0.1",
+                        "git_branch": "test",
+                        "git_commit": "a" * 40,
+                        "source_fingerprint": "source-test-v1",
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            forecast_row = write_payload_evidence(
+                folder,
+                "forecast_payloads",
+                {"forecast": [90, 91], "provider": "open_meteo"},
+                snapshot_id="s1",
+                source="open_meteo",
+            )
+            (folder / "forecast_payloads.jsonl").write_text(
+                json.dumps(forecast_row) + "\n",
+                encoding="utf-8",
+            )
+            observation_row = write_payload_evidence(
+                folder,
+                "observation_payloads",
+                {"station_id": "KLGA", "temperature": 91},
+                snapshot_id="s1",
+                source="metar",
+            )
+            (folder / "observation_payloads.jsonl").write_text(
+                json.dumps(observation_row) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "source_status.jsonl").write_text(
+                json.dumps({
+                    "schema_version": "source_status_v0.1",
+                    "snapshot_id": "s1",
+                    "source": "open_meteo",
+                    "status": "OK",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "replay_inputs.jsonl").write_text(
+                json.dumps({
+                    "snapshot_id": "s1",
+                    "sources": {"open_meteo": {"forecast_high": 91}},
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (folder / "clob_capture_status.jsonl").write_text(
+                json.dumps({
+                    "schema_version": "clob_capture_status_v0.1",
+                    "snapshot_id": "s1",
+                    "status": "OK",
+                }) + "\n",
+                encoding="utf-8",
+            )
             (folder / "settlement.json").write_text(
                 json.dumps(
                     {
@@ -559,6 +644,7 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            write_event_day_manifest(folder, snapshots_root=snapshots_root)
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -587,7 +673,11 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             report_text = Path(report_out).read_text(encoding="utf-8")
 
-        self.assertEqual(archive_payload["summary"]["converted"], 1)
+        self.assertEqual(
+            archive_payload["summary"]["converted"],
+            1,
+            archive_payload,
+        )
         reader_summary = payload["historical_reader_summary"]
         self.assertEqual(
             reader_summary["families"]["source_status_long"]["source_modes"],

@@ -86,6 +86,46 @@ TORONTO_OFFICIAL_CANADIAN_SOURCES = {
 }
 TORONTO_OFFICIAL_SOURCE_LATE_DAY_HOUR = 15
 
+# Explicit capture contracts for every source adapter. These version the
+# parser/normalizer code that turned a provider response into the source data
+# retained by SnapshotStore; provider-native issue/run/schema fields remain in
+# the payload itself.
+SOURCE_PAYLOAD_CONTRACTS = {
+    "local_history": ("local-history-parser-v1", "local-history-payload-v1"),
+    "wu_history": ("wu-history-parser-v1", "wu-history-payload-v1"),
+    "wu_current": ("wu-current-parser-v1", "wu-current-payload-v1"),
+    "eccc_citypage": ("eccc-citypage-parser-v1", "eccc-citypage-payload-v1"),
+    "eccc_swob": ("eccc-swob-parser-v1", "eccc-swob-payload-v1"),
+    "eccc_gem": ("eccc-gem-parser-v1", "eccc-gem-payload-v1"),
+    "metar": ("metar-parser-v1", "metar-payload-v1"),
+    "weather_forecast": ("weather-forecast-parser-v1", "weather-forecast-payload-v1"),
+    "open_meteo": ("open-meteo-parser-v1", "open-meteo-payload-v1"),
+    "open_meteo_air_quality": (
+        "open-meteo-air-quality-parser-v1",
+        "open-meteo-air-quality-payload-v1",
+    ),
+    "open_meteo_global_models": (
+        "open-meteo-global-models-parser-v1",
+        "open-meteo-global-models-payload-v1",
+    ),
+    "nws_hourly": ("nws-hourly-parser-v1", "nws-hourly-payload-v1"),
+    "nws_grid": ("nws-grid-parser-v1", "nws-grid-payload-v1"),
+    "nbm_probabilistic_tmax": (
+        "nbm-probabilistic-tmax-parser-v1",
+        "nbm-probabilistic-tmax-payload-v1",
+    ),
+    "open_meteo_multimodel": (
+        "open-meteo-multimodel-parser-v1",
+        "open-meteo-multimodel-payload-v1",
+    ),
+    "global_ensemble": (
+        "global-ensemble-parser-v1",
+        "global-ensemble-payload-v1",
+    ),
+    "marine_context": ("marine-context-parser-v1", "marine-context-payload-v1"),
+    "mrms_precip": ("mrms-precip-parser-v1", "mrms-precip-payload-v1"),
+}
+
 
 def paid_weather_provider_disabled(source_family, fallback_source=None):
     if PAID_WEATHER_PROVIDER_ACCESS_ENABLED:
@@ -179,7 +219,10 @@ class SourceFetchMixin:
 
     def fetch_historical_sources(self):
         return self.fetch_source_group({
-            "local_history": self.fetch_local_history,
+            "local_history": self.source_fetcher_with_contract(
+                "local_history",
+                self.fetch_local_history,
+            ),
         })
 
     def fetch_live_sources(self):
@@ -220,6 +263,10 @@ class SourceFetchMixin:
         fetchers = {name: all_fetchers[name] for name in source_names if name in all_fetchers}
         fetchers = {
             name: self.source_fetcher_with_budget(name, fetcher)
+            for name, fetcher in fetchers.items()
+        }
+        fetchers = {
+            name: self.source_fetcher_with_contract(name, fetcher)
             for name, fetcher in fetchers.items()
         }
 
@@ -393,6 +440,31 @@ class SourceFetchMixin:
 
         return _fetch
 
+    def source_fetcher_with_contract(self, name, fetcher):
+        """Attach the explicit parser/payload schema contract to one adapter."""
+
+        contract = SOURCE_PAYLOAD_CONTRACTS.get(name)
+        if contract is None:
+            raise ValueError(f"source payload contract is not registered: {name}")
+        parser_version, payload_schema_version = contract
+
+        def _fetch():
+            data = fetcher()
+            existing = (
+                dict(data.get(FETCH_META_KEY) or {})
+                if isinstance(data, dict)
+                and isinstance(data.get(FETCH_META_KEY), dict)
+                else {}
+            )
+            metadata = {
+                "parser_version": parser_version,
+                "payload_schema_version": payload_schema_version,
+                **existing,
+            }
+            return self.with_source_fetch_meta(data, metadata)
+
+        return _fetch
+
     def open_meteo_fresh_cache_reuse_minutes(self, name):
         """Avoid re-querying Open-Meteo while the last-good forecast is TTL-valid."""
         return self.source_cache_ttl_minutes(name)
@@ -477,7 +549,11 @@ class SourceFetchMixin:
     def with_source_fetch_meta(self, data, metadata):
         if isinstance(data, dict):
             payload = dict(data)
-            payload[FETCH_META_KEY] = dict(metadata)
+            existing = payload.get(FETCH_META_KEY)
+            payload[FETCH_META_KEY] = {
+                **(dict(existing) if isinstance(existing, dict) else {}),
+                **dict(metadata),
+            }
             return payload
         return data
 

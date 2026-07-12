@@ -1011,6 +1011,7 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(second["written_row_count"], 0)
         self.assertEqual(second["skipped_existing_row_count"], 1)
         self.assertEqual(rows[0]["source"], "wu_current")
+        self.assertEqual(rows[0]["schema_version"], "observation_payload_manifest_v1")
         self.assertEqual(payload["source"], "wu_current")
 
     def test_snapshot_store_persists_range_band_upper_endpoint(self):

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pickle
 from datetime import datetime, timedelta, timezone
@@ -272,6 +273,32 @@ def _production_evidence(paths: dict, *, age_days: int = 0) -> dict[str, Path]:
             "compression": "zstd",
         },
         "counts": {"source_modes": {"validated_parquet": len(fleet_dates)}},
+        "inputs": [
+            {
+                "folder": f"data/snapshots/fleet-{target_date}",
+                "target_date": target_date,
+                "market_id": "nyc",
+                "artifact_family": "snapshots_long",
+                "source_mode": "validated_parquet",
+                "source_row_count": 2,
+                "source_file_hash": hashlib.sha256(
+                    f"source:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "parquet_file_hash": hashlib.sha256(
+                    f"parquet:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "manifest_hash": hashlib.sha256(
+                    f"archive-manifest:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "event_manifest_hash": hashlib.sha256(
+                    f"event-manifest:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "release_id": "r1",
+                "runtime_identity_key": "runtime-r1",
+                "fallback_reason": None,
+            }
+            for target_date in fleet_dates
+        ],
     }
     manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
     manifest_path = evidence / "materialization_manifest.json"
@@ -305,19 +332,55 @@ def _production_evidence(paths: dict, *, age_days: int = 0) -> dict[str, Path]:
             validation_rows = [
                 {"target_date": value, "fold_scope": scope} for value in fold.validation_dates
             ]
+            upstream_stage_output_sha256 = None
             for stage in REQUIRED_FIT_STAGES:
-                receipts.append(
-                    build_fit_receipt(
-                        fold,
-                        fold_scope=scope,
-                        stage_name=stage,
-                        implementation_identity=f"fixture.{stage}",
-                        fit_rows=fit_rows,
-                        validation_rows=validation_rows,
-                        generated_at_utc=(now - timedelta(minutes=2)).isoformat(),
-                    )
+                fit_output_rows = [
+                    {
+                        **row,
+                        "completed_stages": [
+                            *(row.get("completed_stages") or []),
+                            stage,
+                        ],
+                    }
+                    for row in fit_rows
+                ]
+                validation_output_rows = [
+                    {
+                        **row,
+                        "completed_stages": [
+                            *(row.get("completed_stages") or []),
+                            stage,
+                        ],
+                    }
+                    for row in validation_rows
+                ]
+                receipt = build_fit_receipt(
+                    fold,
+                    fold_scope=scope,
+                    stage_name=stage,
+                    implementation_identity=f"fixture.{stage}",
+                    fit_rows=fit_rows,
+                    validation_rows=validation_rows,
+                    fit_output_rows=fit_output_rows,
+                    validation_output_rows=validation_output_rows,
+                    stage_input_payload={"scope": scope, "stage": stage},
+                    stage_output_payload={
+                        "implementation_identity": f"fixture.{stage}",
+                        "stage": stage,
+                    },
+                    upstream_stage_output_sha256=upstream_stage_output_sha256,
+                    generated_at_utc=(now - timedelta(minutes=2)).isoformat(),
                 )
-    plan = validation_plan_payload(fleet_dates, fit_receipts=receipts, **plan_args)
+                receipts.append(receipt)
+                upstream_stage_output_sha256 = receipt["stage_output_sha256"]
+                fit_rows = fit_output_rows
+                validation_rows = validation_output_rows
+    plan = validation_plan_payload(
+        fleet_dates,
+        fit_receipts=receipts,
+        require_output_bound_receipts=True,
+        **plan_args,
+    )
     plan_path = evidence / "validation_plan.json"
     _write_json(plan_path, plan)
     evaluation = evaluate_point_in_time_parquet(
@@ -517,6 +580,9 @@ def test_production_candidate_freezes_and_release_reverifies_point_in_time_graph
     assert frozen["production_capable"] is True
     assert frozen["point_in_time_qualification"]["locked_window_days"] == 14
     assert frozen["point_in_time_qualification"]["corpus_structure_reverified"] is True
+    assert frozen["point_in_time_qualification"][
+        "fit_receipt_output_binding_verified"
+    ] is True
     assert set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS) <= {
         row["role"] for row in frozen["declarations"]
     }
@@ -602,6 +668,72 @@ def test_production_candidate_rejects_wrong_corpus_binding(tmp_path: Path):
     _write_json(plan_path, plan)
 
     with pytest.raises(CandidateContractError, match="corpus hash mismatch"):
+        _freeze(
+            paths,
+            candidate_mode="production",
+            point_in_time_artifacts=evidence,
+        )
+
+
+def test_production_candidate_recomputes_fit_receipt_output_payload_hash(tmp_path: Path):
+    paths = _fixture(tmp_path)
+    evidence = _production_evidence(paths)
+    plan_path = evidence["point_in_time_validation_plan"]
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    receipt = plan["fit_receipts"][0]
+    receipt["stage_output_payload"]["declared_stage_output"]["stage"] = "tampered"
+    receipt.pop("receipt_sha256")
+    receipt["receipt_sha256"] = sha256_text(canonical_json(receipt))
+    plan.pop("plan_hash")
+    plan["plan_hash"] = sha256_text(canonical_json(plan))
+    _write_json(plan_path, plan)
+
+    with pytest.raises(CandidateContractError, match="output payload hash does not recompute"):
+        _freeze(
+            paths,
+            candidate_mode="production",
+            point_in_time_artifacts=evidence,
+        )
+
+
+def test_production_candidate_recomputes_fit_receipt_input_payload_hash(tmp_path: Path):
+    paths = _fixture(tmp_path)
+    evidence = _production_evidence(paths)
+    plan_path = evidence["point_in_time_validation_plan"]
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    receipt = plan["fit_receipts"][0]
+    receipt["stage_input_payload"]["declared_stage_input"]["scope"] = "tampered"
+    receipt.pop("receipt_sha256")
+    receipt["receipt_sha256"] = sha256_text(canonical_json(receipt))
+    plan.pop("plan_hash")
+    plan["plan_hash"] = sha256_text(canonical_json(plan))
+    _write_json(plan_path, plan)
+
+    with pytest.raises(CandidateContractError, match="input payload hash does not recompute"):
+        _freeze(
+            paths,
+            candidate_mode="production",
+            point_in_time_artifacts=evidence,
+        )
+
+
+def test_production_candidate_requires_fit_stage_output_to_input_chain(tmp_path: Path):
+    paths = _fixture(tmp_path)
+    evidence = _production_evidence(paths)
+    plan_path = evidence["point_in_time_validation_plan"]
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    receipt = plan["fit_receipts"][1]
+    receipt["stage_input_payload"]["upstream_stage_output_sha256"] = "f" * 64
+    receipt["stage_input_sha256"] = sha256_text(
+        canonical_json(receipt["stage_input_payload"])
+    )
+    receipt.pop("receipt_sha256")
+    receipt["receipt_sha256"] = sha256_text(canonical_json(receipt))
+    plan.pop("plan_hash")
+    plan["plan_hash"] = sha256_text(canonical_json(plan))
+    _write_json(plan_path, plan)
+
+    with pytest.raises(CandidateContractError, match="not bound to the prior output"):
         _freeze(
             paths,
             candidate_mode="production",

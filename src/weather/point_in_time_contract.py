@@ -37,6 +37,8 @@ REQUIRED_FIT_STAGES = (
     "postprocessing",
     "regime_router",
 )
+FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM = "sha256"
+FIT_RECEIPT_PAYLOAD_CANONICALIZATION = "canonical_json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -68,6 +70,98 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def verify_output_bound_fit_receipt(receipt: Mapping[str, Any]) -> None:
+    """Recompute one receipt's declared input/output payload hashes."""
+
+    if (
+        receipt.get("payload_hash_algorithm") != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt payload hash contract is missing",
+        )
+    input_payload = receipt.get("stage_input_payload")
+    output_payload = receipt.get("stage_output_payload")
+    if not isinstance(input_payload, Mapping) or not isinstance(output_payload, Mapping):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt input/output payloads are missing",
+        )
+    input_sha = str(receipt.get("stage_input_sha256") or "")
+    output_sha = str(receipt.get("stage_output_sha256") or "")
+    if (
+        not SHA256_RE.fullmatch(input_sha)
+        or input_sha != sha256_text(canonical_json(input_payload))
+    ):
+        raise ContractViolation(
+            "fit_receipt_input_payload_hash_mismatch",
+            "fit receipt input payload hash does not recompute",
+        )
+    if (
+        not SHA256_RE.fullmatch(output_sha)
+        or output_sha != sha256_text(canonical_json(output_payload))
+    ):
+        raise ContractViolation(
+            "fit_receipt_output_payload_hash_mismatch",
+            "fit receipt output payload hash does not recompute",
+        )
+    expected_input = {
+        "fit_input_sha256": receipt.get("fit_input_sha256"),
+        "validation_input_sha256": receipt.get("validation_input_sha256"),
+        "fit_row_count": receipt.get("fit_row_count"),
+        "validation_row_count": receipt.get("validation_row_count"),
+        "train_dates": list(receipt.get("train_dates") or ()),
+        "validation_dates": list(receipt.get("validation_dates") or ()),
+        "upstream_stage_output_sha256": input_payload.get(
+            "upstream_stage_output_sha256"
+        ),
+        "declared_stage_input": input_payload.get("declared_stage_input"),
+    }
+    if dict(input_payload) != expected_input:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt input payload is inconsistent with its receipt",
+        )
+    expected_output = {
+        "fit_output_sha256": receipt.get("fit_output_sha256"),
+        "validation_output_sha256": receipt.get("validation_output_sha256"),
+        "fit_output_row_count": receipt.get("fit_output_row_count"),
+        "validation_output_row_count": receipt.get("validation_output_row_count"),
+        "train_dates": list(receipt.get("train_dates") or ()),
+        "validation_dates": list(receipt.get("validation_dates") or ()),
+        "declared_stage_output": output_payload.get("declared_stage_output"),
+    }
+    if dict(output_payload) != expected_output:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output payload is inconsistent with its receipt",
+        )
+    if (
+        not SHA256_RE.fullmatch(str(receipt.get("fit_output_sha256") or ""))
+        or not SHA256_RE.fullmatch(
+            str(receipt.get("validation_output_sha256") or "")
+        )
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output row hashes are invalid",
+        )
+    try:
+        output_counts_positive = (
+            int(receipt.get("fit_output_row_count") or 0) > 0
+            and int(receipt.get("validation_output_row_count") or 0) > 0
+        )
+    except (TypeError, ValueError):
+        output_counts_positive = False
+    if not output_counts_positive or output_payload.get("declared_stage_output") is None:
+        raise ContractViolation(
+            "invalid_fit_receipt_payload_binding",
+            "fit receipt output declaration is incomplete",
+        )
 
 
 def _parse_utc(value: Any, field: str) -> datetime:
@@ -117,6 +211,7 @@ def verify_materialization_manifest(
     expected_candidate_id: str | None = None,
     expected_release_id: str | None = None,
     inspect_parquet: bool = True,
+    require_manifest_backed_inputs: bool = False,
 ) -> dict[str, Any]:
     manifest = _read_json(manifest_path, code="invalid_materialization_manifest")
     if (
@@ -156,6 +251,28 @@ def verify_materialization_manifest(
         raise ContractViolation("materialization_candidate_identity_mismatch", "candidate mismatch")
     if expected_release_id is not None and manifest.get("release_id") != expected_release_id:
         raise ContractViolation("materialization_release_identity_mismatch", "release mismatch")
+    if require_manifest_backed_inputs:
+        inputs = manifest.get("inputs")
+        if not isinstance(inputs, list) or not inputs:
+            raise ContractViolation(
+                "materialization_inputs_not_proof_grade",
+                "manifest-backed input inventory is missing",
+            )
+        for index, row in enumerate(inputs):
+            if (
+                not isinstance(row, Mapping)
+                or row.get("source_mode") != "validated_parquet"
+                or not SHA256_RE.fullmatch(str(row.get("manifest_hash") or ""))
+                or not SHA256_RE.fullmatch(str(row.get("source_file_hash") or ""))
+                or not SHA256_RE.fullmatch(str(row.get("parquet_file_hash") or ""))
+                or not SHA256_RE.fullmatch(str(row.get("event_manifest_hash") or ""))
+                or not str(row.get("release_id") or "").strip()
+                or not str(row.get("runtime_identity_key") or "").strip()
+            ):
+                raise ContractViolation(
+                    "materialization_inputs_not_proof_grade",
+                    f"inputs[{index}] is not backed by a validated event/archive manifest chain",
+                )
     return manifest
 
 
@@ -291,8 +408,19 @@ def verify_validation_plan_payload(
         or declared_scopes != set(scopes)
     ):
         raise ContractViolation("invalid_fit_receipts", "receipt contract inconsistent")
-    if require_fit_receipts and set(stages) != set(REQUIRED_FIT_STAGES):
-        raise ContractViolation("invalid_fit_receipts", "fit stage inventory incomplete")
+    if require_fit_receipts and (
+        tuple(stages) != REQUIRED_FIT_STAGES
+        or receipt_contract.get("payload_binding_required") is not True
+        or receipt_contract.get("payload_hash_algorithm")
+        != FIT_RECEIPT_PAYLOAD_HASH_ALGORITHM
+        or receipt_contract.get("payload_canonicalization")
+        != FIT_RECEIPT_PAYLOAD_CANONICALIZATION
+        or tuple(receipt_contract.get("stage_order") or ()) != REQUIRED_FIT_STAGES
+    ):
+        raise ContractViolation(
+            "invalid_fit_receipts",
+            "production fit receipt stage/output binding contract is incomplete",
+        )
     receipts = payload.get("fit_receipts")
     if not isinstance(receipts, list):
         raise ContractViolation("invalid_fit_receipts", "fit receipts missing")
@@ -331,10 +459,50 @@ def verify_validation_plan_payload(
             or not SHA256_RE.fullmatch(str(receipt.get("validation_input_sha256") or ""))
         ):
             raise ContractViolation("invalid_fit_receipts", f"fit receipt invalid: {key}")
+        has_payload_binding = any(
+            field in receipt
+            for field in (
+                "stage_input_payload",
+                "stage_input_sha256",
+                "stage_output_payload",
+                "stage_output_sha256",
+            )
+        )
+        if require_fit_receipts or has_payload_binding:
+            verify_output_bound_fit_receipt(receipt)
         by_key[key] = receipt
     expected_keys = {(scope, stage) for scope in scopes for stage in stages}
     if require_fit_receipts and set(by_key) != expected_keys:
         raise ContractViolation("invalid_fit_receipts", "fold/stage receipt coverage incomplete")
+    if require_fit_receipts:
+        for scope in scopes:
+            prior: Mapping[str, Any] | None = None
+            for stage in stages:
+                receipt = by_key[(scope, stage)]
+                input_payload = receipt["stage_input_payload"]
+                upstream = input_payload.get("upstream_stage_output_sha256")
+                if prior is None:
+                    if upstream is not None:
+                        raise ContractViolation(
+                            "fit_receipt_stage_chain_mismatch",
+                            f"first fit stage declares an upstream output: {(scope, stage)}",
+                        )
+                elif (
+                    upstream != prior.get("stage_output_sha256")
+                    or receipt.get("fit_input_sha256")
+                    != prior.get("fit_output_sha256")
+                    or receipt.get("validation_input_sha256")
+                    != prior.get("validation_output_sha256")
+                    or receipt.get("fit_row_count")
+                    != prior.get("fit_output_row_count")
+                    or receipt.get("validation_row_count")
+                    != prior.get("validation_output_row_count")
+                ):
+                    raise ContractViolation(
+                        "fit_receipt_stage_chain_mismatch",
+                        f"fit stage input is not bound to the prior output: {(scope, stage)}",
+                    )
+                prior = receipt
     return dict(payload)
 
 
@@ -496,6 +664,7 @@ def verify_production_point_in_time_artifacts(
         expected_candidate_id=expected_candidate_id,
         expected_release_id=expected_release_id,
         inspect_parquet=inspect_corpus_parquet,
+        require_manifest_backed_inputs=True,
     )
     corpus_sha = sha256_file(corpus_path)
     manifest_hash = str(manifest.get("manifest_hash") or "")
@@ -550,6 +719,7 @@ def verify_production_point_in_time_artifacts(
         "fleet_dates": len(fleet_dates),
         "locked_window_days": len(locked_dates),
         "fit_receipt_count": len(plan.get("fit_receipts") or ()),
+        "fit_receipt_output_binding_verified": True,
         "corpus_structure_reverified": inspect_corpus_parquet,
         "verification_mode": (
             "candidate_build_full_parquet_inspection"

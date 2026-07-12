@@ -1,5 +1,6 @@
 import unittest
 import gzip
+import hashlib
 import json
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from weather.operations.closed_market_day_archive import (
     MANIFEST_SCHEMA_VERSION,
     READER_FALLBACK_ORDER,
     archive_partition_path,
+    apply_market_day,
     build_backfill_payload,
     build_incremental_payload,
     family_dataset_path,
@@ -31,10 +33,56 @@ from weather.operations.closed_market_day_archive import (
     validate_manifest_shape,
     write_incremental_outputs,
 )
+from weather.operations.event_day_manifest import write_event_day_manifest
 from weather.schema_registry import schema_version
 
 
+def write_payload_evidence(
+    folder: Path,
+    family: str,
+    payload: dict,
+    *,
+    snapshot_id: str,
+    source: str,
+) -> tuple[Path, dict]:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    blob = folder / family / "sha256" / digest[:2] / f"{digest}.json"
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    blob.write_bytes(canonical + b"\n")
+    return blob, {
+        "schema_version": f"{family}_manifest_v1",
+        "snapshot_id": snapshot_id,
+        "source": source,
+        "payload_hash_algorithm": "sha256-canonical-json",
+        "payload_hash": digest,
+        "payload_bytes": len(canonical),
+        "raw_payload_retained": True,
+        "raw_payload_path": str(blob),
+    }
+
+
 def valid_manifest():
+    release_runtime_identity = {
+        "release_identity_status": "SINGLE",
+        "release_identity_count": 1,
+        "release_identities": [{"release_id": "release-test"}],
+        "runtime_identity_status": "SINGLE",
+        "runtime_identity_count": 1,
+        "mixed_runtime_identity": False,
+        "runtime_identities": [{
+            "git_commit": "a" * 40,
+            "source_fingerprint": "source-test-v1",
+            "runtime_key": f"{'a' * 40}|dirty:clean_or_unknown|src:source-test-v1",
+        }],
+        "proof_grade_status": "PASS",
+        "proof_grade_blockers": [],
+    }
     return {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "archive_root_version": ARCHIVE_ROOT_VERSION,
@@ -53,6 +101,12 @@ def valid_manifest():
             "quality_grade": "complete",
             "countable": True,
         },
+        "event_day_manifest": {
+            "path": "data/snapshots/demo/event_day_manifest.json",
+            "manifest_hash": "b" * 64,
+            "status": "PASS",
+        },
+        "release_runtime_identity": release_runtime_identity,
         "validation": {"status": "PASS", "checks": []},
         "artifact_families": [
             {
@@ -181,6 +235,8 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
             "order_books_long",
             "price_history",
             "variant_predictions_long",
+            "observation_payloads_long",
+            "clob_capture_status",
         }
 
         self.assertTrue(required.issubset(ARTIFACT_FAMILIES_BY_NAME))
@@ -192,6 +248,12 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
         price_history = ARTIFACT_FAMILIES_BY_NAME["price_history"]
         self.assertIn("price_history_raw_manifest.jsonl", price_history.raw_evidence_patterns)
         self.assertIn("price_history_raw/*.json", price_history.raw_evidence_patterns)
+        observations = ARTIFACT_FAMILIES_BY_NAME["observation_payloads_long"]
+        self.assertIn("observation_payloads.jsonl", observations.raw_evidence_patterns)
+        forecasts = ARTIFACT_FAMILIES_BY_NAME["forecast_payloads_long"]
+        self.assertIn("forecast_payloads/**/*.json", forecasts.raw_evidence_patterns)
+        capture_status = ARTIFACT_FAMILIES_BY_NAME["clob_capture_status"]
+        self.assertIn("clob_capture_status.jsonl", capture_status.raw_evidence_patterns)
 
     def test_manifest_shape_and_reader_gate_require_validated_parquet(self):
         manifest = valid_manifest()
@@ -227,6 +289,20 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
     def make_closed_folder(self, root: Path, slug="highest-temperature-in-austin-on-june-22-2026"):
         folder = root / "snapshots" / slug
         self.write_text(
+            folder / "snapshots.jsonl",
+            json.dumps({
+                "schema_version": "snapshot_tape_v0.1",
+                "snapshot_id": "s1",
+                "release_id": "release-2026-06-22-a",
+                "runtime_identity": {
+                    "schema_version": "runtime_identity_v0.1",
+                    "git_branch": "test",
+                    "git_commit": "a" * 40,
+                    "source_fingerprint": "source-test-v1",
+                },
+            }) + "\n",
+        )
+        self.write_text(
             folder / "snapshots_long.csv",
             "snapshot_id,event_slug,market_id,target_date,range_label,probability\n"
             f"s1,{slug},austin,2026-06-22,94,0.55\n"
@@ -255,6 +331,40 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             json.dumps({"snapshot_id": "s1", "sources": {"metar": {"temp": 93}}}) + "\n"
             + json.dumps({"snapshot_id": "s2", "sources": {"metar": {"temp": 94}}}) + "\n",
         )
+        self.forecast_blob, forecast_row = write_payload_evidence(
+            folder,
+            "forecast_payloads",
+            {"forecast": [92, 94], "provider": "nbm"},
+            snapshot_id="s1",
+            source="nbm",
+        )
+        self.write_text(
+            folder / "forecast_payloads.jsonl",
+            json.dumps(forecast_row) + "\n",
+        )
+        self.write_text(
+            folder / "source_status.jsonl",
+            json.dumps({"schema_version": "source_status_v0.1", "snapshot_id": "s1", "source": "nbm", "status": "OK"}) + "\n",
+        )
+        _, observation_row = write_payload_evidence(
+            folder,
+            "observation_payloads",
+            {"station_id": "KAUS", "temperature": 94},
+            snapshot_id="s1",
+            source="metar",
+        )
+        self.write_text(
+            folder / "observation_payloads.jsonl",
+            json.dumps(observation_row) + "\n",
+        )
+        self.write_text(
+            folder / "observation_payloads_long.csv",
+            "snapshot_id,source,status\ns1,metar,OK\n",
+        )
+        self.write_text(
+            folder / "clob_capture_status.jsonl",
+            json.dumps({"schema_version": "clob_capture_status_v0.1", "status": "OK"}) + "\n",
+        )
         self.write_text(folder / "order_books.jsonl", '{"token_id":"t1"}\n')
         self.write_text(folder / "price_history.jsonl", '{"token_id":"t1"}\n')
         self.write_text(folder / "clob_tokens.jsonl", '{"token_id":"t1"}\n')
@@ -269,6 +379,7 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
                 "quality_grade": "complete",
             }),
         )
+        write_event_day_manifest(folder, snapshots_root=root / "snapshots")
         return folder
 
     def test_dry_run_plans_closed_day_without_writing_archive(self):
@@ -300,6 +411,18 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(families["clob_tokens"]["status"], "planned_parquet")
             self.assertEqual(families["replay_inputs"]["status"], "planned_parquet")
             self.assertEqual(families["snapshots_long"]["status"], "planned_parquet")
+            forecast_sources = families["forecast_payloads_long"]["source_files"]
+            nested_forecast_rows = [
+                source
+                for source in forecast_sources
+                if "/forecast_payloads/sha256/" in f"/{source['path']}"
+            ]
+            self.assertEqual(len(nested_forecast_rows), 1)
+            self.assertEqual(nested_forecast_rows[0]["role"], "raw_evidence")
+            self.assertEqual(
+                nested_forecast_rows[0]["sha256"],
+                sha256_file(self.forecast_blob),
+            )
 
     def test_apply_writes_valid_manifest_and_parquet_without_touching_sources(self):
         from tempfile import TemporaryDirectory
@@ -329,6 +452,23 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(validate_manifest_shape(manifest), [])
             self.assertTrue(manifest_hash_valid(manifest))
             self.assertTrue(parquet_reader_allowed(manifest))
+            self.assertEqual(manifest["release_runtime_identity"]["proof_grade_status"], "PASS")
+            self.assertEqual(manifest["event_day_manifest"]["status"], "PASS")
+            archived_families = {
+                item["artifact_family"]: item for item in manifest["artifact_families"]
+            }
+            self.assertEqual(archived_families["observation_payloads_long"]["status"], "parquet")
+            self.assertEqual(archived_families["clob_capture_status"]["status"], "parquet")
+            nested_forecast_rows = [
+                source
+                for source in archived_families["forecast_payloads_long"]["source_files"]
+                if "/forecast_payloads/sha256/" in f"/{source['path']}"
+            ]
+            self.assertEqual(len(nested_forecast_rows), 1)
+            self.assertEqual(
+                nested_forecast_rows[0]["sha256"],
+                sha256_file(self.forecast_blob),
+            )
             order_books = [
                 item for item in manifest["artifact_families"]
                 if item["artifact_family"] == "order_books_long"
@@ -374,6 +514,12 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
 
             self.assertEqual(parquet_result.provenance.source_mode, "validated_parquet")
             self.assertEqual(parquet_result.provenance.manifest_hash, manifest_hash)
+            self.assertEqual(
+                parquet_result.provenance.event_manifest_hash,
+                json.loads(Path(payload["market_days"][0]["manifest_path"]).read_text(encoding="utf-8"))["event_day_manifest"]["manifest_hash"],
+            )
+            self.assertEqual(parquet_result.provenance.release_id, "release-2026-06-22-a")
+            self.assertTrue(parquet_result.provenance.runtime_identity_key)
             self.assertEqual(parquet_result.provenance.row_count, 2)
             self.assertEqual(parquet_result.provenance.source_file_hash, sha256_file(folder / "order_books_long.csv"))
             self.assertIsNone(parquet_result.provenance.fallback_reason)
@@ -519,6 +665,7 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
 
             with (folder / "price_history.csv").open("a", encoding="utf-8") as handle:
                 handle.write("s2,t1,0.53\n")
+            write_event_day_manifest(folder, snapshots_root=root / "snapshots")
             third = build_backfill_payload(**kwargs)
             self.assertEqual(third["summary"]["converted"], 1)
             self.assertEqual(third["market_days"][0]["action"], "rewrite_stale_manifest")
@@ -643,6 +790,46 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(plan["status"], "blocked")
             self.assertIn("active_or_future_target_date", plan["blockers"])
             self.assertIn("active_writer_lock", plan["blockers"])
+
+    def test_missing_manifest_blocks_plan_and_apply_rechecks_manifest_at_write_boundary(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            planned = plan_market_day(
+                folder,
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+            write_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                generated_at_utc="2026-06-23T00:01:00+00:00",
+            )
+            changed_apply = apply_market_day(
+                planned,
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+            )
+            (folder / "event_day_manifest.json").unlink()
+            missing_plan = plan_market_day(
+                folder,
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+            raced_apply = apply_market_day(
+                planned,
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+            )
+
+        self.assertIn("missing_event_day_manifest", missing_plan["blockers"])
+        self.assertIn("event_day_manifest_changed_since_plan", changed_apply["blockers"])
+        self.assertEqual(raced_apply["status"], "blocked")
+        self.assertIn("missing_event_day_manifest", raced_apply["blockers"])
 
     def test_report_renders_source_preservation_gate(self):
         payload = {

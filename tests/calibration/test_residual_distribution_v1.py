@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import math
+from copy import deepcopy
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -12,12 +14,16 @@ from weather.calibration.residual_distribution_v1 import (
     ResidualTrainingError,
     build_oof_fit_receipt,
     feature_names_for_ablation,
+    fleet_coverage_report,
     fit_final_candidate,
     hierarchical_checkpoint_weights,
     load_candidate_artifact,
     run_nested_evaluation,
+    verify_artifact_training_receipts,
+    verify_residual_oof_receipt,
     write_candidate_artifact,
 )
+from weather.experiment_contract import canonical_json, finalize_self_hash
 from weather.model.continuous_density import f_to_native
 from weather.model.residual_distribution_v1 import default_feature_contract, validate_artifact
 from weather.reporting.validation.point_in_time_evaluation import RollingOriginFold
@@ -199,6 +205,39 @@ def test_nested_training_receipts_never_fit_outer_date():
             assert set(receipt["oof_dates"]).isdisjoint(outer_dates)
             for model_receipt in arm["fit_receipts"]:
                 assert set(model_receipt["train_dates"]).isdisjoint(outer_dates)
+                declared_output = model_receipt["stage_output_payload"][
+                    "declared_stage_output"
+                ]
+                assert declared_output["model_payload_sha256"]
+                assert declared_output["fit_predictions_sha256"]
+                assert declared_output[
+                    "validation_predictions_sha256"
+                ]
+            assert verify_residual_oof_receipt(
+                receipt, arm["fit_receipts"]
+            )["receipt_sha256"] == receipt["receipt_sha256"]
+    sample = evaluation["outer_results"][0]["arms"][0]
+    tampered_output = deepcopy(sample["oof_receipt"])
+    tampered_output["stage_output_payload"][
+        "calibrated_oof_payload_sha256"
+    ] = "f" * 64
+    tampered_output = finalize_self_hash(
+        tampered_output, hash_field="receipt_sha256"
+    )
+    with pytest.raises(ResidualTrainingError, match="input/output payload hash mismatch"):
+        verify_residual_oof_receipt(tampered_output, sample["fit_receipts"])
+
+    broken_chain = deepcopy(sample["oof_receipt"])
+    broken_chain["parent_stage_output_sha256s"][0] = "f" * 64
+    broken_chain["stage_input_payload"]["parent_stage_output_sha256s"] = list(
+        broken_chain["parent_stage_output_sha256s"]
+    )
+    broken_chain["stage_input_sha256"] = hashlib.sha256(
+        canonical_json(broken_chain["stage_input_payload"]).encode("utf-8")
+    ).hexdigest()
+    broken_chain = finalize_self_hash(broken_chain, hash_field="receipt_sha256")
+    with pytest.raises(ResidualTrainingError, match="exact parent model outputs"):
+        verify_residual_oof_receipt(broken_chain, sample["fit_receipts"])
     assert "negative_whole_date_target_permutation" in evaluation["arm_outer_scores"]
     assert all(
         not arm["selected_arm"].startswith("negative_")
@@ -219,6 +258,7 @@ def test_final_artifact_uses_oof_scale_and_candidate_only_atomic_write(tmp_path)
         locked_dates=(rows[-1]["target_date"],),
     )
     validated = validate_artifact(artifact)
+    verify_artifact_training_receipts(validated)
     assert validated["training_lineage"]["oof_receipt"]["fit_role"] == "training_oof"
     assert validated["training_lineage"]["final_fit_receipt"]["fit_role"] == "prelock_final_refit"
     assert validated["training_lineage"]["research_only_rows"] == len(rows) - 4
@@ -228,6 +268,31 @@ def test_final_artifact_uses_oof_scale_and_candidate_only_atomic_write(tmp_path)
     assert math.isfinite(validated["residual_sigma_f"])
     assert validated["qualification"]["status"] == "BLOCK"
     assert validated["qualification"]["criteria"]["has_release_bound_training_evidence"] is False
+    assert validated["qualification"]["criteria"]["evidence_finalization_complete"] is False
+    assert validated["source_health_policy"]["allowed_states"] == ["fresh"]
+    assert validated["source_health_policy"]["degraded_state_action"] == "named_abstention"
+
+    tampered = deepcopy(validated)
+    tampered_receipt = tampered["training_lineage"]["final_fit_receipt"]
+    tampered_receipt["stage_output_payload"]["fit_predictions_sha256"] = "f" * 64
+    tampered["training_lineage"]["final_fit_receipt"] = finalize_self_hash(
+        tampered_receipt, hash_field="receipt_sha256"
+    )
+    with pytest.raises(ResidualTrainingError, match="input/output payload hash mismatch"):
+        verify_artifact_training_receipts(tampered)
+
+    broken_final_chain = deepcopy(validated)
+    final_receipt = broken_final_chain["training_lineage"]["final_fit_receipt"]
+    final_receipt["parent_stage_output_sha256"] = "f" * 64
+    final_receipt["stage_input_payload"]["parent_stage_output_sha256"] = "f" * 64
+    final_receipt["stage_input_sha256"] = hashlib.sha256(
+        canonical_json(final_receipt["stage_input_payload"]).encode("utf-8")
+    ).hexdigest()
+    broken_final_chain["training_lineage"]["final_fit_receipt"] = finalize_self_hash(
+        final_receipt, hash_field="receipt_sha256"
+    )
+    with pytest.raises(ResidualTrainingError, match="not chained to the OOF output"):
+        verify_artifact_training_receipts(broken_final_chain)
 
     candidates = tmp_path / "artifacts" / "candidates"
     releases = tmp_path / "artifacts" / "releases"
@@ -239,6 +304,7 @@ def test_final_artifact_uses_oof_scale_and_candidate_only_atomic_write(tmp_path)
         releases_root=releases,
     )
     assert written["status"] == "CANDIDATE_ONLY"
+    assert written["candidate_release_eligible"] is False
     assert written["promotion_eligible"] is False
     assert written["sha256"]
     assert load_candidate_artifact(path)["prediction_mode"] == "residual_distribution_v1"
@@ -271,3 +337,42 @@ def test_writer_rejects_release_path(tmp_path):
             candidates_root=candidates,
             releases_root=releases,
         )
+
+
+def test_fitted_release_bound_rows_never_bypass_evidence_finalization():
+    rows = _rows(18)
+    for row in rows:
+        row["training_evidence_class"] = "release_bound"
+        row["promotion_training_countable"] = True
+        row["release_id"] = "r1"
+        row["runtime_identity"] = {"source_fingerprint": "runtime-1"}
+    evaluation = _evaluation(rows)
+    artifact = fit_final_candidate(
+        rows,
+        evaluation,
+        ablations=TEST_ARMS,
+        alpha_grid=(1.0,),
+        min_train_dates=4,
+    )
+    assert artifact["training_lineage"]["promotion_training_countable_rows"] == len(rows)
+    assert artifact["qualification"]["status"] == "BLOCK"
+    assert artifact["qualification"]["criteria"]["evidence_finalization_complete"] is False
+
+
+def test_fleet_coverage_requires_every_market_cutoff_on_every_date():
+    rows = _rows(2)
+    complete = fleet_coverage_report(
+        rows,
+        target_dates=sorted({row["target_date"] for row in rows}),
+        expected_market_ids=("atlanta", "toronto"),
+        expected_cutoff_hours=(8, 12),
+    )
+    assert complete["status"] == "PASS"
+    incomplete = fleet_coverage_report(
+        rows[:-1],
+        target_dates=complete["target_dates"],
+        expected_market_ids=("atlanta", "toronto"),
+        expected_cutoff_hours=(8, 12),
+    )
+    assert incomplete["status"] == "BLOCK"
+    assert incomplete["missing_by_date"]

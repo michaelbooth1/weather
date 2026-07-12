@@ -13,12 +13,17 @@ from weather.paths import REPO_ROOT
 from weather.release_serving import (
     STATUS_BOUND,
     STATUS_RESEARCH_UNBOUND,
+    STATUS_SHADOW_BOUND,
     VerifiedServingBundle,
     serving_bundle_lineage,
 )
 from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
 from weather.schema_registry import schema_version
 from weather.market.snapshot_cadence_quality import cadence_adjusted_probability, snapshot_cadence_quality
+from weather.model.current_blend import (
+    blend_with_current,
+    source_freshness_state_from_diagnostics,
+)
 
 
 SCHEMA_VERSION = schema_version("live_variant_predictions")
@@ -160,7 +165,7 @@ def build_live_variant_prediction_rows(
             pointer_present=False,
         )
     )
-    if binding.status == STATUS_BOUND:
+    if binding.status in {STATUS_BOUND, STATUS_SHADOW_BOUND}:
         variants = _release_bound_variants(binding, market_id)
     elif binding.status == STATUS_RESEARCH_UNBOUND:
         registry = load_registry(registry_path)
@@ -255,6 +260,8 @@ def _release_bound_variants(
     bundle: VerifiedServingBundle,
     market_id: str,
 ) -> list[dict[str, Any]]:
+    if bundle.status == STATUS_SHADOW_BOUND:
+        return _residual_distribution_release_bound_variants(bundle)
     markets = bundle.route.get("markets") if isinstance(bundle.route, Mapping) else None
     route = markets.get(str(market_id)) if isinstance(markets, Mapping) else None
     if not isinstance(route, Mapping):
@@ -339,6 +346,68 @@ def _release_bound_variants(
             "artifact_sha256": model_hash,
             "postprocess_config_hash": postprocess_hash,
             "live_runtime": "pooled_candidate_replay",
+            "_release_bound": True,
+            "_bound_artifact": bundle.model_bundle,
+            "_bound_artifact_path": model_path,
+        }
+    ]
+
+
+def _residual_distribution_release_bound_variants(
+    bundle: VerifiedServingBundle,
+) -> list[dict[str, Any]]:
+    """Materialize the single verified residual candidate as shadow-only."""
+
+    candidate_id = str(bundle.route.get("candidate_id") or "")
+    registry_rows = (
+        bundle.model_variant_registry.get("variants")
+        if isinstance(bundle.model_variant_registry, Mapping)
+        else None
+    )
+    candidates = [
+        row
+        for row in registry_rows or []
+        if isinstance(row, Mapping) and str(row.get("variant_id") or "") == candidate_id
+    ]
+    model_role = "residual_distribution_v1_model"
+    model_path = bundle.artifact_paths.get(model_role)
+    model_hash = bundle.artifact_hashes.get(model_role)
+    if (
+        len(candidates) != 1
+        or candidates[0].get("live_runtime") != "residual_distribution_v1"
+        or candidates[0].get("lifecycle") != "shadow"
+        or candidates[0].get("active_for_headline") is not False
+        or not model_path
+        or not model_hash
+        or not isinstance(bundle.model_bundle, Mapping)
+    ):
+        return [
+            {
+                "variant_id": candidate_id or "residual_release_binding",
+                "variant_family": "release_binding",
+                "lifecycle": "shadow",
+                "track": "no_market",
+                "roles": ["release-bound", "shadow", "skip"],
+                "active_for_headline": False,
+                "_release_bound": True,
+                "_binding_skip_reason": "release_registry_route_mismatch",
+                "_binding_skip_detail": (
+                    "verified residual release does not exactly bind its registry/model role"
+                ),
+            }
+        ]
+    registry_variant = dict(candidates[0])
+    return [
+        {
+            **registry_variant,
+            "variant_id": candidate_id,
+            "lifecycle": "shadow",
+            "roles": [*list(registry_variant.get("roles") or []), "shadow"],
+            "active_for_headline": False,
+            "artifact_role": model_role,
+            "artifact_path": model_path,
+            "artifact_sha256": model_hash,
+            "live_runtime": "residual_distribution_v1",
             "_release_bound": True,
             "_bound_artifact": bundle.model_bundle,
             "_bound_artifact_path": model_path,
@@ -596,23 +665,34 @@ def _apply_current_blend(
     band_rows: list[dict[str, Any]],
     postprocess: dict[str, Any],
     market_id: str | None,
+    *,
+    feature_vector: dict[str, Any] | None = None,
+    source_diagnostics: Any = None,
 ) -> dict[str, float]:
     if not postprocess.get("current_blend_enabled", False):
         return probabilities
-    market_alpha = postprocess.get("current_blend_market_alpha") or {}
-    alpha = market_alpha.get(market_id, postprocess.get("current_blend_default_alpha", 1.0))
-    try:
-        alpha = max(0.0, min(1.0, float(alpha)))
-    except (TypeError, ValueError):
-        alpha = 1.0
     output = dict(probabilities)
-    for band in band_rows:
+    records = _band_prediction_records(feature_vector or {}, band_rows)
+    source_state = (
+        (feature_vector or {}).get("source_freshness_state")
+        or (feature_vector or {}).get("source_status_group")
+        or source_freshness_state_from_diagnostics(source_diagnostics)
+    )
+    for band, record in zip(band_rows, records):
         key = band_key(band)
         candidate = _maybe_float(output.get(key))
         current = _maybe_float(band.get("model_probability"))
         if candidate is None or current is None:
             continue
-        output[key] = (alpha * candidate) + ((1.0 - alpha) * current)
+        blend_context = dict(record)
+        blend_context["market_id"] = str(market_id or "")
+        blend_context["source_freshness_state"] = source_state
+        output[key] = blend_with_current(
+            candidate,
+            current,
+            row=blend_context,
+            config=postprocess,
+        )
     return output
 
 
@@ -703,7 +783,7 @@ def _residual_distribution_v1_payload(
 
     model = context.get("model") or {}
     feature_vector = model.get("feature_vector") or {}
-    source_diagnostics = model.get("source_diagnostics") or []
+    source_diagnostics = model.get("source_diagnostics")
     band_rows = list(context.get("band_rows") or [])
     unit = str(spec.display_unit).upper()
 
@@ -783,6 +863,8 @@ def _band_binary_probabilities(
         band_rows,
         postprocess,
         str(feature_vector.get("market_id") or context.get("market_id") or ""),
+        feature_vector=feature_vector,
+        source_diagnostics=(context.get("model") or {}).get("source_diagnostics"),
     )
     return probabilities
 

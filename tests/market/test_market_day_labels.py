@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -93,6 +94,7 @@ class TestMarketDayLabels(unittest.TestCase):
             resolution_specs = json.loads((ledger_root / "resolution_specs.json").read_text(encoding="utf-8"))
 
             self.assertEqual(labels[0]["quality_grade"], "complete")
+            self.assertEqual(labels[0]["schema_version"], "settlement_ledger_v2")
             self.assertTrue(labels[0]["coverage_clean"])
             self.assertIn("quality_reason", folder_label)
             self.assertEqual(folder_label["settlement_bucket"], 25)
@@ -100,6 +102,16 @@ class TestMarketDayLabels(unittest.TestCase):
             self.assertIn("quality_reason", csv_rows[0])
             self.assertIn("coverage_reason", csv_rows[0])
             self.assertEqual(ledger_rows[0]["event_slug"], folder.name)
+            self.assertEqual(ledger_rows[0]["ledger_record_type"], "settlement_revision")
+            self.assertEqual(folder_label["revision_id"], ledger_rows[0]["revision_id"])
+            self.assertEqual(
+                ledger_rows[0]["evidence"]["raw_resolution_hashes"]["snapshot_tape_sha256"],
+                hashlib.sha256((folder / "snapshots_long.csv").read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                ledger_rows[0]["evidence"]["raw_resolution_hashes"]["daily_summary_sha256"],
+                hashlib.sha256(daily.read_bytes()).hexdigest(),
+            )
             self.assertEqual(ledger_rows[0]["settlement_unit"], "C")
             self.assertEqual(ledger_rows[0]["resolution_station"], "CYYZ")
             self.assertEqual(resolution_specs["schema_version"], "resolution_spec_v1")

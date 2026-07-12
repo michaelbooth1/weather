@@ -31,7 +31,17 @@ MERGE_COMPATIBILITY_KEYS = (
     "source_family_lanes",
     "reanalysis_promotion_lane",
     "support",
+    "postprocess",
+    "postprocess_fit_contract",
 )
+
+IDENTITY_POSTPROCESS_POLICY = "identity_until_nested_inner_oof"
+IDENTITY_SERVED_PARAMETERS = {
+    "temperature": 1.0,
+    "adjacent_calibration": "identity_disabled",
+    "exact_winner_catchup": "identity_disabled",
+    "market_bias_calibration": "identity_disabled",
+}
 
 
 def _merge_signature(artifact):
@@ -45,46 +55,95 @@ def _artifact_model_hours(artifact):
     return sorted(int(hour) for hour in (artifact.get("models") or {}))
 
 
-def _validate_band_merge_payload(artifact, label):
+def _outer_holdout_payload_row_count(artifact, label):
     payload = artifact.get(BAND_MERGE_PAYLOAD_KEY) or {}
     rows = payload.get("rows") or []
     probabilities = payload.get("probabilities") or []
-    if not rows or not probabilities:
-        raise ValueError(f"{label} is missing {BAND_MERGE_PAYLOAD_KEY}; retrain shard with --write-merge-payload")
     if len(rows) != len(probabilities):
         raise ValueError(
             f"{label} merge payload has mismatched rows/probabilities "
             f"({len(rows)} != {len(probabilities)})"
         )
-    return payload
+    return len(rows)
 
 
-def merge_band_postprocess(rows, probabilities, base_postprocess):
-    postprocess = dict(base_postprocess or {})
-    adjacent = fit_adjacent_calibration(rows, probabilities)
-    postprocess["adjacent_calibration"] = adjacent
-    adjacent_probabilities = [
-        apply_adjacent_calibration(probability, row, config=postprocess)
-        for row, probability in zip(rows, probabilities)
-    ]
-    calibrated_probabilities = adjacent_probabilities
-    if postprocess.get("exact_winner_catchup_enabled", False):
-        exact = fit_exact_winner_catchup(
-            rows,
-            adjacent_probabilities,
-            guardrail_rows=rows,
-            guardrail_probabilities=adjacent_probabilities,
-            normalization_gamma=postprocess.get("partition_normalization_gamma", 1.25),
+def _validate_identity_band_shard(artifact, label):
+    contract = artifact.get("postprocess_fit_contract")
+    if not isinstance(contract, dict):
+        raise ValueError(
+            f"{label} is a legacy band shard without postprocess_fit_contract"
         )
-        postprocess["exact_winner_catchup"] = exact
-        calibrated_probabilities = [
-            apply_exact_winner_catchup(probability, row, config=postprocess)
-            for row, probability in zip(rows, adjacent_probabilities)
-        ]
-    market_bias = fit_market_bias_calibration(rows, calibrated_probabilities)
-    postprocess["market_bias_calibration"] = market_bias
-    postprocess["market_bias_calibration_enabled"] = bool(market_bias.get("enabled"))
-    return postprocess
+    contract_checks = {
+        "schema_version": contract.get("schema_version")
+        == "legacy_pooled_postprocess_fit_contract_v1",
+        "status": contract.get("status") == "PASS",
+        "policy": contract.get("policy") == IDENTITY_POSTPROCESS_POLICY,
+        "outer_holdout_used_for_parameter_fit": contract.get(
+            "outer_holdout_used_for_parameter_fit"
+        ) is False,
+        "outer_holdout_fit_rows": (
+            isinstance(contract.get("outer_holdout_fit_rows"), int)
+            and not isinstance(contract.get("outer_holdout_fit_rows"), bool)
+            and contract.get("outer_holdout_fit_rows") == 0
+        ),
+        "served_parameters": contract.get("served_parameters")
+        == IDENTITY_SERVED_PARAMETERS,
+        "promotion_permission": contract.get("promotion_permission")
+        == "forbidden_without_nested_inner_oof_receipts",
+    }
+    failed_contract = sorted(
+        key for key, passed in contract_checks.items() if not passed
+    )
+    if failed_contract:
+        raise ValueError(
+            f"{label} has non-identity postprocess_fit_contract: "
+            + ", ".join(failed_contract)
+        )
+
+    postprocess = artifact.get("postprocess")
+    if not isinstance(postprocess, dict):
+        raise ValueError(f"{label} is missing postprocess configuration")
+    disabled_flags = (
+        "adjacent_calibration_enabled",
+        "exact_winner_catchup_enabled",
+        "market_bias_calibration_enabled",
+    )
+    empty_parameters = (
+        "adjacent_calibration",
+        "exact_winner_catchup",
+        "market_bias_calibration",
+    )
+    failed_postprocess = sorted([
+        key for key in disabled_flags if postprocess.get(key) is not False
+    ] + [
+        key for key in empty_parameters if postprocess.get(key) != {}
+    ])
+    if failed_postprocess:
+        raise ValueError(
+            f"{label} has learned/non-identity postprocess parameters: "
+            + ", ".join(failed_postprocess)
+        )
+
+    models = artifact.get("models") or {}
+    if not isinstance(models, dict) or not models:
+        raise ValueError(f"{label} has no band models")
+    for hour, bundle in models.items():
+        if not isinstance(bundle, dict):
+            raise ValueError(f"{label} model hour {hour} is invalid")
+        raw_temperature = bundle.get("temperature")
+        if isinstance(raw_temperature, bool) or not isinstance(
+            raw_temperature, (int, float)
+        ):
+            raise ValueError(f"{label} model hour {hour} has invalid temperature")
+        temperature = float(raw_temperature)
+        if temperature != 1.0:
+            raise ValueError(
+                f"{label} model hour {hour} has non-identity temperature"
+            )
+        if bundle.get("postprocess") != postprocess:
+            raise ValueError(
+                f"{label} model hour {hour} postprocess differs from its shard"
+            )
 
 
 def merge_pooled_band_artifacts(artifacts, required_hours=None, shard_paths=None):
@@ -103,27 +162,26 @@ def merge_pooled_band_artifacts(artifacts, required_hours=None, shard_paths=None
     }
     merged["models"] = {}
     merged_hours = set()
-    merge_rows = []
-    merge_probabilities = []
+    ignored_outer_holdout_rows = 0
     shard_summaries = []
     for index, artifact in enumerate(artifacts):
         label = shard_paths[index] if index < len(shard_paths) else f"shard {index + 1}"
+        _validate_identity_band_shard(artifact, label)
         signature = _merge_signature(artifact)
         if signature != base_signature:
             raise ValueError(f"{label} is incompatible with the first shard.")
-        payload = _validate_band_merge_payload(artifact, label)
+        payload_rows = _outer_holdout_payload_row_count(artifact, label)
         hours = _artifact_model_hours(artifact)
         duplicates = sorted(set(hours) & merged_hours)
         if duplicates:
             raise ValueError(f"{label} duplicates already-merged hour(s): {duplicates}")
         merged_hours.update(hours)
         merged["models"].update(artifact.get("models") or {})
-        merge_rows.extend(payload.get("rows") or [])
-        merge_probabilities.extend(payload.get("probabilities") or [])
+        ignored_outer_holdout_rows += payload_rows
         shard_summaries.append({
             "path": label,
             "hours": hours,
-            "merge_rows": len(payload.get("rows") or []),
+            "outer_holdout_payload_rows_ignored": payload_rows,
         })
 
     required = set(int(hour) for hour in (required_hours or []))
@@ -131,11 +189,10 @@ def merge_pooled_band_artifacts(artifacts, required_hours=None, shard_paths=None
     if missing:
         raise ValueError(f"Merged artifact is missing required hour(s): {missing}")
 
-    merged["postprocess"] = merge_band_postprocess(
-        merge_rows,
-        merge_probabilities,
-        artifacts[0].get("postprocess") or {},
-    )
+    # Never fit a served transform on shard outer-holdout payloads.  The
+    # validated, identity-only postprocess is copied exactly from compatible
+    # shards; nested inner-OOF receipts are required before any learned stage.
+    merged["postprocess"] = dict(artifacts[0]["postprocess"])
     for bundle in merged["models"].values():
         if isinstance(bundle, dict):
             bundle["postprocess"] = dict(merged["postprocess"])
@@ -153,7 +210,9 @@ def merge_pooled_band_artifacts(artifacts, required_hours=None, shard_paths=None
         "shard_count": len(artifacts),
         "hours": sorted(merged_hours),
         "required_hours": sorted(required),
-        "postprocess_fit_rows": len(merge_rows),
+        "postprocess_fit_rows": 0,
+        "outer_holdout_payload_rows_ignored": ignored_outer_holdout_rows,
+        "postprocess_policy": IDENTITY_POSTPROCESS_POLICY,
         "shards": shard_summaries,
     }
     return merged
@@ -195,6 +254,10 @@ def write_band_shard_merge_report(path, artifact, artifact_path):
             ["Required hours", ", ".join(str(hour) for hour in shards.get("required_hours") or [])],
             ["Shard count", shards.get("shard_count")],
             ["Postprocess fit rows", shards.get("postprocess_fit_rows")],
+            [
+                "Outer-holdout payload rows ignored",
+                shards.get("outer_holdout_payload_rows_ignored"),
+            ],
             ["Adjacent contexts", (postprocess.get("adjacent_calibration") or {}).get("context_count", 0)],
             ["Market bias enabled", bool(market_bias.get("enabled"))],
             ["Market bias contexts", market_bias.get("context_count", 0)],
@@ -205,7 +268,7 @@ def write_band_shard_merge_report(path, artifact, artifact_path):
         rows.append([
             shard.get("path"),
             ", ".join(str(hour) for hour in shard.get("hours") or []),
-            shard.get("merge_rows"),
+            shard.get("outer_holdout_payload_rows_ignored"),
         ])
     if rows:
         lines += [
@@ -213,7 +276,10 @@ def write_band_shard_merge_report(path, artifact, artifact_path):
             "## Shards",
             "",
         ]
-        lines += markdown_table(["Path", "Hours", "Merge Rows"], rows)
+        lines += markdown_table(
+            ["Path", "Hours", "Outer-Holdout Rows Ignored"],
+            rows,
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 

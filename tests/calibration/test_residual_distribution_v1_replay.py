@@ -234,7 +234,37 @@ def test_missing_captured_source_diagnostics_is_named_noncountable_abstention():
     assert all(row["candidate_p"] is None for row in rows)
     assert all(not row["candidate_countable"] for row in rows)
     assert {row["candidate_failure_reason"] for row in rows} == {"abstain_source_state"}
-    assert "not treated as all-fresh" in rows[0]["candidate_failure_detail"]
+    assert "disallowed state 'unknown'" in rows[0]["candidate_failure_detail"]
+
+
+def test_live_and_replay_delegate_missing_source_diagnostics_to_same_core(tmp_path):
+    artifact = _artifact()
+    replay = residual_distribution_v1_replay_payload(
+        artifact=artifact,
+        feature_vector=_feature_vector(),
+        source_diagnostics=None,
+        market_id="toronto",
+        unit="C",
+        band_rows=_live_bands(),
+    )
+    artifact_path = tmp_path / "candidate.pkl"
+    artifact_path.write_bytes(pickle.dumps(artifact))
+    live = _residual_distribution_v1_payload(
+        {
+            "variant_id": "residual-v1",
+            "artifact_path": str(artifact_path),
+            "artifact_hash": "a" * 64,
+            "live_runtime": PREDICTION_MODE,
+        },
+        {
+            "market_id": "toronto",
+            "model": {"feature_vector": _feature_vector()},
+            "band_rows": _live_bands(),
+        },
+    )
+    assert replay["status"] == live["status"] == "skipped"
+    assert replay["failure_reason"] == live["failure_reason"] == "abstain_source_state"
+    assert replay["failure_detail"] == live["failure_detail"]
 
 
 def test_artifact_failure_is_preserved_as_noncountable_failed_coverage():

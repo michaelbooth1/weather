@@ -5,6 +5,10 @@ from datetime import date, timedelta
 import pyarrow.parquet as pq
 import pytest
 
+from weather.point_in_time_contract import (
+    ContractViolation as FrozenContractViolation,
+    verify_materialization_manifest as verify_frozen_materialization_manifest,
+)
 from weather.reporting.validation.point_in_time_evaluation import (
     CLAIM_LANES,
     CONTRACT_SCHEMA_VERSION,
@@ -27,6 +31,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
     validate_canonical_row,
     validation_plan_payload,
     verify_materialization_manifest,
+    verify_validation_plan_payload,
 )
 
 
@@ -202,6 +207,13 @@ def test_materializer_reads_one_text_market_day_and_keeps_raw_immutable(tmp_path
     assert source.read_bytes() == before
     assert pq.ParquetFile(parquet_out).metadata.num_rows == 2
     assert verify_materialization_manifest(parquet_out, manifest_out) == manifest
+    with pytest.raises(FrozenContractViolation) as unmanifested:
+        verify_frozen_materialization_manifest(
+            parquet_out,
+            manifest_out,
+            require_manifest_backed_inputs=True,
+        )
+    assert unmanifested.value.code == "materialization_inputs_not_proof_grade"
     materialized = list(iter_point_in_time_parquet(parquet_out, batch_rows=1))
     assert [row["band"] for row in materialized] == ["high", "low"]
     provenance = json.loads(materialized[0]["source_provenance_json"])
@@ -342,6 +354,36 @@ def test_pipeline_fits_fresh_hooks_on_training_dates_only():
         "calibration",
         "regime_router",
     ]
+    assert all(
+        receipt["stage_input_sha256"]
+        == sha256_text(canonical_json(receipt["stage_input_payload"]))
+        and receipt["stage_output_sha256"]
+        == sha256_text(canonical_json(receipt["stage_output_payload"]))
+        for receipt in result.fit_receipts
+    )
+    for prior, current in zip(result.fit_receipts, result.fit_receipts[1:]):
+        assert (
+            current["stage_input_payload"]["upstream_stage_output_sha256"]
+            == prior["stage_output_sha256"]
+        )
+        assert current["fit_input_sha256"] == prior["fit_output_sha256"]
+        assert (
+            current["validation_input_sha256"]
+            == prior["validation_output_sha256"]
+        )
+
+
+def test_research_validation_plan_remains_valid_without_production_output_receipts():
+    dates = [f"2026-06-{day:02d}" for day in range(1, 19)]
+    plan = validation_plan_payload(
+        dates,
+        outer_min_train_dates=10,
+        inner_min_train_dates=3,
+        embargo_days=3,
+    )
+
+    assert plan["fit_receipt_contract"]["payload_binding_required"] is False
+    assert verify_validation_plan_payload(plan) == plan
 
 
 def test_pipeline_rejects_rows_put_in_the_wrong_fleet_date_bucket():
