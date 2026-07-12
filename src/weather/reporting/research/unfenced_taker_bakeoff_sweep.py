@@ -35,6 +35,7 @@ from weather.market.taker_bot_bakeoff import (
 )
 from weather.market.taker_bot_strategy_registry import DEFAULT_BAKEOFF_STRATEGIES
 from weather.market.taker_bot_tape_io import DEFAULT_LABELS_CSV, DEFAULT_RUNS_ROOT
+from weather.paths import data_path
 
 EXPERIMENT_PREFIX = "unfenced-permission-probe"
 UNFENCED_CONFIG = {"taker_edge_permission_enabled": False}
@@ -60,7 +61,7 @@ def run_sweep(
     strategies=DEFAULT_BAKEOFF_STRATEGIES,
     max_days=0,
 ):
-    out_root = Path(out_root or Path("data") / "backtest" / "research" / "unfenced_bakeoff")
+    out_root = Path(out_root or data_path("backtest", "research", "unfenced_bakeoff"))
     out_root.mkdir(parents=True, exist_ok=True)
     folders = list(sweep_run_folders(runs_root))
     if max_days and max_days > 0:

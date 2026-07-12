@@ -46,7 +46,7 @@ Requires Python 3.11+ on Windows.
 python -m venv venv
 .\venv\Scripts\python.exe -m pip install --upgrade pip
 .\venv\Scripts\python.exe -m pip install -r requirements.txt
-.\venv\Scripts\python.exe -m pip install -e .
+.\venv\Scripts\python.exe -m pip install -e ".[test]"
 ```
 
 `requirements.txt` and `pyproject.toml` intentionally pin the same direct

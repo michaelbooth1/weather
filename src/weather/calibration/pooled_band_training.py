@@ -25,7 +25,10 @@ def train_band_hour_model(
             )
     build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
-    imputer = SimpleImputer(strategy="median")
+    # Preserve the declared feature contract even when a training fold has an
+    # entirely missing column; otherwise sklearn drops it and serving-time
+    # transforms can silently change shape across folds/runs.
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
     x_train = imputer.fit_transform(train_frame)
     y_train = np.array([int(row["outcome"]) for row in train_rows])
     weights = np.array([float(row.get("_sample_weight", 1.0)) for row in train_rows])

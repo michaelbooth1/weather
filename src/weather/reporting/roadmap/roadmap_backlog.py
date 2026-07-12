@@ -126,7 +126,7 @@ def _owner_package(text: str) -> str:
 
 def parse_item(path: str | Path, *, root: str | Path = DEFAULT_ROADMAP_ROOT) -> dict[str, Any]:
     path = Path(path)
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
     lines = text.splitlines()
     heading = lines[0] if lines else ""
     parsed = HEADING_RE.match(heading)

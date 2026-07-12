@@ -267,7 +267,7 @@ infrastructure work remains.
 | 221 | [Market Source/Missingness Location Gates [COMPLETE 2026-06-22 - MARKET SOURCE/MISSINGNESS GATE LIVE]](items/item-221-market-source-missingness-location-gates.md) |
 | 222 | [Blocked-Market Variant Basket No-Go Guard [COMPLETE 2026-06-22 - FAILED BASKETS EMIT NO-GO DISPOSITIONS]](items/item-222-blocked-market-variant-basket-no-go-guard.md) |
 | 223 | [Market-Stage Winner-Mass Attribution [COMPLETE 2026-06-22 - BOTTOM-LOCATION WINNER-MASS GUARDRAILS LIVE]](items/item-223-market-stage-winner-mass-attribution.md) |
-| 224 | [Pooled F Retrain/Re-Export Location Gate [COMPLETE 2026-06-24 - MODEL/LOCATION GATE PASS, BROAD CLAIM READINESS-BLOCKED]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
+| 224 | [Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-07-11 - REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE]](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 225 | [Location Audit Evidence Freshness Repair [COMPLETE 2026-06-22 - FRESHNESS BLOCKER LIVE]](items/item-225-location-audit-evidence-freshness-repair.md) |
 | 226 | [Per-Location Artifact Schema Quarantine [COMPLETE 2026-06-22 - STALE PER-LOCATION ARTIFACTS HISTORICAL-ONLY]](items/item-226-per-location-artifact-schema-quarantine.md) |
 | 227 | [Early-Hour Promotion Blocker Enforcement [COMPLETE 2026-06-22 - CONSOLIDATED FAIL-CLOSED BLOCKER LIVE]](items/item-227-early-hour-promotion-blocker-enforcement.md) |
@@ -342,6 +342,7 @@ infrastructure work remains.
 | 310 | [Toronto WU Current-Max Boundary Over-Lock Guard [COMPLETE 2026-06-24 - SUPPORT-ONLY CURRENT-MAX BOUNDARY GUARD LIVE]](items/item-310-toronto-wu-current-max-boundary-overlock-guard.md) |
 | 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
 | 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
+| 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-11 - SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 
 ### Architecture And Maintainability
 

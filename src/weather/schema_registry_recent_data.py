@@ -158,4 +158,25 @@ RECENT_REGISTERED_SCHEMAS = (
         "Version 0.2 taker profitability artifact verifier emitted by bakeoff reports.",
         supersedes=("taker_profitability_artifact_verification_v0.1",),
     ),
+    SchemaSpec(
+        "promotion_heavy_diagnostics",
+        "promotion_heavy_diagnostics_v0.1",
+        "weather.calibration.pooled_candidate_replay",
+        "active",
+        "Reusable heavy-diagnostics manifest keyed by candidate artifact lineage.",
+    ),
+    SchemaSpec(
+        "serving_gauntlet_manifest",
+        "serving_gauntlet_manifest_v0.1",
+        "weather.reporting.promotion.orchestration",
+        "active",
+        "Reusable serving-gauntlet summary keyed by serving artifact lineage.",
+    ),
+    SchemaSpec(
+        "unfenced_taker_bakeoff_sweep",
+        "unfenced_taker_bakeoff_sweep_v0.1",
+        "weather.reporting.research.unfenced_taker_bakeoff_sweep",
+        "active",
+        "Counterfactual research sweep with the taker permission fence disabled.",
+    ),
 )

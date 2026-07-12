@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-06-27T23:48:38.026943+00:00
+Generated: 2026-07-11T23:33:43.474856+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 320 |
-| Active items | 25 |
-| OPEN | 3 |
-| PARTIAL | 22 |
-| COMPLETE | 295 |
-| ROADMAP rows | 320 |
-| ROADMAP primary rows | 320 |
-| Metadata manifest rows | 320 |
+| Items | 315 |
+| Active items | 27 |
+| OPEN | 4 |
+| PARTIAL | 23 |
+| COMPLETE | 288 |
+| ROADMAP rows | 315 |
+| ROADMAP primary rows | 315 |
+| Metadata manifest rows | 315 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -45,11 +45,13 @@ Status: `OK`
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
 | 206 | OPEN | 2026-06-21 | JULY 18 REMOVAL WINDOW NEEDS OWNER | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
+| 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |
 | 229 | OPEN | 2026-06-25 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 
 ## Lint Issues
 

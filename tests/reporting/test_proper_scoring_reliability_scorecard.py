@@ -95,6 +95,45 @@ class TestProperScoringReliabilityScorecard(unittest.TestCase):
         self.assertEqual(payload["density_crps"]["status"], "SKIP")
         self.assertEqual(payload["served_vs_validated_distribution_parity"]["status"], "SKIP")
 
+    def test_distribution_diagnostics_do_not_merge_variants_at_one_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "active_variant_shadow_long.csv"
+            rows = []
+            for variant_id, winner_probability in (("candidate_a", 0.8), ("candidate_b", 0.6)):
+                rows.extend(
+                    [
+                        {
+                            "lane": "weather_only",
+                            "variant_id": variant_id,
+                            "market_id": "atlanta",
+                            "target_date": "2026-06-19",
+                            "snapshot_id": "s1",
+                            "band_key": "eq:84",
+                            "bin_value": "84",
+                            "probability": str(winner_probability),
+                            "outcome": "1",
+                        },
+                        {
+                            "lane": "weather_only",
+                            "variant_id": variant_id,
+                            "market_id": "atlanta",
+                            "target_date": "2026-06-19",
+                            "snapshot_id": "s1",
+                            "band_key": "eq:85",
+                            "bin_value": "85",
+                            "probability": str(1.0 - winner_probability),
+                            "outcome": "0",
+                        },
+                    ]
+                )
+            _write_rows(path, rows)
+
+            payload = build_scorecard(active_shadow_long=path)
+
+        weather = next(row for row in payload["lanes"] if row["lane"] == "weather_only")
+        self.assertEqual(weather["distribution_group_count"], 2)
+        self.assertEqual(weather["ranked_distribution_group_count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

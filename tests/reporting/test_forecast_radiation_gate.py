@@ -161,6 +161,8 @@ class ForecastRadiationGateTests(unittest.TestCase):
             "observed_expected_feature_count": len(EXPECTED_FEATURES),
             "missing_direct_diffuse_features": [],
             "missing_cloud_proxy_features": [],
+            "forbidden_feature_scan_complete": True,
+            "forbidden_features": [],
         }
 
         result = acceptance(candidate, evidence)
@@ -186,6 +188,22 @@ class ForecastRadiationGateTests(unittest.TestCase):
         self.assertEqual(len(payload["permutation_evidence"]["rows"]), len(RADIATION_FEATURES) + len(CLOUD_PROXY_FEATURES))
         self.assertIn("Forecast Radiation & Insolation Gate", text)
         self.assertIn("No blockers.", text)
+
+    def test_complete_permutation_evidence_with_target_field_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hgb_path = Path(tmp) / "hgb.csv"
+            self._write_hgb_csv(hgb_path, (*EXPECTED_FEATURES, "target_market_z"))
+
+            evidence = permutation_evidence(hgb_path)
+            result = acceptance(self._candidate(), evidence)
+
+        self.assertEqual(evidence["observed_expected_feature_count"], len(EXPECTED_FEATURES))
+        self.assertEqual(evidence["forbidden_features"], ["target_market_z"])
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertIn(
+            "permutation_target_leakage_detected",
+            {row["code"] for row in result["blockers"]},
+        )
 
     def test_report_payload_can_score_positive_market_lane_from_variant_rows(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -206,6 +206,10 @@ def _ece(rows, bins=10):
 def _group_key(row):
     return (
         row.get("lane"),
+        # Variant identity is part of the probability-partition contract.
+        # Without it, multiple candidates at the same snapshot are merged
+        # into one synthetic distribution and rank/RPS diagnostics are false.
+        row.get("variant_id") or row.get("model_variant_id") or "",
         row.get("market_id") or "",
         row.get("target_date") or "",
         row.get("snapshot_id") or row.get("run_id") or "",

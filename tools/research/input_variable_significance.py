@@ -32,10 +32,44 @@ from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 
+FEATURE_POLICY_IMPORT_ERROR: str | None = None
+try:
+    from weather.model.feature_safety import (
+        filter_forbidden_label_outcome_fields,
+        forbidden_label_outcome_fields,
+        validate_feature_names_are_label_free,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - direct script invocation without src on sys.path.
+    if exc.name != "weather":
+        raise
+    FEATURE_POLICY_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+
+    def forbidden_label_outcome_fields(feature_names: Any) -> list[str]:
+        """Treat every candidate as unsafe when the shared policy is unavailable."""
+        return sorted({str(name) for name in feature_names}, key=str.casefold)
+
+    def filter_forbidden_label_outcome_fields(feature_names: Any) -> list[str]:
+        """Fail closed rather than reimplementing or weakening the shared policy."""
+        return []
+
+    def validate_feature_names_are_label_free(
+        feature_names: Any,
+        *,
+        context: str = "feature selection",
+    ) -> None:
+        remaining = [str(name) for name in feature_names]
+        if remaining:
+            raise ValueError(
+                f"{context} cannot be validated because the shared feature-safety policy "
+                f"could not be imported: {FEATURE_POLICY_IMPORT_ERROR}"
+            )
+
+FEATURE_COLUMNS_IMPORT_ERROR: str | None = None
 try:
     from weather.model.feature_store import FEATURE_COLUMNS
-except Exception:  # pragma: no cover - fallback for ad hoc research runs.
+except ModuleNotFoundError as exc:  # pragma: no cover - only used by incomplete ad hoc environments.
     FEATURE_COLUMNS = []
+    FEATURE_COLUMNS_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
 
 RANDOM_SEED = 90210
@@ -89,6 +123,26 @@ class LoadedFolder:
     note: str = ""
 
 
+@dataclass(frozen=True)
+class CandidateFeatureSelection:
+    features: list[str]
+    mode: str
+    feature_columns_import_error: str | None
+    feature_policy_import_error: str | None
+    rejected_forbidden_features: list[str]
+    promotion_grade: bool
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "feature_columns_import_error": self.feature_columns_import_error,
+            "feature_policy_import_error": self.feature_policy_import_error,
+            "rejected_forbidden_features": list(self.rejected_forbidden_features),
+            "promotion_grade": self.promotion_grade,
+            "feature_count": len(self.features),
+        }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshots-root", default="data/snapshots")
@@ -100,6 +154,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bootstraps", type=int, default=BOOTSTRAPS)
     parser.add_argument("--perm-repeats", type=int, default=PERM_REPEATS)
     parser.add_argument("--hgb-max-iter", type=int, default=HGB_MAX_ITER)
+    parser.add_argument(
+        "--allow-non-promotion-feature-selection",
+        action="store_true",
+        help=(
+            "Allow an explicitly non-promotion ad hoc run when the canonical feature schema "
+            "is unavailable, empty, or contains forbidden label/outcome fields."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -225,15 +287,32 @@ def load_dataset(
     return data, pd.DataFrame([row.__dict__ for row in load_rows])
 
 
-def candidate_features(data: pd.DataFrame, include_diagnostics: bool) -> list[str]:
+def candidate_feature_selection(
+    data: pd.DataFrame,
+    include_diagnostics: bool,
+) -> CandidateFeatureSelection:
     if FEATURE_COLUMNS:
-        base = [column for column in FEATURE_COLUMNS if column in data.columns]
+        mode = "canonical_feature_columns"
+        raw_candidates = [column for column in FEATURE_COLUMNS if column in data.columns]
+        canonical_forbidden = forbidden_label_outcome_fields(FEATURE_COLUMNS)
     else:
+        mode = (
+            "dataframe_fallback_import_error"
+            if FEATURE_COLUMNS_IMPORT_ERROR
+            else "dataframe_fallback_empty_canonical"
+        )
         excluded = set(METADATA_COLUMNS)
         excluded.update({"captured_at_utc_dt", "time_slice"})
         if not include_diagnostics:
             excluded.update(DIAGNOSTIC_COLUMNS)
-        base = [column for column in data.columns if column not in excluded]
+        raw_candidates = [column for column in data.columns if column not in excluded]
+        canonical_forbidden = []
+
+    # Filter each branch at its own boundary, then validate again after context
+    # and optional diagnostic fields have been appended.
+    rejected = set(forbidden_label_outcome_fields(raw_candidates))
+    rejected.update(canonical_forbidden)
+    base = filter_forbidden_label_outcome_fields(raw_candidates)
     for column in CONTEXT_FEATURES:
         if column in data.columns and column not in base:
             base.append(column)
@@ -241,7 +320,24 @@ def candidate_features(data: pd.DataFrame, include_diagnostics: bool) -> list[st
         for column in DIAGNOSTIC_COLUMNS:
             if column in data.columns and column not in base:
                 base.append(column)
-    return base
+    rejected.update(forbidden_label_outcome_fields(base))
+    base = filter_forbidden_label_outcome_fields(base)
+    validate_feature_names_are_label_free(base, context=f"{mode} candidate features")
+
+    rejected_features = sorted(rejected, key=str.casefold)
+    return CandidateFeatureSelection(
+        features=base,
+        mode=mode,
+        feature_columns_import_error=FEATURE_COLUMNS_IMPORT_ERROR,
+        feature_policy_import_error=FEATURE_POLICY_IMPORT_ERROR,
+        rejected_forbidden_features=rejected_features,
+        promotion_grade=(mode == "canonical_feature_columns" and not rejected_features),
+    )
+
+
+def candidate_features(data: pd.DataFrame, include_diagnostics: bool) -> list[str]:
+    """Compatibility wrapper returning only the safe candidate feature names."""
+    return candidate_feature_selection(data, include_diagnostics).features
 
 
 def fdr_bh(p_values: pd.Series) -> pd.Series:
@@ -1045,6 +1141,7 @@ def write_report(
         f"- Matched market-days analyzed: {day_count:,}",
         f"- Markets analyzed: {market_count:,}",
         f"- Feature variables considered: {len(coverage):,}; analyzable after coverage/variation filters: {int(coverage['analyzable'].sum()):,}",
+        f"- Feature selection: `{json.dumps(metrics.get('feature_selection', {}), sort_keys=True)}`",
         f"- Load statuses: `{json.dumps(loaded, sort_keys=True)}`",
         f"- Feature sources: `{json.dumps(feature_sources, sort_keys=True)}`",
         "",
@@ -1192,6 +1289,13 @@ def write_plot(output_dir: Path, prefix: str, summary: pd.DataFrame, families: p
 
 def main() -> int:
     args = parse_args()
+    if FEATURE_POLICY_IMPORT_ERROR:
+        raise SystemExit(
+            "Feature selection mode=unavailable_policy_import_error; refusing to load data or "
+            "generate artifacts without the shared fail-closed feature policy. "
+            f"import_error={FEATURE_POLICY_IMPORT_ERROR}. Run from the repository root with "
+            "`python -m tools.research.input_variable_significance` so `src` is importable."
+        )
     global BOOTSTRAPS, PERM_REPEATS, HGB_MAX_ITER
     BOOTSTRAPS = max(20, int(args.bootstraps))
     PERM_REPEATS = max(1, int(args.perm_repeats))
@@ -1207,7 +1311,25 @@ def main() -> int:
 
     print(f"Loaded {len(data):,} rows across {data['market_day'].nunique():,} market-days.", flush=True)
     data = add_standardized_target(data)
-    features = candidate_features(data, include_diagnostics=args.include_diagnostics)
+    feature_selection = candidate_feature_selection(data, include_diagnostics=args.include_diagnostics)
+    print(
+        "Feature selection "
+        f"mode={feature_selection.mode} "
+        f"import_error={feature_selection.feature_columns_import_error or '-'} "
+        f"policy_import_error={feature_selection.feature_policy_import_error or '-'} "
+        f"rejected_forbidden={feature_selection.rejected_forbidden_features or []}",
+        flush=True,
+    )
+    if not feature_selection.promotion_grade and not args.allow_non_promotion_feature_selection:
+        raise SystemExit(
+            "Feature selection is not promotion-grade; refusing to generate promotable artifacts. "
+            f"mode={feature_selection.mode}; "
+            f"import_error={feature_selection.feature_columns_import_error or '-'}; "
+            f"policy_import_error={feature_selection.feature_policy_import_error or '-'}; "
+            f"forbidden={feature_selection.rejected_forbidden_features or []}. "
+            "Use --allow-non-promotion-feature-selection only for an explicitly ad hoc run."
+        )
+    features = feature_selection.features
     numeric_frame, numeric, categorical = numeric_feature_frame(data, features)
     z_frame = within_market_z(data, numeric_frame)
     coverage = coverage_table(data, numeric_frame, z_frame, categorical)
@@ -1271,6 +1393,7 @@ def main() -> int:
         "features_considered": int(len(coverage)),
         "features_analyzable": int(coverage["analyzable"].sum()),
         "ml_features": ml_features,
+        "feature_selection": feature_selection.metadata(),
         "elastic_net": linear_metrics,
         "ridge": ridge_metrics,
         "hgb_all": hgb_metrics,

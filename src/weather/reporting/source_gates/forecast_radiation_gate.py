@@ -18,6 +18,10 @@ from weather.calibration.pooled_candidate_scoring import (
     daily_first_candidate_comparison,
     grouped_candidate_comparison,
 )
+from weather.model.feature_safety import (
+    forbidden_label_outcome_fields,
+    is_forbidden_label_outcome_field,
+)
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 
@@ -391,8 +395,14 @@ def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTAT
         }
     )
     unexpected_rows = 0
-    for row in _read_csv(hgb_permutation_path):
+    permutation_rows = _read_csv(hgb_permutation_path)
+    forbidden_features = forbidden_label_outcome_fields(
+        row.get("feature") or "" for row in permutation_rows
+    )
+    for row in permutation_rows:
         feature = row.get("feature") or ""
+        if is_forbidden_label_outcome_field(feature):
+            continue
         family = row.get("family") or ""
         if family not in FORECAST_PROFILE_FAMILIES:
             continue
@@ -443,6 +453,9 @@ def permutation_evidence(hgb_permutation_path: str | Path = DEFAULT_HGB_PERMUTAT
         "missing_direct_diffuse_features": missing_direct_diffuse,
         "missing_cloud_proxy_features": missing_cloud_proxy,
         "unexpected_radiation_cloud_rows": unexpected_rows,
+        "forbidden_feature_scan_complete": True,
+        "forbidden_features": forbidden_features,
+        "forbidden_feature_count": len(forbidden_features),
         "best_feature": (best or {}).get("feature"),
         "best_delta_mae": (best or {}).get("best_delta_mae"),
         "rows": rows,
@@ -475,6 +488,17 @@ def acceptance(
         blockers.append({
             "code": "permutation_evidence_missing",
             "detail": "no expected radiation or peak-window cloud rows were found in the HGB permutation artifact",
+        })
+    if evidence.get("forbidden_feature_scan_complete") is not True:
+        blockers.append({
+            "code": "permutation_feature_safety_scan_missing",
+            "detail": "permutation evidence did not attest to a label/outcome feature scan",
+        })
+    forbidden_features = evidence.get("forbidden_features") or []
+    if forbidden_features:
+        blockers.append({
+            "code": "permutation_target_leakage_detected",
+            "detail": ", ".join(str(feature) for feature in forbidden_features),
         })
     missing_direct_diffuse = evidence.get("missing_direct_diffuse_features") or []
     if missing_direct_diffuse:
@@ -622,6 +646,8 @@ def _next_unblock_text(blockers: list[dict[str, Any]]) -> str:
         "candidate_replay_missing",
         "isolated_radiation_replay_missing",
         "permutation_evidence_missing",
+        "permutation_feature_safety_scan_missing",
+        "permutation_target_leakage_detected",
         "direct_diffuse_permutation_evidence_missing",
         "peak_window_cloud_permutation_evidence_missing",
     }
@@ -703,6 +729,8 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         [
             ["Expected features", len(evidence.get("expected_features") or [])],
             ["Observed expected features", evidence.get("observed_expected_feature_count", 0)],
+            ["Forbidden feature scan complete", "yes" if evidence.get("forbidden_feature_scan_complete") is True else "no"],
+            ["Forbidden label/outcome features", ", ".join(evidence.get("forbidden_features") or []) or "-"],
             ["Missing direct/diffuse features", ", ".join(evidence.get("missing_direct_diffuse_features") or []) or "-"],
             ["Missing peak-window cloud features", ", ".join(evidence.get("missing_cloud_proxy_features") or []) or "-"],
             ["Best feature", evidence.get("best_feature") or "-"],

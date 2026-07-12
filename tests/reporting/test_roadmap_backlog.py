@@ -12,7 +12,7 @@ from weather.reporting.roadmap.roadmap_backlog import (
 )
 
 
-def _item(path: Path, number: int, status: str, body: str = "") -> Path:
+def _item(path: Path, number: int, status: str, body: str = "", *, encoding: str = "utf-8") -> Path:
     completion_notes = (
         "\n\n## Completion Notes\n\nValidated in test fixture.\n"
         if status.startswith("COMPLETE") and "Completion Notes" not in body
@@ -27,7 +27,7 @@ def _item(path: Path, number: int, status: str, body: str = "") -> Path:
         "Acceptance: proof exists.\n"
         + completion_notes
         + body,
-        encoding="utf-8",
+        encoding=encoding,
     )
     return path
 
@@ -67,6 +67,22 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(item["date"], "2026-06-21")
         self.assertEqual(item["disposition"], "DEMO DISPOSITION")
         self.assertTrue(item["active"])
+        self.assertEqual(item["parse_errors"], [])
+
+    def test_parse_item_accepts_utf8_bom_prefixed_heading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _item(
+                Path(tmp) / "item-123-demo.md",
+                123,
+                "OPEN",
+                encoding="utf-8-sig",
+            )
+
+            item = parse_item(path, root=tmp)
+
+        self.assertEqual(item["heading"], "# 123. Demo Item 123 [OPEN]")
+        self.assertEqual(item["number"], 123)
+        self.assertEqual(item["status"], "OPEN")
         self.assertEqual(item["parse_errors"], [])
 
     def test_build_payload_includes_only_open_and_partial_active_items(self):

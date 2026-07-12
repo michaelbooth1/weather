@@ -1,4 +1,4 @@
-﻿# 224. Pooled F Retrain/Re-Export Location Gate [COMPLETE 2026-06-24 - MODEL/LOCATION GATE PASS, BROAD CLAIM READINESS-BLOCKED]
+﻿# 224. Pooled F Retrain/Re-Export Location Gate [PARTIAL 2026-07-11 - REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE]
 
 Goal: re-export the active pooled F artifact under serving-parity and honest
 blocked-validation fixes, then make the new artifact pass the location audit
@@ -2010,3 +2010,28 @@ by the same corpus fix. The remaining barrier to folding the repair into the
 canonical serving artifact is production readiness (fleet observability
 `live_forward=BLOCK`/critical alerts, and current-code soak), owned by items
 307/312, not consolidation plumbing.
+
+## 2026-07-11 label-leak quarantine and evidence invalidation
+
+The historical `item224_active_timesplit_logistic_repair_v0_1` proof is no
+longer promotion-countable. The logistic model used
+`settlement_distance_bucket`, and also used `feature_missingness_hash`, whose
+attribution payload includes settlement distance and retrospective casebook
+availability. Its early-adjacent post-model guardrail read settlement distance
+directly. Those are post-settlement/outcome-derived inputs unavailable at live
+inference, so the prior apparent lift and the model/location `PASS` cannot be
+used as production evidence.
+
+The v0.1 code path now has a fail-closed inference feature allowlist, explicitly
+excludes settlement-, outcome-, casebook-, label-gate-, and market-derived
+fields, removes the leaked guardrail, and normalizes mutually exclusive band
+probabilities within every market/date/snapshot partition before scoring or
+export. Invalid model partitions fall back to the normalized current partition,
+then to a uniform partition if current is also unusable.
+
+The registry entry is now `shadow`, non-headline, non-promotion-countable, and
+promotion-blocked. Item 224 stays reopened until a newly identified variant is
+trained and replayed from inference-available features only, with fresh
+time-split, partition, location, and production-readiness evidence. Historical
+v0.1 artifacts must remain diagnostic-only and must not be regenerated in
+place as if they retained the earlier proof status.

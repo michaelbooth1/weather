@@ -33,8 +33,6 @@ MODEL_LABEL = "logistic_regression_c0p003_balanced"
 MODEL_C = 0.003
 HIGH_CONFIDENCE_LOW = 0.001
 HIGH_CONFIDENCE_HIGH = 0.999
-EARLY_ADJACENT_CURRENT_CAP_MAX_CURRENT = 0.05
-EARLY_ADJACENT_CURRENT_CAP_MIN_GAP = 0.08
 
 NUMERIC_FEATURES = (
     "active_route_probability",
@@ -47,23 +45,59 @@ CATEGORICAL_FEATURES = (
     "bin_type",
     "cutoff_regime",
     "source_freshness_state",
-    "settlement_distance_bucket",
     "forecast_source_count_bucket",
     "forecast_disagreement_bucket",
     "forecast_bucket_pressure",
-    "feature_missingness_hash",
     "route_source_variant_id",
 )
-EXCLUDED_LABEL_MARKET_OR_IDENTITY_FIELDS = (
+GUARDRAIL_FEATURES = (
+    "current_probability",
+)
+SETTLEMENT_OR_OUTCOME_DERIVED_FIELDS = (
     "outcome",
+    "settlement_distance_bucket",
+    "used_extra_location_labels",
+    "target_local_labels_present",
+    "extra_location_gate_status",
+    "extra_location_gate_reason",
+    "extra_location_weight",
+    "casebook_taxonomy",
+    "casebook_case_id",
+    "casebook_result",
+    "casebook_slice_type",
+    "feature_schema_version",
+    "feature_family_hash",
+    "feature_missingness_hash",
+    "micro_gate_taxonomy",
+    "micro_gate_reason",
+)
+MARKET_DERIVED_FIELDS = (
     "market_yes",
+    "clob_feature_available",
+    "clob_midpoint",
+    "clob_spread",
+    "clob_liquidity_score",
+)
+EVAL_IDENTITY_FIELDS = (
     "target_date",
     "snapshot_id",
+    "band_key",
     "captured_at_local",
 )
+EXCLUDED_LABEL_MARKET_OR_IDENTITY_FIELDS = (
+    *SETTLEMENT_OR_OUTCOME_DERIVED_FIELDS,
+    *MARKET_DERIVED_FIELDS,
+    *EVAL_IDENTITY_FIELDS,
+)
+PROHIBITED_FEATURE_FIELDS = frozenset(EXCLUDED_LABEL_MARKET_OR_IDENTITY_FIELDS)
+APPROVED_MODEL_FEATURES = frozenset((*NUMERIC_FEATURES, *CATEGORICAL_FEATURES))
+APPROVED_GUARDRAIL_FEATURES = frozenset(GUARDRAIL_FEATURES)
+SNAPSHOT_KEY_FIELDS = ("market_id", "target_date", "snapshot_id")
 REPAIR_EXTRA_FIELDS = (
     "item224_active_timesplit_logistic_raw_probability",
     "item224_active_timesplit_guardrail",
+    "item224_active_timesplit_raw_partition_method",
+    "item224_active_timesplit_final_partition_method",
     "active_timesplit_training_window",
     "active_timesplit_eval_window",
     "active_timesplit_model",
@@ -74,10 +108,10 @@ COUNTABLE_ROW_DEFAULTS = {
     "variant_family": VARIANT_FAMILY,
     "uses_market_features": "false",
     "is_control": "false",
-    "claim_lane": "weather_only_core_model",
-    "counts_toward_weather_model_promotion": "true",
+    "claim_lane": "quarantined_label_leak_repair",
+    "counts_toward_weather_model_promotion": "false",
     "quote_risk_eligible": "false",
-    "quote_risk_gate_reason": "weather_only_core_model",
+    "quote_risk_gate_reason": "item224_v0_1_label_leak_quarantine",
     "postprocess_config_hash": VARIANT_ID,
 }
 
@@ -98,6 +132,68 @@ def clamp_probability(value: Any) -> float:
     return max(1e-15, min(1.0 - 1e-15, finite_float(value)))
 
 
+def validate_feature_contract(
+    *,
+    numeric_features: tuple[str, ...] | list[str] | None = None,
+    categorical_features: tuple[str, ...] | list[str] | None = None,
+    guardrail_features: tuple[str, ...] | list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Validate the inference-only model/guardrail allowlist and fail closed."""
+
+    numeric = tuple(NUMERIC_FEATURES if numeric_features is None else numeric_features)
+    categorical = tuple(CATEGORICAL_FEATURES if categorical_features is None else categorical_features)
+    guardrail = tuple(GUARDRAIL_FEATURES if guardrail_features is None else guardrail_features)
+    model = (*numeric, *categorical)
+    issues = []
+
+    duplicates = sorted(field for field, count in Counter(model).items() if count > 1)
+    if duplicates:
+        issues.append(f"duplicate model fields: {', '.join(duplicates)}")
+
+    prohibited_model = sorted({
+        field
+        for field in model
+        if field in PROHIBITED_FEATURE_FIELDS
+        or "settlement" in field.strip().lower()
+        or "outcome" in field.strip().lower()
+    })
+    prohibited_guardrail = sorted({
+        field
+        for field in guardrail
+        if field in PROHIBITED_FEATURE_FIELDS
+        or "settlement" in field.strip().lower()
+        or "outcome" in field.strip().lower()
+    })
+    if prohibited_model:
+        issues.append(f"prohibited model fields: {', '.join(prohibited_model)}")
+    if prohibited_guardrail:
+        issues.append(f"prohibited guardrail fields: {', '.join(prohibited_guardrail)}")
+
+    unexpected_model = sorted(set(model) - APPROVED_MODEL_FEATURES)
+    unexpected_guardrail = sorted(set(guardrail) - APPROVED_GUARDRAIL_FEATURES)
+    if unexpected_model:
+        issues.append(f"unapproved model fields: {', '.join(unexpected_model)}")
+    if unexpected_guardrail:
+        issues.append(f"unapproved guardrail fields: {', '.join(unexpected_guardrail)}")
+
+    missing_exclusions = sorted(
+        set(SETTLEMENT_OR_OUTCOME_DERIVED_FIELDS)
+        - set(EXCLUDED_LABEL_MARKET_OR_IDENTITY_FIELDS)
+    )
+    if missing_exclusions:
+        issues.append(
+            "settlement/outcome-derived fields missing from explicit exclusions: "
+            + ", ".join(missing_exclusions)
+        )
+    if issues:
+        raise ValueError("Item224 fail-closed feature contract violation: " + "; ".join(issues))
+    return {
+        "numeric_features": list(numeric),
+        "categorical_features": list(categorical),
+        "guardrail_features": list(guardrail),
+    }
+
+
 def read_rows(path: str | Path) -> tuple[list[str], list[dict[str, Any]]]:
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -105,6 +201,8 @@ def read_rows(path: str | Path) -> tuple[list[str], list[dict[str, Any]]]:
 
 
 def write_rows(path: str | Path, fieldnames: list[str], rows: list[dict[str, Any]]) -> Path:
+    if rows:
+        validate_probability_partitions(rows)
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as handle:
@@ -123,6 +221,7 @@ def output_fieldnames(fieldnames: list[str]) -> list[str]:
 
 
 def row_features(row: dict[str, Any]) -> dict[str, Any]:
+    contract = validate_feature_contract()
     features = {
         "active_route_probability": finite_float(row.get("probability")),
         "current_probability": finite_float(row.get("current_probability")),
@@ -131,6 +230,9 @@ def row_features(row: dict[str, Any]) -> dict[str, Any]:
     }
     for field in CATEGORICAL_FEATURES:
         features[field] = str(row.get(field) or "")
+    expected = set(contract["numeric_features"] + contract["categorical_features"])
+    if set(features) != expected or set(features) & PROHIBITED_FEATURE_FIELDS:
+        raise ValueError("Item224 row feature extraction violated the fail-closed feature contract")
     return features
 
 
@@ -148,6 +250,145 @@ def split_rows(
     )
 
 
+def snapshot_key(row: dict[str, Any]) -> tuple[str, ...]:
+    key = tuple(str(row.get(field) or "").strip() for field in SNAPSHOT_KEY_FIELDS)
+    if not all(key):
+        missing = [field for field, value in zip(SNAPSHOT_KEY_FIELDS, key) if not value]
+        raise ValueError(
+            "Item224 probability partition is missing snapshot key field(s): "
+            + ", ".join(missing)
+        )
+    return key
+
+
+def _normalized_partition(values: list[Any]) -> list[float] | None:
+    weights = []
+    for value in values:
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(weight) or weight < 0.0:
+            return None
+        weights.append(weight)
+    try:
+        total = math.fsum(weights)
+    except OverflowError:
+        return None
+    if not math.isfinite(total) or total <= 0.0:
+        return None
+    normalized = [weight / total for weight in weights]
+    normalized[-1] += 1.0 - math.fsum(normalized)
+    return normalized
+
+
+def normalize_snapshot_probabilities(
+    rows: list[dict[str, Any]],
+    probabilities: list[Any],
+) -> tuple[list[float], list[str], dict[str, Any]]:
+    """Normalize mutually exclusive bands, falling back to current then uniform."""
+
+    if len(rows) != len(probabilities):
+        raise ValueError("probability rows and values differ")
+    grouped: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    seen_bands: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    for index, row in enumerate(rows):
+        key = snapshot_key(row)
+        band_key = str(row.get("band_key") or "").strip()
+        if not band_key:
+            raise ValueError("Item224 probability partition is missing band_key")
+        if band_key in seen_bands[key]:
+            raise ValueError(
+                "Item224 probability partition has duplicate band_key "
+                f"{band_key!r} for snapshot {key!r}"
+            )
+        seen_bands[key].add(band_key)
+        grouped[key].append(index)
+
+    normalized = [0.0] * len(rows)
+    methods = [""] * len(rows)
+    method_counts: Counter[str] = Counter()
+    for indexes in grouped.values():
+        partition = _normalized_partition([probabilities[index] for index in indexes])
+        method = "model_partition_normalized"
+        if partition is None:
+            partition = _normalized_partition([
+                rows[index].get("current_probability") for index in indexes
+            ])
+            method = "current_partition_fallback"
+        if partition is None:
+            partition = [1.0 / len(indexes)] * len(indexes)
+            partition[-1] += 1.0 - math.fsum(partition)
+            method = "uniform_partition_fallback"
+        method_counts[method] += 1
+        for index, probability in zip(indexes, partition):
+            normalized[index] = probability
+            methods[index] = method
+
+    partition_sums = [math.fsum(normalized[index] for index in indexes) for indexes in grouped.values()]
+    return normalized, methods, {
+        "snapshot_partitions": len(grouped),
+        "normalization_method_counts": dict(sorted(method_counts.items())),
+        "max_abs_partition_sum_error": max(
+            (abs(total - 1.0) for total in partition_sums),
+            default=0.0,
+        ),
+    }
+
+
+def validate_probability_partitions(
+    rows: list[dict[str, Any]],
+    *,
+    probability_field: str = "probability",
+    tolerance: float = 1e-9,
+) -> dict[str, Any]:
+    grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[snapshot_key(row)].append(row)
+    errors = []
+    for key, group_rows in grouped.items():
+        values = []
+        bands = set()
+        for row in group_rows:
+            band_key = str(row.get("band_key") or "").strip()
+            if not band_key or band_key in bands:
+                errors.append(f"snapshot {key!r} has missing or duplicate band_key {band_key!r}")
+                continue
+            bands.add(band_key)
+            try:
+                value = float(row.get(probability_field))
+            except (TypeError, ValueError):
+                value = math.nan
+            if not math.isfinite(value) or value < 0.0 or value > 1.0:
+                errors.append(
+                    f"snapshot {key!r} has invalid {probability_field}={row.get(probability_field)!r}"
+                )
+            values.append(value)
+        try:
+            total = math.fsum(values)
+        except OverflowError:
+            total = math.inf
+        if not math.isfinite(total) or abs(total - 1.0) > tolerance:
+            errors.append(
+                f"snapshot {key!r} {probability_field} partition sums to {total!r}, expected 1"
+            )
+    if errors:
+        raise ValueError("Item224 probability partition validation failed: " + "; ".join(errors))
+    return {
+        "snapshot_partitions": len(grouped),
+        "max_abs_partition_sum_error": max(
+            (
+                abs(
+                    math.fsum(float(row.get(probability_field)) for row in group_rows)
+                    - 1.0
+                )
+                for group_rows in grouped.values()
+            ),
+            default=0.0,
+        ),
+    }
+
+
 def fit_predict_probabilities(train_rows: list[dict[str, Any]], eval_rows: list[dict[str, Any]]) -> list[float]:
     import pandas as pd
     from sklearn.compose import ColumnTransformer
@@ -160,6 +401,7 @@ def fit_predict_probabilities(train_rows: list[dict[str, Any]], eval_rows: list[
     if not eval_rows:
         raise ValueError("evaluation split has no rows")
 
+    validate_feature_contract()
     columns = [*NUMERIC_FEATURES, *CATEGORICAL_FEATURES]
     train_frame = pd.DataFrame([row_features(row) for row in train_rows], columns=columns)
     eval_frame = pd.DataFrame([row_features(row) for row in eval_rows], columns=columns)
@@ -172,7 +414,7 @@ def fit_predict_probabilities(train_rows: list[dict[str, Any]], eval_rows: list[
         ("features", ColumnTransformer([
             ("num", StandardScaler(), list(NUMERIC_FEATURES)),
             ("cat", encoder, list(CATEGORICAL_FEATURES)),
-        ])),
+        ], remainder="drop")),
         (
             "model",
             LogisticRegression(max_iter=1000, C=MODEL_C, class_weight="balanced"),
@@ -182,29 +424,17 @@ def fit_predict_probabilities(train_rows: list[dict[str, Any]], eval_rows: list[
     return [clamp_probability(probability) for probability in model.predict_proba(eval_frame)[:, 1]]
 
 
-def early_adjacent_current_cap_applies(row: dict[str, Any], raw_probability: float, current: float) -> bool:
-    return (
-        str(row.get("cutoff_regime") or "").strip().lower() == "early"
-        and str(row.get("bin_type") or "").strip().lower() == "eq"
-        and str(row.get("settlement_distance_bucket") or "").strip() in {"1", "2"}
-        and current < EARLY_ADJACENT_CURRENT_CAP_MAX_CURRENT
-        and raw_probability - current > EARLY_ADJACENT_CURRENT_CAP_MIN_GAP
-    )
-
-
 def repaired_probability(
     row: dict[str, Any],
     raw_probability: float,
 ) -> tuple[float, list[str]]:
+    validate_feature_contract()
     current = clamp_probability(row.get("current_probability"))
     probability = clamp_probability(raw_probability)
     guardrails = []
     if current <= HIGH_CONFIDENCE_LOW or current >= HIGH_CONFIDENCE_HIGH:
         probability = current
         guardrails.append("preserve_high_confidence_current_v0_1")
-    if early_adjacent_current_cap_applies(row, raw_probability, current):
-        probability = current
-        guardrails.append("early_adjacent_low_current_gap_cap_v0_1")
     return probability, guardrails
 
 
@@ -217,11 +447,40 @@ def decorate_eval_rows(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if len(eval_rows) != len(raw_probabilities):
         raise ValueError("evaluation rows and raw probability count differ")
+    validate_feature_contract()
+    normalized_raw, raw_partition_methods, raw_partition_summary = normalize_snapshot_probabilities(
+        eval_rows,
+        raw_probabilities,
+    )
+    repaired_probabilities = []
+    row_guardrails = []
+    for row, raw_probability in zip(eval_rows, normalized_raw):
+        final_probability, guardrails = repaired_probability(row, raw_probability)
+        repaired_probabilities.append(final_probability)
+        row_guardrails.append(guardrails)
+    normalized_final, final_partition_methods, final_partition_summary = normalize_snapshot_probabilities(
+        eval_rows,
+        repaired_probabilities,
+    )
+
     output = []
     guardrail_counts: Counter[str] = Counter()
     source_counts: Counter[str] = Counter()
-    for row, raw_probability in zip(eval_rows, raw_probabilities):
-        final_probability, guardrails = repaired_probability(row, raw_probability)
+    for (
+        row,
+        raw_probability,
+        final_probability,
+        guardrails,
+        raw_partition_method,
+        final_partition_method,
+    ) in zip(
+        eval_rows,
+        normalized_raw,
+        normalized_final,
+        row_guardrails,
+        raw_partition_methods,
+        final_partition_methods,
+    ):
         guardrail_counts.update(guardrails)
         source_id = str(row.get("route_source_variant_id") or "")
         if source_id:
@@ -233,15 +492,24 @@ def decorate_eval_rows(
             "recorded_probability": repr(float(final_probability)),
             "item224_active_timesplit_logistic_raw_probability": repr(float(raw_probability)),
             "item224_active_timesplit_guardrail": ";".join(guardrails),
+            "item224_active_timesplit_raw_partition_method": raw_partition_method,
+            "item224_active_timesplit_final_partition_method": final_partition_method,
             "active_timesplit_training_window": ",".join(training_dates),
             "active_timesplit_eval_window": ",".join(eval_dates),
             "active_timesplit_model": MODEL_LABEL,
             "active_timesplit_source_variant_id": source_id,
         })
         output.append(item)
+    validate_probability_partitions(output)
+    validate_probability_partitions(
+        output,
+        probability_field="item224_active_timesplit_logistic_raw_probability",
+    )
     return output, {
         "guardrail_counts": dict(sorted(guardrail_counts.items())),
         "active_source_lineage_counts": dict(sorted(source_counts.items())),
+        "raw_partition_normalization": raw_partition_summary,
+        "final_partition_normalization": final_partition_summary,
     }
 
 
@@ -252,6 +520,7 @@ def brier(probability: Any, outcome: Any) -> float:
 def score_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not rows:
         return {"rows": 0}
+    validate_probability_partitions(rows)
     candidate = sum(brier(row.get("probability"), row.get("outcome")) for row in rows) / len(rows)
     current = sum(brier(row.get("current_probability"), row.get("outcome")) for row in rows) / len(rows)
     market = sum(brier(row.get("market_yes"), row.get("outcome")) for row in rows) / len(rows)
@@ -276,14 +545,23 @@ def market_summaries(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     }
 
 
-def active_contract(rows_out: str | Path) -> dict[str, Any]:
+def quarantined_contract(rows_out: str | Path) -> dict[str, Any]:
     return {
         "variant_id": VARIANT_ID,
         "variant_family": VARIANT_FAMILY,
-        "lifecycle": "active",
+        "lifecycle": "shadow",
         "track": "no_market",
-        "roles": ["candidate", "no-market", "item224-active-timesplit-probe"],
-        "active_for_headline": True,
+        "roles": [
+            "candidate",
+            "no-market",
+            "shadow-only",
+            "label-leak-quarantined",
+            "item224-active-timesplit-probe",
+        ],
+        "active_for_headline": False,
+        "counts_toward_weather_model_promotion": False,
+        "promotion_status": "blocked",
+        "promotion_block_reason": "item224_v0_1_used_settlement/outcome-derived features",
         "artifact_required": False,
         "prediction_function": "weather.reporting.research.item224_active_timesplit_logistic_repair:build_payload",
         "prediction_mode": "band_binary",
@@ -292,7 +570,18 @@ def active_contract(rows_out: str | Path) -> dict[str, Any]:
         "postprocess_config_hash": VARIANT_ID,
         "live_runtime": "active_timesplit_logistic_repair",
         "roadmap_items": [224],
+        "notes": (
+            "Quarantined 2026-07-11: historical v0.1 evidence used settlement_distance_bucket "
+            "directly and through feature_missingness_hash, and its guardrail read settlement "
+            "distance. A new variant and clean rerun are required before promotion."
+        ),
     }
+
+
+def active_contract(rows_out: str | Path) -> dict[str, Any]:
+    """Compatibility alias; Item224 v0.1 now emits a quarantined shadow contract."""
+
+    return quarantined_contract(rows_out)
 
 
 def write_contract(path: str | Path, contract: dict[str, Any]) -> Path:
@@ -334,6 +623,7 @@ def build_payload(
     training_dates: tuple[str, ...] = DEFAULT_TRAINING_DATES,
     eval_dates: tuple[str, ...] = DEFAULT_EVAL_DATES,
 ) -> dict[str, Any]:
+    feature_contract = validate_feature_contract()
     fieldnames, source_rows = read_rows(input_rows)
     train_rows, eval_rows = split_rows(
         source_rows,
@@ -349,7 +639,7 @@ def build_payload(
     )
     rows_path = write_rows(rows_out, output_fieldnames(fieldnames), repaired_rows)
     generated_at = utc_iso()
-    contract = active_contract(rows_path)
+    contract = quarantined_contract(rows_path)
     contract_path = write_contract(contract_out, contract)
     registry_path = write_registry(
         registry_out,
@@ -361,7 +651,7 @@ def build_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at,
-        "status": "ACTIVE_CONTRACT_EXPORT_READY",
+        "status": "QUARANTINED_RETRAIN_AND_REVALIDATION_REQUIRED",
         "variant_id": VARIANT_ID,
         "variant_family": VARIANT_FAMILY,
         "input_rows": str(input_rows),
@@ -379,8 +669,11 @@ def build_payload(
             "max_iter": 1000,
         },
         "feature_policy": {
-            "numeric_features": list(NUMERIC_FEATURES),
-            "categorical_features": list(CATEGORICAL_FEATURES),
+            **feature_contract,
+            "contract_validation": "fail_closed_allowlist",
+            "settlement_or_outcome_derived_fields": list(
+                SETTLEMENT_OR_OUTCOME_DERIVED_FIELDS
+            ),
             "excluded_label_market_or_identity_fields": list(EXCLUDED_LABEL_MARKET_OR_IDENTITY_FIELDS),
             "uses_market_features": False,
             "uses_eval_outcomes_for_training": False,
@@ -391,14 +684,12 @@ def build_payload(
                 "current_probability_high": HIGH_CONFIDENCE_HIGH,
                 "rows": int(guardrail_counts.get("preserve_high_confidence_current_v0_1", 0)),
             },
-            "early_adjacent_low_current_gap_cap_v0_1": {
-                "cutoff_regime": "early",
-                "bin_type": "eq",
-                "settlement_distance_bucket": ["1", "2"],
-                "current_probability_max": EARLY_ADJACENT_CURRENT_CAP_MAX_CURRENT,
-                "raw_probability_minus_current_min": EARLY_ADJACENT_CURRENT_CAP_MIN_GAP,
-                "rows": int(guardrail_counts.get("early_adjacent_low_current_gap_cap_v0_1", 0)),
-            },
+        },
+        "probability_partition_normalization": {
+            "group_fields": list(SNAPSHOT_KEY_FIELDS),
+            "raw": repair_summary["raw_partition_normalization"],
+            "final": repair_summary["final_partition_normalization"],
+            "fallback_order": ["current_probability_partition", "uniform_partition"],
         },
         "active_source_lineage_counts": repair_summary["active_source_lineage_counts"],
         "aggregate": score_summary(repaired_rows),

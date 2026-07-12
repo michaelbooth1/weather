@@ -29,7 +29,7 @@ def train_hour_model(train_rows, feature_names=None):
         train_frame = feature_frame(train_rows, feature_names=feature_names)
     build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
-    imputer = SimpleImputer(strategy="median")
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
     x_train = imputer.fit_transform(train_frame)
     y_train = np.array([int(row["final_bucket"]) for row in train_rows])
     model = HistGradientBoostingClassifier(
@@ -104,7 +104,7 @@ def train_density_hour_model(train_rows, feature_names=None):
         train_frame = feature_frame(train_rows, feature_names=feature_names)
     build_seconds = time.perf_counter() - build_started
     feature_names = list(train_frame.columns)
-    imputer = SimpleImputer(strategy="median")
+    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
     x_train = imputer.fit_transform(train_frame)
     y_train = np.array([float(row["final_bucket_f"]) for row in train_rows])
     model = HistGradientBoostingRegressor(

@@ -8,6 +8,7 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from weather.market.market_config import date_from_event_slug
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 
@@ -130,6 +131,41 @@ def _segment_rows(counter):
     return rows
 
 
+def _snapshot_target_date_scope(row, *, folder_target_date, target_date):
+    """Return whether a snapshot row belongs to an exact target-date scope.
+
+    Current tapes do not necessarily carry a ``target_date`` column.  For those
+    legacy rows, the registered event folder is the only trustworthy fallback:
+    an unparseable or differently dated enclosing folder must not leak the row
+    into the requested day's runtime evidence.
+    """
+    row_target_date = str(row.get("target_date") or "").strip()
+    requested = str(target_date).strip() if target_date not in (None, "") else ""
+    if not requested:
+        return True, "unscoped", row_target_date or None
+
+    if row_target_date:
+        if row_target_date == requested:
+            return True, "row_target_date", row_target_date
+        return False, "row_target_date_mismatch", None
+
+    if folder_target_date is None:
+        return False, "missing_target_date_unproven_enclosing_event_date", None
+
+    folder_target_date_text = folder_target_date.isoformat()
+    if folder_target_date_text != requested:
+        return False, "missing_target_date_enclosing_event_date_mismatch", None
+
+    # A parseable row event slug is corroborating metadata.  If it conflicts
+    # with the folder, fail closed instead of trusting either provenance source.
+    event_slug = str(row.get("event_slug") or "").strip()
+    event_target_date = date_from_event_slug(event_slug) if event_slug else None
+    if event_target_date is not None and event_target_date != folder_target_date:
+        return False, "missing_target_date_event_folder_conflict", None
+
+    return True, "enclosing_event_folder", folder_target_date_text
+
+
 def snapshot_runtime_segments(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date=None):
     root = Path(snapshots_root)
     counter = defaultdict(lambda: {
@@ -140,10 +176,22 @@ def snapshot_runtime_segments(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date
         "runtime_code_states": Counter(),
     })
     total = 0
+    scanned_total = 0
+    included_by_provenance = Counter()
+    excluded_by_reason = Counter()
     for path in sorted(root.glob("*/snapshots_long.csv")):
+        folder_target_date = date_from_event_slug(path.parent.name)
         for row in read_csv_rows(path):
-            if target_date and row.get("target_date") not in {"", None, str(target_date)}:
+            scanned_total += 1
+            included, scope_reason, effective_target_date = _snapshot_target_date_scope(
+                row,
+                folder_target_date=folder_target_date,
+                target_date=target_date,
+            )
+            if not included:
+                excluded_by_reason[scope_reason] += 1
                 continue
+            included_by_provenance[scope_reason] += 1
             fields = runtime_fields_from_snapshot_row(row)
             key = runtime_key_from_fields(fields)
             item = counter[key]
@@ -153,8 +201,8 @@ def snapshot_runtime_segments(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date
                 item["snapshot_ids"].add(row.get("snapshot_id"))
             if row.get("market_id"):
                 item["markets"].add(row.get("market_id"))
-            if row.get("target_date"):
-                item["target_dates"].add(row.get("target_date"))
+            if effective_target_date:
+                item["target_dates"].add(effective_target_date)
             item["runtime_git_commit"] = fields.get("runtime_git_commit") or item.get("runtime_git_commit")
             item["runtime_git_dirty"] = fields.get("runtime_git_dirty") or item.get("runtime_git_dirty")
             item["runtime_dirty_fingerprint"] = fields.get("runtime_dirty_fingerprint") or item.get("runtime_dirty_fingerprint")
@@ -164,6 +212,15 @@ def snapshot_runtime_segments(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, target_date
     return {
         "target_date": str(target_date) if target_date else None,
         "snapshot_row_count": total,
+        "target_date_scope": {
+            "mode": "exact_target_date" if target_date else "all_rows",
+            "requested_target_date": str(target_date) if target_date else None,
+            "scanned_snapshot_row_count": scanned_total,
+            "included_snapshot_row_count": total,
+            "excluded_snapshot_row_count": scanned_total - total,
+            "included_by_provenance": dict(sorted(included_by_provenance.items())),
+            "excluded_by_reason": dict(sorted(excluded_by_reason.items())),
+        },
         "runtime_identity_count": len(segments),
         "mixed_runtime_identity": len(segments) > 1,
         "segments": segments,
@@ -300,6 +357,7 @@ def build_runtime_identity_evidence(
 
 def render_report(payload):
     snapshots = payload.get("snapshots") or {}
+    target_date_scope = snapshots.get("target_date_scope") or {}
     trading_runs = payload.get("trading_runs") or {}
     lines = [
         "# Runtime Identity Evidence",
@@ -309,6 +367,9 @@ def render_report(payload):
         f"Mixed runtime identity: `{payload.get('mixed_runtime_identity')}`",
         f"Runtime identities: `{payload.get('runtime_identity_count')}`",
         f"Snapshot rows: `{payload.get('snapshot_row_count')}`",
+        f"Snapshot rows scanned: `{target_date_scope.get('scanned_snapshot_row_count', payload.get('snapshot_row_count'))}`",
+        f"Snapshot rows excluded by target-date scope: `{target_date_scope.get('excluded_snapshot_row_count', 0)}`",
+        f"Legacy rows admitted by enclosing event folder: `{(target_date_scope.get('included_by_provenance') or {}).get('enclosing_event_folder', 0)}`",
         f"Blocking reason: `{payload.get('blocking_reason') or '-'}`",
         "",
         "## Snapshot Segments",

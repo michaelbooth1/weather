@@ -151,19 +151,23 @@
     {
       "variant_id": "item224_active_timesplit_logistic_repair_v0_1",
       "variant_family": "item224_active_timesplit_logistic_repair",
-      "lifecycle": "active",
+      "lifecycle": "shadow",
       "track": "no_market",
-      "roles": ["candidate", "no-market", "active-bakeoff", "item160-model-ready", "item224-active-timesplit-probe"],
-      "active_for_headline": true,
+      "roles": ["candidate", "no-market", "shadow-only", "label-leak-quarantined", "item224-active-timesplit-probe"],
+      "active_for_headline": false,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "blocked",
+      "promotion_block_reason": "item224_v0_1_used_settlement/outcome-derived_features",
       "artifact_required": false,
-      "prediction_function": "weather.reporting.item224_active_timesplit_logistic_repair:build_payload",
+      "prediction_function": "weather.reporting.research.item224_active_timesplit_logistic_repair:build_payload",
       "prediction_mode": "band_binary",
       "export_family": "item224_active_timesplit_logistic_repair",
       "default_export_path": "data/backtest/item224_active_timesplit_logistic_repair_rows.csv",
       "input_rows_path": "data/backtest/item224_active_source_route_composite_rows.csv",
       "postprocess_config_hash": "item224_active_timesplit_logistic_repair_v0_1",
       "live_runtime": "active_timesplit_logistic_repair",
-      "roadmap_items": [160, 224]
+      "roadmap_items": [160, 224],
+      "notes": "Quarantined 2026-07-11: historical v0.1 evidence used settlement_distance_bucket directly and through feature_missingness_hash, and its guardrail read settlement distance. A new variant and clean rerun are required before promotion."
     },
     {
       "variant_id": "no_market_extra_locations_flat_pool_v0_1",

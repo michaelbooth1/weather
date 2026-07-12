@@ -27,6 +27,7 @@ DEFAULT_DATA_ROOT = data_path()
 DEFAULT_OUT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory.json"
 DEFAULT_REPORT = DEFAULT_DATA_ROOT / "backtest" / "data_retention_inventory_report.md"
 DEFAULT_MIN_FREE_BYTES = 5_000_000_000
+DEFAULT_MIN_GROWTH_HEADROOM_DAYS = 30.0
 DEFAULT_LOOKBACK_HOURS = 24.0
 DEFAULT_TOP_N = 25
 
@@ -306,6 +307,7 @@ def build_payload(
     root: str | Path = DEFAULT_DATA_ROOT,
     *,
     min_free_bytes: int = DEFAULT_MIN_FREE_BYTES,
+    min_growth_headroom_days: float = DEFAULT_MIN_GROWTH_HEADROOM_DAYS,
     lookback_hours: float = DEFAULT_LOOKBACK_HOURS,
     top_n: int = DEFAULT_TOP_N,
 ) -> dict[str, Any]:
@@ -406,9 +408,23 @@ def build_payload(
         for row in rows:
             row["size_human"] = _format_bytes(row["bytes"])
 
+    recent_bytes = sum(row["bytes"] for row in recent_files)
+    daily_recent_bytes = (
+        float(recent_bytes) * 24.0 / float(lookback_hours)
+        if float(lookback_hours) > 0.0
+        else 0.0
+    )
+    growth_headroom_days = (
+        float(usage.free) / daily_recent_bytes if daily_recent_bytes > 0.0 else None
+    )
+    growth_headroom_shortfall_days = (
+        max(0.0, float(min_growth_headroom_days) - growth_headroom_days)
+        if growth_headroom_days is not None
+        else 0.0
+    )
     free_shortfall = max(0, int(min_free_bytes) - int(usage.free))
     status = "PASS"
-    if free_shortfall:
+    if free_shortfall or growth_headroom_shortfall_days > 0.0:
         status = "BLOCK"
     return {
         "schema_version": SCHEMA_VERSION,
@@ -418,6 +434,7 @@ def build_payload(
         "root_exists": root.exists(),
         "lookback_hours": float(lookback_hours),
         "min_free_bytes": int(min_free_bytes),
+        "min_growth_headroom_days": float(min_growth_headroom_days),
         "disk": {
             "total_bytes": int(usage.total),
             "used_bytes": int(usage.used),
@@ -425,6 +442,10 @@ def build_payload(
             "free_human": _format_bytes(usage.free),
             "free_shortfall_bytes": int(free_shortfall),
             "free_shortfall_human": _format_bytes(free_shortfall),
+            "daily_recent_bytes": int(daily_recent_bytes),
+            "daily_recent_human": _format_bytes(daily_recent_bytes),
+            "growth_headroom_days": growth_headroom_days,
+            "growth_headroom_shortfall_days": growth_headroom_shortfall_days,
         },
         "event_day_manifests": event_day_manifests,
         "summary": {
@@ -440,8 +461,8 @@ def build_payload(
                 and row.get("bytes", 0) > 0
             ),
             "recent_file_count": len(recent_files),
-            "recent_bytes": sum(row["bytes"] for row in recent_files),
-            "recent_human": _format_bytes(sum(row["bytes"] for row in recent_files)),
+            "recent_bytes": recent_bytes,
+            "recent_human": _format_bytes(recent_bytes),
         },
         "storage_class_contracts": storage_class_contracts_payload(),
         "storage_class_summaries": sorted(storage_summaries.values(), key=lambda row: row["bytes"], reverse=True),
@@ -473,6 +494,14 @@ def render_report(payload: dict[str, Any]) -> str:
                 ["Total size", summary.get("total_human")],
                 ["Recent growth window", f"{payload.get('lookback_hours')} hours"],
                 ["Recent bytes", summary.get("recent_human")],
+                ["Daily recent-byte rate", disk.get("daily_recent_human")],
+                [
+                    "Growth headroom",
+                    "-"
+                    if disk.get("growth_headroom_days") is None
+                    else f"{disk.get('growth_headroom_days'):.1f} days",
+                ],
+                ["Minimum growth headroom", f"{payload.get('min_growth_headroom_days'):.1f} days"],
                 ["Free space", disk.get("free_human")],
                 ["Free-space shortfall", disk.get("free_shortfall_human")],
                 ["Review-required classes", summary.get("review_required_class_count")],
@@ -586,12 +615,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
+    parser.add_argument(
+        "--min-growth-headroom-days",
+        type=float,
+        default=DEFAULT_MIN_GROWTH_HEADROOM_DAYS,
+    )
     parser.add_argument("--lookback-hours", type=float, default=DEFAULT_LOOKBACK_HOURS)
     parser.add_argument("--top-n", type=int, default=DEFAULT_TOP_N)
     args = parser.parse_args(argv)
     payload = build_payload(
         args.root,
         min_free_bytes=args.min_free_bytes,
+        min_growth_headroom_days=args.min_growth_headroom_days,
         lookback_hours=args.lookback_hours,
         top_n=args.top_n,
     )

@@ -55,7 +55,124 @@ def write_mixed_june21_snapshot_fixture(snapshots_root):
     return path
 
 
+def write_runtime_snapshot_rows(path, rows):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "snapshot_id",
+        "market_id",
+        "target_date",
+        "event_slug",
+        "runtime_git_commit",
+        "runtime_git_dirty",
+        "runtime_source_fingerprint",
+        "runtime_code_state",
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def runtime_snapshot_row(snapshot_id, commit, *, target_date="", event_slug=""):
+    return {
+        "snapshot_id": snapshot_id,
+        "market_id": "toronto",
+        "target_date": target_date,
+        "event_slug": event_slug,
+        "runtime_git_commit": commit,
+        "runtime_git_dirty": "False",
+        "runtime_source_fingerprint": f"source-{commit}",
+        "runtime_code_state": "current",
+    }
+
+
 class TestRuntimeIdentityEvidence(unittest.TestCase):
+    def test_blank_target_dates_from_unrelated_event_folders_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            requested_slug = "highest-temperature-in-toronto-on-june-21-2026"
+            unrelated_slug = "highest-temperature-in-toronto-on-june-20-2026"
+            write_runtime_snapshot_rows(
+                snapshots / requested_slug / "snapshots_long.csv",
+                [runtime_snapshot_row("requested", "commit-requested", event_slug=requested_slug)],
+            )
+            write_runtime_snapshot_rows(
+                snapshots / unrelated_slug / "snapshots_long.csv",
+                [runtime_snapshot_row("unrelated", "commit-unrelated", event_slug=unrelated_slug)],
+            )
+
+            payload = build_runtime_identity_evidence(
+                snapshots_root=snapshots,
+                target_date="2026-06-21",
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                reconciliation_path=root / "backtest" / "runtime_identity_reconciliation.json",
+            )
+
+        scope = payload["snapshots"]["target_date_scope"]
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["runtime_identity_count"], 1)
+        self.assertEqual(payload["snapshot_row_count"], 1)
+        self.assertEqual(payload["snapshots"]["segments"][0]["runtime_git_commit"], "commit-requested")
+        self.assertEqual(scope["scanned_snapshot_row_count"], 2)
+        self.assertEqual(scope["excluded_snapshot_row_count"], 1)
+        self.assertEqual(
+            scope["excluded_by_reason"]["missing_target_date_enclosing_event_date_mismatch"],
+            1,
+        )
+
+    def test_blank_target_date_uses_matching_registered_event_folder_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            slug = "highest-temperature-in-toronto-on-june-21-2026"
+            write_runtime_snapshot_rows(
+                snapshots / slug / "snapshots_long.csv",
+                [runtime_snapshot_row("legacy", "commit-legacy")],
+            )
+
+            payload = build_runtime_identity_evidence(
+                snapshots_root=snapshots,
+                target_date="2026-06-21",
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                reconciliation_path=root / "backtest" / "runtime_identity_reconciliation.json",
+            )
+
+        segment = payload["snapshots"]["segments"][0]
+        scope = payload["snapshots"]["target_date_scope"]
+        self.assertEqual(payload["snapshot_row_count"], 1)
+        self.assertEqual(segment["target_dates"], ["2026-06-21"])
+        self.assertEqual(scope["included_by_provenance"]["enclosing_event_folder"], 1)
+        self.assertEqual(scope["excluded_snapshot_row_count"], 0)
+
+    def test_blank_target_date_in_unparseable_folder_is_excluded_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = root / "snapshots"
+            write_runtime_snapshot_rows(
+                snapshots / "legacy-unknown-event" / "snapshots_long.csv",
+                [runtime_snapshot_row("unknown", "commit-unknown")],
+            )
+
+            payload = build_runtime_identity_evidence(
+                snapshots_root=snapshots,
+                target_date="2026-06-21",
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                reconciliation_path=root / "backtest" / "runtime_identity_reconciliation.json",
+            )
+
+        scope = payload["snapshots"]["target_date_scope"]
+        self.assertEqual(payload["snapshot_row_count"], 0)
+        self.assertEqual(payload["runtime_identity_count"], 0)
+        self.assertEqual(
+            scope["excluded_by_reason"]["missing_target_date_unproven_enclosing_event_date"],
+            1,
+        )
+
     def test_june21_mixed_commits_block_unsegmented_model_claims(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
