@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -92,6 +93,85 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertTrue(admitted["host_commit"]["decision_uses_commit"])
         self.assertEqual(commit_blocked["decision"], "DEFER")
         self.assertEqual(commit_blocked["blockers"][0]["code"], "host_commit_above_limit")
+
+    def test_restart_then_clean_iteration_admits_without_weakening_error_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                capture_resource_mode="live",
+                _stage_a_process_checker=lambda _pid: True,
+            )
+            snapshots_root = Path(args.snapshots_root)
+            snapshots_root.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(timezone.utc)
+            status_paths = {
+                "snapshot": snapshots_root / "loop_status.json",
+                "clob": snapshots_root / "clob_loop_status.json",
+                "observation_trigger": snapshots_root / "observation_trigger_status.json",
+            }
+
+            def write_loop(name, pid, *, errors=0, last_error=None, iterations=1):
+                path = status_paths[name]
+                path.write_text(
+                    json.dumps({
+                        "pid": pid,
+                        "started_at": now.isoformat(),
+                        "last_heartbeat": now.isoformat(),
+                        "interval_seconds": 60,
+                        "iterations": iterations,
+                        "consecutive_errors": errors,
+                        "last_error": last_error,
+                        "paused": False,
+                    }),
+                    encoding="utf-8",
+                )
+                path.with_name(f".{path.name}.writer.lock").write_text(
+                    json.dumps({
+                        "pid": pid,
+                        "loop": name,
+                        "acquired_at_utc": now.isoformat(),
+                    }),
+                    encoding="utf-8",
+                )
+
+            write_loop(
+                "snapshot",
+                101,
+                errors=1,
+                last_error="los-angeles: capture_process_error: returncode=137",
+            )
+            write_loop("clob", 102)
+            write_loop("observation_trigger", 103)
+            budget = step_resource_budget("hourly_model_performance")
+
+            degraded = build_stage_a_step_admission(
+                args,
+                "hourly_model_performance",
+                budget,
+            )
+            snapshot_blocker = next(
+                blocker
+                for blocker in degraded["blockers"]
+                if blocker.get("loop") == "snapshot"
+            )
+
+            # A subsequent fully completed, error-free iteration clears the
+            # current latch. Cadence health alone is deliberately insufficient.
+            write_loop("snapshot", 101, iterations=2)
+            admitted = build_stage_a_step_admission(
+                args,
+                "hourly_model_performance",
+                budget,
+            )
+
+        self.assertEqual(degraded["decision"], "DEFER")
+        self.assertEqual(snapshot_blocker["code"], "capture_loop_not_fresh")
+        self.assertEqual(
+            set(snapshot_blocker["degraded_reasons"]),
+            {"consecutive_errors", "last_error_present"},
+        )
+        self.assertEqual(admitted["decision"], "ADMIT")
+        self.assertEqual(admitted["blockers"], [])
 
     def test_resource_gate_overrides_can_only_be_stricter(self):
         with self.assertRaisesRegex(ValueError, "reserve"):
@@ -193,6 +273,84 @@ class TestDailyRefreshResources(unittest.TestCase):
             4096,
         )
         self.assertEqual(payload["status"], "running")
+
+    def test_launcher_shim_child_receipt_pid_is_accepted_one_hop(self):
+        # venv\Scripts\python.exe spawns the real interpreter as its child, so
+        # the receipt's os.getpid() differs from the recorded spawn PID. The
+        # 2026-07-13 production run discarded a successful hourly child for
+        # exactly this reason; one launcher hop must validate, nothing looser.
+        for parent_pid, expect_ok in ((43210, True), (11111, False)):
+            with tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp)
+                payload = _parent_payload()
+
+                def fake_run(command, **kwargs):
+                    kwargs["on_started"]({
+                        "pid": 43210,
+                        "started_before_user_code": True,
+                    })
+                    result_path = Path(command[command.index("--result-json") + 1])
+                    result_path.write_text(
+                        json.dumps({
+                            "schema_version": "daily_refresh_step_child_v0.1",
+                            "status": "ok",
+                            "step": "taker_edge_permission_map",
+                            "pid": 99999,
+                            "parent_pid": parent_pid,
+                            "finished_at_utc": "2026-07-13T14:00:01+00:00",
+                            "result": {"status": "PASS"},
+                        }),
+                        encoding="utf-8",
+                    )
+                    return {
+                        "command": command,
+                        "pid": 43210,
+                        "returncode": 0,
+                        "timed_out": False,
+                        "duration_seconds": 0.1,
+                        "working_set_limit": {"requested": True},
+                        "resource_peaks": {
+                            "private_memory_peak_bytes": 64 * MIB,
+                            "working_set_peak_bytes": 32 * MIB,
+                        },
+                        "resource_io": {"read_bytes": 4096, "write_bytes": 1024},
+                        "resource_limit_exceeded": None,
+                        "containment": {"status": "PASS"},
+                        "termination": {"triggered": False},
+                        "runner_error": None,
+                    }
+
+                with patch(
+                    "weather.operations.daily_refresh.run_isolated_subprocess",
+                    side_effect=fake_run,
+                ):
+                    if expect_ok:
+                        result = _run_isolated_stage_a_step(
+                            args,
+                            payload,
+                            "taker_edge_permission_map",
+                            run_id="test-run",
+                        )
+                        validation = result["resource_execution"][
+                            "child_terminal_validation"
+                        ]
+                        self.assertEqual(result["resource_execution"]["status"], "ok")
+                        self.assertTrue(validation["pid_matches"])
+                        self.assertEqual(
+                            validation["pid_match_mode"], "launcher_parent"
+                        )
+                    else:
+                        with self.assertRaises(StageAChildFailure) as raised:
+                            _run_isolated_stage_a_step(
+                                args,
+                                payload,
+                                "taker_edge_permission_map",
+                                run_id="test-run",
+                            )
+                        self.assertIn(
+                            "invalid_or_error_child_terminal",
+                            str(raised.exception),
+                        )
 
     def test_budget_failure_leaves_terminal_resumable_status(self):
         with tempfile.TemporaryDirectory() as tmp:

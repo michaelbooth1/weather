@@ -39,6 +39,10 @@ def run_child(step_name, args_json, result_json):
         "schema_version": SCHEMA_VERSION,
         "step": step_name,
         "pid": os.getpid(),
+        # venv\Scripts\python.exe is a launcher shim: the parent records the
+        # shim's PID while this interpreter runs one hop below it. The
+        # receipt carries both so the parent can bind the exact ancestry.
+        "parent_pid": os.getppid(),
         "started_at_utc": started,
         "finished_at_utc": None,
         "status": "running",

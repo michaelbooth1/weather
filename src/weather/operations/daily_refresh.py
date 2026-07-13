@@ -544,6 +544,25 @@ def _bounded_step_result_metrics(result, *, limit=96):
     return metrics
 
 
+_COMPLETED_PROGRESS_STATUSES = {"complete", "completed", "ok", "skipped"}
+
+
+def _progress_snapshot(steps, total_step_count):
+    completed = [
+        step
+        for step in (steps or [])
+        if str(step.get("status") or "").lower() in _COMPLETED_PROGRESS_STATUSES
+    ]
+    last = completed[-1] if completed else {}
+    completed_count = len(completed)
+    return {
+        "last_completed_step": last.get("name"),
+        "last_completed_step_status": last.get("status"),
+        "completed_step_count": completed_count,
+        "total_step_count": max(completed_count, int(total_step_count or 0)),
+    }
+
+
 def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
     reserve_mb = int(
         getattr(
@@ -570,8 +589,10 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         )
     resume = bounded_resume_command(args, step_name)
     previous_steps = payload.get("steps") or []
-    prior_step_count = len(previous_steps)
-    prior = previous_steps[-1] if previous_steps else {}
+    total_step_count = int(
+        getattr(args, "_daily_refresh_total_step_count", len(previous_steps) + 1)
+    )
+    prior_progress = _progress_snapshot(previous_steps, total_step_count)
     admission_before = build_stage_a_step_admission(
         args,
         step_name,
@@ -586,11 +607,7 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         "admission_before": admission_before,
         "admission_after": None,
         "child_pid": None,
-        "last_progress": {
-            "last_completed_step": prior.get("name"),
-            "last_completed_step_status": prior.get("status"),
-            "completed_step_count": prior_step_count,
-        },
+        "last_progress": prior_progress,
         "last_progress_at_utc": utc_iso(),
     }
     payload.setdefault("resource_steps", []).append(resource_record)
@@ -662,7 +679,7 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
                 "current_step": step_name,
                 "child_pid": child_pid,
                 "budget": budget,
-                "last_completed_step": prior.get("name"),
+                "last_completed_step": prior_progress.get("last_completed_step"),
                 "resume_command": resume,
             },
         )
@@ -688,15 +705,29 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
             "schema_version",
             "status",
             "pid",
+            "parent_pid",
             "started_at_utc",
             "finished_at_utc",
             "error",
         )
     }
-    try:
-        child_pid_matches = int(child_payload.get("pid")) == int(child_result.get("pid"))
-    except (TypeError, ValueError):
-        child_pid_matches = False
+
+    def _matches_recorded_pid(value):
+        try:
+            return int(value) == int(child_result.get("pid"))
+        except (TypeError, ValueError):
+            return False
+
+    child_pid_matches = _matches_recorded_pid(child_payload.get("pid"))
+    child_pid_match_mode = "direct" if child_pid_matches else None
+    if not child_pid_matches and _matches_recorded_pid(child_payload.get("parent_pid")):
+        # venv\Scripts\python.exe is a launcher shim: the recorded spawn PID
+        # is the shim, and the receipt's os.getpid() is the real interpreter
+        # exactly one hop below it. Accept that ancestry and nothing looser;
+        # the receipt must still match this invocation's unique result path,
+        # step, schema, and terminal fields.
+        child_pid_matches = True
+        child_pid_match_mode = "launcher_parent"
     child_terminal_valid = bool(
         child_payload.get("schema_version") == schema_version("daily_refresh_step_child")
         and child_payload.get("status") == "ok"
@@ -710,6 +741,7 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         == schema_version("daily_refresh_step_child"),
         "step_matches": child_payload.get("step") == step_name,
         "pid_matches": child_pid_matches,
+        "pid_match_mode": child_pid_match_mode,
         "finished_at_present": bool(child_payload.get("finished_at_utc")),
     }
     admission_after = build_stage_a_step_admission(
@@ -792,11 +824,10 @@ def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
         payload["current_step"] = {
             "name": next_step,
             "status": "deferred_after_completed_step",
-            "last_progress": {
-                "last_completed_step": step_name,
-                "last_completed_step_status": "ok",
-                "completed_step_count": prior_step_count + 1,
-            },
+            "last_progress": _progress_snapshot(
+                payload.get("steps"),
+                total_step_count,
+            ),
             "last_progress_at_utc": resource_record["finished_at_utc"],
             "resume_command": next_resume,
         }
@@ -1222,6 +1253,16 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         )
         payload["config"]["carried_forward_from_stage"] = STAGE_SETTLEMENT
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+    readiness_step_declared = bool(
+        not args.dry_run
+        and not getattr(args, "skip_production_readiness_gate", False)
+    )
+    total_step_count = (
+        len(payload["steps"])
+        + len(runners)
+        + int(readiness_step_declared)
+    )
+    setattr(args, "_daily_refresh_total_step_count", total_step_count)
     setattr(args, "_daily_refresh_resource_steps", payload["resource_steps"])
     capture_resource_admission = None
     capture_resource_deferred = False
@@ -1321,12 +1362,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             _flush_incremental_status(args, payload)
             touch_long_job_guard(
                 getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
-                progress={
-                    "last_completed_step": name,
-                    "last_completed_step_status": step.get("status"),
-                    "completed_step_count": len(payload["steps"]),
-                    "total_step_count": len(runners),
-                },
+                progress=_progress_snapshot(
+                    payload.get("steps"),
+                    total_step_count,
+                ),
             )
             if resource_execution.get("status") == "ok_postcheck_deferred":
                 stage_a_resource_deferred = True
@@ -1438,9 +1477,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             if flow_status in {"BLOCKED", "MISSING_INPUTS"} and payload["status"] == "ok":
                 payload["status"] = "critical"
     readiness_blocked_by_pipeline = bool(
-        payload.get("status") in {"error", "deferred", "interrupted"}
+        payload.get("status") in {"error", "interrupted"}
         or capture_resource_deferred
-        or captured_input_parity_deferred
         or stage_a_resource_deferred
     )
     if (
@@ -1494,6 +1532,14 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "reason": "upstream_pipeline_not_successful",
             "pipeline_status": payload.get("status"),
         }
+    if not args.dry_run:
+        touch_long_job_guard(
+            getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+            progress=_progress_snapshot(
+                payload.get("steps"),
+                total_step_count,
+            ),
+        )
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["terminal"] = True
