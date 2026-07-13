@@ -23,6 +23,7 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [double]$MaxCommitPercent = 70.0,
     [long]$MinFreeDiskBytes = 60GB,
+    [double]$CaptureStopTimeoutSeconds = 90.0,
     [double]$ChildTimeoutMinutes = 180.0,
     [switch]$RestoreOnly,
     [switch]$DryRun
@@ -66,6 +67,25 @@ function Restore-Capture {
     Write-WindowLog "RESTORE" "ensure verbs issued for all three loops"
 }
 
+function Wait-CaptureStopped([double]$TimeoutSeconds) {
+    # Reuse the canonical read-only gate instead of trusting process names or
+    # stale status PIDs. In no-live-capture mode it passes only after all three
+    # workers are actually inactive.
+    $deadline = [datetime]::UtcNow.AddSeconds([math]::Max(1.0, $TimeoutSeconds))
+    do {
+        & $python -m weather.operations.capture_resource_gate `
+            --workload training_window_stop_confirmation `
+            --capture-mode no_live_capture `
+            --min-free-memory-bytes 0 `
+            --min-free-disk-bytes 0 `
+            --no-write `
+            --fail-on-block | Out-Null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Start-Sleep -Seconds 2
+    } while ([datetime]::UtcNow -lt $deadline)
+    return $false
+}
+
 Set-Location $RepoRoot
 
 if ($RestoreOnly) {
@@ -90,7 +110,7 @@ if ($skipReasons.Count -gt 0) {
 }
 
 if ($DryRun) {
-    Write-WindowLog "INFO" "dry-run: preflight PASS (commit $([math]::Round($commitPercent,1))%, disk $([math]::Round($freeDisk/1GB,1))GB free); would stop capture, run retrain (cap ${ChildTimeoutMinutes}m), restore"
+    Write-WindowLog "INFO" "dry-run: preflight PASS (commit $([math]::Round($commitPercent,1))%, disk $([math]::Round($freeDisk/1GB,1))GB free); would stop and verify capture inactive (cap ${CaptureStopTimeoutSeconds}s), run retrain in no-live-capture mode (cap ${ChildTimeoutMinutes}m), restore"
     Write-WindowStatus "dry_run" "preflight_pass"
     exit 0
 }
@@ -99,6 +119,8 @@ Write-WindowLog "INFO" "window opening: commit $([math]::Round($commitPercent,1)
 Write-WindowStatus "opening" "in_progress"
 
 $childExit = -1
+$nightlyStatus = "not_run"
+$nightlyAdmission = "not_run"
 try {
     # ---- Stop capture cleanly: supervisors first so nothing revives mid-window ----
     foreach ($task in $supervisorTasks) {
@@ -109,13 +131,24 @@ try {
     & $python -m weather.market.market_microstructure stop | Out-Null
     & $python -m weather.operations.observation_trigger stop | Out-Null
     Write-WindowLog "STOP" "stop verbs issued for all three loops"
-    Start-Sleep -Seconds 10
+    if (-not (Wait-CaptureStopped $CaptureStopTimeoutSeconds)) {
+        $childExit = 9001
+        Write-WindowLog "ERROR" "capture did not become fully inactive within ${CaptureStopTimeoutSeconds}s; retrain not started"
+        throw "capture stop verification timed out"
+    }
+    Write-WindowLog "STOP" "canonical gate confirms all three capture loops inactive"
 
     # ---- Run the retrain child under a hard timeout ----
     Write-WindowStatus "retrain" "running"
     Write-WindowLog "RETRAIN" "starting nightly_retrain (cap ${ChildTimeoutMinutes}m)"
+    $childArgs = @(
+        "-m", "weather.operations.nightly_retrain", "run",
+        "--fail-on-daily-learning-blocker",
+        "--capture-resource-mode", "no_live_capture",
+        "--capture-resource-min-free-memory-bytes", "0"
+    )
     $child = Start-Process -FilePath $python `
-        -ArgumentList "-m", "weather.operations.nightly_retrain", "run", "--fail-on-daily-learning-blocker" `
+        -ArgumentList $childArgs `
         -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
     $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
     if (-not $completed) {
@@ -126,11 +159,28 @@ try {
         $childExit = $child.ExitCode
         Write-WindowLog "RETRAIN" "nightly_retrain exited $childExit"
     }
+    $nightlyStatusPath = Join-Path $RepoRoot "data\backtest\nightly_retrain_status.json"
+    if (Test-Path $nightlyStatusPath) {
+        try {
+            $nightlyPayload = Get-Content $nightlyStatusPath -Raw | ConvertFrom-Json
+            $nightlyStatus = [string]$nightlyPayload.status
+            $nightlyAdmission = [string]$nightlyPayload.capture_resource_admission.decision
+        } catch {
+            $nightlyStatus = "unreadable"
+        }
+    } else {
+        $nightlyStatus = "missing"
+    }
+    Write-WindowLog "RETRAIN" "nightly status $nightlyStatus; capture admission $nightlyAdmission; child exit $childExit"
+    if ($childExit -eq 0 -and $nightlyStatus -in @("blocked", "error", "missing", "unreadable")) {
+        $childExit = 2
+        Write-WindowLog "RETRAIN" "promoting non-success nightly status to window exit $childExit"
+    }
 } finally {
     # ---- Restore capture no matter what happened above ----
     Write-WindowStatus "restore" "in_progress"
     Restore-Capture
-    Write-WindowStatus "closed" "retrain_exit_$childExit"
-    Write-WindowLog "INFO" "window closed (retrain exit $childExit); capture restore issued"
+    Write-WindowStatus "closed" "nightly_${nightlyStatus}_admission_${nightlyAdmission}_exit_$childExit"
+    Write-WindowLog "INFO" "window closed (nightly $nightlyStatus, admission $nightlyAdmission, exit $childExit); capture restore issued"
 }
-exit 0
+exit $childExit

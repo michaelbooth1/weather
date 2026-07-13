@@ -34,7 +34,11 @@ maintenance window:
 - **`WeatherTrainingWindow` (01:00 daily)**: preflight (skip unless commit
   < 70% and disk free > 60 GB) → disable the three capture supervisors and
   stop the loops → run `nightly_retrain` with a 3-hour hard cap → restore
-  capture in a `finally` block.
+  capture in a `finally` block. The window must confirm all three workers are
+  inactive through the canonical capture-resource gate before starting the
+  child, and the child runs with `capture_resource_mode=no_live_capture`.
+  Window commit preflight owns the memory decision; a blocked/error/missing
+  nightly status is surfaced as a nonzero window result after capture restore.
 - **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
   unconditionally re-enables supervisors and ensures all loops, in case the
   window process dies mid-flight.

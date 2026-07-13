@@ -12,6 +12,8 @@ from weather.operations.taker_bot_daily_roll import (
     build_taker_bot_command,
     ensure_for_date,
     load_status,
+    pid_matches_taker_bot,
+    retire_taker_bot_process_tree,
     start_for_date,
     target_date_for_roll,
 )
@@ -196,6 +198,122 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(saved["pid"], 7654)
         self.assertEqual(saved["action"], "noop")
         self.assertEqual(first["schema_version"], "taker_bot_daily_roll_v0.1")
+
+    def test_scheduled_start_retires_previous_date_tree_before_launch(self):
+        launches = []
+        retirements = []
+
+        def retire_process_tree(pid, target_date):
+            retirements.append((pid, target_date))
+            return {"pid": pid, "target_date": target_date, "stopped": True}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+
+            payload = start_for_date(
+                "2026-06-19",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                launcher=lambda command, repo_root, console_log_path: launches.append(command) or 9100,
+                pid_alive=lambda pid, target_date=None: pid == 7654 and target_date == "2026-06-18",
+                retire_process_tree=retire_process_tree,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(retirements, [(7654, "2026-06-18")])
+        self.assertEqual(len(launches), 1)
+        self.assertEqual(payload["status"], "started")
+        self.assertTrue(payload["superseded_process_retirement"]["stopped"])
+        self.assertEqual(saved["target_date"], "2026-06-19")
+        self.assertEqual(saved["pid"], 9100)
+
+    def test_scheduled_start_fails_closed_when_previous_date_tree_cannot_retire(self):
+        launches = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+
+            payload = start_for_date(
+                "2026-06-19",
+                status_path=status_path,
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "taker_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                launcher=lambda command, repo_root, console_log_path: launches.append(command) or 9100,
+                pid_alive=lambda pid, target_date=None: pid == 7654 and target_date == "2026-06-18",
+                retire_process_tree=lambda pid, target_date: {
+                    "pid": pid,
+                    "target_date": target_date,
+                    "stopped": False,
+                    "reason": "simulated taskkill failure",
+                },
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(launches, [])
+        self.assertEqual(payload["status"], "blocked_superseded_process")
+        self.assertEqual(payload["action"], "blocked_start")
+        self.assertFalse(payload["status_persisted"])
+        self.assertEqual(saved["target_date"], "2026-06-18")
+        self.assertEqual(saved["pid"], 7654)
+
+    def test_pid_match_requires_exact_taker_module_and_target_date(self):
+        with patch(
+            "weather.operations.taker_bot_daily_roll.pid_is_python",
+            return_value=True,
+        ), patch(
+            "weather.operations.taker_bot_daily_roll.process_command_line",
+            return_value=(
+                "pythonw.exe -m weather.market.taker_bot --date 2026-06-18 "
+                "--budget-usdc 100 --loop"
+            ),
+        ):
+            self.assertTrue(pid_matches_taker_bot(7654, "2026-06-18"))
+            self.assertFalse(pid_matches_taker_bot(7654, "2026-06-19"))
+
+        with patch(
+            "weather.operations.taker_bot_daily_roll.pid_is_python",
+            return_value=True,
+        ), patch(
+            "weather.operations.taker_bot_daily_roll.process_command_line",
+            return_value="pythonw.exe -m weather.market.market_making --date 2026-06-18",
+        ):
+            self.assertFalse(pid_matches_taker_bot(7654, "2026-06-18"))
+
+    def test_windows_retirement_uses_verified_tree_termination(self):
+        calls = []
+
+        def run_fn(command, **kwargs):
+            calls.append((command, kwargs))
+            return SimpleNamespace(returncode=0, stdout="SUCCESS", stderr="")
+
+        with patch(
+            "weather.operations.taker_bot_daily_roll.pid_matches_taker_bot",
+            return_value=True,
+        ), patch(
+            "weather.operations.taker_bot_daily_roll.os.name",
+            "nt",
+        ), patch(
+            "weather.operations.taker_bot_daily_roll._creationflags",
+            return_value=0,
+        ):
+            result = retire_taker_bot_process_tree(
+                7654,
+                "2026-06-18",
+                run_fn=run_fn,
+            )
+
+        self.assertTrue(result["stopped"])
+        self.assertEqual(calls[0][0], ["taskkill.exe", "/PID", "7654", "/T", "/F"])
+        self.assertEqual(calls[0][1]["timeout"], 15)
 
     def test_force_allows_manual_restart_for_same_date(self):
         calls = []

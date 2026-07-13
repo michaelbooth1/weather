@@ -1,11 +1,15 @@
 import csv
+import gc
 import json
 import os
 import tempfile
 import unittest
+import weakref
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from weather.market import exchange_economics
 from weather.market.taker_bot import (
@@ -30,6 +34,7 @@ from weather.market.taker_bot import (
     no_side_campaign_summary,
     next_run_policy_gate,
     recover_run_artifacts_from_orders,
+    run_loop,
     run_taker_strategy_bakeoff,
     warm_tail_guard_state,
     weak_slot_gate_state,
@@ -364,6 +369,56 @@ def write_labels(path, rows):
 
 
 class TestTakerBot(unittest.TestCase):
+    def test_run_loop_releases_completed_tick_payloads(self):
+        class Payload:
+            pass
+
+        payload_refs = []
+        payload_liveness_during_sleep = []
+
+        def build_payload(*_args, **_kwargs):
+            payload = Payload()
+            payload_refs.append(weakref.ref(payload))
+            return payload
+
+        def observe_sleep(_seconds):
+            gc.collect()
+            payload_liveness_during_sleep.append(
+                tuple(payload_ref() is not None for payload_ref in payload_refs)
+            )
+
+        with (
+            patch(
+                "weather.market.taker_bot_cli.build_run_once",
+                side_effect=build_payload,
+            ) as build_mock,
+            patch(
+                "weather.market.taker_bot_cli.keep_system_awake",
+                return_value=nullcontext(),
+            ),
+            patch(
+                "weather.market.taker_bot_cli.time.sleep",
+                side_effect=observe_sleep,
+            ),
+        ):
+            result = run_loop(
+                TARGET_DATE,
+                budget_usdc=100,
+                markets="atlanta",
+                interval_seconds=0,
+                until_utc="2099-01-01T00:00:00+00:00",
+                max_ticks=3,
+            )
+
+        self.assertEqual(build_mock.call_count, 3)
+        self.assertEqual(
+            payload_liveness_during_sleep,
+            [(True,), (False, True)],
+        )
+        self.assertIsNone(payload_refs[0]())
+        self.assertIsNone(payload_refs[1]())
+        self.assertIs(payload_refs[2](), result)
+
     def test_buys_positive_edge_and_scores_settlement_pnl(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

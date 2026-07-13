@@ -1,5 +1,9 @@
 # Wunderground CYYZ History Data Layer
 
+Classification: historical Toronto foundation plus a current CYYZ recovery
+runbook. It is not the canonical multi-market architecture description; use
+[Agent Context](AGENT_CONTEXT.md) for current settlement/unit invariants.
+
 This project treats Wunderground's Toronto Pearson history page as the market's
 resolution source. The local history layer stores Weather Underground-derived
 raw/hourly/daily artifacts as the closest machine-readable proxy for settlement.

@@ -118,4 +118,31 @@ and last useful write are visible in the daily-roll status and fleet
 observability, proven by tests for the dead-pid, hung-no-write, and
 stale-fingerprint paths.
 
-Related: items 16, 95, 152, 161, 239, 272, 307, 311.
+2026-07-13 rollover hardening: the 12-hour runtime monitor found the scheduled
+`WeatherTakerBotDailyRoll` direct `start` path had bypassed the supervisor's
+prior-date retirement. The July 12 worker therefore continued alongside the
+canonical July 13 worker after midnight, consuming about 1.9 GiB of private
+memory and continuing to grow non-countable prior-day artifacts. The verified
+July 12 process tree was retired without deleting its evidence. The direct
+start owner now command/date-verifies the recorded Windows process, terminates
+the full launcher tree with `taskkill /T`, blocks the new launch if retirement
+fails, and preserves the prior status for operator recovery. Focused regression
+coverage exercises successful rollover, fail-closed rollover, exact process
+matching, and tree-aware termination; all 29 taker daily-roll tests pass. This
+closes the observed gap without changing scheduler registration or trading
+permission.
+
+2026-07-13 long-loop retention remediation: the same monitor measured the
+current-date taker worker growing from 727.5 MiB to 3,349.1 MiB private memory
+in 107 minutes. `run_loop` retained every full, increasingly cumulative tick
+payload even though its public contract returns only the latest payload. The
+loop now retains only `last_payload`; a weak-reference regression proves prior
+tick payloads become collectible during the next iteration, and the complete
+taker test file passes 70 tests plus 5 subtests. The existing current-code
+supervisor adopted the repair as `superseded_code`, retired the old tree, and
+the replacement returned to healthy `POLICY_NO_EDGE` paper evidence on the new
+source fingerprint. Item 322 owns the separate incremental-persistence and
+bounded-resource soak work; this completed lifecycle item does not claim that
+broader performance debt is closed.
+
+Related: items 16, 95, 152, 161, 239, 272, 307, 311, 322.

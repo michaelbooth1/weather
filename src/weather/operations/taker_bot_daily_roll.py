@@ -8,6 +8,7 @@ apply_windows_silent_subprocess_defaults()
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -222,8 +223,19 @@ def process_command_line(pid):
     except (TypeError, ValueError):
         return ""
     if os.name == "nt":
-        return ""
-    command = ["ps", "-p", str(pid), "-o", "args="]
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$process = Get-CimInstance Win32_Process "
+                f"-Filter \"ProcessId = {pid}\" -ErrorAction SilentlyContinue; "
+                "if ($process) { [Console]::Out.Write([string]$process.CommandLine) }"
+            ),
+        ]
+    else:
+        command = ["ps", "-p", str(pid), "-o", "args="]
     try:
         result = subprocess.run(
             command,
@@ -244,13 +256,82 @@ def pid_matches_taker_bot(pid, target_date=None):
         return False
     command_line = process_command_line(pid)
     if not command_line:
-        return True
-    text = command_line.lower()
-    if "taker_bot" not in text:
         return False
-    if target_date and str(target_date) not in command_line:
+    if not re.search(r"(?i)(?:^|\s)-m\s+weather\.market\.taker_bot(?:\s|$)", command_line):
+        return False
+    if target_date and not re.search(
+        rf"(?i)(?:^|\s)--date(?:=|\s+){re.escape(str(target_date))}(?:\s|$)",
+        command_line,
+    ):
         return False
     return True
+
+
+def retire_taker_bot_process_tree(
+    pid,
+    target_date,
+    *,
+    run_fn=subprocess.run,
+):
+    """Terminate one command/date-verified taker process tree.
+
+    Windows virtual-environment launchers retain the lightweight venv process
+    as the recorded pid and run the memory-heavy interpreter as its child.
+    Tree-aware retirement is therefore required at the date boundary; killing
+    only the recorded launcher can orphan yesterday's worker.
+    """
+    if not pid_matches_taker_bot(pid, target_date):
+        return {
+            "pid": pid,
+            "target_date": target_date,
+            "stopped": False,
+            "reason": "pid is not an exact live taker-bot command/date match",
+        }
+    try:
+        normalized = int(pid)
+    except (TypeError, ValueError):
+        return {
+            "pid": pid,
+            "target_date": target_date,
+            "stopped": False,
+            "reason": "invalid pid",
+        }
+    if os.name == "nt":
+        command = ["taskkill.exe", "/PID", str(normalized), "/T", "/F"]
+        try:
+            result = run_fn(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=_creationflags(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {
+                "pid": normalized,
+                "target_date": target_date,
+                "stopped": False,
+                "reason": str(exc),
+                "command": command,
+            }
+        return {
+            "pid": normalized,
+            "target_date": target_date,
+            "stopped": result.returncode == 0,
+            "returncode": result.returncode,
+            "reason": None if result.returncode == 0 else (result.stderr or result.stdout or "taskkill failed").strip(),
+            "command": command,
+        }
+    try:
+        os.kill(normalized, 15)
+    except OSError as exc:
+        return {
+            "pid": normalized,
+            "target_date": target_date,
+            "stopped": False,
+            "reason": str(exc),
+        }
+    return {"pid": normalized, "target_date": target_date, "stopped": True}
 
 
 def launch_taker_bot_process(command, *, repo_root=REPO_ROOT, console_log_path=DEFAULT_CONSOLE_LOG_PATH):
@@ -903,6 +984,8 @@ def start_for_date(
     pid_alive=pid_matches_taker_bot,
     launcher=launch_taker_bot_process,
     force_retire_latest_run=False,
+    retire_process_tree=retire_taker_bot_process_tree,
+    retire_superseded_process=True,
 ):
     target_date = ensure_date(target_date)
     status_path = Path(status_path)
@@ -923,6 +1006,43 @@ def start_for_date(
     config_warnings = current_high_trust_config_warnings(effective_config)
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
+    existing_target_date = existing.get("target_date")
+    superseded_process_retirement = None
+    if (
+        retire_superseded_process
+        and existing_pid
+        and existing_target_date
+        and existing_target_date != target_date
+        and pid_alive(existing_pid, existing_target_date)
+    ):
+        superseded_process_retirement = retire_process_tree(existing_pid, existing_target_date)
+        if not superseded_process_retirement.get("stopped"):
+            payload = _base_payload(
+                target_date=target_date,
+                budget_usdc=budget_usdc,
+                markets=markets,
+                interval_seconds=interval_seconds,
+                timezone_name=timezone_name,
+                status_path=status_path,
+                console_log_path=console_log_path,
+                runs_root=runs_root,
+                command=command,
+                config_warnings=config_warnings,
+                now=now,
+            )
+            payload.update({
+                "status": "blocked_superseded_process",
+                "action": "blocked_start",
+                "terminal": True,
+                "status_persisted": False,
+                "superseded_target_date": existing_target_date,
+                "superseded_pid": existing_pid,
+                "superseded_process_retirement": superseded_process_retirement,
+                "remediation_command": (
+                    "verify and retire the exact prior-date taker process tree, then rerun the daily roll"
+                ),
+            })
+            return payload
     existing_liveness = None
     if existing.get("target_date") == target_date and existing.get("status") in {"started", "already_running"}:
         refreshed = taker_terminal_status_for_inactive_process(
@@ -1038,6 +1158,8 @@ def start_for_date(
     )
     if forced_run_retirement is not None:
         payload["forced_run_retirement"] = forced_run_retirement
+    if superseded_process_retirement is not None:
+        payload["superseded_process_retirement"] = superseded_process_retirement
     if not disk_preflight.get("ok"):
         payload = disk_full_status(payload, preflight=disk_preflight, now=now)
         if forced_run_retirement is not None:
@@ -1063,6 +1185,8 @@ def start_for_date(
     })
     if forced_run_retirement is not None:
         payload["forced_run_retirement"] = forced_run_retirement
+    if superseded_process_retirement is not None:
+        payload["superseded_process_retirement"] = superseded_process_retirement
     write_json(status_path, payload)
     return payload
 
@@ -1148,6 +1272,7 @@ def ensure_for_date(
             pid_alive=pid_alive,
             launcher=launcher,
             force_retire_latest_run=force_retire_latest_run,
+            retire_superseded_process=False,
         )
 
     return ensure_daily_roll(
@@ -1249,9 +1374,12 @@ def cmd_start(args):
         "Taker-bot daily roll: "
         f"{payload['status']} date={payload['target_date']} pid={payload.get('pid')}"
     )
-    print(f"Status written to {payload['status_path']}")
+    if payload.get("status_persisted", True):
+        print(f"Status written to {payload['status_path']}")
+    else:
+        print(f"Existing status preserved at {payload['status_path']}")
     print(f"Console log: {payload['console_log_path']}")
-    return 0
+    return 1 if payload.get("status") == "blocked_superseded_process" else 0
 
 
 def cmd_status(args):

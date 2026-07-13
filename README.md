@@ -1,5 +1,8 @@
 # Weather Market Platform
 
+Coding agents should start with [AGENTS.md](AGENTS.md) and load task-specific
+context through the [documentation map](docs/README.md).
+
 Research, collection, model validation, and operations tooling for Polymarket
 daily high-temperature markets. The platform ingests local Weather Underground
 settlement-proxy history, free live observations, forecasts, Polymarket market
@@ -126,6 +129,10 @@ Environment variables used by operator-facing code:
 | `SETTLEMENT_LEDGER_ROOT` | Optional root for settlement ledgers; defaults to `data/settlements/`. |
 | `WEATHER_DISABLE_STAY_AWAKE` | Set to `1` to disable Windows stay-awake requests in long-running loops. |
 | `WEATHER_ALLOW_CONSOLE_CHILDREN` | Set to `1` to allow visible console child processes on Windows background workers. |
+| `WEATHER_RETAIN_RAW_FORECAST_PAYLOADS` | Controls retention of raw forecast payload blobs for live snapshot persistence; defaults to retained. |
+| `WEATHER_RETAIN_RAW_OBSERVATION_PAYLOADS` | Controls retention of raw observation payload blobs for live snapshot persistence; defaults to retained. |
+| `WEATHER_SOURCE_FAMILY_COOLDOWN_PATH` | Optional shared rate-limit cooldown state for cooperating source processes. |
+| `WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_RELEASE_DIR` plus `WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_MANIFEST_SHA256` | Opts capture into an inactive residual-distribution shadow release; both the directory and exact manifest hash are required. |
 
 ## Core Commands
 
@@ -265,32 +272,27 @@ normal development and research runs in `shadow` or `paper-live-forward`.
 
 ## Scheduled Operations
 
-Register scheduled tasks from the repository root after setup. Re-running a
-registration script replaces the existing task.
+Windows scheduled-task definitions live under `scripts/ops/`. Registration is
+stateful and re-running a script replaces its named task. Read
+[the scoped script instructions](scripts/ops/AGENTS.md), the script's `param(...)`
+block, and the [operations topology](docs/operations/OPERATIONS_DESIGN.md) before
+registration. Some production pipeline scripts require explicit captured-input
+and production-readiness evidence paths; an argument-free example is not valid.
+
+The three core capture supervisors have self-contained defaults:
 
 ```powershell
 .\scripts\ops\register_snapshot_supervisor.ps1
 .\scripts\ops\register_clob_supervisor.ps1
 .\scripts\ops\register_observation_trigger_supervisor.ps1
-.\scripts\ops\register_exchange_economics_refresh.ps1
-.\scripts\ops\register_daily_refresh.ps1
-.\scripts\ops\register_nightly_retrain.ps1
-.\scripts\ops\register_market_making_daily_roll.ps1
-.\scripts\ops\register_taker_bot_daily_roll.ps1
 ```
 
-Default scheduled behavior:
-
-| Task | Registration script | Default cadence |
-| --- | --- | --- |
-| `WeatherSnapshotLoopSupervisor` | `register_snapshot_supervisor.ps1` | `snapshot_tracker --ensure` every 2 minutes and at logon; managed capture loop defaults to 10-minute ticks. |
-| `WeatherClobBookLoopSupervisor` | `register_clob_supervisor.ps1` | `market_microstructure ensure` every minute and at logon. |
-| `WeatherObservationTriggerSupervisor` | `register_observation_trigger_supervisor.ps1` | `observation_trigger ensure` every minute and at logon. |
-| `WeatherExchangeEconomicsSnapshotRefresh` | `register_exchange_economics_refresh.ps1` | Daily at 09:00; publishes yesterday's target-date snapshot from the tracked template, without accepting the baseline. |
-| `WeatherDailySettlementPromotionRefresh` | `register_daily_refresh.ps1` | Daily at 09:30. |
-| `WeatherNightlyRetrainValidatePromote` | `register_nightly_retrain.ps1` | Daily at 03:30. |
-| `WeatherMarketMakingDailyRoll` | `register_market_making_daily_roll.ps1` | Daily at 19:30 in `America/Toronto`. |
-| `WeatherTakerBotDailyRoll` | `register_taker_bot_daily_roll.ps1` | Daily at 00:05 in `America/Toronto`. |
+Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
+refresh, maker/taker daily rolls and supervisors, analysis, host guards, and
+candidate training are separate registrations. Their script parameter blocks
+are the source of truth for names, cadence, and required inputs. On a dedicated
+single host, use the bounded training-window topology; do not also enable the
+direct nightly-retrain task for the same workload.
 
 The Operations dashboard can inspect and control the supervised loops. CLI
 status commands are still the fastest sanity checks:
@@ -385,17 +387,15 @@ and new docs should use `python -m weather...`.
 
 ## Documentation
 
-- [docs/operations/OPERATIONS_DESIGN.md](docs/operations/OPERATIONS_DESIGN.md) -
-  durable loop, dashboard, and Task Scheduler design.
-- [docs/operations/HISTORY_DATA_DESIGN.md](docs/operations/HISTORY_DATA_DESIGN.md) -
-  Weather Underground history data layer.
-- [docs/operations/config-inventory.md](docs/operations/config-inventory.md) -
-  config ownership and freshness policy.
-- [docs/operations/path-policy.md](docs/operations/path-policy.md) -
-  repository path and import policy.
-- [docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md) -
-  nightly retrain/validate/promote runbook.
-- [docs/roadmap/ROADMAP.md](docs/roadmap/ROADMAP.md) - roadmap index, item
-  links, and maintenance conventions.
-- [docs/roadmap/project-structure-audit-2026-06-22.md](docs/roadmap/project-structure-audit-2026-06-22.md) -
-  current source-layout and project-structure audit.
+- [Documentation map](docs/README.md) - canonical router and classification.
+- [Architecture](docs/architecture.md) - owner boundaries and end-to-end flow.
+- [Development and verification](docs/development.md) - change workflow and test matrix.
+- [Operations index](docs/operations/README.md) - topology, policies, and runbooks.
+- [Active backlog](docs/roadmap/active-backlog.md) - generated current-work view.
+- [Roadmap index](docs/roadmap/ROADMAP.md) - complete taxonomy and item links.
+
+## Update this file when
+
+Update when product scope, built-in markets, setup/dependencies, dashboard
+entrypoints, operator commands, environment variables, scheduled-operation
+routing, data/source layout, or the top-level documentation map changes.

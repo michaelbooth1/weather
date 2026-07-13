@@ -1,6 +1,6 @@
 # Config Inventory
 
-Last updated: 2026-06-20
+Status: canonical configuration classification and freshness policy.
 
 Checked-in files under `config/` are classified by owner and freshness policy:
 
@@ -25,6 +25,11 @@ Refresh generated market-event metadata:
 python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
 ```
 
-The 2026-06-20 refresh wrote `location_market_events_v0.1` with 115 active
-Gamma events across 51 configured locations. The generated config inventory is
-`PASS` with 6 config files and 0 warnings.
+Event and location counts are volatile. Read the generated JSON or run the
+inventory command for current values rather than copying them into prose.
+
+## Update this file when
+
+Update when a checked-in config file is added, removed, reclassified, changes
+owner, or changes generation/freshness policy. The agent-doc audit fails when a
+checked-in `config/*.json` file is missing from the table above.

@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from weather.collection.snapshot_store import (
     FORECAST_RAW_PAYLOAD_RETENTION_ENV,
@@ -15,6 +16,45 @@ from weather.model.source_adapters import fetch_source_group
 
 
 class TestForecastPayloadPersistence(unittest.TestCase):
+    def test_retained_payloads_serialize_once_and_stream_existing_blob_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=tmp, event_slug="event")
+            forecast_sources = {
+                "nws_grid": {"data": {"raw_payload": {"text": "x" * 4096}}}
+            }
+            observation_sources = {
+                "metar": {"data": {"raw_payload": {"text": "METAR KLGA"}}}
+            }
+            original = store.canonical_raw_payload
+            with patch.object(store, "canonical_raw_payload", wraps=original) as serializer:
+                first = store.write_forecast_payloads(
+                    forecast_sources,
+                    "f1",
+                    datetime(2026, 7, 12, 11, tzinfo=timezone.utc),
+                    "model-v",
+                )[0]
+                self.assertEqual(serializer.call_count, 1)
+
+            # The dedupe validation must not load the existing blob at once.
+            with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded read")):
+                second = store.write_forecast_payloads(
+                    forecast_sources,
+                    "f2",
+                    datetime(2026, 7, 12, 11, 10, tzinfo=timezone.utc),
+                    "model-v",
+                )[0]
+            self.assertEqual(first["payload_hash"], second["payload_hash"])
+            self.assertFalse(second["payload_blob_created"])
+
+            with patch.object(store, "canonical_raw_payload", wraps=original) as serializer:
+                store.write_observation_payloads(
+                    observation_sources,
+                    "o1",
+                    datetime(2026, 7, 12, 11, tzinfo=timezone.utc),
+                    "model-v",
+                )
+                self.assertEqual(serializer.call_count, 1)
+
     def test_source_adapter_attempt_and_parser_contract_reach_snapshot_manifest(self):
         class StubSourceModel(SourceFetchMixin):
             pass

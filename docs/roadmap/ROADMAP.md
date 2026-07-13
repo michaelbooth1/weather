@@ -1,18 +1,22 @@
-# Toronto Weather Market Roadmap
+# Weather Market Platform Roadmap
 
 This roadmap is organized around the fastest path from a useful live dashboard
-to a calibrated, auditable trading/research system for Toronto high-temperature
-markets.
+to a calibrated, auditable multi-market trading and research system for daily
+high-temperature markets.
 
-This file is the roadmap index. Detailed narrative, audit history, and each numbered roadmap item live in smaller files under this directory so updates stay localized and reviewable.
+For current work, start with the generated
+[active backlog](active-backlog.md). Each numbered item file is authoritative
+for that item's status, scope, acceptance criteria, and evidence. This file is
+the complete taxonomy and item index; dated narratives and audits are
+historical context rather than current instructions.
 
 ## Roadmap Files
 
-- [Overview and current triage](overview.md)
-- [Generated active backlog](active-backlog.md)
-- [Actionable work order](actionable-work-order.md)
+- [Generated active backlog (canonical current-work view)](active-backlog.md)
+- [Overview and triage history (historical)](overview.md)
+- [Actionable work order from 2026-06-23 (historical)](actionable-work-order.md)
 - [Platform era reconciliation](platform-era-reconciliation.md)
-- [Sequencing the two tracks](sequencing.md)
+- [Sequencing notes (historical)](sequencing.md)
 - [Research questions](research-questions.md)
 - [Open and blocked audit - 2026-06-18](open-blocker-audit-2026-06-18.md)
 - [2026-05-28 Codex audit summary](audits/codex-audit-summary-2026-05-28.md)
@@ -343,6 +347,8 @@ infrastructure work remains.
 | 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
 | 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
 | 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-11 - SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
+| 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [OPEN 2026-07-13 - CUMULATIVE TAPE REWRITES AND RSS SOAK GATE NOT IMPLEMENTED]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
+| 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [OPEN 2026-07-13 - CROSS-MARKET RAW PAYLOAD DUPLICATION UNBOUNDED]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 
 ### Architecture And Maintainability
 

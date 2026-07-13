@@ -81,3 +81,9 @@ Historical audits, dated research records, and roadmap completion transcripts
 may preserve legacy commands when changing them would distort what was run at
 the time. Mark those sections as historical records or command transcripts when
 the legacy command is retained intentionally.
+
+## Update this file when
+
+Update when repository-owned roots, runtime output promotion, package/import
+bootstrap, scheduled-worker path assumptions, or canonical command policy
+changes.

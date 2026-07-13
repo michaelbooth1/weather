@@ -6,11 +6,12 @@ edge *over the market price*? It scores recorded snapshot tapes, which hold both
 model probabilities and market yes-prices, against the realized settlement
 bucket.
 
-Settlement is the crux. The market resolves on the WU CYYZ printed daily high,
-so the realized bucket is taken from the day's maximum captured
-``wu_history_high_c`` (half-up rounded), cross-checked against the local daily
-summary and overridable on the command line. Disagreements are reported, not
-hidden.
+Settlement is the crux. Each registered market resolves against its configured
+Weather Underground history station in the market's native unit. Scoring uses
+the settlement ledger when available, with captured WU history and the local
+daily summary as the legacy fallback; command-line overrides remain explicit.
+Disagreements are reported, not hidden. Legacy ``*_c`` tape columns may contain
+native-unit values from the multi-market platform era.
 
 CLI:
   python -m weather.backtesting.backtest [folder ...]

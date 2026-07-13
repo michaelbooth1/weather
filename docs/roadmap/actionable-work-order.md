@@ -1,5 +1,10 @@
 # Actionable Roadmap Work Order - 2026-06-23
 
+> **Historical context, not a current work queue.** This document preserves the
+> work order as assessed on 2026-06-23. Use
+> [active-backlog.md](active-backlog.md) for the generated current-work view and
+> the owning numbered item file for authoritative status and blockers.
+
 Source: `docs/roadmap/active-backlog.md` generated at
 `2026-06-23T17:14:39.081095+00:00` and the numbered roadmap item files as of
 2026-06-23.

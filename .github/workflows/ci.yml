@@ -36,5 +36,8 @@ jobs:
       - name: Compile Source
         run: python -m compileall -q app src tests
 
+      - name: Validate Agent Knowledge Contracts
+        run: python -m weather.operations.agent_docs_audit
+
       - name: Run Test Suite
         run: python -m pytest -q

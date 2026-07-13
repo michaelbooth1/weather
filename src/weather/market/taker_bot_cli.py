@@ -1038,7 +1038,7 @@ def run_loop(
     **kwargs,
 ):
     until = parse_time(until_utc) if until_utc else paper_until_utc(target_date, markets=markets)
-    results = []
+    last_payload = None
     tick = 0
     with keep_system_awake("weather taker bot loop"):
         while True:
@@ -1047,7 +1047,7 @@ def run_loop(
                 break
             if max_ticks is not None and tick >= int(max_ticks):
                 break
-            payload = build_run_once(
+            last_payload = build_run_once(
                 target_date,
                 budget_usdc,
                 markets=markets,
@@ -1055,12 +1055,11 @@ def run_loop(
                 append=True,
                 **kwargs,
             )
-            results.append(payload)
             tick += 1
             if max_ticks is not None and tick >= int(max_ticks):
                 break
             time.sleep(float(interval_seconds))
-    return results[-1] if results else None
+    return last_payload
 
 
 def parse_config_overrides(items):

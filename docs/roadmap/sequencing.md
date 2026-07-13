@@ -1,5 +1,10 @@
 # Sequencing The Two Tracks
 
+> **Historical context, not current instructions.** These sequencing notes
+> preserve an earlier implementation order and may contain retired command
+> surfaces. Use [active-backlog.md](active-backlog.md) for current work and the
+> owning numbered item file for authoritative status and acceptance criteria.
+
 0. **Item 39 P0 (the `_c`-column unit lie)** first — it silently corrupts any
    canonical-Celsius pooling, so it gates item 33/35. Plus the item 39 cleanup
    tasks (orphan artifacts, forecast_history gaps, ERA5 normalize lag, and the

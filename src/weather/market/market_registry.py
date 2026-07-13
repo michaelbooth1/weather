@@ -5,10 +5,11 @@ Adding a standard market is a config entry here -- no engine changes. Each
 station + geo + timezone the data sources need, the display/settlement unit, the
 source adapters to fetch, and climate context.
 
-The model and pipeline run in a canonical internal unit (Celsius) for *every*
-market -- WU is fetched in metric for all stations -- so a model trained on one
-city's Celsius data applies to another unchanged. ``display_unit`` only affects
-how the Polymarket bands are parsed and shown (Toronto trades in C, NYC in F).
+The serving and persistence pipeline runs in each market's native unit:
+Celsius markets in C and Fahrenheit markets in F. ``MarketSpec`` translates
+Celsius-authored constants and deltas where needed and selects provider units,
+while market bands, observations, settlement labels, and model distributions
+remain native-unit values end to end.
 """
 import json
 import os

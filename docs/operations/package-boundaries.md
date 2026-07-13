@@ -119,3 +119,9 @@ such as `weather.model.calibration_runtime`, `weather.market.mm_exchange_reports
 `weather.operations.supervisor`,
 `weather.calibration.pooled_feature_source_state`, or the shared utility modules
 above.
+
+## Update this file when
+
+Update when owner responsibilities, shared utilities, allowed/transitional
+package edges, edge burn-down, or facade ownership changes. Keep the
+architecture ratchet in `tests/operations/test_import_architecture.py` aligned.

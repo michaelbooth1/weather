@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-12T19:23:41.438964+00:00
+Generated: 2026-07-13T10:00:19.591135+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 315 |
-| Active items | 28 |
-| OPEN | 4 |
+| Items | 317 |
+| Active items | 30 |
+| OPEN | 6 |
 | PARTIAL | 24 |
 | COMPLETE | 287 |
-| ROADMAP rows | 315 |
-| ROADMAP primary rows | 315 |
-| Metadata manifest rows | 315 |
+| ROADMAP rows | 317 |
+| ROADMAP primary rows | 317 |
+| Metadata manifest rows | 317 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -53,6 +53,8 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
+| 322 | OPEN | 2026-07-13 | CUMULATIVE TAPE REWRITES AND RSS SOAK GATE NOT IMPLEMENTED | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
+| 323 | OPEN | 2026-07-13 | CROSS-MARKET RAW PAYLOAD DUPLICATION UNBOUNDED | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 
 ## Lint Issues
 

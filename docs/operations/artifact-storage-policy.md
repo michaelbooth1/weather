@@ -106,3 +106,8 @@ git count-objects -vH
 
 History-rewriting cleanup such as `git lfs migrate import` requires a separate
 coordinated maintenance window and force-push plan.
+
+## Update this file when
+
+Update when artifact placement, size/LFS/externalization thresholds, manifest
+commands, promotion preflight, restore, or Git maintenance policy changes.

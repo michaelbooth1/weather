@@ -1147,11 +1147,53 @@ class SnapshotStore:
             default=str,
         ).encode("utf-8")
 
-    def write_content_addressed_payload(self, directory, payload):
-        """Persist one immutable SHA-256 blob, deduplicating repeated content."""
+    @staticmethod
+    def content_addressed_file_digest(path):
+        """Hash a stored payload without materializing the blob in memory.
 
-        raw = self.canonical_raw_payload(payload)
+        Content-addressed payload files have one durability newline which is
+        not part of the addressed bytes.  Retaining a one-byte tail lets us
+        preserve that contract while keeping validation memory bounded.
+        """
+
+        digest = hashlib.sha256()
+        pending = b""
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                data = pending + chunk
+                if len(data) <= 1:
+                    pending = data
+                    continue
+                digest.update(data[:-1])
+                pending = data[-1:]
+        if pending != b"\n":
+            digest.update(pending)
+        return digest.hexdigest()
+
+    def write_content_addressed_payload(
+        self,
+        directory,
+        payload=None,
+        *,
+        canonical_bytes=None,
+        payload_hash=None,
+    ):
+        """Persist one immutable SHA-256 blob, deduplicating repeated content.
+
+        Callers which already need canonical bytes for their manifest should
+        pass them here.  Re-serializing a large provider response while the
+        first byte string is live can exceed an isolated capture's commit cap.
+        """
+
+        if canonical_bytes is None:
+            if payload is None:
+                raise ValueError("payload or canonical_bytes is required")
+            raw = self.canonical_raw_payload(payload)
+        else:
+            raw = bytes(canonical_bytes)
         digest = hashlib.sha256(raw).hexdigest()
+        if payload_hash is not None and str(payload_hash) != digest:
+            raise RuntimeError("precomputed content-addressed payload hash mismatch")
         path = Path(directory) / "sha256" / digest[:2] / f"{digest}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         created = False
@@ -1164,10 +1206,7 @@ class SnapshotStore:
         except FileExistsError:
             # A content-addressed path must never point at different/corrupt
             # bytes. Fail closed instead of silently blessing bad evidence.
-            existing = path.read_bytes()
-            if existing.endswith(b"\n"):
-                existing = existing[:-1]
-            if hashlib.sha256(existing).hexdigest() != digest:
+            if self.content_addressed_file_digest(path) != digest:
                 raise RuntimeError(f"content-addressed payload hash mismatch: {path}")
         return path, digest, len(raw), created
 
@@ -1393,7 +1432,8 @@ class SnapshotStore:
             if self.retain_raw_forecast_payloads:
                 payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
                     self.forecast_payload_dir,
-                    payload,
+                    canonical_bytes=raw_bytes,
+                    payload_hash=payload_hash,
                 )
                 if stored_hash != payload_hash:
                     raise RuntimeError("forecast raw-payload hash changed during persistence")
@@ -1490,7 +1530,8 @@ class SnapshotStore:
             if self.retain_raw_observation_payloads:
                 payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
                     self.observation_payload_dir,
-                    payload,
+                    canonical_bytes=raw_bytes,
+                    payload_hash=payload_hash,
                 )
                 if stored_hash != payload_hash:
                     raise RuntimeError("observation raw-payload hash changed during persistence")

@@ -1,5 +1,10 @@
 # Roadmap Deep Dive (2026-05-31)
 
+> **Historical context, not current instructions.** This document preserves a
+> dated roadmap analysis and later incremental notes. Use
+> [active-backlog.md](active-backlog.md) for current work and the owning
+> numbered item file for authoritative status and acceptance criteria.
+
 ### North Star
 
 The project goal is to project the daily high-temperature settlement bucket

@@ -2,107 +2,166 @@
 
 ## Target Shape
 
-The long-term setup has three layers:
+The operating setup has three layers:
 
-1. Windows Task Scheduler keeps the background loops alive after login, reboot,
-   silent death, or stale-heartbeat hangs.
+1. Windows Task Scheduler runs short-lived supervisors that keep three
+   independent capture loops healthy.
 2. A lightweight desktop launcher starts the Streamlit dashboard and opens the
-   Operations page.
-3. The Streamlit Operations page is the human cockpit for health, loop control,
-   code-version checks, logs, and supervisor status.
+   Operations view.
+3. The Operations view and status CLIs provide health, code-version, log, and
+   recovery controls.
 
-The launcher should not own the loops. If the launcher exits, Streamlit closes,
-or Windows restarts, the capture loops should still be restored by the
-registered supervisor tasks.
+The dashboard launcher does not own capture. Closing Streamlit must not stop
+evidence collection, and opening Streamlit must not create a second copy of a
+loop.
 
-## Startup Flow After Reboot
+## Three-Loop Capture Topology
 
-1. Windows logon triggers:
-   - `WeatherSnapshotLoopSupervisor`
-   - `WeatherClobBookLoopSupervisor`
-2. Those tasks run short-lived `ensure` commands:
-   - `python -m weather.collection.snapshot_tracker --ensure`
-   - `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15`
-3. Each `ensure` command starts or repairs exactly one detached loop.
-4. Open the dashboard with:
-   - `scripts/launch/start_weather_dashboard.cmd`
-   - or `scripts/launch/start_weather_dashboard.ps1`
-5. The launcher opens:
-   - `http://localhost:8501/?market=ops`
+| Loop | Supervisor task | Ensure command | Primary responsibility |
+| :--- | :--- | :--- | :--- |
+| Weather/model snapshots | `WeatherSnapshotLoopSupervisor` | `python -m weather.collection.snapshot_tracker --ensure` | Multi-market weather, model, source-state, and market snapshot tapes at the slower scheduled cadence. |
+| CLOB books | `WeatherClobBookLoopSupervisor` | `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15` | Independent fast Polymarket order-book and market-event capture. |
+| Observation triggers | `WeatherObservationTriggerSupervisor` | `python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180` | Low-cost observation polling and forced recomputes when settlement-relevant source state changes. |
 
-## Loop Responsibilities
+Each supervisor invokes an idempotent `ensure` command at logon and on its
+repeating schedule. The command repairs or starts one detached worker; it is
+not itself the long-running capture process. Registration source, task names,
+cadences, and parameters live in:
+
+- `scripts/ops/register_snapshot_supervisor.ps1`
+- `scripts/ops/register_clob_supervisor.ps1`
+- `scripts/ops/register_observation_trigger_supervisor.ps1`
+
+Read each script before registering it. Re-running a registration script
+replaces its task with the supplied parameters.
+
+## Startup After Reboot
+
+1. Logon triggers all three capture-supervisor tasks.
+2. Each supervisor issues its `ensure` command and restores at most one healthy
+   worker.
+3. Check the loop status commands from the repository root:
+
+   ```powershell
+   .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --status
+   .\venv\Scripts\python.exe -m weather.market.market_microstructure status
+   .\venv\Scripts\python.exe -m weather.operations.observation_trigger status
+   ```
+
+4. Open the dashboard with `scripts/launch/start_weather_dashboard.cmd` or
+   `scripts/launch/start_weather_dashboard.ps1`.
+5. Confirm the Operations view at `http://localhost:8501/?market=ops` reports
+   current runtime identity and fresh capture.
+
+## Loop Outputs
 
 ### Weather Snapshot Loop
-
-Owns model/weather/market snapshot tapes at the slower cadence. It writes:
 
 - `data/snapshots/loop_status.json`
 - `data/snapshots/diagnostics.jsonl`
 - `data/snapshots/loop_console.log`
+- per-event snapshot, replay-input, source, feature, and component tapes
 
 ### CLOB Book Loop
-
-Owns fast Polymarket order-book capture. It writes:
 
 - `data/snapshots/clob_loop_status.json`
 - `data/snapshots/clob_diagnostics.jsonl`
 - `data/snapshots/clob_loop_console.log`
+- per-event token, order-book, price-history, and WebSocket tapes
 
-## Runtime Version Signal
+### Observation-Trigger Loop
 
-Each loop status file includes `runtime_identity`, captured when that loop
-process starts. It records:
+- `data/snapshots/observation_trigger_status.json`
+- `data/snapshots/observation_trigger_diagnostics.jsonl`
+- `data/snapshots/observation_trigger_console.log`
+- `data/snapshots/observation_triggers.jsonl`
+- forced snapshot rows tagged with trigger context
 
-- git branch
-- git commit
-- dirty/clean flag
-- dirty fingerprint
-- source-tree fingerprint
-- Python version
+These files are runtime state under ignored `data/`, but many of the tapes are
+canonical evidence. Follow the
+[Data Storage Class Contract](data-storage-class-contract.md) and
+[Data Retention Policy](data-retention-policy.md); do not delete evidence as a
+loop-recovery shortcut.
 
-The Operations page compares that running identity with the current checkout.
-If the page shows `Code State = different`, restart that loop to move it onto
-the current code.
+## Runtime Identity And Deployment
 
-## Operator Page
-
-The `Operations` sidebar page shows:
-
-- current checkout identity
-- weather snapshot loop state
-- CLOB book loop state
-- stale/different code count
-- registered/missing supervisor task count
-- loop PID, heartbeat age, last capture age, errors, pause state, mode, and
-  last error
-- Task Scheduler status for the two supervisor tasks
-- status/diagnostic/log file locations
-
-It can:
-
-- start or repair all loops
-- ensure, restart, stop, pause, or resume each loop individually
-- stop all loops
-- refresh status
-
-## Deployment Routine
+Loop status records include runtime identity such as Git branch and commit,
+dirty/source fingerprints, and Python version. A healthy heartbeat on old code
+is still a deployment problem.
 
 After changing code:
 
-1. Run the focused tests for the changed area.
-2. Open `Operations`.
-3. Restart the affected loop, or use `Restart Weather` and `Restart CLOB` when
-   shared code changed.
-4. Confirm `Code State = current`.
-5. Confirm heartbeats and captures resume.
+1. Run focused tests for the changed subsystem and the baseline local checks.
+2. Restart every loop that imports the changed code. Shared model, source,
+   path, schema, or runtime changes usually require all three loops to restart.
+3. Confirm each status command reports a live worker on current code.
+4. Confirm heartbeats and useful writes resume; inspect the corresponding
+   diagnostics and console log if they do not.
 
-## Why Not Put Everything In One .exe?
+To stop a loop deliberately, stop the worker and disable its scheduled
+supervisor so the next `ensure` tick does not revive it. Re-enable supervision
+and issue `ensure` to restore it. Use the loop's supported CLI or Operations
+control rather than killing an arbitrary Python process.
 
-A clickable `.exe` or shortcut is useful for opening the dashboard, but it is
-the wrong owner for long-running evidence capture. A launcher can be closed,
-crash, or be skipped after reboot. Task Scheduler is the durable supervisor;
-Streamlit is the control room.
+## Dashboard Role
 
-If a true `.exe` is desired later, package only the dashboard launcher, not the
-loops. The capture loops should remain supervised by the scheduled `ensure`
-tasks.
+The Operations view is the human cockpit for current checkout identity, loop
+health, heartbeats, useful-write freshness, errors, logs, and supported control
+actions. Status CLIs and their JSON files remain the fail-closed diagnostic
+surface when Streamlit is unavailable.
+
+Bot daily-roll workers and reporting jobs have their own launchers,
+supervisors, status artifacts, and evidence gates. They consume capture output
+but are not a fourth capture loop.
+
+## Retraining Topologies: Choose One
+
+Nightly retraining is heavy and candidate-only. It may build an immutable,
+inactive release after validation; it must not activate
+`artifacts/releases/current_release.json`. Promotion remains a separate
+reviewed release-lifecycle action.
+
+There are two alternative scheduling patterns:
+
+### Direct Nightly Task
+
+`scripts/ops/register_nightly_retrain.ps1` registers
+`WeatherNightlyRetrainValidatePromote`, which runs `nightly_retrain` directly
+at its configured time without stopping capture. Use this pattern only on a
+host where the capture-resource gate permits the workload, such as an offline
+or separate training host. The registration script requires explicit
+production-evidence arguments; its `param(...)` block is the source of truth.
+
+### Single-Host Training Window
+
+`scripts/ops/register_training_window.ps1` registers two tasks for a Windows
+host that otherwise captures continuously:
+
+- `WeatherTrainingWindow` performs a resource preflight, disables all three
+  capture supervisors, stops all three workers, runs bounded nightly retraining,
+  and restores capture in a `finally` block.
+- `WeatherTrainingWindowRestore` is a later dead-man task that unconditionally
+  re-enables supervisors and issues all three `ensure` commands.
+
+The detailed resource thresholds, protected hours, and evidence consequences
+are owned by the [Host Load Policy](HOST_LOAD_POLICY.md). A day with the
+deliberate capture gap is not a clean continuous-capture day.
+
+Do not enable both the direct nightly task and the single-host training window
+for the same workload. The registration scripts do not remove the alternative
+task automatically; inspect and reconcile Task Scheduler explicitly when
+changing topology.
+
+## Why Capture Is Not Packaged Into The Dashboard
+
+A shortcut or executable is useful for opening the dashboard, but it is not a
+durable supervisor. It can be closed, crash, or never start after reboot. If a
+packaged desktop launcher is added later, it should continue to launch only the
+human-facing dashboard. Task Scheduler and the loop `ensure` contracts remain
+the owners of evidence capture.
+
+## Update this file when
+
+Update when capture-loop ownership, supervisor tasks/commands, status or log
+contracts, dashboard controls, deployment/restart behavior, or retraining
+topology changes.
