@@ -1,4 +1,4 @@
-# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [OPEN 2026-07-13 - STRONG-REFERENCE LEAK FIXED; FULL-HISTORY TICK PEAKS REMAIN UNBOUNDED]
+# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-13 - INCREMENTAL PATH AND RESTART TESTS LANDED; MULTI-HOUR SOAK PENDING]
 
 Goal: keep the taker paper loop's steady-state memory and per-tick I/O bounded
 by its current working set rather than elapsed tick count or cumulative tape
@@ -55,23 +55,68 @@ whose read/write work is independent of complete tape length.
 
 ## Scope
 
-- [ ] Define explicit taker-loop private-memory, working-set, and per-tick I/O
+- [x] Define explicit taker-loop private-memory, working-set, and per-tick I/O
   budgets, including warmup and growing-tape measurement rules.
-- [ ] Expose worker memory, I/O, tick duration, and bounded slope diagnostics in
+- [x] Expose worker memory, I/O, tick duration, and bounded slope diagnostics in
   daily-roll status and fleet observability without making process existence a
   health claim.
-- [ ] Replace ordinary full-history reread/rewrite work with an incremental,
+- [x] Replace ordinary full-history reread/rewrite work with an incremental,
   indexed, or checkpointed path. Keep any full rebuild as an explicit bounded
   recovery or maintenance operation.
-- [ ] Preserve deterministic order intent keys, idempotent append semantics,
+- [x] Preserve deterministic order intent keys, idempotent append semantics,
   counterfactual strategy attribution, cumulative PnL/scoring equivalence, and
   crash recovery from repository-owned artifacts.
 - [ ] Add an accelerated growing-tape test and a representative multi-hour
   paper soak proving a constant number of tick payloads remain live and the
-  declared post-warmup memory/I/O budgets hold.
-- [ ] If a resource-triggered recycle remains necessary, make it supervisor
+  declared post-warmup memory/I/O budgets hold. The accelerated deterministic
+  growing-tape and restart-tail tests pass; the representative scheduled paper
+  soak remains outstanding.
+- [x] If a resource-triggered recycle remains necessary, make it supervisor
   owned, backoff bounded, evidence preserving, and fail closed; never delete
-  tapes or broaden trading permission as part of recovery.
+  tapes or broaden trading permission as part of recovery. The incremental
+  path does not introduce a resource-triggered recycle; budget breaches are
+  advisory and leave existing supervisor/liveness semantics unchanged.
+
+## Implementation evidence (2026-07-13)
+
+- `weather.market.taker_bot_incremental` keeps the CSV order and
+  counterfactual tapes append-only and stores a rebuildable SQLite intent index,
+  bounded filled-position state, cumulative counters, and byte checkpoint.
+  Ordinary ticks neither reread nor rewrite either complete tape. A restart
+  with a current checkpoint reads zero tape bytes; a crash between CSV append
+  and checkpoint commit replays only the uncheckpointed byte tail without
+  rescoring it.
+- Cumulative PnL is rebuilt from the policy-bounded filled-position set plus
+  incremental reason/strategy/benchmark counters. Existing deterministic
+  intent keys and counterfactual attribution remain on the canonical CSV rows.
+  A one-tick SQLite outbox binds the exact order, counterfactual, and budget-
+  ledger batches; restart completes missing phases without duplicating durable
+  tails. Settlement-sensitive benchmark inputs are retained per bounded
+  snapshot group, refreshed in bounded batches against one captured label
+  generation, and block promotion while any group is stale. A one-time
+  streaming migration rebuilds those groups and the canonical NO-side
+  strategy/market/hour dimensions from pre-upgrade tapes.
+- Explicit `--fresh` preserves the prior generation under the sibling
+  `<runs_root>_fresh_archives/<target-date>/` root before creating an empty
+  active run folder. This prevents a stale SQLite byte checkpoint from being
+  paired with rewritten tapes without exposing archived evidence to active-run
+  discovery or finalization.
+- Each tick reports current private bytes, working set, process and tape I/O,
+  duration, warmup state, and a restart-safe post-warmup private-memory slope
+  against declared budgets. The checkpoint retains one compact diagnostic row
+  per tick for later soak reporting. Daily-roll and fleet readers expose the
+  latest fields as advisory evidence; tests retain the existing non-terminal
+  empty-tick and tri-state process-liveness behavior.
+- Focused deterministic verification after settlement-generation, tail-
+  migration, and phase-crash review: taker persistence/scoring suites `89`
+  passed plus `8` subtests; daily-roll/storage suites `35` passed plus `25`
+  subtests; schema registry `7` passed; agent-doc audit passed.
+
+Remaining proof: run the representative multi-hour paper soak outside Stage A
+and the protected near-close window, then record worker PID continuity,
+post-warmup private-memory slope, peak working set, tick latency, and tape I/O
+against the declared budgets. No live worker or local trading evidence was
+touched while landing this implementation.
 
 Acceptance: ordinary paper ticks do not reread or rewrite the complete order
 and counterfactual histories; persisted outputs and cumulative scores remain

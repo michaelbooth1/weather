@@ -2599,6 +2599,655 @@ class TestTakerBot(unittest.TestCase):
             orders = read_csv(Path(second["orders_path"]))
             self.assertEqual(sum(1 for row in orders if row["order_status"] == "FILLED"), 1)
 
+    def test_restart_does_not_reread_or_rescore_no_trade_day_history(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True)
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": root / "taker_runs",
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "config": {
+                    "min_edge": 0.99,
+                    "counterfactual_tape_enabled": False,
+                },
+            }
+            first = build_run_once(now=NOW, **common)
+            tape_path = Path(first["orders_path"])
+            tape_before = tape_path.read_bytes()
+            cumulative_rows = first["summary"]["cumulative_order_rows"]
+
+            original_score_orders = taker_bot_cli.score_orders
+            with (
+                patch.object(
+                    taker_bot_cli,
+                    "read_order_rows",
+                    side_effect=AssertionError("ordinary restart reread the full tape"),
+                ),
+                patch.object(
+                    taker_bot_cli,
+                    "score_orders",
+                    wraps=original_score_orders,
+                ) as score_mock,
+            ):
+                second = build_run_once(now="2026-06-14T16:01:00+00:00", **common)
+
+            scored_batch_sizes = [len(call.args[0]) for call in score_mock.call_args_list]
+            tape_after = tape_path.read_bytes()
+
+        self.assertGreater(cumulative_rows, 0)
+        self.assertEqual(second["summary"]["cumulative_order_rows"], cumulative_rows)
+        self.assertEqual(second["summary"]["latest_tick_rows"], 0)
+        self.assertTrue(scored_batch_sizes)
+        # Settlement-change detection probes one bounded current group per
+        # event.  It must not rescore the cumulative tape.
+        self.assertLessEqual(max(scored_batch_sizes), 2)
+        self.assertEqual(tape_after, tape_before)
+        self.assertEqual(
+            second["summary"]["incremental_persistence"]["ordinary_full_history_reads"],
+            0,
+        )
+
+    def test_incremental_restart_pnl_matches_full_reference_on_growing_tape(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True)
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": root / "taker_runs",
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "config": {
+                    "min_edge": 0.05,
+                    "max_order_usdc": 6,
+                    "max_position_per_token_usdc": 100,
+                    "counterfactual_tape_enabled": False,
+                    "market_centered_warm_tail_guard_enabled": False,
+                },
+            }
+            build_run_once(now=NOW, **common)
+
+            folder = snapshots_root / EVENT
+            for name in ("snapshots_long.csv", "clob_features_long.csv", "source_status_long.csv"):
+                path = folder / name
+                rows = read_csv(path)
+                for row in rows:
+                    if "snapshot_id" in row:
+                        row["snapshot_id"] = "s2"
+                    for key in ("captured_at_utc", "fetched_at"):
+                        if key in row:
+                            row[key] = "2026-06-14T16:00:30+00:00"
+                    if "clob_book_captured_at_utc" in row:
+                        row["clob_book_captured_at_utc"] = "2026-06-14T16:00:50+00:00"
+                write_csv(path, list(rows[0]), rows)
+
+            second = build_run_once(now="2026-06-14T16:01:00+00:00", **common)
+            persisted = read_csv(Path(second["orders_path"]))
+            reference_rows = taker_bot_cli.score_orders(
+                persisted,
+                snapshots_root=snapshots_root,
+                now="2026-06-14T16:01:00+00:00",
+            )
+            reference = build_pnl_payload(
+                reference_rows,
+                12,
+                "daily",
+                TARGET_DATE,
+                now="2026-06-14T16:01:00+00:00",
+                policy_config=second["config"],
+            )
+
+        for key in (
+            "order_rows",
+            "filled_order_count",
+            "budget_spent_usdc",
+            "settled_order_count",
+            "settlement_pnl_usdc",
+            "net_pnl_usdc",
+            "reason_counts",
+        ):
+            self.assertEqual(second["pnl"]["summary"][key], reference["summary"][key])
+        actual_strategy = second["pnl"]["by_strategy"][0]
+        reference_strategy = reference["by_strategy"][0]
+        for key in (
+            "order_rows",
+            "filled_order_count",
+            "spent_usdc",
+            "net_pnl_usdc",
+            "settled_order_count",
+            "reason_counts",
+            "market_benchmark_opportunity_count",
+            "market_benchmark_missed_gain_usdc",
+        ):
+            self.assertEqual(actual_strategy[key], reference_strategy[key])
+
+    def test_incremental_benchmark_refreshes_when_settlement_label_arrives(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=False)
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": root / "taker_runs",
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "config": {
+                    "min_edge": 0.99,
+                    "counterfactual_tape_enabled": False,
+                },
+            }
+            first = build_run_once(now=NOW, **common)
+            first_strategy = first["pnl"]["market_benchmark_scoreboard"]["by_strategy"][0]
+            first_model_top = first_strategy["model_top_net_pnl_usdc"]
+
+            settlement = {
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "settlement_bucket": 80,
+                "winning_band": "80-81 F",
+                "quality_grade": "complete",
+            }
+            (snapshots_root / EVENT / "settlement.json").write_text(
+                json.dumps(settlement),
+                encoding="utf-8",
+            )
+            second = build_run_once(now="2026-06-15T12:00:00+00:00", **common)
+            persisted = read_csv(Path(second["orders_path"]))
+            reference_rows = taker_bot_cli.score_orders(
+                persisted,
+                snapshots_root=snapshots_root,
+                now="2026-06-15T12:00:00+00:00",
+            )
+            reference = taker_bot_cli.market_benchmark_scoreboard(
+                reference_rows,
+                policy_config=second["config"],
+            )
+            (snapshots_root / EVENT / "settlement.json").unlink()
+            with patch.object(taker_bot_cli, "settlement_for_folder", return_value=None):
+                third = build_run_once(now="2026-06-15T12:01:00+00:00", **common)
+
+        refresh = second["summary"]["incremental_persistence"]["benchmark_refresh"]
+        actual = second["pnl"]["market_benchmark_scoreboard"]
+        self.assertEqual(refresh["status"], "CURRENT")
+        self.assertEqual(refresh["changed_event_count"], 1)
+        self.assertGreaterEqual(refresh["refreshed_group_count"], 1)
+        self.assertEqual(refresh["remaining_group_count"], 0)
+        self.assertEqual(actual["summary"], reference["summary"])
+        self.assertNotEqual(actual["by_strategy"][0]["model_top_net_pnl_usdc"], first_model_top)
+        for key in (
+            "opportunity_count",
+            "settled_opportunity_count",
+            "market_smarter_slice_count",
+            "model_beats_market_count",
+            "model_beats_no_trade_count",
+            "model_top_net_pnl_usdc",
+            "market_top_net_pnl_usdc",
+            "avoided_loss_usdc",
+            "missed_gain_usdc",
+        ):
+            self.assertEqual(actual["by_strategy"][0][key], reference["by_strategy"][0][key])
+        third_refresh = third["summary"]["incremental_persistence"]["benchmark_refresh"]
+        self.assertEqual(third_refresh["changed_event_count"], 0)
+        self.assertEqual(
+            third_refresh["settlement_unavailable_after_finalized_event_count"],
+            1,
+        )
+        self.assertEqual(third["pnl"]["market_benchmark_scoreboard"], actual)
+
+    def test_first_benchmark_signature_closes_settlement_arrival_race(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=False)
+            settlement_path = snapshots_root / EVENT / "settlement.json"
+            settlement = {
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "settlement_bucket": 80,
+                "winning_band": "80-81 F",
+                "quality_grade": "complete",
+            }
+            original_group_payloads = taker_bot_cli._benchmark_group_payloads
+            calls = {"count": 0}
+
+            def settle_after_initial_score(rows, policy_config):
+                payload = original_group_payloads(rows, policy_config)
+                if calls["count"] == 0:
+                    settlement_path.write_text(json.dumps(settlement), encoding="utf-8")
+                calls["count"] += 1
+                return payload
+
+            with patch.object(
+                taker_bot_cli,
+                "_benchmark_group_payloads",
+                side_effect=settle_after_initial_score,
+            ):
+                payload = build_run_once(
+                    TARGET_DATE,
+                    budget_usdc=12,
+                    markets="atlanta",
+                    runs_root=root / "taker_runs",
+                    snapshots_root=snapshots_root,
+                    run_id="daily",
+                    now=NOW,
+                    config={
+                        "min_edge": 0.99,
+                        "counterfactual_tape_enabled": False,
+                    },
+                )
+            persisted = read_csv(Path(payload["orders_path"]))
+            reference = taker_bot_cli.market_benchmark_scoreboard(
+                taker_bot_cli.score_orders(
+                    persisted,
+                    snapshots_root=snapshots_root,
+                    now=NOW,
+                ),
+                policy_config=payload["config"],
+            )
+
+        refresh = payload["summary"]["incremental_persistence"]["benchmark_refresh"]
+        self.assertGreaterEqual(refresh["refreshed_group_count"], 1)
+        self.assertEqual(refresh["remaining_group_count"], 0)
+        self.assertEqual(payload["pnl"]["market_benchmark_scoreboard"]["summary"], reference["summary"])
+        self.assertEqual(
+            payload["pnl"]["market_benchmark_scoreboard"]["by_strategy"],
+            reference["by_strategy"],
+        )
+
+    def test_benchmark_refresh_defers_if_settlement_generation_changes_while_scoring(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=False)
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": root / "taker_runs",
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "config": {
+                    "min_edge": 0.99,
+                    "counterfactual_tape_enabled": False,
+                },
+            }
+            first = build_run_once(now=NOW, **common)
+            settlement = {
+                "event_slug": EVENT,
+                "market_id": "atlanta",
+                "settlement_bucket": 80,
+                "winning_band": "80-81 F",
+                "quality_grade": "complete",
+            }
+            (snapshots_root / EVENT / "settlement.json").write_text(
+                json.dumps(settlement),
+                encoding="utf-8",
+            )
+            original_state = taker_bot_cli._benchmark_settlement_state
+            calls = {"count": 0}
+
+            def disappear_after_signature(row, **kwargs):
+                state = original_state(row, **kwargs)
+                calls["count"] += 1
+                return state if calls["count"] == 1 else {"present": False}
+
+            with patch.object(
+                taker_bot_cli,
+                "_benchmark_settlement_state",
+                side_effect=disappear_after_signature,
+            ):
+                deferred = build_run_once(
+                    now="2026-06-15T12:00:00+00:00",
+                    **common,
+                )
+            repaired = build_run_once(
+                now="2026-06-15T12:01:00+00:00",
+                **common,
+            )
+
+        deferred_refresh = deferred["summary"]["incremental_persistence"][
+            "benchmark_refresh"
+        ]
+        self.assertEqual(deferred_refresh["status"], "REFRESH_PENDING")
+        self.assertEqual(deferred_refresh["deferred_generation_mismatch_group_count"], 1)
+        self.assertEqual(deferred_refresh["remaining_group_count"], 1)
+        self.assertEqual(
+            deferred["pnl"]["strategy_comparison"]["market_benchmark_status"],
+            "BLOCK_REFRESH_PENDING",
+        )
+        self.assertEqual(
+            deferred["pnl"]["market_benchmark_scoreboard"],
+            first["pnl"]["market_benchmark_scoreboard"],
+        )
+        repaired_refresh = repaired["summary"]["incremental_persistence"][
+            "benchmark_refresh"
+        ]
+        self.assertEqual(repaired_refresh["status"], "CURRENT")
+        self.assertEqual(repaired_refresh["remaining_group_count"], 0)
+        self.assertNotEqual(
+            repaired["pnl"]["market_benchmark_scoreboard"]["by_strategy"][0][
+                "model_top_net_pnl_usdc"
+            ],
+            first["pnl"]["market_benchmark_scoreboard"]["by_strategy"][0][
+                "model_top_net_pnl_usdc"
+            ],
+        )
+
+    def test_benchmark_refresh_scores_against_captured_absent_generation(self):
+        from weather.market import taker_bot_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(root, settled=True)
+            with patch.object(
+                taker_bot_cli,
+                "_benchmark_settlement_state",
+                return_value={"present": False},
+            ):
+                payload = build_run_once(
+                    TARGET_DATE,
+                    budget_usdc=12,
+                    markets="atlanta",
+                    runs_root=root / "taker_runs",
+                    snapshots_root=snapshots_root,
+                    run_id="daily",
+                    now=NOW,
+                    config={
+                        "min_edge": 0.99,
+                        "counterfactual_tape_enabled": False,
+                    },
+                )
+
+        refresh = payload["summary"]["incremental_persistence"]["benchmark_refresh"]
+        strategy = payload["pnl"]["market_benchmark_scoreboard"]["by_strategy"][0]
+        self.assertEqual(refresh["status"], "CURRENT")
+        self.assertEqual(refresh["remaining_group_count"], 0)
+        self.assertEqual(strategy["settled_opportunity_count"], 0)
+        self.assertEqual(strategy["model_top_net_pnl_usdc"], 0.0)
+        self.assertEqual(strategy["market_top_net_pnl_usdc"], 0.0)
+
+    def test_pending_tick_recovers_order_tail_and_counterfactual_phase_exactly(self):
+        from weather.market.taker_bot_incremental import IncrementalTakerStore
+
+        for crash_phase in (
+            "order_tail",
+            "counterfactual_append",
+            "ledger_complete_before_checkpoint_clear",
+        ):
+            with self.subTest(crash_phase=crash_phase), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                snapshots_root = write_market_fixture(
+                    root,
+                    settled=True,
+                    bands=[(80, "0.70", "0.60")],
+                )
+                common = {
+                    "target_date": TARGET_DATE,
+                    "budget_usdc": 12,
+                    "markets": "atlanta",
+                    "runs_root": root / "taker_runs",
+                    "snapshots_root": snapshots_root,
+                    "run_id": "daily",
+                    "config": {
+                        "min_edge": 0.05,
+                        "max_order_usdc": 10,
+                        "max_position_per_token_usdc": 10,
+                        "market_centered_warm_tail_guard_enabled": False,
+                    },
+                }
+                failed = {"value": False}
+                if crash_phase == "order_tail":
+                    original = IncrementalTakerStore._ingest
+
+                    def crash_once(store, kind, rows, **kwargs):
+                        if (
+                            kind == "orders"
+                            and kwargs.get("committed_bytes") is not None
+                            and not failed["value"]
+                        ):
+                            failed["value"] = True
+                            raise RuntimeError("simulated order checkpoint crash")
+                        return original(store, kind, rows, **kwargs)
+
+                    patcher = patch.object(IncrementalTakerStore, "_ingest", new=crash_once)
+                elif crash_phase == "counterfactual_append":
+                    original = IncrementalTakerStore.append_rows
+
+                    def crash_once(store, kind, path, columns, rows, **kwargs):
+                        if kind == "counterfactual" and not failed["value"]:
+                            failed["value"] = True
+                            raise RuntimeError("simulated counterfactual append crash")
+                        return original(store, kind, path, columns, rows, **kwargs)
+
+                    patcher = patch.object(IncrementalTakerStore, "append_rows", new=crash_once)
+                else:
+                    original = IncrementalTakerStore.clear_pending_tick
+
+                    def crash_once(store):
+                        if not failed["value"]:
+                            failed["value"] = True
+                            raise RuntimeError("simulated pending checkpoint-clear crash")
+                        return original(store)
+
+                    patcher = patch.object(
+                        IncrementalTakerStore,
+                        "clear_pending_tick",
+                        new=crash_once,
+                    )
+
+                with patcher, self.assertRaisesRegex(RuntimeError, "simulated"):
+                    build_run_once(now=NOW, **common)
+
+                run_folder = root / "taker_runs" / TARGET_DATE / "daily"
+                with IncrementalTakerStore(run_folder) as staged:
+                    pending = staged.pending_tick()
+                    self.assertTrue(pending.get("order_rows"))
+                    self.assertTrue(pending.get("counterfactual_rows"))
+                    pending_tick_id = pending["incremental_tick_id"]
+                    pending_budget_ledger_count = len(pending.get("budget_ledger") or [])
+                    pending_counterfactual_ledger_count = len(
+                        pending.get("counterfactual_ledger") or []
+                    )
+
+                recovered = build_run_once(
+                    now="2026-06-14T16:01:00+00:00",
+                    **common,
+                )
+                orders = read_csv(Path(recovered["orders_path"]))
+                counterfactual = read_csv(Path(recovered["counterfactual_orders_path"]))
+                budget_ledger = [
+                    json.loads(line)
+                    for line in Path(recovered["budget_ledger_path"]).read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    if line.strip()
+                ]
+                counterfactual_ledger = [
+                    json.loads(line)
+                    for line in Path(recovered["counterfactual_budget_ledger_path"]).read_text(
+                        encoding="utf-8"
+                    ).splitlines()
+                    if line.strip()
+                ]
+                with IncrementalTakerStore(run_folder) as store:
+                    pending_after = store.pending_tick()
+                    benchmark_pending = store.benchmark_pending_count("orders")
+
+                self.assertTrue(
+                    recovered["summary"]["incremental_persistence"]["pending_tick_recovery"][
+                        "recovered"
+                    ]
+                )
+                self.assertEqual(
+                    len({row["intent_key"] for row in orders}),
+                    len(orders),
+                )
+                self.assertEqual(
+                    len({row["intent_key"] for row in counterfactual}),
+                    len(counterfactual),
+                )
+                self.assertTrue(
+                    any(
+                        row["real_order_status"] != "NOT_SELECTED"
+                        and row["real_strategy_id"]
+                        for row in counterfactual
+                    )
+                )
+                self.assertEqual(pending_after, {})
+                self.assertEqual(benchmark_pending, 0)
+                self.assertEqual(
+                    sum(
+                        row.get("incremental_tick_id") == pending_tick_id
+                        for row in budget_ledger
+                    ),
+                    pending_budget_ledger_count,
+                )
+                self.assertEqual(
+                    sum(
+                        row.get("incremental_tick_id") == pending_tick_id
+                        for row in counterfactual_ledger
+                    ),
+                    pending_counterfactual_ledger_count,
+                )
+
+    def test_fresh_archives_old_generation_and_restarts_checkpoint_cleanly(self):
+        from weather.market.taker_bot_incremental import STATE_FILENAME
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root = root / "taker_runs"
+            snapshots_root = write_market_fixture(root, settled=True)
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": runs_root,
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "config": {"counterfactual_tape_enabled": False},
+            }
+            original = build_run_once(now=NOW, **common)
+            original_tape = Path(original["orders_path"]).read_bytes()
+            original_checkpoint = Path(original["run_folder"]) / STATE_FILENAME
+            self.assertTrue(original_checkpoint.exists())
+
+            fresh = build_run_once(
+                now="2026-06-14T16:01:00+00:00",
+                append=False,
+                **common,
+            )
+            archive = Path(
+                fresh["summary"]["incremental_persistence"]["fresh_archive_path"]
+            )
+            active_folder = Path(fresh["run_folder"])
+            fresh_row_count = len(read_csv(Path(fresh["orders_path"])))
+            self.assertTrue(archive.exists())
+            self.assertNotIn(runs_root, archive.parents)
+            self.assertEqual((archive / "orders_long.csv").read_bytes(), original_tape)
+            self.assertTrue((archive / STATE_FILENAME).exists())
+            self.assertFalse((active_folder / STATE_FILENAME).exists())
+
+            resumed = build_run_once(
+                now="2026-06-14T16:02:00+00:00",
+                **common,
+            )
+            resumed_checkpoint_exists = Path(resumed["run_folder"], STATE_FILENAME).exists()
+
+        self.assertEqual(resumed["summary"]["cumulative_order_rows"], fresh_row_count)
+        self.assertEqual(resumed["summary"]["latest_tick_rows"], 0)
+        self.assertTrue(resumed_checkpoint_exists)
+        self.assertEqual(
+            resumed["summary"]["incremental_persistence"]["recovery_kind"],
+            "legacy_full_stream",
+        )
+
+    def test_incremental_no_side_runtime_payload_keeps_canonical_slices_and_gates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = write_market_fixture(
+                root,
+                settled=True,
+                bands=[(80, "0.30", "0.60")],
+                include_no_book=True,
+            )
+            common = {
+                "target_date": TARGET_DATE,
+                "budget_usdc": 12,
+                "markets": "atlanta",
+                "runs_root": root / "taker_runs",
+                "snapshots_root": snapshots_root,
+                "run_id": "daily",
+                "strategies": "fade_overpriced",
+                "config": {
+                    "min_edge": 0.05,
+                    "max_order_usdc": 10,
+                    "max_position_per_token_usdc": 10,
+                    "market_centered_warm_tail_guard_enabled": False,
+                    "counterfactual_tape_enabled": False,
+                },
+            }
+            first = build_run_once(
+                now=NOW,
+                **{
+                    **common,
+                    "config": {
+                        **common["config"],
+                        "counterfactual_tape_enabled": True,
+                    },
+                },
+            )
+            second = build_run_once(now="2026-06-14T16:01:00+00:00", **common)
+
+        campaign = second["summary"]["no_side_campaign"]
+        pnl_strategy = second["pnl"]["by_strategy"][0]
+        self.assertEqual(first["summary"]["no_side_campaign"]["by_market"], campaign["by_market"])
+        self.assertTrue(campaign["by_market"])
+        self.assertTrue(campaign["by_hour"])
+        self.assertEqual(
+            campaign["slices"],
+            {"by_market": campaign["by_market"], "by_hour": campaign["by_hour"]},
+        )
+        strategy = campaign["by_strategy"][0]
+        self.assertEqual(strategy["strategy_id"], "fade_overpriced")
+        self.assertEqual(
+            strategy["strategy_market_top_net_pnl_usdc"],
+            pnl_strategy["market_benchmark_market_top_net_pnl_usdc"],
+        )
+        self.assertEqual(
+            strategy["settlement_promotion_gate_status"],
+            pnl_strategy["settlement_promotion_gate_status"],
+        )
+        self.assertEqual(
+            strategy["settlement_promotion_failed_gates"],
+            pnl_strategy["settlement_promotion_failed_gates"],
+        )
+        first_counterfactual = first["summary"]["counterfactual_no_side_campaign"]
+        second_counterfactual = second["summary"]["counterfactual_no_side_campaign"]
+        self.assertGreater(first_counterfactual["no_side_would_buy_count"], 0)
+        for key in (
+            "no_side_would_buy_count",
+            "settled_no_side_would_buy_count",
+            "no_side_net_pnl_usdc",
+            "countable_no_side_net_pnl_usdc",
+            "by_market",
+            "by_hour",
+        ):
+            self.assertEqual(second_counterfactual[key], first_counterfactual[key])
+
     def test_unsettled_order_uses_mark_to_market_pnl(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

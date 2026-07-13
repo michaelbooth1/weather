@@ -23,6 +23,7 @@ class TestStorageClassRegistry(unittest.TestCase):
 
     def test_representative_current_data_artifacts_are_classified(self):
         examples = {
+            "data/forecast_payload_cas/sha256/ab/abcdef.blob": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshots.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/replay_inputs.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/observation_payloads.jsonl": CANONICAL_EVIDENCE,
@@ -35,6 +36,7 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/backtest/market_day_labels.csv": CANONICAL_EVIDENCE,
             "data/mm_runs/run-1/order_lifecycle.jsonl": CANONICAL_EVIDENCE,
             "data/taker_runs/run-1/orders.jsonl": CANONICAL_EVIDENCE,
+            "data/taker_runs/2026-07-13/run-1/incremental_state.sqlite3": ANALYSIS_PROJECTION,
             "data/wunderground/cyyz/manifest.json": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshots_long.csv": ANALYSIS_PROJECTION,
             "data/snapshots/event/observation_payloads_long.csv": ANALYSIS_PROJECTION,

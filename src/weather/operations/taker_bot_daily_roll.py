@@ -724,6 +724,8 @@ def taker_artifact_health(
         "remediation_command": evidence_starvation.get("remediation_command"),
         "restart_recommended": not ok,
         "restart_reason": root_cause,
+        "resource_diagnostics": summary.get("resource_diagnostics") or {},
+        "incremental_persistence": summary.get("incremental_persistence") or {},
     }
     return {
         "status": status,
@@ -740,6 +742,8 @@ def taker_artifact_health(
         "upstream_dependency_status": upstream_dependency_status,
         "taker_evidence_starvation": evidence_starvation,
         "operator_report": report,
+        "resource_diagnostics": summary.get("resource_diagnostics") or {},
+        "incremental_persistence": summary.get("incremental_persistence") or {},
     }
 
 
@@ -770,6 +774,8 @@ def enrich_taker_liveness_status(
     payload["latest_tick_scoring_liveness"] = health.get("latest_tick_scoring_liveness") or {}
     payload["upstream_dependency_status"] = health.get("upstream_dependency_status") or {}
     payload["operator_report"] = health.get("operator_report") or {}
+    payload["resource_diagnostics"] = health.get("resource_diagnostics") or {}
+    payload["incremental_persistence"] = health.get("incremental_persistence") or {}
     if health.get("ok"):
         return payload
     scoring_liveness = health.get("latest_tick_scoring_liveness") or {}

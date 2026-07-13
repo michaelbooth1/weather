@@ -202,6 +202,16 @@ def daily_roll_health(
         else None,
         "latest_useful_write": latest_useful_write(status),
         "runtime_identity": status.get("runtime_identity") or {},
+        "resource_diagnostics": (
+            status.get("resource_diagnostics")
+            or (status.get("operator_report") or {}).get("resource_diagnostics")
+            or {}
+        ),
+        "incremental_persistence": (
+            status.get("incremental_persistence")
+            or (status.get("operator_report") or {}).get("incremental_persistence")
+            or {}
+        ),
         **runtime,
     }
     if expected_target and status_target != expected_target:

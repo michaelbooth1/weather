@@ -1,5 +1,11 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
+import json
+import os
+import time
+import uuid
+from collections import defaultdict
+
 from weather.market.taker_bot_finalization import *  # noqa: F403
 from weather.market import exchange_economics
 from weather.market.taker_evidence_starvation import (
@@ -8,6 +14,13 @@ from weather.market.taker_evidence_starvation import (
 )
 from weather.operations import event_metadata_validation
 from weather.runtime_identity import get_runtime_identity
+from weather.market.taker_bot_incremental import (
+    BENCHMARK_REFRESH_GROUP_LIMIT,
+    DEFAULT_RESOURCE_BUDGETS,
+    IncrementalTakerStore,
+    process_resource_sample,
+    resource_diagnostics,
+)
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
@@ -337,6 +350,444 @@ def last_nonzero_scored_tick_summary(rows):
     }
 
 
+def _benchmark_group_payloads(rows, policy_config):
+    groups = defaultdict(list)
+    for row in rows or []:
+        groups[(
+            strategy_id_for_row(row),
+            str(row.get("target_date") or ""),
+            str(row.get("market_id") or ""),
+            str(row.get("snapshot_id") or ""),
+        )].append(dict(row))
+    return [
+        {
+            "rows": group_rows,
+            "payload": market_benchmark_scoreboard(group_rows, policy_config=policy_config),
+        }
+        for _key, group_rows in sorted(groups.items())
+    ]
+
+
+def _append_jsonl_batch_idempotent(path, rows):
+    """Complete one bounded pending JSONL batch without duplicating a durable tail."""
+
+    rows = list(rows or [])
+    if not rows:
+        return {"row_count": 0, "bytes_written": 0, "already_complete": True}
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded_rows = [
+        (json.dumps(row, sort_keys=True, default=str) + "\n").encode("utf-8")
+        for row in rows
+    ]
+    data = b"".join(encoded_rows)
+    overlap = 0
+    try:
+        actual = path.stat().st_size
+    except OSError:
+        actual = 0
+    if actual:
+        with path.open("rb") as handle:
+            handle.seek(max(0, actual - len(data)))
+            tail = handle.read()
+        if tail.endswith(data):
+            return {"row_count": len(rows), "bytes_written": 0, "already_complete": True}
+        first_line = encoded_rows[0]
+        start = tail.rfind(first_line)
+        if start >= 0 and data.startswith(tail[start:]):
+            overlap = len(tail) - start
+        elif not tail.endswith(b"\n"):
+            partial = tail.rsplit(b"\n", 1)[-1]
+            if partial and data.startswith(partial):
+                overlap = len(partial)
+            else:
+                raise RuntimeError(
+                    f"pending JSONL batch found an unrelated incomplete tail in {path}"
+                )
+    remaining = data[overlap:]
+    if remaining:
+        with path.open("ab") as handle:
+            handle.write(remaining)
+            handle.flush()
+            os.fsync(handle.fileno())
+    return {
+        "row_count": len(rows),
+        "bytes_written": len(remaining),
+        "already_complete": not remaining,
+    }
+
+
+def _benchmark_settlement_state(row, *, snapshots_root, ledger_root):
+    event_slug = str(row.get("event_slug") or "")
+    settlement = settlement_for_folder(
+        Path(snapshots_root) / event_slug,
+        event_slug,
+        ledger_root=ledger_root,
+    )
+    if not settlement:
+        return {"present": False}
+    return {
+        "present": True,
+        "settlement_bucket": settlement.get("settlement_bucket"),
+        "winning_band": settlement.get("winning_band"),
+        "quality_grade": settlement.get("quality_grade"),
+        "market_id": settlement.get("market_id"),
+        "target_date": settlement.get("target_date"),
+    }
+
+
+def _refresh_incremental_benchmark(
+    store,
+    *,
+    policy_config,
+    snapshots_root,
+    ledger_root,
+    now,
+    limit=BENCHMARK_REFRESH_GROUP_LIMIT,
+):
+    probe_rows = store.benchmark_probe_rows("orders")
+    changed_events = []
+    unavailable_after_finalized = []
+    if probe_rows:
+        scored_probes = score_orders(
+            probe_rows,
+            snapshots_root=snapshots_root,
+            ledger_root=ledger_root,
+            now=now,
+        )
+        settlement_by_event = {}
+        for row in scored_probes:
+            event_slug = str(row.get("event_slug") or "")
+            if event_slug not in settlement_by_event:
+                settlement_by_event[event_slug] = _benchmark_settlement_state(
+                    row,
+                    snapshots_root=snapshots_root,
+                    ledger_root=ledger_root,
+                )
+            row["_benchmark_settlement_signature"] = settlement_by_event[event_slug]
+        signature_state = store.mark_benchmark_event_signatures("orders", scored_probes)
+        changed_events = signature_state.get("changed_events") or []
+        unavailable_after_finalized = (
+            signature_state.get("unavailable_after_finalized_events") or []
+        )
+    pending_groups = store.pending_benchmark_groups(
+        "orders",
+        limit=limit,
+        exclude_event_keys=unavailable_after_finalized,
+    )
+    refreshed = 0
+    deferred_generation_mismatch = 0
+    if pending_groups:
+        pending_rows = [
+            row
+            for group in pending_groups
+            for row in group.get("rows") or []
+        ]
+        # Bind benchmark scoring to the exact settlement generation captured
+        # above.  Re-reading the mutable label inside score_orders would reopen
+        # a disappear/correction race between signature and contribution.
+        scored_rows = []
+        for row in pending_rows:
+            item = dict(row)
+            event_slug = str(item.get("event_slug") or "")
+            captured = settlement_by_event.get(event_slug) or {"present": False}
+            outcome = (
+                settlement_outcome_for_order(item, captured)
+                if captured.get("present")
+                else None
+            )
+            item["settlement_outcome"] = compact_float(outcome)
+            if str(item.get("order_status") or "").upper() == "FILLED":
+                if outcome is not None:
+                    fill_size = maybe_float(item.get("fill_size")) or 0.0
+                    components = executable_pnl_components(item, float(outcome) * fill_size)
+                    item.update(components)
+            scored_rows.append(item)
+        safe_groups = []
+        for group in _benchmark_group_payloads(scored_rows, policy_config):
+            rows = list(group.get("rows") or [])
+            if not rows:
+                continue
+            event_slug = str(rows[0].get("event_slug") or "")
+            captured_settlement = settlement_by_event.get(event_slug)
+            current_settlement = _benchmark_settlement_state(
+                rows[0],
+                snapshots_root=snapshots_root,
+                ledger_root=ledger_root,
+            )
+            generation_matches = current_settlement == captured_settlement
+            outcomes_match = True
+            if generation_matches and (captured_settlement or {}).get("present"):
+                for row in rows:
+                    expected = settlement_outcome_for_order(row, captured_settlement)
+                    actual = maybe_float(row.get("settlement_outcome"))
+                    if (
+                        expected is None
+                        or actual is None
+                        or abs(float(expected) - float(actual)) > 1e-9
+                    ):
+                        outcomes_match = False
+                        break
+            elif generation_matches:
+                outcomes_match = all(
+                    maybe_float(row.get("settlement_outcome")) is None
+                    for row in rows
+                )
+            if not generation_matches or not outcomes_match:
+                deferred_generation_mismatch += 1
+                continue
+            safe_groups.append(group)
+        refreshed = store.apply_benchmark_groups("orders", safe_groups)
+    remaining = store.benchmark_pending_count("orders")
+    return {
+        "status": "REFRESH_PENDING" if remaining else "CURRENT",
+        "changed_event_count": len(changed_events),
+        "settlement_unavailable_after_finalized_event_count": len(
+            unavailable_after_finalized
+        ),
+        "refreshed_group_count": int(refreshed),
+        "deferred_generation_mismatch_group_count": int(
+            deferred_generation_mismatch
+        ),
+        "remaining_group_count": int(remaining),
+        "group_limit_per_tick": int(limit),
+    }
+
+
+def _complete_pending_incremental_tick(
+    store,
+    pending,
+    *,
+    order_path,
+    counterfactual_path,
+    budget_ledger_path,
+    counterfactual_ledger_path,
+):
+    order_rows = list(pending.get("order_rows") or [])
+    benchmark_groups = list(pending.get("order_benchmark_groups") or [])
+    missing_orders = [
+        row
+        for row in order_rows
+        if not store.has_intent("orders", str(row.get("intent_key") or ""))
+    ]
+    if missing_orders:
+        store.append_rows(
+            "orders",
+            order_path,
+            ORDER_COLUMNS,
+            missing_orders,
+            benchmark_groups=benchmark_groups,
+        )
+    if benchmark_groups:
+        store.apply_benchmark_groups("orders", benchmark_groups)
+
+    counterfactual_rows = list(pending.get("counterfactual_rows") or [])
+    missing_counterfactual = [
+        row
+        for row in counterfactual_rows
+        if not store.has_intent("counterfactual", str(row.get("intent_key") or ""))
+    ]
+    if missing_counterfactual:
+        store.append_rows(
+            "counterfactual",
+            counterfactual_path,
+            COUNTERFACTUAL_ORDER_COLUMNS,
+            missing_counterfactual,
+        )
+    if any(
+        not store.has_intent("orders", str(row.get("intent_key") or ""))
+        for row in order_rows
+    ) or any(
+        not store.has_intent("counterfactual", str(row.get("intent_key") or ""))
+        for row in counterfactual_rows
+    ):
+        raise RuntimeError("pending taker tick did not reach a durable terminal phase")
+    _append_jsonl_batch_idempotent(
+        budget_ledger_path,
+        pending.get("budget_ledger") or [],
+    )
+    _append_jsonl_batch_idempotent(
+        counterfactual_ledger_path,
+        pending.get("counterfactual_ledger") or [],
+    )
+    store.clear_pending_tick()
+    return {
+        "recovered": True,
+        "order_row_count": len(order_rows),
+        "counterfactual_row_count": len(counterfactual_rows),
+    }
+
+
+def _archive_run_folder_for_fresh(run_folder, now):
+    run_folder = Path(run_folder)
+    if not run_folder.exists() or not any(run_folder.iterdir()):
+        return None
+    stamp = utc_now(now).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    # Daily-roll and finalization enumerate the immediate children below the
+    # active runs root.  Keep preserved generations in a sibling root so an
+    # archived run cannot be mistaken for an active one.
+    runs_root = run_folder.parent.parent
+    archive_parent = (
+        runs_root.with_name(f"{runs_root.name}_fresh_archives")
+        / run_folder.parent.name
+    )
+    archive_parent.mkdir(parents=True, exist_ok=True)
+    for index in range(1000):
+        collision = "" if index == 0 else f".{index}"
+        archived = archive_parent / f"{run_folder.name}.fresh-archive-{stamp}{collision}"
+        if archived.exists():
+            continue
+        run_folder.rename(archived)
+        return archived
+    raise RuntimeError(f"could not archive existing fresh-run folder {run_folder}")
+
+
+def _incremental_pnl_payload(
+    store,
+    *,
+    budget_usdc,
+    run_id,
+    target_date,
+    now,
+    policy_config,
+    snapshots_root,
+    ledger_root,
+    benchmark_refresh=None,
+):
+    """Build cumulative P&L from bounded fill state plus checkpoint counters."""
+
+    filled = score_orders(
+        store.filled_rows("orders"),
+        snapshots_root=snapshots_root,
+        ledger_root=ledger_root,
+        now=now,
+    )
+    filled_keys = {row.get("intent_key") for row in filled if row.get("intent_key")}
+    representatives = [
+        row
+        for row in store.representative_rows("orders")
+        if row.get("intent_key") not in filled_keys
+    ]
+    payload = build_pnl_payload(
+        [*filled, *representatives],
+        budget_usdc,
+        run_id,
+        target_date,
+        now=now,
+        policy_config=policy_config,
+    )
+    stats = store.tape_stats("orders")
+    strategy_stats = store.strategy_stats("orders")
+    payload["summary"]["order_rows"] = stats["row_count"]
+    payload["summary"]["filled_order_count"] = stats["filled_count"]
+    payload["summary"]["reason_counts"] = stats["reason_counts"]
+
+    benchmark = store.benchmark("orders") or payload.get("market_benchmark_scoreboard") or {}
+    benchmark.setdefault("summary", {})["traded_pnl_usdc"] = sum_field(
+        filled,
+        "net_pnl_usdc",
+    )
+    current_traded_pnl = Counter()
+    for row in filled:
+        current_traded_pnl[strategy_id_for_row(row)] += maybe_float(row.get("net_pnl_usdc")) or 0.0
+    for row in benchmark.get("by_strategy") or []:
+        row["traded_pnl_usdc"] = round(current_traded_pnl[row.get("strategy_id")], 6)
+    benchmark_by_strategy = {
+        row.get("strategy_id"): row
+        for row in benchmark.get("by_strategy") or []
+    }
+    rows_by_strategy = {
+        row.get("strategy_id"): row
+        for row in payload.get("by_strategy") or []
+    }
+    thresholds = promotion_thresholds(policy_config)
+    refresh_pending = int((benchmark_refresh or {}).get("remaining_group_count") or 0) > 0
+    for strategy_id, cumulative in strategy_stats.items():
+        row = rows_by_strategy.get(strategy_id)
+        if row is None:
+            continue
+        row.update({
+            "order_rows": cumulative["row_count"],
+            "reason_counts": cumulative["reason_counts"],
+            "stale_book_rows": cumulative["stale_book_rows"],
+            "source_stale_rows": cumulative["source_stale_rows"],
+        })
+        scored_benchmark = benchmark_by_strategy.get(strategy_id) or {}
+        row.update({
+            "market_benchmark_status": (
+                "BLOCK_REFRESH_PENDING"
+                if refresh_pending
+                else scored_benchmark.get("status") or "PASS"
+            ),
+            "market_benchmark_opportunity_count": scored_benchmark.get("opportunity_count") or 0,
+            "market_smarter_slice_count": scored_benchmark.get("market_smarter_slice_count") or 0,
+            "market_benchmark_traded_pnl_usdc": scored_benchmark.get("traded_pnl_usdc") or 0.0,
+            "market_benchmark_model_top_net_pnl_usdc": scored_benchmark.get("model_top_net_pnl_usdc") or 0.0,
+            "market_benchmark_market_top_net_pnl_usdc": scored_benchmark.get("market_top_net_pnl_usdc") or 0.0,
+            "market_benchmark_no_trade_net_pnl_usdc": scored_benchmark.get("no_trade_net_pnl_usdc") or 0.0,
+            "market_benchmark_avoided_loss_usdc": scored_benchmark.get("avoided_loss_usdc") or 0.0,
+            "market_benchmark_missed_gain_usdc": scored_benchmark.get("missed_gain_usdc") or 0.0,
+            "market_benchmark_recommendations": scored_benchmark.get("recommendations") or [],
+        })
+        gate = settlement_promotion_gate(row, thresholds)
+        if refresh_pending:
+            gate = dict(gate)
+            gate["status"] = "BLOCK"
+            gate["gates"] = [
+                *(gate.get("gates") or []),
+                {
+                    "name": "benchmark_refresh_complete",
+                    "ok": False,
+                    "value": (benchmark_refresh or {}).get("remaining_group_count"),
+                    "threshold": 0,
+                },
+            ]
+            gate["failed_gates"] = [
+                *(gate.get("failed_gates") or []),
+                "benchmark_refresh_complete",
+            ]
+        row["settlement_promotion_gate"] = gate
+        row["settlement_promotion_gate_status"] = gate["status"]
+        row["settlement_promotion_failed_gates"] = gate["failed_gates"]
+        row["quality_candidate_countable"] = gate["status"] == "PASS"
+        row["quality_candidate_evidence_basis"] = gate["basis"]
+
+    strategy_rows = payload.get("by_strategy") or []
+    best_by_net = max(strategy_rows, key=lambda row: maybe_float(row.get("net_pnl_usdc")) or 0.0, default={})
+    countable = [row for row in strategy_rows if row.get("quality_candidate_countable")]
+    best_countable = max(countable, key=lambda row: maybe_float(row.get("net_pnl_usdc")) or 0.0, default={})
+    comparison = payload.setdefault("strategy_comparison", {})
+    comparison.update({
+        "best_strategy_id": best_by_net.get("strategy_id"),
+        "best_strategy_net_pnl_usdc": best_by_net.get("net_pnl_usdc"),
+        "best_settlement_scored_strategy_id": best_countable.get("strategy_id"),
+        "best_settlement_scored_net_pnl_usdc": best_countable.get("net_pnl_usdc"),
+        "countable_strategy_quality_candidate": best_countable,
+        "countable_strategy_quality_candidate_status": (
+            "COUNTABLE_SETTLED" if best_countable else "MISSING_SETTLED_SAMPLE"
+        ),
+        "market_benchmark_summary": benchmark.get("summary") or {},
+        "market_benchmark_status": (
+            "BLOCK_REFRESH_PENDING"
+            if refresh_pending
+            else
+            "BLOCK_MARKET_SMARTER"
+            if (benchmark.get("summary") or {}).get("market_smarter_slice_count")
+            else "PASS"
+        ),
+    })
+    payload["market_benchmark_scoreboard"] = benchmark
+    payload["incremental_persistence"] = {
+        "schema_version": "taker_incremental_pnl_v0.1",
+        "bounded_materialized_filled_rows": len(filled),
+        "bounded_representative_rows": len(representatives),
+        "cumulative_order_rows": stats["row_count"],
+        "scoring_basis": "bounded_fills_plus_incremental_counters",
+        "benchmark_refresh": benchmark_refresh or {},
+    }
+    return payload, filled
+
+
 def build_run_once(
     target_date,
     budget_usdc,
@@ -357,6 +808,8 @@ def build_run_once(
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
 ):
+    tick_started = time.perf_counter()
+    resource_start = process_resource_sample()
     now = utc_now(now)
     target = ensure_date(target_date)
     config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
@@ -384,9 +837,42 @@ def build_run_once(
                 "strategy_ids": strategy_ids,
             })
     run_folder = run_folder_for(runs_root, target, run_id)
+    fresh_archive_path = _archive_run_folder_for_fresh(run_folder, now) if not append else None
     run_folder.mkdir(parents=True, exist_ok=True)
     order_path = run_folder / "orders_long.csv"
-    existing_rows = read_order_rows(order_path) if append else []
+    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
+    budget_ledger_path = run_folder / "budget_ledger.jsonl"
+    counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
+    counterfactual_enabled = bool_value(config.get("counterfactual_tape_enabled"), True)
+    incremental_store = IncrementalTakerStore(run_folder) if append else None
+    counterfactual_prepared = False
+    pending_recovery = {}
+    if incremental_store is not None:
+        incremental_store.prepare_tape("orders", order_path, ORDER_COLUMNS)
+        pending = incremental_store.pending_tick()
+        if (
+            counterfactual_enabled
+            or (pending.get("counterfactual_rows") or [])
+            or counterfactual_path.exists()
+        ):
+            incremental_store.prepare_tape(
+                "counterfactual",
+                counterfactual_path,
+                COUNTERFACTUAL_ORDER_COLUMNS,
+            )
+            counterfactual_prepared = True
+        if pending:
+            pending_recovery = _complete_pending_incremental_tick(
+                incremental_store,
+                pending,
+                order_path=order_path,
+                counterfactual_path=counterfactual_path,
+                budget_ledger_path=budget_ledger_path,
+                counterfactual_ledger_path=counterfactual_ledger_path,
+            )
+        existing_rows = incremental_store.filled_rows("orders")
+    else:
+        existing_rows = []
     if (
         Path(snapshots_root) != Path(DEFAULT_SNAPSHOTS_ROOT)
         and Path(observation_status_path) == Path(DEFAULT_OBSERVATION_STATUS)
@@ -421,19 +907,25 @@ def build_run_once(
             strategy["config"],
             strategy=strategy,
             experiment_id=experiment_id,
+            intent_exists=(
+                (lambda key: incremental_store.has_intent("orders", key))
+                if incremental_store is not None
+                else None
+            ),
         )
         new_rows.extend(strategy_rows)
         budget_ledger.extend(strategy_ledger)
-    all_rows = score_orders([*existing_rows, *new_rows], snapshots_root=snapshots_root, ledger_root=ledger_root, now=now)
+    new_rows = score_orders(
+        new_rows,
+        snapshots_root=snapshots_root,
+        ledger_root=ledger_root,
+        now=now,
+    )
     _apply_exchange_economics_fields(new_rows, exchange_fields)
-    _apply_exchange_economics_fields(all_rows, exchange_fields)
-    write_csv_rows(order_path, ORDER_COLUMNS, all_rows)
-    tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
-    append_jsonl(run_folder / "budget_ledger.jsonl", budget_ledger)
-    counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
-    counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
+    order_benchmark_groups = _benchmark_group_payloads(new_rows, config)
     counterfactual_rows = []
     all_counterfactual_rows = []
+    counterfactual_ledger = []
     counterfactual_strategy_ids = []
     counterfactual_model_variant_manifest = {
         "requested_variant_ids": [],
@@ -449,12 +941,20 @@ def build_run_once(
         "actual_rows": 0,
         "detail": "counterfactual tape disabled by config",
     }
-    if bool_value(config.get("counterfactual_tape_enabled"), True):
-        existing_counterfactual_rows = read_order_rows(counterfactual_path) if append else []
+    if counterfactual_enabled:
+        if incremental_store is not None:
+            existing_counterfactual_rows = incremental_store.filled_rows("counterfactual")
+            real_attribution_rows = [
+                *incremental_store.latest_rows("orders"),
+                *new_rows,
+            ]
+        else:
+            existing_counterfactual_rows = []
+            real_attribution_rows = new_rows
         counterfactual_build = build_counterfactual_taker_rows(
             input_rows,
             existing_counterfactual_rows,
-            all_rows,
+            real_attribution_rows,
             budget_usdc=budget_usdc,
             run_id=run_id,
             target_date=target,
@@ -463,6 +963,11 @@ def build_run_once(
             strategies=counterfactual_strategy_arg(config),
             experiment_id=experiment_id,
             strategy_registry=strategy_registry,
+            intent_exists=(
+                (lambda key: incremental_store.has_intent("counterfactual", key))
+                if incremental_store is not None
+                else None
+            ),
         )
         counterfactual_rows = counterfactual_build["rows"]
         counterfactual_strategy_ids = [
@@ -470,27 +975,117 @@ def build_run_once(
             for item in counterfactual_build.get("strategy_specs") or []
         ]
         counterfactual_model_variant_manifest = counterfactual_build.get("model_variant_manifest") or counterfactual_model_variant_manifest
-        all_counterfactual_rows = score_orders(
-            [*existing_counterfactual_rows, *counterfactual_rows],
+        counterfactual_ledger = list(counterfactual_build.get("ledger") or [])
+        counterfactual_rows = score_orders(
+            counterfactual_rows,
             snapshots_root=snapshots_root,
             ledger_root=ledger_root,
             now=now,
         )
         _apply_exchange_economics_fields(counterfactual_rows, exchange_fields)
-        _apply_exchange_economics_fields(all_counterfactual_rows, exchange_fields)
-        all_counterfactual_rows = annotate_counterfactual_rows(
-            all_counterfactual_rows,
-            real_rows=all_rows,
+        counterfactual_rows = annotate_counterfactual_rows(
+            counterfactual_rows,
+            real_rows=real_attribution_rows,
             strategy_set=",".join(counterfactual_strategy_ids),
         )
-        write_csv_rows(counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, all_counterfactual_rows)
-        counterfactual_tape_integrity = tape_integrity_summary(
-            counterfactual_path,
-            len(all_counterfactual_rows),
-            "counterfactual_orders_long",
+
+    if incremental_store is not None:
+        incremental_tick_id = uuid.uuid4().hex
+        budget_ledger = [
+            {**row, "incremental_tick_id": incremental_tick_id}
+            for row in budget_ledger
+        ]
+        counterfactual_ledger = [
+            {**row, "incremental_tick_id": incremental_tick_id}
+            for row in counterfactual_ledger
+        ]
+        pending_tick = {
+            "schema_version": "taker_pending_tick_v0.1",
+            "incremental_tick_id": incremental_tick_id,
+            "run_id": run_id,
+            "target_date": target.isoformat(),
+            "order_rows": new_rows,
+            "order_benchmark_groups": order_benchmark_groups,
+            "counterfactual_rows": counterfactual_rows,
+            "budget_ledger": budget_ledger,
+            "counterfactual_ledger": counterfactual_ledger,
+        }
+        pending_work = bool(
+            new_rows or counterfactual_rows or budget_ledger or counterfactual_ledger
         )
-        if counterfactual_build.get("ledger"):
-            append_jsonl(counterfactual_ledger_path, counterfactual_build["ledger"])
+        if pending_work:
+            incremental_store.save_pending_tick(pending_tick)
+        try:
+            incremental_store.append_rows(
+                "orders",
+                order_path,
+                ORDER_COLUMNS,
+                new_rows,
+                benchmark_groups=order_benchmark_groups,
+            )
+            if counterfactual_enabled:
+                incremental_store.append_rows(
+                    "counterfactual",
+                    counterfactual_path,
+                    COUNTERFACTUAL_ORDER_COLUMNS,
+                    counterfactual_rows,
+                )
+            _append_jsonl_batch_idempotent(budget_ledger_path, budget_ledger)
+            _append_jsonl_batch_idempotent(
+                counterfactual_ledger_path,
+                counterfactual_ledger,
+            )
+            if pending_work:
+                incremental_store.clear_pending_tick()
+        except Exception:
+            # The durable pending envelope deliberately remains for restart.
+            incremental_store.close()
+            raise
+        all_rows = score_orders(
+            incremental_store.filled_rows("orders"),
+            snapshots_root=snapshots_root,
+            ledger_root=ledger_root,
+            now=now,
+        )
+        _apply_exchange_economics_fields(all_rows, exchange_fields)
+        tape_integrity = incremental_store.tape_integrity("orders", "orders_long")
+        if counterfactual_enabled:
+            all_counterfactual_rows = score_orders(
+                incremental_store.filled_rows("counterfactual"),
+                snapshots_root=snapshots_root,
+                ledger_root=ledger_root,
+                now=now,
+            )
+            _apply_exchange_economics_fields(all_counterfactual_rows, exchange_fields)
+            counterfactual_tape_integrity = incremental_store.tape_integrity(
+                "counterfactual",
+                "counterfactual_orders_long",
+            )
+        elif counterfactual_prepared:
+            all_counterfactual_rows = score_orders(
+                incremental_store.filled_rows("counterfactual"),
+                snapshots_root=snapshots_root,
+                ledger_root=ledger_root,
+                now=now,
+            )
+            _apply_exchange_economics_fields(all_counterfactual_rows, exchange_fields)
+    else:
+        all_rows = new_rows
+        write_csv_rows(order_path, ORDER_COLUMNS, all_rows)
+        tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
+        if counterfactual_enabled:
+            all_counterfactual_rows = counterfactual_rows
+            write_csv_rows(counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, all_counterfactual_rows)
+            counterfactual_tape_integrity = tape_integrity_summary(
+                counterfactual_path,
+                len(all_counterfactual_rows),
+                "counterfactual_orders_long",
+            )
+
+    if incremental_store is None:
+        append_jsonl(budget_ledger_path, budget_ledger)
+        if counterfactual_ledger:
+            append_jsonl(counterfactual_ledger_path, counterfactual_ledger)
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget_usdc) for item in strategy_specs)
     runtime_identity = get_runtime_identity()
     run_config = build_run_config_payload(
@@ -510,17 +1105,53 @@ def build_run_once(
         event_metadata_state=event_state,
         exchange_economics_gate=exchange_gate,
     )
-    pnl_payload = build_pnl_payload(
-        all_rows,
-        total_budget_usdc,
-        run_id,
-        target,
-        now=now,
-        policy_config=run_config.get("policy_config") or config,
-    )
+    if incremental_store is not None:
+        benchmark_refresh = _refresh_incremental_benchmark(
+            incremental_store,
+            policy_config=run_config.get("policy_config") or config,
+            snapshots_root=snapshots_root,
+            ledger_root=ledger_root,
+            now=now,
+        )
+        pnl_payload, all_rows = _incremental_pnl_payload(
+            incremental_store,
+            budget_usdc=total_budget_usdc,
+            run_id=run_id,
+            target_date=target,
+            now=now,
+            policy_config=run_config.get("policy_config") or config,
+            snapshots_root=snapshots_root,
+            ledger_root=ledger_root,
+            benchmark_refresh=benchmark_refresh,
+        )
+    else:
+        benchmark_refresh = {}
+        pnl_payload = build_pnl_payload(
+            all_rows,
+            total_budget_usdc,
+            run_id,
+            target,
+            now=now,
+            policy_config=run_config.get("policy_config") or config,
+        )
     pnl_payload = _annotate_taker_pnl_with_exchange_economics(pnl_payload, exchange_gate, exchange_fields)
-    no_side_campaign = no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
-    counterfactual_no_side_campaign = no_side_campaign_summary(all_counterfactual_rows)
+    no_side_campaign = (
+        incremental_store.no_side_summary(
+            "orders",
+            scored_filled_rows=all_rows,
+            pnl_payload=pnl_payload,
+        )
+        if incremental_store is not None
+        else no_side_campaign_summary(all_rows, pnl_payload=pnl_payload)
+    )
+    counterfactual_no_side_campaign = (
+        incremental_store.no_side_summary(
+            "counterfactual",
+            scored_filled_rows=all_counterfactual_rows,
+        )
+        if incremental_store is not None
+        else no_side_campaign_summary(all_counterfactual_rows)
+    )
     edge_permission_coverage = taker_edge_permission_coverage(new_rows, config)
     run_config["taker_edge_permission_coverage"] = edge_permission_coverage
     write_json(run_folder / "daily_pnl.json", pnl_payload)
@@ -538,7 +1169,17 @@ def build_run_once(
 
     reason_counts = Counter(row.get("reason_code") or "unknown" for row in new_rows)
     latest_filled = [row for row in new_rows if str(row.get("order_status") or "").upper() == "FILLED"]
-    last_nonzero_tick = last_nonzero_scored_tick_summary(all_rows)
+    order_state = incremental_store.tape_stats("orders") if incremental_store is not None else None
+    counterfactual_state = (
+        incremental_store.tape_stats("counterfactual")
+        if incremental_store is not None and counterfactual_prepared
+        else None
+    )
+    last_nonzero_tick = (
+        order_state.get("last_nonzero_scored_tick")
+        if order_state is not None
+        else last_nonzero_scored_tick_summary(all_rows)
+    )
     weak_slot_rows = [row for row in new_rows if row.get("weak_slot_gate_status") == "blocked"]
     warm_tail_rows = [row for row in new_rows if bool_value(row.get("market_centered_warm_tail"), False)]
     warm_tail_blocked = [
@@ -550,6 +1191,52 @@ def build_run_once(
         permission_rows=len(latest_filled),
         output_rows=len(new_rows),
     )
+    if incremental_store is not None:
+        tick_number = incremental_store.tick_number()
+        budget_overrides = {
+            key: config.get(f"taker_{key}", default)
+            for key, default in DEFAULT_RESOURCE_BUDGETS.items()
+        }
+        resource_status = resource_diagnostics(
+            resource_start,
+            process_resource_sample(),
+            elapsed_seconds=time.perf_counter() - tick_started,
+            tick_number=tick_number,
+            tape_io=incremental_store.io_diagnostics(),
+            budgets=budget_overrides,
+        )
+        resource_status = incremental_store.record_resource_diagnostics(resource_status)
+        tape_io_status = resource_status.get("tape_io") or {}
+        incremental_persistence = {
+            "schema_version": "taker_incremental_persistence_v0.1",
+            "status": "RECOVERED" if tape_io_status.get("recovery_mode") else "PASS",
+            "mode": "append_checkpoint",
+            "checkpoint_path": str(incremental_store.path),
+            "restart_recovery": "streaming_legacy_bootstrap_or_uncheckpointed_tail_only",
+            "recovery_mode": bool(tape_io_status.get("recovery_mode")),
+            "recovery_kind": tape_io_status.get("recovery_kind"),
+            "recovered_row_count": int(tape_io_status.get("recovered_row_count") or 0),
+            "recovery_bytes_read": (
+                int(tape_io_status.get("tape_bytes_read") or 0)
+                if tape_io_status.get("recovery_mode")
+                else 0
+            ),
+            "ordinary_full_history_reads": 0,
+            "ordinary_full_history_rewrites": 0,
+            "bounded_materialized_order_fills": len(all_rows),
+            "bounded_materialized_counterfactual_fills": len(all_counterfactual_rows),
+            "pending_tick_recovery": pending_recovery,
+            "benchmark_refresh": benchmark_refresh,
+        }
+    else:
+        tick_number = 1
+        resource_status = {}
+        incremental_persistence = {
+            "schema_version": "taker_incremental_persistence_v0.1",
+            "status": "MAINTENANCE_REBUILD",
+            "mode": "explicit_non_append",
+            "fresh_archive_path": str(fresh_archive_path) if fresh_archive_path else None,
+        }
     summary = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -579,10 +1266,16 @@ def build_run_once(
             if str(row.get("order_status") or "").upper() == "FILLED"
         ),
         "last_nonzero_scored_tick": last_nonzero_tick,
-        "cumulative_counterfactual_rows": len(all_counterfactual_rows),
-        "cumulative_counterfactual_would_buy_count": sum(
-            1 for row in all_counterfactual_rows
-            if str(row.get("order_status") or "").upper() == "FILLED"
+        "cumulative_counterfactual_rows": (
+            counterfactual_state.get("row_count") if counterfactual_state is not None else len(all_counterfactual_rows)
+        ),
+        "cumulative_counterfactual_would_buy_count": (
+            counterfactual_state.get("filled_count")
+            if counterfactual_state is not None
+            else sum(
+                1 for row in all_counterfactual_rows
+                if str(row.get("order_status") or "").upper() == "FILLED"
+            )
         ),
         "counterfactual_strategy_ids": counterfactual_strategy_ids,
         "counterfactual_model_variant_manifest": counterfactual_model_variant_manifest,
@@ -594,7 +1287,7 @@ def build_run_once(
         "counterfactual_no_side_would_buy_count": counterfactual_no_side_campaign.get("no_side_would_buy_count"),
         "counterfactual_countable_no_side_would_buy_count": counterfactual_no_side_campaign.get("countable_no_side_would_buy_count"),
         "taker_edge_permission_coverage": edge_permission_coverage,
-        "cumulative_order_rows": len(all_rows),
+        "cumulative_order_rows": order_state.get("row_count") if order_state is not None else len(all_rows),
         "cumulative_filled_orders": pnl_payload["summary"]["filled_order_count"],
         "cumulative_net_pnl_usdc": pnl_payload["summary"]["net_pnl_usdc"],
         "reason_counts": dict(sorted(reason_counts.items())),
@@ -607,6 +1300,8 @@ def build_run_once(
         "market_status_counts": dict(sorted(Counter(row.get("status") for row in market_summaries).items())),
         "tape_integrity": tape_integrity,
         "counterfactual_tape_integrity": counterfactual_tape_integrity,
+        "incremental_persistence": incremental_persistence,
+        "resource_diagnostics": resource_status,
         **zero_trade_diagnosis,
     }
     upstream_dependency_status = build_taker_upstream_dependency_status(market_summaries)
@@ -662,6 +1357,8 @@ def build_run_once(
         "tape_integrity": tape_integrity,
         "counterfactual_tape_integrity": counterfactual_tape_integrity,
         "counterfactual_model_variant_manifest": counterfactual_model_variant_manifest,
+        "incremental_persistence": incremental_persistence,
+        "resource_diagnostics": resource_status,
         "upstream_dependency_status": upstream_dependency_status,
         "taker_evidence_starvation": evidence_starvation,
         "operator_alert": {
@@ -678,6 +1375,8 @@ def build_run_once(
     }
     write_json(run_folder / "run_summary.json", payload)
     (run_folder / "run_report.md").write_text(render_report(payload), encoding="utf-8")
+    if incremental_store is not None:
+        incremental_store.close()
     return payload
 
 

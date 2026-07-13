@@ -46,6 +46,14 @@ snapshot loop. The observation-trigger loop can request recomputation when
 low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
+The paper taker writes `orders_long.csv` and its counterfactual tape by append.
+`incremental_state.sqlite3` is a rebuildable intent index and cumulative
+checkpoint, not canonical evidence: ordinary ticks use it to materialize only
+new rows and the bounded filled-position set, while explicit maintenance
+recovery may stream the canonical tapes. Per-tick memory, tape-I/O, duration,
+and post-warmup slope diagnostics are advisory observability and do not change
+daily-roll liveness classification.
+
 ## Sources of truth
 
 - Runtime market behavior: built-in `MarketSpec` values in

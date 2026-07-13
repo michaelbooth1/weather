@@ -119,6 +119,7 @@ def build_counterfactual_taker_rows(
     strategies=None,
     experiment_id=None,
     strategy_registry=None,
+    intent_exists=None,
 ):
     strategy_arg = counterfactual_strategy_arg(config, strategies=strategies)
     specs = selected_strategy_specs(strategy_arg, base_config=config, registry=strategy_registry)
@@ -140,6 +141,7 @@ def build_counterfactual_taker_rows(
             strategy["config"],
             strategy=strategy,
             experiment_id=experiment_id,
+            intent_exists=intent_exists,
         )
         rows.extend(strategy_rows)
         ledger.extend(strategy_ledger)

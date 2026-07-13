@@ -1824,6 +1824,14 @@ class TestFleetObservability(unittest.TestCase):
                         "started_at_utc": now.isoformat(),
                         "runtime_identity": current_identity,
                         "artifact_liveness": {"status": "PASS", "ok": True},
+                        "resource_diagnostics": {
+                            "status": "PASS",
+                            "private_bytes": 512 * 1024**2,
+                        },
+                        "incremental_persistence": {
+                            "status": "PASS",
+                            "mode": "append_checkpoint",
+                        },
                         "status_writer": {"pid": 123},
                     }),
                     encoding="utf-8",
@@ -1888,6 +1896,11 @@ class TestFleetObservability(unittest.TestCase):
         self.assertIn("taker_bot_daily_roll", rows)
         self.assertIn("market_making_daily_roll", rows)
         self.assertEqual(rows["taker_bot_daily_roll"]["restart_class_counts"]["stale_code"], 1)
+        self.assertEqual(rows["taker_bot_daily_roll"]["resource_diagnostics"]["status"], "PASS")
+        self.assertEqual(
+            rows["taker_bot_daily_roll"]["incremental_persistence"]["mode"],
+            "append_checkpoint",
+        )
         self.assertIn("start --force", " ".join(rows["taker_bot_daily_roll"]["restart_command"]))
         self.assertIn("ensure", " ".join(rows["market_making_daily_roll"]["ensure_command"]))
 

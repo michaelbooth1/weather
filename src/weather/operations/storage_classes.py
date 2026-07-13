@@ -53,7 +53,7 @@ STORAGE_CLASS_CONTRACTS = (
     StorageClassContract(
         ANALYSIS_PROJECTION,
         "Derived tables or partitions built from canonical evidence for fast analysis.",
-        ("parquet", "csv", "csv.gz", "json"),
+        ("parquet", "csv", "csv.gz", "json", "sqlite3"),
         "Keep while actively queried; local copies may be rebuilt from named canonical evidence.",
         "Projection cleanup must name its rebuild source.",
         "Reviewed cleanup manifest plus current rebuild source.",
@@ -261,6 +261,23 @@ ARTIFACT_FAMILIES = (
         "canonical_evidence_review_gate",
         True,
         examples=("data/taker_runs/<run>/orders.jsonl",),
+    ),
+    ArtifactFamilyClassification(
+        "taker_incremental_checkpoint",
+        "market",
+        ANALYSIS_PROJECTION,
+        (
+            "taker_runs/**/incremental_state.sqlite3",
+            "taker_runs/**/incremental_state.sqlite3-*",
+            "snapshots/*/taker_runs/**/incremental_state.sqlite3",
+            "snapshots/*/taker_runs/**/incremental_state.sqlite3-*",
+        ),
+        "rebuildable_taker_incremental_index",
+        "append-only taker orders and counterfactual CSV tapes",
+        "projection_rebuild_source_gate",
+        False,
+        examples=("data/taker_runs/<date>/<run>/incremental_state.sqlite3",),
+        notes="Intent index and cumulative checkpoint; CSV tapes remain canonical evidence.",
     ),
     ArtifactFamilyClassification(
         "historical_source_rows",

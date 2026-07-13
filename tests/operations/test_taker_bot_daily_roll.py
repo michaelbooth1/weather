@@ -867,6 +867,15 @@ class TestTakerBotDailyRoll(unittest.TestCase):
                     "latest_tick_filled_orders": 0,
                     "cumulative_order_rows": 100,
                     "cumulative_filled_orders": 0,
+                    "resource_diagnostics": {
+                        "status": "WARN",
+                        "advisory_only": True,
+                        "failed_budgets": ["tick_duration"],
+                    },
+                    "incremental_persistence": {
+                        "status": "PASS",
+                        "mode": "append_checkpoint",
+                    },
                 },
             )
 
@@ -883,6 +892,9 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertIn(payload.get("action"), {"noop", "start"})  # cached terminal action cleared
         self.assertEqual(payload["activity_liveness"]["status"], "PASS")
         self.assertEqual(payload["artifact_liveness"]["status"], "LATEST_TICK_EMPTY")
+        self.assertEqual(payload["resource_diagnostics"]["status"], "WARN")
+        self.assertTrue(payload["resource_diagnostics"]["advisory_only"])
+        self.assertEqual(payload["incremental_persistence"]["mode"], "append_checkpoint")
         # empty-tick signal preserved as a non-terminal advisory, restart fields cleared
         self.assertEqual(payload["artifact_health_status"], "LATEST_TICK_EMPTY")
         self.assertNotIn("first_failing_gate", payload)

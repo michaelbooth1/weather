@@ -440,6 +440,8 @@ def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, wi
         "max_recent_iteration_elapsed_seconds": health.get("max_recent_iteration_elapsed_seconds"),
         "last_iteration_elapsed_minutes": health.get("last_iteration_elapsed_minutes"),
         "max_recent_iteration_elapsed_minutes": health.get("max_recent_iteration_elapsed_minutes"),
+        "resource_diagnostics": health.get("resource_diagnostics") or {},
+        "incremental_persistence": health.get("incremental_persistence") or {},
         "restart_count": restart_count,
         "diagnostic_restart_count": diagnostic_restart_count,
         "restart_budget": restart_budget,

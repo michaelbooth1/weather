@@ -284,6 +284,7 @@ def apply_taker_budget(
     config,
     strategy=None,
     experiment_id=None,
+    intent_exists=None,
 ):
     strategy = strategy or selected_strategy_specs(None, base_config=config)[0]
     experiment_id = experiment_id or DEFAULT_EXPERIMENT_ID
@@ -328,7 +329,9 @@ def apply_taker_budget(
             row["expected_profit_after_friction_per_share"] = compact_float(
                 edge - taker_fee_per_share(best_ask, config)
             )
-        if row["intent_key"] in seen_keys:
+        if row["intent_key"] in seen_keys or (
+            intent_exists is not None and intent_exists(row["intent_key"])
+        ):
             continue
         seen_keys.add(row["intent_key"])
         row.update(enrich_taker_risk_fields({**input_row, **row}, config))
