@@ -15,6 +15,10 @@ from weather.collection.forecast_payload_cas import (
     SharedForecastPayloadCAS,
 )
 from weather.forecast_payload_contracts import NBM_NBP_EXTRACTION_SCHEMA
+from weather.sources.nbm_probabilistic_tmax import (
+    nbp_cycle_key_from_url,
+    nbp_request_key,
+)
 from weather.operations.closed_market_day_archive import build_backfill_payload, plan_market_day
 from weather.operations.event_day_manifest import (
     MANIFEST_FILENAME,
@@ -178,6 +182,10 @@ class TestEventDayManifest(unittest.TestCase):
         stored = SharedForecastPayloadCAS(cas_root).put(
             b"national NBM bulletin bytes\n"
         )
+        source_url = (
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/"
+            "blend.20260622/00/text/blend_nbptx.t00z"
+        )
         row = {
             "schema_version": "forecast_payload_manifest_v2",
             "snapshot_id": "s1",
@@ -193,14 +201,15 @@ class TestEventDayManifest(unittest.TestCase):
             "payload_ref": stored["payload_ref"],
             "payload_media_type": "text/plain; charset=utf-8",
             "payload_encoding": "utf-8",
-            "request_key": "nbm-national-request",
-            "cycle_key": "nbm-nbp:20260622T00Z",
+            "request_key": nbp_request_key(source_url),
+            "cycle_key": nbp_cycle_key_from_url(source_url),
             "extraction_schema": NBM_NBP_EXTRACTION_SCHEMA,
             "extraction_identity": json.dumps(
                 {"station_id": "KAUS", "target_date": "2026-06-22"},
                 sort_keys=True,
             ),
             "raw_payload_retained": True,
+            "source_url": source_url,
             "raw_payload_path": stored["path"],
         }
         self.write_text(

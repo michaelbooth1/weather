@@ -25,9 +25,10 @@ from weather.collection.forecast_payload_cas import (
     ForecastPayloadCASIntegrityError,
     RAW_BYTES_HASH_ALGORITHM,
     SHARED_FORECAST_PAYLOAD_CAS_KIND,
+    SHARED_FORECAST_PAYLOAD_CAS_ROOT,
     SHARED_FORECAST_PAYLOAD_SCOPE,
-    manifest_extraction_identity,
     shared_payload_ref,
+    validate_nbm_shared_manifest_identity,
 )
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations import event_metadata_validation
@@ -760,7 +761,11 @@ def _canonical_payload_bytes(payload: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
+def _payload_blob_link_validation(
+    folder: Path,
+    *,
+    shared_cas_root: str | Path | None = None,
+) -> dict[str, Any]:
     """Verify manifest-row links to immutable content-addressed payloads.
 
     File-level inventory hashes are not enough here: the JSONL row must name
@@ -769,6 +774,9 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
     """
 
     folder = folder.resolve()
+    expected_shared_cas_root = Path(
+        shared_cas_root or SHARED_FORECAST_PAYLOAD_CAS_ROOT
+    ).resolve()
     family_results: list[dict[str, Any]] = []
     total_rows = 0
     total_blobs = 0
@@ -867,7 +875,9 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                     if shared_reference:
                         expected_ref = shared_payload_ref(digest)
                         declared_ref = str(row.get("payload_ref") or "")
-                        path_suffix = Path(*expected_ref.split("/"))
+                        expected_shared_path = expected_shared_cas_root.joinpath(
+                            *expected_ref.split("/")
+                        ).resolve()
                         if (
                             row.get("payload_cas_kind")
                             != SHARED_FORECAST_PAYLOAD_CAS_KIND
@@ -880,8 +890,7 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                             or row.get("raw_payload_retained") is not True
                             or declared_ref != expected_ref
                             or not raw_path.is_absolute()
-                            or candidate.parts[-len(path_suffix.parts):]
-                            != path_suffix.parts
+                            or candidate != expected_shared_path
                         ):
                             issues.append({
                                 **row_ref,
@@ -891,11 +900,11 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                             })
                             continue
                         try:
-                            manifest_extraction_identity(row)
+                            validate_nbm_shared_manifest_identity(row)
                         except ForecastPayloadCASIntegrityError as exc:
                             issues.append({
                                 **row_ref,
-                                "code": "shared_payload_extraction_identity_invalid",
+                                "code": "shared_payload_identity_invalid",
                                 "detail": str(exc),
                             })
                             continue
@@ -1004,11 +1013,12 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                         shared_linked_count += 1
                         dependency = shared_dependencies_by_digest.get(digest)
                         if dependency is None:
+                            dependency_data_path = candidate.relative_to(
+                                expected_shared_cas_root.parent
+                            ).as_posix()
                             shared_dependencies_by_digest[digest] = {
                                 "path": candidate.as_posix(),
-                                "data_path": (
-                                    f"forecast_payload_cas/{expected_ref}"
-                                ),
+                                "data_path": dependency_data_path,
                                 "raw_payload_path": candidate.as_posix(),
                                 "payload_ref": expected_ref,
                                 "payload_hash": digest,
@@ -1319,7 +1329,10 @@ def build_event_day_manifest(
         payload=event_metadata_validation_payload,
     )
     release_runtime_identity = release_runtime_identity_summary(file_records)
-    payload_blob_links = _payload_blob_link_validation(folder)
+    payload_blob_links = _payload_blob_link_validation(
+        folder,
+        shared_cas_root=snapshots_root.parent / "forecast_payload_cas",
+    )
     shared_payload_dependencies = list(
         payload_blob_links.get("shared_dependencies") or []
     )
@@ -1590,7 +1603,10 @@ def validate_event_day_manifest(
         checks.append({"check": "inventory_hash", "status": "WARN", "detail": "legacy manifest"})
 
     declared_payload_links = manifest.get("payload_blob_links")
-    current_payload_links = _payload_blob_link_validation(folder)
+    current_payload_links = _payload_blob_link_validation(
+        folder,
+        shared_cas_root=snapshots_root.parent / "forecast_payload_cas",
+    )
     current_shared_dependencies = list(
         current_payload_links.get("shared_dependencies") or []
     )

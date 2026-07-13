@@ -25,6 +25,7 @@ from weather.collection.forecast_payload_cas import (
     SharedForecastPayloadCAS,
     forecast_payload_byte_summary,
     parse_market_invariant_attestation,
+    validate_nbm_shared_manifest_identity,
 )
 from weather.collection.redaction import redact_sensitive_url_parts
 from weather.collection.snapshot_store_backfill import (
@@ -1636,6 +1637,8 @@ class SnapshotStore:
                 "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
                 "raw_payload_path": raw_payload_path,
             }
+            if attested is not None:
+                validate_nbm_shared_manifest_identity(row)
             rows.append(row)
         if rows:
             self.append_csv(self.forecast_payloads_long_path, FORECAST_PAYLOAD_COLUMNS, rows)

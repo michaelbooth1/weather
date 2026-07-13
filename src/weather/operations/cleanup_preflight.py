@@ -58,6 +58,44 @@ def _classification_path(rel_path: str, root: Path) -> str:
     return rel_path
 
 
+def _shared_forecast_cas_data_path(*paths: Path) -> str | None:
+    """Return the protected CAS-relative identity independent of cleanup root."""
+
+    canonical_root = data_path("forecast_payload_cas").resolve()
+    for candidate in paths:
+        try:
+            relative = Path(candidate).resolve().relative_to(canonical_root)
+        except (OSError, ValueError):
+            continue
+        data_rel = f"forecast_payload_cas/{relative.as_posix()}"
+        if (
+            classification_payload(data_rel)["artifact_family"]
+            == "shared_forecast_payload_cas"
+        ):
+            return data_rel
+
+    # Tests and explicitly relocated data roots still retain the canonical
+    # directory name. Inspect the full lexical ancestry so choosing an inner
+    # `--root` cannot erase the protected family from classification.
+    for candidate in paths:
+        parts = Path(candidate).parts
+        for index in range(len(parts) - 1, -1, -1):
+            if str(parts[index]).lower() != "forecast_payload_cas":
+                continue
+            suffix = Path(*parts[index + 1 :]).as_posix()
+            data_rel = (
+                f"forecast_payload_cas/{suffix}"
+                if suffix and suffix != "."
+                else "forecast_payload_cas"
+            )
+            if (
+                classification_payload(data_rel)["artifact_family"]
+                == "shared_forecast_payload_cas"
+            ):
+                return data_rel
+    return None
+
+
 def _review_ok(manifest: dict[str, Any]) -> tuple[bool, str]:
     review = manifest.get("operator_review") or {}
     if review.get("approved") is not True:
@@ -131,9 +169,11 @@ def build_cleanup_preflight(
         row_checks: list[dict[str, Any]] = []
         if rel_path.is_absolute():
             row_checks.append({"check": "relative_path", "status": "BLOCK", "detail": "candidate path must be relative"})
-            path = rel_path
+            lexical_path = rel_path
+            path = rel_path.resolve()
         else:
-            path = (root / rel_path).resolve()
+            lexical_path = root / rel_path
+            path = lexical_path.resolve()
             try:
                 path.relative_to(root)
             except ValueError:
@@ -147,7 +187,14 @@ def build_cleanup_preflight(
                 row_checks.append({"check": "bytes", "status": "BLOCK", "expected": candidate.get("bytes"), "actual": size})
             if candidate.get("sha256") and candidate.get("sha256") != actual_sha:
                 row_checks.append({"check": "sha256", "status": "BLOCK", "detail": "candidate checksum changed"})
-        derived_data_path = _classification_path(rel_path.as_posix(), root)
+        protected_shared_data_path = _shared_forecast_cas_data_path(
+            lexical_path,
+            path,
+        )
+        derived_data_path = (
+            protected_shared_data_path
+            or _classification_path(rel_path.as_posix(), root)
+        )
         declared_data_path = str(candidate.get("data_path") or "").strip()
         derived_classification = classification_payload(derived_data_path)
         actual_shared_cas = (

@@ -16,9 +16,9 @@ from typing import Any, Iterable
 from weather.collection.forecast_payload_cas import (
     ForecastPayloadCASIntegrityError,
     SharedForecastPayloadCAS,
-    manifest_extraction_identity,
     resolve_forecast_payload_bytes,
     shared_payload_ref,
+    validate_nbm_shared_manifest_identity,
 )
 from weather.paths import data_path
 from weather.sources.nbm_probabilistic_tmax import replay_nbp_shared_payload
@@ -176,10 +176,7 @@ def _shared_reference_candidate(
             raise ForecastPayloadCASIntegrityError(
                 "active shared reference requires forecast_payload_manifest_v2"
             )
-        if not str(row.get("request_key") or "").strip():
-            raise ForecastPayloadCASIntegrityError("shared request_key missing")
-        if not str(row.get("cycle_key") or "").strip():
-            raise ForecastPayloadCASIntegrityError("shared cycle_key missing")
+        identity = validate_nbm_shared_manifest_identity(row)
         payload_bytes = resolve_forecast_payload_bytes(
             row,
             shared_cas_root=shared_cas.root,
@@ -193,11 +190,6 @@ def _shared_reference_candidate(
         ):
             raise ForecastPayloadCASIntegrityError(
                 "shared payload path does not match the inventoried CAS root"
-            )
-        identity = manifest_extraction_identity(row)
-        if row.get("source") != "nbm_probabilistic_tmax":
-            raise ForecastPayloadCASIntegrityError(
-                "shared replay verifier is not registered for source"
             )
         replayed = replay_nbp_shared_payload(
             payload_bytes,

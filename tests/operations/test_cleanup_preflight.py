@@ -134,6 +134,45 @@ class CleanupPreflightTests(unittest.TestCase):
             },
         )
 
+    def test_shared_cas_gate_cannot_be_erased_by_inner_cleanup_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            digest = "b" * 64
+            shared_blob = write(
+                data_root
+                / "forecast_payload_cas"
+                / "sha256"
+                / digest[:2]
+                / f"{digest}.blob",
+                "shared bytes",
+            )
+            inner_root = shared_blob.parent
+            manifest = cleanup_manifest_for_paths(
+                [shared_blob],
+                root=inner_root,
+                deletion_reason="attempted inner-root CAS cleanup",
+                operator_review=review(),
+            )
+            candidate = manifest["candidates"][0]
+            candidate["data_path"] = "snapshots/event/snapshots.jsonl"
+            candidate["storage_class"] = "canonical_evidence"
+            candidate["artifact_family"] = "snapshot_jsonl_evidence"
+
+            preflight = build_cleanup_preflight(manifest, root=inner_root)
+
+        self.assertEqual(preflight["status"], "BLOCK")
+        self.assertFalse(preflight["delete_permission"])
+        candidate = preflight["candidates"][0]
+        self.assertEqual(candidate["artifact_family"], "shared_forecast_payload_cas")
+        self.assertIn(
+            "shared_forecast_payload_gc_disabled",
+            {
+                row["check"]
+                for row in candidate["checks"]
+                if row["status"] == "BLOCK"
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

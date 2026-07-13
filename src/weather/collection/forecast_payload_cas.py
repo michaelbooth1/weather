@@ -20,6 +20,8 @@ from weather.forecast_payload_contracts import (
     ForecastPayloadExtractionIdentityError,
     NBM_NBP_ENCODING,
     NBM_NBP_MEDIA_TYPE,
+    NBM_NBP_SOURCE,
+    validate_nbm_shared_payload_identity,
     validate_forecast_extraction_identity,
 )
 from weather.paths import data_path
@@ -232,10 +234,14 @@ def parse_market_invariant_attestation(source: str, payload: Any) -> dict[str, A
     extraction_schema = str(attestation.get("extraction_schema") or "").strip()
     extraction_identity = attestation.get("extraction_identity")
     try:
-        extraction_identity = validate_forecast_extraction_identity(
-            source,
-            extraction_schema,
-            extraction_identity,
+        extraction_identity = validate_nbm_shared_payload_identity(
+            source=source,
+            source_url=str(payload.get("source_url") or payload.get("url") or ""),
+            request_key=request_key,
+            cycle_key=cycle_key,
+            extraction_schema=extraction_schema,
+            extraction_identity=extraction_identity,
+            target_date=str(payload.get("target_date") or ""),
             payload=payload,
         )
     except ForecastPayloadExtractionIdentityError as exc:
@@ -290,6 +296,68 @@ def manifest_extraction_identity(row: Mapping[str, Any]) -> dict[str, str]:
         raise ForecastPayloadCASIntegrityError(str(exc)) from exc
 
 
+def _market_station_id(market_id: Any) -> str | None:
+    market_id = str(market_id or "").strip().lower()
+    if not market_id:
+        return None
+    # Keep the shared contract independent of the market package at import
+    # time. The registry lookup is used only when a manifest declares a known
+    # market; unknown research markets remain verifiable by their explicit
+    # extraction identity.
+    from weather.market.market_registry import REGISTRY
+
+    spec = REGISTRY.get(market_id)
+    station_id = getattr(spec, "icao", None) if spec is not None else None
+    return str(station_id).upper().strip() if station_id else None
+
+
+def validate_nbm_shared_manifest_identity(
+    row: Mapping[str, Any],
+    *,
+    expected_station_id: str | None = None,
+) -> dict[str, str]:
+    """Validate one v2 NBM manifest's request, cycle, target, and station."""
+
+    if row.get("schema_version") != "forecast_payload_manifest_v2":
+        raise ForecastPayloadCASIntegrityError(
+            "shared NBM reference requires forecast_payload_manifest_v2"
+        )
+    if str(row.get("source") or "").strip() != NBM_NBP_SOURCE:
+        raise ForecastPayloadCASIntegrityError(
+            "shared NBM identity validator received an unsupported source"
+        )
+    target_date = str(row.get("target_date") or "").strip()
+    if not target_date:
+        raise ForecastPayloadCASIntegrityError(
+            "shared NBM manifest target_date is missing"
+        )
+    expected_station_id = (
+        str(expected_station_id or "").upper().strip()
+        or _market_station_id(row.get("market_id"))
+    )
+    raw_identity = row.get("extraction_identity")
+    if isinstance(raw_identity, str):
+        try:
+            raw_identity = json.loads(raw_identity)
+        except json.JSONDecodeError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast extraction identity is not valid JSON"
+            ) from exc
+    try:
+        return validate_nbm_shared_payload_identity(
+            source=str(row.get("source") or ""),
+            source_url=str(row.get("source_url") or ""),
+            request_key=str(row.get("request_key") or ""),
+            cycle_key=str(row.get("cycle_key") or ""),
+            extraction_schema=str(row.get("extraction_schema") or ""),
+            extraction_identity=raw_identity,
+            target_date=target_date,
+            expected_station_id=expected_station_id,
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+
+
 def resolve_forecast_payload_bytes(
     row: Mapping[str, Any],
     *,
@@ -321,7 +389,7 @@ def resolve_forecast_payload_bytes(
             raise ForecastPayloadCASIntegrityError(
                 "shared payload row must retain its raw CAS reference"
             )
-        manifest_extraction_identity(row)
+        validate_nbm_shared_manifest_identity(row)
         ref = str(row.get("payload_ref") or "")
         expected_ref = shared_payload_ref(digest)
         if ref != expected_ref:

@@ -19,6 +19,8 @@ from weather.forecast_payload_contracts import (
     NBM_NBP_EXTRACTION_SCHEMA,
     NBM_NBP_MEDIA_TYPE,
     NBM_NBP_SOURCE,
+    nbm_nbp_cycle_key_from_url,
+    nbm_nbp_request_key,
     validate_forecast_extraction_identity,
 )
 from weather.sources.grib_probe import extract_nearest_with_wgrib2, parse_idx_lines
@@ -91,11 +93,7 @@ def nbp_text_url(run_time: datetime, base_url: str = NBM_NBP_BASE_URL) -> str:
 def nbp_request_key(source_url: str) -> str:
     """Return the market-invariant request identity for one national bulletin."""
 
-    source_url = str(source_url or "").strip()
-    if not source_url:
-        raise ValueError("NBM NBP request key requires a source URL")
-    digest = hashlib.sha256(source_url.encode("utf-8")).hexdigest()
-    return f"{NBM_NBP_SOURCE}:GET:sha256:{digest}"
+    return nbm_nbp_request_key(source_url)
 
 
 def nbp_cycle_key(run_time: datetime) -> str:
@@ -104,14 +102,7 @@ def nbp_cycle_key(run_time: datetime) -> str:
 
 
 def nbp_cycle_key_from_url(source_url: str) -> str:
-    match = re.search(r"/blend\.(?P<day>\d{8})/(?P<hour>\d{2})/", str(source_url or ""))
-    if not match:
-        # Tests, retained archives, and mirrors may expose a stable URL without
-        # the NOMADS date folder.  It is still an exact request identity, but
-        # must not collide with a dated operational cycle.
-        digest = hashlib.sha256(str(source_url or "").encode("utf-8")).hexdigest()
-        return f"nbm-nbp:url-sha256:{digest}"
-    return f"nbm-nbp:{match.group('day')}T{match.group('hour')}Z"
+    return nbm_nbp_cycle_key_from_url(source_url)
 
 
 def nbp_cycle_candidates(now_utc: datetime | None = None, hours_back: int = 24) -> list[datetime]:

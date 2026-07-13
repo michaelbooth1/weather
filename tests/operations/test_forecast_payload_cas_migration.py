@@ -1,4 +1,5 @@
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -142,7 +143,7 @@ def test_event_day_payload_validation_accepts_and_verifies_shared_reference(tmp_
         "model-v",
     )[0]
 
-    validation = _payload_blob_link_validation(event)
+    validation = _payload_blob_link_validation(event, shared_cas_root=shared)
     forecast = next(
         family for family in validation["families"]
         if family["artifact_family"] == "forecast_payloads"
@@ -152,7 +153,7 @@ def test_event_day_payload_validation_accepts_and_verifies_shared_reference(tmp_
     assert forecast["blob_count"] == 0
 
     Path(row["raw_payload_path"]).write_bytes(b"corrupt")
-    corrupt = _payload_blob_link_validation(event)
+    corrupt = _payload_blob_link_validation(event, shared_cas_root=shared)
     forecast = next(
         family for family in corrupt["families"]
         if family["artifact_family"] == "forecast_payloads"
@@ -160,6 +161,38 @@ def test_event_day_payload_validation_accepts_and_verifies_shared_reference(tmp_
     assert forecast["status"] == "BLOCK"
     assert any(
         issue["code"] == "raw_payload_blob_hash_mismatch"
+        for issue in forecast["issues"]
+    )
+
+
+def test_event_day_validation_rejects_matching_blob_outside_expected_cas_root(tmp_path):
+    event, shared, row = _write_shared_row(tmp_path)
+    expected = Path(row["raw_payload_path"])
+    rogue = (
+        tmp_path
+        / "rogue-cas"
+        / "sha256"
+        / row["payload_hash"][:2]
+        / f"{row['payload_hash']}.blob"
+    )
+    rogue.parent.mkdir(parents=True)
+    shutil.copy2(expected, rogue)
+    row["raw_payload_path"] = str(rogue)
+    (event / "forecast_payloads.jsonl").write_text(
+        json.dumps(row, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    validation = _payload_blob_link_validation(event, shared_cas_root=shared)
+    forecast = next(
+        family
+        for family in validation["families"]
+        if family["artifact_family"] == "forecast_payloads"
+    )
+
+    assert forecast["status"] == "BLOCK"
+    assert any(
+        issue["code"] == "shared_payload_reference_invalid"
         for issue in forecast["issues"]
     )
 
@@ -223,7 +256,18 @@ def test_migration_shared_reachability_is_verified_and_partial_only(tmp_path):
 
 @pytest.mark.parametrize(
     "tamper",
-    ["ref", "size", "identity", "schema", "media", "retained", "blob"],
+    [
+        "ref",
+        "size",
+        "identity",
+        "schema",
+        "media",
+        "retained",
+        "blob",
+        "request",
+        "cycle",
+        "market_station",
+    ],
 )
 def test_migration_never_counts_unverified_shared_reference(tmp_path, tamper):
     event, shared, row = _write_shared_row(tmp_path)
@@ -241,6 +285,12 @@ def test_migration_never_counts_unverified_shared_reference(tmp_path, tamper):
         row["raw_payload_retained"] = False
     elif tamper == "blob":
         Path(row["raw_payload_path"]).write_bytes(b"corrupt")
+    elif tamper == "request":
+        row["request_key"] = "nbm_probabilistic_tmax:GET:sha256:" + "f" * 64
+    elif tamper == "cycle":
+        row["cycle_key"] = "nbm-nbp:19990101T00Z"
+    elif tamper == "market_station":
+        row["market_id"] = "austin"
     (event / "forecast_payloads.jsonl").write_text(
         json.dumps(row, sort_keys=True) + "\n",
         encoding="utf-8",

@@ -14,6 +14,8 @@ from weather.collection.forecast_payload_cas import (
 )
 from weather.collection.snapshot_store import SnapshotStore
 from weather.sources.nbm_probabilistic_tmax import (
+    nbp_cycle_key_from_url,
+    nbp_request_key,
     parse_nbp_station_tmax,
     replay_nbp_shared_payload,
 )
@@ -173,6 +175,64 @@ def test_multi_market_nbm_manifests_share_one_blob_and_replay_per_market(tmp_pat
     assert summary["physical_write_budget_status"] == "PASS"
 
 
+@pytest.mark.parametrize("tamper", ["request", "cycle", "market_station"])
+def test_shared_manifest_identity_tamper_fails_replay_closed(tmp_path, tamper):
+    cas_root = tmp_path / "shared-cas"
+    store = SnapshotStore(
+        root=tmp_path / "event",
+        event_slug="event",
+        shared_forecast_payload_cas_root=cas_root,
+    )
+    store.root.mkdir(parents=True)
+    row = store.write_forecast_payloads(
+        _source("KLGA"),
+        "s1",
+        datetime(2026, 5, 30, 1, tzinfo=timezone.utc),
+        "model-v",
+        config_identity={"market_id": "nyc", "target_date": "2026-05-30"},
+    )[0]
+    if tamper == "request":
+        row["request_key"] = "nbm_probabilistic_tmax:GET:sha256:" + "f" * 64
+    elif tamper == "cycle":
+        row["cycle_key"] = "nbm-nbp:19990101T00Z"
+    else:
+        row["market_id"] = "austin"
+
+    with pytest.raises(ForecastPayloadCASIntegrityError):
+        resolve_forecast_payload_bytes(row, shared_cas_root=cas_root)
+
+
+def test_writer_rejects_self_attested_request_identity_before_cas_publish(tmp_path):
+    cas_root = tmp_path / "shared-cas"
+    store = SnapshotStore(
+        root=tmp_path / "event",
+        event_slug="event",
+        shared_forecast_payload_cas_root=cas_root,
+    )
+    store.root.mkdir(parents=True)
+    sources = _source("KLGA")
+    attestation = sources["nbm_probabilistic_tmax"]["data"]["raw_payload"][
+        "forecast_payload_attestation"
+    ]
+    attestation["request_key"] = (
+        "nbm_probabilistic_tmax:GET:sha256:" + "f" * 64
+    )
+
+    with pytest.raises(
+        ForecastPayloadCASIntegrityError,
+        match="request_key does not match source_url",
+    ):
+        store.write_forecast_payloads(
+            sources,
+            "s1",
+            datetime(2026, 5, 30, 1, tzinfo=timezone.utc),
+            "model-v",
+            config_identity={"market_id": "nyc", "target_date": "2026-05-30"},
+        )
+
+    assert not cas_root.exists()
+
+
 def test_non_attested_forecast_payload_remains_market_local(tmp_path):
     store = SnapshotStore(
         root=tmp_path / "event",
@@ -233,12 +293,13 @@ def test_nbm_shared_attestation_requires_replay_complete_extraction_identity(tmp
     payload = {
         "station_id": "KLGA",
         "target_date": "2026-05-30",
+        "source_url": SOURCE_URL,
         "text": NBP_TEXT,
         "forecast_payload_attestation": {
             "market_invariant": True,
             "source": "nbm_probabilistic_tmax",
-            "request_key": "request-key",
-            "cycle_key": "cycle-key",
+            "request_key": nbp_request_key(SOURCE_URL),
+            "cycle_key": nbp_cycle_key_from_url(SOURCE_URL),
             "body_field": "text",
             "encoding": "utf-8",
             "media_type": "text/plain; charset=utf-8",
