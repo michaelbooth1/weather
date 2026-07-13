@@ -115,9 +115,11 @@ runaway restored commit to 47% instantly; the snapshot loop was revived with
 
 Contributing factors worth fixing structurally:
 
-- `clob_diagnostics.jsonl` (489 MB) and `clob_loop_console.log` (474 MB) grow
-  without rotation; the crash was an append to the former. In-code size-based
-  rotation is the durable fix.
+- At incident time, `clob_diagnostics.jsonl` (489 MB) and
+  `clob_loop_console.log` (474 MB) grew without rotation; the crash was an
+  append to the former. Their active files now rotate at 64 MiB to timestamped
+  siblings without deleting prior rotations; console rotation occurs only at
+  managed loop startup, before Windows opens the new child handle.
 - 15.7 GB RAM is undersized for capture + any concurrent analysis. A RAM
   upgrade (32-64 GB) is the single best hardware improvement; a second
   physical disk for `data\` (separating tape writes from OS/pagefile) is the

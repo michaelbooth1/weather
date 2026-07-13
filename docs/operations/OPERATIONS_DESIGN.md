@@ -69,6 +69,13 @@ replaces its task with the supplied parameters.
 - `data/snapshots/clob_loop_console.log`
 - per-event token, order-book, price-history, and WebSocket tapes
 
+The active CLOB diagnostics and console sidecars rotate at 64 MiB to UTC-
+timestamped siblings in the same directory, and rotated files are never
+deleted by the writer. Diagnostics rotation occurs before append. Because
+Windows holds the detached child's console handle for the process lifetime,
+console rotation occurs at the next managed loop startup before opening the
+new handle.
+
 ### Observation-Trigger Loop
 
 - `data/snapshots/observation_trigger_status.json`

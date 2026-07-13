@@ -1648,6 +1648,58 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["markets"][0]["reason"], "no book captures")
 
+    def test_clob_diagnostic_writer_rotates_to_timestamped_siblings_without_deleting(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clob_diagnostics.jsonl"
+            path.write_text("legacy-diagnostics\n", encoding="utf-8")
+            with patch.object(mm, "CLOB_SIDECAR_ROTATE_BYTES", 1), \
+                    patch.object(mm, "utc_now", return_value=now):
+                mm.append_clob_diagnostic({"event": "first"}, path=path)
+                mm.append_clob_diagnostic({"event": "second"}, path=path)
+
+            rotated = sorted(Path(tmp).glob("clob_diagnostics.20260612T150000000000Z*.jsonl"))
+            rotated_text = [item.read_text(encoding="utf-8") for item in rotated]
+            active = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(mm.CLOB_SIDECAR_ROTATE_BYTES, 64 * 1024 * 1024)
+        self.assertEqual(len(rotated), 2)
+        self.assertIn("legacy-diagnostics\n", rotated_text)
+        self.assertIn('{"event": "first"}\n', rotated_text)
+        self.assertEqual(active["event"], "second")
+
+    def test_start_clob_loop_rotates_console_before_opening_child_handle(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            console_path = tmp_path / "clob_loop_console.log"
+            console_path.write_text("legacy-console\n", encoding="utf-8")
+
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+                self.assertEqual(stdout.tell(), 0)
+                self.assertIs(stdout, stderr)
+                stdout.write("new-child-console\n")
+                stdout.flush()
+                return FakeProcess()
+
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", console_path), \
+                    patch.object(mm, "CLOB_SIDECAR_ROTATE_BYTES", 1), \
+                    patch.object(mm.subprocess, "Popen", fake_popen):
+                result = start_clob_loop_detached(now=now)
+
+            rotated = list(tmp_path.glob("clob_loop_console.20260612T150000000000Z*.log"))
+            rotated_text = rotated[0].read_text(encoding="utf-8") if rotated else None
+            active_text = console_path.read_text(encoding="utf-8")
+            rotated_path = str(rotated[0]) if rotated else None
+
+        self.assertTrue(result["started"])
+        self.assertEqual(len(rotated), 1)
+        self.assertEqual(rotated_text, "legacy-console\n")
+        self.assertEqual(active_text, "new-child-console\n")
+        self.assertEqual(result["console_log_rotated_to"], rotated_path)
+
     def test_start_clob_loop_detached_writes_provisional_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

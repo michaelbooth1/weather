@@ -62,6 +62,7 @@ from weather.market.market_microstructure_constants import (  # noqa: E402
     CLOB_LOOP_CONSOLE_LOG_PATH,
     CLOB_LOOP_STATUS_PATH,
     CLOB_PAUSE_FLAG_PATH,
+    CLOB_SIDECAR_ROTATE_BYTES,
     CLOB_SUPERVISOR_LOCK_PATH,
     CLOB_WS_URL,
     DEFAULT_BATCH_SIZE,
@@ -183,12 +184,47 @@ def write_clob_enrichment_status(status, path=None):
     return atomic_write_json(path or CLOB_ENRICHMENT_STATUS_PATH, status)
 
 
+def rotate_clob_sidecar(path, *, max_bytes=None, now=None):
+    """Move an oversized CLOB sidecar to a timestamped sibling without deletion."""
+    path = Path(path)
+    max_bytes = CLOB_SIDECAR_ROTATE_BYTES if max_bytes is None else int(max_bytes)
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
+    try:
+        if path.stat().st_size < max_bytes:
+            return None
+    except FileNotFoundError:
+        return None
+
+    rotated_at = now or utc_now()
+    if rotated_at.tzinfo is None:
+        rotated_at = rotated_at.replace(tzinfo=timezone.utc)
+    stamp = rotated_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    for collision_index in range(1000):
+        collision = "" if collision_index == 0 else f".{collision_index}"
+        rotated = path.with_name(f"{path.stem}.{stamp}{collision}{path.suffix}")
+        if rotated.exists():
+            continue
+        try:
+            path.rename(rotated)
+        except FileNotFoundError:
+            # Another diagnostics writer won the rotation race.
+            return None
+        except FileExistsError:
+            # Windows rename is non-overwriting; preserve the sibling and retry.
+            continue
+        return rotated
+    raise RuntimeError(f"could not reserve a rotated sibling for {path}")
+
+
 def append_clob_enrichment_diagnostic(record, path=None):
     return append_jsonl(path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH, record)
 
 
 def append_clob_diagnostic(record, path=None):
-    return append_jsonl(path or CLOB_DIAGNOSTICS_PATH, record)
+    target = Path(path or CLOB_DIAGNOSTICS_PATH)
+    rotate_clob_sidecar(target)
+    return append_jsonl(target, record)
 
 
 def clob_supervisor_lock_is_stale(path=None, max_age_seconds=120):
@@ -1026,6 +1062,7 @@ def start_clob_loop_detached(
             "writer_lock": lock_cleanup,
         })
         return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+    console_log_rotation = rotate_clob_sidecar(CLOB_LOOP_CONSOLE_LOG_PATH, now=now)
     child = launch_detached(
         _clob_loop_command(
             market_id=market_id,
@@ -1106,8 +1143,14 @@ def start_clob_loop_detached(
         "websocket_heartbeat_seconds": ws_heartbeat_seconds,
         "websocket_connect_timeout": ws_connect_timeout,
         "writer_lock": lock_cleanup,
+        "console_log_rotated_to": str(console_log_rotation) if console_log_rotation else None,
     })
-    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
+    return {
+        "started": True,
+        "pid": child.pid,
+        "writer_lock": lock_cleanup,
+        "console_log_rotated_to": str(console_log_rotation) if console_log_rotation else None,
+    }
 
 
 def ensure_clob_loop(
