@@ -136,3 +136,15 @@ that bounded aggregate and can reconstruct it from older per-market status
 rows. A reviewed disk-growth threshold, cross-process network-fetch fan-out,
 and the controlled capture soak remain open. No local runtime evidence was
 scanned or changed during this implementation.
+
+Independent fail-closed review added three further proof boundaries. Shared
+CAS candidates are classified against the canonical data root, so choosing an
+inner cleanup `--root` cannot bypass the unconditional deletion block.
+Event-day dependency records require the exact canonical CAS root plus digest
+reference rather than accepting a matching external suffix. One source-owned
+NBM validator now derives request/cycle from the source URL and verifies target,
+extraction identity, and known market-to-station binding at attestation,
+persistence, resolution, event-day, and migration boundaries. Focused tamper,
+cleanup, event, migration, fan-out, NBM, capture, path, and architecture tests
+pass; this strengthens local integrity but does not close the cross-process
+fleet-fetch or controlled-soak gaps above.
