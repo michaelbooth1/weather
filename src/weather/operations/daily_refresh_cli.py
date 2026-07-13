@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 from weather.operations import capture_resource_gate, nightly_health_checks
+from weather.io import write_json_atomic
+from weather.operations.daily_refresh_resources import bounded_resume_command
 from weather.paths import data_path
 from weather.reporting.scorecards import live_variant_settlement_scorecard
 from weather.schema_registry import schema_version
@@ -29,6 +31,8 @@ _DEPENDENCY_NAMES = {
     "DEFAULT_LONG_JOB_LOCK_PATH",
     "DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS",
     "DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB",
+    "DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB",
+    "DEFAULT_STAGE_A_MAX_COMMIT_PERCENT",
     "DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS",
     "DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES",
     "DEFAULT_LABELS_CSV",
@@ -73,6 +77,32 @@ def configure(dependencies):
         raise ValueError(f"daily refresh CLI dependencies missing: {', '.join(missing)}")
     globals().update({name: getattr(dependencies, name) for name in _DEPENDENCY_NAMES})
     return dependencies
+
+
+def _strict_stage_a_reserve(value):
+    parsed = int(value)
+    if parsed < DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB:
+        raise argparse.ArgumentTypeError(
+            "Stage-A reserve cannot be lower than "
+            f"{DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB} MiB"
+        )
+    return parsed
+
+
+def _strict_stage_a_commit_ceiling(value):
+    import math
+
+    parsed = float(value)
+    if (
+        not math.isfinite(parsed)
+        or parsed <= 0
+        or parsed > DEFAULT_STAGE_A_MAX_COMMIT_PERCENT
+    ):
+        raise argparse.ArgumentTypeError(
+            "Stage-A commit ceiling must be finite, positive, and no higher "
+            f"than {DEFAULT_STAGE_A_MAX_COMMIT_PERCENT}%"
+        )
+    return parsed
 
 
 def build_run_parser(parser, dependencies=None):
@@ -121,6 +151,21 @@ def build_run_parser(parser, dependencies=None):
         "--heavy-step-working-set-max-mb",
         type=int,
         default=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
+    )
+    parser.add_argument(
+        "--stage-a-min-available-reserve-mb",
+        type=_strict_stage_a_reserve,
+        default=DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
+        help=(
+            "Physical RAM that must remain available in addition to each "
+            "isolated Stage-A child's declared working-set budget."
+        ),
+    )
+    parser.add_argument(
+        "--stage-a-max-commit-percent",
+        type=_strict_stage_a_commit_ceiling,
+        default=DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
+        help="Fail closed before an isolated Stage-A child at or above this host commit percentage.",
     )
     parser.add_argument(
         "--capture-resource-mode",
@@ -724,6 +769,14 @@ def build_run_parser(parser, dependencies=None):
     return parser
 
 
+def exit_code_for_status(status):
+    if status in {"error", "unreadable"}:
+        return 1
+    if status in {"critical", "deferred", "interrupted"}:
+        return 2
+    return 0
+
+
 def cmd_run(args):
     lock = None
     payload = None
@@ -754,11 +807,7 @@ def cmd_run(args):
     print(f"Report written to {report_path}")
     if trigger.get("status") not in {"SKIPPED", "PENDING"}:
         print(f"Evidence trigger: {trigger.get('status')} ({trigger.get('task_name')})")
-    if payload["status"] == "error":
-        return 1
-    if payload["status"] in {"critical", "deferred"}:
-        return 2
-    return 0
+    return exit_code_for_status(payload["status"])
 
 
 def _is_default_path(value, default):
@@ -784,9 +833,7 @@ def cmd_status(args):
         print(f"No daily refresh status at {status['path']}")
         return 1
     print(json.dumps(status, indent=2, sort_keys=True, default=str))
-    if status.get("status") in {"error", "unreadable"}:
-        return 1
-    return 0
+    return exit_code_for_status(status.get("status"))
 
 
 def repair_stale_locks(args):
@@ -798,6 +845,7 @@ def repair_stale_locks(args):
     long_job_state = clear_stale_long_job_state(
         getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
     )
+    status_repair = _repair_interrupted_status(args, long_job_state, daily)
     return {
         "schema_version": STALE_LOCK_REPAIR_SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
@@ -807,7 +855,257 @@ def repair_stale_locks(args):
         "removed_lock_count": sum(1 for row in (daily, long_job) if row.get("removed")),
         "verified_stale_lock_count": sum(1 for row in (daily, long_job) if row.get("stale")),
         "cleared_state_count": 1 if long_job_state.get("cleared") else 0,
-        "resume_from_step": getattr(args, "resume_from_step", "") or "daily_learning",
+        "resume_from_step": (
+            getattr(args, "resume_from_step", "")
+            or ("promotion_refresh" if getattr(args, "stage", "all") == "evidence" else STEP_ORDER[0])
+        ),
+        "daily_refresh_status": status_repair,
+    }
+
+
+def _matching_pid(left, right):
+    try:
+        return int(left) == int(right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _recover_completed_isolated_child(payload):
+    current = payload.get("current_step") or {}
+    step_name = str(current.get("name") or "")
+    if not step_name:
+        return {"recovered": False, "reason": "current_step_missing"}
+    resource_row = next(
+        (
+            row
+            for row in reversed(payload.get("resource_steps") or [])
+            if row.get("step") == step_name
+        ),
+        None,
+    )
+    if not resource_row:
+        return {"recovered": False, "reason": "resource_step_missing"}
+    result_value = ((resource_row.get("child_invocation") or {}).get("result_json"))
+    if not result_value:
+        return {"recovered": False, "reason": "child_result_path_missing"}
+    result_path = Path(result_value)
+    backtest_root = Path((payload.get("config") or {}).get("backtest_root") or "")
+    try:
+        resolved_result = result_path.resolve()
+        resolved_root = backtest_root.resolve()
+        if not resolved_result.is_relative_to(resolved_root):
+            return {"recovered": False, "reason": "child_result_outside_backtest_root"}
+        child = json.loads(resolved_result.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"recovered": False, "reason": "child_result_unavailable"}
+    expected_pid = resource_row.get("child_pid") or current.get("child_pid")
+    valid = (
+        child.get("schema_version") == schema_version("daily_refresh_step_child")
+        and child.get("status") == "ok"
+        and child.get("step") == step_name
+        and _matching_pid(child.get("pid"), expected_pid)
+        and bool(child.get("finished_at_utc"))
+    )
+    if not valid:
+        return {"recovered": False, "reason": "child_terminal_validation_failed"}
+    result = child.get("result")
+    if not isinstance(result, dict):
+        result = {"value": result}
+    resource_row.update({
+        "status": "ok_recovered_after_parent_interruption",
+        "finished_at_utc": child.get("finished_at_utc"),
+        "child_terminal": {
+            key: child.get(key)
+            for key in (
+                "schema_version",
+                "status",
+                "step",
+                "pid",
+                "started_at_utc",
+                "finished_at_utc",
+            )
+        },
+    })
+    result["resource_execution"] = dict(resource_row)
+    if not any(
+        row.get("name") == step_name and row.get("status") == "ok"
+        for row in payload.get("steps") or []
+    ):
+        payload.setdefault("steps", []).append({
+            "name": step_name,
+            "status": "ok",
+            "started_at_utc": child.get("started_at_utc"),
+            "finished_at_utc": child.get("finished_at_utc"),
+            "duration_seconds": (resource_row.get("subprocess") or {}).get(
+                "duration_seconds"
+            ),
+            "result": result,
+            "recovered_from_child_terminal": True,
+        })
+    return {
+        "recovered": True,
+        "step": step_name,
+        "pid": child.get("pid"),
+        "result_path": str(resolved_result),
+    }
+
+
+def _repair_interrupted_status(args, long_job_state, daily_lock):
+    status_path = Path(getattr(args, "status_out", DEFAULT_STATUS_OUT))
+    if not long_job_state.get("stale"):
+        return {
+            "updated": False,
+            "reason": "long_job_owner_not_verified_dead",
+            "path": str(status_path),
+        }
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "updated": False,
+            "reason": "daily_refresh_status_unavailable",
+            "path": str(status_path),
+        }
+    if payload.get("status") not in {"running", "interrupted"}:
+        return {
+            "updated": False,
+            "reason": "daily_refresh_status_not_running",
+            "path": str(status_path),
+            "status": payload.get("status"),
+        }
+    stale_pid = long_job_state.get("pid")
+    status_owner_pid = payload.get("owner_pid")
+    if daily_lock.get("owner_running") is True:
+        return {
+            "updated": False,
+            "reason": "daily_refresh_lock_owner_running",
+            "path": str(status_path),
+            "owner_pid": daily_lock.get("pid"),
+        }
+    if not _matching_pid(status_owner_pid, stale_pid):
+        return {
+            "updated": False,
+            "reason": "daily_refresh_status_owner_mismatch",
+            "path": str(status_path),
+            "status_owner_pid": status_owner_pid,
+            "stale_long_job_pid": stale_pid,
+        }
+    if daily_lock.get("pid") not in (None, "") and not _matching_pid(
+        daily_lock.get("pid"), stale_pid
+    ):
+        return {
+            "updated": False,
+            "reason": "daily_refresh_lock_owner_mismatch",
+            "path": str(status_path),
+            "daily_lock_pid": daily_lock.get("pid"),
+            "stale_long_job_pid": stale_pid,
+        }
+    resume_contract = payload.get("resume_contract") or {}
+    preserved_run_after_repair = bool(getattr(args, "run_after_repair", False))
+    for key, value in (resume_contract.get("arguments") or {}).items():
+        if key != "func" and not str(key).startswith("_"):
+            setattr(args, key, value)
+    args.run_after_repair = preserved_run_after_repair
+    if isinstance(resume_contract.get("argv"), list) and resume_contract["argv"]:
+        args._original_cli_argv = list(resume_contract["argv"])
+    configured_stage = str((payload.get("config") or {}).get("stage") or "")
+    if configured_stage:
+        args.stage = configured_stage
+    pinned_target = str(
+        ((payload.get("config") or {}).get("settled_analysis_target_date")) or ""
+    )
+    if pinned_target and not getattr(args, "settled_analysis_target_date", ""):
+        args.settled_analysis_target_date = pinned_target
+    requested_step = getattr(args, "resume_from_step", "") or ""
+    stage = str(getattr(args, "stage", "all") or "all")
+    first_stage_step = "promotion_refresh" if stage == "evidence" else STEP_ORDER[0]
+    final_stage_step = (
+        "fleet_observability"
+        if stage == "settlement"
+        else STEP_ORDER[-1]
+    )
+    progress = (long_job_state.get("payload") or {}).get("progress") or {}
+    recovered_child = _recover_completed_isolated_child(payload)
+    if recovered_child.get("recovered"):
+        progress = dict(progress)
+        progress.update({
+            "last_completed_step": recovered_child["step"],
+            "last_completed_step_status": "ok",
+            "recovered_child_terminal": recovered_child,
+        })
+    last_completed_step = str(progress.get("last_completed_step") or "")
+    last_completed_status = str(progress.get("last_completed_step_status") or "").lower()
+    step_name = requested_step or first_stage_step
+    resume_selection = "requested_step" if requested_step else "fallback_step"
+    if (
+        last_completed_step in STEP_ORDER
+        and last_completed_status in {"complete", "ok", "skipped"}
+    ):
+        last_index = STEP_ORDER.index(last_completed_step)
+        if last_completed_step == final_stage_step:
+            step_name = final_stage_step
+            resume_selection = "verified_final_step_replay"
+        elif last_index + 1 < len(STEP_ORDER):
+            candidate = STEP_ORDER[last_index + 1]
+            candidate_index = last_index + 1
+            requested_index = (
+                STEP_ORDER.index(requested_step)
+                if requested_step in STEP_ORDER
+                else -1
+            )
+            within_stage = not (
+                (stage == "settlement" and candidate_index > STEP_ORDER.index("fleet_observability"))
+                or (stage == "evidence" and candidate_index < STEP_ORDER.index("promotion_refresh"))
+            )
+            if within_stage and candidate_index >= requested_index:
+                step_name = candidate
+                resume_selection = "verified_last_completed_step"
+    resume = bounded_resume_command(args, step_name)
+    args.resume_from_step = step_name
+    now = utc_iso()
+    owner_pid = long_job_state.get("pid")
+    payload.update({
+        "status": "interrupted",
+        "terminal": True,
+        "generated_at_utc": now,
+        "finished_at_utc": now,
+        "current_step": {
+            "name": step_name,
+            "status": "interrupted",
+            "owner_pid": owner_pid,
+            "last_progress": progress,
+            "last_progress_at_utc": (long_job_state.get("payload") or {}).get("last_progress_at_utc"),
+            "requested_resume_step": requested_step,
+            "resume_selection": resume_selection,
+            "recovered_child_terminal": recovered_child,
+            "resume_command": resume,
+        },
+        "interruption": {
+            "status": "RESUMABLE",
+            "reason": "verified_dead_daily_refresh_owner",
+            "owner_pid": owner_pid,
+            "verified_owner_running": long_job_state.get("owner_running"),
+            "verified_at_utc": now,
+            "last_completed_step": last_completed_step,
+            "last_completed_step_status": last_completed_status,
+            "requested_resume_step": requested_step,
+            "selected_resume_step": step_name,
+            "resume_selection": resume_selection,
+            "recovered_child_terminal": recovered_child,
+            "resume_command": resume,
+            "repair_source": "repair-stale-locks",
+        },
+    })
+    write_json_atomic(status_path, payload, trailing_newline=True)
+    return {
+        "updated": True,
+        "path": str(status_path),
+        "status": "interrupted",
+        "owner_pid": owner_pid,
+        "selected_resume_step": step_name,
+        "resume_selection": resume_selection,
+        "recovered_child_terminal": recovered_child,
+        "resume_command": resume,
     }
 
 
@@ -815,6 +1113,14 @@ def cmd_repair_stale_locks(args):
     payload = repair_stale_locks(args)
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     if getattr(args, "run_after_repair", False):
+        status_repair = payload.get("daily_refresh_status") or {}
+        if status_repair.get("updated") is not True:
+            print(
+                "Refusing --run-after-repair without a correlated, updated "
+                "daily-refresh resume status.",
+                file=sys.stderr,
+            )
+            return 4
         setattr(args, "_prior_lock_repair_outcomes", payload)
         return cmd_run(args)
     return 0
@@ -866,7 +1172,9 @@ def main(argv=None, dependencies=None):
     if dependencies is None:
         raise ValueError("daily refresh CLI dependencies are required")
     parser = build_parser(dependencies)
-    args = parser.parse_args(argv)
+    original_argv = list(argv) if argv is not None else list(sys.argv[1:])
+    args = parser.parse_args(original_argv)
+    args._original_cli_argv = original_argv
     if getattr(args, "command", "") in {"run", "repair-stale-locks"}:
         _enable_crash_forensics()
     return args.func(args)

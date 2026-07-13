@@ -1412,6 +1412,7 @@ def run_fleet_observability_step(args):
         years=years,
         include_audits=not args.skip_historical_audits,
         parquet_incremental_path=backtest_path(args, "closed_market_day_parquet_incremental.json"),
+        daily_refresh_resources=getattr(args, "_daily_refresh_resource_steps", None),
     )
     json_out = fleet_observability.write_json(backtest_path(args, "fleet_observability.json"), payload)
     report_out = fleet_observability.write_markdown(backtest_path(args, "fleet_observability_report.md"), payload)
@@ -1873,4 +1874,3 @@ def write_daily_progress_ledger(args, daily_refresh_payload):
         latest_out=backtest_path(args, "daily_progress_latest.json"),
         report_out=backtest_path(args, "daily_progress_ledger_report.md"),
     )
-

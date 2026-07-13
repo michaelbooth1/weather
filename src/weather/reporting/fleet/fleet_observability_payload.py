@@ -1,9 +1,11 @@
 """Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.paths import data_path
 from weather.reporting.fleet.fleet_observability_gates import *  # noqa: F403
 from weather.operations.closed_market_day_archive import DEFAULT_INCREMENTAL_JSON
 from weather.operations import event_metadata_validation
@@ -18,6 +20,8 @@ from weather.operations.storage_classes import CANONICAL_EVIDENCE, delete_gate_f
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
+
+DEFAULT_DAILY_REFRESH_STATUS = data_path() / "backtest" / "daily_refresh_status.json"
 
 
 def mm_evidence_starvation_alerts(starvation):
@@ -316,6 +320,62 @@ def event_metadata_validation_summary(path=None):
     }
 
 
+def daily_refresh_resource_summary(rows):
+    rows = list(rows or [])
+    statuses = Counter(str(row.get("status") or "unknown") for row in rows)
+    private_peaks = [
+        int((((row.get("subprocess") or {}).get("resource_peaks") or {}).get("private_memory_peak_bytes") or 0))
+        for row in rows
+    ]
+    working_set_peaks = [
+        int((((row.get("subprocess") or {}).get("resource_peaks") or {}).get("working_set_peak_bytes") or 0))
+        for row in rows
+    ]
+    return {
+        "status": (
+            "ERROR"
+            if statuses.get("error")
+            else "DEFERRED"
+            if statuses.get("deferred") or statuses.get("ok_postcheck_deferred")
+            else "OK"
+            if rows
+            else "NOT_RUN"
+        ),
+        "step_count": len(rows),
+        "status_counts": dict(statuses),
+        "private_memory_peak_bytes": max(private_peaks, default=0),
+        "working_set_peak_bytes": max(working_set_peaks, default=0),
+        "budget_decisions": [
+            {
+                "step": row.get("step"),
+                "status": row.get("status"),
+                "child_pid": row.get("child_pid"),
+                "before": (row.get("admission_before") or {}).get("decision"),
+                "after": (row.get("admission_after") or {}).get("decision"),
+                "private_memory_max_bytes": (row.get("budget") or {}).get("private_memory_max_bytes"),
+                "working_set_max_bytes": (row.get("budget") or {}).get("working_set_max_bytes"),
+                "timeout_seconds": (row.get("budget") or {}).get("timeout_seconds"),
+                "private_memory_peak_bytes": (((row.get("subprocess") or {}).get("resource_peaks") or {}).get("private_memory_peak_bytes")),
+                "working_set_peak_bytes": (((row.get("subprocess") or {}).get("resource_peaks") or {}).get("working_set_peak_bytes")),
+                "read_bytes": (((row.get("subprocess") or {}).get("resource_io") or {}).get("read_bytes")),
+                "write_bytes": (((row.get("subprocess") or {}).get("resource_io") or {}).get("write_bytes")),
+                "duration_seconds": (row.get("subprocess") or {}).get("duration_seconds"),
+                "result_metric_count": len(row.get("result_metrics") or {}),
+                "failure_reason": row.get("failure_reason") or row.get("post_step_failure_reason"),
+            }
+            for row in rows
+        ],
+    }
+
+
+def load_daily_refresh_resource_rows(path=DEFAULT_DAILY_REFRESH_STATUS):
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+    return list(payload.get("resource_steps") or [])
+
+
 def build_observability_payload(
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
     interval_minutes=10.0,
@@ -327,6 +387,8 @@ def build_observability_payload(
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
     parquet_incremental_path=DEFAULT_INCREMENTAL_JSON,
+    daily_refresh_resources=None,
+    daily_refresh_status_path=DEFAULT_DAILY_REFRESH_STATUS,
 ):
     collection = fleet_collection_health(
         snapshots_root=snapshots_root,
@@ -380,6 +442,12 @@ def build_observability_payload(
     settled_freshness = settled_day_freshness_summary()
     parquet_incremental = parquet_incremental_status(parquet_incremental_path)
     cleanup_deletion_gate = cleanup_deletion_gate_summary()
+    refresh_resource_rows = (
+        load_daily_refresh_resource_rows(daily_refresh_status_path)
+        if daily_refresh_resources is None
+        else daily_refresh_resources
+    )
+    refresh_resources = daily_refresh_resource_summary(refresh_resource_rows)
     alerts = []
     alerts.extend(collection_alerts(collection))
     alerts.extend(audit_alerts(audits_json, gap_coverage=gap_coverage))
@@ -417,6 +485,7 @@ def build_observability_payload(
         "settled_day_freshness": settled_freshness,
         "closed_day_parquet_incremental": parquet_incremental,
         "cleanup_deletion_gate": cleanup_deletion_gate,
+        "daily_refresh_resources": refresh_resources,
         "alerts": alerts,
         "summary": {
             "market_count": len(collection.get("markets") or []),
@@ -487,6 +556,9 @@ def build_observability_payload(
             "current_code_soak_status": current_code_soak.get("status"),
             "current_code_soak_counts": current_code_soak.get("counts_toward_active_day"),
             "loop_restart_count": ((current_code_soak.get("summary") or {}).get("restart_count")),
+            "daily_refresh_resource_status": refresh_resources.get("status"),
+            "daily_refresh_private_memory_peak_bytes": refresh_resources.get("private_memory_peak_bytes"),
+            "daily_refresh_working_set_peak_bytes": refresh_resources.get("working_set_peak_bytes"),
         },
     }
     return payload

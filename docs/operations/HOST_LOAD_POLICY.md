@@ -28,9 +28,21 @@ Stage-A settlement safeguards: the daily taker edge-permission aggregation is
 single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
 14 active-day runs and fails closed before materialization when its selected
 quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
-`--maker-paper-max-input-bytes`). These are immediate containment limits, not
-a substitute for the per-step isolation and physical-memory admission owned by
-Roadmap Item 324.
+`--maker-paper-max-input-bytes`). These independent input limits remain
+fail-closed alongside the per-step isolation and physical-memory admission
+owned by Roadmap Item 324.
+
+Stage-A high-risk steps are now isolated one child at a time. The orchestrator
+persists an interruption-safe resume receipt before resuming child code and
+enforces the repository-declared private-memory, working-set, and timeout
+budget. Every child requires commit below 70%, fresh capture-loop evidence, and
+available physical RAM equal to its working-set ceiling plus a 1.5 GiB capture
+reserve; the same physical/capture checks run again after exit. These are
+fail-closed ceilings. Receipts include elapsed time, peak private/working-set
+memory, lifetime process-tree read/write bytes, and bounded result cardinality
+fields. Do not loosen the ceilings to force a scheduled run through; Item
+324 remains partial until a representative scheduled soak supplies measured
+per-step peaks and I/O/cardinality evidence.
 
 ### The training window (adopted 2026-07-12)
 

@@ -21,7 +21,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from weather.io import write_json_atomic
-from weather.paths import data_path
+from weather.paths import data_path, repo_path
 from weather.time import utc_now as shared_utc_now
 
 from types import SimpleNamespace
@@ -79,7 +79,20 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
     process_is_running,
+    run_isolated_subprocess,
     touch_long_job_guard,
+)
+from weather.operations.daily_refresh_resources import (
+    DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
+    DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
+    STAGE_A_ISOLATED_STEPS,
+    StageAChildFailure,
+    StageAResourceDeferred,
+    bounded_resume_command,
+    build_stage_a_step_admission,
+    prepare_step_child_invocation,
+    serializable_step_args,
+    step_resource_budget,
 )
 from weather.operations.producer_provenance import (
     build_invocation_proof,
@@ -465,7 +478,7 @@ def _production_readiness_status(args):
     }
 
 
-def _flush_incremental_status(args, payload):
+def _flush_incremental_status(args, payload, *, fail_closed=False):
     """Best-effort mid-run status persistence.
 
     Crash forensics (which step was live when the process died) and the seed
@@ -477,7 +490,334 @@ def _flush_incremental_status(args, payload):
     try:
         write_json_atomic(getattr(args, "status_out", None), snapshot)
     except (OSError, TypeError, ValueError):
-        pass
+        if fail_closed:
+            raise
+
+
+def _isolated_subprocess_receipt(result):
+    return {
+        key: result.get(key)
+        for key in (
+            "command",
+            "pid",
+            "returncode",
+            "timed_out",
+            "duration_seconds",
+            "working_set_limit",
+            "resource_peaks",
+            "resource_io",
+            "resource_limit_exceeded",
+            "containment",
+            "termination",
+            "runner_error",
+        )
+    }
+
+
+def _bounded_step_result_metrics(result, *, limit=96):
+    """Extract bounded cardinality/byte scalars from a step result."""
+
+    metrics = {}
+    markers = ("count", "bytes", "rows", "files", "markets", "inputs", "cardinality")
+
+    def visit(value, prefix="", depth=0):
+        if len(metrics) >= int(limit) or depth > 3:
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                name = f"{prefix}.{key}" if prefix else str(key)
+                lowered = str(key).lower()
+                if (
+                    isinstance(item, (int, float))
+                    and not isinstance(item, bool)
+                    and any(marker in lowered for marker in markers)
+                ):
+                    metrics[name] = item
+                elif isinstance(item, (list, tuple)) and any(
+                    marker in lowered for marker in markers
+                ):
+                    metrics[f"{name}.length"] = len(item)
+                if isinstance(item, dict):
+                    visit(item, name, depth + 1)
+
+    visit(result)
+    return metrics
+
+
+def _run_isolated_stage_a_step(args, payload, step_name, *, run_id):
+    reserve_mb = int(
+        getattr(
+            args,
+            "stage_a_min_available_reserve_mb",
+            DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
+        )
+    )
+    budget = step_resource_budget(
+        step_name,
+        reserve_mb=reserve_mb,
+        max_commit_percent=float(
+            getattr(
+                args,
+                "stage_a_max_commit_percent",
+                DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
+            )
+        ),
+    )
+    if budget is None:
+        raise StageAChildFailure(
+            f"missing isolated-step resource budget for {step_name}",
+            {"status": "ERROR", "step": step_name, "hard_stop_pipeline": True},
+        )
+    resume = bounded_resume_command(args, step_name)
+    previous_steps = payload.get("steps") or []
+    prior_step_count = len(previous_steps)
+    prior = previous_steps[-1] if previous_steps else {}
+    admission_before = build_stage_a_step_admission(
+        args,
+        step_name,
+        budget,
+        phase="before",
+    )
+    resource_record = {
+        "step": step_name,
+        "status": "admission_pending",
+        "budget": budget,
+        "resume_command": resume,
+        "admission_before": admission_before,
+        "admission_after": None,
+        "child_pid": None,
+        "last_progress": {
+            "last_completed_step": prior.get("name"),
+            "last_completed_step_status": prior.get("status"),
+            "completed_step_count": prior_step_count,
+        },
+        "last_progress_at_utc": utc_iso(),
+    }
+    payload.setdefault("resource_steps", []).append(resource_record)
+    setattr(args, "_daily_refresh_resource_steps", payload["resource_steps"])
+    payload["status"] = "interrupted"
+    payload["terminal"] = True
+    payload["finished_at_utc"] = utc_iso()
+    payload["current_step"] = {
+        "name": step_name,
+        "status": "admission",
+        "child_pid": None,
+        "budget": budget,
+        "last_progress": resource_record["last_progress"],
+        "last_progress_at_utc": resource_record["last_progress_at_utc"],
+        "resume_command": resume,
+    }
+    payload["interruption"] = {
+        "status": "RESUMABLE",
+        "reason": "isolated_step_not_terminal",
+        "step": step_name,
+        "resume_command": resume,
+        "fallback_persisted_before_child": True,
+    }
+    # Unlike ordinary progress updates, failure to persist this terminal
+    # fallback denies the child. A hard stop must never leave status=running.
+    _flush_incremental_status(args, payload, fail_closed=True)
+    if admission_before.get("decision") != "ADMIT":
+        resource_record["status"] = "deferred"
+        payload["current_step"]["status"] = "deferred"
+        payload["interruption"]["reason"] = "resource_admission_blocked"
+        _flush_incremental_status(args, payload, fail_closed=True)
+        raise StageAResourceDeferred(
+            f"{step_name} deferred by physical-memory/capture admission",
+            {
+                "status": "DEFERRED",
+                "resource_execution": resource_record,
+                "resume_command": resume,
+            },
+        )
+
+    invocation = prepare_step_child_invocation(
+        args,
+        step_name,
+        run_id=run_id,
+    )
+    resource_record["child_invocation"] = {
+        "args_json": invocation["args_json"],
+        "result_json": invocation["result_json"],
+    }
+
+    def child_started(info):
+        child_pid = int(info["pid"])
+        resource_record.update({
+            "status": "running",
+            "child_pid": child_pid,
+            "child_started_at_utc": utc_iso(),
+        })
+        payload["current_step"].update({
+            "status": "running_isolated",
+            "child_pid": child_pid,
+            "last_progress_at_utc": utc_iso(),
+            "child_started_before_user_code": info.get("started_before_user_code"),
+        })
+        payload["interruption"]["child_pid"] = child_pid
+        _flush_incremental_status(args, payload, fail_closed=True)
+        touch_long_job_guard(
+            getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+            progress={
+                "current_step": step_name,
+                "child_pid": child_pid,
+                "budget": budget,
+                "last_completed_step": prior.get("name"),
+                "resume_command": resume,
+            },
+        )
+
+    child_result = run_isolated_subprocess(
+        invocation["command"],
+        timeout_seconds=budget["timeout_seconds"],
+        working_set_max_bytes=budget["working_set_max_bytes"],
+        private_memory_max_bytes=budget["private_memory_max_bytes"],
+        cwd=repo_path(),
+        on_started=child_started,
+    )
+    child_receipt = _isolated_subprocess_receipt(child_result)
+    resource_record["subprocess"] = child_receipt
+    result_path = Path(invocation["result_json"])
+    try:
+        child_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        child_payload = {}
+    resource_record["child_terminal"] = {
+        key: child_payload.get(key)
+        for key in (
+            "schema_version",
+            "status",
+            "pid",
+            "started_at_utc",
+            "finished_at_utc",
+            "error",
+        )
+    }
+    try:
+        child_pid_matches = int(child_payload.get("pid")) == int(child_result.get("pid"))
+    except (TypeError, ValueError):
+        child_pid_matches = False
+    child_terminal_valid = bool(
+        child_payload.get("schema_version") == schema_version("daily_refresh_step_child")
+        and child_payload.get("status") == "ok"
+        and child_payload.get("step") == step_name
+        and child_pid_matches
+        and child_payload.get("finished_at_utc")
+    )
+    resource_record["child_terminal_validation"] = {
+        "status": "PASS" if child_terminal_valid else "BLOCK",
+        "schema_matches": child_payload.get("schema_version")
+        == schema_version("daily_refresh_step_child"),
+        "step_matches": child_payload.get("step") == step_name,
+        "pid_matches": child_pid_matches,
+        "finished_at_present": bool(child_payload.get("finished_at_utc")),
+    }
+    admission_after = build_stage_a_step_admission(
+        args,
+        step_name,
+        budget,
+        phase="after",
+    )
+    resource_record["admission_after"] = admission_after
+
+    failure_reason = None
+    if child_result.get("resource_limit_exceeded"):
+        failure_reason = "resource_budget_exceeded"
+    elif child_result.get("timed_out"):
+        failure_reason = "timeout"
+    elif (child_result.get("containment") or {}).get("status") != "PASS":
+        failure_reason = "containment_setup_failed"
+    elif int(child_result.get("returncode") or 0) != 0:
+        failure_reason = "child_nonzero_exit"
+    elif not child_terminal_valid:
+        failure_reason = "invalid_or_error_child_terminal"
+
+    if failure_reason:
+        resource_record.update({
+            "status": "error",
+            "failure_reason": failure_reason,
+            "finished_at_utc": utc_iso(),
+        })
+        payload["current_step"]["status"] = "error"
+        payload["current_step"]["failure_reason"] = failure_reason
+        payload["interruption"]["reason"] = failure_reason
+        _flush_incremental_status(args, payload, fail_closed=True)
+        raise StageAChildFailure(
+            f"{step_name} isolated child failed: {failure_reason}",
+            {
+                "status": "ERROR",
+                "hard_stop_pipeline": True,
+                "resource_execution": resource_record,
+                "resume_command": resume,
+                "child_error": child_payload.get("error"),
+                "stderr_tail": child_result.get("stderr") or "",
+            },
+        )
+
+    resource_record.update({
+        "status": "ok",
+        "finished_at_utc": utc_iso(),
+    })
+    result = child_payload.get("result")
+    if not isinstance(result, dict):
+        result = {"value": result}
+    resource_record["result_metrics"] = _bounded_step_result_metrics(result)
+    result["resource_execution"] = resource_record
+    if admission_after.get("decision") != "ADMIT":
+        current_index = STEP_ORDER.index(step_name)
+        next_step = (
+            STEP_ORDER[current_index + 1]
+            if current_index + 1 < len(STEP_ORDER)
+            else step_name
+        )
+        next_resume = bounded_resume_command(args, next_step)
+        resource_record.update({
+            "status": "ok_postcheck_deferred",
+            "post_step_failure_reason": "post_step_capture_or_physical_check_failed",
+            "next_resume_step": next_step,
+            "next_resume_command": next_resume,
+        })
+        payload.setdefault("steps", []).append({
+            "name": step_name,
+            "status": "ok",
+            "started_at_utc": child_payload.get("started_at_utc"),
+            "finished_at_utc": child_payload.get("finished_at_utc"),
+            "duration_seconds": child_receipt.get("duration_seconds"),
+            "result": result,
+            "persisted_before_postcheck_resume": True,
+        })
+        payload["status"] = "interrupted"
+        payload["terminal"] = True
+        payload["finished_at_utc"] = utc_iso()
+        payload["current_step"] = {
+            "name": next_step,
+            "status": "deferred_after_completed_step",
+            "last_progress": {
+                "last_completed_step": step_name,
+                "last_completed_step_status": "ok",
+                "completed_step_count": prior_step_count + 1,
+            },
+            "last_progress_at_utc": resource_record["finished_at_utc"],
+            "resume_command": next_resume,
+        }
+        payload["interruption"] = {
+            "status": "RESUMABLE",
+            "reason": "post_step_capture_or_physical_check_failed",
+            "completed_step": step_name,
+            "selected_resume_step": next_step,
+            "resume_command": next_resume,
+        }
+        _flush_incremental_status(args, payload, fail_closed=True)
+        return result
+    payload["status"] = "running"
+    payload["terminal"] = False
+    payload["finished_at_utc"] = None
+    payload["current_step"].update({
+        "status": "ok",
+        "finished_at_utc": resource_record["finished_at_utc"],
+    })
+    payload["last_interruption_fallback"] = payload.pop("interruption")
+    return result
 
 
 def _stage_name(args):
@@ -701,6 +1041,7 @@ def _trigger_evidence_stage(args, manifest):
 def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
+    run_id = f"{started_at.replace(':', '').replace('+', '_')}-{os.getpid()}"
     invocation = build_invocation_proof(
         args,
         module_name="weather.operations.daily_refresh",
@@ -717,6 +1058,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     setattr(args, "_current_producer_release_identity", release_identity)
     setattr(args, "_current_producer_lock_proof", lock_proof)
     stage = _stage_name(args)
+    default_runners_by_name = dict(DEFAULT_RUNNERS)
     runners = filter_runners_for_stage_and_resume(
         list(runners or DEFAULT_RUNNERS),
         stage,
@@ -730,7 +1072,14 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         "status": "running",
         "dry_run": bool(args.dry_run),
         "runner": "daily_refresh",
+        "run_id": run_id,
+        "owner_pid": os.getpid(),
         "steps": [],
+        "resource_steps": [],
+        "resume_contract": {
+            "argv": list(getattr(args, "_original_cli_argv", None) or []),
+            "arguments": serializable_step_args(args),
+        },
         "summary": {},
         "invocation": invocation,
         "lock_proof": lock_proof,
@@ -809,6 +1158,21 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
                 )
             ),
+            "stage_a_min_available_reserve_mb": int(
+                getattr(
+                    args,
+                    "stage_a_min_available_reserve_mb",
+                    DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
+                )
+            ),
+            "stage_a_max_commit_percent": float(
+                getattr(
+                    args,
+                    "stage_a_max_commit_percent",
+                    DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
+                )
+            ),
+            "stage_a_isolated_steps": sorted(STAGE_A_ISOLATED_STEPS),
             "stage": stage,
             "stage_a_manifest": str(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST)),
             "stage_b_manifest": str(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST)),
@@ -825,6 +1189,9 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     payload["config"]["settled_analysis_target_date"] = getattr(
         args, "settled_analysis_target_date", ""
     )
+    payload["resume_contract"]["arguments"]["settled_analysis_target_date"] = (
+        getattr(args, "settled_analysis_target_date", "")
+    )
     if stage == STAGE_EVIDENCE and not args.dry_run:
         gate = _stage_b_start_gate(args)
         payload["config"]["stage_gate"] = gate
@@ -838,17 +1205,27 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             prior = {}
         carried = carried_forward_steps(prior.get("steps"), resume_from)
         payload["steps"] = carried
+        payload["resource_steps"] = list(prior.get("resource_steps") or [])
         payload["config"]["carried_forward_step_count"] = len(carried)
+        payload["config"]["carried_forward_resource_step_count"] = len(
+            payload["resource_steps"]
+        )
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
     elif stage == STAGE_EVIDENCE and not args.dry_run:
         prior = _read_json_payload(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
         carried = carried_forward_stage_head(prior.get("steps"), stage)
         payload["steps"] = carried
+        payload["resource_steps"] = list(prior.get("resource_steps") or [])
         payload["config"]["carried_forward_step_count"] = len(carried)
+        payload["config"]["carried_forward_resource_step_count"] = len(
+            payload["resource_steps"]
+        )
         payload["config"]["carried_forward_from_stage"] = STAGE_SETTLEMENT
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+    setattr(args, "_daily_refresh_resource_steps", payload["resource_steps"])
     capture_resource_admission = None
     capture_resource_deferred = False
+    stage_a_resource_deferred = False
     captured_input_parity = None
     captured_input_parity_deferred = False
     if args.dry_run:
@@ -897,8 +1274,21 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 "daily_flow_analysis",
             }:
                 setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
+            if name in STAGE_A_ISOLATED_STEPS:
+                setattr(args, "_daily_refresh_steps_so_far", list(payload["steps"]))
+            step_runner = runner
+            if (
+                name in STAGE_A_ISOLATED_STEPS
+                and runner is default_runners_by_name.get(name)
+            ):
+                step_runner = lambda step_args, step_name=name: _run_isolated_stage_a_step(
+                    step_args,
+                    payload,
+                    step_name,
+                    run_id=run_id,
+                )
             try:
-                step = run_step(name, runner, args)
+                step = run_step(name, step_runner, args)
             except Exception as exc:  # noqa: BLE001
                 step = {
                     "name": name,
@@ -912,7 +1302,17 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 payload["steps"].append(step)
                 _flush_incremental_status(args, payload)
                 break
-            payload["steps"].append(step)
+            resource_execution = (
+                (step.get("result") or {}).get("resource_execution") or {}
+            )
+            already_persisted = bool(
+                resource_execution.get("status") == "ok_postcheck_deferred"
+                and payload.get("steps")
+                and payload["steps"][-1].get("name") == name
+                and payload["steps"][-1].get("persisted_before_postcheck_resume")
+            )
+            if not already_persisted:
+                payload["steps"].append(step)
             # Flush after every step: the 2026-07-04 chain died mid-step with
             # no status row, no error manifest, and no crash event — an
             # end-only status write leaves a multi-hour pipeline forensically
@@ -928,15 +1328,24 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     "total_step_count": len(runners),
                 },
             )
+            if resource_execution.get("status") == "ok_postcheck_deferred":
+                stage_a_resource_deferred = True
+                break
+            if step["status"] == "deferred":
+                stage_a_resource_deferred = True
+                break
             if step["status"] == "error" and (
                 not args.continue_on_error
+                or name in STAGE_A_ISOLATED_STEPS
                 or (step.get("result") or {}).get("hard_stop_pipeline")
             ):
                 break
         errors = [step for step in payload["steps"] if step.get("status") == "error"]
         payload["status"] = (
             "deferred"
-            if capture_resource_deferred or captured_input_parity_deferred
+            if capture_resource_deferred
+            or captured_input_parity_deferred
+            or stage_a_resource_deferred
             else "error"
             if errors
             else "ok"
@@ -1028,7 +1437,17 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             flow_status = ((flow_step.get("result") or {}).get("status"))
             if flow_status in {"BLOCKED", "MISSING_INPUTS"} and payload["status"] == "ok":
                 payload["status"] = "critical"
-    if not args.dry_run and not getattr(args, "skip_production_readiness_gate", False):
+    readiness_blocked_by_pipeline = bool(
+        payload.get("status") in {"error", "deferred", "interrupted"}
+        or capture_resource_deferred
+        or captured_input_parity_deferred
+        or stage_a_resource_deferred
+    )
+    if (
+        not args.dry_run
+        and not getattr(args, "skip_production_readiness_gate", False)
+        and not readiness_blocked_by_pipeline
+    ):
         readiness_started = time.time()
         readiness_step = {
             "name": "production_readiness_gate",
@@ -1065,8 +1484,21 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             and payload.get("status") != "error"
         ):
             payload["status"] = "critical"
+    elif (
+        not args.dry_run
+        and not getattr(args, "skip_production_readiness_gate", False)
+        and readiness_blocked_by_pipeline
+    ):
+        payload["production_readiness"] = {
+            "status": "SKIPPED",
+            "reason": "upstream_pipeline_not_successful",
+            "pipeline_status": payload.get("status"),
+        }
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
+    payload["terminal"] = True
+    if payload.get("status") in {"ok", "critical", "dry_run", "skipped"}:
+        payload["current_step"] = None
     payload["duration_seconds"] = round(time.time() - started, 3)
     payload["sla"] = build_stage_sla(
         duration_seconds=payload["duration_seconds"],
@@ -1163,6 +1595,10 @@ def _cli_dependencies():
         DEFAULT_LONG_JOB_LOCK_PATH=DEFAULT_LONG_JOB_LOCK_PATH,
         DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS=DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
         DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
+        DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB=DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
+        DEFAULT_STAGE_A_MAX_COMMIT_PERCENT=DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
+        DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS=DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+        DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES=DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
         DEFAULT_LABELS_CSV=DEFAULT_LABELS_CSV,
         DEFAULT_LEDGER_ROOT=DEFAULT_LEDGER_ROOT,
         STEP_ORDER=STEP_ORDER,

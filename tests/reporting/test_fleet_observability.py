@@ -24,6 +24,8 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     clob_alerts,
     cleanup_deletion_gate_summary,
     current_code_soak_summary,
+    daily_refresh_resource_summary,
+    load_daily_refresh_resource_rows,
     clean_active_day_countability,
     live_forward_slo_gate,
     loop_integrity_alerts,
@@ -43,6 +45,69 @@ from weather.reporting.fleet import fleet_observability_loops
 
 
 class TestFleetObservability(unittest.TestCase):
+    def test_daily_refresh_resource_peaks_and_budget_decisions_surface(self):
+        summary = daily_refresh_resource_summary([
+            {
+                "step": "maker_paper_score",
+                "status": "ok",
+                "child_pid": 123,
+                "budget": {
+                    "private_memory_max_bytes": 4096,
+                    "working_set_max_bytes": 3072,
+                    "timeout_seconds": 60,
+                },
+                "admission_before": {"decision": "ADMIT"},
+                "admission_after": {"decision": "ADMIT"},
+                "subprocess": {
+                    "duration_seconds": 3.5,
+                    "resource_peaks": {
+                        "private_memory_peak_bytes": 2048,
+                        "working_set_peak_bytes": 1024,
+                    },
+                    "resource_io": {"read_bytes": 8192, "write_bytes": 2048},
+                },
+                "result_metrics": {"input_row_count": 12},
+            }
+        ])
+
+        self.assertEqual(summary["status"], "OK")
+        self.assertEqual(summary["private_memory_peak_bytes"], 2048)
+        self.assertEqual(summary["working_set_peak_bytes"], 1024)
+        self.assertEqual(summary["budget_decisions"][0]["before"], "ADMIT")
+        self.assertEqual(summary["budget_decisions"][0]["read_bytes"], 8192)
+        self.assertEqual(summary["budget_decisions"][0]["result_metric_count"], 1)
+        postcheck = daily_refresh_resource_summary([{
+            "step": "maker_paper_score",
+            "status": "ok_postcheck_deferred",
+            "post_step_failure_reason": "post_step_capture_or_physical_check_failed",
+        }])
+        self.assertEqual(postcheck["status"], "DEFERRED")
+        self.assertEqual(
+            postcheck["budget_decisions"][0]["failure_reason"],
+            "post_step_capture_or_physical_check_failed",
+        )
+
+    def test_daily_refresh_resources_survive_standalone_fleet_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status = Path(tmp) / "daily_refresh_status.json"
+            status.write_text(
+                json.dumps({
+                    "status": "interrupted",
+                    "resource_steps": [{
+                        "step": "maker_paper_score",
+                        "status": "error",
+                        "failure_reason": "resource_budget_exceeded",
+                    }],
+                }),
+                encoding="utf-8",
+            )
+
+            rows = load_daily_refresh_resource_rows(status)
+            summary = daily_refresh_resource_summary(rows)
+
+        self.assertEqual(summary["status"], "ERROR")
+        self.assertEqual(summary["budget_decisions"][0]["step"], "maker_paper_score")
+
     def test_fleet_collection_health_returns_one_row_per_registered_market(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

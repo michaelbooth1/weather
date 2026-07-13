@@ -644,6 +644,56 @@ def write_markdown(path, payload):
     ]
     lines += ["", "## Closed-Day Parquet Incremental Status", ""]
     lines += markdown_table(["Metric", "Value"], parquet_rows)
+    refresh_resources = payload.get("daily_refresh_resources") or {}
+    resource_rows = [
+        [
+            row.get("step"),
+            row.get("status"),
+            row.get("child_pid") or "-",
+            row.get("before") or "-",
+            row.get("after") or "-",
+            row.get("private_memory_peak_bytes") or 0,
+            row.get("private_memory_max_bytes") or 0,
+            row.get("working_set_peak_bytes") or 0,
+            row.get("working_set_max_bytes") or 0,
+            row.get("read_bytes") or 0,
+            row.get("write_bytes") or 0,
+            row.get("duration_seconds") or 0,
+            row.get("timeout_seconds") or 0,
+            row.get("result_metric_count") or 0,
+            row.get("failure_reason") or "-",
+        ]
+        for row in refresh_resources.get("budget_decisions") or []
+    ]
+    lines += [
+        "",
+        "## Daily Refresh Resource Isolation",
+        "",
+        f"Status: **{refresh_resources.get('status') or 'NOT_RUN'}**",
+        f"Peak private bytes: `{refresh_resources.get('private_memory_peak_bytes') or 0}`",
+        f"Peak working-set bytes: `{refresh_resources.get('working_set_peak_bytes') or 0}`",
+        "",
+    ]
+    lines += markdown_table(
+        [
+            "Step",
+            "Status",
+            "PID",
+            "Pre",
+            "Post",
+            "Private Peak",
+            "Private Cap",
+            "WS Peak",
+            "WS Cap",
+            "Read Bytes",
+            "Write Bytes",
+            "Elapsed",
+            "Timeout",
+            "Cardinality Fields",
+            "Failure",
+        ],
+        resource_rows,
+    )
     cleanup_gate = payload.get("cleanup_deletion_gate") or {}
     canonical_cleanup_gate = cleanup_gate.get("canonical_evidence") or {}
     cleanup_rows = [

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from weather.io import write_json_atomic
@@ -227,20 +229,53 @@ def clear_stale_long_job_state(path):
     return diagnostic
 
 
-def stale_lock_repair_command(args, *, resume_from_step="daily_learning", run_after_repair=True):
+def stale_lock_repair_command(args, *, resume_from_step=None, run_after_repair=True):
     lock_path = getattr(args, "lock_path", DEFAULT_LOCK_PATH)
-    command = (
-        "python -m weather.operations.daily_refresh repair-stale-locks "
-        f"--backtest-root {Path(args.backtest_root)} "
-        f"--snapshots-root {Path(args.snapshots_root)} "
-        f"--lock-path {Path(lock_path)} "
-        f"--long-job-lock {Path(getattr(args, 'long_job_lock', DEFAULT_LONG_JOB_LOCK_PATH))} "
-        f"--long-job-state {Path(getattr(args, 'long_job_state', DEFAULT_LONG_JOB_STATE_PATH))} "
-        f"--resume-from-step {resume_from_step}"
-    )
+    stage = str(getattr(args, "stage", "all") or "all")
+    if not resume_from_step:
+        resume_from_step = (
+            "promotion_refresh" if stage == "evidence" else "reanalysis_recent_refresh"
+        )
+    parts = [
+        sys.executable,
+        "-m",
+        "weather.operations.daily_refresh",
+        "repair-stale-locks",
+        "--backtest-root",
+        str(Path(args.backtest_root)),
+        "--snapshots-root",
+        str(Path(args.snapshots_root)),
+        "--status-out",
+        str(Path(getattr(args, "status_out", DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"))),
+        "--report-out",
+        str(Path(getattr(args, "report_out", DEFAULT_BACKTEST_ROOT / "daily_refresh_report.md"))),
+        "--lock-path",
+        str(Path(lock_path)),
+        "--long-job-lock",
+        str(Path(getattr(args, "long_job_lock", DEFAULT_LONG_JOB_LOCK_PATH))),
+        "--long-job-state",
+        str(Path(getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH))),
+        "--stage",
+        stage,
+        "--stage-a-min-available-reserve-mb",
+        str(int(getattr(args, "stage_a_min_available_reserve_mb", 1536))),
+        "--stage-a-max-commit-percent",
+        str(float(getattr(args, "stage_a_max_commit_percent", 70.0))),
+        "--maker-paper-latest-active-runs",
+        str(int(getattr(args, "maker_paper_latest_active_runs", 14))),
+        "--maker-paper-max-input-bytes",
+        str(int(getattr(args, "maker_paper_max_input_bytes", 512 * 1024**2))),
+        "--capture-resource-mode",
+        str(getattr(args, "capture_resource_mode", "live") or "live"),
+        "--resume-from-step",
+        resume_from_step,
+    ]
+    target_date = str(getattr(args, "settled_analysis_target_date", "") or "")
+    if target_date:
+        parts += ["--settled-analysis-target-date", target_date]
     if run_after_repair:
-        command += " --run-after-repair"
-    return command
+        parts.append("--run-after-repair")
+    return subprocess.list2cmdline(parts)
 
 
 def lock_preflight(args):
@@ -313,5 +348,3 @@ def release_lock(path):
         Path(path).unlink()
     except FileNotFoundError:
         pass
-
-

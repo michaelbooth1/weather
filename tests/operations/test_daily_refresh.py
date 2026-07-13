@@ -16,6 +16,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     _captured_input_parity_preflight,
     acquire_lock,
     build_parser,
+    cmd_run,
     load_status,
     repair_stale_locks,
     release_lock,
@@ -445,6 +446,33 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
         self.assertTrue(report_exists)
 
+    def test_cli_exit_code_matches_written_normal_and_deferred_status(self):
+        for terminal_status, expected_exit in (("ok", 0), ("deferred", 2)):
+            with self.subTest(status=terminal_status), tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp, dry_run=True)
+
+                def fake_run(run_args):
+                    payload = {"status": terminal_status, "terminal": True}
+                    status_path = Path(run_args.status_out)
+                    report_path = Path(run_args.report_out)
+                    status_path.parent.mkdir(parents=True, exist_ok=True)
+                    status_path.write_text(json.dumps(payload), encoding="utf-8")
+                    report_path.write_text("# test\n", encoding="utf-8")
+                    return payload, status_path, report_path
+
+                with patch(
+                    "weather.operations.daily_refresh.run_daily_refresh",
+                    side_effect=fake_run,
+                ), patch(
+                    "weather.operations.daily_refresh.trigger_evidence_stage_after_lock",
+                    return_value={"status": "SKIPPED"},
+                ):
+                    actual_exit = cmd_run(args)
+                saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+
+            self.assertEqual(actual_exit, expected_exit)
+            self.assertEqual(saved["status"], terminal_status)
+
     def test_live_capture_denial_stops_before_any_daily_heavy_child(self):
         calls = []
 
@@ -492,6 +520,7 @@ class TestDailyRefresh(unittest.TestCase):
             proof = json.loads(Path(args.capture_resource_out).read_text(encoding="utf-8"))
 
         self.assertEqual(calls, [])
+
         self.assertEqual(payload["status"], "deferred")
         self.assertEqual(payload["steps"][-1]["name"], "capture_resource_admission")
         self.assertEqual(payload["steps"][-1]["status"], "deferred")
@@ -506,6 +535,45 @@ class TestDailyRefresh(unittest.TestCase):
             "live_capture_loop_active",
             {row["code"] for row in proof["blockers"]},
         )
+
+    def test_isolated_stage_a_orchestration_error_hard_stops_continue_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+            args = _args(
+                tmp,
+                stage="settlement",
+                resume_from_step="maker_paper_score",
+                continue_on_error=True,
+                disable_long_job_guard=True,
+                skip_production_readiness_gate=False,
+                stage_a_manifest=str(Path(tmp) / "backtest" / "stage_a.json"),
+                stage_b_manifest=str(Path(tmp) / "backtest" / "stage_b.json"),
+            )
+            maker_runner = dict(DEFAULT_RUNNERS)["maker_paper_score"]
+
+            def later(_args):
+                calls.append("settlement_source_audit")
+                return {"status": "PASS"}
+
+            with patch(
+                "weather.operations.daily_refresh._run_isolated_stage_a_step",
+                side_effect=OSError("status persistence failed"),
+            ), patch(
+                "weather.operations.daily_refresh._production_readiness_status"
+            ) as readiness:
+                payload, _status, _report = run_daily_refresh(
+                    args,
+                    runners=[
+                        ("maker_paper_score", maker_runner),
+                        ("settlement_source_audit", later),
+                    ],
+                )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["steps"][-1]["name"], "maker_paper_score")
+        self.assertEqual(payload["production_readiness"]["status"], "SKIPPED")
+        readiness.assert_not_called()
 
     def test_missing_captured_input_replay_blocks_before_daily_heavy_child(self):
         calls = []
@@ -870,14 +938,33 @@ class TestDailyRefresh(unittest.TestCase):
             daily_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
             long_lock.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
             state.write_text(
-                json.dumps({"status": "running", "active": True, "pid": -999}),
+                json.dumps({
+                    "status": "running",
+                    "active": True,
+                    "pid": -999,
+                    "progress": {
+                        "last_completed_step": "closed_day_parquet_incremental",
+                        "last_completed_step_status": "ok",
+                    },
+                    "last_progress_at_utc": "2026-07-13T14:40:00+00:00",
+                }),
+                encoding="utf-8",
+            )
+            Path(args.status_out).write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_v0.5",
+                    "status": "running",
+                    "owner_pid": -999,
+                }),
                 encoding="utf-8",
             )
             args.lock_path = str(daily_lock)
             args.long_job_lock = str(long_lock)
+            args.resume_from_step = "settlement_source_audit"
 
             payload = repair_stale_locks(args)
             state_payload = json.loads(state.read_text(encoding="utf-8"))
+            refresh_status = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
             daily_exists = daily_lock.exists()
             long_exists = long_lock.exists()
 
@@ -887,6 +974,132 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(payload["long_job_lock"]["owner_running"])
         self.assertFalse(state_payload["active"])
         self.assertEqual(state_payload["status"], "stale_cleared")
+        self.assertTrue(payload["daily_refresh_status"]["updated"])
+        self.assertEqual(refresh_status["status"], "interrupted")
+        self.assertTrue(refresh_status["terminal"])
+        self.assertEqual(refresh_status["current_step"]["owner_pid"], -999)
+        self.assertEqual(
+            refresh_status["current_step"]["resume_selection"],
+            "verified_last_completed_step",
+        )
+        self.assertIn(
+            "--resume-from-step hourly_model_performance",
+            refresh_status["current_step"]["resume_command"],
+        )
+
+    def test_repair_recovers_verified_child_terminal_before_advancing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, stage="settlement")
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            daily_lock = Path(args.lock_path)
+            long_lock = Path(args.long_job_lock)
+            state = Path(args.long_job_state)
+            daily_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
+            long_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
+            state.write_text(
+                json.dumps({
+                    "status": "running",
+                    "active": True,
+                    "pid": -999,
+                    "progress": {
+                        "last_completed_step": "taker_tail_casebook",
+                        "last_completed_step_status": "ok",
+                    },
+                }),
+                encoding="utf-8",
+            )
+            result_path = (
+                backtest
+                / "daily_refresh_step_children"
+                / "run-1"
+                / "maker_paper_score.result.json"
+            )
+            result_path.parent.mkdir(parents=True)
+            result_path.write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_step_child_v0.1",
+                    "status": "ok",
+                    "step": "maker_paper_score",
+                    "pid": 4321,
+                    "started_at_utc": "2026-07-13T14:00:00+00:00",
+                    "finished_at_utc": "2026-07-13T14:01:00+00:00",
+                    "result": {"status": "PASS", "selected_run_count": 14},
+                }),
+                encoding="utf-8",
+            )
+            Path(args.status_out).write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_v0.5",
+                    "status": "interrupted",
+                    "terminal": True,
+                    "owner_pid": -999,
+                    "config": {
+                        "backtest_root": str(backtest),
+                        "settled_analysis_target_date": "2026-07-12",
+                    },
+                    "steps": [],
+                    "current_step": {
+                        "name": "maker_paper_score",
+                        "child_pid": 4321,
+                    },
+                    "resource_steps": [{
+                        "step": "maker_paper_score",
+                        "status": "running",
+                        "child_pid": 4321,
+                        "child_invocation": {"result_json": str(result_path)},
+                    }],
+                }),
+                encoding="utf-8",
+            )
+
+            repair = repair_stale_locks(args)
+            saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+
+        self.assertTrue(repair["daily_refresh_status"]["updated"])
+        self.assertTrue(
+            repair["daily_refresh_status"]["recovered_child_terminal"]["recovered"]
+        )
+        self.assertEqual(saved["steps"][-1]["name"], "maker_paper_score")
+        self.assertEqual(saved["steps"][-1]["status"], "ok")
+        self.assertTrue(saved["steps"][-1]["recovered_from_child_terminal"])
+        self.assertEqual(saved["current_step"]["name"], "settlement_source_audit")
+        self.assertIn(
+            "--settled-analysis-target-date 2026-07-12",
+            saved["current_step"]["resume_command"],
+        )
+
+    def test_repair_does_not_rewrite_status_while_daily_owner_is_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, stage="settlement")
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            Path(args.lock_path).write_text(
+                json.dumps({"pid": os.getpid()}),
+                encoding="utf-8",
+            )
+            Path(args.long_job_state).write_text(
+                json.dumps({"status": "running", "active": True, "pid": -999}),
+                encoding="utf-8",
+            )
+            Path(args.status_out).write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_v0.5",
+                    "status": "running",
+                    "owner_pid": -999,
+                }),
+                encoding="utf-8",
+            )
+
+            repair = repair_stale_locks(args)
+            saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+
+        self.assertFalse(repair["daily_refresh_status"]["updated"])
+        self.assertEqual(
+            repair["daily_refresh_status"]["reason"],
+            "daily_refresh_lock_owner_running",
+        )
+        self.assertEqual(saved["status"], "running")
 
     def test_rollup_freshness_blocks_stale_daily_learning_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1043,6 +1256,11 @@ class TestDailyRefresh(unittest.TestCase):
                     {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 3}},
                     {"name": "hourly_model_performance", "status": "ok", "result": {"status": "BLOCK"}},
                 ],
+                "resource_steps": [{
+                    "step": "hourly_model_performance",
+                    "status": "ok",
+                    "subprocess": {"duration_seconds": 5.0},
+                }],
             }
             status_path = Path(args.status_out)
             status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1052,6 +1270,9 @@ class TestDailyRefresh(unittest.TestCase):
 
             def capture(step_args):
                 seen["steps"] = list(getattr(step_args, "_daily_refresh_steps_so_far", []))
+                seen["resource_steps"] = list(
+                    getattr(step_args, "_daily_refresh_resource_steps", [])
+                )
                 return {"status": "PASS"}
 
             payload, _status_path, _report_path = run_daily_refresh(
@@ -1069,6 +1290,8 @@ class TestDailyRefresh(unittest.TestCase):
             ["market_day_labels_finalize", "hourly_model_performance", "settled_day_analysis_barrier"],
         )
         self.assertEqual(payload["config"]["carried_forward_step_count"], 2)
+        self.assertEqual(payload["config"]["carried_forward_resource_step_count"], 1)
+        self.assertEqual(seen["resource_steps"][0]["step"], "hourly_model_performance")
         self.assertEqual(
             payload["config"]["carried_forward_from_run_started_at_utc"],
             "2026-07-02T13:30:00+00:00",
@@ -1457,6 +1680,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(args.heavy_step_subprocess)
         self.assertEqual(args.heavy_step_timeout_seconds, 8 * 60 * 60)
         self.assertEqual(args.heavy_step_working_set_max_mb, 6144)
+        self.assertEqual(args.stage_a_min_available_reserve_mb, 1536)
+        self.assertEqual(args.stage_a_max_commit_percent, 70.0)
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)

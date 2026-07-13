@@ -713,6 +713,36 @@ def render_report(payload):
             f"Next command/action: `{flow.get('next_command') or '-'}`",
             "",
         ]
+    resources = payload.get("resource_steps") or []
+    if resources:
+        lines += [
+            "",
+            "## Isolated Step Resources",
+            "",
+            "| Step | Status | PID | Pre/Post Admission | Private Peak / Cap | Working Set Peak / Cap | Read / Write Bytes | Elapsed / Timeout | Cardinality Fields | Resume |",
+            "| :--- | :--- | ---: | :--- | ---: | ---: | ---: | ---: | ---: | :--- |",
+        ]
+        for row in resources:
+            subprocess_row = row.get("subprocess") or {}
+            peaks = subprocess_row.get("resource_peaks") or {}
+            resource_io = subprocess_row.get("resource_io") or {}
+            budget = row.get("budget") or {}
+            lines.append(
+                "| "
+                f"{row.get('step')} | {row.get('status')} | {row.get('child_pid') or '-'} | "
+                f"{(row.get('admission_before') or {}).get('decision') or '-'} / "
+                f"{(row.get('admission_after') or {}).get('decision') or '-'} | "
+                f"{peaks.get('private_memory_peak_bytes') or 0} / "
+                f"{budget.get('private_memory_max_bytes') or 0} | "
+                f"{peaks.get('working_set_peak_bytes') or 0} / "
+                f"{budget.get('working_set_max_bytes') or 0} | "
+                f"{resource_io.get('read_bytes') or 0} / "
+                f"{resource_io.get('write_bytes') or 0} | "
+                f"{subprocess_row.get('duration_seconds') or 0} / "
+                f"{budget.get('timeout_seconds') or 0} | "
+                f"{len(row.get('result_metrics') or {})} | "
+                f"`{row.get('resume_command') or '-'}` |"
+            )
     lines += [
         "",
         "## Summary",
@@ -730,5 +760,3 @@ def write_report(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_report(payload), encoding="utf-8")
     return path
-
-

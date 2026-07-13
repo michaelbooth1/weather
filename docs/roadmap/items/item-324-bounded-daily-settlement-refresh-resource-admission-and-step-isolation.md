@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [OPEN 2026-07-13 - STAGE-A HEAVY STEPS CAN EXHAUST CAPTURE-HOST MEMORY]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-13 - CODE GATES LANDED; SCHEDULED SOAK REMAINS]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -42,28 +42,28 @@ resume for the settlement chain.
   memory, peak working set, elapsed time, and read/write volume. Classify heavy
   steps explicitly rather than applying admission only to later promotion
   work.
-- [ ] Replace full-list taker order-tape aggregation with streaming or bounded
+- [x] Replace full-list taker order-tape aggregation with streaming or bounded
   per-slice statistics while preserving deterministic permission records,
   source-artifact lineage, settled-order counts, and independent-day logic.
-- [ ] Give maker-paper scoring an explicit evidence-window/input-byte contract.
+- [x] Give maker-paper scoring an explicit evidence-window/input-byte contract.
   A full-history rebuild must be a separately admitted maintenance operation,
   not the ordinary daily settlement path.
-- [ ] Run high-risk Stage-A steps in isolated subprocesses with declared
+- [x] Run high-risk Stage-A steps in isolated subprocesses with declared
   timeout and working-set/private-memory limits. Release one step's address
   space before starting the next, and fail closed without promotion when a
   child exceeds its budget.
-- [ ] Gate each heavy child on both commit and physical availability, then
+- [x] Gate each heavy child on both commit and physical availability, then
   re-check capture-loop freshness before and after it. A commit-only gate is
   insufficient: this incident reached 98% physical load at only 69.7% commit.
-- [ ] Persist `current_step`, child PID, resource budget, and last progress
+- [x] Persist `current_step`, child PID, resource budget, and last progress
   before invocation. On task stop, native failure, or resource rejection,
   write an interruption-safe terminal status and exact bounded resume command
   instead of leaving `status=running` with only the prior completed step.
-- [ ] Surface Stage-A resource peaks, budget decisions, child exit reasons,
+- [x] Surface Stage-A resource peaks, budget decisions, child exit reasons,
   stale-lock repair provenance, and capture impact in daily-refresh status,
   fleet observability, and the memory guard without authorizing generic
   termination of arbitrary `weather.*` processes.
-- [ ] Prove the scheduled task's normal and resource-blocked exit codes match
+- [x] Prove the scheduled task's normal and resource-blocked exit codes match
   its durable status, and that retry/resume cannot duplicate or discard
   settlement evidence.
 
@@ -88,6 +88,25 @@ tests pass, as do compile and diff checks. Per-step subprocess isolation,
 physical-memory admission, interruption-safe terminal status, and a production
 soak remain open; at the user's stop instruction no live settlement rerun was
 started.
+
+Later on 2026-07-13, the remaining code-side containment landed. Every Stage-A
+step now has an explicit resource classification; the corpus-owning subset runs
+through the existing isolated-subprocess/Windows Job Object machinery with
+per-step timeout, private-memory, and working-set ceilings. The parent requires
+available physical RAM equal to the child's working-set ceiling plus a 1.5 GiB
+capture reserve and checks live-loop freshness before and after each child.
+Before user code resumes, daily-refresh status contains the current step, child
+PID, budget, last progress, and an exact bounded resume command while the
+top-level state is deliberately terminal/resumable. This makes a parent kill or
+native death recoverable without leaving `status=running`. Child resource peaks
+and admission decisions flow into daily-refresh and fleet-observability JSON and
+Markdown together with elapsed time, lifetime process-tree read/write bytes,
+and bounded result cardinality/byte fields. Focused resource/status tests pass;
+the CLI test exercises the actual command handler and matches normal/deferred
+exit codes to the status it writes, while terminal-manifest recovery advances
+only after schema/step/PID validation and preserves the completed step result.
+The representative scheduled Stage-A soak and measured inventory values remain
+open and must not be inferred from unit tests.
 
 Verification:
 

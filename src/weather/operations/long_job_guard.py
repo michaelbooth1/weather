@@ -305,7 +305,12 @@ def set_process_working_set_limit(pid, *, max_bytes=None, min_bytes=None):
 class _WindowsJobObject:
     """Own a fail-closed Windows Job Object for one subprocess tree."""
 
-    def __init__(self, *, memory_limit_bytes=None):
+    def __init__(
+        self,
+        *,
+        private_memory_limit_bytes=None,
+        working_set_limit_bytes=None,
+    ):
         import ctypes
         from ctypes import wintypes
 
@@ -360,8 +365,17 @@ class _WindowsJobObject:
                 ("TotalTerminatedProcesses", wintypes.DWORD),
             ]
 
+        class JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicInfo", JOBOBJECT_BASIC_ACCOUNTING_INFORMATION),
+                ("IoInfo", IO_COUNTERS),
+            ]
+
         self._extended_info_type = JOBOBJECT_EXTENDED_LIMIT_INFORMATION
         self._accounting_info_type = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION
+        self._accounting_and_io_info_type = (
+            JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION
+        )
         kernel32 = self._kernel32
         kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
         kernel32.CreateJobObjectW.restype = wintypes.HANDLE
@@ -392,7 +406,10 @@ class _WindowsJobObject:
             self._raise_last_error("CreateJobObjectW")
         self._handle = handle
         try:
-            self.memory_limit = self._configure_limits(memory_limit_bytes)
+            self.memory_limit = self._configure_limits(
+                private_memory_limit_bytes=private_memory_limit_bytes,
+                working_set_limit_bytes=working_set_limit_bytes,
+            )
         except BaseException:
             self.close()
             raise
@@ -401,22 +418,41 @@ class _WindowsJobObject:
         error = self._ctypes.get_last_error()
         raise OSError(error, f"{operation} failed: {self._ctypes.FormatError(error)}")
 
-    def _configure_limits(self, memory_limit_bytes):
+    def _configure_limits(
+        self,
+        *,
+        private_memory_limit_bytes,
+        working_set_limit_bytes,
+    ):
         ctypes = self._ctypes
         info = self._extended_info_type()
+        JOB_OBJECT_LIMIT_WORKINGSET = 0x00000001
         JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
         JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
         flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        requested = bool(memory_limit_bytes and int(memory_limit_bytes) > 0)
-        if requested:
-            maximum = int(memory_limit_bytes)
+        private_requested = bool(
+            private_memory_limit_bytes and int(private_memory_limit_bytes) > 0
+        )
+        working_set_requested = bool(
+            working_set_limit_bytes and int(working_set_limit_bytes) > 0
+        )
+        if private_requested:
+            maximum = int(private_memory_limit_bytes)
             flags |= (
                 JOB_OBJECT_LIMIT_PROCESS_MEMORY
                 | JOB_OBJECT_LIMIT_JOB_MEMORY
             )
             info.ProcessMemoryLimit = maximum
             info.JobMemoryLimit = maximum
+        if working_set_requested:
+            working_set_maximum = int(working_set_limit_bytes)
+            flags |= JOB_OBJECT_LIMIT_WORKINGSET
+            info.BasicLimitInformation.MinimumWorkingSetSize = min(
+                64 * 1024 * 1024,
+                working_set_maximum,
+            )
+            info.BasicLimitInformation.MaximumWorkingSetSize = working_set_maximum
         info.BasicLimitInformation.LimitFlags = flags
         ok = self._kernel32.SetInformationJobObject(
             self._handle,
@@ -424,16 +460,66 @@ class _WindowsJobObject:
             ctypes.byref(info),
             ctypes.sizeof(info),
         )
+        working_set_kernel_cap = working_set_requested and bool(ok)
+        working_set_kernel_error = None
+        if not ok and working_set_requested:
+            # JOB_OBJECT_LIMIT_WORKINGSET requires a quota privilege that the
+            # scheduled service account does not necessarily hold. Preserve
+            # the hard private/job commit cap, then enforce the working-set
+            # ceiling with the process-tree sampler below.
+            error = ctypes.get_last_error()
+            working_set_kernel_error = (
+                f"OSError: [WinError {error}] {ctypes.FormatError(error)}"
+            )
+            info = self._extended_info_type()
+            fallback_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if private_requested:
+                fallback_flags |= (
+                    JOB_OBJECT_LIMIT_PROCESS_MEMORY
+                    | JOB_OBJECT_LIMIT_JOB_MEMORY
+                )
+                info.ProcessMemoryLimit = int(private_memory_limit_bytes)
+                info.JobMemoryLimit = int(private_memory_limit_bytes)
+            info.BasicLimitInformation.LimitFlags = fallback_flags
+            ok = self._kernel32.SetInformationJobObject(
+                self._handle,
+                9,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+            )
         if not ok:
             self._raise_last_error("SetInformationJobObject")
         return {
-            "requested": requested,
-            "applied": requested,
-            "max_bytes": int(memory_limit_bytes) if requested else None,
-            "method": "windows_job_object_job_and_process_memory",
+            # Keep these compatibility fields for existing callers that used
+            # ``working_set_max_bytes`` as the single process-tree memory cap.
+            "requested": private_requested or working_set_requested,
+            "applied": private_requested or working_set_requested,
+            "max_bytes": (
+                int(private_memory_limit_bytes)
+                if private_requested
+                else int(working_set_limit_bytes)
+                if working_set_requested
+                else None
+            ),
+            "private_memory_max_bytes": (
+                int(private_memory_limit_bytes) if private_requested else None
+            ),
+            "working_set_max_bytes": (
+                int(working_set_limit_bytes) if working_set_requested else None
+            ),
+            "method": "windows_job_object_memory_and_working_set",
             "scope": "process_tree",
-            "working_set_cap": False,
-            "job_commit_cap": requested,
+            "working_set_cap": working_set_requested,
+            "working_set_kernel_cap": working_set_kernel_cap,
+            "working_set_cap_method": (
+                "windows_job_object"
+                if working_set_kernel_cap
+                else "sampled_process_tree_termination"
+                if working_set_requested
+                else None
+            ),
+            "working_set_kernel_error": working_set_kernel_error,
+            "job_commit_cap": private_requested,
             "kill_on_close": True,
         }
 
@@ -469,13 +555,60 @@ class _WindowsJobObject:
             ctypes.byref(returned),
         ):
             self._raise_last_error("QueryInformationJobObject(limits)")
+        accounting_and_io = self._accounting_and_io_info_type()
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle,
+            8,  # JobObjectBasicAndIoAccountingInformation
+            ctypes.byref(accounting_and_io),
+            ctypes.sizeof(accounting_and_io),
+            ctypes.byref(returned),
+        ):
+            self._raise_last_error("QueryInformationJobObject(io_accounting)")
+        io_info = accounting_and_io.IoInfo
         return {
             "total_processes": int(accounting.TotalProcesses),
             "active_processes": int(accounting.ActiveProcesses),
             "terminated_processes": int(accounting.TotalTerminatedProcesses),
             "peak_process_memory_bytes": int(extended.PeakProcessMemoryUsed),
             "peak_job_memory_bytes": int(extended.PeakJobMemoryUsed),
+            "read_operation_count": int(io_info.ReadOperationCount),
+            "write_operation_count": int(io_info.WriteOperationCount),
+            "other_operation_count": int(io_info.OtherOperationCount),
+            "read_bytes": int(io_info.ReadTransferCount),
+            "write_bytes": int(io_info.WriteTransferCount),
+            "other_bytes": int(io_info.OtherTransferCount),
         }
+
+    def process_ids(self, *, capacity=1024):
+        """Return active process IDs assigned to this Job Object."""
+
+        ctypes = self._ctypes
+        returned = self._wintypes.DWORD()
+        header_bytes = ctypes.sizeof(self._wintypes.DWORD) * 2
+        buffer_size = header_bytes + ctypes.sizeof(ctypes.c_size_t) * int(capacity)
+        buffer = ctypes.create_string_buffer(buffer_size)
+        if not self._kernel32.QueryInformationJobObject(
+            self._handle,
+            3,  # JobObjectBasicProcessIdList
+            buffer,
+            buffer_size,
+            ctypes.byref(returned),
+        ):
+            self._raise_last_error("QueryInformationJobObject(process_ids)")
+        assigned = int.from_bytes(buffer.raw[0:4], "little")
+        listed = int.from_bytes(buffer.raw[4:8], "little")
+        count = min(assigned, listed, int(capacity))
+        offset = header_bytes
+        return [
+            int.from_bytes(
+                buffer.raw[
+                    offset + index * ctypes.sizeof(ctypes.c_size_t) :
+                    offset + (index + 1) * ctypes.sizeof(ctypes.c_size_t)
+                ],
+                "little",
+            )
+            for index in range(count)
+        ]
 
     def close(self):
         if self._closed:
@@ -616,14 +749,171 @@ def _finish_posix_process_group(process_group_id, termination, *, grace_seconds=
     return termination
 
 
+def _windows_process_memory_metrics(pid):
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+            ("PrivateUsage", ctypes.c_size_t),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    PROCESS_VM_READ = 0x0010
+    kernel32 = ctypes.windll.kernel32
+    psapi = ctypes.windll.psapi
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.GetProcessIoCounters.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(IO_COUNTERS),
+    )
+    kernel32.GetProcessIoCounters.restype = wintypes.BOOL
+    psapi.GetProcessMemoryInfo.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX),
+        wintypes.DWORD,
+    )
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+        False,
+        int(pid),
+    )
+    if not handle:
+        return None
+    try:
+        counters = PROCESS_MEMORY_COUNTERS_EX()
+        counters.cb = ctypes.sizeof(counters)
+        if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+            return None
+        row = {
+            "pid": int(pid),
+            "working_set_bytes": int(counters.WorkingSetSize),
+            "private_bytes": int(counters.PrivateUsage),
+        }
+        io_counters = IO_COUNTERS()
+        if kernel32.GetProcessIoCounters(handle, ctypes.byref(io_counters)):
+            row.update({
+                "read_operation_count": int(io_counters.ReadOperationCount),
+                "write_operation_count": int(io_counters.WriteOperationCount),
+                "read_bytes": int(io_counters.ReadTransferCount),
+                "write_bytes": int(io_counters.WriteTransferCount),
+            })
+        return row
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _posix_process_group_memory_metrics(process_group_id):
+    rows = []
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return rows
+    for child in proc_root.iterdir():
+        if not child.name.isdigit():
+            continue
+        try:
+            stat = (child / "stat").read_text(encoding="utf-8").split()
+            if int(stat[4]) != int(process_group_id):
+                continue
+            status = (child / "status").read_text(encoding="utf-8").splitlines()
+            io_lines = (child / "io").read_text(encoding="utf-8").splitlines()
+        except (OSError, ValueError, IndexError):
+            continue
+        values = {}
+        for line in status:
+            if line.startswith(("VmRSS:", "VmData:")):
+                key, value, *_units = line.split()
+                values[key.rstrip(":")] = int(value) * 1024
+        io_values = {}
+        for line in io_lines:
+            key, value = line.split(":", 1)
+            io_values[key] = int(value.strip())
+        rows.append({
+            "pid": int(child.name),
+            "working_set_bytes": values.get("VmRSS", 0),
+            # VmData is the closest dependency-free Linux analogue available
+            # here; the Windows production path reports exact PrivateUsage.
+            "private_bytes": values.get("VmData", 0),
+            "read_operation_count": io_values.get("syscr", 0),
+            "write_operation_count": io_values.get("syscw", 0),
+            "read_bytes": io_values.get("read_bytes", 0),
+            "write_bytes": io_values.get("write_bytes", 0),
+        })
+    return rows
+
+
+def _contained_process_memory_metrics(job, root_pid):
+    try:
+        if os.name == "nt" and job is not None:
+            process_ids = set(job.process_ids())
+            process_ids.add(int(root_pid))
+            rows = [
+                row
+                for row in (
+                    _windows_process_memory_metrics(pid)
+                    for pid in process_ids
+                )
+                if row is not None
+            ]
+        elif os.name != "nt":
+            rows = _posix_process_group_memory_metrics(root_pid)
+        else:
+            rows = []
+    except Exception as exc:  # noqa: BLE001 - sampling must not break containment
+        return {
+            "available": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "process_count": 0,
+        }
+    return {
+        "available": bool(rows),
+        "process_count": len(rows),
+        "working_set_bytes": sum(row["working_set_bytes"] for row in rows),
+        "private_bytes": sum(row["private_bytes"] for row in rows),
+        "read_operation_count": sum(row.get("read_operation_count", 0) for row in rows),
+        "write_operation_count": sum(row.get("write_operation_count", 0) for row in rows),
+        "read_bytes": sum(row.get("read_bytes", 0) for row in rows),
+        "write_bytes": sum(row.get("write_bytes", 0) for row in rows),
+        "processes": rows,
+    }
+
+
 def run_isolated_subprocess(
     command,
     *,
     timeout_seconds=None,
     working_set_max_bytes=None,
+    private_memory_max_bytes=None,
     cwd=None,
     env=None,
     output_tail_chars=DEFAULT_CHILD_OUTPUT_TAIL_CHARS,
+    on_started=None,
+    resource_sample_interval_seconds=0.2,
+    resource_sampling_grace_seconds=1.0,
 ):
     """Run a heavy command inside a memory-bounded, killable process tree.
 
@@ -645,14 +935,49 @@ def run_isolated_subprocess(
         "reason": "not_required",
         "tree_termination_requested": False,
     }
-    if working_set_max_bytes and int(working_set_max_bytes) > 0:
-        working_set = {
-            "requested": True,
-            "applied": False,
-            "max_bytes": int(working_set_max_bytes),
-        }
-    else:
-        working_set = {"requested": False, "applied": False, "reason": "no_limit"}
+    # Backward compatibility: callers historically supplied the misleadingly
+    # named working-set value as their only Job Object private-commit cap.
+    # Keep that fail-closed behavior while also applying a real working-set cap.
+    private_limit = (
+        int(private_memory_max_bytes)
+        if private_memory_max_bytes and int(private_memory_max_bytes) > 0
+        else int(working_set_max_bytes)
+        if working_set_max_bytes and int(working_set_max_bytes) > 0
+        else None
+    )
+    working_set_limit = (
+        int(working_set_max_bytes)
+        if working_set_max_bytes and int(working_set_max_bytes) > 0
+        else None
+    )
+    memory_limits = {
+        "requested": bool(private_limit or working_set_limit),
+        "applied": False,
+        "max_bytes": private_limit or working_set_limit,
+        "private_memory_max_bytes": private_limit,
+        "working_set_max_bytes": working_set_limit,
+        "job_commit_cap": False,
+        "working_set_cap": False,
+    }
+    if not memory_limits["requested"]:
+        memory_limits["reason"] = "no_limit"
+    resource_peaks = {
+        "sample_count": 0,
+        "working_set_peak_bytes": 0,
+        "private_memory_peak_bytes": 0,
+        "max_process_count": 0,
+        "last_sample": {},
+    }
+    resource_io = {
+        "read_operation_count": 0,
+        "write_operation_count": 0,
+        "read_bytes": 0,
+        "write_bytes": 0,
+        "source": "sampled_process_tree",
+    }
+    resource_limit_exceeded = None
+    sampling_enforcement_required = False
+    sampling_unavailable_started = None
     containment = {
         "requested": True,
         "status": "PENDING",
@@ -661,7 +986,7 @@ def run_isolated_subprocess(
         "root_created_suspended": False,
         "assigned_before_resume": False,
         "kill_on_container_close": False,
-        "memory_limit": working_set,
+        "memory_limit": memory_limits,
     }
 
     popen_kwargs = {
@@ -673,13 +998,16 @@ def run_isolated_subprocess(
     }
     try:
         if os.name == "nt":
-            job = _WindowsJobObject(memory_limit_bytes=working_set_max_bytes)
-            working_set = job.memory_limit
+            job = _WindowsJobObject(
+                private_memory_limit_bytes=private_limit,
+                working_set_limit_bytes=working_set_limit,
+            )
+            memory_limits = job.memory_limit
             containment.update({
                 "method": "windows_job_object",
                 "root_created_suspended": True,
                 "kill_on_container_close": True,
-                "memory_limit": working_set,
+                "memory_limit": memory_limits,
             })
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_SUSPENDED", 0x00000004)
         else:
@@ -688,22 +1016,34 @@ def run_isolated_subprocess(
                 "method": "posix_process_group",
                 "kill_on_container_close": False,
             })
-            if working_set["requested"]:
-                working_set.update({
+            if memory_limits["requested"]:
+                memory_limits.update({
                     "reason": "non_windows",
                     "scope": "not_applied",
                 })
         process = subprocess.Popen(command_row, **popen_kwargs)
         if os.name == "nt":
             job.assign(process._handle)  # noqa: SLF001 - Win32 handle is required for Job assignment
-            resume = _resume_suspended_windows_process(process.pid)
             containment.update({
-                "status": "PASS",
+                "status": "PENDING",
                 "process_tree_contained": True,
                 "assigned_before_resume": True,
-                "resume": resume,
                 "root_pid": process.pid,
             })
+            if on_started is not None:
+                on_started({
+                    "pid": process.pid,
+                    "command": command_row,
+                    "containment": dict(containment),
+                    "memory_limits": dict(memory_limits),
+                    "started_before_user_code": True,
+                })
+            resume = _resume_suspended_windows_process(process.pid)
+            containment.update({"status": "PASS", "resume": resume})
+            # JOB_OBJECT_LIMIT_WORKINGSET is per process. The declared budget
+            # is for the entire child tree, so aggregate sampling remains
+            # mandatory even when the kernel flag is available.
+            sampling_enforcement_required = bool(working_set_limit)
         else:
             containment.update({
                 "status": "PASS",
@@ -712,6 +1052,14 @@ def run_isolated_subprocess(
                 "process_group_id": process.pid,
                 "root_pid": process.pid,
             })
+            if on_started is not None:
+                on_started({
+                    "pid": process.pid,
+                    "command": command_row,
+                    "containment": dict(containment),
+                    "memory_limits": dict(memory_limits),
+                    "started_before_user_code": False,
+                })
     except Exception as exc:  # noqa: BLE001 - return fail-closed setup evidence
         containment.update({
             "status": "BLOCK",
@@ -753,7 +1101,10 @@ def run_isolated_subprocess(
             "stdout": (stdout or "")[-tail:] if tail else "",
             "stderr": (stderr or "")[-tail:] if tail else "",
             "duration_seconds": round(time.time() - started, 3),
-            "working_set_limit": working_set,
+            "working_set_limit": memory_limits,
+            "resource_peaks": resource_peaks,
+            "resource_io": resource_io,
+            "resource_limit_exceeded": resource_limit_exceeded,
             "containment": containment,
             "termination": termination,
             "runner_error": containment["error"],
@@ -761,41 +1112,134 @@ def run_isolated_subprocess(
 
     try:
         try:
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            if job is not None:
-                try:
-                    job.terminate(exit_code=124)
-                    termination = {
-                        "triggered": True,
-                        "reason": "timeout",
-                        "method": "TerminateJobObject",
-                        "tree_termination_requested": True,
-                    }
-                except Exception as exc:  # noqa: BLE001
-                    termination = {
-                        "triggered": False,
-                        "reason": "timeout",
-                        "method": "TerminateJobObject",
-                        "tree_termination_requested": False,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-            else:
-                termination = _terminate_posix_process_group(process.pid, reason="timeout")
-            try:
-                stdout, stderr = process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                if job is not None:
-                    process.kill()
-                else:
-                    escalation = _terminate_posix_process_group(
-                        process.pid,
-                        reason="timeout_escalation",
-                        force=True,
+            deadline = (
+                started + float(timeout_seconds)
+                if timeout_seconds is not None and float(timeout_seconds) > 0
+                else None
+            )
+            sample_interval = max(0.02, float(resource_sample_interval_seconds or 0.2))
+            while True:
+                sample = _contained_process_memory_metrics(job, process.pid)
+                if sample.get("available"):
+                    sampling_unavailable_started = None
+                    resource_peaks["sample_count"] += 1
+                    resource_peaks["working_set_peak_bytes"] = max(
+                        resource_peaks["working_set_peak_bytes"],
+                        int(sample.get("working_set_bytes") or 0),
                     )
-                    termination["escalation"] = escalation
-                stdout, stderr = process.communicate(timeout=5)
+                    resource_peaks["private_memory_peak_bytes"] = max(
+                        resource_peaks["private_memory_peak_bytes"],
+                        int(sample.get("private_bytes") or 0),
+                    )
+                    resource_peaks["max_process_count"] = max(
+                        resource_peaks["max_process_count"],
+                        int(sample.get("process_count") or 0),
+                    )
+                    resource_peaks["last_sample"] = sample
+                    for metric in (
+                        "read_operation_count",
+                        "write_operation_count",
+                        "read_bytes",
+                        "write_bytes",
+                    ):
+                        resource_io[metric] = max(
+                            int(resource_io.get(metric) or 0),
+                            int(sample.get(metric) or 0),
+                        )
+                    if (
+                        working_set_limit
+                        and int(sample.get("working_set_bytes") or 0) > working_set_limit
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "working_set_bytes",
+                            "observed_bytes": int(sample["working_set_bytes"]),
+                            "limit_bytes": int(working_set_limit),
+                            "sample": sample,
+                        }
+                    elif (
+                        private_limit
+                        and int(sample.get("private_bytes") or 0) > private_limit
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "private_memory_bytes",
+                            "observed_bytes": int(sample["private_bytes"]),
+                            "limit_bytes": int(private_limit),
+                            "sample": sample,
+                        }
+                elif sample.get("error"):
+                    resource_peaks["last_sample"] = sample
+                if sampling_enforcement_required and not sample.get("available"):
+                    if sampling_unavailable_started is None:
+                        sampling_unavailable_started = time.time()
+                    if (
+                        time.time() - sampling_unavailable_started
+                        >= max(0.1, float(resource_sampling_grace_seconds or 1.0))
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "working_set_enforcement",
+                            "limit_bytes": int(working_set_limit),
+                            "reason": "process_tree_memory_sampling_unavailable",
+                            "sample": sample,
+                        }
+
+                reason = None
+                exit_code = None
+                if resource_limit_exceeded:
+                    reason = "resource_budget_exceeded"
+                    exit_code = 137
+                elif deadline is not None and time.time() >= deadline:
+                    reason = "timeout"
+                    exit_code = 124
+                    timed_out = True
+
+                if reason is not None:
+                    if job is not None:
+                        try:
+                            job.terminate(exit_code=exit_code)
+                            termination = {
+                                "triggered": True,
+                                "reason": reason,
+                                "method": "TerminateJobObject",
+                                "tree_termination_requested": True,
+                            }
+                        except Exception as exc:  # noqa: BLE001
+                            termination = {
+                                "triggered": False,
+                                "reason": reason,
+                                "method": "TerminateJobObject",
+                                "tree_termination_requested": False,
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                    else:
+                        termination = _terminate_posix_process_group(
+                            process.pid,
+                            reason=reason,
+                        )
+                    try:
+                        stdout, stderr = process.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        if job is not None:
+                            process.kill()
+                        else:
+                            termination["escalation"] = _terminate_posix_process_group(
+                                process.pid,
+                                reason=f"{reason}_escalation",
+                                force=True,
+                            )
+                        stdout, stderr = process.communicate(timeout=5)
+                    break
+
+                remaining = deadline - time.time() if deadline is not None else None
+                wait_seconds = (
+                    min(sample_interval, max(0.02, remaining))
+                    if remaining is not None
+                    else sample_interval
+                )
+                try:
+                    stdout, stderr = process.communicate(timeout=wait_seconds)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
         except BaseException as exc:
             if job is not None:
                 try:
@@ -824,6 +1268,18 @@ def run_isolated_subprocess(
                 raise
             runner_error = f"{type(exc).__name__}: {exc}"
 
+        if (
+            sampling_enforcement_required
+            and resource_peaks["sample_count"] == 0
+            and resource_limit_exceeded is None
+        ):
+            runner_error = "working-set enforcement unavailable: no process-tree sample"
+            containment.update({
+                "status": "BLOCK",
+                "error": runner_error,
+                "working_set_enforcement": "unverified",
+            })
+
         if job is not None:
             try:
                 accounting = job.accounting()
@@ -832,6 +1288,49 @@ def run_isolated_subprocess(
                     time.sleep(0.02)
                     accounting = job.accounting()
                 containment["accounting"] = accounting
+                resource_io.update({
+                    "read_operation_count": int(accounting.get("read_operation_count") or 0),
+                    "write_operation_count": int(accounting.get("write_operation_count") or 0),
+                    "read_bytes": int(accounting.get("read_bytes") or 0),
+                    "write_bytes": int(accounting.get("write_bytes") or 0),
+                    "other_operation_count": int(accounting.get("other_operation_count") or 0),
+                    "other_bytes": int(accounting.get("other_bytes") or 0),
+                    "source": "windows_job_object_lifetime",
+                })
+                resource_peaks["private_memory_peak_bytes"] = max(
+                    resource_peaks["private_memory_peak_bytes"],
+                    int(accounting.get("peak_job_memory_bytes") or 0),
+                )
+                if (
+                    resource_limit_exceeded is None
+                    and private_limit
+                    and process.returncode not in {None, 0}
+                    and (
+                        int(accounting.get("peak_job_memory_bytes") or 0)
+                        >= int(private_limit * 0.9)
+                        or "MemoryError" in (stderr or "")
+                    )
+                ):
+                    resource_limit_exceeded = {
+                        "resource": "private_memory_bytes",
+                        "observed_bytes": int(
+                            accounting.get("peak_job_memory_bytes") or 0
+                        ),
+                        "limit_bytes": int(private_limit),
+                        "detected_from": (
+                            "child_memory_error_under_windows_job_limit"
+                            if "MemoryError" in (stderr or "")
+                            else "windows_job_object_peak_after_nonzero_exit"
+                        ),
+                    }
+                    if not termination.get("triggered"):
+                        termination = {
+                            "triggered": True,
+                            "reason": "resource_budget_exceeded",
+                            "method": "windows_job_object_limit",
+                            "tree_termination_requested": False,
+                            "process_exited_under_limit": True,
+                        }
                 if accounting.get("active_processes", 0) > 0 and not termination.get("triggered"):
                     job.terminate(exit_code=0)
                     termination = {
@@ -856,6 +1355,11 @@ def run_isolated_subprocess(
         if job is not None:
             job.close()
 
+    memory_limits["working_set_enforcement_verified"] = bool(
+        not working_set_limit
+        or resource_peaks["sample_count"] > 0
+    )
+
     tail = max(0, int(output_tail_chars or 0))
     return {
         "command": command_row,
@@ -865,7 +1369,10 @@ def run_isolated_subprocess(
         "stdout": (stdout or "")[-tail:] if tail else "",
         "stderr": (stderr or "")[-tail:] if tail else "",
         "duration_seconds": round(time.time() - started, 3),
-        "working_set_limit": working_set,
+        "working_set_limit": memory_limits,
+        "resource_peaks": resource_peaks,
+        "resource_io": resource_io,
+        "resource_limit_exceeded": resource_limit_exceeded,
         "containment": containment,
         "termination": termination,
         "runner_error": runner_error,

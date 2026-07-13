@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from weather.operations.long_job_guard import (  # noqa: E402
     ACTIVE_ENV_VAR,
     LongJobBusy,
@@ -238,9 +239,15 @@ class TestLongJobGuard(unittest.TestCase):
         self.assertTrue(result["containment"]["process_tree_contained"])
         self.assertFalse(result["termination"]["triggered"])
         self.assertTrue(result["working_set_limit"]["requested"])
+        self.assertIn("read_bytes", result["resource_io"])
+        self.assertIn("write_bytes", result["resource_io"])
         if os.name == "nt":
             self.assertTrue(result["working_set_limit"]["applied"])
             self.assertEqual(result["containment"]["method"], "windows_job_object")
+            self.assertEqual(
+                result["resource_io"]["source"],
+                "windows_job_object_lifetime",
+            )
             self.assertTrue(result["containment"]["assigned_before_resume"])
             self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 2)
         else:
@@ -327,10 +334,40 @@ class TestLongJobGuard(unittest.TestCase):
         self.assertNotEqual(result["returncode"], 0, result)
         self.assertEqual(result["containment"]["status"], "PASS")
         self.assertTrue(result["working_set_limit"]["job_commit_cap"])
+        self.assertTrue(result["working_set_limit"]["working_set_cap"])
+        self.assertIsNotNone(result["resource_limit_exceeded"], result)
+        self.assertEqual(
+            result["resource_limit_exceeded"]["resource"],
+            "private_memory_bytes",
+        )
         self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 2)
         self.assertLessEqual(
             result["containment"]["accounting"]["peak_job_memory_bytes"],
             maximum,
+        )
+
+    @unittest.skipUnless(os.name == "nt", "Windows sampled working-set fallback")
+    def test_missing_working_set_sampler_fails_closed(self):
+        with patch(
+            "weather.operations.long_job_guard._contained_process_memory_metrics",
+            return_value={"available": False, "process_count": 0},
+        ):
+            result = run_isolated_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                timeout_seconds=30,
+                working_set_max_bytes=256 * 1024 * 1024,
+                private_memory_max_bytes=512 * 1024 * 1024,
+                resource_sample_interval_seconds=0.02,
+                resource_sampling_grace_seconds=0.1,
+            )
+
+        self.assertEqual(
+            result["resource_limit_exceeded"]["resource"],
+            "working_set_enforcement",
+        )
+        self.assertEqual(result["termination"]["reason"], "resource_budget_exceeded")
+        self.assertFalse(
+            result["working_set_limit"]["working_set_enforcement_verified"]
         )
 
 

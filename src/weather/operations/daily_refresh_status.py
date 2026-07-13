@@ -6,6 +6,10 @@ import time
 import traceback
 
 from weather.operations.daily_refresh_locks import DiskPreflightError, stale_lock_repair_command, utc_iso
+from weather.operations.daily_refresh_resources import (
+    StageAChildFailure,
+    StageAResourceDeferred,
+)
 from weather.operations.daily_refresh_settled_day import SettledDayAnalysisBarrierError
 from weather.reporting.daily import daily_rollup_freshness
 from weather.schema_registry import schema_version
@@ -39,6 +43,16 @@ def run_step(name, runner, args):
         row["status"] = "error"
         row["error"] = str(exc)
         row["root_cause_class"] = "settled_day_analysis_barrier"
+        row["result"] = exc.payload
+    except StageAResourceDeferred as exc:
+        row["status"] = "deferred"
+        row["error"] = str(exc)
+        row["root_cause_class"] = "stage_a_resource_admission"
+        row["result"] = exc.payload
+    except StageAChildFailure as exc:
+        row["status"] = "error"
+        row["error"] = str(exc)
+        row["root_cause_class"] = "stage_a_isolated_child"
         row["result"] = exc.payload
     except Exception as exc:  # noqa: BLE001
         row["status"] = "error"
@@ -586,6 +600,5 @@ def variant_learning_gate_from_steps(steps):
         "active_variant_shadow_status": active_status,
         "model_variant_evidence_growth_status": evidence_status,
     }
-
 
 

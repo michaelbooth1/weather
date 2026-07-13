@@ -159,10 +159,17 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "daily_refresh",
-        "daily_refresh_v0.4",
+        "daily_refresh_v0.5",
         "weather.operations.daily_refresh",
         "active",
-        "Daily settlement, promotion, audit, and snapshot-evaluation status artifact.",
+        "Daily settlement, promotion, audit, snapshot-evaluation, and isolated-step resource status artifact.",
+    ),
+    SchemaSpec(
+        "daily_refresh_step_child",
+        "daily_refresh_step_child_v0.1",
+        "weather.operations.daily_refresh_step_child",
+        "active",
+        "Terminal result envelope for one isolated daily-refresh settlement child.",
     ),
     SchemaSpec(
         "daily_refresh_stage_manifest",
