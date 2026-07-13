@@ -822,6 +822,84 @@ def _numeric(value):
         return None
 
 
+FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION = "forecast_payload_storage_observability_v0.1"
+FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS = (
+    "manifest_row_count",
+    "created_blob_count",
+    "reused_blob_count",
+    "logical_referenced_bytes",
+    "physical_bytes_written",
+    "avoided_bytes",
+)
+
+
+def _nonnegative_int(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def compact_forecast_payload_storage(value):
+    """Project one capture's storage evidence to bounded scalar fields."""
+    if not isinstance(value, dict):
+        return None
+    if value.get("schema_version") != FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION:
+        return None
+    result = {"schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION}
+    for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS:
+        result[field] = _nonnegative_int(value.get(field)) or 0
+    result["physical_write_budget_bytes"] = _nonnegative_int(
+        value.get("physical_write_budget_bytes")
+    )
+    budget_status = str(value.get("physical_write_budget_status") or "").upper()
+    result["physical_write_budget_status"] = (
+        budget_status
+        if budget_status in {"PASS", "BLOCK", "NOT_CONFIGURED"}
+        else "NOT_CONFIGURED"
+    )
+    return result
+
+
+def summarize_forecast_payload_storage(market_results):
+    """Aggregate the current fleet pass without retaining payload detail."""
+    rows = []
+    for result in (market_results or {}).values():
+        if not isinstance(result, dict):
+            continue
+        row = compact_forecast_payload_storage(result.get("forecast_payload_storage"))
+        if row is not None:
+            rows.append(row)
+
+    summary = {
+        "schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION,
+        **{
+            field: sum(row[field] for row in rows)
+            for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS
+        },
+    }
+    budgets = [row["physical_write_budget_bytes"] for row in rows]
+    all_budgets_configured = bool(rows) and all(value is not None for value in budgets)
+    summary["physical_write_budget_bytes"] = (
+        sum(budgets) if all_budgets_configured else None
+    )
+    if any(row["physical_write_budget_status"] == "BLOCK" for row in rows):
+        budget_status = "BLOCK"
+    elif all_budgets_configured:
+        budget_status = (
+            "PASS"
+            if summary["physical_bytes_written"] <= summary["physical_write_budget_bytes"]
+            else "BLOCK"
+        )
+    else:
+        budget_status = "NOT_CONFIGURED"
+    summary["physical_write_budget_status"] = budget_status
+    return summary
+
+
 def _record_recent_elapsed(status, elapsed_minutes):
     elapsed_rounded = round(float(elapsed_minutes), 3)
     recent = []
@@ -1340,9 +1418,15 @@ def run_loop(
                                 "next_due_at": result.get("next_due_at"),
                                 "execution": market_execution.get(mid),
                                 "cadence": market_cadence.get(mid),
+                                "forecast_payload_storage": compact_forecast_payload_storage(
+                                    result.get("forecast_payload_storage")
+                                ),
                             }
                             for mid, result in market_results.items()
                         }
+                        status["forecast_payload_storage"] = summarize_forecast_payload_storage(
+                            market_results
+                        )
                         write_loop_status(status)
                     status["markets_in_progress"] = []
 
@@ -1355,9 +1439,15 @@ def run_loop(
                         "next_due_at": result.get("next_due_at"),
                         "execution": market_execution.get(mid),
                         "cadence": market_cadence.get(mid),
+                        "forecast_payload_storage": compact_forecast_payload_storage(
+                            result.get("forecast_payload_storage")
+                        ),
                     }
                     for mid, result in market_results.items()
                 }
+                status["forecast_payload_storage"] = summarize_forecast_payload_storage(
+                    market_results
+                )
                 errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
                 if errors:
                     status["consecutive_errors"] += 1
@@ -1399,6 +1489,7 @@ def run_loop(
                         for mid, r in market_results.items()
                     },
                     "cadence_attribution": cadence_attribution,
+                    "forecast_payload_storage": status["forecast_payload_storage"],
                 })
                 print(json.dumps({
                     "time": now.isoformat(),

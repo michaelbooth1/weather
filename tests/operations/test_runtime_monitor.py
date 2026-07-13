@@ -16,6 +16,18 @@ def test_snapshot_projection_keeps_large_payload_bounded(tmp_path):
         "last_error": "MemoryError: payload 12345",
         "fleet_collection": {"huge": ["x" * 1000] * 100},
         "last_market_results": {"toronto": {"status": "ok"}, "nyc": {"error": "MemoryError"}},
+        "forecast_payload_storage": {
+            "schema_version": "forecast_payload_storage_observability_v0.1",
+            "manifest_row_count": 2,
+            "created_blob_count": 1,
+            "reused_blob_count": 1,
+            "logical_referenced_bytes": 200,
+            "physical_bytes_written": 100,
+            "avoided_bytes": 100,
+            "physical_write_budget_bytes": 250,
+            "physical_write_budget_status": "PASS",
+            "payload_detail": ["x" * 1000] * 100,
+        },
     }
     path = tmp_path / "status.json"
     path.write_text(json.dumps(status), encoding="utf-8")
@@ -24,7 +36,46 @@ def test_snapshot_projection_keeps_large_payload_bounded(tmp_path):
     assert projected["reason"] == "consecutive_errors"
     assert projected["counts"]["error_markets"] == 1
     assert "fleet_collection" not in projected
+    assert projected["forecast_payload_storage"]["physical_bytes_written"] == 100
+    assert projected["forecast_payload_storage"]["avoided_bytes"] == 100
+    assert "payload_detail" not in projected["forecast_payload_storage"]
     assert len(json.dumps(projected)) < 5000
+
+
+def test_snapshot_payload_storage_projection_falls_back_to_compact_market_rows():
+    def row(*, created, reused, physical, avoided, budget, status):
+        return {
+            "forecast_payload_storage": {
+                "schema_version": "forecast_payload_storage_observability_v0.1",
+                "manifest_row_count": 1,
+                "created_blob_count": created,
+                "reused_blob_count": reused,
+                "logical_referenced_bytes": 100,
+                "physical_bytes_written": physical,
+                "avoided_bytes": avoided,
+                "physical_write_budget_bytes": budget,
+                "physical_write_budget_status": status,
+            }
+        }
+
+    projected = runtime_monitor._forecast_payload_storage({
+        "last_market_results": {
+            "toronto": row(created=1, reused=0, physical=100, avoided=0, budget=75, status="BLOCK"),
+            "nyc": row(created=0, reused=1, physical=0, avoided=100, budget=75, status="PASS"),
+        }
+    })
+
+    assert projected == {
+        "schema_version": "forecast_payload_storage_observability_v0.1",
+        "manifest_row_count": 2,
+        "created_blob_count": 1,
+        "reused_blob_count": 1,
+        "logical_referenced_bytes": 200,
+        "physical_bytes_written": 100,
+        "avoided_bytes": 100,
+        "physical_write_budget_bytes": 150,
+        "physical_write_budget_status": "BLOCK",
+    }
 
 
 def test_bot_policy_state_is_not_misclassified_as_crash(tmp_path):

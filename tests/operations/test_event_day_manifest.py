@@ -8,6 +8,13 @@ from collections import namedtuple
 from pathlib import Path
 from unittest.mock import patch
 
+from weather.collection.forecast_payload_cas import (
+    RAW_BYTES_HASH_ALGORITHM,
+    SHARED_FORECAST_PAYLOAD_CAS_KIND,
+    SHARED_FORECAST_PAYLOAD_SCOPE,
+    SharedForecastPayloadCAS,
+)
+from weather.forecast_payload_contracts import NBM_NBP_EXTRACTION_SCHEMA
 from weather.operations.closed_market_day_archive import build_backfill_payload, plan_market_day
 from weather.operations.event_day_manifest import (
     MANIFEST_FILENAME,
@@ -165,6 +172,42 @@ class TestEventDayManifest(unittest.TestCase):
         )
         self.write_text(folder / "mm_runs" / "run-1" / "order_lifecycle.jsonl", '{"order_id":"o1"}\n')
         return folder
+
+    def replace_forecast_with_shared_cas(self, folder: Path, cas_root: Path):
+        shutil.rmtree(folder / "forecast_payloads")
+        stored = SharedForecastPayloadCAS(cas_root).put(
+            b"national NBM bulletin bytes\n"
+        )
+        row = {
+            "schema_version": "forecast_payload_manifest_v2",
+            "snapshot_id": "s1",
+            "event_slug": folder.name,
+            "market_id": "austin",
+            "target_date": "2026-06-22",
+            "source": "nbm_probabilistic_tmax",
+            "payload_storage_scope": SHARED_FORECAST_PAYLOAD_SCOPE,
+            "payload_cas_kind": SHARED_FORECAST_PAYLOAD_CAS_KIND,
+            "payload_hash_algorithm": RAW_BYTES_HASH_ALGORITHM,
+            "payload_hash": stored["payload_hash"],
+            "payload_bytes": stored["payload_bytes"],
+            "payload_ref": stored["payload_ref"],
+            "payload_media_type": "text/plain; charset=utf-8",
+            "payload_encoding": "utf-8",
+            "request_key": "nbm-national-request",
+            "cycle_key": "nbm-nbp:20260622T00Z",
+            "extraction_schema": NBM_NBP_EXTRACTION_SCHEMA,
+            "extraction_identity": json.dumps(
+                {"station_id": "KAUS", "target_date": "2026-06-22"},
+                sort_keys=True,
+            ),
+            "raw_payload_retained": True,
+            "raw_payload_path": stored["path"],
+        }
+        self.write_text(
+            folder / "forecast_payloads.jsonl",
+            json.dumps(row, sort_keys=True) + "\n",
+        )
+        return row
 
     def test_schema_is_registered(self):
         self.assertEqual(schema_version("event_day_manifest"), "event_day_manifest_v0.1")
@@ -599,6 +642,116 @@ class TestEventDayManifest(unittest.TestCase):
         self.assertEqual(proven["protection"]["restore"]["verified_file_count"], len(canonical))
         self.assertEqual(stale_backup["protection"]["backup"]["status"], "BLOCK")
         self.assertEqual(stale_restore["protection"]["restore"]["status"], "BLOCK")
+
+    def test_shared_cas_dependency_requires_backup_and_restore_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            shared_row = self.replace_forecast_with_shared_cas(
+                folder,
+                root / "forecast_payload_cas",
+            )
+
+            unproven = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+            dependencies = unproven["shared_payload_dependencies"]
+            self.assertEqual(len(dependencies), 1)
+            dependency = dependencies[0]
+            self.assertEqual(dependency["sha256"], shared_row["payload_hash"])
+            self.assertEqual(
+                dependency["data_path"],
+                f"forecast_payload_cas/{shared_row['payload_ref']}",
+            )
+            checks = {
+                row["check"]: row for row in unproven["validation"]["checks"]
+            }
+            self.assertEqual(
+                checks["shared_payload_backup_restore"]["status"],
+                "BLOCK",
+            )
+            self.assertEqual(unproven["validation"]["status"], "BLOCK")
+
+            canonical = [
+                row
+                for family in unproven["artifact_families"]
+                for row in family["files"]
+                if row["storage_class"] == "canonical_evidence"
+            ]
+            protected = canonical + dependencies
+            backup_root = root / "off-machine"
+            for row in protected:
+                source = (
+                    Path(row["raw_payload_path"])
+                    if row.get("artifact_family") == "shared_forecast_payload_cas"
+                    else folder / row["path"]
+                )
+                destination = backup_root / row["data_path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            restore_proof = {
+                "status": "PASS",
+                "event_slug": folder.name,
+                "generated_at_utc": "2026-06-24T00:00:00+00:00",
+                "files": [
+                    {"data_path": row["data_path"], "sha256": row["sha256"]}
+                    for row in protected
+                ],
+            }
+
+            proven = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                backup_root=backup_root,
+                restore_proof_payload=restore_proof,
+            )
+            validation = validate_event_day_manifest(
+                proven,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+            (backup_root / dependency["data_path"]).unlink()
+            missing_shared_backup = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                backup_root=backup_root,
+                restore_proof_payload=restore_proof,
+            )
+            incomplete_restore = {
+                **restore_proof,
+                "files": [
+                    row
+                    for row in restore_proof["files"]
+                    if row["data_path"] != dependency["data_path"]
+                ],
+            }
+            missing_shared_restore = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+                backup_root=backup_root,
+                restore_proof_payload=incomplete_restore,
+            )
+
+        self.assertEqual(proven["protection"]["status"], "PASS")
+        self.assertEqual(proven["validation"]["status"], "PASS")
+        self.assertEqual(validation["status"], "PASS")
+        self.assertEqual(
+            proven["protection"]["backup"]["verified_file_count"],
+            len(protected),
+        )
+        self.assertEqual(
+            proven["protection"]["restore"]["verified_file_count"],
+            len(protected),
+        )
+        self.assertEqual(
+            missing_shared_backup["protection"]["backup"]["status"],
+            "BLOCK",
+        )
+        self.assertEqual(
+            missing_shared_restore["protection"]["restore"]["status"],
+            "BLOCK",
+        )
 
     def test_audit_detects_missing_and_incremental_apply_reuses_then_rewrites_changed(self):
         with tempfile.TemporaryDirectory() as tmp:

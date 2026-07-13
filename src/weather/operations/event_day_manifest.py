@@ -17,6 +17,18 @@ from pathlib import Path
 from typing import Any
 
 from weather.io import sha256_file
+from weather.forecast_payload_contracts import (
+    NBM_NBP_ENCODING,
+    NBM_NBP_MEDIA_TYPE,
+)
+from weather.collection.forecast_payload_cas import (
+    ForecastPayloadCASIntegrityError,
+    RAW_BYTES_HASH_ALGORITHM,
+    SHARED_FORECAST_PAYLOAD_CAS_KIND,
+    SHARED_FORECAST_PAYLOAD_SCOPE,
+    manifest_extraction_identity,
+    shared_payload_ref,
+)
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations import event_metadata_validation
 from weather.operations.storage_classes import classification_payload
@@ -761,7 +773,9 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
     total_rows = 0
     total_blobs = 0
     total_linked = 0
+    total_shared_linked = 0
     total_issues = 0
+    shared_dependencies_by_digest: dict[str, dict[str, Any]] = {}
     for artifact_family, path_prefix in PAYLOAD_BLOB_LINK_FAMILIES:
         manifest_paths = sorted(
             path
@@ -776,6 +790,7 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
         ) if blob_root.exists() else []
         issues: list[dict[str, Any]] = []
         referenced_paths: set[Path] = set()
+        shared_linked_count = 0
         row_count = 0
 
         if not manifest_paths:
@@ -824,6 +839,11 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
 
                     digest = str(row.get("payload_hash") or "")
                     raw_path_text = str(row.get("raw_payload_path") or "").strip()
+                    shared_reference = (
+                        artifact_family == "forecast_payloads"
+                        and row.get("payload_storage_scope")
+                        == SHARED_FORECAST_PAYLOAD_SCOPE
+                    )
                     row_ref = {
                         "artifact_family": artifact_family,
                         "manifest_path": manifest_rel,
@@ -844,43 +864,84 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                         if raw_path.is_absolute()
                         else (folder / raw_path).resolve()
                     )
-                    try:
-                        candidate.relative_to(folder)
-                    except ValueError:
-                        issues.append({
-                            **row_ref,
-                            "code": "raw_payload_path_outside_event_folder",
-                            "raw_payload_path": raw_path_text,
-                        })
-                        continue
+                    if shared_reference:
+                        expected_ref = shared_payload_ref(digest)
+                        declared_ref = str(row.get("payload_ref") or "")
+                        path_suffix = Path(*expected_ref.split("/"))
+                        if (
+                            row.get("payload_cas_kind")
+                            != SHARED_FORECAST_PAYLOAD_CAS_KIND
+                            or row.get("payload_hash_algorithm")
+                            != RAW_BYTES_HASH_ALGORITHM
+                            or str(row.get("payload_encoding") or "").lower()
+                            != NBM_NBP_ENCODING
+                            or row.get("payload_media_type")
+                            != NBM_NBP_MEDIA_TYPE
+                            or row.get("raw_payload_retained") is not True
+                            or declared_ref != expected_ref
+                            or not raw_path.is_absolute()
+                            or candidate.parts[-len(path_suffix.parts):]
+                            != path_suffix.parts
+                        ):
+                            issues.append({
+                                **row_ref,
+                                "code": "shared_payload_reference_invalid",
+                                "raw_payload_path": raw_path_text,
+                                "expected_ref": expected_ref,
+                            })
+                            continue
+                        try:
+                            manifest_extraction_identity(row)
+                        except ForecastPayloadCASIntegrityError as exc:
+                            issues.append({
+                                **row_ref,
+                                "code": "shared_payload_extraction_identity_invalid",
+                                "detail": str(exc),
+                            })
+                            continue
+                    else:
+                        try:
+                            candidate.relative_to(folder)
+                        except ValueError:
+                            issues.append({
+                                **row_ref,
+                                "code": "raw_payload_path_outside_event_folder",
+                                "raw_payload_path": raw_path_text,
+                            })
+                            continue
 
-                    expected = (
-                        blob_root
-                        / "sha256"
-                        / digest[:2]
-                        / f"{digest}.json"
-                    ).resolve()
-                    if candidate != expected:
-                        issues.append({
-                            **row_ref,
-                            "code": "raw_payload_path_not_content_addressed",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
-                            "expected_path": _folder_relative_path(expected, folder),
-                        })
-                        continue
-                    referenced_paths.add(candidate)
+                        expected = (
+                            blob_root
+                            / "sha256"
+                            / digest[:2]
+                            / f"{digest}.json"
+                        ).resolve()
+                        if candidate != expected:
+                            issues.append({
+                                **row_ref,
+                                "code": "raw_payload_path_not_content_addressed",
+                                "raw_payload_path": _folder_relative_path(candidate, folder),
+                                "expected_path": _folder_relative_path(expected, folder),
+                            })
+                            continue
+                        referenced_paths.add(candidate)
+                    candidate_display = (
+                        candidate.as_posix()
+                        if shared_reference
+                        else _folder_relative_path(candidate, folder)
+                    )
                     if candidate.is_symlink():
                         issues.append({
                             **row_ref,
                             "code": "raw_payload_blob_symlink_forbidden",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "raw_payload_path": candidate_display,
                         })
                         continue
                     if not candidate.is_file():
                         issues.append({
                             **row_ref,
                             "code": "raw_payload_blob_missing",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "raw_payload_path": candidate_display,
                         })
                         continue
                     try:
@@ -889,37 +950,42 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                         issues.append({
                             **row_ref,
                             "code": "raw_payload_blob_unreadable",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "raw_payload_path": candidate_display,
                             "detail": f"{type(exc).__name__}: {exc}",
                         })
                         continue
-                    canonical_bytes = stored[:-1] if stored.endswith(b"\n") else stored
+                    canonical_bytes = (
+                        stored
+                        if shared_reference
+                        else (stored[:-1] if stored.endswith(b"\n") else stored)
+                    )
                     actual_digest = hashlib.sha256(canonical_bytes).hexdigest()
                     if actual_digest != digest:
                         issues.append({
                             **row_ref,
                             "code": "raw_payload_blob_hash_mismatch",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
+                            "raw_payload_path": candidate_display,
                             "actual_payload_hash": actual_digest,
                         })
                         continue
-                    try:
-                        decoded = json.loads(canonical_bytes.decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                        issues.append({
-                            **row_ref,
-                            "code": "raw_payload_blob_invalid_json",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
-                            "detail": f"{type(exc).__name__}: {exc}",
-                        })
-                        continue
-                    if _canonical_payload_bytes(decoded) != canonical_bytes:
-                        issues.append({
-                            **row_ref,
-                            "code": "raw_payload_blob_not_canonical_json",
-                            "raw_payload_path": _folder_relative_path(candidate, folder),
-                        })
-                        continue
+                    if not shared_reference:
+                        try:
+                            decoded = json.loads(canonical_bytes.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                            issues.append({
+                                **row_ref,
+                                "code": "raw_payload_blob_invalid_json",
+                                "raw_payload_path": candidate_display,
+                                "detail": f"{type(exc).__name__}: {exc}",
+                            })
+                            continue
+                        if _canonical_payload_bytes(decoded) != canonical_bytes:
+                            issues.append({
+                                **row_ref,
+                                "code": "raw_payload_blob_not_canonical_json",
+                                "raw_payload_path": candidate_display,
+                            })
+                            continue
                     declared_bytes = row.get("payload_bytes")
                     if declared_bytes not in (None, ""):
                         try:
@@ -930,9 +996,39 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
                             issues.append({
                                 **row_ref,
                                 "code": "payload_bytes_mismatch",
-                                "raw_payload_path": _folder_relative_path(candidate, folder),
+                                "raw_payload_path": candidate_display,
                                 "actual_payload_bytes": len(canonical_bytes),
                             })
+                            continue
+                    if shared_reference:
+                        shared_linked_count += 1
+                        dependency = shared_dependencies_by_digest.get(digest)
+                        if dependency is None:
+                            shared_dependencies_by_digest[digest] = {
+                                "path": candidate.as_posix(),
+                                "data_path": (
+                                    f"forecast_payload_cas/{expected_ref}"
+                                ),
+                                "raw_payload_path": candidate.as_posix(),
+                                "payload_ref": expected_ref,
+                                "payload_hash": digest,
+                                "sha256": digest,
+                                "bytes": len(canonical_bytes),
+                                "storage_class": "canonical_evidence",
+                                "artifact_family": "shared_forecast_payload_cas",
+                                "reference_count": 1,
+                            }
+                        elif dependency["raw_payload_path"] != candidate.as_posix():
+                            issues.append({
+                                **row_ref,
+                                "code": "shared_payload_digest_has_multiple_paths",
+                                "raw_payload_path": candidate.as_posix(),
+                                "first_raw_payload_path": dependency[
+                                    "raw_payload_path"
+                                ],
+                            })
+                        else:
+                            dependency["reference_count"] += 1
 
         blob_path_set = {path.resolve() for path in blob_paths}
         for orphan in sorted(blob_path_set - referenced_paths):
@@ -951,6 +1047,7 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
             "manifest_row_count": row_count,
             "blob_count": len(blob_path_set),
             "linked_blob_count": len(blob_path_set & referenced_paths),
+            "shared_linked_blob_count": shared_linked_count,
             "issue_count": len(issues),
             "issues": issues,
         }
@@ -958,6 +1055,7 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
         total_rows += row_count
         total_blobs += len(blob_path_set)
         total_linked += len(blob_path_set & referenced_paths)
+        total_shared_linked += shared_linked_count
         total_issues += len(issues)
 
     return {
@@ -968,10 +1066,16 @@ def _payload_blob_link_validation(folder: Path) -> dict[str, Any]:
             else "BLOCK"
         ),
         "families": family_results,
+        "shared_dependencies": [
+            shared_dependencies_by_digest[digest]
+            for digest in sorted(shared_dependencies_by_digest)
+        ],
         "summary": {
             "manifest_row_count": total_rows,
             "blob_count": total_blobs,
             "linked_blob_count": total_linked,
+            "shared_linked_blob_count": total_shared_linked,
+            "shared_dependency_count": len(shared_dependencies_by_digest),
             "issue_count": total_issues,
         },
     }
@@ -1216,9 +1320,13 @@ def build_event_day_manifest(
     )
     release_runtime_identity = release_runtime_identity_summary(file_records)
     payload_blob_links = _payload_blob_link_validation(folder)
-    backup_verification = _backup_verification(file_records, backup_root)
+    shared_payload_dependencies = list(
+        payload_blob_links.get("shared_dependencies") or []
+    )
+    protection_records = file_records + shared_payload_dependencies
+    backup_verification = _backup_verification(protection_records, backup_root)
     restore_verification = _restore_proof_verification(
-        file_records,
+        protection_records,
         event_slug=event_slug,
         restore_proof_path=restore_proof_path,
         restore_proof_payload=restore_proof_payload,
@@ -1280,6 +1388,21 @@ def build_event_day_manifest(
             ),
         },
         {
+            "check": "shared_payload_backup_restore",
+            "status": (
+                "PASS"
+                if not shared_payload_dependencies
+                or (
+                    backup_verification.get("status") == "PASS"
+                    and restore_verification.get("status") == "PASS"
+                )
+                else "BLOCK"
+            ),
+            "shared_dependency_count": len(shared_payload_dependencies),
+            "backup_status": backup_verification.get("status"),
+            "restore_status": restore_verification.get("status"),
+        },
+        {
             "check": "event_metadata_validation",
             "status": (
                 "PASS"
@@ -1322,6 +1445,9 @@ def build_event_day_manifest(
         )
         for storage_class in ("canonical_evidence", "analysis_projection", "operator_cache", "unclassified")
     }
+    shared_dependency_bytes = sum(
+        int(row.get("bytes") or 0) for row in shared_payload_dependencies
+    )
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or utc_iso(),
@@ -1348,7 +1474,13 @@ def build_event_day_manifest(
             "analysis_projection_bytes": class_bytes["analysis_projection"],
             "operator_cache_bytes": class_bytes["operator_cache"],
             "unclassified_bytes": class_bytes["unclassified"],
-            "bytes_requiring_off_machine_backup": class_bytes["canonical_evidence"],
+            "external_canonical_dependency_files": len(
+                shared_payload_dependencies
+            ),
+            "external_canonical_dependency_bytes": shared_dependency_bytes,
+            "bytes_requiring_off_machine_backup": (
+                class_bytes["canonical_evidence"] + shared_dependency_bytes
+            ),
             "backup_status": backup_verification.get("status"),
             "restore_status": restore_verification.get("status"),
             "event_metadata_validation_hash": event_metadata_proof.get("validation_hash"),
@@ -1360,6 +1492,7 @@ def build_event_day_manifest(
         "event_metadata_validation": event_metadata_proof,
         "release_runtime_identity": release_runtime_identity,
         "payload_blob_links": payload_blob_links,
+        "shared_payload_dependencies": shared_payload_dependencies,
         "protection": {
             "status": protection_status,
             "backup": backup_verification,
@@ -1458,6 +1591,9 @@ def validate_event_day_manifest(
 
     declared_payload_links = manifest.get("payload_blob_links")
     current_payload_links = _payload_blob_link_validation(folder)
+    current_shared_dependencies = list(
+        current_payload_links.get("shared_dependencies") or []
+    )
     if not isinstance(declared_payload_links, dict):
         checks.append({
             "check": "payload_blob_links_declared",
@@ -1483,6 +1619,16 @@ def validate_event_day_manifest(
         })
     else:
         checks.append({"check": "payload_blob_links_current", "status": "PASS"})
+    checks.append({
+        "check": "shared_payload_dependencies",
+        "status": (
+            "PASS"
+            if list(manifest.get("shared_payload_dependencies") or [])
+            == current_shared_dependencies
+            else "BLOCK"
+        ),
+        "shared_dependency_count": len(current_shared_dependencies),
+    })
 
     records = _manifest_file_records(manifest)
     manifest_paths = {row.get("path") for row in records if row.get("path")}
@@ -1647,10 +1793,16 @@ def validate_event_day_manifest(
     protection = manifest.get("protection") or {}
     for check_name in ("backup", "restore"):
         proof = protection.get(check_name) or {}
+        proof_status = proof.get("status")
         checks.append({
             "check": f"{check_name}_proof",
-            "status": "BLOCK" if proof.get("status") == "BLOCK" else "PASS",
-            "detail": proof.get("status") or "legacy_not_recorded",
+            "status": (
+                "BLOCK"
+                if proof_status == "BLOCK"
+                or (current_shared_dependencies and proof_status != "PASS")
+                else "PASS"
+            ),
+            "detail": proof_status or "legacy_not_recorded",
         })
     status = "BLOCK" if any(check.get("status") == "BLOCK" for check in checks) else "PASS"
     return {

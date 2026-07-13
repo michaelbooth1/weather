@@ -1,4 +1,4 @@
-# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [OPEN 2026-07-13 - CROSS-MARKET RAW PAYLOAD DUPLICATION UNBOUNDED]
+# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-13 - NEW NBM WRITES DEDUPLICATED; CROSS-PROCESS FETCH FAN-OUT AND SOAK PENDING]
 
 Goal: store one verified copy of a market-invariant raw forecast response and
 fan it out through point-in-time per-market manifests, so replay provenance is
@@ -60,9 +60,9 @@ cross-market raw-payload deduplication or fetch fan-out.
    pass. Garbage collection must be reachability based, retention aware,
    auditable, and disabled by default.
 
-- [ ] Define market-invariant source/request keys and the shared CAS path and
+- [x] Define market-invariant source/request keys and the shared CAS path and
   manifest-reference schema.
-- [ ] Implement atomic cross-process put/read verification with corruption and
+- [x] Implement atomic cross-process put/read verification with corruption and
   partial-write recovery tests.
 - [ ] Add NBM single-fetch fan-out and shared-blob reuse without changing
   market-specific capture timestamps or cutoff semantics.
@@ -95,3 +95,44 @@ Verification:
 - `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint`.
 
 Related: items 131, 154, 171, 190, 289, 320, 321.
+
+## 2026-07-13 implementation evidence
+
+New NBM capture writes now attest the exact national request/cycle and separate
+the invariant UTF-8 bulletin bytes from station/date extraction identity. A
+repository-owned shared CAS publishes a completely flushed staging file by an
+atomic same-volume hard link; concurrent writers converge on one digest path,
+and missing, corrupt, symlinked, or size-mismatched blobs fail closed. Forecast
+manifest v2 retains per-market capture time, market/date, request/cycle,
+extraction identity, shared reference, and created/reused plus
+logical/physical/avoided-byte evidence. Legacy/non-attested sources continue
+using their market-local CAS.
+
+The NBM adapter also has a bounded same-process request/cycle fan-out
+coordinator. Completed responses are reusable only under an explicit capture-
+pass scope; unscoped calls coalesce only concurrent in-flight work, so a later
+same-URL request observes provider updates. Reused market rows retain the
+original fetch, request-start, and response-received provenance and are marked
+as fresh-cache reuse. Deterministic multi-market tests prove one scoped fetch,
+one shared blob, distinct station parses, and byte-identical manifest replay.
+Production fleet captures currently run in isolated child processes, so a
+parent-prefetch or cross-process request receipt is still required before
+claiming one network fetch per live fleet cycle.
+
+The migration command is inventory-only: it verifies legacy local hashes and
+replay, and verifies every scanned shared manifest's schema, request/cycle,
+reference, path, hash, byte count, extraction identity, and replay before
+counting it active. Its reachability output is explicitly partial to snapshot
+forecast JSONL inventory; it exposes no global-unreachable or deletion
+candidates and has no copy, rewrite, GC, or delete mode. Generic cleanup and
+retention review gates hard-block shared-CAS deletion.
+
+Event-day manifests now record each unique external shared-CAS dependency and
+fail closed until both the off-machine backup and restore proof include its
+exact path, byte count, and digest. The snapshot fleet status retains only
+compact created/reused, logical/physical/avoided-byte, and budget scalars per
+market plus a current-pass aggregate; the read-only runtime monitor projects
+that bounded aggregate and can reconstruct it from older per-market status
+rows. A reviewed disk-growth threshold, cross-process network-fetch fan-out,
+and the controlled capture soak remain open. No local runtime evidence was
+scanned or changed during this implementation.

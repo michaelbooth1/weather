@@ -154,8 +154,14 @@ def fetch_source(
             "fetched_at": response_received_at,
         }
         payload.update(metadata)
-        payload["request_started_at"] = request_started_at
-        payload["response_received_at"] = response_received_at
+        # A fetcher that legitimately reuses an earlier physical response may
+        # supply the original attempt boundaries in its private metadata.
+        # Ordinary fetchers have no such metadata and retain these wrapper
+        # timestamps.
+        if payload.get("request_started_at") in (None, ""):
+            payload["request_started_at"] = request_started_at
+        if payload.get("response_received_at") in (None, ""):
+            payload["response_received_at"] = response_received_at
         return name, {
             **payload,
         }

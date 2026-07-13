@@ -31,10 +31,13 @@ from weather.sources.marine_context import active_marine_context_state, fetch_ma
 from weather.sources.mrms_precip import fetch_mrms_precip_for_market
 from weather.sources.nbm_probabilistic_tmax import (
     NBM_PROB_TMAX_SCHEMA_VERSION,
+    nbp_cycle_key,
     nbp_cycle_candidates,
+    nbp_request_key,
     nbp_text_url,
     parse_nbp_station_tmax,
 )
+from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
@@ -87,6 +90,7 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
 )
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
+NBM_NATIONAL_TEXT_FANOUT = MarketInvariantFetchFanout(max_entries=2)
 TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_swob": "official_observation",
     "eccc_citypage": "official_forecast",
@@ -120,7 +124,7 @@ SOURCE_PAYLOAD_CONTRACTS = {
     "nws_grid": ("nws-grid-parser-v1", "nws-grid-payload-v1"),
     "nbm_probabilistic_tmax": (
         "nbm-probabilistic-tmax-parser-v1",
-        "nbm-probabilistic-tmax-payload-v1",
+        "nbm-probabilistic-tmax-payload-v2",
     ),
     "open_meteo_multimodel": (
         "open-meteo-multimodel-parser-v1",
@@ -1569,14 +1573,43 @@ class SourceFetchMixin:
                 "target_date": self.target_date.isoformat(),
                 "percentiles": {},
             }
-        fetched_at = datetime.now(timezone.utc).isoformat()
         tried_urls = []
         last_payload = None
         for run_time in nbp_cycle_candidates(datetime.now(timezone.utc), hours_back=24):
             url = nbp_text_url(run_time)
             tried_urls.append(url)
             try:
-                text = self.get_text(url)
+                fanout = getattr(
+                    self,
+                    "market_invariant_fetch_fanout",
+                    NBM_NATIONAL_TEXT_FANOUT,
+                )
+                fanout_scope = getattr(
+                    self,
+                    "market_invariant_fetch_scope",
+                    None,
+                )
+
+                def fetch_national_text(url=url):
+                    request_started_at = datetime.now(timezone.utc).isoformat()
+                    text = self.get_text(url)
+                    response_received_at = datetime.now(timezone.utc).isoformat()
+                    return {
+                        "text": text,
+                        "fetched_at": response_received_at,
+                        "request_started_at": request_started_at,
+                        "response_received_at": response_received_at,
+                    }
+
+                fanout_result = fanout.fetch(
+                    source="nbm_probabilistic_tmax",
+                    request_key=nbp_request_key(url),
+                    cycle_key=nbp_cycle_key(run_time),
+                    fetch_fn=fetch_national_text,
+                    scope_key=fanout_scope,
+                )
+                text = fanout_result.value["text"]
+                fetched_at = fanout_result.value["fetched_at"]
             except requests.HTTPError as exc:
                 if self.http_status(exc) in {403, 404}:
                     continue
@@ -1589,6 +1622,53 @@ class SourceFetchMixin:
                 fetched_at=fetched_at,
             )
             payload["tried_urls"] = list(tried_urls)
+            fanout_metadata = {
+                "request_key": fanout_result.request_key,
+                "cycle_key": fanout_result.cycle_key,
+                "fetched": fanout_result.fetched,
+                "reused": fanout_result.reused,
+                "fetched_at": fetched_at,
+                "request_started_at": fanout_result.value.get(
+                    "request_started_at"
+                ),
+                "response_received_at": fanout_result.value.get(
+                    "response_received_at"
+                ),
+                "capture_pass_scope": str(fanout_scope or ""),
+            }
+            raw_payload = payload.get("raw_payload") or {}
+            attestation = raw_payload.get("forecast_payload_attestation") or {}
+            attestation["single_fetch"] = fanout_metadata
+            if fanout_result.reused:
+                payload[FETCH_META_KEY] = {
+                    "status": "fresh_cache",
+                    "stale": False,
+                    "cache_status": "fresh_cache",
+                    "fetched_at": fetched_at,
+                    "request_started_at": fanout_result.value.get(
+                        "request_started_at"
+                    ),
+                    "response_received_at": fanout_result.value.get(
+                        "response_received_at"
+                    ),
+                    "cache_age_minutes": self.cache_age_minutes(fetched_at),
+                    "ttl_minutes": self.source_cache_ttl_minutes(
+                        "nbm_probabilistic_tmax"
+                    ),
+                }
+            else:
+                payload[FETCH_META_KEY] = {
+                    "status": "fresh",
+                    "stale": False,
+                    "cache_status": "live",
+                    "fetched_at": fetched_at,
+                    "request_started_at": fanout_result.value.get(
+                        "request_started_at"
+                    ),
+                    "response_received_at": fanout_result.value.get(
+                        "response_received_at"
+                    ),
+                }
             if payload.get("available"):
                 return payload
             last_payload = payload
@@ -1602,7 +1682,7 @@ class SourceFetchMixin:
             "station_id": self.spec.icao,
             "target_date": self.target_date.isoformat(),
             "percentiles": {},
-            "fetched_at": fetched_at,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "tried_urls": tried_urls,
         }
 

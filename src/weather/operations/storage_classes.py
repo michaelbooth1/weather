@@ -73,6 +73,20 @@ CONTRACTS_BY_CLASS = {contract.name: contract for contract in STORAGE_CLASS_CONT
 
 ARTIFACT_FAMILIES = (
     ArtifactFamilyClassification(
+        "shared_forecast_payload_cas",
+        "collection/sources",
+        CANONICAL_EVIDENCE,
+        ("forecast_payload_cas/**/*.blob",),
+        "permanent_shared_forecast_source_evidence",
+        "not rebuildable with the original provider bytes and point-in-time per-market manifests",
+        "shared_forecast_payload_gc_disabled",
+        True,
+        examples=(
+            "data/forecast_payload_cas/sha256/<prefix>/<sha256>.blob",
+        ),
+        notes="Reachability is global across per-market manifests; never infer orphan status from one event folder.",
+    ),
+    ArtifactFamilyClassification(
         "observation_payload_evidence",
         "collection/sources",
         CANONICAL_EVIDENCE,

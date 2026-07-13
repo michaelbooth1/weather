@@ -176,7 +176,7 @@ def _safe_float(value: Any) -> float | None:
 def _safe_int(value: Any) -> int | None:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -293,6 +293,92 @@ def _market_counts(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION = "forecast_payload_storage_observability_v0.1"
+FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS = (
+    "manifest_row_count",
+    "created_blob_count",
+    "reused_blob_count",
+    "logical_referenced_bytes",
+    "physical_bytes_written",
+    "avoided_bytes",
+)
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    parsed = _safe_int(value)
+    return parsed if parsed is not None and parsed >= 0 else None
+
+
+def _compact_forecast_payload_storage(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("schema_version") != FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION:
+        return None
+    projected = {"schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION}
+    for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS:
+        projected[field] = _nonnegative_int(value.get(field)) or 0
+    projected["physical_write_budget_bytes"] = _nonnegative_int(
+        value.get("physical_write_budget_bytes")
+    )
+    budget_status = str(value.get("physical_write_budget_status") or "").upper()
+    projected["physical_write_budget_status"] = (
+        budget_status
+        if budget_status in {"PASS", "BLOCK", "NOT_CONFIGURED"}
+        else "NOT_CONFIGURED"
+    )
+    return projected
+
+
+def _forecast_payload_storage(payload: dict[str, Any]) -> dict[str, Any] | None:
+    direct = _compact_forecast_payload_storage(payload.get("forecast_payload_storage"))
+    if direct is not None:
+        return direct
+
+    results = payload.get("last_market_results") or {}
+    if isinstance(results, list):
+        candidates = results
+    elif isinstance(results, dict):
+        candidates = results.values()
+    else:
+        candidates = []
+    rows = []
+    for result in candidates:
+        if not isinstance(result, dict):
+            continue
+        row = _compact_forecast_payload_storage(result.get("forecast_payload_storage"))
+        if row is not None:
+            rows.append(row)
+    if not rows:
+        return None
+
+    summary = {
+        "schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION,
+        **{
+            field: sum(row[field] for row in rows)
+            for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS
+        },
+    }
+    budgets = [row["physical_write_budget_bytes"] for row in rows]
+    all_budgets_configured = all(value is not None for value in budgets)
+    summary["physical_write_budget_bytes"] = (
+        sum(budgets) if all_budgets_configured else None
+    )
+    if any(row["physical_write_budget_status"] == "BLOCK" for row in rows):
+        budget_status = "BLOCK"
+    elif all_budgets_configured:
+        budget_status = (
+            "PASS"
+            if summary["physical_bytes_written"] <= summary["physical_write_budget_bytes"]
+            else "BLOCK"
+        )
+    else:
+        budget_status = "NOT_CONFIGURED"
+    summary["physical_write_budget_status"] = budget_status
+    return summary
+
+
 def _planned_window(now: datetime) -> str:
     local = now.astimezone(TORONTO_TZ)
     minutes = local.hour * 60 + local.minute
@@ -345,6 +431,7 @@ def project_component(name: str, path: Path, payload: dict[str, Any] | None, err
             dead_after_seconds=dead_after,
             iteration_elapsed_seconds=round(60.0 * (_safe_float(payload.get("last_iteration_elapsed_minutes")) or 0.0), 3),
             counts={"iterations": _safe_int(payload.get("iterations")), **_market_counts(payload)},
+            forecast_payload_storage=_forecast_payload_storage(payload),
         )
         if payload.get("paused"):
             result.update(state="PAUSED", reason="pause_flag")

@@ -62,6 +62,18 @@ class DataRetentionPolicy:
 
 POLICIES = (
     DataRetentionPolicy(
+        "shared_forecast_payload_cas",
+        "collection/sources",
+        ("forecast_payload_cas/**",),
+        "irreplaceable market-invariant raw forecast response evidence",
+        "retain while any per-market forecast manifest references the digest",
+        "permanent archive with all referencing manifests",
+        "deletion disabled; no current cleanup manifest or generic review can authorize it",
+        "not regenerable with the same point-in-time source bytes",
+        "inventory only; a future separate contract would need global reachability, restore, hash, and replay proofs before enabling garbage collection",
+        deletion_requires_review=True,
+    ),
+    DataRetentionPolicy(
         "snapshots",
         "collection/model/market",
         ("snapshots/**",),
@@ -678,6 +690,12 @@ def classify_data_path(rel_path: str) -> DataRetentionPolicy:
 
 
 def _policy_delete_gate(policy: DataRetentionPolicy) -> dict[str, Any]:
+    if policy.name == "shared_forecast_payload_cas":
+        return {
+            "status": "BLOCK",
+            "delete_permission": "disabled",
+            "detail": policy.deletion_requirement,
+        }
     if not policy.deletion_requires_review:
         return {
             "status": "NOT_REQUIRED",

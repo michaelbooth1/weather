@@ -45,7 +45,15 @@ def _root_relative_path(path: Path, root: Path) -> str:
 
 def _classification_path(rel_path: str, root: Path) -> str:
     root_name = root.name.lower()
-    if root_name in {"backtest", "snapshots", "mm_runs", "taker_runs", "logs", "ops"}:
+    if root_name in {
+        "backtest",
+        "forecast_payload_cas",
+        "snapshots",
+        "mm_runs",
+        "taker_runs",
+        "logs",
+        "ops",
+    }:
         return f"{root_name}/{rel_path}"
     return rel_path
 
@@ -139,7 +147,30 @@ def build_cleanup_preflight(
                 row_checks.append({"check": "bytes", "status": "BLOCK", "expected": candidate.get("bytes"), "actual": size})
             if candidate.get("sha256") and candidate.get("sha256") != actual_sha:
                 row_checks.append({"check": "sha256", "status": "BLOCK", "detail": "candidate checksum changed"})
-        classification = classification_payload(candidate.get("data_path") or _classification_path(rel_path.as_posix(), root))
+        derived_data_path = _classification_path(rel_path.as_posix(), root)
+        declared_data_path = str(candidate.get("data_path") or "").strip()
+        derived_classification = classification_payload(derived_data_path)
+        actual_shared_cas = (
+            derived_classification["artifact_family"]
+            == "shared_forecast_payload_cas"
+        )
+        classification = (
+            derived_classification
+            if actual_shared_cas
+            else classification_payload(declared_data_path or derived_data_path)
+        )
+        if (
+            actual_shared_cas
+            and declared_data_path
+            and declared_data_path != derived_data_path
+        ):
+            row_checks.append({
+                "check": "data_path",
+                "status": "BLOCK",
+                "expected": derived_data_path,
+                "actual": declared_data_path,
+                "detail": "candidate data_path does not match its resolved file path",
+            })
         storage_class = candidate.get("storage_class") or classification["storage_class"]
         if candidate.get("storage_class") and candidate.get("storage_class") != classification["storage_class"]:
             row_checks.append({
@@ -148,9 +179,29 @@ def build_cleanup_preflight(
                 "expected": candidate.get("storage_class"),
                 "actual": classification["storage_class"],
             })
+        if (
+            candidate.get("artifact_family")
+            and candidate.get("artifact_family")
+            != classification["artifact_family"]
+        ):
+            row_checks.append({
+                "check": "artifact_family",
+                "status": "BLOCK",
+                "expected": candidate.get("artifact_family"),
+                "actual": classification["artifact_family"],
+            })
         if not candidate.get("deletion_reason"):
             row_checks.append({"check": "deletion_reason", "status": "BLOCK", "detail": "deletion_reason is required"})
-        if storage_class == "canonical_evidence":
+        if classification["artifact_family"] == "shared_forecast_payload_cas":
+            row_checks.append({
+                "check": "shared_forecast_payload_gc_disabled",
+                "status": "BLOCK",
+                "detail": (
+                    "shared forecast CAS deletion is disabled until a separate "
+                    "global reachability, restore, hash, and replay proof contract exists"
+                ),
+            })
+        elif storage_class == "canonical_evidence":
             row_checks.append({"check": "canonical_review", "status": "PASS"})
         elif storage_class == "analysis_projection":
             rebuild_source = candidate.get("rebuild_source")
@@ -166,7 +217,7 @@ def build_cleanup_preflight(
         candidate_rows.append({
             "path": str(candidate.get("path") or ""),
             "storage_class": storage_class,
-            "artifact_family": candidate.get("artifact_family") or classification["artifact_family"],
+            "artifact_family": classification["artifact_family"],
             "status": row_status,
             "checks": row_checks,
         })

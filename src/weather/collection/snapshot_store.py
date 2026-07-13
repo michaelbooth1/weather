@@ -14,6 +14,18 @@ from types import SimpleNamespace
 
 from weather.paths import data_path
 
+from weather.collection.forecast_payload_cas import (
+    CANONICAL_JSON_HASH_ALGORITHM,
+    ForecastPayloadCASIntegrityError,
+    LOCAL_FORECAST_PAYLOAD_CAS_KIND,
+    LOCAL_FORECAST_PAYLOAD_SCOPE,
+    RAW_BYTES_HASH_ALGORITHM,
+    SHARED_FORECAST_PAYLOAD_CAS_KIND,
+    SHARED_FORECAST_PAYLOAD_SCOPE,
+    SharedForecastPayloadCAS,
+    forecast_payload_byte_summary,
+    parse_market_invariant_attestation,
+)
 from weather.collection.redaction import redact_sensitive_url_parts
 from weather.collection.snapshot_store_backfill import (
     backfill_explanations,
@@ -320,6 +332,8 @@ FORECAST_PAYLOAD_COLUMNS = [
     "captured_at_utc",
     "captured_at_local",
     "event_slug",
+    "market_id",
+    "target_date",
     "model_version",
     "source",
     "status",
@@ -344,8 +358,22 @@ FORECAST_PAYLOAD_COLUMNS = [
     "payload_hash_algorithm",
     "payload_hash",
     "payload_bytes",
+    "payload_storage_scope",
+    "payload_cas_kind",
+    "payload_ref",
+    "payload_media_type",
+    "payload_encoding",
+    "request_key",
+    "cycle_key",
+    "single_fetch_reused",
+    "extraction_schema",
+    "extraction_identity",
     "raw_payload_retained",
     "payload_blob_created",
+    "payload_blob_reused",
+    "physical_bytes_written",
+    "logical_referenced_bytes",
+    "avoided_bytes",
     "row_count",
     "source_url",
     "raw_payload_path",
@@ -451,6 +479,8 @@ class SnapshotStore:
         due_tolerance=SNAPSHOT_DUE_TOLERANCE,
         retain_raw_forecast_payloads=None,
         retain_raw_observation_payloads=None,
+        shared_forecast_payload_cas_root=None,
+        forecast_payload_physical_write_budget_bytes=None,
     ):
         self.interval = interval
         # A scheduled capture is due once at least `interval - due_tolerance` has
@@ -467,6 +497,14 @@ class SnapshotStore:
             self.raw_observation_payload_retention_enabled()
             if retain_raw_observation_payloads is None
             else bool(retain_raw_observation_payloads)
+        )
+        self.shared_forecast_payload_cas = SharedForecastPayloadCAS(
+            shared_forecast_payload_cas_root
+        )
+        self.forecast_payload_physical_write_budget_bytes = (
+            None
+            if forecast_payload_physical_write_budget_bytes is None
+            else max(0, int(forecast_payload_physical_write_budget_bytes))
         )
         self.fixed_root = root is not None
         self._set_paths(Path(root) if root is not None else None, event_slug or DEFAULT_MARKET_CONFIG.event_slug)
@@ -605,6 +643,12 @@ class SnapshotStore:
             release_lineage=release_lineage,
             model_identity=model_identity,
             config_identity=config_identity,
+        )
+        forecast_payload_storage = forecast_payload_byte_summary(
+            forecast_payload_rows,
+            physical_write_budget_bytes=(
+                self.forecast_payload_physical_write_budget_bytes
+            ),
         )
         previous_scheduled = self.last_snapshot_time(cadence="scheduled")
         cadence_gap_seconds = None
@@ -762,6 +806,7 @@ class SnapshotStore:
             "source_status": source_status_rows,
             "source_health": source_health,
             "forecast_payloads": forecast_payload_rows,
+            "forecast_payload_storage": forecast_payload_storage,
             "observation_payloads": observation_payload_rows,
             "feature_schema_version": feature_schema_version,
             "feature_vector": model.get("feature_vector"),
@@ -878,6 +923,7 @@ class SnapshotStore:
             "source_status_path": str(self.source_status_long_path),
             "forecast_payload_rows": len(forecast_payload_rows),
             "forecast_payloads_path": str(self.forecast_payloads_long_path),
+            "forecast_payload_storage": forecast_payload_storage,
             "observation_payload_rows": len(observation_payload_rows),
             "observation_payloads_path": str(self.observation_payloads_long_path),
             "observation_payloads_jsonl_path": str(self.observation_payloads_jsonl_path),
@@ -1425,19 +1471,72 @@ class SnapshotStore:
             ttl_minutes = item.get("ttl_minutes")
             if ttl_minutes is None:
                 ttl_minutes = self.source_ttl_minutes(source)
-            raw_bytes = self.canonical_raw_payload(payload)
+            attested = parse_market_invariant_attestation(source, payload)
+            if attested is not None:
+                raw_bytes = attested["payload_bytes"]
+                payload_storage_scope = SHARED_FORECAST_PAYLOAD_SCOPE
+                payload_cas_kind = SHARED_FORECAST_PAYLOAD_CAS_KIND
+                payload_media_type = attested["media_type"]
+                payload_encoding = attested["encoding"]
+                request_key = attested["request_key"]
+                cycle_key = attested["cycle_key"]
+                extraction_schema = attested["extraction_schema"]
+                extraction_identity = attested["extraction_identity"]
+                config_target_date = str(
+                    (config_identity or {}).get("target_date") or ""
+                ).strip()
+                if (
+                    config_target_date
+                    and extraction_identity.get("target_date") != config_target_date
+                ):
+                    raise ForecastPayloadCASIntegrityError(
+                        "forecast extraction target_date does not match market configuration"
+                    )
+            else:
+                raw_bytes = self.canonical_raw_payload(payload)
+                payload_storage_scope = LOCAL_FORECAST_PAYLOAD_SCOPE
+                payload_cas_kind = LOCAL_FORECAST_PAYLOAD_CAS_KIND
+                payload_media_type = "application/json"
+                payload_encoding = "utf-8"
+                request_key = ""
+                cycle_key = ""
+                extraction_schema = ""
+                extraction_identity = {}
             payload_hash = hashlib.sha256(raw_bytes).hexdigest()
             raw_payload_path = ""
             payload_blob_created = False
+            payload_blob_reused = False
+            physical_bytes_written = 0
+            logical_referenced_bytes = len(raw_bytes)
+            avoided_bytes = 0
+            payload_ref = ""
             if self.retain_raw_forecast_payloads:
-                payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
-                    self.forecast_payload_dir,
-                    canonical_bytes=raw_bytes,
-                    payload_hash=payload_hash,
-                )
-                if stored_hash != payload_hash:
-                    raise RuntimeError("forecast raw-payload hash changed during persistence")
-                raw_payload_path = str(payload_path)
+                if attested is not None:
+                    stored = self.shared_forecast_payload_cas.put(
+                        raw_bytes,
+                        expected_digest=payload_hash,
+                    )
+                    raw_payload_path = stored["path"]
+                    payload_ref = stored["payload_ref"]
+                    payload_blob_created = stored["created"]
+                    payload_blob_reused = stored["reused"]
+                    physical_bytes_written = stored["physical_bytes_written"]
+                    avoided_bytes = stored["avoided_bytes"]
+                else:
+                    payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
+                        self.forecast_payload_dir,
+                        canonical_bytes=raw_bytes,
+                        payload_hash=payload_hash,
+                    )
+                    if stored_hash != payload_hash:
+                        raise RuntimeError("forecast raw-payload hash changed during persistence")
+                    raw_payload_path = str(payload_path)
+                    payload_ref = (
+                        f"sha256/{payload_hash[:2]}/{payload_hash}.json"
+                    )
+                    payload_blob_reused = not payload_blob_created
+                    physical_bytes_written = len(raw_bytes) if payload_blob_created else 0
+                    avoided_bytes = 0 if payload_blob_created else len(raw_bytes)
             provider_issue_time = data.get("provider_issue_time") or data.get("issued_at")
             provider_update_time = (
                 data.get("provider_update_time")
@@ -1457,12 +1556,34 @@ class SnapshotStore:
                 model_identity=model_identity,
                 config_identity=config_identity,
             )
+            source_fetched_at = item.get("fetched_at")
+            if attested is not None:
+                single_fetch = attested.get("single_fetch") or {}
+                source_fetched_at = (
+                    single_fetch.get("fetched_at")
+                    or data.get("fetched_at")
+                    or source_fetched_at
+                )
+                for field in ("request_started_at", "response_received_at"):
+                    if single_fetch.get(field):
+                        provenance[field] = single_fetch[field]
+                if item.get("cache_age_minutes") is None:
+                    age_minutes = self.source_age_minutes(
+                        source_fetched_at,
+                        captured_at,
+                        None,
+                    )
             row = {
                 "schema_version": FORECAST_PAYLOAD_SCHEMA_VERSION,
                 "snapshot_id": snapshot_id,
                 "captured_at_utc": captured_utc,
                 "captured_at_local": captured_local,
                 "event_slug": self.event_slug,
+                "market_id": (config_identity or {}).get("market_id"),
+                "target_date": (
+                    extraction_identity.get("target_date")
+                    or (config_identity or {}).get("target_date")
+                ),
                 "model_version": model_version,
                 "source": source,
                 "status": status,
@@ -1470,16 +1591,47 @@ class SnapshotStore:
                 "source_family": self.source_family(source, item),
                 "degradation_state": self.source_degradation_state(status, item),
                 "cache_status": self.source_cache_status(status, item),
-                "fetched_at": item.get("fetched_at"),
+                "fetched_at": source_fetched_at,
                 "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
                 "ttl_minutes": ttl_minutes,
                 "provider_issue_time": provider_issue_time,
                 "provider_update_time": provider_update_time,
                 **provenance,
+                "payload_hash_algorithm": (
+                    stored["payload_hash_algorithm"]
+                    if attested is not None and self.retain_raw_forecast_payloads
+                    else (
+                        RAW_BYTES_HASH_ALGORITHM
+                        if attested is not None
+                        else CANONICAL_JSON_HASH_ALGORITHM
+                    )
+                ),
                 "payload_hash": payload_hash,
                 "payload_bytes": len(raw_bytes),
+                "payload_storage_scope": payload_storage_scope,
+                "payload_cas_kind": payload_cas_kind,
+                "payload_ref": payload_ref,
+                "payload_media_type": payload_media_type,
+                "payload_encoding": payload_encoding,
+                "request_key": request_key,
+                "cycle_key": cycle_key,
+                "single_fetch_reused": bool(
+                    attested.get("single_fetch_reused")
+                    if attested is not None
+                    else (data.get("single_fetch_fanout") or {}).get("reused")
+                ),
+                "extraction_schema": extraction_schema,
+                "extraction_identity": json.dumps(
+                    extraction_identity,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
                 "raw_payload_retained": bool(raw_payload_path),
                 "payload_blob_created": payload_blob_created,
+                "payload_blob_reused": payload_blob_reused,
+                "physical_bytes_written": physical_bytes_written,
+                "logical_referenced_bytes": logical_referenced_bytes,
+                "avoided_bytes": avoided_bytes,
                 "row_count": self.source_row_count(data),
                 "source_url": redact_sensitive_url_parts(data.get("url") or data.get("source_url")),
                 "raw_payload_path": raw_payload_path,

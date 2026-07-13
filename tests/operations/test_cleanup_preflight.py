@@ -78,6 +78,62 @@ class CleanupPreflightTests(unittest.TestCase):
         checks = preflight["candidates"][0]["checks"]
         self.assertIn("rebuild_source", {row["check"] for row in checks if row["status"] == "BLOCK"})
 
+    def test_shared_forecast_cas_cleanup_remains_disabled_after_operator_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp) / "data"
+            digest = "a" * 64
+            shared_blob = write(
+                data_root
+                / "forecast_payload_cas"
+                / "sha256"
+                / digest[:2]
+                / f"{digest}.blob",
+                "shared bytes",
+            )
+            manifest = cleanup_manifest_for_paths(
+                [shared_blob],
+                root=data_root,
+                deletion_reason="purported reviewed shared CAS cleanup",
+                operator_review=review(),
+            )
+            # A manifest cannot evade the artifact-specific gate by claiming
+            # that the resolved CAS file belongs to another canonical family.
+            manifest["candidates"][0]["data_path"] = (
+                "snapshots/event/snapshots.jsonl"
+            )
+            manifest["candidates"][0]["artifact_family"] = "snapshot_jsonl_evidence"
+
+            preflight = build_cleanup_preflight(manifest, root=data_root)
+
+        self.assertEqual(preflight["status"], "BLOCK")
+        self.assertFalse(preflight["delete_permission"])
+        candidate = preflight["candidates"][0]
+        self.assertEqual(candidate["artifact_family"], "shared_forecast_payload_cas")
+        self.assertIn(
+            "shared_forecast_payload_gc_disabled",
+            {
+                row["check"]
+                for row in candidate["checks"]
+                if row["status"] == "BLOCK"
+            },
+        )
+        self.assertIn(
+            "data_path",
+            {
+                row["check"]
+                for row in candidate["checks"]
+                if row["status"] == "BLOCK"
+            },
+        )
+        self.assertIn(
+            "artifact_family",
+            {
+                row["check"]
+                for row in candidate["checks"]
+                if row["status"] == "BLOCK"
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

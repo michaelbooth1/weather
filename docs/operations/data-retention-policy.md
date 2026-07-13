@@ -44,3 +44,23 @@ The normal daily refresh also writes the same artifacts:
 Routine provider caches may be pruned after TTL expiry when no replay,
 promotion, or incident report references them. Forecast archives used for
 settled replay evidence are not routine cache.
+
+## Shared Forecast Payload CAS
+
+New explicitly market-invariant forecast responses use the shared immutable
+CAS under `data/forecast_payload_cas/`; their per-market append-only manifests
+retain capture and extraction lineage. Inventory a possible legacy migration
+without copying, rewriting, or deleting evidence:
+
+```powershell
+python -m weather.operations.forecast_payload_cas_migration
+```
+
+The command is dry-run only. It verifies legacy hash/restore/replay checks and
+the shared references found in snapshot `forecast_payloads.jsonl` files. That
+scan is explicitly partial inventory, not global reachability: blobs absent
+from the scanned references are non-authoritative observations, never deletion
+candidates. No current cleanup review can authorize shared-CAS deletion.
+Event-day manifests enumerate referenced shared blobs as external canonical
+dependencies and remain blocked until both backup and restore evidence includes
+their exact digests. Legacy market-local blobs remain canonical evidence.

@@ -322,10 +322,59 @@ def source_status_summary_for_folder(folder):
 
 def forecast_payload_summary_for_folder(folder):
     rows = read_csv_dicts(Path(folder) / "forecast_payloads_long.csv")
+    logical_bytes = sum(
+        int(
+            safe_float(row.get("logical_referenced_bytes"))
+            or safe_float(row.get("payload_bytes"))
+            or 0
+        )
+        for row in rows
+    )
+    physical_bytes = sum(
+        int(
+            safe_float(row.get("physical_bytes_written"))
+            or (
+                safe_float(row.get("payload_bytes"))
+                if truthy(row.get("payload_blob_created"))
+                else 0
+            )
+            or 0
+        )
+        for row in rows
+    )
+    avoided_bytes = sum(
+        int(
+            safe_float(row.get("avoided_bytes"))
+            or (
+                safe_float(row.get("payload_bytes"))
+                if truthy(row.get("payload_blob_reused"))
+                else 0
+            )
+            or 0
+        )
+        for row in rows
+    )
     return {
         "row_count": len(rows),
         "source_count": len({row.get("source") for row in rows if row.get("source")}),
-        "payload_bytes": sum(int(safe_float(row.get("payload_bytes")) or 0) for row in rows),
+        "payload_bytes": logical_bytes,
+        "logical_referenced_bytes": logical_bytes,
+        "physical_bytes_written": physical_bytes,
+        "avoided_bytes": avoided_bytes,
+        "created_blob_count": sum(
+            1 for row in rows if truthy(row.get("payload_blob_created"))
+        ),
+        "reused_blob_count": sum(
+            1 for row in rows if truthy(row.get("payload_blob_reused"))
+        ),
+        "shared_manifest_row_count": sum(
+            1
+            for row in rows
+            if row.get("payload_storage_scope") == "shared_market_invariant"
+        ),
+        "unique_payload_count": len(
+            {row.get("payload_hash") for row in rows if row.get("payload_hash")}
+        ),
     }
 
 
@@ -602,6 +651,11 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     source_status_counts = Counter()
     forecast_payload_rows = 0
     forecast_payload_bytes = 0
+    forecast_payload_physical_bytes = 0
+    forecast_payload_avoided_bytes = 0
+    forecast_payload_created_blobs = 0
+    forecast_payload_reused_blobs = 0
+    forecast_payload_shared_rows = 0
     clob_feature_rows = 0
     clob_book_available_rows = 0
     clob_price_history_available_rows = 0
@@ -741,6 +795,11 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         payloads = row.get("forecast_payloads") or {}
         forecast_payload_rows += int(payloads.get("row_count") or 0)
         forecast_payload_bytes += int(payloads.get("payload_bytes") or 0)
+        forecast_payload_physical_bytes += int(payloads.get("physical_bytes_written") or 0)
+        forecast_payload_avoided_bytes += int(payloads.get("avoided_bytes") or 0)
+        forecast_payload_created_blobs += int(payloads.get("created_blob_count") or 0)
+        forecast_payload_reused_blobs += int(payloads.get("reused_blob_count") or 0)
+        forecast_payload_shared_rows += int(payloads.get("shared_manifest_row_count") or 0)
         clob = row.get("clob_features") or {}
         clob_feature_rows += int(clob.get("row_count") or 0)
         clob_book_available_rows += int(clob.get("book_available_rows") or 0)
@@ -870,6 +929,12 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         "forecast_payloads": {
             "row_count": forecast_payload_rows,
             "payload_bytes": forecast_payload_bytes,
+            "logical_referenced_bytes": forecast_payload_bytes,
+            "physical_bytes_written": forecast_payload_physical_bytes,
+            "avoided_bytes": forecast_payload_avoided_bytes,
+            "created_blob_count": forecast_payload_created_blobs,
+            "reused_blob_count": forecast_payload_reused_blobs,
+            "shared_manifest_row_count": forecast_payload_shared_rows,
         },
         "clob_features": {
             "row_count": clob_feature_rows,

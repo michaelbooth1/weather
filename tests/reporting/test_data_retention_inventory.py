@@ -107,6 +107,29 @@ class TestDataRetentionInventory(unittest.TestCase):
         self.assertIn("Storage Class Summary", report)
         self.assertIn("Operator Procedure", report)
 
+    def test_shared_forecast_cas_policy_reports_deletion_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            digest = "a" * 64
+            blob = (
+                root
+                / "forecast_payload_cas"
+                / "sha256"
+                / digest[:2]
+                / f"{digest}.blob"
+            )
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(b"shared bytes")
+
+            payload = build_payload(root, min_free_bytes=0)
+
+        by_policy = {row["policy"]: row for row in payload["policy_summaries"]}
+        shared_policy = by_policy["shared_forecast_payload_cas"]
+        self.assertEqual(shared_policy["file_count"], 1)
+        gate = shared_policy["delete_gate"]
+        self.assertEqual(gate["status"], "BLOCK")
+        self.assertEqual(gate["delete_permission"], "disabled")
+
     def test_reports_largest_and_recent_growth(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

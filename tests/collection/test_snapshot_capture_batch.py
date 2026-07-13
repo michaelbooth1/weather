@@ -290,6 +290,18 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
                     "written": True,
                     "snapshot_id": f"{row['market_id']}-snapshot",
                     "next_due_at": (NOW + timedelta(minutes=9)).isoformat(),
+                    "forecast_payload_storage": {
+                        "schema_version": "forecast_payload_storage_observability_v0.1",
+                        "manifest_row_count": 1,
+                        "created_blob_count": int(row["market_id"] == "a"),
+                        "reused_blob_count": int(row["market_id"] == "c"),
+                        "logical_referenced_bytes": 100,
+                        "physical_bytes_written": 100 if row["market_id"] == "a" else 0,
+                        "avoided_bytes": 100 if row["market_id"] == "c" else 0,
+                        "physical_write_budget_bytes": 200,
+                        "physical_write_budget_status": "PASS",
+                        "unbounded_detail": ["must not reach loop status"] * 100,
+                    },
                 }
             )
             records.append({
@@ -350,3 +362,15 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
     assert persisted["last_market_in_progress"] is None
     assert persisted["last_market_results"]["broken"]["error"]
     assert persisted["last_market_results"]["a"]["execution"]["mode"] == "synthetic_isolated"
+    assert "unbounded_detail" not in persisted["last_market_results"]["a"]["forecast_payload_storage"]
+    assert persisted["forecast_payload_storage"] == {
+        "schema_version": "forecast_payload_storage_observability_v0.1",
+        "manifest_row_count": 2,
+        "created_blob_count": 1,
+        "reused_blob_count": 1,
+        "logical_referenced_bytes": 200,
+        "physical_bytes_written": 100,
+        "avoided_bytes": 100,
+        "physical_write_budget_bytes": 400,
+        "physical_write_budget_status": "PASS",
+    }

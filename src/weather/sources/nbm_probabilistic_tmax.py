@@ -14,6 +14,13 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from weather.forecast_payload_contracts import (
+    NBM_NBP_ENCODING,
+    NBM_NBP_EXTRACTION_SCHEMA,
+    NBM_NBP_MEDIA_TYPE,
+    NBM_NBP_SOURCE,
+    validate_forecast_extraction_identity,
+)
 from weather.sources.grib_probe import extract_nearest_with_wgrib2, parse_idx_lines
 
 
@@ -79,6 +86,32 @@ def nbp_text_url(run_time: datetime, base_url: str = NBM_NBP_BASE_URL) -> str:
     day = run_time.strftime("%Y%m%d")
     hour = run_time.strftime("%H")
     return f"{base_url}/blend.{day}/{hour}/text/blend_nbptx.t{hour}z"
+
+
+def nbp_request_key(source_url: str) -> str:
+    """Return the market-invariant request identity for one national bulletin."""
+
+    source_url = str(source_url or "").strip()
+    if not source_url:
+        raise ValueError("NBM NBP request key requires a source URL")
+    digest = hashlib.sha256(source_url.encode("utf-8")).hexdigest()
+    return f"{NBM_NBP_SOURCE}:GET:sha256:{digest}"
+
+
+def nbp_cycle_key(run_time: datetime) -> str:
+    run_time = run_time.astimezone(timezone.utc)
+    return f"nbm-nbp:{run_time.strftime('%Y%m%dT%HZ')}"
+
+
+def nbp_cycle_key_from_url(source_url: str) -> str:
+    match = re.search(r"/blend\.(?P<day>\d{8})/(?P<hour>\d{2})/", str(source_url or ""))
+    if not match:
+        # Tests, retained archives, and mirrors may expose a stable URL without
+        # the NOMADS date folder.  It is still an exact request identity, but
+        # must not collide with a dated operational cycle.
+        digest = hashlib.sha256(str(source_url or "").encode("utf-8")).hexdigest()
+        return f"nbm-nbp:url-sha256:{digest}"
+    return f"nbm-nbp:{match.group('day')}T{match.group('hour')}Z"
 
 
 def nbp_cycle_candidates(now_utc: datetime | None = None, hours_back: int = 24) -> list[datetime]:
@@ -335,9 +368,9 @@ def _payload_hash(text: str) -> str:
 def nbp_raw_payload(text: str, station_id: str, target_date: date | str, source_url: str | None = None, fetched_at: str | None = None) -> dict:
     if isinstance(target_date, str):
         target_date = date.fromisoformat(target_date)
-    return {
+    payload = {
         "schema_version": NBM_PROB_TMAX_SCHEMA_VERSION,
-        "source": "nbm_probabilistic_tmax",
+        "source": NBM_NBP_SOURCE,
         "source_kind": "nbp_station_text",
         "station_id": str(station_id or "").upper().strip(),
         "target_date": target_date.isoformat(),
@@ -346,6 +379,51 @@ def nbp_raw_payload(text: str, station_id: str, target_date: date | str, source_
         "payload_hash": _payload_hash(text),
         "text": str(text or ""),
     }
+    if source_url:
+        # The national text response is invariant across markets for this exact
+        # URL/cycle.  Station and target-date fields remain outside the attested
+        # body and are retained as the per-market extraction identity.
+        payload["forecast_payload_attestation"] = {
+            "market_invariant": True,
+            "source": NBM_NBP_SOURCE,
+            "request_key": nbp_request_key(source_url),
+            "cycle_key": nbp_cycle_key_from_url(source_url),
+            "body_field": "text",
+            "encoding": NBM_NBP_ENCODING,
+            "media_type": NBM_NBP_MEDIA_TYPE,
+            "extraction_schema": NBM_NBP_EXTRACTION_SCHEMA,
+            "extraction_identity": {
+                "station_id": str(station_id or "").upper().strip(),
+                "target_date": target_date.isoformat(),
+            },
+        }
+    return payload
+
+
+def replay_nbp_shared_payload(
+    payload_bytes: bytes,
+    extraction_identity: dict,
+    *,
+    source_url: str | None = None,
+    fetched_at: str | None = None,
+) -> dict:
+    """Replay one market extraction from verified shared national bytes."""
+
+    extraction_identity = validate_forecast_extraction_identity(
+        NBM_NBP_SOURCE,
+        NBM_NBP_EXTRACTION_SCHEMA,
+        extraction_identity,
+    )
+    station_id = extraction_identity["station_id"]
+    target_date = extraction_identity["target_date"]
+    text = bytes(payload_bytes).decode("utf-8", errors="strict")
+    return parse_nbp_station_tmax(
+        text,
+        station_id,
+        target_date,
+        source_url=source_url,
+        fetched_at=fetched_at,
+    )
 
 
 def _parse_issue_time(line: str) -> datetime | None:
