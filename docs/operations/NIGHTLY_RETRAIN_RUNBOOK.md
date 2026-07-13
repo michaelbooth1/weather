@@ -62,6 +62,32 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
+## Reviewed Rollback
+
+Rollback is also separate from nightly retraining. At a reviewed market-day
+boundary, one command returns the pointer to its recorded prior release:
+
+```powershell
+python -m weather.operations.release_lifecycle rollback --market-day-boundary <reviewed-boundary-proof.json>
+```
+
+The command fully hash-verifies the rollback target and atomically writes a
+self-hashed reconciliation intent before the atomic pointer replacement. It
+then re-reads both the pointer and immutable release, emits the post-rollback
+identity proof, and atomically finalizes the drill record at
+`data/backtest/release_rollback_drill.json`. If finalization is interrupted,
+the same command recognizes the exact pointer-bound intent and retries only
+the proof/record finalization; it never toggles back to the failed release.
+`--drill-record` may select an isolated output for a synthetic drill but cannot
+point inside the immutable release tree.
+
+Loop control remains an explicit operator step. The initial record truthfully
+uses `status=PENDING_MANUAL_RESTART` and names the target runtimes under
+`manual_coordinated_restart.required_runtimes`. A real drill becomes complete
+only after those workers are coordinated onto the restored release, their
+runtime-identity proof is attached, post-restart health passes, and the manual
+restart, health, and overall statuses are all recorded as `PASS`.
+
 Training output paths are candidate-only by default. An old serving path fails
 before training begins. `--allow-legacy-serving-output` is a temporary migration
 flag: it marks the run quarantined, blocks immutable release construction, and

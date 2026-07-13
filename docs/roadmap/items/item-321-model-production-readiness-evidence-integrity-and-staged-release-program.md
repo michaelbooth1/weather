@@ -228,6 +228,18 @@ release pointer or production release directory. The one-command rollback
 checkbox remains open because a real coordinated worker restart, restored
 release-identity proof, and health drill have not been executed.
 
+2026-07-13 rollback-drill readiness: the reviewed lifecycle rollback command
+now verifies the recorded prior release, atomically replaces the pointer,
+re-reads the resulting pointer/release identity, emits that hash-linked proof,
+and writes `data/backtest/release_rollback_drill.json`. The initial record is
+explicitly pending and includes target/timing fields plus a structured manual
+coordinated-restart and health completion surface. Synthetic release tests
+cover the pointer, proof, record, protected output path, CLI behavior, and an
+injected post-swap write failure. A self-hashed pre-swap journal makes that
+partial success recoverable by rerunning the same command without toggling the
+pointer. The checkbox remains open until an actual release permits the
+coordinated restart and post-restart health drill to run.
+
 ## Phase 2 — P0 Resource-Isolated Shadow Operations
 
 ### Capture isolation, sharding, and identity
