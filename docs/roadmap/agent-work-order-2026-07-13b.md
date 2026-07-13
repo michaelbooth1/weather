@@ -88,6 +88,14 @@ yourself:
   scorecard is therefore the first step needing an item-324-style bounded
   rewrite (stream/window its checkpoint rows); do not simply raise its cap
   on this 15.7 GB host.
+- After the ten-minute rewrite lands, complete the 2026-07-12 settled-day
+  analysis historically: the barrier's own resume commands (recorded in
+  `daily_refresh_status.json` blockers) rerun `ten_minute_model_performance`
+  and `maker_paper_score` with `--settled-analysis-target-date 2026-07-12`,
+  which clears the barrier for that date. The standalone 07-12 maker score
+  artifacts exist at `data\backtest\mm_paper_target_20260712.*` but the
+  barrier requires the chain's own step evidence — do not hand-edit the
+  status to satisfy it.
 
 ### Task 4 — Item 323 remaining proofs
 
