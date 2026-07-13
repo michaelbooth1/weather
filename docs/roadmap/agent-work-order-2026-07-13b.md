@@ -79,6 +79,15 @@ yourself:
 - Two consecutive clean scheduled runs close the soak checkbox; one clean
   run plus one budget kill that terminated correctly also counts as proof
   the enforcement works — record either honestly.
+- 2026-07-13 afternoon datapoints from the operations agent's manual
+  resumes (post pid fix): `hourly_model_performance` completed inside its
+  budget (job peak ~3,071 MB observed) and validated via
+  `pid_match_mode=launcher_parent`; `ten_minute_model_performance`
+  **exceeded its 3 GiB private cap** (observed 3,222,503,424 bytes) and was
+  correctly killed with an in-container MemoryError. The ten-minute
+  scorecard is therefore the first step needing an item-324-style bounded
+  rewrite (stream/window its checkpoint rows); do not simply raise its cap
+  on this 15.7 GB host.
 
 ### Task 4 — Item 323 remaining proofs
 
