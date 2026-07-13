@@ -15,12 +15,14 @@ from pathlib import Path
 
 import requests
 
+# Compatibility re-export; retry policy is owned by weather.io.
+from weather.io import request_with_retries
+
 from weather.io import read_csv_rows as io_read_csv_rows
 from weather.market.market_config import config_from_event, config_for_date
 from weather.market.market_microstructure_features import write_clob_feature_rows
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
-from weather.model.model_sources import request_with_retries
 from weather.operations.power import keep_system_awake
 from weather.runtime_identity import current_identity_for, get_runtime_identity, identities_match
 from weather.operations.supervisor import (

@@ -66,14 +66,47 @@ def registry_entry(registry, variant_id):
     return (registry or {}).get("by_id", {}).get(str(variant_id))
 
 
-def active_registry_variants(registry):
+def _registry_bool(row, field, *, default=False):
+    """Read a JSON decision flag without treating strings as truthy booleans."""
+    value = row[field] if field in row else default
+    return value if type(value) is bool else False
+
+
+def headline_registry_variants(registry):
+    """Return non-control variants included in headline registry reporting."""
     return [
         row
         for row in (registry or {}).get("variants") or []
         if row.get("lifecycle") == "active"
-        and bool(row.get("active_for_headline", True))
+        and _registry_bool(row, "active_for_headline", default=True)
         and "control" not in {str(role) for role in row.get("roles") or []}
     ]
+
+
+def active_registry_variants(registry):
+    """Compatibility alias for :func:`headline_registry_variants`."""
+    return headline_registry_variants(registry)
+
+
+def live_capture_registry_variants(registry):
+    """Return non-control variants eligible to emit live prediction tape rows."""
+    variants = []
+    for row in (registry or {}).get("variants") or []:
+        roles = {str(role) for role in row.get("roles") or []}
+        if "control" in roles:
+            continue
+        lifecycle = str(row.get("lifecycle") or "")
+        headline_active = lifecycle == "active" and _registry_bool(
+            row, "active_for_headline", default=True
+        )
+        capture_enabled = _registry_bool(
+            row,
+            "live_capture_enabled",
+            default=headline_active,
+        )
+        if lifecycle in {"active", "shadow"} and capture_enabled:
+            variants.append(row)
+    return variants
 
 
 def variant_export_contract(variant):
@@ -136,7 +169,18 @@ def _shadow_only_variant(variant):
 def active_export_paths(registry):
     paths = []
     seen = set()
-    for variant in active_registry_variants(registry):
+    for variant in headline_registry_variants(registry):
+        path = variant_export_contract(variant).get("default_export_path")
+        if path and str(path) not in seen:
+            paths.append(str(path))
+            seen.add(str(path))
+    return paths
+
+
+def live_capture_export_paths(registry):
+    paths = []
+    seen = set()
+    for variant in live_capture_registry_variants(registry):
         path = variant_export_contract(variant).get("default_export_path")
         if path and str(path) not in seen:
             paths.append(str(path))
@@ -149,7 +193,7 @@ def variant_contract_for_artifact(registry, artifact_path=None, *, prediction_fu
         return None
     resolved_artifact = resolve_registry_path(artifact_path)
     normalized_artifact = resolved_artifact.resolve() if resolved_artifact else None
-    for variant in active_registry_variants(registry):
+    for variant in headline_registry_variants(registry):
         contract = variant_export_contract(variant)
         if prediction_function and contract.get("prediction_function") != prediction_function:
             continue
@@ -179,14 +223,16 @@ def decorate_variant(metadata, registry=None):
     track = entry.get("track") or (
         "market_informed" if metadata.get("uses_market_features") else "no_market"
     )
-    active_for_headline = entry.get("active_for_headline")
-    if active_for_headline is None:
-        active_for_headline = lifecycle == "active" and not is_control
+    active_for_headline = _registry_bool(
+        entry,
+        "active_for_headline",
+        default=lifecycle == "active" and not is_control,
+    )
     return {
         "registry_lifecycle": lifecycle,
         "registry_roles": sorted(roles),
         "registry_track": track,
-        "active_for_headline": bool(active_for_headline),
+        "active_for_headline": active_for_headline,
         "registry_roadmap_items": entry.get("roadmap_items") or [],
         "registry_notes": entry.get("notes"),
     }
@@ -195,7 +241,7 @@ def decorate_variant(metadata, registry=None):
 def registry_summary(variants, registry=None):
     active_registry_ids = [
         row.get("variant_id")
-        for row in active_registry_variants(registry or {})
+        for row in headline_registry_variants(registry or {})
         if row.get("variant_id")
     ]
     reported_ids = {variant.get("variant_id") for variant in variants if variant.get("variant_id")}
@@ -331,13 +377,44 @@ def audit_registry(
                 variant_id=variant_id,
             ))
 
-    active_variants = active_registry_variants(registry)
+    decision_fields = (
+        "active_for_headline",
+        "live_capture_enabled",
+        "counts_toward_weather_model_promotion",
+    )
+    for row in variants:
+        if row.get("lifecycle") == "archived":
+            continue
+        variant_id = row.get("variant_id")
+        for field in decision_fields:
+            if field not in row:
+                checks.append(_check(
+                    "error",
+                    "missing_decision_field",
+                    f"non-archived variant is missing required boolean field {field!r}",
+                    variant_id=variant_id,
+                ))
+            elif type(row.get(field)) is not bool:
+                checks.append(_check(
+                    "error",
+                    "invalid_decision_field_type",
+                    f"variant decision field {field!r} must be a JSON boolean",
+                    variant_id=variant_id,
+                ))
+
+    active_variants = headline_registry_variants(registry)
     active_ids = sorted(str(row.get("variant_id")) for row in active_variants if row.get("variant_id"))
-    contracts = []
-    for variant in active_variants:
+    live_variants = live_capture_registry_variants(registry)
+    live_ids = sorted(str(row.get("variant_id")) for row in live_variants if row.get("variant_id"))
+    headline_id_set = set(active_ids)
+    headline_contracts = []
+    live_contracts = []
+    for variant in live_variants:
         variant_id = variant.get("variant_id")
         contract = variant_export_contract(variant)
-        contracts.append(contract)
+        live_contracts.append(contract)
+        if str(variant_id) in headline_id_set:
+            headline_contracts.append(contract)
         missing = [field for field in REQUIRED_ACTIVE_EXPORT_FIELDS if not contract.get(field)]
         if contract.get("live_runtime") == "candidate_row_route_composite" and not contract.get("route_recipe_path"):
             missing.append("route_recipe_path")
@@ -356,7 +433,7 @@ def audit_registry(
         resolved_artifact = resolve_registry_path(artifact_path)
         if check_paths and artifact_path and resolved_artifact is not None and not resolved_artifact.exists():
             checks.append(_check(
-                "error",
+                "error" if str(variant_id) in headline_id_set else "warning",
                 "missing_artifact_path",
                 "configured artifact_path does not exist",
                 variant_id=variant_id,
@@ -412,7 +489,10 @@ def audit_registry(
         "summary": {
             "registered_variant_count": len(variants),
             "active_variant_count": len(active_variants),
-            "active_contract_count": len(contracts),
+            "headline_variant_count": len(active_variants),
+            "live_capture_variant_count": len(live_variants),
+            "active_contract_count": len(headline_contracts),
+            "live_capture_contract_count": len(live_contracts),
             "evidence_path_count": len(evidence_path_rows),
             "evidence_variant_count": len(evidence_ids),
             "missing_active_variant_count": len(missing_evidence_ids),
@@ -420,8 +500,11 @@ def audit_registry(
             "warning_count": warning_count,
         },
         "active_variant_ids": active_ids,
+        "headline_variant_ids": active_ids,
+        "live_capture_variant_ids": live_ids,
         "evidence_paths": evidence_path_rows,
-        "active_contracts": contracts,
+        "active_contracts": headline_contracts,
+        "live_capture_contracts": live_contracts,
         "missing_active_variant_ids": missing_evidence_ids,
         "checks": checks,
     }
@@ -450,6 +533,8 @@ def write_audit_report(path, payload):
             [
                 ["Registered variants", summary.get("registered_variant_count")],
                 ["Active variants", summary.get("active_variant_count")],
+                ["Headline variants", summary.get("headline_variant_count")],
+                ["Live-capture variants", summary.get("live_capture_variant_count")],
                 ["Active contracts", summary.get("active_contract_count")],
                 ["Evidence paths", summary.get("evidence_path_count")],
                 ["Evidence variants", summary.get("evidence_variant_count")],

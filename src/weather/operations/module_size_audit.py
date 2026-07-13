@@ -28,7 +28,7 @@ OWNERSHIP_NOTES = {
         "boundary": "Compatibility facade for taker strategy, risk, tape, scoring, bakeoff, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
-    "src/weather/reporting/promotion_refresh.py": {
+    "src/weather/reporting/promotion/promotion_refresh.py": {
         "owner": "reporting",
         "boundary": "Compatibility facade for promotion readers, decisions, gap analysis, reports, orchestration, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
@@ -38,7 +38,7 @@ OWNERSHIP_NOTES = {
         "boundary": "Compatibility facade for fleet inventory, loop health, SLO gates, payload, rendering, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
-    "src/weather/reporting/hourly_model_performance.py": {
+    "src/weather/reporting/hourly/hourly_model_performance.py": {
         "owner": "reporting",
         "boundary": "Compatibility facade for hourly scoring, slots, gates, context, rendering, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
@@ -163,15 +163,50 @@ OWNERSHIP_NOTES = {
         "boundary": "Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion.",
         "next_split": "Owner module for item 318; must not import the taker_bot_bakeoff facade.",
     },
-    "src/weather/reporting/source_family_inventory.py": {
+    "src/weather/reporting/source_gates/source_family_inventory.py": {
         "owner": "reporting",
         "boundary": "Source-family input readers, family/gate classification, payload assembly, and CLI.",
         "next_split": "Item 318 slice complete; Markdown rendering lives in source_family_inventory_report.",
     },
-    "src/weather/reporting/source_family_inventory_report.py": {
+    "src/weather/reporting/source_gates/source_family_inventory_report.py": {
         "owner": "reporting",
         "boundary": "Markdown rendering for source-family inventory artifacts.",
         "next_split": "Owner module for item 318; must not import the source-family inventory facade.",
+    },
+    "src/weather/reporting/scorecards/live_variant_settlement_scorecard.py": {
+        "owner": "reporting",
+        "boundary": "Settled live-variant probability scoring, captured-input replay parity orchestration, persistence, report rendering, and CLI.",
+        "next_split": "Move parity normalization, comparison, persistence, and rendering to reporting.validation.captured_input_replay_parity while preserving facade exports and byte-identical payloads.",
+    },
+    "src/weather/reporting/serving_gates/production_readiness_gate.py": {
+        "owner": "reporting",
+        "boundary": "Production-readiness child evidence validation, active-release verification, pointer attestation, parent gate composition, and report output.",
+        "next_split": "Extract the child-evidence validator registry and active-release binding checks; leave first-blocker ordering and parent gate composition in the facade.",
+    },
+    "src/weather/reporting/validation/point_in_time_evaluation.py": {
+        "owner": "reporting",
+        "boundary": "Point-in-time materialization, validation planning, fold and fit receipts, streaming evaluation, persistence, and CLI.",
+        "next_split": "After verifier consolidation, separate materialization, fit receipts, and the streaming evaluator behind stable frozen contracts without adding cross-owner cycles.",
+    },
+    "src/weather/calibration/residual_distribution_v1.py": {
+        "owner": "calibration",
+        "boundary": "ResidualDistributionV1 training, nested and locked evaluation, fit receipts, qualification orchestration, release construction, and CLI.",
+        "next_split": "Extract receipt construction/verification and nested/locked evaluation; retain qualification orchestration and public release behavior in the facade.",
+    },
+    "src/weather/calibration/pooled_candidate_replay.py": {
+        "owner": "calibration",
+        "boundary": "Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI.",
+        "next_split": "Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads.",
+    },
+    "src/weather/operations/event_day_manifest.py": {
+        "owner": "operations",
+        "boundary": "Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI.",
+        "next_split": "Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged.",
+    },
+    "src/weather/market/market_microstructure.py": {
+        "owner": "market",
+        "boundary": "CLOB tape capture loops, tape audit, supervisor process lifecycle, status artifacts, compatibility exports, and CLI.",
+        "next_split": "Extract tape audit and supervisor/process lifecycle behind the stable scheduled-task CLI, preserving lock, process, status, and audit behavior.",
     },
 }
 
@@ -190,6 +225,30 @@ def module_owner(path: Path) -> str:
     except ValueError:
         return "unknown"
     return relative.parts[0] if len(relative.parts) > 1 else "shared"
+
+
+def ownership_governance_errors(rows: list[dict]) -> list[dict]:
+    """Return incomplete warning metadata and ownership notes for missing modules."""
+    errors = []
+    row_paths = {row["path"] for row in rows}
+    for row in rows:
+        if row["status"] != "WARN":
+            continue
+        missing = [field for field in ("owner", "boundary", "next_split") if not row.get(field)]
+        if missing:
+            errors.append({
+                "kind": "warning_metadata_missing",
+                "path": row["path"],
+                "missing": missing,
+            })
+    for path in sorted(OWNERSHIP_NOTES):
+        if path not in row_paths:
+            errors.append({
+                "kind": "ownership_note_orphaned",
+                "path": path,
+                "missing": [],
+            })
+    return errors
 
 
 def build_module_size_audit(
@@ -215,6 +274,7 @@ def build_module_size_audit(
             "next_split": note.get("next_split"),
         })
     over_threshold = [row for row in rows if row["status"] == "WARN"]
+    governance_errors = ownership_governance_errors(rows)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or datetime.now(timezone.utc).isoformat(),
@@ -222,6 +282,8 @@ def build_module_size_audit(
         "warning_lines": int(warning_lines),
         "module_count": len(rows),
         "warning_count": len(over_threshold),
+        "governance_status": "PASS" if not governance_errors else "WARN",
+        "governance_errors": governance_errors,
         "largest_modules": sorted(rows, key=lambda row: row["lines"], reverse=True)[:25],
         "ownership_map": [
             {"path": path, **note}
@@ -244,6 +306,7 @@ def render_report(payload: dict) -> str:
         f"Generated: {payload.get('generated_at_utc')}",
         f"Warning threshold: `{payload.get('warning_lines')}` lines",
         f"Warnings: `{payload.get('warning_count')}`",
+        f"Ownership governance: `{payload.get('governance_status')}`",
         "",
         "## Largest Modules",
         "",
@@ -277,6 +340,12 @@ def render_report(payload: dict) -> str:
                 next_split=row.get("next_split"),
             )
         )
+    if payload.get("governance_errors"):
+        lines.extend(["", "## Ownership Governance Errors", ""])
+        for row in payload.get("governance_errors") or []:
+            missing = ", ".join(row.get("missing") or [])
+            suffix = f" (missing: {missing})" if missing else ""
+            lines.append(f"- {row.get('kind')}: `{row.get('path')}`{suffix}")
     return "\n".join(lines) + "\n"
 
 

@@ -17,7 +17,11 @@ from weather.release_serving import (
     VerifiedServingBundle,
     serving_bundle_lineage,
 )
-from weather.variant_registry import DEFAULT_REGISTRY_PATH, load_registry
+from weather.variant_registry import (
+    DEFAULT_REGISTRY_PATH,
+    live_capture_registry_variants,
+    load_registry,
+)
 from weather.schema_registry import schema_version
 from weather.market.snapshot_cadence_quality import cadence_adjusted_probability, snapshot_cadence_quality
 from weather.model.current_blend import (
@@ -117,20 +121,7 @@ LIVE_VARIANT_PREDICTION_COLUMNS = [
 
 def active_live_variants(registry: dict[str, Any]) -> list[dict[str, Any]]:
     """Return non-control variants explicitly eligible for live tape rows."""
-    variants = []
-    for row in registry.get("variants") or []:
-        roles = {str(role) for role in row.get("roles") or []}
-        if "control" in roles:
-            continue
-        lifecycle = str(row.get("lifecycle") or "")
-        headline_active = lifecycle == "active" and bool(row.get("active_for_headline", True))
-        diagnostic_live = lifecycle in {"active", "shadow"} and bool(
-            row.get("live_capture_enabled", False)
-        )
-        if not headline_active and not diagnostic_live:
-            continue
-        variants.append(dict(row))
-    return variants
+    return [dict(row) for row in live_capture_registry_variants(registry)]
 
 
 def build_live_variant_prediction_rows(

@@ -5,12 +5,14 @@ import unittest
 from pathlib import Path
 from weather.schema_registry import (  # noqa: E402
     EXCLUDED_SCHEMA_LITERALS,
+    REGISTERED_SCHEMAS,
     SCHEMA_REGISTRY_SCHEMA_VERSION,
     audit_payload,
     registry_payload,
     schema_version,
     validate_schema_version,
 )
+from weather.schema_registry_data import INTENTIONAL_SCHEMA_VERSION_ALIASES  # noqa: E402
 
 
 class TestSchemaRegistry(unittest.TestCase):
@@ -361,6 +363,36 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertIn("observation_trigger_replay", names)
         self.assertIn("daily_learning", names)
         self.assertIn("taker_edge_permission_map", names)
+
+    def test_registry_name_version_registrations_are_unique(self):
+        registrations = [(spec.name, spec.version) for spec in REGISTERED_SCHEMAS]
+
+        self.assertEqual(len(registrations), len(set(registrations)))
+
+    def test_shared_versions_are_only_deliberate_compatibility_aliases(self):
+        names_by_version = {}
+        for spec in REGISTERED_SCHEMAS:
+            names_by_version.setdefault(spec.version, set()).add(spec.name)
+        shared_versions = {
+            version: tuple(sorted(names))
+            for version, names in names_by_version.items()
+            if len(names) > 1
+        }
+        expected_aliases = {
+            version: tuple(sorted((entry["canonical"], *entry["deprecated_aliases"])))
+            for version, entry in INTENTIONAL_SCHEMA_VERSION_ALIASES.items()
+        }
+
+        self.assertEqual(shared_versions, expected_aliases)
+        specs_by_name = {spec.name: spec for spec in REGISTERED_SCHEMAS}
+        for version, entry in INTENTIONAL_SCHEMA_VERSION_ALIASES.items():
+            canonical = entry["canonical"]
+            aliases = entry["deprecated_aliases"]
+            self.assertEqual(specs_by_name[canonical].status, "active")
+            for name in aliases:
+                self.assertEqual(specs_by_name[name].status, "deprecated")
+            for name in (canonical, *aliases):
+                self.assertEqual(schema_version(name), version)
 
     def test_audit_classifies_registered_and_unregistered_literals(self):
         with tempfile.TemporaryDirectory() as tmp:

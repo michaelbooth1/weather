@@ -4,7 +4,6 @@ import logging
 import os
 import re
 import statistics
-import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -14,7 +13,18 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-from weather.io import acquire_writer_lock, read_json, release_writer_lock, write_json_atomic
+# Keep the retry helper aliases as a compatibility surface for existing callers.
+from weather.io import (
+    MAX_RETRY_DELAY_SECONDS,
+    acquire_writer_lock,
+    http_error_is_retryable as _is_retryable,
+    http_retry_after_seconds as retry_after_seconds,
+    http_retry_delay_seconds as retry_delay_seconds,
+    read_json,
+    release_writer_lock,
+    request_with_retries,
+    write_json_atomic,
+)
 from weather.sources.wu_history import DEFAULT_DATA_ROOT, analyze_daily_summary
 from weather.sources.eccc_gridded import fetch_open_meteo_gem_for_market
 from weather.sources.marine_context import active_marine_context_state, fetch_marine_context_for_market
@@ -30,7 +40,6 @@ from weather.model.source_adapters import (
     SourceExpectedUnavailable,
     SourceProviderRateLimited,
     fetch_source_group as run_source_adapter_group,
-    retry_after_seconds as response_retry_after_seconds,
 )
 from weather.model.model_constants import (
     DEFAULT_MARKET_CONFIG,
@@ -78,7 +87,6 @@ OPEN_METEO_GLOBAL_MODEL_MEMBERS = (
 )
 OPEN_METEO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 SOURCE_FAMILY_COOLDOWN_PATH_ENV = "WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"
-MAX_RETRY_DELAY_SECONDS = 10.0
 TORONTO_OFFICIAL_CANADIAN_SOURCES = {
     "eccc_swob": "official_observation",
     "eccc_citypage": "official_forecast",
@@ -141,56 +149,6 @@ def paid_weather_provider_disabled(source_family, fallback_source=None):
         cache_status="expected_unavailable",
         fallback_source=fallback_source,
     )
-
-
-def _is_retryable(exc):
-    """Transient network errors worth retrying.
-
-    Most 4xx responses are configuration/data availability problems, but 429 is
-    a provider-capacity signal and gets retried with backoff/retry-after.
-    """
-    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-        return True
-    if isinstance(exc, requests.HTTPError):
-        response = getattr(exc, "response", None)
-        if response is None:
-            return False
-        return response.status_code == 429 or response.status_code >= 500
-    return False
-
-
-def retry_after_seconds(exc):
-    return response_retry_after_seconds(getattr(exc, "response", None))
-
-
-def retry_delay_seconds(exc, attempt, base_delay=0.5, max_delay=MAX_RETRY_DELAY_SECONDS):
-    retry_after = retry_after_seconds(exc)
-    if retry_after is not None:
-        return min(float(max_delay), retry_after)
-    return min(float(max_delay), base_delay * (2 ** attempt))
-
-
-def request_with_retries(
-    fn,
-    attempts=3,
-    base_delay=0.5,
-    sleep=time.sleep,
-    max_delay=MAX_RETRY_DELAY_SECONDS,
-):
-    """Call ``fn`` (an idempotent GET), retrying transient failures with
-    exponential backoff. Re-raises the last error if all attempts fail, and
-    raises non-transient errors immediately. ``sleep`` is injectable for tests."""
-    last = None
-    for attempt in range(attempts):
-        try:
-            return fn()
-        except Exception as exc:  # noqa: BLE001 - re-raised below
-            if not _is_retryable(exc):
-                raise
-            last = exc
-            if attempt < attempts - 1:
-                sleep(retry_delay_seconds(exc, attempt, base_delay=base_delay, max_delay=max_delay))
-    raise last
 
 
 def percentile(values, q):

@@ -6,7 +6,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
+
+from weather.io import http_retry_after_response_seconds
 
 
 FETCH_META_KEY = "_source_fetch_meta"
@@ -82,23 +83,8 @@ class SourceAdapter:
 
 
 def retry_after_seconds(response):
-    if response is None:
-        return None
-    headers = getattr(response, "headers", {}) or {}
-    value = headers.get("Retry-After") if hasattr(headers, "get") else None
-    if value in (None, ""):
-        return None
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        pass
-    try:
-        retry_at = parsedate_to_datetime(str(value))
-    except (TypeError, ValueError, IndexError, OverflowError):
-        return None
-    if retry_at.tzinfo is None:
-        retry_at = retry_at.replace(tzinfo=timezone.utc)
-    return max(0.0, (retry_at.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
+    """Compatibility wrapper for the shared Retry-After parser."""
+    return http_retry_after_response_seconds(response)
 
 
 def source_fetch_metadata(data):

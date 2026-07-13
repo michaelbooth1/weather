@@ -1,3 +1,5 @@
+import hashlib
+import importlib
 import json
 import logging
 import os
@@ -27,6 +29,37 @@ def test_repo_root_import_helpers_are_tracked():
     )
 
     assert set(result.stdout.splitlines()) == {"sitecustomize.py", "weather/__init__.py"}
+
+
+def test_supervisor_reexports_shared_writer_lock_primitives():
+    supervisor = importlib.import_module("weather.operations.supervisor")
+
+    for name in (
+        "writer_lock_path",
+        "file_lock_is_stale",
+        "acquire_writer_lock",
+        "release_writer_lock",
+    ):
+        assert getattr(supervisor, name) is getattr(weather_io, name)
+
+
+def test_file_hash_consumers_reexport_shared_helper(tmp_path):
+    path = tmp_path / "payload.bin"
+    payload = b"weather-code-health\x00\xff"
+    path.write_bytes(payload)
+    modules = (
+        "weather.point_in_time_contract",
+        "weather.release_artifacts",
+        "weather.calibration.residual_distribution_corpus",
+        "weather.operations.cleanup_preflight",
+        "weather.operations.closed_market_day_archive",
+        "weather.operations.event_day_manifest",
+    )
+
+    assert weather_io.sha256_file(path) == hashlib.sha256(payload).hexdigest()
+    for module_name in modules:
+        module = importlib.import_module(module_name)
+        assert module.sha256_file is weather_io.sha256_file
 
 
 def test_repo_root_subprocess_imports_weather_with_tracked_helpers():

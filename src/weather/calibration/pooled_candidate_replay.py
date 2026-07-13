@@ -6,7 +6,6 @@ artifact against the same settled rows as a shadow candidate. Live serving is
 not changed by this module.
 """
 import argparse
-import bisect
 import csv
 import hashlib
 import json
@@ -50,6 +49,8 @@ from weather.sources.marine_water_contrast import load_marine_water_contrast_fea
 from weather.model.variant_prediction_runtime import (
     apply_continuous_density_calibration,
     apply_density_band_postprocessing,
+    density_projection_index,
+    density_projection_probability,
 )
 from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
@@ -60,10 +61,6 @@ from weather.market.market_microstructure_features import (
 from weather.market.market_registry import REGISTRY
 from weather.model.continuous_density import (
     band_probability_from_distribution as density_band_probability_from_distribution,
-    bucket_interval_native,
-    density_f_from_payload,
-    native_interval_to_f,
-    normalize_density,
 )
 from weather.model.residual_distribution_v1 import (
     PREDICTION_MODE as RESIDUAL_DISTRIBUTION_V1_MODE,
@@ -388,32 +385,6 @@ def marine_breeze_slice(feature_row):
     if contrast is not None:
         return "water_contrast_no_onshore"
     return "marine_observed_no_onshore"
-
-
-def density_projection_index(payload):
-    density = normalize_density(density_f_from_payload(payload) or {})
-    if not density:
-        return None
-    grid = sorted(float(value) for value in density)
-    cumulative = [0.0]
-    total = 0.0
-    for value in grid:
-        total += float(density.get(value, 0.0))
-        cumulative.append(total)
-    return grid, cumulative
-
-
-def density_projection_probability(index, unit, kind, value, value_hi=None):
-    if not index:
-        return None
-    grid, cumulative = index
-    low_native, high_native = bucket_interval_native(kind, value, value_hi)
-    low_f, high_f = native_interval_to_f(low_native, high_native, unit)
-    left = 0 if low_f is None else bisect.bisect_left(grid, float(low_f))
-    right = len(grid) if high_f is None else bisect.bisect_left(grid, float(high_f))
-    if right < left:
-        return 0.0
-    return max(0.0, min(1.0, float(cumulative[right] - cumulative[left])))
 
 
 def attach_forecast_profile_slice_context(copy, feature_row=None, band_row=None):
@@ -2020,8 +1991,8 @@ def run_pooled_candidate_replay(args):
             "source_state_ablation": source_state_ablation,
             "conservative_bridge": conservative_bridge,
         })
-    market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
-    verdict = market_verdict if replay_gate["global_ok"] and blocked_validation.get("passed") else "BLOCK"
+    candidate_market_verdict = overall_verdict(market_rows, require_all_markets=args.require_all_markets)
+    verdict = candidate_market_verdict if replay_gate["global_ok"] and blocked_validation.get("passed") else "BLOCK"
     adjacent_calibration = postprocess.get("adjacent_calibration") or {}
     market_bias_calibration = postprocess.get("market_bias_calibration") or {}
     market_bias_selection = market_bias_calibration.get("selection") or {}
@@ -2037,7 +2008,7 @@ def run_pooled_candidate_replay(args):
     report = {
         "generated_at": datetime.now().isoformat(),
         "verdict": verdict,
-        "candidate_market_verdict": market_verdict,
+        "candidate_market_verdict": candidate_market_verdict,
         "cutover_decision": cutover_decision(verdict),
         "artifact": {
             "path": str(args.artifact),
@@ -2275,12 +2246,6 @@ def main():
         print(f"Current replay report written to {args.replay_report}")
     if args.fail_on_block and report["verdict"] == "BLOCK":
         sys.exit(1)
-
-
-from weather.model.variant_prediction_runtime import (  # noqa: E402
-    density_projection_index,
-    density_projection_probability,
-)
 
 
 if __name__ == "__main__":

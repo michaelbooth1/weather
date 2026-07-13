@@ -16,10 +16,13 @@ def test_structure_inventory_counts_repo_areas_without_live_data_dependency(tmp_
     _write(repo / "src" / "weather" / "reporting" / "large.py", lines=6)
     _write(repo / "src" / "weather" / "reporting" / "small.py", lines=2)
     _write(repo / "src" / "weather" / "market" / "market.py", lines=3)
+    _write(repo / "src" / "weather" / "release.py", lines=2)
     _write(repo / "tests" / "reporting" / "test_large.py", lines=4)
+    _write(repo / "tests" / "test_release.py", lines=3)
     _write(repo / "app" / "views" / "overview.py", lines=5)
     _write(repo / "src" / "legacy_wrapper.py", lines=1)
     _write(repo / "app.py", lines=1)
+    _write(repo / "backfill_all.py", lines=1)
     (repo / "scripts").mkdir()
     (repo / "scripts" / "start_weather_dashboard.cmd").write_text("@echo off\n", encoding="utf-8")
     artifact = repo / "artifacts" / "models" / "demo.pkl"
@@ -35,7 +38,9 @@ def test_structure_inventory_counts_repo_areas_without_live_data_dependency(tmp_
             "src/weather/reporting/large.py",
             "src/weather/reporting/small.py",
             "src/weather/market/market.py",
+            "src/weather/release.py",
             "tests/reporting/test_large.py",
+            "tests/test_release.py",
             "app/views/overview.py",
             "README.md",
         ],
@@ -49,15 +54,25 @@ def test_structure_inventory_counts_repo_areas_without_live_data_dependency(tmp_
     )
 
     assert payload["schema_version"] == "structure_inventory_v0.1"
-    assert payload["tracked_file_count"] == 6
+    assert payload["tracked_file_count"] == 8
     top = {row["area"]: row["tracked_files"] for row in payload["top_level_counts"]}
-    assert top["src"] == 3
-    assert top["tests"] == 1
+    assert top["src"] == 4
+    assert top["tests"] == 2
     packages = {row["package"]: row for row in payload["source_packages"]}
     assert packages["reporting"]["python_files"] == 2
     assert packages["reporting"]["lines"] == 8
+    assert packages["<root>"]["python_files"] == 1
+    assert packages["<root>"]["lines"] == 2
+    test_areas = {row["area"]: row for row in payload["test_areas"]}
+    assert test_areas["<root>"]["python_files"] == 1
+    assert test_areas["<root>"]["lines"] == 3
+    assert payload["source_python_files"] == 4
+    assert payload["source_lines"] == 13
+    assert payload["test_python_files"] == 2
+    assert payload["test_lines"] == 7
     assert payload["large_modules"][0]["path"] == "src/weather/reporting/large.py"
     assert payload["compatibility_shims"]["flat_src_wrappers"] == 1
+    assert payload["compatibility_shims"]["root_streamlit_shims"] == 1
     assert payload["compatibility_shims"]["root_helper_shims"] == 1
     assert payload["compatibility_shims"]["root_script_shims"] == 1
     assert payload["artifacts"][0]["area"] == "models"

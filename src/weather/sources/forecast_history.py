@@ -20,11 +20,17 @@ import hashlib
 import json
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from weather.paths import data_path
+# Keep the retry helper aliases as a compatibility surface for existing callers.
+from weather.io import (
+    http_error_is_retryable as _is_retryable,
+    http_retry_after_seconds as retry_after_seconds,
+    http_retry_delay_seconds as retry_delay_seconds,
+    request_with_retries,
+)
 
 import requests
 
@@ -223,59 +229,6 @@ def row_forecast_high_native(row):
         "forecast_high_c",
         "day_max_c",
     )
-
-
-def _is_retryable(exc):
-    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-        return True
-    if isinstance(exc, requests.HTTPError):
-        response = getattr(exc, "response", None)
-        if response is None:
-            return False
-        return response.status_code == 429 or response.status_code >= 500
-    return False
-
-
-def retry_after_seconds(exc):
-    response = getattr(exc, "response", None)
-    if response is None:
-        return None
-    headers = getattr(response, "headers", {}) or {}
-    value = headers.get("Retry-After") if hasattr(headers, "get") else None
-    if value in (None, ""):
-        return None
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        pass
-    try:
-        retry_at = parsedate_to_datetime(str(value))
-    except (TypeError, ValueError, IndexError, OverflowError):
-        return None
-    if retry_at.tzinfo is None:
-        retry_at = retry_at.replace(tzinfo=timezone.utc)
-    return max(0.0, (retry_at.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
-
-
-def retry_delay_seconds(exc, attempt, base_delay=0.5, max_delay=10.0):
-    retry_after = retry_after_seconds(exc)
-    if retry_after is not None:
-        return min(float(max_delay), retry_after)
-    return min(float(max_delay), base_delay * (2 ** attempt))
-
-
-def request_with_retries(fn, attempts=3, base_delay=0.5, sleep=time.sleep, max_delay=10.0):
-    last = None
-    for attempt in range(attempts):
-        try:
-            return fn()
-        except Exception as exc:  # noqa: BLE001 - re-raised below
-            if not _is_retryable(exc):
-                raise
-            last = exc
-            if attempt < attempts - 1:
-                sleep(retry_delay_seconds(exc, attempt, base_delay=base_delay, max_delay=max_delay))
-    raise last
 
 
 def hourly_value(hourly, key, index):

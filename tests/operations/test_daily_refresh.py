@@ -3267,7 +3267,7 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_maker_paper_score_step_writes_fresh_standard_report(self):
         with tempfile.TemporaryDirectory() as tmp:
-            _run = _write_active_mm_run(tmp)
+            _write_active_mm_run(tmp)
             args = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
             _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
 

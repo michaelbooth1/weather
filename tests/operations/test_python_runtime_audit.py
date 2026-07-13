@@ -35,6 +35,15 @@ def test_ruff_baseline_allows_injected_cli_globals_but_blocks_new_undefined_name
     assert blocked["unowned_findings"][0]["symbol"] == "utc_now"
 
 
+def test_ruff_baseline_does_not_allow_deleted_f811_redefinitions():
+    payload = audit.load_baseline()
+
+    assert not any(
+        row.get("code") == "F811"
+        for row in payload.get("ruff_baseline") or []
+    )
+
+
 def test_daily_refresh_step_smoke_catches_missing_required_helper():
     globals_map = daily_refresh_steps.run_reanalysis_recent_refresh_step.__globals__
     original = globals_map.pop("utc_now")

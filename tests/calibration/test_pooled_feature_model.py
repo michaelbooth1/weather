@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -1586,6 +1587,81 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertEqual(preflight["status"], "WARN")
         self.assertEqual(preflight["diagnostic_only_families"], ["surface_weather"])
         self.assertTrue(any(row["family"] == "surface_weather" for row in preflight["warnings"]))
+
+
+class TestVariantPredictionRuntimeExports(unittest.TestCase):
+    def test_calibration_facades_export_canonical_runtime_objects(self):
+        from weather.calibration import pooled_band_training
+        from weather.calibration import pooled_candidate_replay
+        from weather.calibration import pooled_candidate_replay_diagnostics
+        from weather.calibration import pooled_feature_assembly
+        from weather.calibration import pooled_training
+        from weather.model import variant_prediction_runtime
+
+        facade_exports = (
+            (pooled_band_training, (
+                "adjacent_calibration_contexts", "adjacent_calibration_factor",
+                "apply_adjacent_calibration", "apply_band_postprocessing",
+                "apply_exact_winner_catchup", "apply_forecast_centering",
+                "apply_market_bias_calibration", "calibration_gap_bucket",
+                "calibration_hour_bucket", "exact_winner_catchup_contexts",
+                "exact_winner_catchup_factor", "forecast_anchor_probability",
+                "forecast_centering_alpha", "market_bias_calibration_contexts",
+                "market_bias_calibration_factor", "normal_cdf",
+                "predict_band_probabilities", "predict_band_rows_for_bundle",
+                "source_trust_bucket",
+            )),
+            (pooled_feature_assembly, (
+                "band_feature_frame", "band_outcome", "band_prediction_record",
+                "canonical_density_record", "canonical_density_records",
+                "feature_frame", "finite_float", "hard_floor_probability",
+                "late_lockin_strength_from_features", "late_lockin_target",
+                "native_delta_to_f", "native_value_to_f", "record_unit",
+                "support_floor_cap", "temperature_scale_probability",
+            )),
+            (pooled_candidate_replay, (
+                "density_projection_index", "density_projection_probability",
+            )),
+            (pooled_candidate_replay_diagnostics, (
+                "MICROSTRUCTURE_CATEGORICAL_FEATURES",
+                "MICROSTRUCTURE_NUMERIC_FEATURES", "_micro_float",
+                "cutoff_hour_bucket", "microstructure_feature_frame",
+                "microstructure_feature_record", "probability_logit",
+            )),
+            (pooled_training, ("predict_density_rows_for_bundle",)),
+        )
+
+        for facade, names in facade_exports:
+            for name in names:
+                with self.subTest(facade=facade.__name__, name=name):
+                    self.assertIs(
+                        getattr(facade, name),
+                        getattr(variant_prediction_runtime, name),
+                    )
+        self.assertIs(
+            pooled_candidate_replay.market_verdict,
+            pooled_candidate_replay_diagnostics.market_verdict,
+        )
+
+    def test_candidate_replay_module_cli_import_order(self):
+        from weather.paths import REPO_ROOT
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "weather.calibration.pooled_candidate_replay",
+                "--help",
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("usage:", completed.stdout)
 
 
 if __name__ == "__main__":

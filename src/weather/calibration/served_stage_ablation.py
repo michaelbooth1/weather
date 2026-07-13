@@ -1191,7 +1191,6 @@ def execute_served_calibration_stage_ablation(
             experiment_type: results[f"{experiment_type}:{stage_id}"]
             for experiment_type in REQUIRED_EXPERIMENT_TYPES
         }
-        primary = by_type["remove_one"]
         brier_summaries = {
             name: _clustered_delta(
                 baseline,

@@ -334,41 +334,6 @@ def train_pooled_density_models(records, holdout_year=None, grid_step_f=0.1, min
     return artifact, validation_rows
 
 
-def predict_density_rows_for_bundle(bundle, rows):
-    if not bundle or not rows:
-        return []
-    rows = canonical_density_records(rows)
-    grid_f = canonical_grid_f(
-        bundle.get("grid_low_f", 30.0),
-        bundle.get("grid_high_f", 125.0),
-        bundle.get("grid_step_f", 0.1),
-    )
-    output = [None] * len(rows)
-    by_hour = defaultdict(list)
-    for index, row in enumerate(rows):
-        try:
-            hour = str(int(row.get("cutoff_hour")))
-        except (TypeError, ValueError):
-            continue
-        by_hour[hour].append((index, row))
-    for hour, indexed_rows in by_hour.items():
-        model_bundle = (bundle.get("models") or {}).get(hour)
-        if not model_bundle:
-            continue
-        payloads = predict_density_payloads(
-            model_bundle["model"],
-            model_bundle["imputer"],
-            model_bundle["feature_names"],
-            [row for _, row in indexed_rows],
-            model_bundle.get("sigma_f", 3.0),
-            grid_f,
-            shape_config=model_bundle.get("density_shape"),
-        )
-        for (index, _row), payload in zip(indexed_rows, payloads):
-            output[index] = payload
-    return output
-
-
 def train_pooled_band_models(
     records,
     holdout_year=None,

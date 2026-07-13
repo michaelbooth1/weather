@@ -27,12 +27,15 @@ DEFAULT_DATA_BUDGET_MIB = {
     "wunderground": 2_000,
 }
 
-DEFAULT_ROOT_SHIMS = (
+DEFAULT_ROOT_STREAMLIT_SHIMS = (
     "app.py",
+)
+DEFAULT_ROOT_HELPER_SHIMS = (
     "backfill_all.py",
     "scratch.py",
     "train_all_markets.ps1",
 )
+ROOT_AREA_NAME = "<root>"
 PACKAGE_ROOTS = {
     "backtesting",
     "calibration",
@@ -120,7 +123,13 @@ def package_line_counts(root: str | Path, *, repo_root: str | Path) -> list[dict
     root = Path(root)
     if not root.exists():
         return []
-    rows = []
+    root_files = sorted(path for path in root.glob("*.py") if path.is_file())
+    rows = [{
+        "package": ROOT_AREA_NAME,
+        "path": _relative(root, repo_root),
+        "python_files": len(root_files),
+        "lines": sum(_count_lines(path) for path in root_files),
+    }]
     for child in sorted(root.iterdir()):
         if not child.is_dir() or child.name == "__pycache__":
             continue
@@ -139,7 +148,13 @@ def test_area_counts(tests_root: str | Path, *, repo_root: str | Path) -> list[d
     tests_root = Path(tests_root)
     if not tests_root.exists():
         return []
-    rows = []
+    root_files = sorted(path for path in tests_root.glob("*.py") if path.is_file())
+    rows = [{
+        "area": ROOT_AREA_NAME,
+        "path": _relative(tests_root, repo_root),
+        "python_files": len(root_files),
+        "lines": sum(_count_lines(path) for path in root_files),
+    }]
     for child in sorted(tests_root.iterdir()):
         if not child.is_dir() or child.name == "__pycache__":
             continue
@@ -261,9 +276,14 @@ def compatibility_shims(repo_root: str | Path = REPO_ROOT) -> dict:
         for path in sorted((repo_root / "src").glob("*.py"))
         if path.name != "__init__.py"
     ]
-    root_shims = [
+    root_streamlit_shims = [
         repo_root / name
-        for name in DEFAULT_ROOT_SHIMS
+        for name in DEFAULT_ROOT_STREAMLIT_SHIMS
+        if (repo_root / name).exists()
+    ]
+    root_helper_shims = [
+        repo_root / name
+        for name in DEFAULT_ROOT_HELPER_SHIMS
         if (repo_root / name).exists()
     ]
     script_root_shims = [
@@ -273,12 +293,23 @@ def compatibility_shims(repo_root: str | Path = REPO_ROOT) -> dict:
     ]
     return {
         "flat_src_wrappers": len(flat_wrappers),
-        "root_helper_shims": len(root_shims),
+        "root_streamlit_shims": len(root_streamlit_shims),
+        "root_helper_shims": len(root_helper_shims),
         "root_script_shims": len(script_root_shims),
-        "total": len(flat_wrappers) + len(root_shims) + len(script_root_shims),
+        "total": (
+            len(flat_wrappers)
+            + len(root_streamlit_shims)
+            + len(root_helper_shims)
+            + len(script_root_shims)
+        ),
         "examples": [
             _relative(path, repo_root)
-            for path in [*flat_wrappers[:5], *root_shims[:5], *script_root_shims[:5]]
+            for path in [
+                *flat_wrappers[:5],
+                *root_streamlit_shims[:5],
+                *root_helper_shims[:5],
+                *script_root_shims[:5],
+            ]
         ],
     }
 

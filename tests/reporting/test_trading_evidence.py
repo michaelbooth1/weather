@@ -295,7 +295,7 @@ class TestTradingEvidence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             old_run = _write_active_mm_run(root, "2026-06-18", "old-active")
-            _new_run = _write_active_mm_run(root, "2026-06-19", "new-active")
+            _write_active_mm_run(root, "2026-06-19", "new-active")
             report_json = root / "backtest" / "mm_paper_report.json"
             report_json.parent.mkdir(parents=True)
             report_json.write_text(json.dumps({

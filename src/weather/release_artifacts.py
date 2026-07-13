@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from weather.io import sha256_file
 from weather.paths import ARTIFACTS_ROOT, REPO_ROOT
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
@@ -66,14 +67,6 @@ ARTIFACT_KINDS = frozenset(
 
 class ReleaseArtifactVerificationError(RuntimeError):
     """An immutable release or pointer failed closed verification."""
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def canonical_payload_sha256(payload: Mapping[str, Any], *, omit: Sequence[str] = ()) -> str:

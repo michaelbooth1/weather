@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.io import sha256_file
 from weather.operations.storage_classes import classification_payload
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
@@ -24,14 +24,6 @@ DEFAULT_REPORT = DEFAULT_DATA_ROOT / "backtest" / "cleanup_preflight_report.md"
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _load_json(path: str | Path | None) -> dict[str, Any]:

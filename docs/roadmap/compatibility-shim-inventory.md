@@ -37,10 +37,13 @@ tests, scheduled tasks, CI, or reusable tools.
 
 | Class | Count | Owner | Allowed caller | Expiration | Removal status |
 | --- | ---: | --- | --- | --- | --- |
-| Flat Python module wrappers under `src/*.py` | 86 | Target `weather.*` module | External/local legacy commands only | 2026-07-18 | Retain until expiration, then remove wrappers whose caller scan stays clean. |
+| Flat Python module wrappers under `src/*.py` | 85 | Target `weather.*` module | External/local legacy commands only | 2026-07-18 | Retain until expiration, then remove wrappers whose caller scan stays clean. `src/__init__.py` is a namespace file, not a wrapper. |
 | Root Streamlit wrapper `app.py` | 1 | `app/streamlit_app.py` | External/local legacy dashboard launches only | 2026-07-18 | Retain until expiration; first-party launchers use `app/streamlit_app.py`. |
 | Root helper wrappers `backfill_all.py`, `scratch.py`, `train_all_markets.ps1` | 3 | Matching `tools/*` helper | External/local legacy helper invocations only | 2026-07-18 | Retain until expiration; first-party docs use `tools/*`. |
-| Root scheduled-task and dashboard scripts under `scripts/*` | 9 | Matching `scripts/ops/*` or `scripts/launch/*` script | External/local legacy operator invocations only | 2026-07-18 | Retain until expiration; first-party docs use `scripts/ops/*` and `scripts/launch/*`. |
+| Root scheduled-task and dashboard scripts under `scripts/*` | 14 | Matching `scripts/ops/*` or `scripts/launch/*` script | External/local legacy operator invocations only | 2026-07-18 | Retain until expiration; first-party docs use `scripts/ops/*` and `scripts/launch/*`. |
+
+Current total: 103 compatibility shims (85 flat Python wrappers, one Streamlit
+wrapper, three root helpers, and 14 root scripts).
 
 The caller ratchet lives in
 `tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`.

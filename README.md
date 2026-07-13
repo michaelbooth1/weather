@@ -195,7 +195,7 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
-.\venv\Scripts\python.exe -m weather.reporting.daily_learning
+.\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
 .\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-06-23
@@ -230,11 +230,11 @@ plus `data/backtest/nightly_retrain_report.md`.
 .\venv\Scripts\python.exe -m weather.backtesting.snapshot_analytics
 .\venv\Scripts\python.exe -m weather.collection.collection_health
 .\venv\Scripts\python.exe -m weather.collection.collection_health --fleet --live --strict --json
-.\venv\Scripts\python.exe -m weather.reporting.fleet_observability report --strict
-.\venv\Scripts\python.exe -m weather.reporting.data_layer_audit
+.\venv\Scripts\python.exe -m weather.reporting.fleet.fleet_observability report --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_layer_audit
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.source_redundancy report --start 2026-06-01 --end 2026-06-22
-.\venv\Scripts\python.exe -m weather.reporting.data_auditor
-.\venv\Scripts\python.exe -m weather.reporting.data_auditor --fleet --json --strict
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_auditor
+.\venv\Scripts\python.exe -m weather.reporting.data_quality.data_auditor --fleet --json --strict
 .\venv\Scripts\python.exe -m weather.calibration.feature_model --market toronto
 .\venv\Scripts\python.exe -m weather.calibration.feature_model --market nyc --skip-loo
 .\venv\Scripts\python.exe -m weather.calibration.intraday_calibration

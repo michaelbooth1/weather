@@ -13,9 +13,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from weather.io import append_jsonl as io_append_jsonl
-from weather.io import read_json as io_read_json
-from weather.io import write_json_atomic
+from weather.io import (
+    acquire_writer_lock,
+    append_jsonl as io_append_jsonl,
+    file_lock_is_stale,
+    read_json as io_read_json,
+    release_writer_lock,
+    write_json_atomic,
+    writer_lock_path,
+)
 from weather.time import age_minutes as time_age_minutes
 from weather.time import age_seconds as time_age_seconds
 from weather.time import parse_datetime
@@ -143,66 +149,6 @@ def atomic_write_json(
 
 def append_jsonl(path: str | Path, payload: Any) -> Path:
     return io_append_jsonl(path, payload)
-
-
-def writer_lock_path(path: str | Path) -> Path:
-    path = Path(path)
-    return path.with_name(f".{path.name}.writer.lock")
-
-
-def _writer_owner_payload(status_path: str | Path, owner: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload = {
-        "pid": os.getpid(),
-        "status_path": str(Path(status_path)),
-        "acquired_at_utc": datetime.now(timezone.utc).isoformat(),
-    }
-    payload.update(owner or {})
-    return payload
-
-
-def acquire_writer_lock(
-    status_path: str | Path,
-    *,
-    owner: dict[str, Any] | None = None,
-    attempts: int = 1,
-    stale_after_seconds: float = 120.0,
-    sleep_seconds: float = 0.1,
-    sleep_fn: SleepFn = time.sleep,
-) -> dict[str, Any] | None:
-    lock_path = writer_lock_path(status_path)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    attempts = max(1, int(attempts))
-    for attempt in range(attempts):
-        try:
-            handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            payload = _writer_owner_payload(status_path, owner)
-            os.write(handle, json.dumps(payload, sort_keys=True).encode("utf-8"))
-            return {"handle": handle, "path": str(lock_path), "owner": payload}
-        except FileExistsError:
-            if file_lock_is_stale(lock_path, max_age_seconds=stale_after_seconds):
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
-            if attempt != attempts - 1:
-                sleep_fn(sleep_seconds)
-    return None
-
-
-def release_writer_lock(lock: dict[str, Any] | None) -> None:
-    if not lock:
-        return
-    handle = lock.get("handle")
-    if handle is not None:
-        try:
-            os.close(handle)
-        except OSError:
-            pass
-    try:
-        Path(lock["path"]).unlink()
-    except (FileNotFoundError, KeyError):
-        pass
 
 
 def read_writer_lock(status_path: str | Path) -> dict[str, Any]:
@@ -825,15 +771,6 @@ def launch_detached(
         )
     finally:
         log_handle.close()
-
-
-def file_lock_is_stale(path: str | Path, *, max_age_seconds: float = 120.0) -> bool:
-    path = Path(path)
-    try:
-        age = time.time() - path.stat().st_mtime
-    except FileNotFoundError:
-        return False
-    return age > max_age_seconds
 
 
 def _file_lock_owner_pid(path: str | Path) -> int | None:

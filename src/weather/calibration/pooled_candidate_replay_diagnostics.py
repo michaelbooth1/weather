@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import pickle
 from collections import defaultdict
 from datetime import datetime
@@ -36,7 +35,7 @@ from weather.calibration.pooled_candidate_scoring import (
     payload_hash,
     write_microstructure_shadow_variants,
 )
-from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS, snapshot_band_key
+from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import REGISTRY
 from weather.paths import data_path
 from weather.reporting.candidate_lifecycle.variant_registry import variant_contract_for_artifact
@@ -44,104 +43,7 @@ from weather.scoring.metrics import group_sort_key
 
 
 DEFAULT_CASEBOOK = data_path() / "backtest" / "disagreement_casebook.json"
-MICROSTRUCTURE_NUMERIC_FEATURES = [
-    "candidate_p",
-    "replayed_p",
-    "recorded_p",
-    "market_yes",
-    "candidate_logit",
-    "replayed_logit",
-    "market_logit",
-    "candidate_minus_market",
-    "candidate_minus_replayed",
-    "replayed_minus_market",
-    "abs_candidate_minus_market",
-    "candidate_cutoff_hour",
-    *CLOB_MODEL_FEATURE_COLUMNS,
-]
-MICROSTRUCTURE_CATEGORICAL_FEATURES = [
-    "market_id",
-    "bin_type",
-    "candidate_cutoff_hour_bucket",
-]
 POOLED_REPLAY_PREDICTION_FUNCTION = "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay"
-
-
-def probability_logit(value, epsilon=1e-6):
-    value = max(float(epsilon), min(1.0 - float(epsilon), float(value)))
-    return math.log(value / (1.0 - value))
-
-
-def cutoff_hour_bucket(value):
-    try:
-        hour = int(value)
-    except (TypeError, ValueError):
-        return "na"
-    if hour <= 8:
-        return "07-08"
-    if hour <= 13:
-        return "09-13"
-    if hour <= 16:
-        return "14-16"
-    return "17-20"
-
-
-def _micro_float(value):
-    if value in (None, ""):
-        return None
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) else None
-
-
-def microstructure_feature_record(row):
-    """Build a no-outcome row for the CLOB shadow overlay."""
-    candidate = _micro_float(row.get("candidate_p"))
-    current = _micro_float(row.get("replayed_p"))
-    recorded = _micro_float(row.get("recorded_p"))
-    market = _micro_float(row.get("market_yes"))
-    output = {
-        "market_id": row.get("market_id") or "unknown",
-        "bin_type": row.get("bin_type") or row.get("bin_kind") or "eq",
-        "candidate_cutoff_hour": _micro_float(row.get("candidate_cutoff_hour")),
-        "candidate_cutoff_hour_bucket": cutoff_hour_bucket(row.get("candidate_cutoff_hour")),
-        "candidate_p": candidate,
-        "replayed_p": current,
-        "recorded_p": recorded,
-        "market_yes": market,
-        "candidate_logit": probability_logit(candidate) if candidate is not None else None,
-        "replayed_logit": probability_logit(current) if current is not None else None,
-        "market_logit": probability_logit(market) if market is not None else None,
-        "candidate_minus_market": candidate - market if candidate is not None and market is not None else None,
-        "candidate_minus_replayed": candidate - current if candidate is not None and current is not None else None,
-        "replayed_minus_market": current - market if current is not None and market is not None else None,
-        "abs_candidate_minus_market": abs(candidate - market) if candidate is not None and market is not None else None,
-    }
-    for column in CLOB_MODEL_FEATURE_COLUMNS:
-        output[column] = _micro_float(row.get(column))
-    return output
-
-
-def microstructure_feature_frame(records, feature_names=None):
-    frame = pd.DataFrame(records)
-    for column in MICROSTRUCTURE_NUMERIC_FEATURES:
-        if column not in frame:
-            frame[column] = None
-        frame[column] = pd.to_numeric(frame[column], errors="coerce")
-    for column in MICROSTRUCTURE_CATEGORICAL_FEATURES:
-        if column not in frame:
-            frame[column] = "unknown"
-        frame[column] = frame[column].fillna("unknown").astype(str)
-    features = pd.get_dummies(
-        frame[MICROSTRUCTURE_NUMERIC_FEATURES + MICROSTRUCTURE_CATEGORICAL_FEATURES],
-        columns=MICROSTRUCTURE_CATEGORICAL_FEATURES,
-        dtype=float,
-    )
-    if feature_names is not None:
-        features = features.reindex(columns=feature_names, fill_value=0.0)
-    return features
 
 
 def eligible_microstructure_rows(rows):

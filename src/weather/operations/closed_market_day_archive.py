@@ -23,6 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
+from weather.io import sha256_file
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations.closed_market_day_archive_manifest_contract import (
     validate_manifest_shape as validate_manifest_shape_contract,
@@ -613,14 +614,6 @@ def read_artifact_frame(
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def manifest_content_hash(manifest: dict[str, Any]) -> str:

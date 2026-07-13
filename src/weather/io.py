@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import time
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
+
+import requests
 
 
 SleepFn = Callable[[float], None]
@@ -17,6 +21,97 @@ CSV_DIAGNOSTIC_COLUMNS = {
     "_csv_utf8_decode_error",
 }
 LEGACY_CSV_ENCODINGS = ("cp1252", "latin-1")
+MAX_RETRY_DELAY_SECONDS = 10.0
+
+
+def sha256_file(path: str | Path) -> str:
+    """Return the SHA-256 digest of a file without loading it into memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def http_error_is_retryable(exc):
+    """Return whether an idempotent request failed transiently."""
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    if isinstance(exc, requests.HTTPError):
+        response = getattr(exc, "response", None)
+        if response is None:
+            return False
+        return response.status_code == 429 or response.status_code >= 500
+    return False
+
+
+def http_retry_after_response_seconds(response):
+    """Parse a response Retry-After header as a non-negative delay."""
+    if response is None:
+        return None
+    headers = getattr(response, "headers", {}) or {}
+    value = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if value in (None, ""):
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        pass
+    try:
+        retry_at = parsedate_to_datetime(str(value))
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return max(
+        0.0,
+        (retry_at.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds(),
+    )
+
+
+def http_retry_after_seconds(exc):
+    """Parse Retry-After from an HTTP exception's response."""
+    return http_retry_after_response_seconds(getattr(exc, "response", None))
+
+
+def http_retry_delay_seconds(
+    exc,
+    attempt,
+    base_delay=0.5,
+    max_delay=MAX_RETRY_DELAY_SECONDS,
+):
+    retry_after = http_retry_after_seconds(exc)
+    if retry_after is not None:
+        return min(float(max_delay), retry_after)
+    return min(float(max_delay), base_delay * (2**attempt))
+
+
+def request_with_retries(
+    fn,
+    attempts=3,
+    base_delay=0.5,
+    sleep=time.sleep,
+    max_delay=MAX_RETRY_DELAY_SECONDS,
+):
+    """Run an idempotent request and retry only transient failures."""
+    last = None
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - re-raised below
+            if not http_error_is_retryable(exc):
+                raise
+            last = exc
+            if attempt < attempts - 1:
+                sleep(
+                    http_retry_delay_seconds(
+                        exc,
+                        attempt,
+                        base_delay=base_delay,
+                        max_delay=max_delay,
+                    )
+                )
+    raise last
 
 
 def read_json(path: str | Path, default=None):

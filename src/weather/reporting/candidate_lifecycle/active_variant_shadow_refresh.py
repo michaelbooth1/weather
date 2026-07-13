@@ -29,7 +29,7 @@ from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
 )
 from weather.reporting.candidate_lifecycle.variant_registry import (
     active_export_paths,
-    active_registry_variants,
+    headline_registry_variants,
     audit_registry,
     load_registry,
     resolve_registry_path,
@@ -596,7 +596,7 @@ def execute_registry_prediction_exports(
     snapshots_root = snapshots_root or DEFAULT_SNAPSHOTS_ROOT
     corpus_path = Path(corpus_path)
     registry = load_registry(registry_path)
-    active_variants = active_registry_variants(registry)
+    active_variants = headline_registry_variants(registry)
     rows: list[dict[str, Any]] = []
     blockers: list[str] = []
     generated_paths: list[str] = []
@@ -836,7 +836,7 @@ def build_payload(
     if not prediction_paths and execution is None:
         prediction_paths = active_export_paths(registry)
     contract_audit = audit_registry(registry, evidence_paths=[str(path) for path in (prediction_paths or [])])
-    active_variants = active_registry_variants(registry)
+    active_variants = headline_registry_variants(registry)
     active_ids = {str(row.get("variant_id")) for row in active_variants if row.get("variant_id")}
     raw_rows, source_paths = _path_rows([str(path) for path in (prediction_paths or [])])
     selected_rows = _filter_active_or_control_rows(raw_rows, active_ids)

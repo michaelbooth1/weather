@@ -67,7 +67,6 @@ have not yet been split into cleaner owner modules:
   settlement helpers.
 - `market -> collection`: market-microstructure features still locate latest
   collection folders directly.
-- `market -> model`: market clients still reuse model-source request helpers.
 - `operations -> reporting`: daily refresh still orchestrates reporting modules
   directly.
 - `reporting -> calibration`: promotion refresh still imports calibration
@@ -99,7 +98,6 @@ Current removal routes:
 | `collection -> backtesting` | Low | Move settlement/tape-scoring read contracts used by live collection into shared backtesting-neutral IO helpers. |
 | `market -> backtesting` | Medium | Extract settlement label/tape-scoring contracts used by market-day labels and paper scoring into shared settlement IO helpers. |
 | `market -> collection` | Medium | Stop locating latest snapshot folders from market features directly; consume a collection inventory/manifest contract instead. |
-| `market -> model` | Medium | Move request/source helper reuse out of model serving modules into a shared provider-request utility. |
 | `operations -> reporting` | High | Split daily-refresh orchestration from report construction; operations should call reporting entrypoints, not import deep report internals. |
 | `reporting -> calibration` | High | Keep calibration-owned scoring/training in calibration and move report-readable candidate result contracts into shared schemas or reporting readers. |
 | `reporting -> operations` | Medium | Read operational status artifacts through stable JSON/status contracts instead of importing operations helpers. |
@@ -107,6 +105,10 @@ Current removal routes:
 Burn-down rule: remove at least one transitional edge whenever a related large
 module is split, and update this table plus `TRANSITIONAL_PACKAGE_EDGES` in
 `tests/operations/test_import_architecture.py` in the same change.
+
+Completed burn-down: `market -> model` was removed on 2026-07-12 by moving the
+shared idempotent HTTP retry policy to `weather.io`; legacy model and
+forecast-history imports remain available as re-exports.
 
 ## Facades
 

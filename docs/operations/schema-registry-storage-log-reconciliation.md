@@ -65,7 +65,7 @@ non-schema identifiers reported in `excluded_versions`.
 | `taker_current_replay_profitability_verification_v0.1` | verification report | registered | `weather.market.taker_bot_bakeoff` | Current replay profitability verification. |
 | `taker_edge_permission_map_v0.1` | durable permission map | registered | `weather.market.taker_edge_permission` | Per-slice taker edge permission map. |
 | `taker_model_variant_shadow_bakeoff_v0.1` | shadow bakeoff report | registered | `weather.market.taker_bot_bakeoff` | Taker model-variant shadow bakeoff. |
-| `taker_profitability_artifact_verification_v0.2` | verification report | registered | `weather.market.taker_bot_bakeoff` | Registered as `taker_profitability_artifact_verification_v0_2`; supersedes v0.1. |
+| `taker_profitability_artifact_verification_v0.2` | verification report | registered | `weather.market.taker_bot_bakeoff` | Canonical name: `taker_profitability_artifact_verification_composite`; deprecated lookup alias: `taker_profitability_artifact_verification_v0_2`; supersedes v0.1. |
 | `top_of_book_only_v1` | execution depth model identifier | excluded | `weather.market.taker_bot_sizing` | Not a serialized artifact schema. |
 | `top_of_book_plus_1pct_depth_v1` | execution depth model identifier | excluded | `weather.market.taker_bot_strategy_registry` | Not a serialized artifact schema. |
 

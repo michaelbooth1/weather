@@ -303,13 +303,6 @@ RECENT_REGISTERED_SCHEMAS = (
         "Counterfactual taker order tape.",
     ),
     SchemaSpec(
-        "taker_current_replay_profitability_verification",
-        "taker_current_replay_profitability_verification_v0.1",
-        "weather.market.taker_bot_bakeoff",
-        "active",
-        "Current replay profitability verifier for taker strategies.",
-    ),
-    SchemaSpec(
         "taker_edge_permission_map",
         "taker_edge_permission_map_v0.1",
         "weather.market.taker_edge_permission",
@@ -327,8 +320,8 @@ RECENT_REGISTERED_SCHEMAS = (
         "taker_profitability_artifact_verification_v0_2",
         "taker_profitability_artifact_verification_v0.2",
         "weather.market.taker_bot_bakeoff",
-        "active",
-        "Version 0.2 taker profitability artifact verifier emitted by bakeoff reports.",
+        "deprecated",
+        "Deprecated lookup alias for taker_profitability_artifact_verification_composite.",
         supersedes=("taker_profitability_artifact_verification_v0.1",),
     ),
     SchemaSpec(

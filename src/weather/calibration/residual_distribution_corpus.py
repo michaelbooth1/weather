@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.io import sha256_file
 from weather.experiment_contract import canonical_json, finalize_self_hash
 from weather.backtesting.settled_days import discover_settled_folders, folder_market_id
 from weather.market.market_registry import REGISTRY
@@ -129,14 +130,6 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _folder_input_lineage(folder: Path) -> dict[str, Any]:

@@ -104,6 +104,22 @@ TARGET_MODULES = [
     Path("src/weather/sources/supplemental_station_validation.py"),
     Path("src/weather/sources/wu_history.py"),
 ]
+
+
+def test_documented_python_module_targets_exist():
+    documents = [Path("README.md"), *Path("docs/operations").rglob("*.md")]
+    command_pattern = re.compile(r"\bpython\s+-m\s+(weather(?:\.[A-Za-z_]\w*)+)")
+    missing = []
+
+    for document in documents:
+        text = document.read_text(encoding="utf-8")
+        for module in command_pattern.findall(text):
+            target = Path("src").joinpath(*module.split("."))
+            if target.with_suffix(".py").is_file() or (target / "__main__.py").is_file():
+                continue
+            missing.append(f"{document}: {module}")
+
+    assert missing == []
 POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_feature_assembly.py"),
     Path("src/weather/calibration/pooled_density_training.py"),
@@ -582,7 +598,6 @@ TRANSITIONAL_PACKAGE_EDGES = {
     ("collection", "backtesting"),
     ("market", "backtesting"),
     ("market", "collection"),
-    ("market", "model"),
     ("operations", "reporting"),
     ("reporting", "calibration"),
     ("reporting", "operations"),

@@ -37,7 +37,7 @@ from weather.reporting.data_quality.artifact_disk_budget import (
 )
 from weather.reporting.candidate_lifecycle.variant_registry import (
     DEFAULT_REGISTRY_PATH,
-    active_registry_variants,
+    headline_registry_variants,
     decorate_variant,
     load_registry,
     registry_summary,
@@ -732,7 +732,7 @@ def governance_issues(
 
     if variant_registry:
         reported_ids = {variant.get("variant_id") for variant in variants if variant.get("variant_id")}
-        for registry_variant in active_registry_variants(variant_registry):
+        for registry_variant in headline_registry_variants(variant_registry):
             variant_id = registry_variant.get("variant_id")
             if variant_id and variant_id not in reported_ids:
                 issues.append({

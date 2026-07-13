@@ -46,7 +46,7 @@ from weather.market.market_microstructure_constants import (
 from weather.market.market_microstructure_features import write_clob_feature_rows
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
-from weather.model.model_sources import request_with_retries
+from weather.io import request_with_retries
 from weather.schema_registry import schema_version
 
 

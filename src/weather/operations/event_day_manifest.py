@@ -16,6 +16,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.io import sha256_file
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations import event_metadata_validation
 from weather.operations.storage_classes import classification_payload
@@ -150,14 +151,6 @@ REQUIRED_EVENT_DAY_ARTIFACT_FAMILY_NAMES = tuple(
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def sha256_file(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _atomic_write_text(path: str | Path, text: str) -> Path:

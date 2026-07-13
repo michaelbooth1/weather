@@ -1,6 +1,6 @@
 {
   "schema_version": "model_variant_registry_v0.1",
-  "updated_at_utc": "2026-07-12T19:28:16.936066+00:00",
+  "updated_at_utc": "2026-07-13T00:05:24.460809+00:00",
   "description": "Lifecycle registry for model variants used by shadow and promotion reports.",
   "variants": [
     {
@@ -10,6 +10,9 @@
       "track": "no_market",
       "roles": ["control"],
       "active_for_headline": false,
+      "live_capture_enabled": false,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "control",
       "roadmap_items": [72, 73, 84],
       "notes": "Shared current/candidate control row; deduplicate when combining unrelated families."
     },
@@ -124,6 +127,9 @@
       "track": "market_informed",
       "roles": ["market-informed", "quote-diagnostic"],
       "active_for_headline": true,
+      "live_capture_enabled": true,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "diagnostic_only",
       "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
       "artifact_required": true,
       "prediction_function": "weather.calibration.pooled_candidate_replay:microstructure_shadow_report",
@@ -141,6 +147,9 @@
       "track": "market_informed",
       "roles": ["market-informed", "oof-diagnostic", "partial-coverage"],
       "active_for_headline": true,
+      "live_capture_enabled": true,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "diagnostic_only",
       "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
       "artifact_required": true,
       "prediction_function": "weather.calibration.pooled_candidate_replay:microstructure_shadow_report",
@@ -180,6 +189,7 @@
       "track": "no_market",
       "roles": ["candidate", "no-market", "shadow-only", "label-leak-quarantined", "item224-active-timesplit-probe"],
       "active_for_headline": false,
+      "live_capture_enabled": false,
       "counts_toward_weather_model_promotion": false,
       "promotion_status": "blocked",
       "promotion_block_reason": "item224_v0_1_used_settlement/outcome-derived_features",
@@ -201,6 +211,10 @@
       "track": "no_market_extra_locations",
       "roles": ["candidate", "no-market", "extra-location", "flat-pooling", "shadow-only"],
       "active_for_headline": false,
+      "live_capture_enabled": false,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "blocked",
+      "promotion_block_reason": "target_vs_extra_pooling_gate_not_passed",
       "roadmap_items": [148, 149, 150],
       "notes": "Flat target-plus-extra pooling is a quarantined shadow lane; serving promotion requires the item-149 target-vs-extra gate to pass."
     },
@@ -211,6 +225,10 @@
       "track": "no_market_extra_locations",
       "roles": ["candidate", "no-market", "extra-location", "similarity-weighted", "partial-pooling", "shadow-only"],
       "active_for_headline": false,
+      "live_capture_enabled": false,
+      "counts_toward_weather_model_promotion": false,
+      "promotion_status": "blocked",
+      "promotion_block_reason": "target_only_self_comparison_not_passed",
       "roadmap_items": [148, 149, 150, 151],
       "notes": "Similarity-weighted partial pooling remains excluded from ordinary no-market headline selection until target-only self-comparison clears."
     },

@@ -2017,6 +2017,16 @@ REGISTERED_SCHEMAS = (
         "Predawn candidate ten-minute performance sidecar.",
     ),
 ) + RECENT_REGISTERED_SCHEMAS
+
+# A version normally identifies one registry name. This compatibility alias is
+# retained deliberately because both public lookup names have shipped.
+INTENTIONAL_SCHEMA_VERSION_ALIASES = {
+    "taker_profitability_artifact_verification_v0.2": {
+        "canonical": "taker_profitability_artifact_verification_composite",
+        "deprecated_aliases": ("taker_profitability_artifact_verification_v0_2",),
+    },
+}
+
 SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
