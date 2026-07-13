@@ -1,20 +1,53 @@
+import hashlib
 import json
 import pickle
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+import pyarrow as pa
+import pyarrow.parquet as pq
 from weather.operations.nightly_retrain import (  # noqa: E402
     build_parser,
     default_settled_day_target_date,
     execute_experiment_queue,
     nightly_run_sla_status,
+    point_in_time_qualification_command,
+    prepare_candidate_outputs,
+    prepare_production_point_in_time_outputs,
+    production_promotion_selection,
     run_nightly_retrain,
     settled_day_freshness_command,
 )
 from tests.operations.test_experiment_contract import materialized_manifest
+from weather.operations.release_candidate_contract import verify_candidate_semantic_contract
+from weather.reporting.validation.point_in_time_evaluation import (
+    MATERIALIZER_SCHEMA_VERSION,
+    POINT_IN_TIME_ARROW_SCHEMA,
+    canonical_json,
+    canonicalize_raw_row,
+    main as point_in_time_main,
+    point_in_time_key,
+    prepare_production_preselection,
+    sha256_file as point_in_time_sha256_file,
+    sha256_text,
+)
 from weather.reporting.daily.daily_learning_scorecard import _build_experiment_queue
+from weather.calibration.pooled_feature_model import (
+    add_city_features,
+    train_pooled_band_models,
+)
+from weather.calibration.family_secondary_artifacts import (
+    ARTIFACT_KINDS,
+    _build_output_artifact_inventory,
+    _selection_binding,
+)
+from weather.market.market_registry import NYC
+from weather.reporting.promotion.promotion_corpus import (
+    PROMOTION_CORPUS_SCHEMA_VERSION,
+    corpus_hash as promotion_corpus_hash,
+)
 
 
 def _write_base_model_fixture(root: Path, market_id: str = "nyc") -> None:
@@ -165,6 +198,157 @@ def _write_promotion(path, *, promote=None, shadow=None, blocked=None):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_point_in_time_source(
+    root: Path, *, candidate_id: str
+) -> tuple[Path, Path, Path]:
+    source = root / "point-in-time-source"
+    source.mkdir(parents=True, exist_ok=True)
+    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    fleet_dates = [
+        (end - timedelta(days=35 - offset)).isoformat() for offset in range(36)
+    ]
+    provenance = {
+        "artifact_family": "snapshots_long",
+        "source_mode": "validated_parquet",
+        "manifest_hash": "fixture-source-manifest",
+        "source_file_hash": "fixture-source-file",
+    }
+    rows = []
+    for target_date in fleet_dates:
+        for band, probability, label in (("low", 0.8, 1), ("high", 0.2, 0)):
+            rows.append(
+                canonicalize_raw_row(
+                    {
+                        "target_date": target_date,
+                        "market_id": "nyc",
+                        "snapshot_id": "08:00",
+                        "range_label": band,
+                        "variant_id": f"{candidate_id}.pooled_band",
+                        "release_id": candidate_id,
+                        "feature_available_at_utc": f"{target_date}T12:00:00+00:00",
+                        "captured_at_utc": f"{target_date}T12:00:00+00:00",
+                        "label_quality": "complete",
+                        "countable": True,
+                        "claim_lane": "weather_only",
+                        "replay_serve_parity": "pass",
+                        "source_quality": "healthy",
+                        "prediction_probability": probability,
+                        "label": label,
+                        "runtime_identity": f"runtime-{candidate_id}",
+                    },
+                    provenance=provenance,
+                )
+            )
+    rows.sort(key=point_in_time_key)
+    corpus = source / "corpus.parquet"
+    pq.write_table(pa.Table.from_pylist(rows, schema=POINT_IN_TIME_ARROW_SCHEMA), corpus)
+    corpus_sha = point_in_time_sha256_file(corpus)
+    now = datetime.now(timezone.utc)
+    manifest = {
+        "schema_version": MATERIALIZER_SCHEMA_VERSION,
+        "artifact_type": "point_in_time_materialization_manifest",
+        "generated_at_utc": now.isoformat(),
+        "status": "PASS",
+        "derived_artifact": {
+            "path": str(corpus),
+            "sha256": corpus_sha,
+            "row_count": len(rows),
+            "bytes": corpus.stat().st_size,
+            "compression": "zstd",
+        },
+        "streaming_bounds": {
+            "max_market_days": 60,
+            "max_rows_per_market_day": 250_000,
+            "raw_market_days_retained_at_once": 1,
+        },
+        "counts": {"source_modes": {"validated_parquet": len(fleet_dates)}},
+        "inputs": [
+            {
+                "folder": f"data/snapshots/fleet-{target_date}",
+                "target_date": target_date,
+                "market_id": "nyc",
+                "artifact_family": "snapshots_long",
+                "source_mode": "validated_parquet",
+                "source_row_count": 2,
+                "source_file_hash": hashlib.sha256(
+                    f"source:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "parquet_file_hash": hashlib.sha256(
+                    f"parquet:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "manifest_hash": hashlib.sha256(
+                    f"archive-manifest:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "event_manifest_hash": hashlib.sha256(
+                    f"event-manifest:{target_date}".encode("utf-8")
+                ).hexdigest(),
+                "release_id": candidate_id,
+                "runtime_identity_key": f"runtime-{candidate_id}",
+                "fallback_reason": None,
+            }
+            for target_date in fleet_dates
+        ],
+    }
+    manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
+    manifest_path = source / "materialization_manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    snapshots_root = root / "snapshots"
+    snapshots_root.mkdir(exist_ok=True)
+    replay_entries = []
+    for index, target_date in enumerate(fleet_dates):
+        slug = f"nyc-high-{target_date}"
+        folder = snapshots_root / slug
+        folder.mkdir(exist_ok=True)
+        snapshot_id = "08:00"
+        replay_entries.append(
+            {
+                "event_slug": slug,
+                "market_id": "nyc",
+                "target_date": target_date,
+                "folder": str(folder),
+                "folder_name": slug,
+                "folder_relative_to_snapshots_root": slug,
+                "settlement_bucket": 80,
+                "settlement_unit": "F",
+                "settlement_source": "wu_history",
+                "quality_grade": "complete",
+                "admitted_by": "quality_grade",
+                "snapshot_ids": [snapshot_id],
+                "snapshot_count": 1,
+                "row_count": 2,
+                "replay_record_hashes": {
+                    snapshot_id: hashlib.sha256(
+                        f"replay:{target_date}".encode("utf-8")
+                    ).hexdigest()
+                },
+                "tape_row_hashes": {
+                    snapshot_id: hashlib.sha256(
+                        f"tape:{target_date}".encode("utf-8")
+                    ).hexdigest()
+                },
+                "label_hash": hashlib.sha256(
+                    f"label:{target_date}".encode("utf-8")
+                ).hexdigest(),
+            }
+        )
+    replay_manifest = {
+        "schema_version": PROMOTION_CORPUS_SCHEMA_VERSION,
+        "generated_at_utc": now.isoformat(),
+        "as_of": (end + timedelta(days=1)).isoformat(),
+        "snapshots_root": str(snapshots_root),
+        "quality_grades": ["complete", "manual_override"],
+        "include_reconstructed": False,
+        "entries": replay_entries,
+        "summary": {"market_day_count": len(replay_entries)},
+    }
+    replay_manifest["corpus_hash"] = promotion_corpus_hash(replay_entries)
+    replay_manifest_path = source / "promotion_corpus.json"
+    replay_manifest_path.write_text(
+        json.dumps(replay_manifest, sort_keys=True), encoding="utf-8"
+    )
+    return corpus, manifest_path, replay_manifest_path
+
+
 def _materializing_runner(command, *, promotion="promote", **_kwargs):
     if "weather.calibration.family_secondary_artifacts" in command:
         out = Path(command[command.index("--out") + 1])
@@ -247,6 +431,29 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
+
+    def test_folder_backed_qualification_uses_prelock_materialized_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                "--release-candidate-mode",
+                "production",
+                "--point-in-time-folder",
+                str(Path(tmp) / "snapshots" / "nyc-high-2026-07-01"),
+            )
+            guard = prepare_candidate_outputs(args)
+            prepare_production_point_in_time_outputs(args, guard)
+            command = point_in_time_qualification_command(args)
+
+        self.assertNotIn("--folder", command)
+        self.assertEqual(
+            command[command.index("--source-corpus") + 1],
+            args.point_in_time_source_materialized_corpus,
+        )
+        self.assertEqual(
+            command[command.index("--source-manifest") + 1],
+            args.point_in_time_source_materialized_manifest,
+        )
 
     def test_dry_run_plans_candidate_only_outputs_and_manual_release_build(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -567,6 +774,367 @@ class TestNightlyRetrain(unittest.TestCase):
         )
         self.assertFalse(pointer_exists)
         self.assertIn("MANUAL_POINTER_ONLY", report)
+
+    def test_production_mode_materializes_real_receipts_and_locked_candidate_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_corpus, source_manifest, source_replay_manifest = (
+                _write_point_in_time_source(
+                root, candidate_id="test-nightly"
+                )
+            )
+            args = _args(
+                tmp,
+                "--build-candidate-release",
+                "--release-candidate-mode",
+                "production",
+                "--point-in-time-source-corpus",
+                str(source_corpus),
+                "--point-in-time-source-manifest",
+                str(source_manifest),
+                "--point-in-time-source-replay-manifest",
+                str(source_replay_manifest),
+                "--point-in-time-bootstrap-iterations",
+                "10",
+            )
+
+            def production_runner(command, **kwargs):
+                if (
+                    "weather.reporting.validation.point_in_time_evaluation"
+                    in command
+                ):
+                    point_in_time_main(command[3:])
+                    return {"returncode": 0, "stdout": "qualified", "stderr": ""}
+                if "weather.calibration.family_secondary_artifacts" in command:
+                    preselection = json.loads(
+                        Path(
+                            command[
+                                command.index("--point-in-time-preselection-lock")
+                                + 1
+                            ]
+                        ).read_text(encoding="utf-8")
+                    )
+                    out = Path(command[command.index("--out") + 1])
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    component_root = Path(
+                        command[command.index("--artifact-root") + 1]
+                    )
+                    component_root.mkdir(parents=True, exist_ok=True)
+                    locked = set(preselection["window_lock"]["target_dates"])
+                    unlocked = [
+                        value
+                        for value in preselection["selection_universe"]["fleet_dates"]
+                        if value not in locked
+                    ]
+                    family_artifacts = {}
+                    market_artifacts = {}
+                    for fit_scope, target in (
+                        ("family:F", family_artifacts),
+                        ("market", market_artifacts),
+                    ):
+                        for artifact_kind in ARTIFACT_KINDS:
+                            artifact_path = component_root / (
+                                f"{fit_scope.replace(':', '-')}-{artifact_kind}.json"
+                            )
+                            artifact_path.write_text(
+                                json.dumps(
+                                    {
+                                        "artifact_kind": artifact_kind,
+                                        "fit_scope": fit_scope,
+                                    },
+                                    sort_keys=True,
+                                ),
+                                encoding="utf-8",
+                            )
+                            target[artifact_kind] = {
+                                "status": "ok",
+                                "artifact": str(artifact_path),
+                            }
+                    markets = {"nyc": {"artifacts": market_artifacts}}
+                    output_inventory = _build_output_artifact_inventory(
+                        "F",
+                        family_artifacts,
+                        markets,
+                        require_complete=True,
+                    )
+                    source_inventory = [
+                        {
+                            "artifact_kind": artifact_kind,
+                            "fit_scope": fit_scope,
+                            "market_id": "nyc",
+                            "folder_count": 0,
+                            "folders": [],
+                            "row_count": len(unlocked),
+                            "row_target_dates": [
+                                {"target_date": value, "row_count": 1}
+                                for value in unlocked
+                            ],
+                        }
+                        for artifact_kind in ARTIFACT_KINDS
+                        for fit_scope in ("family:F", "market")
+                    ]
+                    binding = _selection_binding(
+                        preselection,
+                        source_inventory,
+                        output_inventory,
+                    )
+                    self.assertEqual(
+                        binding["selection_universe_dates"],
+                        preselection["selection_universe"]["fleet_dates"],
+                    )
+                    self.assertEqual(
+                        binding["training_universe_dates"],
+                        unlocked,
+                    )
+                    self.assertEqual(
+                        binding["trust_included_target_dates_sha256"],
+                        binding["training_universe_sha256"],
+                    )
+                    out.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": "family_calibration_v0.1",
+                                "family_unit": "F",
+                                "artifact_root": str(component_root.resolve()),
+                                "family_artifacts": family_artifacts,
+                                "markets": markets,
+                                "output_artifact_inventory": output_inventory,
+                                "point_in_time_selection_binding": binding,
+                            },
+                            sort_keys=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                    return {"returncode": 0, "stdout": "trained", "stderr": ""}
+                if "weather.calibration.pooled_feature_model" in command:
+                    preselection = json.loads(
+                        Path(
+                            command[
+                                command.index("--point-in-time-preselection-lock")
+                                + 1
+                            ]
+                        ).read_text(encoding="utf-8")
+                    )
+                    records = []
+                    locked = set(preselection["window_lock"]["target_dates"])
+                    for index, target_date in enumerate(
+                        preselection["selection_universe"]["fleet_dates"]
+                    ):
+                        if target_date in locked:
+                            continue
+                        final_bucket = 80 + (index % 5)
+                        records.append(
+                            add_city_features(
+                                {
+                                    "high_so_far": 77.0 + (index % 3),
+                                    "current_temp": 79.0,
+                                    "rise_from_7am": 12.0,
+                                    "warming_rate_2h": 3.0,
+                                    "hours_at_peak": 0.5,
+                                    "dewpoint_c": 60.0,
+                                    "humidity": 55.0,
+                                    "pressure": 29.9,
+                                    "pressure_trend_3h": -0.1,
+                                    "wind_speed_kmh": 10.0,
+                                    "forecast_high": final_bucket + 0.25,
+                                    "forecast_gap": 4.0,
+                                    "minutes_since_cutoff": 30.0,
+                                    "live_reading_temp": 81.0,
+                                    "live_reading_minus_high": 1.0,
+                                    "wind_group": "S-SW",
+                                    "cloud_group": "Fair/clear",
+                                    "final_bucket": final_bucket,
+                                    "cutoff_hour": 12,
+                                    "year": 2026,
+                                    "target_date": target_date,
+                                    "market_id": "nyc",
+                                },
+                                NYC,
+                                {"climate_normal": 82.0, "climate_std": 5.0},
+                            )
+                        )
+                    artifact, _ = train_pooled_band_models(
+                        records,
+                        holdout_year=None,
+                        production_preselection=preselection,
+                        production_outer_min_train_dates=int(
+                            command[
+                                command.index(
+                                    "--point-in-time-outer-min-train-dates"
+                                )
+                                + 1
+                            ]
+                        ),
+                        production_inner_min_train_dates=int(
+                            command[
+                                command.index(
+                                    "--point-in-time-inner-min-train-dates"
+                                )
+                                + 1
+                            ]
+                        ),
+                        production_embargo_days=int(
+                            command[
+                                command.index("--point-in-time-embargo-days") + 1
+                            ]
+                        ),
+                        production_step_dates=int(
+                            command[
+                                command.index("--point-in-time-step-dates") + 1
+                            ]
+                        ),
+                    )
+                    artifact_path = Path(command[command.index("--artifact") + 1])
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    with artifact_path.open("wb") as handle:
+                        pickle.dump(artifact, handle)
+                    return {"returncode": 0, "stdout": "trained", "stderr": ""}
+                return _materializing_runner(command, **kwargs)
+
+            def computed_candidate_day(_args, _manifest, folder, _artifact, **_kwargs):
+                target_date = Path(folder).name[-10:]
+                return {
+                    "candidate_rows": [
+                        {
+                            "market_id": "nyc",
+                            "target_date": target_date,
+                            "snapshot_id": "08:00",
+                            "band": band,
+                            "bin_type": "range",
+                            "bin_value_c": 79.0 if band == "low" else 81.0,
+                            "bin_value_hi": 80.0 if band == "low" else 82.0,
+                            "captured_at_local": f"{target_date}T12:00:00+00:00",
+                            "source_freshness_state": "all_fresh",
+                            "candidate_cutoff_hour": 12,
+                            "candidate_p": probability,
+                            "outcome": label,
+                            "settlement_bucket": 80,
+                        }
+                        for band, probability, label in (
+                            ("low", 0.8, 1),
+                            ("high", 0.2, 0),
+                        )
+                    ],
+                    "coverage": {"missing_candidate_rows": 0},
+                    "replay_results": {"corpus_warnings": []},
+                }
+
+            with patch(
+                "weather.calibration.pooled_candidate_replay._compute_pooled_candidate_day",
+                side_effect=computed_candidate_day,
+            ):
+                payload, _status, _report = run_nightly_retrain(
+                    args,
+                    runner=production_runner,
+                    code_identity_provider=_clean_code_identity,
+                )
+            self.assertEqual(payload["status"], "promote_ready", payload)
+            self.assertEqual(
+                payload["candidate_release"]["status"], "CREATED", payload
+            )
+            candidate_dir = root / "artifacts" / "candidates" / "test-nightly"
+            verified = verify_candidate_semantic_contract(candidate_dir)
+            plan = json.loads(
+                (
+                    candidate_dir
+                    / "contract"
+                    / "point_in_time"
+                    / "validation_plan.json"
+                ).read_text(encoding="utf-8")
+            )
+            evaluation = json.loads(
+                (
+                    candidate_dir
+                    / "contract"
+                    / "point_in_time"
+                    / "streaming_evaluation.json"
+                ).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(payload["candidate_release"]["candidate_mode"], "production")
+        self.assertTrue(verified["production_capable"])
+        self.assertEqual(verified["point_in_time_qualification"]["locked_window_days"], 14)
+        self.assertEqual(
+            {row["stage_name"] for row in plan["fit_receipts"]},
+            {
+                "feature_selection",
+                "scaling_imputation",
+                "model",
+                "calibration",
+                "postprocessing",
+                "regime_router",
+            },
+        )
+        self.assertTrue(
+            all(
+                not str(row["implementation_identity"]).startswith("fixture.")
+                and row["stage_output_payload"]["declared_stage_output"][
+                    "binding_kind"
+                ]
+                    == "actual_pooled_band_training"
+                for row in plan["fit_receipts"]
+            )
+        )
+        locked = set(evaluation["window_lock"]["target_dates"])
+        selected_dates = {
+            value
+            for row in plan["folds"]
+            for fold in [row["outer"], *row["inner"]]
+            for key in ("train_dates", "embargo_dates", "validation_dates")
+            for value in fold[key]
+        }
+        self.assertFalse(locked & selected_dates)
+        self.assertEqual(
+            plan["candidate_selection_contract"]["window_lock_id"],
+            evaluation["window_lock"]["window_lock_id"],
+        )
+
+    def test_production_promotion_selection_rejects_changed_prelocked_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            corpus, manifest, replay_manifest = _write_point_in_time_source(
+                root, candidate_id="test-nightly"
+            )
+            preselection_path = root / "preselection.json"
+            prepare_production_preselection(
+                source_corpus=corpus,
+                source_manifest=manifest,
+                replay_manifest=replay_manifest,
+                lock_out=preselection_path,
+            )
+            args = _args(tmp)
+            args.point_in_time_preselection_lock = str(preselection_path)
+            args.point_in_time_replay_manifest = str(replay_manifest)
+            args.snapshots_root = str(root / "snapshots")
+            args.point_in_time_max_market_days = 60
+
+            preselection, folders, inventory = production_promotion_selection(args)
+            self.assertEqual(len(folders), len(inventory))
+            self.assertEqual(
+                preselection["source"]["replay_manifest_sha256"],
+                point_in_time_sha256_file(replay_manifest),
+            )
+
+            changed = json.loads(replay_manifest.read_text(encoding="utf-8"))
+            changed["summary"]["tampered_after_prelock"] = True
+            replay_manifest.write_text(
+                json.dumps(changed, sort_keys=True), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "prelocked source"):
+                production_promotion_selection(args)
+
+    def test_research_mode_remains_default_and_plans_no_point_in_time_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status, _report = run_nightly_retrain(
+                _args(tmp, "--dry-run"),
+                runner=lambda *_args, **_kwargs: self.fail("dry-run executed a step"),
+            )
+
+        self.assertEqual(payload["config"]["release_candidate_mode"], "research_only")
+        self.assertNotIn(
+            "point_in_time_production_qualification",
+            {row["name"] for row in payload["steps"]},
+        )
 
     def test_shadow_gate_keeps_candidate_mutable_and_does_not_build_release(self):
         with tempfile.TemporaryDirectory() as tmp:

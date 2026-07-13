@@ -163,6 +163,18 @@ def temperature_scale_probability(value, temperature=1.0):
     return clip_probability(sigmoid(logit / temperature))
 
 
+def pooled_band_regime_route(_row=None):
+    """Select the sole serving route for a pooled band-model row.
+
+    The current pooled artifact has no learned multi-route selector.  Keeping
+    this decision in the prediction runtime gives training-only receipts and
+    replay the same executable routing path while making the no-fit policy
+    explicit.
+    """
+
+    return "pooled_band_default"
+
+
 def late_lockin_strength_from_features(record):
     try:
         hour = int(record.get("cutoff_hour"))

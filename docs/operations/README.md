@@ -41,8 +41,9 @@ environment.
   files, dashboard control, and code-restart guidance.
 - [Host Load Policy](HOST_LOAD_POLICY.md) owns when heavy work may run on the
   capture host.
-- [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md) owns candidate-only
-  retraining and immutable inactive-release construction.
+- [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md) owns research and
+  production candidate-only retraining plus immutable inactive-release
+  construction.
 - [Exchange Economics Snapshot Runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)
   owns publication, review, acceptance, and drift checks for exchange rules.
 - [Weather Underground Current-Day Degradation](2026-06-21-wu-history-current-day-degradation.md)
@@ -84,7 +85,8 @@ Use the storage-class contract and a reviewed cleanup manifest.
 ## Evaluation And Research Operations
 
 - [Point-In-Time Evaluation Runbook](POINT_IN_TIME_EVALUATION.md) defines the
-  evidence key, materialization, folds, and locked evaluation workflow.
+  evidence key, materialization, production preselection and qualification,
+  folds, and locked evaluation workflow.
 - [Research Audit Harness](RESEARCH_AUDIT_HARNESS.md) owns reproducible audit
   entrypoints.
 

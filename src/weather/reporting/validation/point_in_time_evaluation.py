@@ -22,6 +22,7 @@ import hashlib
 import json
 import math
 import os
+import pickle
 import random
 import re
 from collections import Counter, defaultdict
@@ -35,6 +36,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from weather.backtesting.settled_days import discover_settled_folders, folder_market_id
+from weather.calibration.pooled_candidate_replay import (
+    iter_bounded_pooled_band_candidate_replay_market_days,
+)
+from weather.calibration.pooled_training import (
+    verify_pooled_point_in_time_training_evidence,
+)
 from weather.market.market_config import date_from_event_slug
 from weather.operations.closed_market_day_archive import (
     DEFAULT_ARCHIVE_ROOT,
@@ -42,6 +49,10 @@ from weather.operations.closed_market_day_archive import (
     read_market_day_artifact,
 )
 from weather.paths import data_path
+from weather.reporting.promotion.promotion_corpus import (
+    build_promotion_corpus,
+    load_manifest as load_promotion_corpus_manifest,
+)
 from weather.schema_registry import schema_version
 
 
@@ -50,6 +61,12 @@ MATERIALIZER_SCHEMA_VERSION = schema_version("point_in_time_materializer")
 VALIDATION_PLAN_SCHEMA_VERSION = schema_version("point_in_time_validation_plan")
 FIT_RECEIPT_SCHEMA_VERSION = schema_version("point_in_time_fit_receipt")
 EVALUATION_SCHEMA_VERSION = schema_version("point_in_time_streaming_evaluation")
+PRODUCTION_PRESELECTION_SCHEMA_VERSION = schema_version(
+    "production_point_in_time_preselection"
+)
+CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION = schema_version(
+    "point_in_time_candidate_training_graph"
+)
 TRANSFORMATION_VERSION = MATERIALIZER_SCHEMA_VERSION
 
 DEFAULT_DERIVED_ROOT = data_path("analysis", "point_in_time", "v0.1")
@@ -1339,10 +1356,17 @@ def validation_plan_payload(
     fit_receipts: Sequence[Mapping[str, Any]] = (),
     required_fit_stages: Sequence[str] = REQUIRED_FIT_STAGES,
     require_output_bound_receipts: bool = False,
+    selection_excluded_dates: Iterable[str | date] = (),
+    selection_window_lock: Mapping[str, Any] | None = None,
+    resource_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     dates = _unique_dates(fleet_dates)
+    excluded_dates = _unique_dates(selection_excluded_dates)
+    if not set(excluded_dates) <= set(dates):
+        raise ValueError("selection-excluded dates must belong to the corpus")
+    selection_dates = [item for item in dates if item not in set(excluded_dates)]
     nested = build_nested_rolling_origin_folds(
-        dates,
+        selection_dates,
         outer_min_train_dates=outer_min_train_dates,
         inner_min_train_dates=inner_min_train_dates,
         outer_validation_dates=outer_validation_dates,
@@ -1411,6 +1435,22 @@ def validation_plan_payload(
             "corpus_sha256": str(corpus_sha256 or ""),
             "materialization_manifest_hash": str(materialization_manifest_hash or ""),
         }
+    if excluded_dates:
+        window_lock = dict(selection_window_lock or {})
+        locked_values = [item.isoformat() for item in excluded_dates]
+        if list(window_lock.get("target_dates") or ()) != locked_values:
+            raise ValueError("selection window lock does not match excluded dates")
+        payload["candidate_selection_contract"] = {
+            "status": "PASS",
+            "window_lock_id": str(window_lock.get("window_lock_id") or ""),
+            "window_locked_at_utc": str(window_lock.get("generated_at_utc") or ""),
+            "locked_evaluation_dates": locked_values,
+            "locked_dates_used_for_selection": False,
+            "candidate_selection_permission": "forbidden",
+            "selection_date_count": len(selection_dates),
+        }
+    if resource_contract is not None:
+        payload["resource_contract"] = _jsonable(resource_contract)
     return _finalize_hash(payload, "plan_hash")
 
 
@@ -1525,6 +1565,72 @@ def verify_validation_plan_payload(
             if scope in scopes:
                 raise ContractViolation("invalid_validation_plan", "duplicate inner fold")
             scopes[scope] = inner
+
+    selection_contract = payload.get("candidate_selection_contract")
+    if require_fit_receipts:
+        if not isinstance(selection_contract, Mapping):
+            raise ContractViolation(
+                "invalid_candidate_selection_contract",
+                "production validation plan is missing its locked selection contract",
+            )
+        locked_selection_dates = tuple(
+            str(value)
+            for value in selection_contract.get("locked_evaluation_dates") or ()
+        )
+        locked_set = set(locked_selection_dates)
+        if (
+            selection_contract.get("status") != "PASS"
+            or len(locked_selection_dates) != 14
+            or len(locked_set) != 14
+            or selection_contract.get("locked_dates_used_for_selection") is not False
+            or selection_contract.get("candidate_selection_permission") != "forbidden"
+            or not str(selection_contract.get("window_lock_id") or "")
+        ):
+            raise ContractViolation(
+                "invalid_candidate_selection_contract",
+                "production candidate selection lock is incomplete",
+            )
+        for value in locked_selection_dates:
+            _parse_date(value, "candidate_selection_contract.locked_date")
+        if not locked_set <= set(fleet_dates):
+            raise ContractViolation(
+                "invalid_candidate_selection_contract",
+                "locked selection dates escape the frozen corpus",
+            )
+        if any(
+            locked_set
+            & set(fold.train_dates + fold.embargo_dates + fold.validation_dates)
+            for fold in scopes.values()
+        ):
+            raise ContractViolation(
+                "locked_window_reused_for_selection",
+                "locked evaluation dates appear in a model-selection fold",
+            )
+        locked_at = _parse_utc(
+            selection_contract.get("window_locked_at_utc"),
+            "candidate_selection_contract.window_locked_at_utc",
+        )
+        plan_generated = _parse_utc(
+            payload.get("generated_at_utc"), "validation_plan.generated_at_utc"
+        )
+        if locked_at > plan_generated:
+            raise ContractViolation(
+                "window_locked_after_candidate_selection",
+                "evaluation window was locked after the validation plan was selected",
+            )
+        resources = payload.get("resource_contract")
+        if (
+            not isinstance(resources, Mapping)
+            or resources.get("corpus_read_mode") != "market_day_streaming"
+            or int(resources.get("raw_market_days_retained_at_once") or 0) != 1
+            or not 0 < int(resources.get("private_memory_budget_bytes") or 0) <= 8 * 1024**3
+            or not 0 < int(resources.get("max_market_days") or 0) <= 60
+            or not 0 < int(resources.get("max_fold_scopes") or 0) <= 128
+        ):
+            raise ContractViolation(
+                "invalid_point_in_time_resource_contract",
+                "production point-in-time resource bounds are missing or unsafe",
+            )
 
     receipt_contract = payload.get("fit_receipt_contract")
     if not isinstance(receipt_contract, Mapping):
@@ -2197,6 +2303,94 @@ def collect_parquet_fleet_dates(
     return tuple(sorted(dates))
 
 
+def _selection_universe_basis(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the candidate-independent identity locked before training.
+
+    Candidate/release identities, probabilities, runtime identity, and replay
+    payloads are deliberately excluded. Labels, timestamps, and source quality
+    remain bound so the post-training replay cannot silently change the
+    evaluation population.
+    """
+
+    return {
+        "target_date": str(row["target_date"]),
+        "market_id": str(row["market_id"]),
+        "cutoff_or_snapshot": str(row["cutoff_or_snapshot"]),
+        "band": str(row["band"]),
+        "feature_available_at_utc": str(row["feature_available_at_utc"]),
+        "prediction_made_at_utc": str(row["prediction_made_at_utc"]),
+        "label_quality": str(row["label_quality"]),
+        "countable": bool(row["countable"]),
+        "claim_lane": str(row["claim_lane"]),
+        "source_quality": (
+            "countable"
+            if str(row["source_quality"]) in COUNTABLE_SOURCE_QUALITIES
+            else str(row["source_quality"])
+        ),
+        "label": row.get("label"),
+    }
+
+
+def selection_universe_contract(
+    parquet_path: str | Path,
+    *,
+    batch_rows: int = 65_536,
+) -> dict[str, Any]:
+    """Hash one unique, countable weather-only row per evaluation coordinate."""
+
+    digest = hashlib.sha256()
+    row_count = 0
+    dates: set[str] = set()
+    previous_coordinate: tuple[str, str, str, str] | None = None
+    for row in iter_point_in_time_parquet(parquet_path, batch_rows=batch_rows):
+        if row.get("claim_lane") != "weather_only" or not row.get("countable"):
+            continue
+        coordinate = (
+            str(row["target_date"]),
+            str(row["market_id"]),
+            str(row["cutoff_or_snapshot"]),
+            str(row["band"]),
+        )
+        if previous_coordinate is not None and coordinate <= previous_coordinate:
+            code = (
+                "duplicate_selection_coordinate"
+                if coordinate == previous_coordinate
+                else "unsorted_selection_universe"
+            )
+            raise ContractViolation(
+                code,
+                "production source must contain one sorted weather-only row per coordinate",
+            )
+        previous_coordinate = coordinate
+        basis = _selection_universe_basis(row)
+        digest.update(canonical_json(basis).encode("utf-8"))
+        digest.update(b"\n")
+        row_count += 1
+        dates.add(coordinate[0])
+    if not row_count:
+        raise ContractViolation(
+            "empty_selection_universe",
+            "production source has no countable weather-only rows",
+        )
+    return {
+        "schema_version": EVALUATION_SCHEMA_VERSION,
+        "hash_algorithm": "sha256",
+        "canonicalization": "canonical_json_lines",
+        "sha256": digest.hexdigest(),
+        "row_count": row_count,
+        "fleet_dates": sorted(dates),
+        "candidate_dependent_fields_excluded": [
+            "variant_id",
+            "release_id",
+            "prediction_probability",
+            "runtime_identity",
+            "source_payload_json",
+            "source_payload_sha256",
+            "source_provenance_json",
+        ],
+    }
+
+
 def collect_jsonl_fleet_dates(
     path: str | Path, *, max_line_bytes: int = 4 * 1024 * 1024
 ) -> tuple[str, ...]:
@@ -2213,6 +2407,7 @@ def build_window_lock(
     available_dates: Iterable[str | date],
     *,
     input_sha256: str,
+    input_kind: str = "corpus_sha256",
     window_days: int = 14,
     window_end: str | date | None = None,
     generated_at_utc: str | None = None,
@@ -2237,6 +2432,7 @@ def build_window_lock(
     missing = [item for item in expected if item not in set(selected)]
     lock_basis = {
         "input_sha256": input_sha256,
+        "input_kind": str(input_kind),
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
         "window_days": window_days,
@@ -2270,6 +2466,7 @@ def evaluate_point_in_time_parquet(
     manifest_sha256: str | None = None,
     candidate_artifact_sha256: str | None = None,
     validation_plan_hash: str | None = None,
+    window_lock: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     manifest = verify_materialization_manifest(
         parquet_path,
@@ -2278,13 +2475,45 @@ def evaluate_point_in_time_parquet(
         expected_release_id=release_id,
     )
     dates = collect_parquet_fleet_dates(parquet_path, batch_rows=batch_rows)
-    lock = build_window_lock(
-        dates,
-        input_sha256=str((manifest.get("derived_artifact") or {}).get("sha256") or ""),
-        window_days=window_days,
-        window_end=window_end,
-        generated_at_utc=generated_at_utc,
-    )
+    corpus_sha256 = str((manifest.get("derived_artifact") or {}).get("sha256") or "")
+    if window_lock is None:
+        lock = build_window_lock(
+            dates,
+            input_sha256=corpus_sha256,
+            window_days=window_days,
+            window_end=window_end,
+            generated_at_utc=generated_at_utc,
+        )
+    else:
+        lock = dict(window_lock)
+        input_kind = str(lock.get("input_kind") or "corpus_sha256")
+        if input_kind == "selection_universe_sha256":
+            expected_lock_input = selection_universe_contract(
+                parquet_path,
+                batch_rows=batch_rows,
+            )["sha256"]
+        elif input_kind == "corpus_sha256":
+            expected_lock_input = corpus_sha256
+        else:
+            raise ContractViolation(
+                "invalid_evaluation_window_lock",
+                "preselected evaluation lock has an unsupported input kind",
+            )
+        if (
+            lock.get("input_sha256") != expected_lock_input
+            or int(lock.get("window_days") or 0) != int(window_days)
+            or not set(str(value) for value in lock.get("target_dates") or ())
+            <= set(dates)
+        ):
+            raise ContractViolation(
+                "invalid_evaluation_window_lock",
+                "preselected evaluation lock does not match the frozen corpus",
+            )
+        if window_end is not None and lock.get("window_end") != str(window_end):
+            raise ContractViolation(
+                "invalid_evaluation_window_lock",
+                "preselected evaluation lock has the wrong window end",
+            )
     started = _generated_at_utc(evaluation_started_at_utc or generated_at_utc)
     payload = evaluate_point_in_time_rows(
         iter_point_in_time_parquet(parquet_path, batch_rows=batch_rows),
@@ -2304,7 +2533,12 @@ def evaluate_point_in_time_parquet(
     payload.pop("evaluation_hash", None)
     payload["input"] = {
         "path": str(parquet_path),
-        "sha256": lock["input_sha256"],
+        "sha256": corpus_sha256,
+        "selection_universe_sha256": (
+            lock["input_sha256"]
+            if lock.get("input_kind") == "selection_universe_sha256"
+            else None
+        ),
         "materialization_manifest": str(manifest_path),
         "materialization_manifest_hash": str(manifest.get("manifest_hash") or ""),
         "source_modes": (manifest.get("counts") or {}).get("source_modes") or {},
@@ -2322,6 +2556,7 @@ def verify_streaming_evaluation_payload(
     expected_manifest_sha256: str | None = None,
     expected_candidate_artifact_sha256: str | None = None,
     expected_corpus_sha256: str | None = None,
+    expected_selection_universe_sha256: str | None = None,
     expected_manifest_hash: str | None = None,
     expected_validation_plan_hash: str | None = None,
     require_production_window: bool = False,
@@ -2397,6 +2632,7 @@ def verify_streaming_evaluation_payload(
         raise ContractViolation("invalid_evaluation_window_lock", "window lock is missing")
     lock_basis = {
         "input_sha256": lock.get("input_sha256"),
+        "input_kind": lock.get("input_kind") or "corpus_sha256",
         "window_start": lock.get("window_start"),
         "window_end": lock.get("window_end"),
         "window_days": lock.get("window_days"),
@@ -2413,8 +2649,28 @@ def verify_streaming_evaluation_payload(
     target_dates = tuple(str(value) for value in lock.get("target_dates") or ())
     for value in target_dates:
         _parse_date(value, "window_lock.target_date")
-    if expected_corpus_sha256 is not None and lock.get("input_sha256") != expected_corpus_sha256:
-        raise ContractViolation("invalid_evaluation_window_lock", "window corpus hash mismatch")
+    lock_input_kind = str(lock.get("input_kind") or "corpus_sha256")
+    if lock_input_kind == "corpus_sha256":
+        if (
+            expected_corpus_sha256 is not None
+            and lock.get("input_sha256") != expected_corpus_sha256
+        ):
+            raise ContractViolation(
+                "invalid_evaluation_window_lock", "window corpus hash mismatch"
+            )
+    elif lock_input_kind == "selection_universe_sha256":
+        if (
+            expected_selection_universe_sha256 is not None
+            and lock.get("input_sha256") != expected_selection_universe_sha256
+        ):
+            raise ContractViolation(
+                "invalid_evaluation_window_lock",
+                "window selection-universe hash mismatch",
+            )
+    else:
+        raise ContractViolation(
+            "invalid_evaluation_window_lock", "window input kind is unsupported"
+        )
     if require_production_window:
         if (
             lock.get("schema_version") != EVALUATION_SCHEMA_VERSION
@@ -2439,6 +2695,16 @@ def verify_streaming_evaluation_payload(
             raise ContractViolation(
                 "invalid_evaluation_window_lock", "production window bounds are inconsistent"
             )
+        if max_age_days is not None:
+            target_age_days = (
+                (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc).date()
+                - parsed_dates[-1]
+            ).days
+            if not 0 <= target_age_days <= max_age_days:
+                raise ContractViolation(
+                    "stale_streaming_evaluation_target_window",
+                    "evaluation target window is stale or future-dated",
+                )
 
     lane_isolation = payload.get("lane_isolation")
     if lane_isolation != {
@@ -2500,6 +2766,218 @@ def _read_contract_json(path: str | Path, *, code: str) -> dict[str, Any]:
     return payload
 
 
+def _verify_candidate_training_graph(
+    graph: Mapping[str, Any],
+    *,
+    manifest: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+    selection_universe: Mapping[str, Any],
+    expected_candidate_id: str,
+    expected_release_id: str,
+    expected_candidate_artifact_sha256: str | None = None,
+    expected_calibration_artifact_sha256: str | None = None,
+    expected_routing_artifact_sha256: str | None = None,
+    expected_route_selection: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Verify the immutable bridge from real trainer output to PIT scoring."""
+
+    if (
+        graph.get("schema_version") != CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION
+        or graph.get("artifact_type") != "point_in_time_candidate_training_graph"
+        or graph.get("status") != "PASS"
+        or graph.get("candidate_id") != expected_candidate_id
+        or graph.get("release_id") != expected_release_id
+        or graph.get("locked_dates_used_for_selection") is not False
+    ):
+        raise ContractViolation(
+            "invalid_candidate_training_graph",
+            "candidate training graph identity or selection contract is invalid",
+        )
+    _verify_self_hash(
+        graph,
+        "graph_hash",
+        "candidate_training_graph_hash_mismatch",
+    )
+    graph_hash = str(graph.get("graph_hash") or "")
+    if (
+        manifest.get("candidate_training_graph_hash") != graph_hash
+        or manifest.get("candidate_training_graph") != graph
+        or plan.get("candidate_training_graph_hash") != graph_hash
+        or plan.get("candidate_training_graph") != graph
+        or (evaluation.get("contract_binding") or {}).get(
+            "candidate_training_graph_hash"
+        )
+        != graph_hash
+    ):
+        raise ContractViolation(
+            "candidate_training_graph_mismatch",
+            "materialization, plan, and evaluation do not share one training graph",
+        )
+
+    universe_sha = str(selection_universe.get("sha256") or "")
+    evaluation_binding = evaluation.get("contract_binding") or {}
+    if (
+        graph.get("selection_universe_sha256") != universe_sha
+        or evaluation_binding.get("selection_universe_sha256") != universe_sha
+    ):
+        raise ContractViolation(
+            "candidate_training_population_mismatch",
+            "candidate training graph is not bound to the replayed selection universe",
+        )
+    selection_contract = plan.get("candidate_selection_contract") or {}
+    evaluation_lock = evaluation.get("window_lock") or {}
+    stage_bindings = graph.get("selection_stage_bindings")
+    locked_values = list(evaluation_lock.get("target_dates") or ())
+    if (
+        not isinstance(stage_bindings, Mapping)
+        or set(stage_bindings) != {"calibration", "routing"}
+        or graph.get("selection_stage_bindings_sha256")
+        != sha256_text(canonical_json(stage_bindings))
+        or any(
+            not isinstance(binding, Mapping)
+            or binding.get("preselection_hash") != graph.get("preselection_hash")
+            or binding.get("window_lock_id") != graph.get("window_lock_id")
+            or list(binding.get("locked_dates") or ()) != locked_values
+            or binding.get("used_for_selection") is not False
+            or not SHA256_RE.fullmatch(str(binding.get("binding_sha256") or ""))
+            or not SHA256_RE.fullmatch(
+                str(binding.get("source_folder_date_inventory_sha256") or "")
+            )
+            for binding in stage_bindings.values()
+        )
+    ):
+        raise ContractViolation(
+            "locked_window_reused_for_selection",
+            "calibration or routing selection is not bound to the locked exclusion",
+        )
+    if (
+        graph.get("window_lock_id") != evaluation_lock.get("window_lock_id")
+        or selection_contract.get("window_lock_id")
+        != evaluation_lock.get("window_lock_id")
+        or evaluation_lock.get("input_kind") != "selection_universe_sha256"
+        or evaluation_lock.get("input_sha256") != universe_sha
+        or graph.get("preselection_hash")
+        != manifest.get("preselection_hash")
+    ):
+        raise ContractViolation(
+            "candidate_training_preselection_mismatch",
+            "candidate graph does not preserve the preselected evaluation lock",
+        )
+
+    expected_folds_hash = sha256_text(canonical_json(plan.get("folds") or []))
+    expected_receipts_hash = sha256_text(
+        canonical_json(
+            sorted(
+                str(receipt.get("receipt_sha256") or "")
+                for receipt in plan.get("fit_receipts") or ()
+            )
+        )
+    )
+    if (
+        graph.get("folds_sha256") != expected_folds_hash
+        or graph.get("fit_receipts_sha256") != expected_receipts_hash
+        or not SHA256_RE.fullmatch(str(graph.get("final_fit_receipt_sha256") or ""))
+        or not SHA256_RE.fullmatch(str(graph.get("training_evidence_sha256") or ""))
+    ):
+        raise ContractViolation(
+            "candidate_training_evidence_mismatch",
+            "folds or fit receipts differ from the real trainer evidence",
+        )
+
+    artifacts = graph.get("candidate_artifacts")
+    if not isinstance(artifacts, Mapping) or any(
+        not SHA256_RE.fullmatch(str(artifacts.get(key) or ""))
+        for key in ("model_sha256", "calibration_sha256", "routing_sha256")
+    ):
+        raise ContractViolation(
+            "invalid_candidate_training_graph",
+            "candidate artifact hash inventory is incomplete",
+        )
+    expected_hashes = {
+        "model_sha256": expected_candidate_artifact_sha256,
+        "calibration_sha256": expected_calibration_artifact_sha256,
+        "routing_sha256": expected_routing_artifact_sha256,
+    }
+    if any(
+        expected is not None and artifacts.get(key) != expected
+        for key, expected in expected_hashes.items()
+    ):
+        raise ContractViolation(
+            "candidate_training_artifact_mismatch",
+            "candidate training graph names a different fitted artifact",
+        )
+    if evaluation.get("candidate_artifact_sha256") != artifacts.get("model_sha256"):
+        raise ContractViolation(
+            "candidate_training_artifact_mismatch",
+            "streaming evaluation did not score the graph's exact model artifact",
+        )
+
+    route_selection = graph.get("route_selection")
+    if (
+        not isinstance(route_selection, Mapping)
+        or graph.get("route_selection_sha256")
+        != sha256_text(canonical_json(route_selection))
+        or (
+            expected_route_selection is not None
+            and dict(route_selection) != dict(expected_route_selection)
+        )
+    ):
+        raise ContractViolation(
+            "candidate_route_selection_mismatch",
+            "candidate route decision is not bound to the training graph",
+        )
+
+    source_manifest_sha = str(graph.get("source_replay_manifest_sha256") or "")
+    source_corpus_hash = str(graph.get("source_replay_corpus_hash") or "")
+    inputs = manifest.get("inputs")
+    if (
+        not SHA256_RE.fullmatch(source_manifest_sha)
+        or not SHA256_RE.fullmatch(source_corpus_hash)
+        or not isinstance(inputs, list)
+        or not inputs
+        or any(
+            not isinstance(row, Mapping)
+            or row.get("source_mode")
+            != "promotion_manifest_pinned_candidate_replay"
+            or row.get("candidate_artifact_sha256") != artifacts.get("model_sha256")
+            or row.get("source_replay_manifest_sha256") != source_manifest_sha
+            or row.get("manifest_hash") != source_corpus_hash
+            for row in inputs
+        )
+    ):
+        raise ContractViolation(
+            "candidate_replay_provenance_mismatch",
+            "fresh replay inputs are not pinned to the graph's source and model",
+        )
+
+    resources = plan.get("resource_contract") or {}
+    bounds = manifest.get("streaming_bounds") or {}
+    declared_scopes = int(resources.get("max_fold_scopes") or 0)
+    observed_scopes = sum(1 + len(row.get("inner") or ()) for row in plan.get("folds") or ())
+    declared_days = int(resources.get("max_market_days") or 0)
+    declared_rows = int(resources.get("max_rows_per_market_day") or 0)
+    if (
+        int(resources.get("observed_fold_scopes") or 0) != observed_scopes
+        or observed_scopes > declared_scopes
+        or not 0 < declared_days <= PRODUCTION_MAX_MARKET_DAYS
+        or not 0 < declared_rows <= PRODUCTION_MAX_ROWS_PER_MARKET_DAY
+        or int(resources.get("observed_market_days") or 0)
+        != int(bounds.get("observed_market_days") or 0)
+        or int(resources.get("observed_peak_rows_per_market_day") or 0)
+        != int(bounds.get("observed_peak_rows_per_market_day") or 0)
+        or int(bounds.get("observed_market_days") or 0)
+        > declared_days
+        or int(bounds.get("observed_peak_rows_per_market_day") or 0)
+        > declared_rows
+    ):
+        raise ContractViolation(
+            "invalid_point_in_time_resource_contract",
+            "observed production replay or fold usage exceeds its declared bound",
+        )
+    return dict(graph)
+
+
 def verify_production_point_in_time_artifacts(
     *,
     corpus_path: str | Path,
@@ -2508,6 +2986,10 @@ def verify_production_point_in_time_artifacts(
     streaming_evaluation_path: str | Path,
     expected_candidate_id: str,
     expected_release_id: str,
+    expected_candidate_artifact_sha256: str | None = None,
+    expected_calibration_artifact_sha256: str | None = None,
+    expected_routing_artifact_sha256: str | None = None,
+    expected_route_selection: Mapping[str, Any] | None = None,
     now_utc: datetime | None = None,
     max_age_days: int | None = None,
 ) -> dict[str, Any]:
@@ -2523,6 +3005,7 @@ def verify_production_point_in_time_artifacts(
     corpus_sha = sha256_file(corpus_path)
     manifest_hash = str(manifest.get("manifest_hash") or "")
     fleet_dates = collect_parquet_fleet_dates(corpus_path)
+    selection_universe = selection_universe_contract(corpus_path)
     plan = _read_contract_json(validation_plan_path, code="invalid_validation_plan")
     verify_validation_plan_payload(
         plan,
@@ -2536,11 +3019,31 @@ def verify_production_point_in_time_artifacts(
     evaluation = _read_contract_json(
         streaming_evaluation_path, code="invalid_streaming_evaluation"
     )
+    graph = manifest.get("candidate_training_graph")
+    if not isinstance(graph, Mapping):
+        raise ContractViolation(
+            "invalid_candidate_training_graph",
+            "production materialization is missing the real trainer graph",
+        )
+    verified_graph = _verify_candidate_training_graph(
+        graph,
+        manifest=manifest,
+        plan=plan,
+        evaluation=evaluation,
+        selection_universe=selection_universe,
+        expected_candidate_id=expected_candidate_id,
+        expected_release_id=expected_release_id,
+        expected_candidate_artifact_sha256=expected_candidate_artifact_sha256,
+        expected_calibration_artifact_sha256=expected_calibration_artifact_sha256,
+        expected_routing_artifact_sha256=expected_routing_artifact_sha256,
+        expected_route_selection=expected_route_selection,
+    )
     verify_streaming_evaluation_payload(
         evaluation,
         expected_candidate_id=expected_candidate_id,
         expected_release_id=expected_release_id,
         expected_corpus_sha256=corpus_sha,
+        expected_selection_universe_sha256=selection_universe["sha256"],
         expected_manifest_hash=manifest_hash,
         expected_validation_plan_hash=str(plan.get("plan_hash") or ""),
         require_production_window=True,
@@ -2559,9 +3062,26 @@ def verify_production_point_in_time_artifacts(
             "plan_selected_after_evaluation", "validation plan was selected after scoring began"
         )
     locked_dates = set((evaluation.get("window_lock") or {}).get("target_dates") or ())
-    if not locked_dates <= set(fleet_dates):
+    if (
+        not locked_dates <= set(fleet_dates)
+        or (evaluation.get("window_lock") or {}).get("window_end")
+        != max(fleet_dates)
+    ):
         raise ContractViolation(
             "streaming_evaluation_corpus_mismatch", "locked dates escape the frozen corpus"
+        )
+    selection_contract = plan.get("candidate_selection_contract") or {}
+    evaluation_lock = evaluation.get("window_lock") or {}
+    if (
+        set(selection_contract.get("locked_evaluation_dates") or ()) != locked_dates
+        or selection_contract.get("window_lock_id")
+        != evaluation_lock.get("window_lock_id")
+        or selection_contract.get("window_locked_at_utc")
+        != evaluation_lock.get("generated_at_utc")
+    ):
+        raise ContractViolation(
+            "locked_window_reused_for_selection",
+            "candidate-selection exclusion is not bound to the evaluated window",
         )
     return {
         "status": "PASS",
@@ -2575,6 +3095,1039 @@ def verify_production_point_in_time_artifacts(
         "locked_window_days": len(locked_dates),
         "fit_receipt_count": len(plan.get("fit_receipts") or ()),
         "fit_receipt_output_binding_verified": True,
+        "candidate_training_graph_hash": verified_graph["graph_hash"],
+        "candidate_artifacts": dict(verified_graph["candidate_artifacts"]),
+        "selection_universe_sha256": selection_universe["sha256"],
+    }
+
+
+PRODUCTION_PRIVATE_MEMORY_BUDGET_BYTES = 4 * 1024**3
+PRODUCTION_HOST_PHYSICAL_MEMORY_BYTES = int(15.7 * 1024**3)
+PRODUCTION_MAX_FOLD_SCOPES = 128
+PRODUCTION_MAX_MARKET_DAYS = 60
+PRODUCTION_MAX_ROWS_PER_MARKET_DAY = 250_000
+PRODUCTION_MAX_ARROW_BATCH_ROWS = 65_536
+PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS = 7
+
+
+def _verify_production_latest_target_freshness(
+    fleet_dates: Sequence[str],
+    *,
+    locked_at_utc: str,
+    require_current_prelock: bool,
+) -> int:
+    if not fleet_dates:
+        raise ContractViolation(
+            "stale_point_in_time_preselection",
+            "production selection universe has no latest target date",
+        )
+    locked_at = _parse_utc(locked_at_utc, "preselection.generated_at_utc")
+    try:
+        latest_target = date.fromisoformat(str(fleet_dates[-1]))
+    except ValueError as exc:
+        raise ContractViolation(
+            "stale_point_in_time_preselection",
+            "production selection universe latest target date is invalid",
+        ) from exc
+    target_age_days = (locked_at.date() - latest_target).days
+    if not 0 <= target_age_days <= PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS:
+        raise ContractViolation(
+            "stale_point_in_time_preselection",
+            "production selection universe latest target date is stale or future-dated",
+        )
+    if require_current_prelock:
+        now = datetime.now(timezone.utc)
+        if locked_at > now or now - locked_at > timedelta(
+            days=PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS
+        ):
+            raise ContractViolation(
+                "stale_point_in_time_preselection",
+                "production preselection lock is too old or future-dated",
+            )
+    return target_age_days
+
+
+def prepare_production_preselection(
+    *,
+    source_corpus: str | Path,
+    source_manifest: str | Path,
+    replay_manifest: str | Path,
+    lock_out: str | Path,
+    window_end: str | date | None = None,
+    batch_rows: int = 65_536,
+    max_market_days: int = 60,
+    max_rows_per_market_day: int = 250_000,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Freeze the candidate-independent evaluation population before training."""
+
+    source_corpus = Path(source_corpus).resolve()
+    source_manifest = Path(source_manifest).resolve()
+    replay_manifest = Path(replay_manifest).resolve()
+    manifest = verify_materialization_manifest(source_corpus, source_manifest)
+    bounds = manifest.get("streaming_bounds") or {}
+    if (
+        not 0 < int(batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS
+        or not 0 < int(max_market_days) <= PRODUCTION_MAX_MARKET_DAYS
+        or not 0
+        < int(max_rows_per_market_day)
+        <= PRODUCTION_MAX_ROWS_PER_MARKET_DAY
+        or not 0 < int(bounds.get("max_market_days") or 0) <= int(max_market_days)
+        or not 0 < int(bounds.get("max_rows_per_market_day") or 0)
+        <= int(max_rows_per_market_day)
+        or int(bounds.get("raw_market_days_retained_at_once") or 0) != 1
+    ):
+        raise ContractViolation(
+            "invalid_point_in_time_resource_contract",
+            "preselection source does not satisfy the production streaming bounds",
+        )
+    universe = selection_universe_contract(source_corpus, batch_rows=batch_rows)
+    try:
+        replay = load_promotion_corpus_manifest(replay_manifest)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ContractViolation(
+            "invalid_candidate_replay_manifest",
+            f"cannot verify the preselection replay manifest: {exc}",
+        ) from exc
+    replay_entries = replay.get("entries") or []
+    replay_dates = {str(row.get("target_date") or "") for row in replay_entries}
+    if (
+        not replay_entries
+        or len(replay_entries) > int(max_market_days)
+        or replay_dates != set(universe["fleet_dates"])
+        or any(
+            int(row.get("row_count") or 0) <= 0
+            or int(row.get("row_count") or 0) > int(max_rows_per_market_day)
+            for row in replay_entries
+        )
+    ):
+        raise ContractViolation(
+            "candidate_replay_manifest_population_mismatch",
+            "replay manifest must cover exactly the bounded preselection fleet dates",
+        )
+    lock = build_window_lock(
+        universe["fleet_dates"],
+        input_sha256=universe["sha256"],
+        input_kind="selection_universe_sha256",
+        window_days=14,
+        window_end=window_end,
+        generated_at_utc=generated_at_utc,
+    )
+    if lock["status"] != "PASS":
+        raise ContractViolation(
+            "invalid_evaluation_window_lock",
+            "production preselection requires a contiguous 14-day window",
+        )
+    if lock["window_end"] != universe["fleet_dates"][-1]:
+        raise ContractViolation(
+            "invalid_evaluation_window_lock",
+            "production preselection must lock the most recent fleet date",
+        )
+    _verify_production_latest_target_freshness(
+        universe["fleet_dates"],
+        locked_at_utc=lock["generated_at_utc"],
+        require_current_prelock=generated_at_utc is None,
+    )
+    payload = _finalize_hash(
+        {
+            "schema_version": PRODUCTION_PRESELECTION_SCHEMA_VERSION,
+            "artifact_type": "production_point_in_time_preselection",
+            "generated_at_utc": lock["generated_at_utc"],
+            "status": "PASS",
+            "candidate_selection_permission": "forbidden",
+            "locked_before_candidate_training": True,
+            "source": {
+                "corpus_path": str(source_corpus),
+                "corpus_sha256": sha256_file(source_corpus),
+                "manifest_path": str(source_manifest),
+                "manifest_sha256": sha256_file(source_manifest),
+                "manifest_hash": str(manifest["manifest_hash"]),
+                "replay_manifest_path": str(replay_manifest),
+                "replay_manifest_sha256": sha256_file(replay_manifest),
+                "replay_corpus_hash": str(replay["corpus_hash"]),
+            },
+            "selection_universe": universe,
+            "window_lock": lock,
+        },
+        "preselection_hash",
+    )
+    _atomic_write_json(lock_out, payload)
+    return payload
+
+
+def verify_production_preselection(
+    preselection_path: str | Path,
+    *,
+    source_corpus: str | Path | None = None,
+    source_manifest: str | Path | None = None,
+    replay_manifest: str | Path | None = None,
+    batch_rows: int = 65_536,
+) -> dict[str, Any]:
+    if not 0 < int(batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS:
+        raise ValueError(
+            f"batch_rows must be between 1 and {PRODUCTION_MAX_ARROW_BATCH_ROWS}"
+        )
+    payload = _read_contract_json(
+        preselection_path, code="invalid_point_in_time_preselection"
+    )
+    if (
+        payload.get("schema_version") != PRODUCTION_PRESELECTION_SCHEMA_VERSION
+        or payload.get("artifact_type") != "production_point_in_time_preselection"
+        or payload.get("status") != "PASS"
+        or payload.get("candidate_selection_permission") != "forbidden"
+        or payload.get("locked_before_candidate_training") is not True
+    ):
+        raise ContractViolation(
+            "invalid_point_in_time_preselection",
+            "production preselection contract is incomplete",
+        )
+    _verify_self_hash(
+        payload, "preselection_hash", "point_in_time_preselection_hash_mismatch"
+    )
+    locked_at_utc = str(payload.get("generated_at_utc") or "")
+    _parse_utc(locked_at_utc, "preselection.generated_at_utc")
+    source = payload.get("source") or {}
+    corpus_path = Path(source_corpus or source.get("corpus_path") or "").resolve()
+    manifest_path = Path(source_manifest or source.get("manifest_path") or "").resolve()
+    replay_manifest_path = Path(
+        replay_manifest or source.get("replay_manifest_path") or ""
+    ).resolve()
+    if (
+        sha256_file(corpus_path) != source.get("corpus_sha256")
+        or sha256_file(manifest_path) != source.get("manifest_sha256")
+        or sha256_file(replay_manifest_path)
+        != source.get("replay_manifest_sha256")
+    ):
+        raise ContractViolation(
+            "point_in_time_preselection_source_mismatch",
+            "preselection source corpus or manifest changed after the lock",
+        )
+    manifest = verify_materialization_manifest(corpus_path, manifest_path)
+    if manifest.get("manifest_hash") != source.get("manifest_hash"):
+        raise ContractViolation(
+            "point_in_time_preselection_source_mismatch",
+            "preselection materialization manifest identity changed",
+        )
+    try:
+        replay = load_promotion_corpus_manifest(replay_manifest_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ContractViolation(
+            "point_in_time_preselection_source_mismatch",
+            f"preselection replay manifest is invalid: {exc}",
+        ) from exc
+    if replay.get("corpus_hash") != source.get("replay_corpus_hash"):
+        raise ContractViolation(
+            "point_in_time_preselection_source_mismatch",
+            "preselection replay corpus identity changed",
+        )
+    universe = selection_universe_contract(corpus_path, batch_rows=batch_rows)
+    if universe != payload.get("selection_universe"):
+        raise ContractViolation(
+            "point_in_time_preselection_universe_mismatch",
+            "candidate-independent selection universe changed after the lock",
+        )
+    _verify_production_latest_target_freshness(
+        universe["fleet_dates"],
+        locked_at_utc=locked_at_utc,
+        require_current_prelock=True,
+    )
+    if {
+        str(row.get("target_date") or "") for row in replay.get("entries") or ()
+    } != set(universe["fleet_dates"]):
+        raise ContractViolation(
+            "point_in_time_preselection_universe_mismatch",
+            "replay manifest fleet dates differ from the locked universe",
+        )
+    lock = payload.get("window_lock") or {}
+    expected_lock = build_window_lock(
+        universe["fleet_dates"],
+        input_sha256=universe["sha256"],
+        input_kind="selection_universe_sha256",
+        window_days=14,
+        window_end=lock.get("window_end"),
+        generated_at_utc=lock.get("generated_at_utc"),
+    )
+    if (
+        lock != expected_lock
+        or lock.get("status") != "PASS"
+        or lock.get("window_end") != universe["fleet_dates"][-1]
+    ):
+        raise ContractViolation(
+            "invalid_evaluation_window_lock",
+            "preselection window lock is invalid or not the most recent window",
+        )
+    return payload
+
+
+def _promotion_route_selection(payload: Mapping[str, Any]) -> dict[str, Any]:
+    decisions = payload.get("decisions") or {}
+    promote = sorted({str(value) for value in decisions.get("promote_markets") or ()})
+    shadow = sorted({str(value) for value in decisions.get("shadow_markets") or ()})
+    blocked = sorted({str(value) for value in decisions.get("blocked_markets") or ()})
+    if blocked:
+        verdict = "blocked"
+    elif promote:
+        verdict = "promote_ready"
+    else:
+        verdict = "shadow"
+    return {
+        "verdict": verdict,
+        "promote_markets": promote,
+        "shadow_markets": shadow,
+        "blocked_markets": blocked,
+    }
+
+
+def _verified_stage_selection_binding(
+    payload: Mapping[str, Any],
+    *,
+    preselection: Mapping[str, Any],
+    stage: str,
+) -> dict[str, Any]:
+    binding = payload.get("point_in_time_selection_binding")
+    if not isinstance(binding, Mapping):
+        raise ContractViolation(
+            "candidate_selection_binding_missing",
+            f"{stage} artifact has no production preselection proof",
+        )
+    _verify_self_hash(
+        binding,
+        "binding_sha256",
+        "candidate_selection_binding_hash_mismatch",
+    )
+    inventory = binding.get("source_inventory")
+    if not isinstance(inventory, Mapping):
+        raise ContractViolation(
+            "candidate_selection_binding_invalid",
+            f"{stage} source inventory is missing",
+        )
+    unhashed_inventory = dict(inventory)
+    inventory_sha = str(unhashed_inventory.pop("sha256", "") or "")
+    if (
+        not SHA256_RE.fullmatch(inventory_sha)
+        or inventory_sha != sha256_text(canonical_json(unhashed_inventory))
+        or binding.get("source_folder_date_inventory_sha256") != inventory_sha
+    ):
+        raise ContractViolation(
+            "candidate_selection_binding_invalid",
+            f"{stage} source inventory hash is invalid",
+        )
+    expected_locked_dates = list(preselection["window_lock"]["target_dates"])
+    inventory_dates: set[str] = set()
+    pending: list[Any] = [inventory]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Mapping):
+            target_date = value.get("target_date")
+            if target_date not in (None, ""):
+                try:
+                    inventory_dates.add(date.fromisoformat(str(target_date)).isoformat())
+                except ValueError as exc:
+                    raise ContractViolation(
+                        "candidate_selection_binding_invalid",
+                        f"{stage} source inventory has an invalid target date",
+                    ) from exc
+            pending.extend(value.values())
+        elif isinstance(value, (list, tuple)):
+            pending.extend(value)
+    overlap = sorted(set(expected_locked_dates) & inventory_dates)
+    if overlap:
+        raise ContractViolation(
+            "locked_window_reused_for_selection",
+            f"{stage} source inventory includes locked dates: {', '.join(overlap)}",
+        )
+    universe_dates = set(
+        preselection["selection_universe"]["fleet_dates"]
+    )
+    outside_universe = sorted(inventory_dates - universe_dates)
+    if outside_universe:
+        raise ContractViolation(
+            "candidate_selection_binding_invalid",
+            f"{stage} source inventory includes dates outside the immutable "
+            f"selection universe: {', '.join(outside_universe)}",
+        )
+    if stage == "routing" and inventory_dates != (
+        universe_dates - set(expected_locked_dates)
+    ):
+        raise ContractViolation(
+            "candidate_selection_binding_invalid",
+            "routing source inventory does not exactly cover the unlocked "
+            "immutable selection universe",
+        )
+    if (
+        binding.get("preselection_hash") != preselection["preselection_hash"]
+        or binding.get("window_lock_id")
+        != preselection["window_lock"]["window_lock_id"]
+        or list(binding.get("locked_dates") or ()) != expected_locked_dates
+        or binding.get("used_for_selection") is not False
+    ):
+        raise ContractViolation(
+            "locked_window_reused_for_selection",
+            f"{stage} selection is not bound to the preselected exclusion window",
+        )
+    return {
+        "preselection_hash": binding["preselection_hash"],
+        "window_lock_id": binding["window_lock_id"],
+        "locked_dates": expected_locked_dates,
+        "used_for_selection": False,
+        "binding_sha256": binding["binding_sha256"],
+        "source_folder_date_inventory_sha256": inventory_sha,
+    }
+
+
+def _candidate_training_graph(
+    *,
+    candidate_id: str,
+    release_id: str,
+    preselection: Mapping[str, Any],
+    training_evidence: Mapping[str, Any],
+    model_artifact: str | Path,
+    calibration_artifact: str | Path,
+    routing_artifact: str | Path,
+) -> dict[str, Any]:
+    routing_payload = _read_contract_json(
+        routing_artifact,
+        code="invalid_candidate_routing_artifact",
+    )
+    calibration_payload = _read_contract_json(
+        calibration_artifact,
+        code="invalid_candidate_calibration_artifact",
+    )
+    try:
+        from weather.calibration.family_secondary_artifacts import (
+            verify_production_family_manifest,
+        )
+
+        verify_production_family_manifest(calibration_payload, preselection)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ContractViolation(
+            "invalid_candidate_calibration_artifact",
+            f"production family-secondary artifact is invalid: {exc}",
+        ) from exc
+    selection_stage_bindings = {
+        "calibration": _verified_stage_selection_binding(
+            calibration_payload,
+            preselection=preselection,
+            stage="calibration",
+        ),
+        "routing": _verified_stage_selection_binding(
+            routing_payload,
+            preselection=preselection,
+            stage="routing",
+        ),
+    }
+    receipts = training_evidence.get("fit_receipts") or []
+    final_receipt = training_evidence.get("final_fit_receipt") or {}
+    payload = {
+        "schema_version": CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION,
+        "artifact_type": "point_in_time_candidate_training_graph",
+        "status": "PASS",
+        "candidate_id": candidate_id,
+        "release_id": release_id,
+        "preselection_hash": preselection["preselection_hash"],
+        "window_lock_id": preselection["window_lock"]["window_lock_id"],
+        "selection_universe_sha256": preselection["selection_universe"]["sha256"],
+        "training_evidence_sha256": training_evidence["evidence_sha256"],
+        "training_evidence_generated_at_utc": training_evidence["generated_at_utc"],
+        "folds_sha256": sha256_text(canonical_json(training_evidence["folds"])),
+        "fit_receipts_sha256": sha256_text(
+            canonical_json(sorted(str(row["receipt_sha256"]) for row in receipts))
+        ),
+        "final_fit_receipt_sha256": final_receipt["receipt_sha256"],
+        "candidate_artifacts": {
+            "model_sha256": sha256_file(model_artifact),
+            "calibration_sha256": sha256_file(calibration_artifact),
+            "routing_sha256": sha256_file(routing_artifact),
+        },
+        "route_selection": _promotion_route_selection(routing_payload),
+        "route_selection_sha256": sha256_text(
+            canonical_json(_promotion_route_selection(routing_payload))
+        ),
+        "selection_stage_bindings": selection_stage_bindings,
+        "selection_stage_bindings_sha256": sha256_text(
+            canonical_json(selection_stage_bindings)
+        ),
+        "source_replay_manifest_sha256": preselection["source"][
+            "replay_manifest_sha256"
+        ],
+        "source_replay_corpus_hash": preselection["source"][
+            "replay_corpus_hash"
+        ],
+        "locked_dates_used_for_selection": False,
+    }
+    return _finalize_hash(payload, "graph_hash")
+
+
+def _sha256_canonical_sorted_strings(values: Iterable[str]) -> str:
+    """Hash a canonical sorted JSON string list without joining day-sized text."""
+
+    counts = Counter(str(value) for value in values)
+    digest = hashlib.sha256()
+    digest.update(b"[")
+    first = True
+    for value in sorted(counts):
+        encoded = canonical_json(value).encode("utf-8")
+        for _ in range(counts[value]):
+            if not first:
+                digest.update(b",")
+            digest.update(encoded)
+            first = False
+    digest.update(b"]")
+    return digest.hexdigest()
+
+
+def _candidate_replay_input_row(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    first = rows[0]
+    canonical_rows_digest = hashlib.sha256()
+    for row in rows:
+        canonical_rows_digest.update(canonical_json(row).encode("utf-8"))
+        canonical_rows_digest.update(b"\n")
+    canonical_rows_sha = canonical_rows_digest.hexdigest()
+    replay_hash = _sha256_canonical_sorted_strings(
+        str((row.get("source_lineage") or {}).get("replay_record_sha256") or "")
+        for row in rows
+    )
+    tape_hash = _sha256_canonical_sorted_strings(
+        str(
+            (row.get("source_lineage") or {}).get("snapshot_tape_rows_sha256")
+            or ""
+        )
+        for row in rows
+    )
+    label_hashes = {
+        str((row.get("source_lineage") or {}).get("settlement_label_sha256") or "")
+        for row in rows
+    }
+    return {
+        "folder": str((first.get("source_lineage") or {}).get("market_day_folder") or ""),
+        "target_date": str(first["target_date"]),
+        "market_id": str(first["market_id"]),
+        "artifact_family": "bounded_pooled_band_candidate_replay",
+        "source_mode": "promotion_manifest_pinned_candidate_replay",
+        "source_row_count": len(rows),
+        "source_file_hash": replay_hash,
+        "parquet_file_hash": canonical_rows_sha,
+        "manifest_hash": str(first["source_corpus_hash"]),
+        "event_manifest_hash": (
+            next(iter(label_hashes)) if len(label_hashes) == 1 else ""
+        ),
+        "release_id": str(first["release_id"]),
+        "runtime_identity_key": str(first["runtime_identity"]),
+        "fallback_reason": None,
+        "candidate_artifact_sha256": str(first["candidate_artifact_sha256"]),
+        "source_replay_manifest_sha256": str(first["source_manifest_sha256"]),
+        "replay_record_set_sha256": replay_hash,
+        "tape_row_set_sha256": tape_hash,
+    }
+
+
+def _materialize_bounded_candidate_replay(
+    *,
+    candidate_id: str,
+    release_id: str,
+    corpus_out: str | Path,
+    manifest_out: str | Path,
+    model_artifact: str | Path,
+    preselection_lock: str | Path,
+    replay_manifest: str | Path,
+    snapshots_root: str | Path,
+    fleet_dates: Sequence[str],
+    training_graph: Mapping[str, Any],
+    max_market_days: int,
+    max_rows_per_market_day: int,
+    batch_rows: int,
+) -> dict[str, Any]:
+    corpus_out = Path(corpus_out).resolve()
+    manifest_out = Path(manifest_out).resolve()
+    if corpus_out.exists() or manifest_out.exists():
+        raise FileExistsError("production candidate point-in-time outputs must be new")
+    corpus_out.parent.mkdir(parents=True, exist_ok=True)
+    temp = corpus_out.with_name(f".{corpus_out.name}.{os.getpid()}.tmp")
+    writer: pq.ParquetWriter | None = None
+    accepted_rows = 0
+    peak_rows = 0
+    peak_arrow_rows = 0
+    label_qualities: Counter[str] = Counter()
+    source_qualities: Counter[str] = Counter()
+    input_rows: list[dict[str, Any]] = []
+    arrow_batch_rows = min(
+        max(1, int(batch_rows)),
+        PRODUCTION_MAX_ARROW_BATCH_ROWS,
+        int(max_rows_per_market_day),
+    )
+
+    def flush_day(day_rows: Sequence[Mapping[str, Any]]) -> None:
+        nonlocal writer, accepted_rows, peak_rows, peak_arrow_rows
+        if not day_rows:
+            return
+        if len(day_rows) > int(max_rows_per_market_day):
+            raise BoundedReadError("candidate replay row bound exceeded")
+        market_day = (
+            str(day_rows[0].get("target_date") or ""),
+            str(day_rows[0].get("market_id") or ""),
+        )
+        if not all(market_day):
+            raise ContractViolation(
+                "candidate_replay_population_mismatch",
+                "candidate replay market-day identity is missing",
+            )
+        canonical_rows: list[dict[str, Any]] = []
+        previous_key: tuple[str, ...] | None = None
+
+        def write_arrow_batch() -> None:
+            nonlocal writer, peak_arrow_rows
+            if not canonical_rows:
+                return
+            table = pa.Table.from_pylist(
+                canonical_rows,
+                schema=POINT_IN_TIME_ARROW_SCHEMA,
+            )
+            if writer is None:
+                writer = pq.ParquetWriter(
+                    temp,
+                    POINT_IN_TIME_ARROW_SCHEMA,
+                    compression="zstd",
+                )
+            writer.write_table(table)
+            peak_arrow_rows = max(peak_arrow_rows, len(canonical_rows))
+            canonical_rows.clear()
+
+        for raw in day_rows:
+            coordinate = (
+                str(raw.get("target_date") or ""),
+                str(raw.get("market_id") or ""),
+            )
+            if coordinate != market_day:
+                raise ContractViolation(
+                    "candidate_replay_population_mismatch",
+                    "candidate replay batch crosses a market-day boundary",
+                )
+            canonical = canonicalize_raw_row(
+                raw,
+                provenance=raw.get("source_lineage") or {},
+                target_date=coordinate[0],
+                market_id=coordinate[1],
+                explicit_claim_lane="weather_only",
+            )
+            key = point_in_time_key(canonical)
+            if previous_key is not None and key <= previous_key:
+                raise ContractViolation(
+                    "unsorted_selection_universe",
+                    "candidate replay market-day batch is not strictly sorted",
+                )
+            previous_key = key
+            canonical_rows.append(canonical)
+            if len(canonical_rows) >= arrow_batch_rows:
+                write_arrow_batch()
+        write_arrow_batch()
+        input_row = _candidate_replay_input_row(day_rows)
+        input_rows.append(input_row)
+        label_qualities.update(str(row["label_quality"]) for row in day_rows)
+        source_qualities.update(str(row["source_quality"]) for row in day_rows)
+        accepted_rows += len(day_rows)
+        peak_rows = max(peak_rows, len(day_rows))
+
+    replay_manifest_path = Path(replay_manifest).resolve()
+    replay_manifest_sha = sha256_file(replay_manifest_path)
+    iterator = iter_bounded_pooled_band_candidate_replay_market_days(
+        artifact_path=model_artifact,
+        expected_artifact_sha256=training_graph["candidate_artifacts"]["model_sha256"],
+        candidate_id=candidate_id,
+        release_id=release_id,
+        corpus_manifest_path=replay_manifest_path,
+        expected_manifest_sha256=replay_manifest_sha,
+        preselection_lock_path=preselection_lock,
+        expected_preselection_hash=training_graph["preselection_hash"],
+        expected_window_lock_id=training_graph["window_lock_id"],
+        snapshots_root=snapshots_root,
+        locked_dates=fleet_dates,
+        max_market_days=max_market_days,
+        max_rows_per_market_day=max_rows_per_market_day,
+    )
+    try:
+        for market_day_rows in iterator:
+            flush_day(market_day_rows)
+            # The producer cannot compute another market-day until its next
+            # iteration.  Remove the consumer reference first so the completed
+            # batch is reclaimable before that scorer invocation.
+            del market_day_rows
+    except BaseException:
+        if writer is not None:
+            writer.close()
+            writer = None
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        if writer is not None:
+            writer.close()
+    if not accepted_rows or len(input_rows) > int(max_market_days):
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        raise ContractViolation(
+            "empty_candidate_replay",
+            "bounded candidate replay produced no proof-grade rows",
+        )
+    os.replace(temp, corpus_out)
+    manifest = {
+        "schema_version": MATERIALIZER_SCHEMA_VERSION,
+        "artifact_type": "point_in_time_materialization_manifest",
+        "generated_at_utc": _utc_now_iso(),
+        "status": "PASS",
+        "candidate_id": candidate_id,
+        "release_id": release_id,
+        "row_key": list(KEY_FIELDS),
+        "claim_lane_contract": list(CLAIM_LANES),
+        "raw_evidence_mutated": False,
+        "derived_artifact": {
+            "path": str(corpus_out),
+            "sha256": sha256_file(corpus_out),
+            "row_count": accepted_rows,
+            "bytes": corpus_out.stat().st_size,
+            "compression": "zstd",
+        },
+        "transformation": {
+            "version": TRANSFORMATION_VERSION,
+            "source_artifact_family": "promotion_manifest_pinned_candidate_replay",
+            "source_reader": (
+                "weather.calibration.pooled_candidate_replay."
+                "iter_bounded_pooled_band_candidate_replay_market_days"
+            ),
+            "settlement_join": "after_candidate_prediction",
+        },
+        "streaming_bounds": {
+            "max_market_days": int(max_market_days),
+            "max_rows_per_market_day": int(max_rows_per_market_day),
+            "raw_market_days_retained_at_once": 1,
+            "market_day_batch_handoff": "flush_before_next_compute",
+            "arrow_write_batch_rows": arrow_batch_rows,
+            "observed_market_days": len(input_rows),
+            "observed_peak_rows_per_market_day": peak_rows,
+            "observed_peak_arrow_rows": peak_arrow_rows,
+        },
+        "counts": {
+            "market_days_read": len(input_rows),
+            "source_rows": accepted_rows,
+            "accepted_rows": accepted_rows,
+            "excluded_rows": 0,
+            "exclusions_by_reason": {},
+            "source_modes": {
+                "promotion_manifest_pinned_candidate_replay": accepted_rows
+            },
+            "label_qualities": dict(sorted(label_qualities.items())),
+            "source_qualities": dict(sorted(source_qualities.items())),
+            "claim_lanes": {"weather_only": accepted_rows},
+        },
+        "candidate_training_graph": dict(training_graph),
+        "candidate_training_graph_hash": training_graph["graph_hash"],
+        "preselection_hash": training_graph["preselection_hash"],
+        "inputs": input_rows,
+    }
+    manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
+    _atomic_write_json(manifest_out, manifest)
+    return manifest
+
+
+def materialize_production_candidate_packet(
+    *,
+    candidate_id: str,
+    release_id: str,
+    corpus_out: str | Path,
+    manifest_out: str | Path,
+    validation_plan_out: str | Path,
+    evaluation_out: str | Path,
+    model_artifact: str | Path,
+    calibration_artifact: str | Path,
+    routing_artifact: str | Path,
+    preselection_lock: str | Path,
+    replay_manifest: str | Path,
+    folders: Iterable[str | Path] = (),
+    source_corpus: str | Path | None = None,
+    source_manifest: str | Path | None = None,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    archive_root: str | Path = DEFAULT_ARCHIVE_ROOT,
+    archive_as_of_date: str | date | datetime | None = None,
+    artifact_family: str = "snapshots_long",
+    max_market_days: int = 60,
+    max_rows_per_market_day: int = 250_000,
+    batch_rows: int = 65_536,
+    outer_min_train_dates: int = 14,
+    inner_min_train_dates: int = 7,
+    embargo_days: int = 3,
+    step_dates: int = 7,
+    window_end: str | date | None = None,
+    bootstrap_iterations: int = 2_000,
+    bootstrap_seed: int = 31_415,
+    private_memory_budget_bytes: int = PRODUCTION_PRIVATE_MEMORY_BUDGET_BYTES,
+    max_fold_scopes: int = PRODUCTION_MAX_FOLD_SCOPES,
+) -> dict[str, Any]:
+    """Replay the exact fitted pickle and freeze the four production roles."""
+
+    del archive_root, archive_as_of_date, artifact_family
+    if tuple(folders):
+        raise ValueError(
+            "production qualification consumes the manifest-pinned preselection, not raw folders"
+        )
+    if not 0 < int(private_memory_budget_bytes) <= 8 * 1024**3:
+        raise ValueError("private memory budget must be between 1 byte and 8 GiB")
+    if not 0 < int(batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS:
+        raise ValueError(
+            f"batch_rows must be between 1 and {PRODUCTION_MAX_ARROW_BATCH_ROWS}"
+        )
+    if not 0 < int(max_market_days) <= PRODUCTION_MAX_MARKET_DAYS:
+        raise ValueError(
+            f"max_market_days must be between 1 and {PRODUCTION_MAX_MARKET_DAYS}"
+        )
+    if not 0 < int(max_rows_per_market_day) <= PRODUCTION_MAX_ROWS_PER_MARKET_DAY:
+        raise ValueError(
+            "max_rows_per_market_day must be between 1 and "
+            f"{PRODUCTION_MAX_ROWS_PER_MARKET_DAY}"
+        )
+    if not 0 < int(max_fold_scopes) <= PRODUCTION_MAX_FOLD_SCOPES:
+        raise ValueError(
+            f"max_fold_scopes must be between 1 and {PRODUCTION_MAX_FOLD_SCOPES}"
+        )
+    for path, label in (
+        (model_artifact, "model artifact"),
+        (calibration_artifact, "calibration artifact"),
+        (routing_artifact, "routing artifact"),
+        (preselection_lock, "preselection lock"),
+        (replay_manifest, "replay manifest"),
+    ):
+        if not Path(path).resolve().is_file():
+            raise FileNotFoundError(f"production {label} is missing: {path}")
+
+    preselection = verify_production_preselection(
+        preselection_lock,
+        source_corpus=source_corpus,
+        source_manifest=source_manifest,
+        replay_manifest=replay_manifest,
+        batch_rows=batch_rows,
+    )
+    if window_end is not None and str(window_end) != preselection["window_lock"][
+        "window_end"
+    ]:
+        raise ContractViolation(
+            "invalid_evaluation_window_lock",
+            "qualification window end differs from the preselected lock",
+        )
+    try:
+        with Path(model_artifact).resolve().open("rb") as handle:
+            model_bundle = pickle.load(handle)
+    except (OSError, EOFError, pickle.PickleError) as exc:
+        raise ContractViolation(
+            "invalid_candidate_model_artifact",
+            f"cannot load the exact pooled model artifact: {exc}",
+        ) from exc
+    if not isinstance(model_bundle, Mapping):
+        raise ContractViolation(
+            "invalid_candidate_model_artifact", "pooled model artifact is not a mapping"
+        )
+    try:
+        training = verify_pooled_point_in_time_training_evidence(model_bundle)
+    except (TypeError, ValueError) as exc:
+        raise ContractViolation(
+            "invalid_candidate_training_evidence", str(exc)
+        ) from exc
+    lock_binding = training.get("preselection_lock") or {}
+    expected_lock_binding = {
+        "preselection_hash": preselection["preselection_hash"],
+        "window_lock_id": preselection["window_lock"]["window_lock_id"],
+        "selection_universe_sha256": preselection["selection_universe"]["sha256"],
+    }
+    if any(lock_binding.get(key) != value for key, value in expected_lock_binding.items()):
+        raise ContractViolation(
+            "candidate_training_preselection_mismatch",
+            "serialized trainer evidence is not bound to the exact preselection lock",
+        )
+    expected_config = {
+        "outer_min_train_dates": int(outer_min_train_dates),
+        "inner_min_train_dates": int(inner_min_train_dates),
+        "outer_validation_dates": 1,
+        "inner_validation_dates": 1,
+        "embargo_days": int(embargo_days),
+        "step_dates": int(step_dates),
+    }
+    if training.get("fold_config") != expected_config:
+        raise ContractViolation(
+            "candidate_training_plan_mismatch",
+            "qualification fold configuration differs from the fitted artifact",
+        )
+    if _parse_utc(
+        preselection["generated_at_utc"], "preselection.generated_at_utc"
+    ) > _parse_utc(training["generated_at_utc"], "training.generated_at_utc"):
+        raise ContractViolation(
+            "window_locked_after_candidate_selection",
+            "training evidence predates the production evaluation lock",
+        )
+
+    graph = _candidate_training_graph(
+        candidate_id=candidate_id,
+        release_id=release_id,
+        preselection=preselection,
+        training_evidence=training,
+        model_artifact=model_artifact,
+        calibration_artifact=calibration_artifact,
+        routing_artifact=routing_artifact,
+    )
+    fleet_dates = list(preselection["selection_universe"]["fleet_dates"])
+    manifest = _materialize_bounded_candidate_replay(
+        candidate_id=candidate_id,
+        release_id=release_id,
+        corpus_out=corpus_out,
+        manifest_out=manifest_out,
+        model_artifact=model_artifact,
+        preselection_lock=preselection_lock,
+        replay_manifest=replay_manifest,
+        snapshots_root=snapshots_root,
+        fleet_dates=fleet_dates,
+        training_graph=graph,
+        max_market_days=max_market_days,
+        max_rows_per_market_day=max_rows_per_market_day,
+        batch_rows=batch_rows,
+    )
+    replay_universe = selection_universe_contract(corpus_out, batch_rows=batch_rows)
+    if replay_universe != preselection["selection_universe"]:
+        raise ContractViolation(
+            "candidate_replay_population_mismatch",
+            "fresh candidate replay differs from the preselected evaluation population",
+        )
+    corpus_sha = sha256_file(corpus_out)
+    observed_dates = collect_parquet_fleet_dates(corpus_out, batch_rows=batch_rows)
+    if tuple(fleet_dates) != observed_dates:
+        raise ContractViolation(
+            "candidate_replay_population_mismatch",
+            "candidate replay fleet dates differ from the locked universe",
+        )
+    lock = dict(preselection["window_lock"])
+    scope_count = sum(1 + len(row.get("inner") or ()) for row in training["folds"])
+    observed_bounds = manifest["streaming_bounds"]
+    resources = {
+        "host_physical_memory_bytes": PRODUCTION_HOST_PHYSICAL_MEMORY_BYTES,
+        "private_memory_budget_bytes": int(private_memory_budget_bytes),
+        "corpus_read_mode": "market_day_streaming",
+        "raw_market_days_retained_at_once": 1,
+        "max_market_days": int(max_market_days),
+        "max_rows_per_market_day": int(max_rows_per_market_day),
+        "parquet_batch_rows": int(observed_bounds["arrow_write_batch_rows"]),
+        "observed_peak_arrow_rows": int(
+            observed_bounds["observed_peak_arrow_rows"]
+        ),
+        "max_fold_scopes": int(max_fold_scopes),
+        "observed_fold_scopes": scope_count,
+        "observed_market_days": int(observed_bounds["observed_market_days"]),
+        "observed_peak_rows_per_market_day": int(
+            observed_bounds["observed_peak_rows_per_market_day"]
+        ),
+        "replay_artifact_loads_retained_at_once": 1,
+    }
+    if scope_count > int(max_fold_scopes):
+        raise ContractViolation(
+            "point_in_time_fold_budget_exceeded",
+            f"fitted artifact contains {scope_count} scopes; budget is {max_fold_scopes}",
+        )
+    plan_kwargs = {
+        "outer_min_train_dates": int(outer_min_train_dates),
+        "inner_min_train_dates": int(inner_min_train_dates),
+        "embargo_days": int(embargo_days),
+        "step_dates": int(step_dates),
+        "candidate_id": candidate_id,
+        "release_id": release_id,
+        "corpus_sha256": corpus_sha,
+        "materialization_manifest_hash": str(manifest["manifest_hash"]),
+        "selection_excluded_dates": lock["target_dates"],
+        "selection_window_lock": lock,
+        "resource_contract": resources,
+    }
+    seed_plan = validation_plan_payload(observed_dates, **plan_kwargs)
+    if seed_plan["folds"] != training["folds"]:
+        raise ContractViolation(
+            "candidate_training_plan_mismatch",
+            "serialized trainer folds differ from the frozen rolling-origin plan",
+        )
+    plan = validation_plan_payload(
+        observed_dates,
+        generated_at_utc=_utc_now_iso(),
+        fit_receipts=training["fit_receipts"],
+        require_output_bound_receipts=True,
+        **plan_kwargs,
+    )
+    plan.pop("plan_hash", None)
+    plan["candidate_training_graph"] = graph
+    plan["candidate_training_graph_hash"] = graph["graph_hash"]
+    plan = _finalize_hash(plan, "plan_hash")
+    verify_validation_plan_payload(
+        plan,
+        expected_candidate_id=candidate_id,
+        expected_release_id=release_id,
+        expected_corpus_sha256=corpus_sha,
+        expected_manifest_hash=str(manifest["manifest_hash"]),
+        expected_fleet_dates=observed_dates,
+        require_fit_receipts=True,
+    )
+    _atomic_write_json(validation_plan_out, plan)
+    evaluation = evaluate_point_in_time_parquet(
+        corpus_out,
+        manifest_path=manifest_out,
+        window_days=14,
+        window_end=lock["window_end"],
+        batch_rows=batch_rows,
+        bootstrap_iterations=bootstrap_iterations,
+        bootstrap_seed=bootstrap_seed,
+        candidate_id=candidate_id,
+        release_id=release_id,
+        candidate_artifact_sha256=graph["candidate_artifacts"]["model_sha256"],
+        validation_plan_hash=str(plan["plan_hash"]),
+        window_lock=lock,
+    )
+    evaluation.pop("evaluation_hash", None)
+    evaluation.setdefault("contract_binding", {}).update(
+        {
+            "candidate_training_graph_hash": graph["graph_hash"],
+            "selection_universe_sha256": replay_universe["sha256"],
+        }
+    )
+    evaluation = _finalize_hash(evaluation, "evaluation_hash")
+    _atomic_write_json(evaluation_out, evaluation)
+
+    qualification = verify_production_point_in_time_artifacts(
+        corpus_path=corpus_out,
+        materialization_manifest_path=manifest_out,
+        validation_plan_path=validation_plan_out,
+        streaming_evaluation_path=evaluation_out,
+        expected_candidate_id=candidate_id,
+        expected_release_id=release_id,
+        expected_candidate_artifact_sha256=graph["candidate_artifacts"][
+            "model_sha256"
+        ],
+        expected_calibration_artifact_sha256=graph["candidate_artifacts"][
+            "calibration_sha256"
+        ],
+        expected_routing_artifact_sha256=graph["candidate_artifacts"][
+            "routing_sha256"
+        ],
+        expected_route_selection=graph["route_selection"],
+    )
+    return {
+        "status": "PASS",
+        "candidate_id": candidate_id,
+        "release_id": release_id,
+        "artifacts": {
+            "point_in_time_corpus": str(corpus_out),
+            "point_in_time_materialization_manifest": str(manifest_out),
+            "point_in_time_validation_plan": str(validation_plan_out),
+            "point_in_time_streaming_evaluation": str(evaluation_out),
+        },
+        "window_lock": lock,
+        "candidate_training_graph": graph,
+        "resource_contract": resources,
+        "qualification": qualification,
     }
 
 
@@ -2664,6 +4217,148 @@ def _cmd_evaluate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _materialization_input_folders(manifest_path: str | Path) -> list[Path]:
+    payload = _read_contract_json(
+        manifest_path,
+        code="invalid_materialization_manifest",
+    )
+    folders = [
+        Path(str(row.get("folder") or "")).resolve()
+        for row in payload.get("inputs") or ()
+        if isinstance(row, Mapping) and str(row.get("folder") or "").strip()
+    ]
+    if not folders or len(folders) != len(set(folders)):
+        raise ContractViolation(
+            "invalid_materialization_manifest",
+            "preselection source manifest has missing or duplicate folder identities",
+        )
+    return folders
+
+
+def _prepare_replay_manifest(
+    *,
+    source_manifest: str | Path,
+    source_replay_manifest: str | Path | None,
+    replay_manifest_out: str | Path,
+    snapshots_root: str | Path,
+    as_of: str | None,
+    quality_grades: str,
+) -> Path:
+    output = Path(replay_manifest_out).resolve()
+    if source_replay_manifest:
+        source = Path(source_replay_manifest).resolve()
+        load_promotion_corpus_manifest(source)
+        payload = _read_contract_json(
+            source,
+            code="invalid_candidate_replay_manifest",
+        )
+    else:
+        folders = _materialization_input_folders(source_manifest)
+        grades = tuple(
+            value.strip() for value in str(quality_grades).split(",") if value.strip()
+        )
+        payload = build_promotion_corpus(
+            folders=folders,
+            snapshots_root=snapshots_root,
+            as_of=as_of or None,
+            quality_grades=grades or None,
+        )
+    _atomic_write_json(output, payload)
+    load_promotion_corpus_manifest(output)
+    return output
+
+
+def _cmd_prelock(args: argparse.Namespace) -> None:
+    source_corpus = args.source_corpus
+    source_manifest = args.source_manifest
+    if bool(source_corpus) != bool(source_manifest):
+        raise SystemExit("--source-corpus and --source-manifest must be supplied together")
+    if source_corpus and args.folder:
+        raise SystemExit("staged source corpus cannot be combined with --folder")
+    if not source_corpus:
+        if not args.folder:
+            raise SystemExit("preselection requires a staged source or explicit folders")
+        if not args.source_corpus_out or not args.source_manifest_out:
+            raise SystemExit("folder materialization requires source output paths")
+        manifest = materialize_point_in_time_table(
+            [Path(item) for item in args.folder],
+            parquet_out=args.source_corpus_out,
+            manifest_out=args.source_manifest_out,
+            artifact_family=args.artifact_family,
+            snapshots_root=args.snapshots_root,
+            archive_root=args.archive_root,
+            archive_as_of_date=args.as_of or None,
+            max_market_days=args.max_market_days,
+            max_rows_per_market_day=args.max_rows_per_market_day,
+        )
+        if manifest.get("status") != "PASS":
+            raise SystemExit("point-in-time source materialization did not pass")
+        source_corpus = args.source_corpus_out
+        source_manifest = args.source_manifest_out
+    replay_manifest = _prepare_replay_manifest(
+        source_manifest=source_manifest,
+        source_replay_manifest=args.source_replay_manifest or None,
+        replay_manifest_out=args.replay_manifest_out,
+        snapshots_root=args.snapshots_root,
+        as_of=args.as_of or None,
+        quality_grades=args.quality_grades,
+    )
+    payload = prepare_production_preselection(
+        source_corpus=source_corpus,
+        source_manifest=source_manifest,
+        replay_manifest=replay_manifest,
+        lock_out=args.lock_out,
+        window_end=args.window_end or None,
+        batch_rows=args.batch_rows,
+        max_market_days=args.max_market_days,
+        max_rows_per_market_day=args.max_rows_per_market_day,
+    )
+    print(
+        "point-in-time production preselection: "
+        f"status={payload['status']} lock={payload['window_lock']['window_lock_id']}"
+    )
+
+
+def _cmd_qualify(args: argparse.Namespace) -> None:
+    payload = materialize_production_candidate_packet(
+        candidate_id=args.candidate_id,
+        release_id=args.release_id or args.candidate_id,
+        corpus_out=args.corpus_out,
+        manifest_out=args.manifest_out,
+        validation_plan_out=args.validation_plan_out,
+        evaluation_out=args.evaluation_out,
+        model_artifact=args.model_artifact,
+        calibration_artifact=args.calibration_artifact,
+        routing_artifact=args.routing_artifact,
+        preselection_lock=args.preselection_lock,
+        replay_manifest=args.replay_manifest,
+        folders=[Path(item) for item in args.folder],
+        source_corpus=args.source_corpus or None,
+        source_manifest=args.source_manifest or None,
+        snapshots_root=args.snapshots_root,
+        archive_root=args.archive_root,
+        archive_as_of_date=args.as_of or None,
+        artifact_family=args.artifact_family,
+        max_market_days=args.max_market_days,
+        max_rows_per_market_day=args.max_rows_per_market_day,
+        batch_rows=args.batch_rows,
+        outer_min_train_dates=args.outer_min_train_dates,
+        inner_min_train_dates=args.inner_min_train_dates,
+        embargo_days=args.embargo_days,
+        step_dates=args.step_dates,
+        window_end=args.window_end or None,
+        bootstrap_iterations=args.bootstrap_iterations,
+        bootstrap_seed=args.bootstrap_seed,
+        private_memory_budget_bytes=args.private_memory_budget_bytes,
+        max_fold_scopes=args.max_fold_scopes,
+    )
+    print(
+        "point-in-time production qualification: "
+        f"status={payload['status']} candidate={payload['candidate_id']} "
+        f"receipts={payload['qualification']['fit_receipt_count']}"
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Bounded point-in-time materialization, validation folds, and evaluation."
@@ -2714,6 +4409,69 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--bootstrap-seed", type=int, default=31_415)
     evaluate.add_argument("--out", default=str(DEFAULT_EVALUATION_OUT))
     evaluate.set_defaults(func=_cmd_evaluate)
+
+    prelock = subparsers.add_parser(
+        "prelock-production",
+        help="freeze a candidate-independent 14-day window before training",
+    )
+    prelock.add_argument("--folder", action="append", default=[])
+    prelock.add_argument("--source-corpus", default="")
+    prelock.add_argument("--source-manifest", default="")
+    prelock.add_argument("--source-corpus-out", default="")
+    prelock.add_argument("--source-manifest-out", default="")
+    prelock.add_argument("--source-replay-manifest", default="")
+    prelock.add_argument("--replay-manifest-out", required=True)
+    prelock.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    prelock.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
+    prelock.add_argument("--as-of", default="")
+    prelock.add_argument("--artifact-family", default="snapshots_long")
+    prelock.add_argument("--quality-grades", default="complete,manual_override")
+    prelock.add_argument("--window-end", default="")
+    prelock.add_argument("--max-market-days", type=int, default=60)
+    prelock.add_argument("--max-rows-per-market-day", type=int, default=250_000)
+    prelock.add_argument("--batch-rows", type=int, default=65_536)
+    prelock.add_argument("--lock-out", required=True)
+    prelock.set_defaults(func=_cmd_prelock)
+
+    qualify = subparsers.add_parser(
+        "qualify-production",
+        help="materialize and verify all four production candidate PIT roles",
+    )
+    qualify.add_argument("--candidate-id", required=True)
+    qualify.add_argument("--release-id", default="")
+    qualify.add_argument("--folder", action="append", default=[])
+    qualify.add_argument("--source-corpus", default="")
+    qualify.add_argument("--source-manifest", default="")
+    qualify.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
+    qualify.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
+    qualify.add_argument("--as-of", default="")
+    qualify.add_argument("--artifact-family", default="snapshots_long")
+    qualify.add_argument("--model-artifact", required=True)
+    qualify.add_argument("--calibration-artifact", required=True)
+    qualify.add_argument("--routing-artifact", required=True)
+    qualify.add_argument("--preselection-lock", required=True)
+    qualify.add_argument("--replay-manifest", required=True)
+    qualify.add_argument("--corpus-out", required=True)
+    qualify.add_argument("--manifest-out", required=True)
+    qualify.add_argument("--validation-plan-out", required=True)
+    qualify.add_argument("--evaluation-out", required=True)
+    qualify.add_argument("--max-market-days", type=int, default=60)
+    qualify.add_argument("--max-rows-per-market-day", type=int, default=250_000)
+    qualify.add_argument("--batch-rows", type=int, default=65_536)
+    qualify.add_argument("--outer-min-train-dates", type=int, default=14)
+    qualify.add_argument("--inner-min-train-dates", type=int, default=7)
+    qualify.add_argument("--embargo-days", type=int, choices=range(3, 8), default=3)
+    qualify.add_argument("--step-dates", type=int, default=7)
+    qualify.add_argument("--max-fold-scopes", type=int, default=128)
+    qualify.add_argument("--window-end", default="")
+    qualify.add_argument("--bootstrap-iterations", type=int, default=2_000)
+    qualify.add_argument("--bootstrap-seed", type=int, default=31_415)
+    qualify.add_argument(
+        "--private-memory-budget-bytes",
+        type=int,
+        default=PRODUCTION_PRIVATE_MEMORY_BUDGET_BYTES,
+    )
+    qualify.set_defaults(func=_cmd_qualify)
     return parser
 
 

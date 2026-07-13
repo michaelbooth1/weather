@@ -14,6 +14,8 @@ from weather.reporting.validation.point_in_time_evaluation import (
     CONTRACT_SCHEMA_VERSION,
     MATERIALIZER_SCHEMA_VERSION,
     VALIDATION_PLAN_SCHEMA_VERSION,
+    _verified_stage_selection_binding,
+    _verify_production_latest_target_freshness,
     ContractViolation,
     RollingOriginFold,
     build_nested_rolling_origin_folds,
@@ -25,6 +27,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
     evaluate_point_in_time_rows,
     iter_point_in_time_parquet,
     materialize_point_in_time_table,
+    materialize_production_candidate_packet,
     point_in_time_key,
     run_training_only_pipeline,
     sha256_text,
@@ -41,6 +44,118 @@ PROVENANCE = {
     "manifest_hash": "manifest-hash",
     "source_file_hash": "source-hash",
 }
+
+
+def test_stage_selection_binding_rejects_self_hashed_locked_inventory():
+    locked_dates = [
+        (date(2026, 6, 1) + timedelta(days=offset)).isoformat()
+        for offset in range(14)
+    ]
+    inventory = {
+        "entries": [{"target_date": locked_dates[0]}],
+        "entry_count": 1,
+    }
+    inventory["sha256"] = sha256_text(canonical_json(inventory))
+    binding = {
+        "preselection_hash": "a" * 64,
+        "window_lock_id": "b" * 64,
+        "locked_dates": locked_dates,
+        "used_for_selection": False,
+        "source_folder_date_inventory_sha256": inventory["sha256"],
+        "source_inventory": inventory,
+    }
+    binding["binding_sha256"] = sha256_text(canonical_json(binding))
+
+    with pytest.raises(ContractViolation, match="includes locked dates"):
+        _verified_stage_selection_binding(
+            {"point_in_time_selection_binding": binding},
+            preselection={
+                "preselection_hash": "a" * 64,
+                "window_lock": {
+                    "window_lock_id": "b" * 64,
+                    "target_dates": locked_dates,
+                },
+            },
+            stage="calibration",
+        )
+
+
+def test_stage_selection_binding_rejects_self_hashed_out_of_universe_inventory():
+    universe_dates = [
+        (date(2026, 5, 26) + timedelta(days=offset)).isoformat()
+        for offset in range(20)
+    ]
+    locked_dates = universe_dates[-14:]
+    inventory = {
+        "entries": [{"target_date": "2026-05-01"}],
+        "entry_count": 1,
+    }
+    inventory["sha256"] = sha256_text(canonical_json(inventory))
+    binding = {
+        "preselection_hash": "a" * 64,
+        "window_lock_id": "b" * 64,
+        "locked_dates": locked_dates,
+        "used_for_selection": False,
+        "source_folder_date_inventory_sha256": inventory["sha256"],
+        "source_inventory": inventory,
+    }
+    binding["binding_sha256"] = sha256_text(canonical_json(binding))
+
+    with pytest.raises(ContractViolation, match="outside the immutable"):
+        _verified_stage_selection_binding(
+            {"point_in_time_selection_binding": binding},
+            preselection={
+                "preselection_hash": "a" * 64,
+                "window_lock": {
+                    "window_lock_id": "b" * 64,
+                    "target_dates": locked_dates,
+                },
+                "selection_universe": {"fleet_dates": universe_dates},
+            },
+            stage="calibration",
+        )
+
+
+def test_production_preselection_rejects_stale_latest_target_date():
+    with pytest.raises(ContractViolation, match="latest target date is stale"):
+        _verify_production_latest_target_freshness(
+            ["2026-01-01"],
+            locked_at_utc="2026-02-01T12:00:00+00:00",
+            require_current_prelock=False,
+        )
+
+
+def test_production_qualification_rejects_oversized_market_day_declaration():
+    with pytest.raises(ValueError, match="max_rows_per_market_day"):
+        materialize_production_candidate_packet(
+            candidate_id="candidate-r1",
+            release_id="candidate-r1",
+            corpus_out="corpus.parquet",
+            manifest_out="manifest.json",
+            validation_plan_out="plan.json",
+            evaluation_out="evaluation.json",
+            model_artifact="model.pkl",
+            calibration_artifact="calibration.json",
+            routing_artifact="routing.json",
+            preselection_lock="preselection.json",
+            replay_manifest="replay.json",
+            max_rows_per_market_day=250_001,
+        )
+    with pytest.raises(ValueError, match="batch_rows"):
+        materialize_production_candidate_packet(
+            candidate_id="candidate-r1",
+            release_id="candidate-r1",
+            corpus_out="corpus.parquet",
+            manifest_out="manifest.json",
+            validation_plan_out="plan.json",
+            evaluation_out="evaluation.json",
+            model_artifact="model.pkl",
+            calibration_artifact="calibration.json",
+            routing_artifact="routing.json",
+            preselection_lock="preselection.json",
+            replay_manifest="replay.json",
+            batch_rows=65_537,
+        )
 
 
 def _raw_row(

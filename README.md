@@ -249,7 +249,11 @@ reviewing drift. The operator workflow is documented in
 `nightly_retrain` is the overnight self-improvement job. It refreshes daily
 learning, retrains/validates candidate artifacts, refreshes artifact registries
 and promotion decisions, and writes `data/backtest/nightly_retrain_status.json`
-plus `data/backtest/nightly_retrain_report.md`.
+plus `data/backtest/nightly_retrain_report.md`. Candidate mode defaults to
+`research_only`. Explicit production mode first locks a candidate-independent
+14-day evaluation window, then writes four candidate-local point-in-time roles;
+it can build only an inactive release and never changes the active pointer. See
+the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
 
 Release rollback is a reviewed, market-day-boundary operation. The command
 hash-verifies the prior immutable release, atomically switches the active

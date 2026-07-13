@@ -97,6 +97,14 @@ class TestSchemaRegistry(unittest.TestCase):
             "point_in_time_validation_plan_v0.1",
         )
         self.assertEqual(
+            schema_version("production_point_in_time_preselection"),
+            "production_point_in_time_preselection_v1",
+        )
+        self.assertEqual(
+            schema_version("point_in_time_candidate_training_graph"),
+            "point_in_time_candidate_training_graph_v1",
+        )
+        self.assertEqual(
             schema_version("point_in_time_streaming_evaluation"),
             "point_in_time_streaming_evaluation_v0.1",
         )

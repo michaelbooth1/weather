@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import weather.reporting.location_analysis.location_trust as location_trust
 from weather.reporting.location_analysis.location_trust import grade_for, score_market, trust_from_components
 
 
@@ -158,6 +161,83 @@ class TestTrustFormula(unittest.TestCase):
             self.assertAlmostEqual(row["winner_market_probability"], 0.55)
             self.assertAlmostEqual(row["winner_catchup_gap"], 0.0)
             self.assertAlmostEqual(row["winner_catchup_rate"], 0.5)
+
+    def test_trust_target_date_whitelist_is_exact_and_default_is_unchanged(self):
+        first = Path(
+            "highest-temperature-in-toronto-on-july-1-2026"
+        )
+        second = Path(
+            "highest-temperature-in-toronto-on-july-2-2026"
+        )
+        label = {
+            "settlement_bucket": 25,
+            "quality_grade": "complete",
+        }
+        with (
+            patch.object(
+                location_trust,
+                "discover_settled_folders",
+                return_value=[first, second],
+            ),
+            patch.object(
+                location_trust,
+                "spec_for_slug",
+                return_value=SimpleNamespace(id="toronto"),
+            ),
+            patch.object(
+                location_trust,
+                "load_market_day_label",
+                return_value=label,
+            ),
+        ):
+            ambient = location_trust.market_settled_folders(
+                "toronto",
+                Path("snapshots"),
+                date(2026, 7, 3),
+            )
+            selected = location_trust.market_settled_folders(
+                "toronto",
+                Path("snapshots"),
+                date(2026, 7, 3),
+                included_target_dates={"2026-07-01"},
+            )
+            empty = location_trust.market_settled_folders(
+                "toronto",
+                Path("snapshots"),
+                date(2026, 7, 3),
+                included_target_dates=set(),
+            )
+
+        self.assertEqual(ambient, [first, second])
+        self.assertEqual(selected, [first])
+        self.assertEqual(empty, [])
+
+    def test_score_all_materializes_target_date_whitelist_once(self):
+        specs = [SimpleNamespace(id="toronto"), SimpleNamespace(id="denver")]
+        dates = (value for value in ["2026-07-01", "2026-07-02"])
+        with (
+            patch.object(location_trust, "all_specs", return_value=specs),
+            patch.object(
+                location_trust,
+                "score_market",
+                side_effect=lambda market_id, *_args, **_kwargs: {
+                    "market": market_id
+                },
+            ) as score,
+        ):
+            rows = location_trust.score_all_markets(
+                root=Path("snapshots"),
+                included_target_dates=dates,
+            )
+
+        self.assertEqual(rows, [{"market": "toronto"}, {"market": "denver"}])
+        expected = frozenset({"2026-07-01", "2026-07-02"})
+        self.assertEqual(len(score.call_args_list), 2)
+        for call_row in score.call_args_list:
+            self.assertEqual(
+                call_row.kwargs["included_target_dates"],
+                expected,
+            )
 
 
 if __name__ == "__main__":

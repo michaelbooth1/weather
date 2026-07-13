@@ -100,6 +100,27 @@ RECENT_REGISTERED_SCHEMAS = (
         "Identity-only fail-closed receipt proving an outer holdout was not reused to fit legacy served postprocessing.",
     ),
     SchemaSpec(
+        "pooled_band_point_in_time_training",
+        "pooled_band_point_in_time_training_v1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Preselection-bound nested pooled-band training plan and output-bound six-stage fit receipt graph.",
+    ),
+    SchemaSpec(
+        "pooled_band_final_refit_receipt",
+        "pooled_band_final_refit_receipt_v1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Self-hashed proof binding the final pooled HGB refit to unlocked inputs and serialized model payloads.",
+    ),
+    SchemaSpec(
+        "pooled_nested_postprocess_fit_contract",
+        "pooled_nested_postprocess_fit_contract_v1",
+        "weather.calibration.pooled_training",
+        "active",
+        "Identity learned-postprocess contract backed by real nested training-only receipts.",
+    ),
+    SchemaSpec(
         "served_calibration_stage_ablation",
         "served_calibration_stage_ablation_v1",
         "weather.model_stage_retirement",
@@ -497,7 +518,7 @@ RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
         "release_rollback_drill",
         "release_rollback_drill_v0.1",
-        "weather.reporting.serving_gates.production_readiness_gate",
+        "weather.operations.release_promotion",
         "active",
         "Hash-linked rollback, coordinated restart, restored identity, and health drill proof.",
     ),
@@ -640,6 +661,20 @@ RECENT_REGISTERED_SCHEMAS = (
         "weather.reporting.validation.point_in_time_evaluation",
         "active",
         "Nested fleet-date rolling-origin validation plan with a predeclared calendar embargo.",
+    ),
+    SchemaSpec(
+        "production_point_in_time_preselection",
+        "production_point_in_time_preselection_v1",
+        "weather.reporting.validation.point_in_time_evaluation",
+        "active",
+        "Self-hashed candidate-independent selection universe and evaluation-window lock created before production fitting.",
+    ),
+    SchemaSpec(
+        "point_in_time_candidate_training_graph",
+        "point_in_time_candidate_training_graph_v1",
+        "weather.reporting.validation.point_in_time_evaluation",
+        "active",
+        "Hash-linked production candidate graph binding trainer evidence, fitted artifacts, routing, source replay, and selection exclusions.",
     ),
     SchemaSpec(
         "point_in_time_fit_receipt",

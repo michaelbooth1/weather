@@ -1,8 +1,9 @@
 # Point-In-Time Evaluation Runbook
 
 `weather.reporting.validation.point_in_time_evaluation` owns the derived
-point-in-time row contract, fleet-date rolling validation plans, and bounded
-14-calendar-day evaluator. It does not train or promote a model.
+point-in-time row contract, candidate-independent production preselection,
+fleet-date rolling validation plans, bounded 14-calendar-day evaluation, and
+production candidate qualification. It does not train or promote a model.
 
 ## Evidence contract
 
@@ -24,6 +25,84 @@ Only these evidence lanes are valid, and evaluation never pools them:
 - `market_benchmark`
 - `market_informed`
 - `trading`
+
+## Prelock A Production Population
+
+Production preselection verifies a candidate-independent source before
+training, freezes its bounded replay inventory, and locks a contiguous 14-day
+evaluation window:
+
+```powershell
+python -m weather.reporting.validation.point_in_time_evaluation prelock-production `
+  --source-corpus <bounded-source.parquet> `
+  --source-manifest <source-manifest.json> `
+  --source-replay-manifest <promotion-corpus.json> `
+  --replay-manifest-out <candidate>/qualification/point_in_time/work/replay_manifest.json `
+  --lock-out <candidate>/qualification/point_in_time/work/preselection_lock.json
+```
+
+Repeated `--folder` may be used instead of the paired source corpus and
+manifest. The source replay manifest is optional, but any supplied inventory is
+hash-verified. The prelock records the complete selection universe, its hash,
+the source/replay hashes, and the 14 locked dates. Its latest target date must
+be no more than seven days old when the lock is created; a freshly generated
+evaluation over a stale or truncated corpus cannot qualify. Production limits
+the source to 60 market-days, 250,000 rows per market-day, and one retained raw
+market-day. No candidate artifact exists when this lock is chosen.
+
+The lock must then flow into every selection owner. Pooled feature and source-
+reliability priors, family calibration/trust, final pooled fitting, and routing
+selection exclude the 14 dates. Calibration and routing artifacts carry
+self-hashed bindings with `used_for_selection: false`; their inventory hashes
+must stay inside the exact immutable selection universe minus the locked dates.
+
+## Qualify A Production Candidate
+
+After the actual trainers finish, qualification consumes the manifest-pinned
+prelock and replay inventory. It rejects raw-folder substitution, loads the
+exact fitted pickle, verifies its nested-fold evidence, freshly scores the
+pinned population, and attaches settlement evidence only after prediction:
+
+```powershell
+python -m weather.reporting.validation.point_in_time_evaluation qualify-production `
+  --candidate-id <candidate-id> `
+  --release-id <candidate-id> `
+  --model-artifact <candidate>/model/feature_model_hgb_f_pooled_v0_3.pkl `
+  --calibration-artifact <candidate>/calibration/f_family_secondary_artifacts.json `
+  --routing-artifact <promotion-refresh.json> `
+  --preselection-lock <candidate>/qualification/point_in_time/work/preselection_lock.json `
+  --replay-manifest <candidate>/qualification/point_in_time/work/replay_manifest.json `
+  --corpus-out <candidate>/qualification/point_in_time/corpus.parquet `
+  --manifest-out <candidate>/qualification/point_in_time/materialization_manifest.json `
+  --validation-plan-out <candidate>/qualification/point_in_time/validation_plan.json `
+  --evaluation-out <candidate>/qualification/point_in_time/streaming_evaluation.json
+```
+
+The four outputs share one self-hashed candidate-training graph. That graph
+binds the preselection and window identities, exact model/calibration/routing
+hashes, canonical route decision, source replay, folds, all fit receipts, and
+the serialized final-refit receipt. Every outer and inner scope must have six
+chained receipts produced by the pooled training path: feature selection,
+scaling/imputation, model, calibration, postprocessing, and regime routing.
+The last three execute the currently served identity-disabled calibration/
+postprocessing policy and predeclared single route; their receipts bind real
+fold inputs and outputs without representing those fixed policies as learned
+parameters.
+Candidate verification re-inspects the Parquet structure and resource bounds;
+immutable-release verification rechecks the frozen hash graph without loading
+PyArrow into serving processes.
+
+Production qualification defaults to a 4 GiB declared private-memory budget,
+128 fold scopes, seven-date fold steps, 65,536-row Parquet batches, and one raw
+market-day retained at a time. The replay producer hands off an explicit
+market-day batch and cannot score the next day until the writer has flushed and
+released the current one. Canonical row hashing is incremental, and Arrow
+conversion is chunked to at most 65,536 rows even when the market-day bound is
+larger. Raw training inputs are also read one market-day at a time, while the
+non-incremental HGB fit honestly retains a separately capped normalized
+population (at most 60 × 1,000 source rows). These production bounds are
+intentionally stricter than the generic materializer's 500-day pilot maximum
+below.
 
 ## Materialize bounded derived rows
 
@@ -100,3 +179,9 @@ diagnostic. Any rejected or duplicate band poisons its whole cutoff, so a
 partial simplex cannot survive as countable evidence. A stale/failed row rate
 of exactly 5% blocks: the declared target is strictly below 5%. This evaluator
 supplies evidence; it does not grant promotion or trading permission.
+
+## Update this file when
+
+Update when the row key or lineage fields, production prelock/source contract,
+fold or embargo semantics, fit-receipt stages or payload binding, qualification
+role graph, locked evaluation rules, or resource bounds change.

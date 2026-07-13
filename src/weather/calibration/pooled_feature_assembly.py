@@ -12,7 +12,7 @@ import pickle
 import time
 import warnings
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from weather.paths import data_path
@@ -558,8 +558,27 @@ def family_specs(unit="F"):
     return [spec for spec in all_specs() if spec.display_unit == unit]
 
 
-def market_climate_stats(cache):
-    buckets = [row.get("bucket") for row in (cache.get("daily") or {}).values()]
+def _normalized_target_dates(values):
+    return {
+        value.isoformat() if hasattr(value, "isoformat") else str(value)
+        for value in (values or ())
+    }
+
+
+def _target_date_is_excluded(local_date, excluded_target_dates):
+    if not excluded_target_dates:
+        return False
+    value = local_date.isoformat() if hasattr(local_date, "isoformat") else str(local_date)
+    return value in excluded_target_dates
+
+
+def market_climate_stats(cache, excluded_target_dates=None):
+    excluded_target_dates = _normalized_target_dates(excluded_target_dates)
+    buckets = [
+        row.get("bucket")
+        for local_date, row in (cache.get("daily") or {}).items()
+        if not _target_date_is_excluded(local_date, excluded_target_dates)
+    ]
     buckets = [float(value) for value in buckets if value is not None]
     if not buckets:
         return {"climate_normal": None, "climate_std": None}
@@ -571,7 +590,11 @@ def market_climate_stats(cache):
     return {"climate_normal": mean, "climate_std": std}
 
 
-def market_source_reliability(spec, include_historical_only=False):
+def market_source_reliability(
+    spec,
+    include_historical_only=False,
+    excluded_target_dates=None,
+):
     """Static per-market source-quality priors for pooled training.
 
     These are learned from available daily-source overlaps versus WU, not from
@@ -587,6 +610,16 @@ def market_source_reliability(spec, include_historical_only=False):
         indexes = source_daily_indexer(spec)
     except Exception:  # noqa: BLE001 - pooled training should survive missing optional stores
         indexes = {}
+    excluded_target_dates = _normalized_target_dates(excluded_target_dates)
+    if excluded_target_dates:
+        indexes = {
+            source: {
+                local_date: row
+                for local_date, row in (rows or {}).items()
+                if not _target_date_is_excluded(local_date, excluded_target_dates)
+            }
+            for source, rows in indexes.items()
+        }
     primary_rows = indexes.get(PRIMARY_SOURCE) or {}
     reliability = {column: None for column in SOURCE_RELIABILITY_COLUMNS}
     if include_historical_only:
@@ -737,20 +770,65 @@ def build_market_records(
     cutoff_hours=INTRADAY_CUTOFF_HOURS,
     max_days=None,
     reanalysis_promotion_lane=None,
+    excluded_target_dates=None,
+    included_target_dates=None,
+    prior_as_of_exclusive=None,
+    _available_target_dates=None,
 ):
+    excluded_target_dates = _normalized_target_dates(excluded_target_dates)
+    included_target_dates = _normalized_target_dates(included_target_dates)
+    prior_cutoff = (
+        date.fromisoformat(str(prior_as_of_exclusive))
+        if prior_as_of_exclusive
+        else None
+    )
     model = TorontoHighTempModel(market_id=spec.id)
     cache = model.historical_target_cache()
     daily = cache.get("daily") or {}
     by_date = cache.get("by_date") or {}
+    dates = sorted(daily.keys())
+    if max_days and max_days > 0:
+        dates = dates[-int(max_days):]
+    if _available_target_dates is not None:
+        _available_target_dates.update(
+            local_date.isoformat()
+            for local_date in dates
+            if by_date.get(local_date)
+        )
+    prior_excluded_dates = set(excluded_target_dates)
+    if included_target_dates and prior_cutoff is None:
+        prior_excluded_dates.update(
+            local_date.isoformat()
+            for local_date in dates
+            if local_date.isoformat() not in included_target_dates
+        )
+    if prior_cutoff is not None:
+        prior_excluded_dates.update(
+            local_date.isoformat()
+            for local_date in daily
+            if local_date >= prior_cutoff
+        )
+    dates = [
+        local_date
+        for local_date in dates
+        if (
+            not included_target_dates
+            or local_date.isoformat() in included_target_dates
+        )
+        and not _target_date_is_excluded(local_date, excluded_target_dates)
+    ]
     forecast_index = load_forecast_daily(daily_path_for(spec))
     forecast_profiles = load_forecast_profiles(long_path_for(spec))
     marine_water_contrast_index = load_marine_water_contrast_features(spec=spec)
     reanalysis_synoptic_index = load_reanalysis_synoptic_features(spec=spec)
-    climate = market_climate_stats(cache)
-    source_reliability = market_source_reliability(spec)
-    dates = sorted(daily.keys())
-    if max_days and max_days > 0:
-        dates = dates[-int(max_days):]
+    climate = market_climate_stats(
+        cache,
+        excluded_target_dates=prior_excluded_dates,
+    )
+    source_reliability = market_source_reliability(
+        spec,
+        excluded_target_dates=prior_excluded_dates,
+    )
 
     records = []
     wall_offsets = (0, 15, 30, 45)
@@ -793,19 +871,45 @@ def build_family_dataset(
     cutoff_hours=INTRADAY_CUTOFF_HOURS,
     max_days_per_market=None,
     reanalysis_promotion_lane=None,
+    excluded_target_dates=None,
+    included_target_dates=None,
+    prior_as_of_exclusive=None,
 ):
     specs = family_specs(unit)
     records = []
     counts = {}
+    available_target_dates = set()
+    excluded_target_dates = _normalized_target_dates(excluded_target_dates)
+    included_target_dates = _normalized_target_dates(included_target_dates)
     for spec in specs:
         market_records = build_market_records(
             spec,
             cutoff_hours=cutoff_hours,
             max_days=max_days_per_market,
             reanalysis_promotion_lane=reanalysis_promotion_lane,
+            excluded_target_dates=excluded_target_dates,
+            included_target_dates=included_target_dates,
+            prior_as_of_exclusive=prior_as_of_exclusive,
+            _available_target_dates=available_target_dates,
         )
         counts[spec.id] = len(market_records)
         records.extend(market_records)
+    missing_excluded_dates = sorted(
+        excluded_target_dates - available_target_dates
+    )
+    if missing_excluded_dates:
+        raise ValueError(
+            "pooled training corpus does not cover every locked evaluation date: "
+            + ", ".join(missing_excluded_dates)
+        )
+    missing_included_dates = sorted(
+        included_target_dates - available_target_dates
+    )
+    if missing_included_dates:
+        raise ValueError(
+            "pooled training corpus does not cover every preselected fleet date: "
+            + ", ".join(missing_included_dates)
+        )
     return records, counts
 
 
