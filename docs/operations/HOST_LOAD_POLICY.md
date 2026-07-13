@@ -81,10 +81,13 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
    ≥ 50 GB disk free.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
-   `WeatherMemoryCommitGuard` task (every 5 min) warns at 85% commit and
-   kills the largest ad-hoc python offender above 8 GB at 92% commit. It
-   never touches `-m weather.*` module processes. Agents running unbounded
-   materializations must chunk or spill to disk instead.
+   `WeatherMemoryCommitGuard` task (every 5 min) warns when available physical
+   RAM is below 1.5 GiB and records the top working-set processes. It also
+   warns at 85% commit and kills the largest ad-hoc python offender above 8 GB
+   at 92% commit. Physical-RAM pressure is warning-only: every kill decision
+   remains commit-based, and the guard never touches `-m weather.*` module
+   processes. Agents running unbounded materializations must chunk or spill to
+   disk instead.
 4. **Orphaned ad-hoc python is killed on sight** (30-minute grace). Every
    guard run sweeps for `python -` / `python -c` processes whose parent is
    gone: a stdin or inline job's script and output have no owner once its

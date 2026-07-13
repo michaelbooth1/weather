@@ -39,7 +39,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Watches system commit charge; warns at 85%, kills runaway ad-hoc python jobs (>8GB private) at 92%. Never touches -m weather.* processes." `
+    -Description "Warns below 1.5 GiB available physical RAM and at 85% commit; kills runaway ad-hoc python jobs (>8GB private) at 92% commit. Never touches -m weather.* processes." `
     -Force | Out-Null
 
 # Make the repetition indefinite (empty duration = repeat forever).

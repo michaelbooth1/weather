@@ -9,6 +9,9 @@
 # jobs are the ungoverned class this guard covers.
 #
 # Policy:
+#   physical RAM available < 1.5 GiB -> log a WARNING with the top
+#                     working-set processes. This is observability only;
+#                     termination decisions remain commit-based.
 #   commit >= 85%  -> log a WARNING with the top private-memory processes.
 #   commit >= 92%  -> kill the single largest AD-HOC python offender above
 #                     8 GB private bytes. Ad-hoc means `python -`, `python -c`,
@@ -32,7 +35,8 @@ param(
     [double]$WarnPercent = 85.0,
     [double]$ActPercent = 92.0,
     [long]$MinKillPrivateBytes = 8GB,
-    [double]$OrphanGraceMinutes = 30.0
+    [double]$OrphanGraceMinutes = 30.0,
+    [long]$WarnFreePhysicalBytes = 1536MB
 )
 
 $logDir = Join-Path $RepoRoot "data\logs"
@@ -50,6 +54,7 @@ $commitTotalMB = [double]$os.TotalVirtualMemorySize / 1024.0
 $commitUsedMB = ([double]$os.TotalVirtualMemorySize - [double]$os.FreeVirtualMemory) / 1024.0
 $commitPercent = if ($commitTotalMB -gt 0) { 100.0 * $commitUsedMB / $commitTotalMB } else { 0.0 }
 $freeRamMB = [double]$os.FreePhysicalMemory / 1024.0
+$warnFreePhysicalMB = [double]$WarnFreePhysicalBytes / 1MB
 
 $status = @{
     checked_at = (Get-Date -Format "o")
@@ -57,9 +62,20 @@ $status = @{
     commit_total_mb = [math]::Round($commitTotalMB, 0)
     commit_percent = [math]::Round($commitPercent, 1)
     free_ram_mb = [math]::Round($freeRamMB, 0)
+    physical_warn_below_mb = [math]::Round($warnFreePhysicalMB, 0)
+    physical_warning = $false
     warn_percent = $WarnPercent
     act_percent = $ActPercent
     action = "none"
+}
+
+if ($freeRamMB -lt $warnFreePhysicalMB) {
+    $topWorkingSet = Get-Process -ErrorAction SilentlyContinue |
+        Sort-Object WorkingSet64 -Descending | Select-Object -First 5 |
+        ForEach-Object { "{0}(pid {1})={2}MB" -f $_.Name, $_.Id, [math]::Round($_.WorkingSet64 / 1MB, 0) }
+    Write-GuardLog "WARNING" ("physical RAM available at {0} MB, below {1} MB; top working set: {2}" -f `
+        [math]::Round($freeRamMB, 0), [math]::Round($warnFreePhysicalMB, 0), ($topWorkingSet -join ", "))
+    $status.physical_warning = $true
 }
 
 if ($commitPercent -ge $WarnPercent) {
