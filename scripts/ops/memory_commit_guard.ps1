@@ -16,6 +16,14 @@
 #                     module processes (capture loops, bots, chains) or any
 #                     non-python process; if no eligible offender exists it
 #                     logs CRITICAL and takes no action.
+#   every run      -> orphan sweep: kill `python -` / `python -c` processes
+#                     whose parent is gone and which are older than 30 min.
+#                     A stdin/-c job's script and output have no owner once
+#                     the parent dies; the 2026-07-12 incident's second
+#                     process idled at only 1.3 GB (below every memory
+#                     threshold) while reading 113 GB from the data disk.
+#                     Orphaned bare-script python is logged but not killed
+#                     (detached-by-design launchers exist in this repo).
 #
 # Registered by register_memory_commit_guard.ps1 (every 5 minutes).
 
@@ -23,7 +31,8 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [double]$WarnPercent = 85.0,
     [double]$ActPercent = 92.0,
-    [long]$MinKillPrivateBytes = 8GB
+    [long]$MinKillPrivateBytes = 8GB,
+    [double]$OrphanGraceMinutes = 30.0
 )
 
 $logDir = Join-Path $RepoRoot "data\logs"
@@ -99,5 +108,48 @@ if ($commitPercent -ge $ActPercent) {
         $status.action = "no_eligible_target"
     }
 }
+
+# ---- Orphan sweep: runs every invocation, independent of commit level ----
+$orphanActions = @()
+$allProcs = Get-CimInstance Win32_Process -Filter "Name like 'python%'"
+$pidTable = @{}
+Get-CimInstance Win32_Process | ForEach-Object { $pidTable[[uint32]$_.ProcessId] = $_.CreationDate }
+foreach ($row in $allProcs) {
+    $cmd = [string]$row.CommandLine
+    if ($cmd -match "-m\s+weather\.") { continue }
+    $isStdin = $cmd -match '(?i)python[w]?(\.exe)?"?\s+-\s*$'
+    $isInline = $cmd -match '(?i)python[w]?(\.exe)?"?\s+-c\s'
+    $isBareScript = $cmd -match '(?i)python[w]?(\.exe)?"?\s+[^-]\S*\.py'
+    if (-not ($isStdin -or $isInline -or $isBareScript)) { continue }
+    $ageMinutes = ((Get-Date) - $row.CreationDate).TotalMinutes
+    if ($ageMinutes -lt $OrphanGraceMinutes) { continue }
+    $ppid = [uint32]$row.ParentProcessId
+    $parentBirth = $pidTable[$ppid]
+    # Parent gone, or its PID was reused by a younger process.
+    $orphaned = ($null -eq $parentBirth) -or ($parentBirth -gt $row.CreationDate)
+    if (-not $orphaned) { continue }
+    $proc = Get-Process -Id $row.ProcessId -ErrorAction SilentlyContinue
+    $privateMB = 0
+    if ($proc) { $privateMB = [math]::Round($proc.PrivateMemorySize64 / 1MB, 0) }
+    $readGB = [math]::Round([double]$row.ReadTransferCount / 1GB, 1)
+    $summary = "pid {0} age {1}m private {2}MB read {3}GB: {4}" -f `
+        $row.ProcessId, [math]::Round($ageMinutes, 0), $privateMB, $readGB, `
+        $cmd.Substring(0, [Math]::Min(160, $cmd.Length))
+    if ($isStdin -or $isInline) {
+        Write-GuardLog "ACTION" ("orphaned ad-hoc python (parent {0} gone): killing {1}" -f $ppid, $summary)
+        try {
+            Stop-Process -Id $row.ProcessId -Force -Confirm:$false -ErrorAction Stop
+            $orphanActions += "killed_pid_$($row.ProcessId)"
+            Write-GuardLog "ACTION" ("pid {0} terminated" -f $row.ProcessId)
+        } catch {
+            $orphanActions += "kill_failed_pid_$($row.ProcessId)"
+            Write-GuardLog "ERROR" ("failed to kill orphan pid {0}: {1}" -f $row.ProcessId, $_.Exception.Message)
+        }
+    } else {
+        Write-GuardLog "WARNING" ("orphaned bare-script python left running (detached launchers are legitimate): {0}" -f $summary)
+        $orphanActions += "warned_pid_$($row.ProcessId)"
+    }
+}
+$status.orphan_sweep = if ($orphanActions.Count -gt 0) { $orphanActions -join "," } else { "clean" }
 
 $status | ConvertTo-Json | Out-File -FilePath $statusPath -Encoding utf8

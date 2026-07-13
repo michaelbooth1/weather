@@ -61,7 +61,14 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
    kills the largest ad-hoc python offender above 8 GB at 92% commit. It
    never touches `-m weather.*` module processes. Agents running unbounded
    materializations must chunk or spill to disk instead.
-4. Scheduled `-m weather.*` heavy work stays governed by its own admission
+4. **Orphaned ad-hoc python is killed on sight** (30-minute grace). Every
+   guard run sweeps for `python -` / `python -c` processes whose parent is
+   gone: a stdin or inline job's script and output have no owner once its
+   parent dies. The incident's second process sat at only 1.3 GB — under
+   every memory threshold — while reading 113 GB from the data disk with
+   nobody left to consume the result. Orphaned bare-script python is logged
+   but not killed, since detached-by-design launchers are legitimate here.
+5. Scheduled `-m weather.*` heavy work stays governed by its own admission
    gate (capture-resource DEFER on this live host) — this policy does not
    loosen it.
 
