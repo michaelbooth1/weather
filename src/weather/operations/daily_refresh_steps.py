@@ -41,6 +41,8 @@ from weather.operations.daily_refresh_source_steps import (
     write_ingest_quality_report,
 )
 from weather.operations.daily_refresh_trading_steps import (
+    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
     run_clob_order_book_tiering_step,
     run_closed_day_parquet_incremental_step,
     run_exchange_economics_rule_drift_step,

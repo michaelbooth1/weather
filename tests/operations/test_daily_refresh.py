@@ -1460,6 +1460,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
+        self.assertEqual(args.maker_paper_latest_active_runs, 14)
+        self.assertEqual(args.maker_paper_max_input_bytes, 512 * 1024 * 1024)
 
         disabled = parser.parse_args([
             "run",
@@ -1471,11 +1473,17 @@ class TestDailyRefresh(unittest.TestCase):
             "256",
             "--capture-resource-mode",
             "offline_host",
+            "--maker-paper-latest-active-runs",
+            "3",
+            "--maker-paper-max-input-bytes",
+            "1024",
         ])
         self.assertFalse(disabled.heavy_step_subprocess)
         self.assertEqual(disabled.heavy_step_timeout_seconds, 5)
         self.assertEqual(disabled.heavy_step_working_set_max_mb, 256)
         self.assertEqual(disabled.capture_resource_mode, "offline_host")
+        self.assertEqual(disabled.maker_paper_latest_active_runs, 3)
+        self.assertEqual(disabled.maker_paper_max_input_bytes, 1024)
 
     def test_cli_run_injects_lock_diagnostic_before_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3280,9 +3288,37 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["paper_score_freshness_status"], "PASS")
         self.assertEqual(result["latest_completed_active_day"], "2026-06-19")
         self.assertEqual(result["latest_covered_active_day"], "2026-06-19")
+        self.assertEqual(result["selected_run_count"], 1)
         self.assertTrue(fills_exists)
         self.assertEqual(payload["summary"]["paper_score_freshness_status"], "PASS")
+        self.assertTrue(payload["summary"]["bounded_run_selection"])
+        self.assertEqual(payload["summary"]["run_folder_selection"]["latest_n"], 14)
+        self.assertEqual(
+            payload["summary"]["run_folder_selection"]["evidence_mode"],
+            "active_day_live_forward",
+        )
+        self.assertEqual(payload["summary"]["input_preflight"]["status"], "PASS")
         self.assertIn("Paper-score freshness", report)
+
+    def test_maker_paper_score_step_blocks_before_loading_over_budget_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_active_mm_run(tmp)
+            args = _args(
+                tmp,
+                as_of="2026-06-20T12:00:00+00:00",
+                maker_paper_max_input_bytes=1,
+            )
+
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.mm_paper.build_paper_payload"
+            ) as build_payload:
+                result = run_maker_paper_score_step(args)
+
+        self.assertEqual(result["status"], "BLOCK")
+        self.assertEqual(result["reason"], "maker_paper_input_budget_exceeded")
+        self.assertGreater(result["input_bytes"], result["max_input_bytes"])
+        self.assertEqual(result["input_preflight"]["latest_run_limit"], 14)
+        build_payload.assert_not_called()
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

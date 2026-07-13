@@ -341,6 +341,7 @@ def ensure_daily_roll(
     start_fn: Callable[..., dict[str, Any]],
     pid_alive: Callable[..., bool] | None,
     write_status_fn: Callable[[Path, dict[str, Any]], Any] | None,
+    pid_stop_check: Callable[..., bool] | None = None,
     now: datetime | str | None = None,
     current_identity: dict[str, Any] | None = None,
     timezone_name: str = "America/Toronto",
@@ -349,6 +350,7 @@ def ensure_daily_roll(
 ) -> dict[str, Any]:
     current = parse_datetime(now) or utc_now()
     current_identity = current_identity or get_runtime_identity()
+    pid_stop_check = pid_stop_check or pid_alive
     status = load_status_fn() or {}
     same_target = bool(status.get("target_date") == target_date)
     start_gate = local_time_gate(
@@ -425,7 +427,12 @@ def ensure_daily_roll(
         return result
 
     if action == "restart":
-        result["stop"] = stop_daily_roll_process(status, target_date=target_date, pid_alive=pid_alive, now=current)
+        result["stop"] = stop_daily_roll_process(
+            status,
+            target_date=target_date,
+            pid_alive=pid_stop_check,
+            now=current,
+        )
         result["start"] = start_fn(
             force=True,
             force_retire_latest_run=result.get("restart_cause") == "superseded_code",
@@ -439,7 +446,7 @@ def ensure_daily_roll(
         result["stop_superseded"] = stop_daily_roll_process(
             status,
             target_date=status.get("target_date"),
-            pid_alive=pid_alive,
+            pid_alive=pid_stop_check,
             now=current,
         )
         result["start"] = start_fn(force=True, force_retire_latest_run=False)

@@ -25,6 +25,7 @@ from weather.market.taker_bot import (
     build_pnl_payload,
     build_run_once,
     build_taker_edge_permission_map,
+    rows_from_order_tapes,
     candidate_skip_reason,
     clustered_taker_promotion_statistics,
     current_high_trust_config_warnings,
@@ -1071,6 +1072,25 @@ class TestTakerBot(unittest.TestCase):
         self.assertIn(("atlanta", "edge_allowed"), records)
         self.assertIn(("seattle", "observe"), records)
         self.assertGreater(records[("atlanta", "edge_allowed")]["taker_skill_weight"], 0.0)
+
+    def test_taker_permission_tapes_are_loaded_lazily_one_at_a_time(self):
+        row = {
+            "market_id": "atlanta",
+            "settlement_outcome": "1",
+        }
+
+        with patch(
+            "weather.market.taker_edge_permission.read_csv_rows",
+            side_effect=lambda path, **_kwargs: [{**row, "target_date": str(path)}],
+        ) as read_rows:
+            rows = rows_from_order_tapes(["day-one.csv", "day-two.csv"])
+            self.assertEqual(read_rows.call_count, 0)
+            self.assertEqual(next(rows)["target_date"], "day-one.csv")
+            self.assertEqual(read_rows.call_count, 1)
+            self.assertEqual(next(rows)["target_date"], "day-two.csv")
+            self.assertEqual(read_rows.call_count, 2)
+            with self.assertRaises(StopIteration):
+                next(rows)
 
     def test_market_benchmark_blocks_when_market_top_beats_model_trade_after_fees(self):
         with tempfile.TemporaryDirectory() as tmp:

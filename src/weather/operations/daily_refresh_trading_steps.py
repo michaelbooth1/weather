@@ -85,6 +85,10 @@ from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.market import trading_evidence
 
 
+DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS = 14
+DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES = 512 * 1024 * 1024
+
+
 def run_exchange_economics_rule_drift_step(args):
     if getattr(args, "skip_exchange_economics_rule_drift", False):
         return {"status": "SKIPPED", "reason": "skip_exchange_economics_rule_drift"}
@@ -346,10 +350,66 @@ def run_maker_paper_score_step(args):
     if getattr(args, "skip_maker_paper_score", False):
         return {"status": "SKIPPED", "reason": "skip_maker_paper_score"}
     backtest_root = Path(args.backtest_root)
+    runs_root = getattr(args, "mm_root", mm_paper.DEFAULT_RUNS_ROOT)
+    latest_runs = int(
+        getattr(
+            args,
+            "maker_paper_latest_active_runs",
+            DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+        )
+    )
+    max_input_bytes = int(
+        getattr(
+            args,
+            "maker_paper_max_input_bytes",
+            DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
+        )
+    )
+    if latest_runs <= 0 or max_input_bytes <= 0:
+        raise ValueError("maker paper run-count and input-byte bounds must be positive")
+    discovered = mm_paper.discover_run_folders(runs_root)
+    selected, selection = mm_paper.select_run_folders_for_paper(
+        discovered,
+        latest_n=latest_runs,
+        evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
+    )
+    input_paths = [
+        path
+        for folder in selected
+        for path in (
+            Path(folder) / "quote_intents_long.csv",
+            Path(folder) / "model_variant_quote_intents_long.csv",
+        )
+        if path.exists()
+    ]
+    input_bytes = sum(path.stat().st_size for path in input_paths)
+    input_preflight = {
+        "status": "PASS" if input_bytes <= max_input_bytes else "BLOCK",
+        "reason": None if input_bytes <= max_input_bytes else "maker_paper_input_budget_exceeded",
+        "evidence_mode": mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
+        "latest_run_limit": latest_runs,
+        "selected_run_count": len(selected),
+        "available_run_count": selection.get("available_run_folders_before_selection"),
+        "input_file_count": len(input_paths),
+        "input_bytes": input_bytes,
+        "max_input_bytes": max_input_bytes,
+        "selected_run_folders": [str(path) for path in selected],
+    }
+    if input_preflight["status"] == "BLOCK":
+        return {
+            "status": "BLOCK",
+            "reason": input_preflight["reason"],
+            "input_preflight": input_preflight,
+            "selected_run_count": len(selected),
+            "input_bytes": input_bytes,
+            "max_input_bytes": max_input_bytes,
+        }
     payload = mm_paper.build_paper_payload(
-        runs_root=getattr(args, "mm_root", mm_paper.DEFAULT_RUNS_ROOT),
+        runs_root=runs_root,
         snapshots_root=getattr(args, "snapshots_root", mm_paper.DEFAULT_SNAPSHOTS_ROOT),
         backtest_root=backtest_root,
+        run_folder_latest_n=latest_runs,
+        run_folder_evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
         casebook_path=backtest_path(args, "disagreement_casebook.json"),
         promotion_refresh=backtest_path(args, "f_family_promotion_refresh.json"),
         now=getattr(args, "as_of", None) or utc_iso(),
@@ -366,6 +426,19 @@ def run_maker_paper_score_step(args):
         ),
         exchange_economics_required=True,
     )
+    payload["input_preflight"] = input_preflight
+    payload.setdefault("summary", {})["input_preflight"] = {
+        key: input_preflight[key]
+        for key in (
+            "status",
+            "evidence_mode",
+            "latest_run_limit",
+            "selected_run_count",
+            "input_file_count",
+            "input_bytes",
+            "max_input_bytes",
+        )
+    }
     payload, _known_edge = mm_paper.write_outputs(
         payload,
         json_out=backtest_path(args, "mm_paper_report.json"),
@@ -385,6 +458,9 @@ def run_maker_paper_score_step(args):
         "fills_out": as_path(backtest_path(args, "mm_paper_fills_long.csv")),
         "known_edge_out": as_path(backtest_path(args, "mm_known_edge_map.json")),
         "known_edge_report_out": as_path(backtest_path(args, "mm_known_edge_map.md")),
+        "selected_run_count": len(selected),
+        "input_bytes": input_bytes,
+        "max_input_bytes": max_input_bytes,
         "paper_score_freshness_status": freshness.get("status"),
         "paper_score_freshness_reason": freshness.get("reason"),
         "latest_completed_active_day": freshness.get("latest_completed_active_day"),
@@ -691,4 +767,3 @@ def run_closed_day_parquet_incremental_step(args):
         "failed": summary.get("failed"),
         "remaining_scan_backlog": summary.get("remaining_scan_backlog"),
     }
-

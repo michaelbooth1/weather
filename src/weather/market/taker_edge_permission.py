@@ -489,59 +489,89 @@ def build_taker_edge_permission_map(
 ):
     now = _parse_time(now) or datetime.now(timezone.utc)
     policy_config = policy_config or {}
-    buckets = defaultdict(list)
+    # Aggregate each permission cell as the source rows are consumed.  Settled
+    # taker tapes are cumulative and can be hundreds of MiB apiece; retaining a
+    # copied dict for every row made the daily refresh heap grow with the whole
+    # historical corpus even though the final artifact only needs per-cell
+    # counts, sets, and sums.
+    buckets = defaultdict(lambda: {
+        "sample": 0,
+        "outcome_sum": 0.0,
+        "model_brier_count": 0,
+        "model_brier_sum": 0.0,
+        "market_brier_count": 0,
+        "market_brier_sum": 0.0,
+        "after_fee_count": 0,
+        "after_fee_sum": 0.0,
+        "market_net_count": 0,
+        "market_net_sum": 0.0,
+        "target_days": set(),
+        "markets": set(),
+    })
     for row in rows or []:
-        if _maybe_float((row or {}).get("settlement_outcome")) is None:
+        outcome = _maybe_float((row or {}).get("settlement_outcome"))
+        if outcome is None:
             continue
-        buckets[_cell_key(row)].append(dict(row))
+        aggregate = buckets[_cell_key(row)]
+        aggregate["sample"] += 1
+        aggregate["outcome_sum"] += outcome
+        aggregate["target_days"].add(row.get("target_date") or "")
+        aggregate["markets"].add(row.get("market_id") or "")
+
+        raw_fair = _clamp_probability(_first_present(row, "fair_probability", "model_probability"))
+        market_probability = market_implied_probability(row)
+        model_brier = _brier(raw_fair, outcome)
+        market_brier = _brier(market_probability, outcome)
+        if model_brier is not None:
+            aggregate["model_brier_count"] += 1
+            aggregate["model_brier_sum"] += model_brier
+        if market_brier is not None:
+            aggregate["market_brier_count"] += 1
+            aggregate["market_brier_sum"] += market_brier
+        after_fee = after_cost_ev_per_share(
+            {**row, "calibrated_fair_probability": outcome},
+            config=policy_config,
+            price=_first_present(row, "best_ask", "fill_price"),
+        )
+        market_net = _one_share_market_net(row, policy_config)
+        if after_fee is not None:
+            aggregate["after_fee_count"] += 1
+            aggregate["after_fee_sum"] += after_fee
+        if market_net is not None:
+            aggregate["market_net_count"] += 1
+            aggregate["market_net_sum"] += market_net
     records = []
-    for key, group in sorted(buckets.items()):
+    for key, aggregate in sorted(buckets.items()):
         dims = dict(zip(PERMISSION_FIELDS, key))
-        model_briers = []
-        market_briers = []
-        after_fee_values = []
-        market_values = []
-        outcomes = []
-        target_days = set()
-        markets = set()
-        for row in group:
-            outcome = _maybe_float(row.get("settlement_outcome"))
-            if outcome is None:
-                continue
-            outcomes.append(outcome)
-            target_days.add(row.get("target_date") or "")
-            markets.add(row.get("market_id") or "")
-            raw_fair = _clamp_probability(_first_present(row, "fair_probability", "model_probability"))
-            market_probability = market_implied_probability(row)
-            model_brier = _brier(raw_fair, outcome)
-            market_brier = _brier(market_probability, outcome)
-            if model_brier is not None:
-                model_briers.append(model_brier)
-            if market_brier is not None:
-                market_briers.append(market_brier)
-            after_fee = after_cost_ev_per_share(
-                {**row, "calibrated_fair_probability": outcome},
-                config=policy_config,
-                price=_first_present(row, "best_ask", "fill_price"),
-            )
-            market_net = _one_share_market_net(row, policy_config)
-            if after_fee is not None:
-                after_fee_values.append(after_fee)
-            if market_net is not None:
-                market_values.append(market_net)
-        sample = len(outcomes)
-        hit_rate = sum(outcomes) / sample if sample else None
-        model_brier_mean = sum(model_briers) / len(model_briers) if model_briers else None
-        market_brier_mean = sum(market_briers) / len(market_briers) if market_briers else None
+        sample = aggregate["sample"]
+        hit_rate = aggregate["outcome_sum"] / sample if sample else None
+        model_brier_mean = (
+            aggregate["model_brier_sum"] / aggregate["model_brier_count"]
+            if aggregate["model_brier_count"]
+            else None
+        )
+        market_brier_mean = (
+            aggregate["market_brier_sum"] / aggregate["market_brier_count"]
+            if aggregate["market_brier_count"]
+            else None
+        )
         model_market_skill = (
             market_brier_mean - model_brier_mean
             if model_brier_mean is not None and market_brier_mean is not None
             else None
         )
-        after_fee_mean = sum(after_fee_values) / len(after_fee_values) if after_fee_values else None
-        market_mean = sum(market_values) / len(market_values) if market_values else None
+        after_fee_mean = (
+            aggregate["after_fee_sum"] / aggregate["after_fee_count"]
+            if aggregate["after_fee_count"]
+            else None
+        )
+        market_mean = (
+            aggregate["market_net_sum"] / aggregate["market_net_count"]
+            if aggregate["market_net_count"]
+            else None
+        )
         after_fee_skill = model_market_skill
-        independent_days = len({day for day in target_days if day})
+        independent_days = len({day for day in aggregate["target_days"] if day})
         permission = "edge_allowed" if (
             sample >= int(min_settled_orders)
             and independent_days >= int(min_independent_days)
@@ -562,7 +592,7 @@ def build_taker_edge_permission_map(
             ),
             "settled_sample_size": sample,
             "independent_target_day_count": independent_days,
-            "market_count": len({market for market in markets if market}),
+            "market_count": len({market for market in aggregate["markets"] if market}),
             "historical_hit_rate": _compact_float(hit_rate),
             "calibrated_model_probability": _compact_float(hit_rate),
             "taker_skill_weight": _compact_float(weight),
@@ -601,10 +631,15 @@ def write_taker_edge_permission_map(out_json, rows=None, **kwargs):
 
 
 def rows_from_order_tapes(paths):
-    rows = []
+    """Yield settled order rows one tape at a time.
+
+    ``read_csv_rows`` currently materializes one CSV for encoding diagnostics,
+    but yielding that batch before opening the next tape bounds retained input
+    to one daily tape instead of the complete multi-day corpus.
+    """
+
     for path in paths or []:
-        rows.extend(read_csv_rows(path, attach_diagnostics=True))
-    return rows
+        yield from read_csv_rows(path, attach_diagnostics=True)
 
 
 def build_taker_edge_permission_map_from_tapes(paths, **kwargs):

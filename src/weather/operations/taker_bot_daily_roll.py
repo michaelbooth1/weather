@@ -58,6 +58,9 @@ DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_STRATEGIES = DEFAULT_BAKEOFF_STRATEGIES
+PID_MATCH = "match"
+PID_NO_MATCH = "no_match"
+PID_MATCH_UNKNOWN = "unknown"
 ACTIVITY_FILENAMES = (
     "orders_long.csv",
     "budget_ledger.jsonl",
@@ -215,7 +218,22 @@ def _creationflags(detached=False):
     return subprocess.CREATE_NO_WINDOW
 
 
-def process_command_line(pid):
+def process_command_line(
+    pid,
+    *,
+    run_fn=subprocess.run,
+    attempts=2,
+    timeout_seconds=5.0,
+    retry_delay_seconds=0.05,
+    sleep_fn=time.sleep,
+):
+    """Return a process command line, ``""`` if absent, or ``None`` if unknown.
+
+    Process lookup is advisory on a loaded host.  In particular, a PowerShell
+    or CIM timeout does not prove that the process disappeared.  Preserve that
+    distinction so callers can avoid converting a transient query failure into
+    a false ``pid_missing`` recovery.
+    """
     if not pid:
         return ""
     try:
@@ -230,41 +248,82 @@ def process_command_line(pid):
             "-Command",
             (
                 "$process = Get-CimInstance Win32_Process "
-                f"-Filter \"ProcessId = {pid}\" -ErrorAction SilentlyContinue; "
-                "if ($process) { [Console]::Out.Write([string]$process.CommandLine) }"
+                f"-Filter \"ProcessId = {pid}\" -ErrorAction Stop; "
+                "if (-not $process) { exit 3 }; "
+                "if ([string]::IsNullOrWhiteSpace([string]$process.CommandLine)) { exit 4 }; "
+                "[Console]::Out.Write([string]$process.CommandLine)"
             ),
         ]
     else:
         command = ["ps", "-p", str(pid), "-o", "args="]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=_creationflags(),
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    if result.returncode != 0:
-        return ""
-    return (result.stdout or "").strip()
+    attempt_count = max(1, int(attempts))
+    for attempt in range(attempt_count):
+        try:
+            result = run_fn(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=float(timeout_seconds),
+                creationflags=_creationflags(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None:
+            output = (result.stdout or "").strip()
+            if result.returncode == 0 and output:
+                return output
+            # The PowerShell probe deliberately uses exit 3 only when CIM
+            # successfully established that no such process exists.  POSIX ps
+            # uses return code 1 for the same condition.
+            if (os.name == "nt" and result.returncode == 3) or (
+                os.name != "nt" and result.returncode == 1
+            ):
+                return ""
+        if attempt + 1 < attempt_count and float(retry_delay_seconds) > 0:
+            sleep_fn(float(retry_delay_seconds))
+    return None
 
 
-def pid_matches_taker_bot(pid, target_date=None):
-    if not pid_is_python(pid):
-        return False
+def taker_bot_pid_match_state(pid, target_date=None):
+    """Return an exact-match tri-state for a recorded taker process PID."""
     command_line = process_command_line(pid)
+    if command_line is None:
+        return PID_MATCH_UNKNOWN
     if not command_line:
-        return False
+        return PID_NO_MATCH
     if not re.search(r"(?i)(?:^|\s)-m\s+weather\.market\.taker_bot(?:\s|$)", command_line):
-        return False
+        return PID_NO_MATCH
     if target_date and not re.search(
         rf"(?i)(?:^|\s)--date(?:=|\s+){re.escape(str(target_date))}(?:\s|$)",
         command_line,
     ):
+        return PID_NO_MATCH
+    # Command-line identity alone is not enough for a destructive match: the
+    # PID may have exited between the CIM query and this live image check.
+    if not pid_is_python(pid):
+        return PID_MATCH_UNKNOWN
+    return PID_MATCH
+
+
+def pid_matches_taker_bot(pid, target_date=None):
+    """Require an exact live module/date match for destructive operations."""
+    return taker_bot_pid_match_state(pid, target_date) == PID_MATCH
+
+
+def pid_is_live_taker_bot(pid, target_date=None):
+    """Conservatively check liveness without weakening destructive matching.
+
+    A failed command-line query is not evidence that the recorded process died.
+    In that unknown case, the independent Win32 process-image lookup is enough
+    to retain liveness.  Taker artifact-age checks remain responsible for
+    detecting a live-but-idle or hung process.
+    """
+    match_state = taker_bot_pid_match_state(pid, target_date)
+    if match_state == PID_MATCH:
+        return True
+    if match_state == PID_NO_MATCH:
         return False
-    return True
+    return bool(pid_is_python(pid))
 
 
 def retire_taker_bot_process_tree(
@@ -691,8 +750,12 @@ def enrich_taker_liveness_status(
     max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
     stat_fn=None,
+    allow_pid_missing=False,
 ):
-    if not payload or payload.get("status") not in {"started", "already_running", "idle_process"}:
+    eligible_statuses = {"started", "already_running", "idle_process"}
+    if allow_pid_missing:
+        eligible_statuses.add("pid_missing")
+    if not payload or payload.get("status") not in eligible_statuses:
         return payload
     health = taker_artifact_health(
         payload.get("runs_root") or DEFAULT_RUNS_ROOT,
@@ -777,12 +840,13 @@ def taker_terminal_status_for_inactive_process(
         max_activity_age_seconds=max_activity_age_seconds,
         startup_grace_seconds=startup_grace_seconds,
         stat_fn=stat_fn,
+        allow_pid_missing=bool(alive),
     )
     # The shared activity preflight only runs for RUNNING_STATUSES, so a status
-    # that is *already* persisted as idle_process arrives here with no
-    # activity_liveness reading. Compute it for a live pid so a taker that has
-    # since recovered (alive + writing fresh artifacts) can be restored instead
-    # of staying stuck terminal across reads.
+    # that is *already* persisted as idle_process or pid_missing arrives here
+    # with no activity_liveness reading. Compute it for a live pid so a taker
+    # that has since recovered -- including after a transient process-query
+    # failure -- can be restored instead of staying stuck terminal across reads.
     if alive and not payload.get("activity_liveness"):
         payload["activity_liveness"] = activity_liveness_preflight(
             taker_activity_paths(root, target or target_date_for_roll(now=now)),
@@ -835,7 +899,16 @@ def taker_terminal_status_for_inactive_process(
         and payload.get("first_failing_gate") == "activity_liveness"
         and health.get("ok")
     )
-    if payload.get("status") == "idle_process" and (live_content_only or activity_gate_false_idle):
+    false_dead_pid = (
+        payload.get("status") == "pid_missing"
+        and live_and_active
+        and health.get("ok")
+    )
+    recoverable_idle = (
+        payload.get("status") == "idle_process"
+        and (live_content_only or activity_gate_false_idle)
+    )
+    if false_dead_pid or recoverable_idle:
         restored_status = original_status if original_status in {"started", "already_running"} else "already_running"
         # Restoring to a running status must clear any terminal action. A cached
         # `blocked_restart_required` from a prior persisted idle state must not be
@@ -854,6 +927,15 @@ def taker_terminal_status_for_inactive_process(
             "pid_alive": True,
             "zero_trades_expected": health.get("status") in {"POLICY_NO_EDGE", "LATEST_TICK_EMPTY"},
         })
+        payload.pop("completed_at_utc", None)
+        if false_dead_pid:
+            payload.pop("first_failing_gate", None)
+            if payload.get("root_cause_class") == "pid_missing":
+                payload.pop("root_cause_class", None)
+            if payload.get("remediation_command") == (
+                "inspect the console log, then restart the daily roll with --force"
+            ):
+                payload.pop("remediation_command", None)
         # Preserve the artifact-content signal as a non-terminal advisory so a
         # quiet/empty or input-starved latest tick stays visible for operators
         # (and routes to the upstream collection monitors) without masquerading
@@ -981,7 +1063,7 @@ def start_for_date(
     disk_usage_fn=None,
     activity_stat_fn=None,
     now=None,
-    pid_alive=pid_matches_taker_bot,
+    pid_alive=pid_is_live_taker_bot,
     launcher=launch_taker_bot_process,
     force_retire_latest_run=False,
     retire_process_tree=retire_taker_bot_process_tree,
@@ -1223,7 +1305,8 @@ def ensure_for_date(
     disk_usage_fn=None,
     activity_stat_fn=None,
     now=None,
-    pid_alive=pid_matches_taker_bot,
+    pid_alive=pid_is_live_taker_bot,
+    pid_stop_check=None,
     launcher=launch_taker_bot_process,
     start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
     current_identity=None,
@@ -1281,6 +1364,9 @@ def ensure_for_date(
         load_status_fn=load_current_status,
         start_fn=start_recovery,
         pid_alive=pid_alive,
+        pid_stop_check=pid_stop_check or (
+            pid_matches_taker_bot if pid_alive is pid_is_live_taker_bot else pid_alive
+        ),
         write_status_fn=write_json,
         now=now,
         current_identity=current_identity,
@@ -1302,7 +1388,7 @@ def load_status(
     path=DEFAULT_STATUS_PATH,
     *,
     now=None,
-    pid_alive=pid_matches_taker_bot,
+    pid_alive=pid_is_live_taker_bot,
     write_back=False,
     max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,

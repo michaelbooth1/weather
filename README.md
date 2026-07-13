@@ -218,6 +218,12 @@ run promotion and shadow monitors, audit fleet/data health, refresh learning
 reports, and write `data/backtest/daily_refresh_status.json` plus
 `data/backtest/daily_refresh_report.md`.
 
+The scheduled maker paper-score step is host-bounded: it selects the latest 14
+`active_day_live_forward` runs and fails closed before loading more than 512 MiB
+of quote inputs. Operators can narrow those limits with
+`--maker-paper-latest-active-runs` and `--maker-paper-max-input-bytes`; raising
+them requires a separate host-capacity review.
+
 Exchange-economics snapshots gate paper/shadow taker and maker evidence. The
 tracked source template is
 `docs/research/exchange_economics_snapshot_template.json`; publish a fresh

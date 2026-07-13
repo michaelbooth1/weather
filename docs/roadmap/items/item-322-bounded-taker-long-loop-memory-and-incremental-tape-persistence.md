@@ -1,4 +1,4 @@
-# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [OPEN 2026-07-13 - CUMULATIVE TAPE REWRITES AND RSS SOAK GATE NOT IMPLEMENTED]
+# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [OPEN 2026-07-13 - STRONG-REFERENCE LEAK FIXED; FULL-HISTORY TICK PEAKS REMAIN UNBOUNDED]
 
 Goal: keep the taker paper loop's steady-state memory and per-tick I/O bounded
 by its current working set rather than elapsed tick count or cumulative tape
@@ -23,15 +23,28 @@ counterfactual tape about 170.9 MiB after roughly 104 minutes. Reprocessing and
 rewriting those growing tapes explains large transient allocation and I/O
 peaks even after historical result references are released.
 
-Post-fix soak evidence through 2026-07-13T08:52:52Z confirms the narrow repair
-removed the dominant retention slope but did not close this item. Across 55
-one-minute samples, the replacement worker's 10-minute private-memory floor
-rose at about 385 MiB/hour versus 1,122 MiB/hour for the superseded worker, a
-66% reduction. Its floor still rose from 736.3 MiB to 1,049.1 MiB while
-transient peaks reached 1,719.6 MiB as the active counterfactual tape grew to
-about 109 MiB. This remaining growth is the bounded-resource and incremental-
-persistence work owned here; it is not evidence to recycle an otherwise
-healthy, countable paper worker.
+Full-run post-fix soak evidence confirms the narrow repair removed the dominant
+lifetime-retention slope but did not close this item. Replacement worker PID
+45132 ran for about 5.6 hours with 336 one-minute resource enrichments. Its
+deep-release floor settled near 1.55-1.59 GiB with a roughly 39 MiB/hour slope,
+about 96.5% below the superseded worker's 1,122 MiB/hour floor slope. Across
+all samples its private memory was 736.3 MiB minimum, 2,294.7 MiB median,
+4,524.5 MiB p95, and 6,226.1 MiB maximum. Fifty of 51 observed episodes above
+3 GiB released to 2.5 GiB or less within 1-3 minutes (1.001-minute median),
+which is inconsistent with recurrence of the repaired strong-reference leak.
+
+The same soak also proves why this item remains urgent. Ordinary ticks still
+reread, rescore, and rewrite complete growing histories, producing transient
+allocation and I/O peaks whose magnitude rises with tape length. Host physical
+availability reached 32.2 MiB at 12:09:55Z while the taker held 5,462.8 MiB
+private memory, even though commit was only 52.818%; commit-only protection is
+therefore insufficient. The final high-allocation episode did not show a deep
+release before the supervisor replaced PID 45132 at 13:34Z under a stale-
+heartbeat classification. The current-code replacement started near 810 MiB
+private and remained below 936 MiB through the monitor boundary. Lifecycle
+evidence does not establish an OOM and this item does not attribute that
+replacement to one; it requires a bounded incremental path so neither growing
+peaks nor resource-triggered recycling are necessary.
 
 Why this matters: Item 312 owns process lifecycle and current-code
 re-adoption, Item 239 owns bot disk preflight and settled-run retention, and

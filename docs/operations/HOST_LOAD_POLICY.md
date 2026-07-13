@@ -24,6 +24,14 @@ be rescheduled — is never starved.
 | 12:30–18:00 | capture + light periodic tasks (config refresh, disagreement analysis) | moderate |
 | 18:00–00:05 | near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch | **PROTECTED — nothing heavy, ever** |
 
+Stage-A settlement safeguards: the daily taker edge-permission aggregation is
+single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
+14 active-day runs and fails closed before materialization when its selected
+quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
+`--maker-paper-max-input-bytes`). These are immediate containment limits, not
+a substitute for the per-step isolation and physical-memory admission owned by
+Roadmap Item 324.
+
 ### The training window (adopted 2026-07-12)
 
 The capture-resource admission gate refuses heavy work while capture loops are

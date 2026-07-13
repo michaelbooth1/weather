@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-13T10:00:19.591135+00:00
+Generated: 2026-07-13T14:20:13.713226+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 317 |
-| Active items | 30 |
-| OPEN | 6 |
+| Items | 318 |
+| Active items | 31 |
+| OPEN | 7 |
 | PARTIAL | 24 |
 | COMPLETE | 287 |
-| ROADMAP rows | 317 |
-| ROADMAP primary rows | 317 |
-| Metadata manifest rows | 317 |
+| ROADMAP rows | 318 |
+| ROADMAP primary rows | 318 |
+| Metadata manifest rows | 318 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -53,8 +53,9 @@ Status: `OK`
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
 | 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
-| 322 | OPEN | 2026-07-13 | CUMULATIVE TAPE REWRITES AND RSS SOAK GATE NOT IMPLEMENTED | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
+| 322 | OPEN | 2026-07-13 | STRONG-REFERENCE LEAK FIXED; FULL-HISTORY TICK PEAKS REMAIN UNBOUNDED | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | OPEN | 2026-07-13 | CROSS-MARKET RAW PAYLOAD DUPLICATION UNBOUNDED | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 324 | OPEN | 2026-07-13 | STAGE-A HEAVY STEPS CAN EXHAUST CAPTURE-HOST MEMORY | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 
 ## Lint Issues
 

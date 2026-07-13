@@ -127,6 +127,8 @@ from weather.operations.daily_refresh_locks import (
 from weather.operations.daily_refresh_steps import (
     DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
     DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
+    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
     DEFAULT_RUNNERS,
     STEP_ORDER,
     STAGE_CHOICES,
@@ -793,6 +795,20 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 getattr(args, "fail_on_production_readiness_block", False)
             ),
             "resume_from_step": getattr(args, "resume_from_step", ""),
+            "maker_paper_latest_active_runs": int(
+                getattr(
+                    args,
+                    "maker_paper_latest_active_runs",
+                    DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+                )
+            ),
+            "maker_paper_max_input_bytes": int(
+                getattr(
+                    args,
+                    "maker_paper_max_input_bytes",
+                    DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
+                )
+            ),
             "stage": stage,
             "stage_a_manifest": str(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST)),
             "stage_b_manifest": str(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST)),

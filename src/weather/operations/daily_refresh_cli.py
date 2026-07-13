@@ -29,6 +29,8 @@ _DEPENDENCY_NAMES = {
     "DEFAULT_LONG_JOB_LOCK_PATH",
     "DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS",
     "DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB",
+    "DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS",
+    "DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES",
     "DEFAULT_LABELS_CSV",
     "DEFAULT_LEDGER_ROOT",
     "STEP_ORDER",
@@ -454,6 +456,18 @@ def build_run_parser(parser, dependencies=None):
         help="Limit tail casebook to the most recent N taker runs; 0 means all discovered runs.",
     )
     parser.add_argument("--skip-maker-paper-score", action="store_true")
+    parser.add_argument(
+        "--maker-paper-latest-active-runs",
+        type=int,
+        default=DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
+        help="Score only the latest N active-day maker runs in the scheduled refresh.",
+    )
+    parser.add_argument(
+        "--maker-paper-max-input-bytes",
+        type=int,
+        default=DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
+        help="Fail closed before maker scoring when selected quote inputs exceed this byte budget.",
+    )
     parser.add_argument("--skip-exchange-economics-rule-drift", action="store_true")
     parser.add_argument(
         "--exchange-economics-template",

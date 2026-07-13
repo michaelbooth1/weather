@@ -15,6 +15,14 @@ hour, 123 new forecast blobs consumed 2.164 GiB and explained 56.3% of the
 store. Hour 8 continued losing 3.3418 GiB/hour, confirming persistent storage
 amplification rather than a one-off burst.
 
+Across the complete 12-hour raw host sample, free disk fell from 381.8955 GiB
+to 337.8235 GiB: 44.0721 GiB, or 3.6737 GiB/hour. Reconstructed Hour 12 alone
+lost 3.0737 GiB. Those host-wide totals include other repository workloads and
+are not wholly attributed to NBM; the byte inventory above is the causal
+evidence for this item. The sustained full-run slope nevertheless corroborates
+the urgent storage-risk disposition, and no canonical payload, manifest,
+snapshot, tape, or ledger was deleted during monitoring.
+
 Why this matters: the observed host burn projects to roughly 80-92 GiB/day,
 which can exhaust local operational storage even though the individual
 payloads are immutable and hash-addressed. Ad hoc deletion is unsafe because

@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -12,7 +13,9 @@ from weather.operations.taker_bot_daily_roll import (
     build_taker_bot_command,
     ensure_for_date,
     load_status,
+    pid_is_live_taker_bot,
     pid_matches_taker_bot,
+    process_command_line,
     retire_taker_bot_process_tree,
     start_for_date,
     target_date_for_roll,
@@ -287,6 +290,117 @@ class TestTakerBotDailyRoll(unittest.TestCase):
             return_value="pythonw.exe -m weather.market.market_making --date 2026-06-18",
         ):
             self.assertFalse(pid_matches_taker_bot(7654, "2026-06-18"))
+
+    def test_process_command_line_retries_transient_query_failure(self):
+        calls = []
+        sleeps = []
+
+        def run_fn(command, **kwargs):
+            calls.append((command, kwargs))
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return SimpleNamespace(
+                returncode=0,
+                stdout="python.exe -m weather.market.taker_bot --date 2026-06-18 --loop",
+                stderr="",
+            )
+
+        command_line = process_command_line(
+            7654,
+            run_fn=run_fn,
+            retry_delay_seconds=0.01,
+            sleep_fn=sleeps.append,
+        )
+
+        self.assertIn("weather.market.taker_bot", command_line)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sleeps, [0.01])
+        self.assertEqual(calls[0][1]["timeout"], 5.0)
+
+    def test_unknown_command_line_uses_nondestructive_python_liveness_fallback(self):
+        run_calls = []
+
+        with patch(
+            "weather.operations.taker_bot_daily_roll.process_command_line",
+            return_value=None,
+        ), patch(
+            "weather.operations.taker_bot_daily_roll.pid_is_python",
+            return_value=True,
+        ):
+            self.assertTrue(pid_is_live_taker_bot(7654, "2026-06-18"))
+            self.assertFalse(pid_matches_taker_bot(7654, "2026-06-18"))
+            retirement = retire_taker_bot_process_tree(
+                7654,
+                "2026-06-18",
+                run_fn=lambda *args, **kwargs: run_calls.append((args, kwargs)),
+            )
+
+        self.assertFalse(retirement["stopped"])
+        self.assertEqual(run_calls, [])
+
+    def test_ensure_does_not_restart_when_cim_query_is_unknown_but_pid_is_live(self):
+        launches = []
+        now = "2026-06-18T04:20:00+00:00"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            diagnostics_path = tmp / "daily_roll_diagnostics.jsonl"
+            _write_status(status_path, tmp)
+            false_terminal = json.loads(status_path.read_text(encoding="utf-8"))
+            false_terminal.update({
+                "status": "pid_missing",
+                "action": "blocked_restart_required",
+                "terminal": True,
+                "pid_alive": False,
+                "completed_at_utc": "2026-06-18T04:19:45+00:00",
+                "first_failing_gate": "process_liveness",
+                "root_cause_class": "pid_missing",
+                "remediation_command": "inspect the console log, then restart the daily roll with --force",
+            })
+            status_path.write_text(json.dumps(false_terminal), encoding="utf-8")
+            _write_run_artifacts(
+                tmp / "taker_runs" / "2026-06-18" / "taker-no-edge",
+                timestamp=_ts("2026-06-18T04:19:30+00:00"),
+                summary={
+                    "root_cause_class": "policy_no_edge",
+                    "latest_tick_rows": 20,
+                    "latest_tick_filled_orders": 0,
+                    "cumulative_order_rows": 100,
+                    "cumulative_filled_orders": 0,
+                    "reason_counts": {"NO_TRADE_EDGE_TOO_SMALL": 20},
+                },
+            )
+
+            with patch(
+                "weather.operations.taker_bot_daily_roll.process_command_line",
+                return_value=None,
+            ), patch(
+                "weather.operations.taker_bot_daily_roll.pid_is_python",
+                return_value=True,
+            ):
+                payload = ensure_for_date(
+                    "2026-06-18",
+                    status_path=status_path,
+                    diagnostics_path=diagnostics_path,
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "taker_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now=now,
+                    start_after_local_time="00:00",
+                    max_activity_age_seconds=120,
+                    startup_grace_seconds=60,
+                    launcher=lambda command, repo_root, console_log_path: launches.append(command),
+                )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["action"], "noop")
+        self.assertEqual(payload["state"], "RUNNING")
+        self.assertEqual(launches, [])
+        self.assertEqual(saved["status"], "already_running")
+        self.assertFalse(saved["terminal"])
+        self.assertNotIn("completed_at_utc", saved)
+        self.assertNotEqual(saved.get("root_cause_class"), "pid_missing")
 
     def test_windows_retirement_uses_verified_tree_termination(self):
         calls = []

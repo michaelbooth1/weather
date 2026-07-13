@@ -145,4 +145,21 @@ source fingerprint. Item 322 owns the separate incremental-persistence and
 bounded-resource soak work; this completed lifecycle item does not claim that
 broader performance debt is closed.
 
+2026-07-13 loaded-host liveness hardening: at the monitor boundary, an
+unbounded scheduled settlement step drove physical load to 98% and caused the
+taker supervisor's PowerShell/CIM command-line lookup to time out. The exact
+current-date taker tree remained alive and continued writing fresh, COUNTABLE
+`POLICY_NO_EDGE` evidence, but the binary lookup result had conflated probe
+failure with a confirmed missing PID and persisted a false terminal
+`pid_missing` status. Command-line discovery now retries and returns a
+tri-state result. Non-destructive health may preserve liveness from the
+independent Python process-image check when command identity is temporarily
+unavailable; stop and tree-retirement paths still require an exact module/date
+match and remain fail closed. A persisted false-dead status self-recovers only
+when the recorded PID is live and artifact activity is fresh. After host
+pressure cleared, the scheduled supervisor restored the same tree to
+`already_running`, `pid_alive=true`, with its latest useful write current; it
+did not restart or delete evidence. The combined taker/maker daily-roll suite
+passes 48 tests, with compile and diff checks passing.
+
 Related: items 16, 95, 152, 161, 239, 272, 307, 311, 322.
