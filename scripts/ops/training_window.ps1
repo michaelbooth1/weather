@@ -23,7 +23,11 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [double]$MaxCommitPercent = 70.0,
     [long]$MinFreeDiskBytes = 60GB,
-    [double]$CaptureStopTimeoutSeconds = 90.0,
+    # A mid-flight snapshot fleet pass (12 markets, one isolated child each)
+    # can take several minutes to drain after the stop verb; 90s aborted the
+    # 2026-07-14 window with all loops mid-iteration. Worst case the retrain
+    # starts at ~01:10 and its 180m cap ends 04:10, inside the 04:15 dead-man.
+    [double]$CaptureStopTimeoutSeconds = 600.0,
     [double]$ChildTimeoutMinutes = 180.0,
     [switch]$RestoreOnly,
     [switch]$DryRun
@@ -65,6 +69,24 @@ function Restore-Capture {
     & $python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15 | Out-Null
     & $python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180 | Out-Null
     Write-WindowLog "RESTORE" "ensure verbs issued for all three loops"
+}
+
+function Get-ActiveCaptureLoops {
+    # Diagnostic only: name the loops the gate still sees as active so a stop
+    # timeout is attributable. Writes the canonical gate JSON (normal rolling
+    # artifact) and parses its loops array.
+    $gatePath = Join-Path $RepoRoot "data\backtest\capture_resource_gate.json"
+    & $python -m weather.operations.capture_resource_gate `
+        --workload training_window_stop_diagnostic `
+        --capture-mode no_live_capture `
+        --min-free-memory-bytes 0 `
+        --min-free-disk-bytes 0 | Out-Null
+    try {
+        $gate = Get-Content $gatePath -Raw | ConvertFrom-Json
+        $names = @($gate.loops | Where-Object { $_.active } | ForEach-Object { $_.name })
+        if ($names.Count -gt 0) { return ($names -join ",") }
+        return "none_visible_at_diagnostic_time"
+    } catch { return "diagnostic_unavailable" }
 }
 
 function Wait-CaptureStopped([double]$TimeoutSeconds) {
@@ -133,7 +155,8 @@ try {
     Write-WindowLog "STOP" "stop verbs issued for all three loops"
     if (-not (Wait-CaptureStopped $CaptureStopTimeoutSeconds)) {
         $childExit = 9001
-        Write-WindowLog "ERROR" "capture did not become fully inactive within ${CaptureStopTimeoutSeconds}s; retrain not started"
+        $stillActive = Get-ActiveCaptureLoops
+        Write-WindowLog "ERROR" "capture did not become fully inactive within ${CaptureStopTimeoutSeconds}s (still active: $stillActive); retrain not started"
         throw "capture stop verification timed out"
     }
     Write-WindowLog "STOP" "canonical gate confirms all three capture loops inactive"
