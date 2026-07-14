@@ -22,12 +22,14 @@ from weather.io import (
     write_json_atomic,
     writer_lock_path,
 )
+from weather.schema_registry import schema_version
 from weather.time import age_minutes as time_age_minutes
 from weather.time import age_seconds as time_age_seconds
 from weather.time import parse_datetime
 
 
 SleepFn = Callable[[float], None]
+LOOP_SUPERVISOR_STATUS_SCHEMA_VERSION = schema_version("loop_supervisor_status")
 
 
 class JsonLineLogFormatter(logging.Formatter):
@@ -165,6 +167,57 @@ def read_writer_lock(status_path: str | Path) -> dict[str, Any]:
     except FileNotFoundError:
         payload["age_seconds"] = None
     return payload
+
+
+def loop_writer_lock_health(
+    status_path: str | Path,
+    *,
+    status_pid: object,
+    status_pid_alive: bool,
+) -> dict[str, Any]:
+    """Return whether the recorded worker owns a live single-writer lock.
+
+    A generic live Python PID is not sufficient evidence that the recorded
+    worker still exists: Windows can reuse a dead worker's PID for an unrelated
+    Python process.  The long-running loop's writer lock is the second half of
+    the identity check and must name the same PID.
+    """
+
+    lock = read_writer_lock(status_path)
+
+    def _pid(value: object) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    recorded_pid = _pid(status_pid)
+    owner_pid = _pid(lock.get("pid"))
+    owner_matches_status = bool(
+        recorded_pid is not None
+        and owner_pid is not None
+        and recorded_pid == owner_pid
+    )
+    healthy = bool(lock.get("exists") and status_pid_alive and owner_matches_status)
+    return {
+        **lock,
+        "status_pid": recorded_pid,
+        "status_pid_alive": bool(status_pid_alive),
+        "owner_pid": owner_pid,
+        "owner_matches_status": owner_matches_status,
+        "healthy": healthy,
+        "reason": (
+            "writer_lock_healthy"
+            if healthy
+            else "writer_lock_missing"
+            if not lock.get("exists")
+            else "recorded_pid_dead"
+            if not status_pid_alive
+            else "writer_lock_pid_missing"
+            if owner_pid is None
+            else "writer_lock_pid_mismatch"
+        ),
+    }
 
 
 def attach_status_writer(status: dict[str, Any], lock: dict[str, Any] | None) -> dict[str, Any]:
@@ -546,6 +599,72 @@ def supervisor_recovery_guard(
             "remediation": "wait for the supervisor backoff window or inspect the loop diagnostics before manual restart",
         }
     return {**base, "allowed": True, "action": action, "reason": "within_restart_budget"}
+
+
+def supervisor_status_path(spec: SupervisorSpec) -> Path:
+    """Return the sidecar that owns the latest short-lived ensure decision."""
+
+    status_path = Path(spec.status_path)
+    stem = status_path.stem
+    owner_stem = stem[: -len("_status")] if stem.endswith("_status") else stem
+    return status_path.with_name(f"{owner_stem}_supervisor_status.json")
+
+
+def read_supervisor_status(spec: SupervisorSpec) -> dict[str, Any]:
+    payload = read_json_file(supervisor_status_path(spec))
+    return payload if isinstance(payload, dict) else {}
+
+
+def ensure_exit_code(result: dict[str, Any] | None) -> int:
+    """Map an ensure result to the scheduled task's fail-closed exit code."""
+
+    result = result if isinstance(result, dict) else {}
+    action = str(result.get("action") or "").lower()
+    if action == "noop":
+        writer = result.get("writer_lock")
+        if isinstance(writer, dict) and writer.get("healthy") is False:
+            return 1
+        return 0
+    if action in {"start", "restart"}:
+        start = result.get("start")
+        return 0 if isinstance(start, dict) and start.get("started") is True else 1
+    return 1
+
+
+def persist_supervisor_status(
+    spec: SupervisorSpec,
+    result: dict[str, Any],
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    """Persist and return one inspectable ensure decision.
+
+    The loop status remains single-writer-owned by the long-running worker.
+    Supervisors therefore publish their circuit/backoff decision to a separate
+    atomic sidecar that status and fleet observability can read without racing
+    capture heartbeats.
+    """
+
+    exit_code = ensure_exit_code(result)
+    action = str(result.get("action") or "").lower()
+    if exit_code == 0:
+        ensure_status = "OK"
+    elif action in {"locked", "backoff", "circuit_open"}:
+        ensure_status = "BLOCKED"
+    else:
+        ensure_status = "FAILED"
+    path = supervisor_status_path(spec)
+    payload = {
+        **result,
+        "schema_version": LOOP_SUPERVISOR_STATUS_SCHEMA_VERSION,
+        "loop": spec.name,
+        "updated_at_utc": now.astimezone(timezone.utc).isoformat() if now.tzinfo else now.replace(tzinfo=timezone.utc).isoformat(),
+        "ensure_status": ensure_status,
+        "exit_code": exit_code,
+        "supervisor_status_path": str(path),
+    }
+    atomic_write_json(path, payload)
+    return payload
 
 
 def _tail_text_lines(path: str | Path, *, max_bytes: int = 1_000_000) -> list[str]:

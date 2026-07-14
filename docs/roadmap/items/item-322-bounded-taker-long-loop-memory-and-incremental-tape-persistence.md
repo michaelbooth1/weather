@@ -118,6 +118,20 @@ post-warmup private-memory slope, peak working set, tick latency, and tape I/O
 against the declared budgets. No live worker or local trading evidence was
 touched while landing this implementation.
 
+## 2026-07-13b adoption and readback plan
+
+The live paper worker was deliberately left untouched. The incremental path is
+expected to adopt through the normal 2026-07-14 00:05 daily roll; no restart or
+signal will be used to force it early. The first representative readback is
+the four consecutive post-training hours ending at approximately 08:15 local.
+At 08:20, the persisted diagnostics will be checked for one continuous
+PID/process-instance identity, peak private and working set, post-warmup
+private-memory slope, per-tick tape and process read/write bytes, tick duration,
+and every declared budget verdict. Any process replacement, positive growing
+slope, missing tick receipt, or ceiling breach reopens implementation rather
+than being averaged away. This checkbox remains open until that evidence is
+present.
+
 Acceptance: ordinary paper ticks do not reread or rewrite the complete order
 and counterfactual histories; persisted outputs and cumulative scores remain
 equivalent across uninterrupted and restart/recovery runs; status and fleet

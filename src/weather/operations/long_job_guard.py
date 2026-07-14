@@ -54,6 +54,27 @@ def _parse_utc(value):
     return parsed.astimezone(timezone.utc)
 
 
+def normalize_progress_counters(progress):
+    """Keep historical/resumed progress counters internally consistent."""
+    if not isinstance(progress, dict):
+        return progress
+    normalized = dict(progress)
+    try:
+        completed = int(normalized.get("completed_step_count"))
+        total = int(normalized.get("total_step_count"))
+    except (TypeError, ValueError):
+        return normalized
+    if completed < 0 or total >= completed:
+        return normalized
+    normalized["total_step_count"] = completed
+    normalized["progress_counter_repair"] = {
+        "reason": "completed_step_count_exceeded_total_step_count",
+        "original_total_step_count": total,
+        "normalized_total_step_count": completed,
+    }
+    return normalized
+
+
 def touch_long_job_guard(state_path=DEFAULT_STATE_PATH, *, progress=None):
     """Refresh a running long-job guard heartbeat without taking the lock."""
     state_path = Path(state_path)
@@ -70,7 +91,7 @@ def touch_long_job_guard(state_path=DEFAULT_STATE_PATH, *, progress=None):
     if started and current:
         state["duration_seconds"] = round((current - started).total_seconds(), 3)
     if progress is not None:
-        state["progress"] = progress
+        state["progress"] = normalize_progress_counters(progress)
         state["last_progress_at_utc"] = now
     write_json(state_path, state)
     return {"updated": True, "state_path": str(state_path)}

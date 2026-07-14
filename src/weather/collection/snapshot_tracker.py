@@ -20,6 +20,12 @@ from weather.collection.forecast_archive import (
     append_rows as append_forecast_rows,
     build_forecast_rows,
 )
+from weather.collection.forecast_payload_cas import (
+    SHARED_FORECAST_PAYLOAD_CAS_ROOT,
+)
+from weather.collection.forecast_payload_fetch_fanout import (
+    fanout_from_environment,
+)
 from weather.market.market_config import config_for_date, config_from_event, default_target_date, ensure_date
 from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
 from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
@@ -35,6 +41,7 @@ from weather.runtime_identity import (
 )
 from weather.operations.supervisor import (
     SupervisorSpec,
+    acquire_file_lock,
     age_minutes,
     append_jsonl,
     acquire_writer_lock,
@@ -44,11 +51,15 @@ from weather.operations.supervisor import (
     default_ensure_decision,
     launch_detached,
     loop_file_offsets,
+    loop_writer_lock_health,
     pid_is_python,
+    persist_supervisor_status,
     quarantine_malformed_loop_lines,
     readoption_debounce,
     read_writer_lock,
     read_json_file,
+    read_supervisor_status,
+    release_file_lock,
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
     supervisor_recovery_guard,
@@ -116,7 +127,13 @@ def capture_snapshot(
                 "target_date": event_config.target_date.isoformat(),
                 "local_date": local_today.isoformat(),
             }
-    store = SnapshotStore(event_slug=event_config.event_slug)
+    cross_process_fanout, fanout_scope = fanout_from_environment()
+    store = SnapshotStore(
+        event_slug=event_config.event_slug,
+        shared_forecast_payload_cas_root=(
+            cross_process_fanout.cas.root if cross_process_fanout is not None else None
+        ),
+    )
     if (
         not force
         and cadence == "scheduled"
@@ -160,6 +177,9 @@ def capture_snapshot(
     if callable(verified_bundle_loader):
         model_kwargs["serving_bundle"] = verified_bundle_loader()
     model_client = TorontoHighTempModel(**model_kwargs)
+    if cross_process_fanout is not None and store.retain_raw_forecast_payloads:
+        model_client.market_invariant_fetch_fanout = cross_process_fanout
+        model_client.market_invariant_fetch_scope = fanout_scope
     historical_sources = model_client.fetch_historical_sources()
     live_sources = model_client.fetch_live_sources()
     model = model_client.build(
@@ -183,6 +203,7 @@ PAUSE_FLAG_PATH = SNAPSHOT_DATA_ROOT / "loop_pause.flag"
 LOOP_STATUS_PATH = SNAPSHOT_DATA_ROOT / "loop_status.json"
 DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
+SUPERVISOR_LOCK_PATH = SNAPSHOT_DATA_ROOT / "loop_supervisor.lock"
 RECENT_LOOP_CYCLE_COUNT = 12
 SNAPSHOT_SUPERVISOR = SupervisorSpec(
     name="snapshot_capture",
@@ -192,6 +213,7 @@ SNAPSHOT_SUPERVISOR = SupervisorSpec(
     console_log_path=LOOP_CONSOLE_LOG_PATH,
     cwd=REPO_ROOT,
     pause_flag_path=PAUSE_FLAG_PATH,
+    lock_path=SUPERVISOR_LOCK_PATH,
     tolerated_states=("RUNNING", "PAUSED", "ERRORING"),
     status_schema_fields=(
         "pid",
@@ -216,6 +238,7 @@ def runtime_supervisor_spec():
         diagnostics_path=DIAGNOSTICS_PATH,
         console_log_path=LOOP_CONSOLE_LOG_PATH,
         pause_flag_path=PAUSE_FLAG_PATH,
+        lock_path=SUPERVISOR_LOCK_PATH,
     )
 
 
@@ -738,7 +761,19 @@ def start_loop_detached(interval_minutes=10.0, now=None):
     return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
 
 
-def ensure_decision(health_state, pid_alive):
+def acquire_supervisor_lock(path=None):
+    return acquire_file_lock(
+        path or SUPERVISOR_LOCK_PATH,
+        attempts=2,
+        stale_after_seconds=120,
+    )
+
+
+def release_supervisor_lock(handle, path=None):
+    release_file_lock(handle, path or SUPERVISOR_LOCK_PATH)
+
+
+def ensure_decision(health_state, pid_alive, *, writer_lock_healthy=True):
     """Pure supervisor decision: what --ensure should do given loop health.
 
     RUNNING/PAUSED are healthy (paused is operator intent); ERRORING is alive
@@ -746,6 +781,8 @@ def ensure_decision(health_state, pid_alive):
     with restarts. A stale heartbeat with a live PID is a HUNG process: kill
     and start fresh. Dead or never-started: start.
     """
+    if not writer_lock_healthy:
+        return "restart" if pid_alive else "start"
     return default_ensure_decision(
         health_state,
         pid_alive,
@@ -758,61 +795,103 @@ def ensure_loop(interval_minutes=10.0, now=None):
     one healthy loop alive across silent deaths, hangs, and reboots."""
     now = now or datetime.now(TORONTO_TZ)
     spec = runtime_supervisor_spec()
-    status = read_loop_status()
-    health = loop_health(status, now, interval_minutes)
-    alive = pid_is_python((status or {}).get("pid"))
-    action = ensure_decision(health["state"], alive)
-    result = {
-        "action": action,
-        "state": health["state"],
-        "pid": health.get("pid"),
-        "restart_cause": health["state"] if action in {"start", "restart"} else None,
-        "runtime_identity_before": (status or {}).get("runtime_identity"),
-        "current_runtime_identity": health.get("current_runtime_identity"),
-    }
-    guard = supervisor_recovery_guard(spec, action, now=now)
-    result["recovery_guard"] = guard
-    if action in {"start", "restart"}:
-        result["loop_offsets_before"] = loop_file_offsets(spec)
-    if action in {"start", "restart"} and not guard.get("allowed"):
-        result["intended_action"] = action
-        result["action"] = guard.get("action")
-        result["reason"] = guard.get("reason")
-        result["remediation"] = guard.get("remediation")
-        event = {"time": now.isoformat(), "supervisor": "ensure", **result}
-        if should_emit_recovery_block_diagnostic(spec, event):
-            append_diagnostic(event)
-        else:
-            result["diagnostic_suppressed"] = True
-        return result
-    if action == "restart" and health["state"] == "STALE_CODE":
-        debounce = readoption_debounce(
-            runtime_code_state=health.get("runtime_code_state"),
-            process_started_at=(status or {}).get("started_at"),
+    handle = acquire_supervisor_lock()
+    if handle is None:
+        return persist_supervisor_status(
+            spec,
+            {
+                "action": "locked",
+                "state": "UNKNOWN",
+                "reason": "another snapshot supervisor action is running",
+            },
             now=now,
-            debounce_seconds=spec.readoption_debounce_seconds,
         )
-        result["readoption_debounce"] = debounce
-        if debounce.get("debounced"):
-            # The running loop is on slightly-stale code but re-adopted very
-            # recently. Let it finish at least one full capture cycle before
-            # relaunching, so a burst of commits cannot starve the tail markets.
+    try:
+        status = read_loop_status()
+        alive = pid_is_python((status or {}).get("pid"))
+        health = loop_health(
+            status,
+            now,
+            interval_minutes,
+            pid_alive=alive,
+        )
+        writer_lock = loop_writer_lock_health(
+            spec.status_path,
+            status_pid=(status or {}).get("pid"),
+            status_pid_alive=alive,
+        )
+        action = ensure_decision(
+            health["state"],
+            alive,
+            writer_lock_healthy=writer_lock["healthy"],
+        )
+        if action in {"start", "restart"}:
+            if status and not alive:
+                restart_cause = health["state"]
+            elif status and not writer_lock["healthy"]:
+                restart_cause = writer_lock["reason"]
+            else:
+                restart_cause = health["state"]
+        else:
+            restart_cause = None
+        result = {
+            "action": action,
+            "state": health["state"],
+            "pid": health.get("pid"),
+            "restart_cause": restart_cause,
+            "writer_lock": writer_lock,
+            "runtime_identity_before": (status or {}).get("runtime_identity"),
+            "current_runtime_identity": health.get("current_runtime_identity"),
+        }
+        guard = supervisor_recovery_guard(spec, action, now=now)
+        result["recovery_guard"] = guard
+        if action in {"start", "restart"} and not guard.get("allowed"):
             result["intended_action"] = action
-            result["action"] = "noop"
-            result["reason"] = debounce.get("reason")
-            append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+            result["action"] = guard.get("action")
+            result["reason"] = guard.get("reason")
+            result["remediation"] = guard.get("remediation")
+            event = {"time": now.isoformat(), "supervisor": "ensure", **result}
+            if not should_emit_recovery_block_diagnostic(spec, event):
+                result["diagnostic_suppressed"] = True
+            result = persist_supervisor_status(spec, result, now=now)
+            if not result.get("diagnostic_suppressed"):
+                append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
             return result
-    if action == "restart":
-        result["stop"] = stop_loop(now=now)
-        result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
-        result["start"] = start_loop_detached(interval_minutes, now=now)
-    elif action == "start":
-        result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
-        result["start"] = start_loop_detached(interval_minutes, now=now)
-    if action != "noop":
-        result["loop_offsets_after"] = loop_file_offsets(spec)
-        append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
-    return result
+        if action == "restart" and health["state"] == "STALE_CODE":
+            debounce = readoption_debounce(
+                runtime_code_state=health.get("runtime_code_state"),
+                process_started_at=(status or {}).get("started_at"),
+                now=now,
+                debounce_seconds=spec.readoption_debounce_seconds,
+            )
+            result["readoption_debounce"] = debounce
+            if debounce.get("debounced"):
+                # The running loop is on slightly-stale code but re-adopted very
+                # recently. Let it finish at least one full capture cycle before
+                # relaunching, so a burst of commits cannot starve the tail markets.
+                result["intended_action"] = action
+                result["action"] = "noop"
+                result["reason"] = debounce.get("reason")
+                result = persist_supervisor_status(spec, result, now=now)
+                append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+                return result
+        if action in {"start", "restart"}:
+            result["loop_offsets_before"] = loop_file_offsets(spec)
+        if action == "restart":
+            result["stop"] = stop_loop(now=now)
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
+            result["start"] = start_loop_detached(interval_minutes, now=now)
+        elif action == "start":
+            result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
+            result["start"] = start_loop_detached(interval_minutes, now=now)
+        if action != "noop":
+            result["loop_offsets_after"] = loop_file_offsets(spec)
+        result = persist_supervisor_status(spec, result, now=now)
+        if action != "noop":
+            append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+        return result
+    finally:
+        release_supervisor_lock(handle)
 
 
 def _numeric(value):
@@ -830,6 +909,10 @@ FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS = (
     "logical_referenced_bytes",
     "physical_bytes_written",
     "avoided_bytes",
+    "network_fetch_count",
+    "network_reuse_count",
+    "cross_process_reuse_count",
+    "network_wait_timeout_fail_open_count",
 )
 
 
@@ -1056,6 +1139,51 @@ def summarize_market_cadence_attribution(market_attribution, *, iteration_elapse
     }
 
 
+def finalize_iteration_error_state(
+    status,
+    market_results,
+    *,
+    expected_market_ids,
+    completed_at,
+):
+    """Latch only the latest fully completed capture iteration's errors.
+
+    Progress heartbeats intentionally retain the prior completed iteration's
+    error state.  Once every registered market has a result, an error-free
+    iteration clears the current latch; historical recovery remains visible
+    through the completed/clean iteration markers.
+    """
+
+    expected = [str(market_id) for market_id in expected_market_ids]
+    errors = {
+        str(market_id): result.get("error")
+        for market_id, result in market_results.items()
+        if result.get("error")
+    }
+    for market_id in expected:
+        if market_id not in market_results:
+            errors[market_id] = "capture_result_missing: no market result"
+
+    completed_iso = completed_at.isoformat()
+    iteration = int(status.get("iterations") or 0)
+    status["last_completed_iteration"] = iteration
+    status["last_completed_iteration_at"] = completed_iso
+    status["last_iteration_error_count"] = len(errors)
+    if errors:
+        status["last_iteration_outcome"] = "error"
+        status["consecutive_errors"] = int(status.get("consecutive_errors") or 0) + 1
+        status["last_error"] = "; ".join(
+            f"{market_id}: {detail}" for market_id, detail in errors.items()
+        )
+    else:
+        status["last_iteration_outcome"] = "clean"
+        status["last_clean_iteration"] = iteration
+        status["last_clean_iteration_at"] = completed_iso
+        status["consecutive_errors"] = 0
+        status["last_error"] = None
+    return errors
+
+
 def run_loop(
     force=False,
     interval_minutes=10.0,
@@ -1102,6 +1230,12 @@ def run_loop(
         "iterations": 0,
         "consecutive_errors": 0,
         "last_error": None,
+        "last_completed_iteration": None,
+        "last_completed_iteration_at": None,
+        "last_iteration_error_count": None,
+        "last_iteration_outcome": None,
+        "last_clean_iteration": None,
+        "last_clean_iteration_at": None,
         "last_snapshot_id": None,
         "last_snapshot_written_at": None,
         "paused": False,
@@ -1207,6 +1341,10 @@ def run_loop(
                     )
                 )
                 if use_isolated_batch:
+                    market_invariant_fetch_scope = (
+                        f"snapshot-fleet:{os.getpid()}:{status['started_at']}:"
+                        f"{status['iterations']}"
+                    )
                     due_requests = []
                     skipped_records = {}
                     for spec, due_state in ordered_rows:
@@ -1259,6 +1397,12 @@ def run_loop(
                             cwd=REPO_ROOT,
                             working_set_max_mb=capture_child_working_set_max_mb,
                             shared_source_cooldown_path=SOURCE_FAMILY_COOLDOWN_PATH,
+                            shared_forecast_payload_cas_root=(
+                                SHARED_FORECAST_PAYLOAD_CAS_ROOT
+                            ),
+                            market_invariant_fetch_scope=(
+                                market_invariant_fetch_scope
+                            ),
                             now_fn=now_fn,
                         )
 
@@ -1448,15 +1592,17 @@ def run_loop(
                 status["forecast_payload_storage"] = summarize_forecast_payload_storage(
                     market_results
                 )
-                errors = {mid: r["error"] for mid, r in market_results.items() if r.get("error")}
-                if errors:
-                    status["consecutive_errors"] += 1
-                    status["last_error"] = "; ".join(f"{mid}: {err}" for mid, err in errors.items())
-                else:
-                    status["consecutive_errors"] = 0
-                    status["last_error"] = None
+                iteration_completed_at = now_fn()
+                finalize_iteration_error_state(
+                    status,
+                    market_results,
+                    expected_market_ids=(spec.id for spec in specs),
+                    completed_at=iteration_completed_at,
+                )
                 status["last_market_in_progress"] = None
-                elapsed_minutes = (now_fn() - iteration_started).total_seconds() / 60.0
+                elapsed_minutes = (
+                    iteration_completed_at - iteration_started
+                ).total_seconds() / 60.0
                 _record_recent_elapsed(status, elapsed_minutes)
                 cadence_attribution = summarize_market_cadence_attribution(
                     market_cadence,
@@ -1694,6 +1840,7 @@ def main():
 
     if args.status:
         health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
+        health["supervisor"] = read_supervisor_status(runtime_supervisor_spec())
         health["collection"] = current_collection_health(
             interval_minutes=args.interval_minutes,
             tolerance=args.status_tolerance,
@@ -1721,8 +1868,9 @@ def main():
         print(json.dumps(start_loop_detached(args.interval_minutes), indent=2, sort_keys=True))
         return
     if args.ensure:
-        print(json.dumps(ensure_loop(args.interval_minutes), indent=2, sort_keys=True, default=str))
-        return
+        result = ensure_loop(args.interval_minutes)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return int(result.get("exit_code", 1))
     if args.backfill_source_status:
         if args.source_status_folder:
             print(json.dumps(
@@ -1809,4 +1957,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

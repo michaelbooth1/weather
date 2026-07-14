@@ -188,6 +188,65 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(written["last_snapshot_id"], "atlanta-snapshot")
         self.assertEqual(written["last_market_in_progress"], None)
 
+    def test_run_loop_clears_error_latch_after_next_fully_clean_iteration(self):
+        current = datetime(2026, 7, 13, 13, 10, tzinfo=timezone.utc)
+        calls = {"count": 0}
+        status_after_error = {}
+
+        def capture_fn(force=False, market_id="toronto"):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("restart warm-up failed")
+            return {"written": True, "snapshot_id": f"{market_id}-recovered"}
+
+        specs = [SimpleNamespace(id="toronto")]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            status_path = tmp_path / "loop_status.json"
+
+            def record_sleep(_seconds):
+                status_after_error.update(
+                    json.loads(status_path.read_text(encoding="utf-8"))
+                )
+
+            with patch.object(tracker, "LOOP_STATUS_PATH", status_path), \
+                    patch.object(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl"), \
+                    patch.object(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag"), \
+                    patch.object(tracker, "all_specs", lambda: specs), \
+                    patch.object(tracker, "current_fleet_collection_health", lambda **kwargs: {
+                        "summary": {
+                            "capture_liveness": {
+                                "status": "OK",
+                                "healthy_market_count": 12,
+                                "market_count": 12,
+                            }
+                        },
+                        "markets": [],
+                    }):
+                status = run_loop(
+                    interval_minutes=10.0,
+                    max_iterations=2,
+                    capture_fn=capture_fn,
+                    sleep_fn=record_sleep,
+                    now_fn=lambda: current,
+                )
+                written = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(status_after_error["consecutive_errors"], 1)
+        self.assertIn("restart warm-up failed", status_after_error["last_error"])
+        self.assertEqual(status_after_error["last_iteration_outcome"], "error")
+        self.assertEqual(status_after_error["last_completed_iteration"], 1)
+        self.assertEqual(status["iterations"], 2)
+        self.assertEqual(status["last_completed_iteration"], 2)
+        self.assertEqual(status["last_clean_iteration"], 2)
+        self.assertEqual(status["last_iteration_error_count"], 0)
+        self.assertEqual(status["last_iteration_outcome"], "clean")
+        self.assertEqual(status["consecutive_errors"], 0)
+        self.assertIsNone(status["last_error"])
+        self.assertEqual(written["consecutive_errors"], 0)
+        self.assertIsNone(written["last_error"])
+
     def test_run_loop_sleeps_until_earliest_due_market_after_due_preflight_skip(self):
         current = datetime(2026, 6, 14, 12, 0)
         specs = [

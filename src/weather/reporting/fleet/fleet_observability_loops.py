@@ -1,6 +1,10 @@
 """Implementation slice extracted from src/weather/reporting/fleet/fleet_observability.py."""
 
-from weather.operations.supervisor import jsonl_integrity, read_writer_lock
+from weather.operations.supervisor import (
+    jsonl_integrity,
+    read_supervisor_status,
+    read_writer_lock,
+)
 from weather.reporting.fleet.fleet_observability_inventory import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
@@ -323,6 +327,7 @@ def _status_writer_matches(row):
 
 def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, window_start, budget_start):
     status = _loop_status_payload(spec)
+    supervisor_status = read_supervisor_status(spec)
     health = _loop_health_for_spec(spec, status, now, current_identity)
     integrity = integrity_by_name.get(spec.name) or {}
     events = _read_diagnostic_events(spec.diagnostics_path, since=window_start)
@@ -426,6 +431,18 @@ def _current_code_soak_row(spec, integrity_by_name, *, current_identity, now, wi
         "running_code": format_runtime_identity(status.get("runtime_identity") or {}),
         "current_code": format_runtime_identity(current_identity),
         "consecutive_errors": health.get("consecutive_errors"),
+        "supervisor_status": supervisor_status,
+        "supervisor_action": supervisor_status.get("action"),
+        "supervisor_ensure_status": supervisor_status.get("ensure_status"),
+        "supervisor_exit_code": supervisor_status.get("exit_code"),
+        "supervisor_reason": supervisor_status.get("reason"),
+        "supervisor_retry_at_utc": (
+            supervisor_status.get("recovery_guard") or {}
+        ).get("retry_at_utc"),
+        "supervisor_retry_after_seconds": (
+            supervisor_status.get("recovery_guard") or {}
+        ).get("retry_after_seconds"),
+        "supervisor_status_path": supervisor_status.get("supervisor_status_path"),
         "heartbeat_age_seconds": health.get("heartbeat_age_seconds"),
         "heartbeat_age_minutes": health.get("heartbeat_age_min"),
         "last_capture_age_seconds": health.get("last_books_age_seconds"),

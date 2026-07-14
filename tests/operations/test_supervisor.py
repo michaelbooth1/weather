@@ -149,6 +149,76 @@ class TestSupervisorPrimitives(unittest.TestCase):
             "noop",
         )
 
+    def test_loop_writer_lock_health_requires_matching_live_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status_path = Path(tmp) / "loop_status.json"
+            lock_path = status_path.with_name(".loop_status.json.writer.lock")
+
+            missing = supervisor.loop_writer_lock_health(
+                status_path,
+                status_pid=1234,
+                status_pid_alive=True,
+            )
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            mismatched = supervisor.loop_writer_lock_health(
+                status_path,
+                status_pid=1234,
+                status_pid_alive=True,
+            )
+            lock_path.write_text(json.dumps({"pid": 1234}), encoding="utf-8")
+            healthy = supervisor.loop_writer_lock_health(
+                status_path,
+                status_pid=1234,
+                status_pid_alive=True,
+            )
+
+        self.assertFalse(missing["healthy"])
+        self.assertEqual(missing["reason"], "writer_lock_missing")
+        self.assertFalse(mismatched["healthy"])
+        self.assertEqual(mismatched["reason"], "writer_lock_pid_mismatch")
+        self.assertTrue(healthy["healthy"])
+
+    def test_persist_supervisor_status_exposes_block_and_exit_code(self):
+        now = datetime(2026, 7, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = supervisor.SupervisorSpec(
+                name="example",
+                module="weather.example",
+                status_path=root / "loop_status.json",
+                diagnostics_path=root / "diagnostics.jsonl",
+                console_log_path=root / "console.log",
+            )
+            result = supervisor.persist_supervisor_status(
+                spec,
+                {
+                    "action": "backoff",
+                    "state": "DEAD",
+                    "reason": "restart_backoff_active=30.0s",
+                    "recovery_guard": {"allowed": False, "retry_after_seconds": 30.0},
+                },
+                now=now,
+            )
+            persisted = supervisor.read_supervisor_status(spec)
+
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        self.assertEqual(persisted["action"], "backoff")
+        self.assertEqual(persisted["recovery_guard"]["retry_after_seconds"], 30.0)
+        self.assertEqual(persisted["schema_version"], "loop_supervisor_status_v0.1")
+
+    def test_ensure_exit_code_requires_a_successful_restart_launch(self):
+        self.assertEqual(supervisor.ensure_exit_code({"action": "noop"}), 0)
+        self.assertEqual(
+            supervisor.ensure_exit_code({"action": "restart", "start": {"started": True}}),
+            0,
+        )
+        self.assertEqual(
+            supervisor.ensure_exit_code({"action": "restart", "start": {"started": False}}),
+            1,
+        )
+        self.assertEqual(supervisor.ensure_exit_code({"action": "locked"}), 1)
+
     def test_quarantine_malformed_jsonl_preserves_valid_lines(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "loop_console.log"

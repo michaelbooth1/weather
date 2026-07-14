@@ -235,6 +235,13 @@ REGISTERED_SCHEMAS = (
         "Triggered-row replay comparison artifact.",
     ),
     SchemaSpec(
+        "loop_supervisor_status",
+        "loop_supervisor_status_v0.1",
+        "weather.operations.supervisor",
+        "active",
+        "Latest ensure decision, restart-circuit state, and scheduled-task exit contract for capture loops.",
+    ),
+    SchemaSpec(
         "snapshot_cadence_attribution",
         "snapshot_cadence_attribution_v0.1",
         "weather.collection.snapshot_tracker",

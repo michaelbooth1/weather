@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from weather.io import append_jsonl, write_json_atomic
+from weather.io import acquire_writer_lock, append_jsonl, release_writer_lock, write_json_atomic
 from weather.paths import REPO_ROOT, data_path, relative_to_repo
 
 
@@ -301,6 +301,10 @@ FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS = (
     "logical_referenced_bytes",
     "physical_bytes_written",
     "avoided_bytes",
+    "network_fetch_count",
+    "network_reuse_count",
+    "cross_process_reuse_count",
+    "network_wait_timeout_fail_open_count",
 )
 
 
@@ -989,6 +993,148 @@ def summarize_host_samples(samples: list[dict[str, Any]], *, bucket: str) -> dic
     }
 
 
+def _elapsed_hour_numbers(path: Path) -> set[int]:
+    numbers: set[int] = set()
+    for row in _load_recent_jsonl(path, 10_000):
+        bucket = str(row.get("bucket") or "")
+        if not bucket.startswith("elapsed_hour_"):
+            continue
+        try:
+            number = int(bucket.removeprefix("elapsed_hour_"))
+        except ValueError:
+            continue
+        if number > 0:
+            numbers.add(number)
+    return numbers
+
+
+def _load_elapsed_hour_samples(
+    path: Path,
+    started_at: datetime,
+    hour_number: int,
+) -> list[dict[str, Any]]:
+    """Stream one elapsed-hour bucket without materializing the full run."""
+
+    selected: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8-sig") as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if _samples_for_elapsed_hour([row], started_at, hour_number):
+                    selected.append(row)
+    except (FileNotFoundError, OSError, UnicodeDecodeError):
+        return []
+    return selected
+
+
+def _component_states_for_elapsed_hour(
+    path: Path,
+    started_at: datetime,
+    hour_number: int,
+) -> dict[str, Any]:
+    """Return the latest taped state per component at an hour boundary."""
+
+    boundary = started_at + timedelta(hours=max(0, hour_number))
+    latest: dict[str, tuple[datetime, Any]] = {}
+    try:
+        with path.open("r", encoding="utf-8-sig") as handle:
+            for line in handle:
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                observed_at = _parse_time(row.get("observed_at_utc"))
+                component = str(row.get("component") or "").strip()
+                component_state = row.get("state")
+                if (
+                    observed_at is None
+                    or observed_at < started_at
+                    or observed_at > boundary
+                    or not component
+                    or component_state in (None, "")
+                ):
+                    continue
+                previous = latest.get(component)
+                if previous is None or previous[0] <= observed_at:
+                    latest[component] = (observed_at, component_state)
+    except (FileNotFoundError, OSError, UnicodeDecodeError):
+        return {}
+    return {component: detail[1] for component, detail in sorted(latest.items())}
+
+
+def _emit_completed_elapsed_hours(
+    run_dir: Path,
+    state: dict[str, Any],
+    started_at: datetime,
+    through_at: datetime,
+    *,
+    planned_end_at: datetime,
+    emit_stdout: bool = False,
+) -> list[int]:
+    """Append each completed immutable-clock hour exactly once.
+
+    A resumed monitor may start after one or more hour boundaries, and the
+    normal loop exits at its final boundary before taking another sample.
+    Reconstructing only missing completed buckets from authoritative raw JSONL
+    handles both cases without resetting the elapsed-hour origin.
+    """
+
+    boundary = min(through_at, planned_end_at)
+    completed_count = max(
+        0,
+        int((boundary - started_at).total_seconds() // 3600),
+    )
+    summary_path = run_dir / "hourly_summaries.jsonl"
+    lock = acquire_writer_lock(
+        summary_path,
+        owner={
+            "purpose": "runtime_monitor_hourly_summary",
+            "run_id": state.get("run_id"),
+        },
+        attempts=600,
+        stale_after_seconds=300.0,
+        sleep_seconds=0.05,
+    )
+    if lock is None:
+        raise RuntimeError(f"timed out acquiring hourly summary lock: {summary_path}")
+    try:
+        existing = _elapsed_hour_numbers(summary_path)
+        emitted: list[int] = []
+        for hour_number in range(1, completed_count + 1):
+            if hour_number in existing:
+                continue
+            hour_samples = _load_elapsed_hour_samples(
+                run_dir / "host_samples.jsonl",
+                started_at,
+                hour_number,
+            )
+            summary = summarize_host_samples(
+                hour_samples,
+                bucket=f"elapsed_hour_{hour_number}",
+            )
+            summary["component_states"] = _component_states_for_elapsed_hour(
+                run_dir / "component_health.jsonl",
+                started_at,
+                hour_number,
+            )
+            summary["component_states_source"] = "component_health_tape"
+            append_jsonl(summary_path, summary)
+            if emit_stdout:
+                print(json.dumps(summary, sort_keys=True), flush=True)
+            existing.add(hour_number)
+            emitted.append(hour_number)
+        return emitted
+    finally:
+        release_writer_lock(lock)
+
+
 def _component_tick(run_dir: Path, state: dict[str, Any], now: datetime) -> list[dict[str, Any]]:
     records = []
     for name, path in STATUS_SPECS.items():
@@ -1034,6 +1180,17 @@ def _component_tick(run_dir: Path, state: dict[str, Any], now: datetime) -> list
 def finalize_run(run_dir: Path, *, lifecycle: str = "completed") -> dict[str, Any]:
     manifest, state = _load_run(run_dir)
     finished = utc_now()
+    started_at = _parse_time(manifest.get("started_at_utc"))
+    planned_end_at = _parse_time(manifest.get("planned_end_at_utc"))
+    if started_at is None or planned_end_at is None:
+        raise RuntimeError("manifest start or planned end timestamp is invalid")
+    _emit_completed_elapsed_hours(
+        run_dir,
+        state,
+        started_at,
+        min(finished, planned_end_at),
+        planned_end_at=planned_end_at,
+    )
     state.update(
         lifecycle=lifecycle,
         finished_at_utc=utc_iso(finished),
@@ -1110,6 +1267,15 @@ def run_monitor(run_dir: Path, *, sleep_fn=time.sleep, monotonic_fn=time.monoton
     last_hour_index = _elapsed_hour_index(started_at, utc_now())
     stop_requested = False
 
+    _emit_completed_elapsed_hours(
+        run_dir,
+        state,
+        started_at,
+        min(utc_now(), end_at),
+        planned_end_at=end_at,
+        emit_stdout=True,
+    )
+
     def request_stop(_signum: int, _frame: Any) -> None:
         nonlocal stop_requested
         stop_requested = True
@@ -1164,13 +1330,14 @@ def run_monitor(run_dir: Path, *, sleep_fn=time.sleep, monotonic_fn=time.monoton
 
             hour_index = _elapsed_hour_index(started_at, now)
             if hour_index > last_hour_index:
-                if last_hour_index >= 0:
-                    hour_number = last_hour_index + 1
-                    hour_samples = _samples_for_elapsed_hour(list(recent_samples), started_at, hour_number)
-                    summary = summarize_host_samples(hour_samples, bucket=f"elapsed_hour_{hour_number}")
-                    summary["component_states"] = dict(state.get("last_component_states") or {})
-                    append_jsonl(run_dir / "hourly_summaries.jsonl", summary)
-                    print(json.dumps(summary, sort_keys=True), flush=True)
+                _emit_completed_elapsed_hours(
+                    run_dir,
+                    state,
+                    started_at,
+                    now,
+                    planned_end_at=end_at,
+                    emit_stdout=True,
+                )
                 last_hour_index = hour_index
 
             write_json_atomic(run_dir / "run_state.json", state)

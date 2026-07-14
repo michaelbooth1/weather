@@ -128,6 +128,35 @@ class TestLongJobGuard(unittest.TestCase):
         self.assertEqual(complete["progress"]["last_completed_step"], "daily_learning")
         self.assertEqual(complete["status"], "complete")
 
+    def test_touch_repairs_historical_completed_count_above_total(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "guard_status.json"
+            lock_path = Path(tmp) / "guard.lock"
+
+            with long_job_guard(
+                "unit_test",
+                state_path=state_path,
+                lock_path=lock_path,
+                priority="normal",
+            ):
+                touch_long_job_guard(
+                    state_path,
+                    progress={
+                        "last_completed_step": "closed_day_parquet_incremental",
+                        "completed_step_count": 14,
+                        "total_step_count": 13,
+                    },
+                )
+                running = json.loads(state_path.read_text(encoding="utf-8"))
+
+        progress = running["progress"]
+        self.assertEqual(progress["completed_step_count"], 14)
+        self.assertEqual(progress["total_step_count"], 14)
+        self.assertEqual(
+            progress["progress_counter_repair"]["original_total_step_count"],
+            13,
+        )
+
     def test_guard_records_error_state_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "guard_status.json"

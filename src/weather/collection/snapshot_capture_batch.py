@@ -20,6 +20,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.operations.long_job_guard import run_isolated_subprocess
+from weather.collection.forecast_payload_fetch_fanout import (
+    FANOUT_CAS_ROOT_ENV,
+    FANOUT_SCOPE_ENV,
+)
 
 
 DEFAULT_CAPTURE_WORKERS = 3
@@ -91,6 +95,8 @@ def run_isolated_capture(
     cwd=None,
     working_set_max_mb=DEFAULT_CHILD_WORKING_SET_MAX_MB,
     shared_source_cooldown_path=None,
+    shared_forecast_payload_cas_root=None,
+    market_invariant_fetch_scope=None,
     subprocess_runner=run_isolated_subprocess,
     now_fn=None,
 ):
@@ -111,6 +117,17 @@ def run_isolated_capture(
             child_env["WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"] = str(
                 shared_source_cooldown_path
             )
+        if bool(shared_forecast_payload_cas_root) != bool(
+            market_invariant_fetch_scope
+        ):
+            raise ValueError(
+                "isolated forecast fan-out requires both CAS root and scope"
+            )
+        if shared_forecast_payload_cas_root:
+            child_env[FANOUT_CAS_ROOT_ENV] = str(
+                shared_forecast_payload_cas_root
+            )
+            child_env[FANOUT_SCOPE_ENV] = str(market_invariant_fetch_scope)
         execution = subprocess_runner(
             command,
             timeout_seconds=max(1.0, float(timeout_seconds)),

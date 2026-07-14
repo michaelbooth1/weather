@@ -175,6 +175,8 @@ def test_isolated_capture_uses_atomic_child_result_and_process_tree_limits():
         cwd="repo",
         working_set_max_mb=512,
         shared_source_cooldown_path="shared-cooldown.json",
+        shared_forecast_payload_cas_root="shared-cas",
+        market_invariant_fetch_scope="fleet-pass-1",
         subprocess_runner=subprocess_runner,
         now_fn=lambda: NOW,
     )
@@ -183,6 +185,8 @@ def test_isolated_capture_uses_atomic_child_result_and_process_tree_limits():
     assert observed["kwargs"]["timeout_seconds"] == 12.0
     assert observed["kwargs"]["working_set_max_bytes"] == 512 * 1024 * 1024
     assert observed["kwargs"]["env"]["WEATHER_SOURCE_FAMILY_COOLDOWN_PATH"] == "shared-cooldown.json"
+    assert observed["kwargs"]["env"]["WEATHER_FORECAST_FANOUT_CAS_ROOT"] == "shared-cas"
+    assert observed["kwargs"]["env"]["WEATHER_FORECAST_FANOUT_SCOPE"] == "fleet-pass-1"
     assert "--expected-runtime-fingerprint" in observed["command"]
     assert result["execution"]["containment"]["process_tree_contained"] is True
 
@@ -371,6 +375,10 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
         "logical_referenced_bytes": 200,
         "physical_bytes_written": 100,
         "avoided_bytes": 100,
+        "network_fetch_count": 0,
+        "network_reuse_count": 0,
+        "cross_process_reuse_count": 0,
+        "network_wait_timeout_fail_open_count": 0,
         "physical_write_budget_bytes": 400,
         "physical_write_budget_status": "PASS",
     }

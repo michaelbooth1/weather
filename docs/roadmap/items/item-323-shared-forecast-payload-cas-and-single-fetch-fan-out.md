@@ -1,4 +1,4 @@
-# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-13 - NEW NBM WRITES DEDUPLICATED; CROSS-PROCESS FETCH FAN-OUT AND SOAK PENDING]
+# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-13 - CROSS-PROCESS FAN-OUT IMPLEMENTED; CONTROLLED HOUR AND REAL-ROOT INVENTORY PENDING]
 
 Goal: store one verified copy of a market-invariant raw forecast response and
 fan it out through point-in-time per-market manifests, so replay provenance is
@@ -64,7 +64,7 @@ cross-market raw-payload deduplication or fetch fan-out.
   manifest-reference schema.
 - [x] Implement atomic cross-process put/read verification with corruption and
   partial-write recovery tests.
-- [ ] Add NBM single-fetch fan-out and shared-blob reuse without changing
+- [x] Add NBM single-fetch fan-out and shared-blob reuse without changing
   market-specific capture timestamps or cutoff semantics.
 - [ ] Prove captured-input replay, feature parity, and per-market lineage across
   the shared reference path.
@@ -148,3 +148,64 @@ persistence, resolution, event-day, and migration boundaries. Focused tamper,
 cleanup, event, migration, fan-out, NBM, capture, path, and architecture tests
 pass; this strengthens local integrity but does not close the cross-process
 fleet-fetch or controlled-soak gaps above.
+
+## 2026-07-13 cross-process and bounded-inventory follow-up
+
+Isolated snapshot children now receive one parent-owned capture-pass scope plus
+the canonical shared-CAS root while retaining the existing shared provider-
+cooldown path. For each NBM request/cycle, one child atomically creates a claim,
+performs the provider fetch with the existing retry/backoff behavior, publishes
+the exact UTF-8 bulletin through the immutable CAS, and publishes a small
+immutable receipt. Other children wait a bounded 30 seconds, verify the receipt
+identity and CAS hash/size, and parse their own station from those bytes. A
+holder's final HTTP, timeout, or connection outcome is receipt-shared within
+the pass, avoiding independent provider retry storms. If a claim remains
+wedged past the bound, the waiter fails open to its normal provider fetch; CAS
+writes still converge without replacing evidence.
+
+The holder's per-market manifest owns the one prepublished physical-write
+receipt even when a follower finishes persistence first. JSONL manifests and
+compact fleet/runtime status now expose network fetch, reuse, cross-process
+reuse, and timeout-fail-open counts alongside the existing created/reused and
+logical/physical/avoided-byte counters. Deterministic process-like tests use
+independent coordinator instances and prove one fetch, one CAS blob, distinct
+market extraction, completion-order-independent byte accounting, shared HTTP
+failure outcome, and timeout fail-open.
+
+The inventory-only migration artifact is now schema v0.2 and streams the
+snapshot tree under explicit elapsed-time, directory, tree-entry, manifest-
+count, manifest-byte, JSONL-line, row, per-payload, aggregate payload-read,
+candidate-detail, and physical-blob bounds. It can select one `YYYY-MM` month
+and reports verified legacy stored bytes, projected one-copy bytes, and
+projected reclaimable bytes by month. Repeated references count one physical
+legacy file once, inconsistent physical identity evidence blocks every affected
+row, and legacy paths must remain inside the selected snapshot root and event
+folder. Truncation is explicit, includes a resume cursor, prints a partial
+terminal result, and returns nonzero; candidate detail is sampled independently
+of streaming totals. The command still has no apply, copy, rewrite, garbage-
+collection, or delete mode, and its reachability observations remain non-
+authoritative. The migration-only regression slice is 34 passed.
+
+The immediate post-adoption live pass showed one completed US-market NBM
+network fetch and cross-process reuse by the other completed markets. That pass
+was only 11/12 because the NYC isolated child exited with code 137, so it is not
+the required clean fleet proof and does not close the soak. A first monitor
+started at 14:29 local and is retained as outage/repair evidence. After the
+worker completed a clean iteration and cleared its error latch, a separate
+controlled hour started at 14:44 under
+`data/monitoring/item323_controlled_healthy_hour`; only that interval can become
+the controlled-hour proof if its final readback stays continuously healthy. No
+extra capture loop was launched for the measurement. The real-root migration
+inventory remains deferred to the bounded 01:00–08:30 load window, and no
+evidence was copied, rewritten, or deleted.
+
+Read-only follow-up review found proof-boundary gaps that must land before this
+item closes. The migration directory traversal, record-size, honest elapsed-
+time, repeated-physical-reference, path-containment, scan-error, and invalid-
+digest gaps are corrected in the worktree. The receipt path must still reject
+symlinks and oversized/mutable records, bind bulletin issue semantics to the
+requested NBM cycle, and retain network-fetch/physical-write attribution even
+when the holder dies after publishing the CAS blob but before writing its
+market manifest. Those receipt and accounting corrections are held for the
+01:00–04:15 adoption window because those modules are loaded by the live
+snapshot worker.

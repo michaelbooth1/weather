@@ -571,6 +571,14 @@ def write_markdown(path, payload):
                 row.get("name"),
                 row.get("status"),
                 row.get("state"),
+                row.get("supervisor_action") or "-",
+                row.get("supervisor_ensure_status") or "-",
+                (
+                    row.get("supervisor_exit_code")
+                    if row.get("supervisor_exit_code") is not None
+                    else "-"
+                ),
+                row.get("supervisor_retry_at_utc") or "-",
                 row.get("runtime_code_state"),
                 row.get("single_writer"),
                 row.get("restart_count"),
@@ -614,7 +622,8 @@ def write_markdown(path, payload):
         ]
         lines += markdown_table(
             [
-                "Loop", "Status", "State", "Code", "Single Writer", "Restarts",
+                "Loop", "Status", "State", "Ensure Action", "Ensure Status", "Ensure RC",
+                "Ensure Retry At", "Code", "Single Writer", "Restarts",
                 "Budget", "Restarts Clear At", "Dup Incidents", "7d Dup Incidents",
                 "Benign Dup Blocks", "Malformed", "Owner", "Immediate Repair",
                 "Errors", "Blocking Reasons",

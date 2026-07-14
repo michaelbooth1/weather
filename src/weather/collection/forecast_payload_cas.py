@@ -188,6 +188,83 @@ class SharedForecastPayloadCAS:
         }
 
 
+def fanout_prepublish_accounting(
+    stored: Mapping[str, Any],
+    single_fetch: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Validate and account for a blob published by the fetch holder.
+
+    Cross-process waiters need the immutable bytes before their per-market
+    persistence runs, so the holder publishes through this same CAS.  The
+    holder's eventual manifest owns the one physical-write receipt; followers
+    remain ordinary reuse rows.  Every optional declaration is checked against
+    the verified ``put`` result before it can affect byte observability.
+    """
+
+    single_fetch = single_fetch or {}
+    declared_hash = str(single_fetch.get("prepublished_payload_hash") or "")
+    declared_ref = str(single_fetch.get("prepublished_payload_ref") or "")
+    declared_bytes = single_fetch.get("prepublished_payload_bytes")
+    declared_created = bool(single_fetch.get("prepublished_blob_created"))
+    declared_reused = bool(single_fetch.get("prepublished_blob_reused"))
+    if not declared_hash and declared_bytes in (None, "") and not declared_ref:
+        if declared_created or declared_reused:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out prepublish accounting lacks payload identity"
+            )
+        return {
+            "payload_blob_created": bool(stored.get("created")),
+            "payload_blob_reused": bool(stored.get("reused")),
+            "physical_bytes_written": int(stored.get("physical_bytes_written") or 0),
+            "avoided_bytes": int(stored.get("avoided_bytes") or 0),
+        }
+    try:
+        declared_bytes = int(declared_bytes)
+    except (TypeError, ValueError) as exc:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out prepublished payload byte count is invalid"
+        ) from exc
+    if declared_created and declared_reused:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out prepublished blob cannot be created and reused"
+        )
+    for field, declared, actual in (
+        ("hash", declared_hash, stored.get("payload_hash")),
+        ("ref", declared_ref, stored.get("payload_ref")),
+        ("byte count", declared_bytes, stored.get("payload_bytes")),
+    ):
+        if declared != actual:
+            raise ForecastPayloadCASIntegrityError(
+                f"forecast fan-out prepublished payload {field} mismatch"
+            )
+    if stored.get("created"):
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out prepublished blob disappeared before persistence"
+        )
+    if declared_created:
+        if (
+            single_fetch.get("coordination_status")
+            != "cross_process_holder_published"
+            or single_fetch.get("fetched") is not True
+            or single_fetch.get("reused") is not False
+        ):
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out physical-write claim is not holder-owned"
+            )
+        return {
+            "payload_blob_created": True,
+            "payload_blob_reused": False,
+            "physical_bytes_written": declared_bytes,
+            "avoided_bytes": 0,
+        }
+    return {
+        "payload_blob_created": False,
+        "payload_blob_reused": True,
+        "physical_bytes_written": 0,
+        "avoided_bytes": declared_bytes,
+    }
+
+
 def parse_market_invariant_attestation(source: str, payload: Any) -> dict[str, Any] | None:
     """Return verified storage inputs for an explicitly attested response.
 
@@ -434,6 +511,20 @@ def forecast_payload_byte_summary(
     logical = sum(int(row.get("logical_referenced_bytes") or row.get("payload_bytes") or 0) for row in rows)
     physical = sum(int(row.get("physical_bytes_written") or 0) for row in rows)
     avoided = sum(int(row.get("avoided_bytes") or 0) for row in rows)
+    network_fetches = sum(1 for row in rows if row.get("single_fetch_fetched"))
+    network_reuses = sum(1 for row in rows if row.get("single_fetch_reused"))
+    cross_process_reuses = sum(
+        1
+        for row in rows
+        if row.get("single_fetch_coordination_status")
+        in {
+            "cross_process_receipt_reused",
+            "same_process_scoped_receipt_reused",
+        }
+    )
+    wait_timeouts = sum(
+        1 for row in rows if row.get("single_fetch_wait_timed_out")
+    )
     budget = int(physical_write_budget_bytes) if physical_write_budget_bytes is not None else None
     return {
         "schema_version": "forecast_payload_storage_observability_v0.1",
@@ -443,6 +534,10 @@ def forecast_payload_byte_summary(
         "logical_referenced_bytes": logical,
         "physical_bytes_written": physical,
         "avoided_bytes": avoided,
+        "network_fetch_count": network_fetches,
+        "network_reuse_count": network_reuses,
+        "cross_process_reuse_count": cross_process_reuses,
+        "network_wait_timeout_fail_open_count": wait_timeouts,
         "physical_write_budget_bytes": budget,
         "physical_write_budget_status": (
             "NOT_CONFIGURED"

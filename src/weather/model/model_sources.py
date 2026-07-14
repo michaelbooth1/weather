@@ -1635,6 +1635,22 @@ class SourceFetchMixin:
                     "response_received_at"
                 ),
                 "capture_pass_scope": str(fanout_scope or ""),
+                "coordination_status": fanout_result.coordination_status,
+                "waited_seconds": round(float(fanout_result.waited_seconds), 6),
+                "wait_timed_out": bool(fanout_result.wait_timed_out),
+                "prepublished_payload_hash": (
+                    fanout_result.prepublished_payload_hash
+                ),
+                "prepublished_payload_bytes": (
+                    fanout_result.prepublished_payload_bytes
+                ),
+                "prepublished_payload_ref": fanout_result.prepublished_payload_ref,
+                "prepublished_blob_created": bool(
+                    fanout_result.prepublished_blob_created
+                ),
+                "prepublished_blob_reused": bool(
+                    fanout_result.prepublished_blob_reused
+                ),
             }
             raw_payload = payload.get("raw_payload") or {}
             attestation = raw_payload.get("forecast_payload_attestation") or {}

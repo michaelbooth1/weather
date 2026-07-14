@@ -44,6 +44,12 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(state, "RUNNING")
         self.assertEqual(ensure_decision(state, pid_alive=True), "noop")
 
+    def test_missing_writer_lock_restarts_apparently_live_status(self):
+        self.assertEqual(
+            ensure_decision("RUNNING", pid_alive=True, writer_lock_healthy=False),
+            "restart",
+        )
+
     def test_paused_is_operator_intent_noop(self):
         state = self._state(status(paused=True))
         self.assertEqual(state, "PAUSED")
@@ -165,6 +171,10 @@ class TestEnsureDecision(unittest.TestCase):
             diagnostics_path = root / "diagnostics.jsonl"
             console_path = root / "loop_console.log"
             status_path.write_text(json.dumps(status(runtime_identity=old_identity)), encoding="utf-8")
+            status_path.with_name(".loop_status.json.writer.lock").write_text(
+                json.dumps({"pid": 1234}),
+                encoding="utf-8",
+            )
             diagnostics_path.write_text(
                 json.dumps({
                     "time": (NOW - timedelta(seconds=30)).isoformat(),
@@ -180,6 +190,7 @@ class TestEnsureDecision(unittest.TestCase):
                     patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", diagnostics_path), \
                     patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", console_path), \
                     patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
                     patch.object(snapshot_tracker, "get_runtime_identity", return_value=current_identity), \
                     patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
                     patch.object(snapshot_tracker, "stop_loop") as stop_loop, \
@@ -189,8 +200,85 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(result["action"], "backoff")
         self.assertEqual(result["intended_action"], "restart")
         self.assertEqual(result["restart_cause"], "STALE_CODE")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        self.assertEqual(result["exit_code"], 1)
         stop_loop.assert_not_called()
         start_loop.assert_not_called()
+
+    def test_ensure_loop_restarts_dead_pid_with_stale_status(self):
+        old_identity = {
+            "schema_version": "runtime_identity_v0.1",
+            "git_branch": "main",
+            "git_commit": "old",
+            "source_fingerprint": "old",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            status_path.write_text(
+                json.dumps(status(heartbeat_age_min=0, pid=7654, runtime_identity=old_identity)),
+                encoding="utf-8",
+            )
+            diagnostics_path = root / "diagnostics.jsonl"
+            diagnostics_path.write_text("", encoding="utf-8")
+            console_path = root / "console.log"
+            console_path.write_text("", encoding="utf-8")
+
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", diagnostics_path), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", console_path), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(snapshot_tracker, "pid_is_python", return_value=False), \
+                    patch.object(snapshot_tracker, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch.object(snapshot_tracker, "loop_file_offsets", return_value={}), \
+                    patch.object(snapshot_tracker, "quarantine_malformed_loop_lines", return_value={}), \
+                    patch.object(
+                        snapshot_tracker,
+                        "start_loop_detached",
+                        return_value={"started": True, "pid": 8765},
+                    ) as start_loop:
+                result = snapshot_tracker.ensure_loop(now=NOW)
+                persisted = json.loads(
+                    (root / "loop_supervisor_status.json").read_text(encoding="utf-8")
+                )
+
+        self.assertEqual(result["action"], "start")
+        self.assertEqual(result["state"], "DEAD")
+        self.assertEqual(result["restart_cause"], "DEAD")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(persisted["ensure_status"], "OK")
+        start_loop.assert_called_once_with(10.0, now=NOW)
+
+    def test_ensure_loop_lock_contention_is_persisted_and_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", root / "loop_status.json"), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(snapshot_tracker, "acquire_supervisor_lock", return_value=None), \
+                    patch.object(snapshot_tracker, "start_loop_detached") as start_loop:
+                result = snapshot_tracker.ensure_loop(now=NOW)
+                persisted = json.loads(
+                    (root / "loop_supervisor_status.json").read_text(encoding="utf-8")
+                )
+
+        self.assertEqual(result["action"], "locked")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(persisted["action"], "locked")
+        start_loop.assert_not_called()
+
+    def test_ensure_cli_returns_persisted_nonzero_exit_code(self):
+        result = {"action": "backoff", "ensure_status": "BLOCKED", "exit_code": 1}
+        with patch.object(snapshot_tracker, "ensure_loop", return_value=result), \
+                patch.object(sys, "argv", ["snapshot_tracker", "--ensure"]), \
+                patch("builtins.print"):
+            exit_code = snapshot_tracker.main()
+
+        self.assertEqual(exit_code, 1)
 
     def test_start_loop_detached_writes_snapshot_supervisor_status(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -24,6 +24,7 @@ from weather.collection.forecast_payload_cas import (
     SHARED_FORECAST_PAYLOAD_SCOPE,
     SharedForecastPayloadCAS,
     forecast_payload_byte_summary,
+    fanout_prepublish_accounting,
     parse_market_invariant_attestation,
     validate_nbm_shared_manifest_identity,
 )
@@ -1519,10 +1520,14 @@ class SnapshotStore:
                     )
                     raw_payload_path = stored["path"]
                     payload_ref = stored["payload_ref"]
-                    payload_blob_created = stored["created"]
-                    payload_blob_reused = stored["reused"]
-                    physical_bytes_written = stored["physical_bytes_written"]
-                    avoided_bytes = stored["avoided_bytes"]
+                    accounting = fanout_prepublish_accounting(
+                        stored,
+                        attested.get("single_fetch"),
+                    )
+                    payload_blob_created = accounting["payload_blob_created"]
+                    payload_blob_reused = accounting["payload_blob_reused"]
+                    physical_bytes_written = accounting["physical_bytes_written"]
+                    avoided_bytes = accounting["avoided_bytes"]
                 else:
                     payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
                         self.forecast_payload_dir,
@@ -1620,6 +1625,30 @@ class SnapshotStore:
                     attested.get("single_fetch_reused")
                     if attested is not None
                     else (data.get("single_fetch_fanout") or {}).get("reused")
+                ),
+                "single_fetch_fetched": bool(
+                    (attested.get("single_fetch") or {}).get("fetched")
+                    if attested is not None
+                    else False
+                ),
+                "single_fetch_coordination_status": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordination_status"
+                    )
+                    if attested is not None
+                    else None
+                ),
+                "single_fetch_wait_timed_out": bool(
+                    (attested.get("single_fetch") or {}).get("wait_timed_out")
+                    if attested is not None
+                    else False
+                ),
+                "single_fetch_scope": (
+                    (attested.get("single_fetch") or {}).get(
+                        "capture_pass_scope"
+                    )
+                    if attested is not None
+                    else None
                 ),
                 "extraction_schema": extraction_schema,
                 "extraction_identity": json.dumps(

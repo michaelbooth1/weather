@@ -50,10 +50,13 @@ from weather.operations.supervisor import (
     configure_json_console_logging,
     launch_detached,
     loop_file_offsets,
+    loop_writer_lock_health,
     pid_is_python,
+    persist_supervisor_status,
     quarantine_malformed_loop_lines,
     read_writer_lock,
     read_json_file,
+    read_supervisor_status,
     release_file_lock,
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
@@ -856,7 +859,15 @@ def source_identity_error(value):
     return "code identity differs" in text or "source tree" in text
 
 
-def ensure_decision(health_state, pid_alive, last_error=None):
+def ensure_decision(
+    health_state,
+    pid_alive,
+    last_error=None,
+    *,
+    writer_lock_healthy=True,
+):
+    if not writer_lock_healthy:
+        return "restart" if pid_alive else "start"
     if health_state in {"DEGRADED", "ERRORING"} and source_identity_error(last_error):
         return "restart" if pid_alive else "start"
     if health_state in {"RUNNING", "PAUSED", "DEGRADED", "ERRORING"}:
@@ -876,40 +887,65 @@ def ensure_watcher_loop(
     spec = runtime_observation_supervisor_spec()
     handle = acquire_supervisor_lock()
     if handle is None:
-        return {"action": "locked", "reason": "another observation trigger supervisor action is running"}
+        return persist_supervisor_status(
+            spec,
+            {
+                "action": "locked",
+                "state": "UNKNOWN",
+                "reason": "another observation trigger supervisor action is running",
+            },
+            now=now,
+        )
     try:
         status = read_status()
         alive = pid_is_python((status or {}).get("pid"))
         health = watcher_health(status, now=now, interval_seconds=interval_seconds, pid_alive=alive)
-        action = ensure_decision(health["state"], alive, health.get("last_error"))
+        writer_lock = loop_writer_lock_health(
+            spec.status_path,
+            status_pid=(status or {}).get("pid"),
+            status_pid_alive=alive,
+        )
+        action = ensure_decision(
+            health["state"],
+            alive,
+            health.get("last_error"),
+            writer_lock_healthy=writer_lock["healthy"],
+        )
+        if action in {"start", "restart"}:
+            if status and not alive:
+                restart_cause = health["state"]
+            elif status and not writer_lock["healthy"]:
+                restart_cause = writer_lock["reason"]
+            elif source_identity_error(health.get("last_error")):
+                restart_cause = "source_identity_error"
+            else:
+                restart_cause = health["state"]
+        else:
+            restart_cause = None
         result = {
             "action": action,
             "state": health["state"],
             "pid": health.get("pid"),
-            "restart_cause": (
-                "source_identity_error"
-                if source_identity_error(health.get("last_error"))
-                else health["state"]
-                if action in {"start", "restart"}
-                else None
-            ),
+            "restart_cause": restart_cause,
+            "writer_lock": writer_lock,
             "runtime_identity_before": (status or {}).get("runtime_identity"),
         }
         guard = supervisor_recovery_guard(spec, action, now=now)
         result["recovery_guard"] = guard
-        if action in {"start", "restart"}:
-            result["loop_offsets_before"] = loop_file_offsets(spec)
         if action in {"start", "restart"} and not guard.get("allowed"):
             result["intended_action"] = action
             result["action"] = guard.get("action")
             result["reason"] = guard.get("reason")
             result["remediation"] = guard.get("remediation")
             event = {"time": now.isoformat(), "supervisor": "ensure", **result}
-            if should_emit_recovery_block_diagnostic(spec, event):
-                append_diagnostic(event)
-            else:
+            if not should_emit_recovery_block_diagnostic(spec, event):
                 result["diagnostic_suppressed"] = True
+            result = persist_supervisor_status(spec, result, now=now)
+            if not result.get("diagnostic_suppressed"):
+                append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
             return result
+        if action in {"start", "restart"}:
+            result["loop_offsets_before"] = loop_file_offsets(spec)
         if action == "restart":
             result["stop"] = stop_watcher_loop(now=now)
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
@@ -919,6 +955,8 @@ def ensure_watcher_loop(
             result["start"] = start_watcher_detached(market, interval_seconds, stale_after_seconds, now=now)
         if action != "noop":
             result["loop_offsets_after"] = loop_file_offsets(spec)
+        result = persist_supervisor_status(spec, result, now=now)
+        if action != "noop":
             append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
         return result
     finally:
@@ -1545,6 +1583,7 @@ def main(argv=None):
         status = read_status(args.status_out)
         payload = {
             "health": watcher_health(status, interval_seconds=args.interval_seconds),
+            "supervisor": read_supervisor_status(runtime_observation_supervisor_spec()),
             "trade_permission": latest_trade_permission(
                 status,
                 stale_seconds=args.stale_after_seconds,
@@ -1563,13 +1602,13 @@ def main(argv=None):
         ))
         return
     if command == "ensure":
-        print(json.dumps(
-            ensure_watcher_loop(args.market, args.interval_seconds, args.stale_after_seconds),
-            indent=2,
-            sort_keys=True,
-            default=str,
-        ))
-        return
+        result = ensure_watcher_loop(
+            args.market,
+            args.interval_seconds,
+            args.stale_after_seconds,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return int(result.get("exit_code", 1))
     if command == "stop":
         print(json.dumps(stop_watcher_loop(), indent=2, sort_keys=True, default=str))
         return
@@ -1596,4 +1635,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

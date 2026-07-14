@@ -37,11 +37,14 @@ from weather.operations.supervisor import (
     file_lock_is_stale,
     launch_detached,
     loop_file_offsets,
+    loop_writer_lock_health,
     pid_is_python,
+    persist_supervisor_status,
     process_query_creationflags,
     quarantine_malformed_loop_lines,
     read_writer_lock,
     read_json_file,
+    read_supervisor_status,
     release_file_lock,
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
@@ -884,9 +887,12 @@ def clob_ensure_decision(
     has_orphan_processes=False,
     runtime_matches_current=True,
     target_mode_mismatch=False,
+    writer_lock_healthy=True,
 ):
     if has_orphan_processes:
         return "restart"
+    if not writer_lock_healthy:
+        return "restart" if pid_alive else "start"
     if target_mode_mismatch and pid_alive:
         return "restart"
     if not runtime_matches_current and health_state in ("RUNNING", "PAUSED", "DEGRADED", "ERRORING") and pid_alive:
@@ -1177,38 +1183,59 @@ def ensure_clob_loop(
     spec = runtime_clob_supervisor_spec()
     lock_handle = acquire_clob_supervisor_lock()
     if lock_handle is None:
-        return {"action": "locked", "state": "UNKNOWN", "reason": "another CLOB supervisor action is running"}
+        return persist_supervisor_status(
+            spec,
+            {
+                "action": "locked",
+                "state": "UNKNOWN",
+                "reason": "another CLOB supervisor action is running",
+            },
+            now=now,
+        )
     try:
         status = read_clob_loop_status()
         preserved_target_date_from_status = False
         target_mode_mismatch = bool(target_date is None and (status or {}).get("target_date"))
         health = clob_loop_health(status, now=now, interval_seconds=interval_seconds)
         alive = pid_is_python((status or {}).get("pid"))
+        decision_state = "DEAD" if status and not alive else health["state"]
+        writer_lock = loop_writer_lock_health(
+            spec.status_path,
+            status_pid=(status or {}).get("pid"),
+            status_pid_alive=alive,
+        )
         loop_processes = running_clob_loop_processes()
         has_orphans = len(loop_processes) > expected_clob_loop_process_count()
         runtime_matches_current = clob_runtime_matches_current(status)
         action = clob_ensure_decision(
-            health["state"],
+            decision_state,
             alive,
             has_orphan_processes=has_orphans,
             runtime_matches_current=runtime_matches_current,
             target_mode_mismatch=target_mode_mismatch,
+            writer_lock_healthy=writer_lock["healthy"],
         )
+        if action in {"start", "restart"}:
+            if status and not alive:
+                restart_cause = "DEAD"
+            elif status and not writer_lock["healthy"]:
+                restart_cause = writer_lock["reason"]
+            elif has_orphans:
+                restart_cause = "orphan_processes"
+            elif target_mode_mismatch:
+                restart_cause = "target_date_mode_mismatch"
+            elif not runtime_matches_current:
+                restart_cause = "runtime_identity"
+            else:
+                restart_cause = decision_state
+        else:
+            restart_cause = None
         result = {
             "action": action,
-            "state": health["state"],
+            "state": decision_state,
             "pid": health.get("pid"),
-            "restart_cause": (
-                "orphan_processes"
-                if has_orphans
-                else "target_date_mode_mismatch"
-                if target_mode_mismatch
-                else "runtime_identity"
-                if not runtime_matches_current
-                else health["state"]
-                if action in {"start", "restart"}
-                else None
-            ),
+            "restart_cause": restart_cause,
+            "writer_lock": writer_lock,
             "running_process_count": len(loop_processes),
             "running_pids": [row["pid"] for row in loop_processes],
             "orphan_processes_detected": has_orphans,
@@ -1221,19 +1248,20 @@ def ensure_clob_loop(
         }
         guard = supervisor_recovery_guard(spec, action, now=now)
         result["recovery_guard"] = guard
-        if action in {"start", "restart"}:
-            result["loop_offsets_before"] = loop_file_offsets(spec)
         if action in {"start", "restart"} and not guard.get("allowed"):
             result["intended_action"] = action
             result["action"] = guard.get("action")
             result["reason"] = guard.get("reason")
             result["remediation"] = guard.get("remediation")
             event = {"time": now.isoformat(), "supervisor": "ensure", **result}
-            if should_emit_recovery_block_diagnostic(spec, event):
-                append_clob_diagnostic(event)
-            else:
+            if not should_emit_recovery_block_diagnostic(spec, event):
                 result["diagnostic_suppressed"] = True
+            result = persist_supervisor_status(spec, result, now=now)
+            if not result.get("diagnostic_suppressed"):
+                append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
             return result
+        if action in {"start", "restart"}:
+            result["loop_offsets_before"] = loop_file_offsets(spec)
         if action == "restart":
             result["stop"] = stop_clob_loop(now=now)
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
@@ -1281,6 +1309,8 @@ def ensure_clob_loop(
             )
         if action != "noop":
             result["loop_offsets_after"] = loop_file_offsets(spec)
+        result = persist_supervisor_status(spec, result, now=now)
+        if action != "noop":
             append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
         return result
     finally:
@@ -2026,6 +2056,7 @@ def main():
             now=utc_now(),
             interval_seconds=args.interval_seconds,
         )
+        health["supervisor"] = read_supervisor_status(runtime_clob_supervisor_spec())
         print(json.dumps(health, indent=2, sort_keys=True, default=str))
         return
     if command == "audit":
@@ -2120,7 +2151,7 @@ def main():
             release_clob_supervisor_lock(lock_handle)
         return
     if command == "ensure":
-        print(json.dumps(ensure_clob_loop(
+        result = ensure_clob_loop(
             market_id=args.market,
             target_date=args.date,
             interval_seconds=args.interval_seconds,
@@ -2138,8 +2169,9 @@ def main():
             ws_connect_timeout=args.websocket_connect_timeout,
             raw_max_workers=args.raw_max_workers,
             raw_market_timeout_seconds=args.raw_market_timeout_seconds,
-        ), indent=2, sort_keys=True, default=str))
-        return
+        )
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return int(result.get("exit_code", 1))
     if command == "websocket":
         event = PolymarketClient(market_id=args.market).get_event()
         result = record_market_websocket(
@@ -2156,4 +2188,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

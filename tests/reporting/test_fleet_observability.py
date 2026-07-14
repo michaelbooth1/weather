@@ -1671,6 +1671,20 @@ class TestFleetObservability(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (root / "loop_supervisor_status.json").write_text(
+                json.dumps({
+                    "schema_version": "loop_supervisor_status_v0.1",
+                    "action": "backoff",
+                    "ensure_status": "BLOCKED",
+                    "exit_code": 1,
+                    "reason": "restart_backoff_active=30.0s",
+                    "recovery_guard": {
+                        "retry_at_utc": (now + timedelta(seconds=30)).isoformat(),
+                        "retry_after_seconds": 30.0,
+                    },
+                }),
+                encoding="utf-8",
+            )
             diagnostics_path.write_text(
                 "\n".join(
                     [
@@ -1723,6 +1737,10 @@ class TestFleetObservability(unittest.TestCase):
         self.assertEqual(row["restart_class_counts"]["stale_code"], 1)
         self.assertEqual(row["benign_duplicate_writer_blocks"], 1)
         self.assertEqual(row["duplicate_writer_incidents"], 0)
+        self.assertEqual(row["supervisor_action"], "backoff")
+        self.assertEqual(row["supervisor_ensure_status"], "BLOCKED")
+        self.assertEqual(row["supervisor_exit_code"], 1)
+        self.assertEqual(row["supervisor_retry_after_seconds"], 30.0)
         self.assertIn("runtime_code_state=stale_code", row["blocking_reasons"])
 
     def test_current_code_soak_keeps_historical_duplicate_writer_context_without_blocking_clean_window(self):

@@ -106,6 +106,10 @@ class ObservationTriggerTests(unittest.TestCase):
             ensure_decision("ERRORING", pid_alive=True, last_error="ConnectionError: upstream timeout"),
             "noop",
         )
+        self.assertEqual(
+            ensure_decision("RUNNING", pid_alive=True, writer_lock_healthy=False),
+            "restart",
+        )
 
     def test_ensure_watcher_loop_backoff_blocks_repeated_source_identity_restart(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
@@ -122,6 +126,10 @@ class ObservationTriggerTests(unittest.TestCase):
                     "consecutive_errors": 1,
                     "last_error": "RuntimeError: snapshot process code identity differs from current source tree",
                 }),
+                encoding="utf-8",
+            )
+            status_path.with_name(".status.json.writer.lock").write_text(
+                json.dumps({"pid": 2468}),
                 encoding="utf-8",
             )
             diagnostics_path.write_text(
@@ -150,8 +158,40 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(result["action"], "backoff")
         self.assertEqual(result["intended_action"], "restart")
         self.assertEqual(result["restart_cause"], "source_identity_error")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        self.assertEqual(result["exit_code"], 1)
         stop_loop.assert_not_called()
         start_loop.assert_not_called()
+
+    def test_ensure_watcher_lock_contention_is_persisted_and_nonzero(self):
+        now = datetime(2026, 7, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(observation_trigger, "STATUS_PATH", root / "observation_trigger_status.json"), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(observation_trigger, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(observation_trigger, "acquire_supervisor_lock", return_value=None), \
+                    patch.object(observation_trigger, "start_watcher_detached") as start_loop:
+                result = observation_trigger.ensure_watcher_loop(now=now)
+                persisted = json.loads(
+                    (root / "observation_trigger_supervisor_status.json").read_text(encoding="utf-8")
+                )
+
+        self.assertEqual(result["action"], "locked")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(persisted["action"], "locked")
+        start_loop.assert_not_called()
+
+    def test_ensure_cli_returns_persisted_nonzero_exit_code(self):
+        result = {"action": "backoff", "ensure_status": "BLOCKED", "exit_code": 1}
+        with patch.object(observation_trigger, "ensure_watcher_loop", return_value=result), \
+                patch("builtins.print"):
+            exit_code = observation_trigger.main(["ensure"])
+
+        self.assertEqual(exit_code, 1)
 
     def test_fresh_provisional_heartbeat_with_dead_pid_is_dead(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)

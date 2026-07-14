@@ -1,6 +1,8 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 
 from weather.operations import runtime_monitor
 
@@ -38,6 +40,15 @@ def test_snapshot_projection_keeps_large_payload_bounded(tmp_path):
     assert "fleet_collection" not in projected
     assert projected["forecast_payload_storage"]["physical_bytes_written"] == 100
     assert projected["forecast_payload_storage"]["avoided_bytes"] == 100
+    assert projected["forecast_payload_storage"]["network_fetch_count"] == 0
+    assert projected["forecast_payload_storage"]["network_reuse_count"] == 0
+    assert projected["forecast_payload_storage"]["cross_process_reuse_count"] == 0
+    assert (
+        projected["forecast_payload_storage"][
+            "network_wait_timeout_fail_open_count"
+        ]
+        == 0
+    )
     assert "payload_detail" not in projected["forecast_payload_storage"]
     assert len(json.dumps(projected)) < 5000
 
@@ -73,6 +84,10 @@ def test_snapshot_payload_storage_projection_falls_back_to_compact_market_rows()
         "logical_referenced_bytes": 200,
         "physical_bytes_written": 100,
         "avoided_bytes": 100,
+        "network_fetch_count": 0,
+        "network_reuse_count": 0,
+        "cross_process_reuse_count": 0,
+        "network_wait_timeout_fail_open_count": 0,
         "physical_write_budget_bytes": 150,
         "physical_write_budget_status": "BLOCK",
     }
@@ -208,3 +223,224 @@ def test_resume_seed_and_hour_filter_preserve_pre_restart_samples(tmp_path):
 
     assert [row["value"] for row in seeded] == [1, 2, 3]
     assert [row["value"] for row in selected] == [2, 3]
+
+
+def test_resume_emits_missing_hours_once_and_final_boundary_emits_last_hour(tmp_path):
+    started_at = datetime(2026, 7, 13, 1, 48, 23, tzinfo=timezone.utc)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    rows = [
+        {
+            "observed_at_utc": (started_at + timedelta(minutes=30)).isoformat(),
+            "system_cpu_percent": 1,
+        },
+        {
+            "observed_at_utc": (started_at + timedelta(hours=1, minutes=30)).isoformat(),
+            "system_cpu_percent": 2,
+        },
+        {
+            "observed_at_utc": (started_at + timedelta(hours=2, minutes=30)).isoformat(),
+            "system_cpu_percent": 3,
+        },
+    ]
+    (run_dir / "host_samples.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "hourly_summaries.jsonl").write_text(
+        json.dumps({"bucket": "elapsed_hour_1", "sample_count": 1}) + "\n",
+        encoding="utf-8",
+    )
+    component_rows = [
+        {
+            "observed_at_utc": (started_at + timedelta(minutes=30)).isoformat(),
+            "component": "snapshot",
+            "state": "HEALTHY",
+        },
+        {
+            "observed_at_utc": (started_at + timedelta(hours=1, minutes=30)).isoformat(),
+            "component": "snapshot",
+            "state": "UNHEALTHY",
+        },
+        {
+            "observed_at_utc": (started_at + timedelta(hours=2, minutes=30)).isoformat(),
+            "component": "snapshot",
+            "state": "HEALTHY",
+        },
+    ]
+    (run_dir / "component_health.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in component_rows) + "\n",
+        encoding="utf-8",
+    )
+    state = {"last_component_states": {"snapshot": "HEALTHY"}}
+    planned_end = started_at + timedelta(hours=3)
+
+    first = runtime_monitor._emit_completed_elapsed_hours(
+        run_dir,
+        state,
+        started_at,
+        started_at + timedelta(hours=2, minutes=5),
+        planned_end_at=planned_end,
+    )
+    duplicate = runtime_monitor._emit_completed_elapsed_hours(
+        run_dir,
+        state,
+        started_at,
+        started_at + timedelta(hours=2, minutes=5),
+        planned_end_at=planned_end,
+    )
+    final = runtime_monitor._emit_completed_elapsed_hours(
+        run_dir,
+        state,
+        started_at,
+        planned_end,
+        planned_end_at=planned_end,
+    )
+    summaries = [
+        json.loads(line)
+        for line in (run_dir / "hourly_summaries.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert first == [2]
+    assert duplicate == []
+    assert final == [3]
+    assert [row["bucket"] for row in summaries] == [
+        "elapsed_hour_1",
+        "elapsed_hour_2",
+        "elapsed_hour_3",
+    ]
+    assert [row["sample_count"] for row in summaries] == [1, 1, 1]
+    assert summaries[1]["component_states"] == {"snapshot": "UNHEALTHY"}
+    assert summaries[2]["component_states"] == {"snapshot": "HEALTHY"}
+    assert summaries[1]["component_states_source"] == "component_health_tape"
+
+
+def test_hourly_summary_emitter_waits_for_writer_lock_and_rechecks(tmp_path, monkeypatch):
+    started_at = datetime(2026, 7, 13, 1, 48, 23, tzinfo=timezone.utc)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    summary_path = run_dir / "hourly_summaries.jsonl"
+    summary_path.touch()
+    (run_dir / "host_samples.jsonl").write_text(
+        json.dumps(
+            {
+                "observed_at_utc": (started_at + timedelta(minutes=30)).isoformat(),
+                "system_cpu_percent": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "component_health.jsonl").touch()
+    held_lock = runtime_monitor.acquire_writer_lock(summary_path, attempts=1)
+    assert held_lock is not None
+    entered = Event()
+    original_acquire = runtime_monitor.acquire_writer_lock
+
+    def tracked_acquire(*args, **kwargs):
+        entered.set()
+        return original_acquire(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_monitor, "acquire_writer_lock", tracked_acquire)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            runtime_monitor._emit_completed_elapsed_hours,
+            run_dir,
+            {"run_id": "test"},
+            started_at,
+            started_at + timedelta(hours=1),
+            planned_end_at=started_at + timedelta(hours=1),
+        )
+        assert entered.wait(timeout=2)
+        runtime_monitor.append_jsonl(summary_path, {"bucket": "elapsed_hour_1"})
+        runtime_monitor.release_writer_lock(held_lock)
+        assert future.result(timeout=5) == []
+
+    rows = [json.loads(line) for line in summary_path.read_text(encoding="utf-8").splitlines()]
+    assert [row["bucket"] for row in rows] == ["elapsed_hour_1"]
+
+
+def _seed_terminal_run(tmp_path, monkeypatch, *, duration_hours=1):
+    started_at = datetime(2026, 7, 13, 1, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(runtime_monitor, "_git_value", lambda *_args: None)
+    run_dir = runtime_monitor.create_run(
+        tmp_path / "runs",
+        duration_hours,
+        10,
+        60,
+        300,
+        now=started_at,
+    )
+    runtime_monitor.append_jsonl(
+        run_dir / "host_samples.jsonl",
+        {
+            "observed_at_utc": (started_at + timedelta(minutes=30)).isoformat(),
+            "system_cpu_percent": 2,
+        },
+    )
+    return run_dir, started_at
+
+
+def _patch_monitor_sampling(monkeypatch, observed_at):
+    class FakeSampler:
+        def sample(self, _run_dir):
+            return {
+                "observed_at_utc": observed_at.isoformat(),
+                "system_cpu_percent": 3,
+            }
+
+    monkeypatch.setattr(runtime_monitor, "HostSampler", FakeSampler)
+    monkeypatch.setattr(runtime_monitor, "_component_tick", lambda *_args: [])
+    monkeypatch.setattr(runtime_monitor, "_powershell_enrichment", lambda **_kwargs: {})
+
+
+def test_normal_terminal_path_reconciles_final_completed_hour(tmp_path, monkeypatch):
+    run_dir, started_at = _seed_terminal_run(tmp_path, monkeypatch)
+    before_boundary = started_at + timedelta(minutes=59, seconds=50)
+    planned_end = started_at + timedelta(hours=1)
+    _patch_monitor_sampling(monkeypatch, before_boundary)
+    clock_values = iter([before_boundary] * 5 + [planned_end] * 10)
+    monkeypatch.setattr(runtime_monitor, "utc_now", lambda: next(clock_values))
+
+    result = runtime_monitor.run_monitor(
+        run_dir,
+        sleep_fn=lambda _seconds: None,
+        monotonic_fn=lambda: 0.0,
+    )
+
+    summaries = runtime_monitor._load_recent_jsonl(run_dir / "hourly_summaries.jsonl", 10)
+    assert result["lifecycle"] == "completed"
+    assert [row["bucket"] for row in summaries] == ["elapsed_hour_1"]
+
+
+def test_output_budget_terminal_path_reconciles_completed_hours(tmp_path, monkeypatch):
+    run_dir, started_at = _seed_terminal_run(tmp_path, monkeypatch, duration_hours=2)
+    before_boundary = started_at + timedelta(minutes=59, seconds=50)
+    after_boundary = started_at + timedelta(hours=1, minutes=5)
+    _patch_monitor_sampling(monkeypatch, after_boundary)
+    clock_values = iter([before_boundary] * 4 + [after_boundary] * 10)
+    monkeypatch.setattr(runtime_monitor, "utc_now", lambda: next(clock_values))
+    monkeypatch.setattr(runtime_monitor, "OUTPUT_BUDGET_BYTES", -1)
+
+    result = runtime_monitor.run_monitor(
+        run_dir,
+        sleep_fn=lambda _seconds: None,
+        monotonic_fn=lambda: 0.0,
+    )
+
+    summaries = runtime_monitor._load_recent_jsonl(run_dir / "hourly_summaries.jsonl", 10)
+    assert result["lifecycle"] == "output_budget_exceeded"
+    assert [row["bucket"] for row in summaries] == ["elapsed_hour_1"]
+
+
+def test_finalize_cli_reconciles_completed_hours(tmp_path, monkeypatch, capsys):
+    run_dir, started_at = _seed_terminal_run(tmp_path, monkeypatch)
+    planned_end = started_at + timedelta(hours=1)
+    monkeypatch.setattr(runtime_monitor, "utc_now", lambda: planned_end)
+
+    assert runtime_monitor.main(["finalize", "--run-dir", str(run_dir)]) == 0
+
+    output = json.loads(capsys.readouterr().out)
+    summaries = runtime_monitor._load_recent_jsonl(run_dir / "hourly_summaries.jsonl", 10)
+    assert output["lifecycle"] == "completed"
+    assert [row["bucket"] for row in summaries] == ["elapsed_hour_1"]

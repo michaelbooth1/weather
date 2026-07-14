@@ -108,6 +108,42 @@ only after schema/step/PID validation and preserves the completed step result.
 The representative scheduled Stage-A soak and measured inventory values remain
 open and must not be inferred from unit tests.
 
+## 2026-07-13b scheduled-soak checkpoint
+
+The 2026-07-13 scheduled task remains non-countable soak evidence. Its Task
+Scheduler result is `267014`, and the only genuine new resource row is the
+17:11 UTC `hourly_model_performance` admission rejection. The snapshot loop's
+first post-restart iteration still had one real isolated-child exit-137 error,
+so the gate correctly deferred before launching the child. Earlier steps were
+carried forward without new subprocess resource receipts. This proves neither
+a clean scheduled run nor budget enforcement under load.
+
+Four later `hourly_model_performance` attempts at 18:41, 18:44, 18:49, and
+18:55 UTC came from a separate user-owned Claude Code session, not the 09:30
+scheduled task and not this work order's execution. The first three deferred
+at admission. The fourth admitted an isolated child whose process returned
+zero but whose terminal manifest failed validation, so the run ended `error`.
+They remain durable operational evidence but are excluded from scheduled-soak
+counts.
+
+The readback checklist for each next scheduled 09:30 run is therefore still
+open:
+
+- [ ] Scheduled-task exit code equals the durable terminal status.
+- [ ] Every declared Stage-A step has elapsed, lifetime read/write, peak
+  private, and peak working-set evidence or an explicit pre-launch defer.
+- [ ] `taker_edge_permission_map`, `maker_paper_score`, and every resumed
+  corpus-owning step from positions 11–15 have isolated-child receipts.
+- [ ] Each receipt is compared with its declared timeout/private/working-set
+  ceiling; results at or above 80% are flagged and grossly oversized budgets
+  are reviewed before any tightening.
+- [ ] Capture admission is healthy before and after each heavy child.
+- [ ] Two consecutive clean scheduled runs, or one clean run plus one correctly
+  terminated budget kill, are recorded before the soak checkbox closes.
+
+No extra full-stage run is authorized for this checklist. Readbacks are queued
+after the 2026-07-14 and 2026-07-15 scheduled runs.
+
 Verification:
 
 - Focused streaming-equivalence tests for taker edge-permission aggregation.

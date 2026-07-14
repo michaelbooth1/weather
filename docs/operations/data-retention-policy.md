@@ -54,13 +54,27 @@ without copying, rewriting, or deleting evidence:
 
 ```powershell
 python -m weather.operations.forecast_payload_cas_migration
+python -m weather.operations.forecast_payload_cas_migration --month 2026-07 --max-payload-bytes-read 8589934592 --max-elapsed-seconds 300
 ```
 
 The command is dry-run only. It verifies legacy hash/restore/replay checks and
-the shared references found in snapshot `forecast_payloads.jsonl` files. That
-scan is explicitly partial inventory, not global reachability: blobs absent
-from the scanned references are non-authoritative observations, never deletion
-candidates. No current cleanup review can authorize shared-CAS deletion.
+the shared references found in snapshot `forecast_payloads.jsonl` files. The
+inventory is bounded by directory and tree-entry counts, manifest count and
+bytes, JSONL line size, manifest rows, per-payload and aggregate payload bytes,
+elapsed time, retained candidate detail, and physical-blob count; any reached
+bound is explicit in the artifact. Use `--month YYYY-MM` for a bounded monthly
+segment. The report counts a repeatedly referenced legacy file once by physical
+file identity, includes verified legacy bytes, projected one-copy bytes, and
+projected reclaimable bytes by month, and assigns a cross-month physical file to
+its earliest observed month. Monthly one-copy projections are scenarios rather
+than additive totals. Truncated results remain partial and must not be treated as
+a complete reclaim total. That scan is explicitly
+partial inventory, not global reachability: blobs absent from the scanned
+references are non-authoritative observations, never deletion candidates. No
+current cleanup review can authorize shared-CAS deletion.
+The CLI returns `2` and prints `status=partial`, the stop reasons, and the
+resume cursor when any bound or scan-integrity condition truncates inventory;
+only a complete bounded scan returns zero.
 Event-day manifests enumerate referenced shared blobs as external canonical
 dependencies and remain blocked until both backup and restore evidence includes
 their exact digests. Legacy market-local blobs remain canonical evidence.

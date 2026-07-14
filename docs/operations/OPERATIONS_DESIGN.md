@@ -25,8 +25,13 @@ loop.
 
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
-not itself the long-running capture process. Registration source, task names,
-cadences, and parameters live in:
+not itself the long-running capture process. A healthy/no-op or successful
+launch exits `0`. Lock contention, restart backoff, an open restart circuit, or
+a failed launch exits nonzero so Task Scheduler does not report success while
+capture is down. Each ensure writes its latest decision and recovery-guard
+state to a separate atomic `*_supervisor_status.json` sidecar; the long-running
+worker remains the only writer of its loop status. Registration source, task
+names, cadences, and parameters live in:
 
 - `scripts/ops/register_snapshot_supervisor.ps1`
 - `scripts/ops/register_clob_supervisor.ps1`
@@ -58,13 +63,23 @@ replaces its task with the supplied parameters.
 ### Weather Snapshot Loop
 
 - `data/snapshots/loop_status.json`
+- `data/snapshots/loop_supervisor_status.json`
 - `data/snapshots/diagnostics.jsonl`
 - `data/snapshots/loop_console.log`
 - per-event snapshot, replay-input, source, feature, and component tapes
 
+`consecutive_errors` and `last_error` describe the most recently completed
+fleet iteration, not lifetime history. Progress heartbeats retain the prior
+completed iteration's state until every registered market has a result; the
+next fully completed error-free iteration clears both fields and records the
+`last_completed_iteration` / `last_clean_iteration` markers. Cadence liveness
+such as 12/12 recently captured markets does not override a current iteration
+error for Stage-A admission.
+
 ### CLOB Book Loop
 
 - `data/snapshots/clob_loop_status.json`
+- `data/snapshots/clob_loop_supervisor_status.json`
 - `data/snapshots/clob_diagnostics.jsonl`
 - `data/snapshots/clob_loop_console.log`
 - per-event token, order-book, price-history, and WebSocket tapes
@@ -79,6 +94,7 @@ new handle.
 ### Observation-Trigger Loop
 
 - `data/snapshots/observation_trigger_status.json`
+- `data/snapshots/observation_trigger_supervisor_status.json`
 - `data/snapshots/observation_trigger_diagnostics.jsonl`
 - `data/snapshots/observation_trigger_console.log`
 - `data/snapshots/observation_triggers.jsonl`

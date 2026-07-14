@@ -4,10 +4,11 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 from weather.market import exchange_economics
 from weather.market.taker_bot import ORDER_COLUMNS
 from weather.market.market_config import event_slug_for_date
@@ -57,6 +58,21 @@ from weather.operations.daily_refresh_registry import carried_forward_steps, ste
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
+
+
+def _recent_active_variant_row(as_of=None):
+    """Return settled evidence that cannot age out as the calendar advances."""
+    current = as_of or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    target_date = (
+        current.astimezone(ZoneInfo("America/Toronto")).date()
+        - timedelta(days=1)
+    ).isoformat()
+    return (
+        "active_v,f_family,False,False,nyc,"
+        f"{target_date},s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,{target_date}\n"
+    )
 
 
 def _args(tmp, **overrides):
@@ -444,7 +460,31 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["status"], "complete")
         self.assertEqual(guard_state["progress"]["last_completed_step"], "fleet_observability")
         self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
+        self.assertEqual(guard_state["progress"]["total_step_count"], 5)
         self.assertTrue(report_exists)
+
+    def test_progress_counts_only_terminal_successes_and_keeps_declared_total(self):
+        def ok(_args):
+            return {"status": "PASS"}
+
+        def failed(_args):
+            raise RuntimeError("expected failure")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp, continue_on_error=True)
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("ingest_quality_gate", ok),
+                    ("event_metadata_validation", failed),
+                ],
+            )
+            guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(guard_state["progress"]["last_completed_step"], "ingest_quality_gate")
+        self.assertEqual(guard_state["progress"]["completed_step_count"], 1)
+        self.assertEqual(guard_state["progress"]["total_step_count"], 2)
 
     def test_cli_exit_code_matches_written_normal_and_deferred_status(self):
         for terminal_status, expected_exit in (("ok", 0), ("deferred", 2)):
@@ -1279,6 +1319,7 @@ class TestDailyRefresh(unittest.TestCase):
                 args,
                 runners=[("settled_day_analysis_barrier", capture)],
             )
+            guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
 
         self.assertEqual(
             [step["name"] for step in seen["steps"]],
@@ -1296,6 +1337,46 @@ class TestDailyRefresh(unittest.TestCase):
             payload["config"]["carried_forward_from_run_started_at_utc"],
             "2026-07-02T13:30:00+00:00",
         )
+        self.assertEqual(guard_state["progress"]["completed_step_count"], 3)
+        self.assertEqual(guard_state["progress"]["total_step_count"], 3)
+
+    def test_resume_progress_includes_final_production_readiness_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                resume_from_step="settled_day_analysis_barrier",
+                skip_production_readiness_gate=False,
+            )
+            prior = {
+                "started_at_utc": "2026-07-02T13:30:00+00:00",
+                "steps": [
+                    {"name": "market_day_labels_finalize", "status": "ok", "result": {}},
+                    {"name": "hourly_model_performance", "status": "ok", "result": {}},
+                ],
+            }
+            status_path = Path(args.status_out)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text(json.dumps(prior), encoding="utf-8")
+
+            with patch(
+                "weather.operations.daily_refresh._production_readiness_status",
+                return_value={"status": "PASS"},
+            ):
+                payload, _status_path, _report_path = run_daily_refresh(
+                    args,
+                    runners=[
+                        (
+                            "settled_day_analysis_barrier",
+                            lambda _args: {"status": "PASS"},
+                        )
+                    ],
+                )
+            guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["steps"][-1]["name"], "production_readiness_gate")
+        self.assertEqual(guard_state["progress"]["last_completed_step"], "production_readiness_gate")
+        self.assertEqual(guard_state["progress"]["completed_step_count"], 4)
+        self.assertEqual(guard_state["progress"]["total_step_count"], 4)
 
     def test_run_pins_settled_target_once_at_chain_start(self):
         # Regression (2026-07-07): steps derived the settled target from the
@@ -1720,23 +1801,53 @@ class TestDailyRefresh(unittest.TestCase):
                 str(root / "backtest"),
                 "--snapshots-root",
                 str(root / "snapshots"),
+                "--status-out",
+                str(root / "backtest" / "daily_refresh_status.json"),
+                "--report-out",
+                str(root / "backtest" / "daily_refresh_report.md"),
+                "--lock-path",
+                str(root / "backtest" / "daily_refresh.lock"),
+                "--long-job-state",
+                str(root / "backtest" / "long_job_guard_status.json"),
+                "--long-job-lock",
+                str(root / "backtest" / "long_job_guard.lock"),
+                "--stage-a-manifest",
+                str(root / "backtest" / "stage_a.json"),
+                "--stage-b-manifest",
+                str(root / "backtest" / "stage_b.json"),
                 "--disable-long-job-guard",
             ])
             captured = {}
 
             def fake_run(run_args):
                 captured["preflight"] = getattr(run_args, "_daily_refresh_cli_lock_preflight", {})
+                captured["paths"] = [
+                    run_args.status_out,
+                    run_args.report_out,
+                    run_args.lock_path,
+                    run_args.long_job_state,
+                    run_args.long_job_lock,
+                    run_args.stage_a_manifest,
+                    run_args.stage_b_manifest,
+                ]
                 return {"status": "ok"}, Path(run_args.status_out), Path(run_args.report_out)
 
             with (
                 patch("weather.operations.daily_refresh_cli.acquire_lock", return_value={"pid": 123}),
                 patch("weather.operations.daily_refresh_cli.release_lock"),
                 patch("weather.operations.daily_refresh_cli.run_daily_refresh", side_effect=fake_run),
+                patch(
+                    "weather.operations.daily_refresh_cli.trigger_evidence_stage_after_lock",
+                    return_value={"status": "SKIPPED", "reason": "test_isolation"},
+                ),
             ):
                 code = args.func(args)
 
         self.assertEqual(code, 0)
         self.assertIn("daily_refresh_lock_after_acquire", captured["preflight"])
+        self.assertTrue(
+            all(Path(path).resolve().is_relative_to(root.resolve()) for path in captured["paths"])
+        )
 
     def test_default_runner_order_repairs_replay_status_before_data_layer_audit(self):
         names = [name for name, _runner in DEFAULT_RUNNERS]
@@ -2304,6 +2415,9 @@ class TestDailyRefresh(unittest.TestCase):
         def after(_args):
             raise AssertionError("daily refresh should stop at disk preflight")
 
+        def promotion_for_test(step_args):
+            return run_promotion_refresh_step(step_args)
+
         with tempfile.TemporaryDirectory() as tmp, \
                 patch("weather.operations.daily_refresh_reporting_steps.promotion_refresh.run_promotion_refresh") as run_refresh:
             root = Path(tmp)
@@ -2320,13 +2434,14 @@ class TestDailyRefresh(unittest.TestCase):
                     disable_long_job_guard=True,
                     promotion_min_artifact_free_bytes=1000,
                     disk_usage_fn=lambda _path: SimpleNamespace(total=2000, used=1900, free=100),
+                    replay_cache_root=str(backtest / "replay_cache"),
                 ),
                 runners=[
                     (
                         "live_variant_settlement_scorecard",
                         lambda _args: {"status": "PASS"},
                     ),
-                    ("promotion_refresh", run_promotion_refresh_step),
+                    ("promotion_refresh", promotion_for_test),
                     ("daily_learning", after),
                 ],
             )
@@ -3552,7 +3667,7 @@ class TestDailyRefresh(unittest.TestCase):
             "recorded_probability,market_yes,outcome,artifact_hash,"
             "postprocess_config_hash,experiment_start_date\n"
         )
-        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        row = _recent_active_variant_row()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source.csv"
@@ -3562,8 +3677,22 @@ class TestDailyRefresh(unittest.TestCase):
             registry.write_text(json.dumps({
                 "schema_version": "model_variant_registry_v0.1",
                 "variants": [
-                    {"variant_id": "active_v", "lifecycle": "active", "track": "no_market", "active_for_headline": True},
-                    {"variant_id": "missing_v", "lifecycle": "active", "track": "no_market", "active_for_headline": True},
+                    {
+                        "variant_id": "active_v",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "active_for_headline": True,
+                        "live_capture_enabled": False,
+                        "counts_toward_weather_model_promotion": True,
+                    },
+                    {
+                        "variant_id": "missing_v",
+                        "lifecycle": "active",
+                        "track": "no_market",
+                        "active_for_headline": True,
+                        "live_capture_enabled": False,
+                        "counts_toward_weather_model_promotion": True,
+                    },
                 ],
             }), encoding="utf-8")
             args = _args(
@@ -3593,6 +3722,14 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(report_exists)
         self.assertIn("Claim Lane Separation", report_text)
         self.assertIn("weather_only_core_model", report_text)
+
+    def test_recent_active_variant_row_uses_last_completed_toronto_market_date(self):
+        row = _recent_active_variant_row(
+            datetime(2026, 7, 13, 2, 0, tzinfo=timezone.utc)
+        ).strip().split(",")
+
+        self.assertEqual(row[5], "2026-07-11")
+        self.assertEqual(row[-1], "2026-07-11")
 
     def test_proper_scoring_reliability_scorecard_step_writes_model_review_artifacts(self):
         rows = [
@@ -3679,6 +3816,8 @@ class TestDailyRefresh(unittest.TestCase):
                         "lifecycle": "active",
                         "track": "no_market",
                         "active_for_headline": True,
+                        "live_capture_enabled": True,
+                        "counts_toward_weather_model_promotion": True,
                         "artifact_required": False,
                         "prediction_function": "weather.tests:predict",
                         "prediction_mode": "demo_mode",
@@ -3709,7 +3848,7 @@ class TestDailyRefresh(unittest.TestCase):
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(
                 header
-                + "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n",
+                + _recent_active_variant_row(),
                 encoding="utf-8",
             )
             return {
@@ -3738,6 +3877,8 @@ class TestDailyRefresh(unittest.TestCase):
                         "track": "no_market",
                         "roles": ["candidate", "no-market"],
                         "active_for_headline": True,
+                        "live_capture_enabled": True,
+                        "counts_toward_weather_model_promotion": True,
                         "artifact_required": False,
                         "prediction_function": "weather.calibration.pooled_candidate_replay:run_pooled_candidate_replay",
                         "prediction_mode": "band_binary",
@@ -3841,7 +3982,7 @@ class TestDailyRefresh(unittest.TestCase):
             "recorded_probability,market_yes,outcome,artifact_hash,"
             "postprocess_config_hash,experiment_start_date\n"
         )
-        row = "active_v,f_family,False,False,nyc,2026-06-11,s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,2026-06-18\n"
+        row = _recent_active_variant_row()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source.csv"
@@ -3858,6 +3999,8 @@ class TestDailyRefresh(unittest.TestCase):
                         "track": "no_market",
                         "roles": ["candidate", "no-market"],
                         "active_for_headline": True,
+                        "live_capture_enabled": True,
+                        "counts_toward_weather_model_promotion": True,
                         "artifact_required": False,
                         "prediction_function": "weather.tests:predict",
                         "prediction_mode": "demo",
@@ -3904,6 +4047,8 @@ class TestDailyRefresh(unittest.TestCase):
                         "track": "no_market",
                         "roles": ["candidate", "no-market"],
                         "active_for_headline": True,
+                        "live_capture_enabled": True,
+                        "counts_toward_weather_model_promotion": True,
                         "artifact_required": False,
                         "prediction_function": "weather.tests:predict",
                         "prediction_mode": "demo",
@@ -4169,6 +4314,8 @@ class TestDailyRefresh(unittest.TestCase):
                                 "track": "no_market",
                                 "roles": ["candidate"],
                                 "active_for_headline": True,
+                                "live_capture_enabled": True,
+                                "counts_toward_weather_model_promotion": True,
                             }
                         ]
                     }

@@ -17,6 +17,14 @@ class FanoutFetchResult:
     cycle_key: str
     fetched: bool
     reused: bool
+    coordination_status: str = "same_process"
+    waited_seconds: float = 0.0
+    wait_timed_out: bool = False
+    prepublished_payload_hash: str | None = None
+    prepublished_payload_bytes: int | None = None
+    prepublished_payload_ref: str | None = None
+    prepublished_blob_created: bool = False
+    prepublished_blob_reused: bool = False
 
 
 class MarketInvariantFetchFanout:
