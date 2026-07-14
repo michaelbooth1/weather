@@ -577,6 +577,7 @@ ALLOWED_PACKAGE_EDGES = {
     ("model", "market"),
     ("model", "sources"),
     ("operations", "backtesting"),
+    ("operations", "calibration"),
     ("operations", "collection"),
     ("operations", "market"),
     ("operations", "model"),

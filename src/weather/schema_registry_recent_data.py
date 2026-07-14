@@ -30,6 +30,22 @@ RECENT_REGISTERED_SCHEMAS = (
         "Inventory-only legacy NBM migration/replay and partial snapshot-manifest shared-reference verification with deletion disabled.",
     ),
     SchemaSpec(
+        "forecast_payload_cas_migration_dry_run",
+        "forecast_payload_cas_migration_dry_run_v0.2",
+        "weather.operations.forecast_payload_cas_migration",
+        "active",
+        "Bounded, resumable inventory-only legacy NBM migration scan with month selection, streaming totals, explicit scan bounds, and deletion disabled.",
+        supersedes=("forecast_payload_cas_migration_dry_run_v0.1",),
+        migration_notes="v0.2 adds month selection, per-bound partial results, and physical-blob dedup counting; v0.1 reports remain readable.",
+    ),
+    SchemaSpec(
+        "forecast_payload_cross_process_fanout_receipt",
+        "forecast_payload_cross_process_fanout_receipt_v0.1",
+        "weather.collection.forecast_payload_fetch_fanout",
+        "active",
+        "Cross-process single-fetch claim/receipt under the shared CAS: one isolated child fetches the NBM payload, followers verify receipt identity and CAS hash/size with bounded wait and fail-open.",
+    ),
+    SchemaSpec(
         "forecast_payload_storage_observability",
         "forecast_payload_storage_observability_v0.1",
         "weather.collection.forecast_payload_cas",

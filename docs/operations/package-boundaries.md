@@ -45,7 +45,10 @@ module that needed them.
   and audit rendering.
 - `weather.operations` owns orchestration entrypoints, scheduled jobs,
   supervisors, long-job guards, and architecture/ownership audits that are
-  operational rather than domain-specific.
+  operational rather than domain-specific. `operations -> calibration` is a
+  stable allowed edge (2026-07-14): production-mode nightly retrain and
+  release-candidate verification invoke calibration training entrypoints
+  directly by design.
 
 ## Transitional Edges
 

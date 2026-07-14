@@ -193,7 +193,7 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("forecast_payload_cas_migration_dry_run"),
-            "forecast_payload_cas_migration_dry_run_v0.1",
+            "forecast_payload_cas_migration_dry_run_v0.2",
         )
         self.assertEqual(
             schema_version("forecast_payload_storage_observability"),
