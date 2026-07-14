@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.market.taker_bot_bakeoff import *  # noqa: F403
+from weather.market.worker_release_binding import worker_tape_columns_from_rows
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
 # The extracted functions below intentionally resolve globals from the
@@ -12,6 +13,14 @@ from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_cap
 DEFAULT_FINALIZATION_SLA_HOURS = 4.0
 DEFAULT_FINALIZATION_RETENTION_DAYS = 14
 DEFAULT_RETENTION_CANDIDATE_MIN_BYTES = 100_000_000
+
+
+def write_settled_worker_tape(path, base_columns, rows):
+    """Write a settled projection without dropping verified worker lineage."""
+
+    rows = rows if isinstance(rows, list) else list(rows)
+    columns = worker_tape_columns_from_rows(base_columns, rows)
+    return write_csv_rows(path, columns, rows)
 
 
 def _exchange_fields_from_run_config(run_config):
@@ -1722,7 +1731,11 @@ def finalize_counterfactual_tape(
             "recommended_compaction": "archive or compact settled counterfactual CSV after summary artifacts are verified",
         },
     }
-    write_csv_rows(settled_counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, scored_rows)
+    write_settled_worker_tape(
+        settled_counterfactual_path,
+        COUNTERFACTUAL_ORDER_COLUMNS,
+        scored_rows,
+    )
     write_json(settled_pnl_path, payload)
     write_json(settled_strategy_summary_path, strategy_summary)
     settled_report_path.write_text(render_counterfactual_settlement_report(payload), encoding="utf-8")
@@ -1921,7 +1934,7 @@ def finalize_taker_run(
         "disk_capacity_preflight": disk_preflight,
         "warnings": reconciliation.get("warnings") or [],
     }
-    write_csv_rows(settled_orders_path, ORDER_COLUMNS, scored_orders)
+    write_settled_worker_tape(settled_orders_path, ORDER_COLUMNS, scored_orders)
     write_json(settled_pnl_path, payload)
     write_json(settled_strategy_summary_path, strategy_summary)
     settled_report_path.write_text(render_settlement_report(payload), encoding="utf-8")
