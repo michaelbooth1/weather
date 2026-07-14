@@ -751,6 +751,41 @@ def _validate_result_body(payload: Mapping[str, Any], manifest: Mapping[str, Any
         if payload.get("returncode") not in (None, 0):
             raise ExperimentContractError("superseded result returncode must be null or zero")
         return
+    if not isinstance(payload.get("returncode"), int) or isinstance(
+        payload.get("returncode"), bool
+    ):
+        raise ExperimentContractError("returncode must be an integer")
+
+    # A contained child can be killed before it has any trustworthy scientific
+    # measurements (timeout, memory ceiling, containment failure, or invalid
+    # output).  Recording invented zero-valued metrics would turn an
+    # operational failure into a scientific claim.  Permit exactly one honest
+    # terminal shape for that case: inconclusive, no samples/metrics/artifacts,
+    # and an actionable failure record.  Measured inconclusive attempts still
+    # flow through the normal metric and budget validation below.
+    unmeasured_attempt = (
+        metrics in ({}, None)
+        and artifacts in ([], None)
+        and sample_count == 0
+    )
+    if disposition == "inconclusive" and unmeasured_attempt:
+        failure = payload.get("failure")
+        if not isinstance(failure, Mapping):
+            raise ExperimentContractError(
+                "unmeasured inconclusive results require a failure record"
+            )
+        _required_text(failure.get("code"), "failure.code")
+        _required_text(failure.get("detail"), "failure.detail")
+        child_succeeded = failure.get("child_succeeded")
+        if not isinstance(child_succeeded, bool):
+            raise ExperimentContractError(
+                "unmeasured failure.child_succeeded must be boolean"
+            )
+        if child_succeeded != (payload.get("returncode") == 0):
+            raise ExperimentContractError(
+                "unmeasured failure.child_succeeded contradicts returncode"
+            )
+        return
     if not isinstance(metrics, Mapping):
         raise ExperimentContractError("metrics are required for a completed attempt")
     primary = metrics.get("primary")
@@ -779,8 +814,6 @@ def _validate_result_body(payload: Mapping[str, Any], manifest: Mapping[str, Any
     primary_pass = _compare(primary_value, decision["operator"], float(decision["threshold"]))
     enough_sample = sample_count >= minimum
 
-    if not isinstance(payload.get("returncode"), int) or isinstance(payload.get("returncode"), bool):
-        raise ExperimentContractError("returncode must be an integer")
     successful_attempt = payload.get("returncode") == 0 and enough_sample and not over_budget
     expected_disposition = (
         "inconclusive"
