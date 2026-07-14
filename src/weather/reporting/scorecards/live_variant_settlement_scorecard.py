@@ -90,6 +90,20 @@ PARITY_IDENTITY_FIELDS = (
     "artifact_hash",
     "postprocess_config_hash",
 )
+PARITY_EXACT_FIDELITY_OMIT_FIELDS = frozenset(
+    {
+        # Provenance added while loading the evidence file is not row data.
+        "_source_path",
+        "_row_number",
+        # The two authenticated rows intentionally name opposite sides.
+        "parity_side",
+        # Candidate probability has its own explicit numeric tolerance below.
+        "probability",
+        "served_probability",
+        "replay_probability",
+        "variant_probability",
+    }
+)
 
 
 def utc_iso() -> str:
@@ -1779,12 +1793,148 @@ def operational_status_payload(
     }
 
 
+def authenticated_parity_envelope_rows(
+    payload: Mapping[str, Any],
+    *,
+    source: str | Path = "<in-memory parity envelope>",
+) -> list[dict[str, Any]]:
+    """Validate one self-hashed parity envelope and expose authenticated rows.
+
+    The evidence generator uses this same path before committing either stable
+    file, so its success result cannot be weaker than the persisted comparator.
+    """
+
+    label = str(source)
+    if payload.get("artifact_type") != "captured_input_parity_evidence_rows":
+        raise ValueError(f"not a captured-input parity evidence envelope: {label}")
+    expected = finalize_self_hash(payload, hash_field="evidence_sha256")
+    if payload.get("evidence_sha256") != expected.get("evidence_sha256"):
+        raise ValueError(f"captured-input parity envelope self-hash is invalid: {label}")
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError(f"captured-input parity envelope rows are invalid: {label}")
+    generated_at_utc = str(payload.get("generated_at_utc") or "").strip()
+    try:
+        generated_at = datetime.fromisoformat(generated_at_utc.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"captured-input parity envelope generated_at_utc is invalid: {label}"
+        ) from exc
+    if generated_at.tzinfo is None:
+        raise ValueError(
+            f"captured-input parity envelope generated_at_utc is timezone-naive: {label}"
+        )
+    generated_at_utc = generated_at.astimezone(timezone.utc).isoformat()
+    coverage_contract = payload.get("coverage_contract")
+    if not isinstance(coverage_contract, Mapping) or coverage_contract.get(
+        "coverage_contract_sha256"
+    ) != finalize_self_hash(
+        coverage_contract,
+        hash_field="coverage_contract_sha256",
+    ).get("coverage_contract_sha256"):
+        raise ValueError(
+            f"captured-input parity envelope coverage contract is invalid: {label}"
+        )
+    encoded = json.dumps(
+        {"rows": rows},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    row_set_sha256 = hashlib.sha256(encoded).hexdigest()
+    pair_payload = {
+        "release_id": payload.get("release_id"),
+        "release_manifest_sha256": payload.get("release_manifest_sha256"),
+        "serving_bundle_fingerprint_sha256": payload.get(
+            "serving_bundle_fingerprint_sha256"
+        ),
+        "market_id": payload.get("market_id"),
+        "target_date": payload.get("target_date"),
+        "served_row_set_sha256": (
+            row_set_sha256
+            if payload.get("side") == "served"
+            else payload.get("peer_row_set_sha256")
+        ),
+        "replay_row_set_sha256": (
+            row_set_sha256
+            if payload.get("side") == "replay"
+            else payload.get("peer_row_set_sha256")
+        ),
+    }
+    pair_sha256 = hashlib.sha256(
+        json.dumps(
+            pair_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    side = str(payload.get("side") or "")
+    if (
+        side not in {"served", "replay"}
+        or payload.get("row_count") != len(rows)
+        or payload.get("row_set_sha256") != row_set_sha256
+        or payload.get("pair_sha256") != pair_sha256
+        or any(str(row.get("parity_side") or "") != side for row in rows)
+        or any(
+            str(row.get("release_id") or "") != str(payload.get("release_id") or "")
+            for row in rows
+        )
+        or any(
+            str(row.get("release_manifest_sha256") or "")
+            != str(payload.get("release_manifest_sha256") or "")
+            for row in rows
+        )
+        or any(
+            str(row.get("market_id") or "")
+            != str(payload.get("market_id") or "")
+            or str(row.get("target_date") or "")
+            != str(payload.get("target_date") or "")
+            or str(row.get("variant_id") or "")
+            != str(payload.get("candidate_id") or "")
+            or str(row.get("release_pointer_sha256") or "")
+            != str(payload.get("release_pointer_sha256") or "")
+            or row.get("release_sequence") != payload.get("release_sequence")
+            or str(row.get("serving_bundle_fingerprint_sha256") or "")
+            != str(payload.get("serving_bundle_fingerprint_sha256") or "")
+            for row in rows
+        )
+        or any(
+            row.get("parity_coverage_contract") != payload.get("coverage_contract")
+            for row in rows
+        )
+    ):
+        raise ValueError(
+            f"captured-input parity envelope metadata does not match its rows: {label}"
+        )
+    envelope_fields = {
+        "_parity_envelope_side": side,
+        "_parity_envelope_pair_sha256": str(payload.get("pair_sha256") or ""),
+        "_parity_envelope_row_set_sha256": row_set_sha256,
+        "_parity_envelope_peer_row_set_sha256": str(
+            payload.get("peer_row_set_sha256") or ""
+        ),
+        "_parity_envelope_evidence_sha256": str(
+            payload.get("evidence_sha256") or ""
+        ),
+        "_parity_envelope_coverage_contract_sha256": str(
+            coverage_contract.get("coverage_contract_sha256") or ""
+        ),
+        "_parity_envelope_generated_at_utc": generated_at_utc,
+    }
+    return [dict(row, **envelope_fields) for row in rows]
+
+
 def _read_json_rows(path: Path) -> list[dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(payload, list):
         return [dict(row) for row in payload if isinstance(row, dict)]
     if not isinstance(payload, dict):
         return []
+    if payload.get("artifact_type") == "captured_input_parity_evidence_rows":
+        return authenticated_parity_envelope_rows(payload, source=path)
     for field in ("rows", "predictions", "partitions", "records"):
         values = payload.get(field)
         if isinstance(values, list):
@@ -1979,6 +2129,31 @@ def _parity_probability(row: Mapping[str, Any], side: str) -> float | None:
     return _finite_probability(value)
 
 
+def _authenticated_parity_fidelity_row(
+    raw: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return exact comparable row data only for verified evidence envelopes."""
+
+    if not raw.get("_parity_envelope_evidence_sha256"):
+        return None
+    return {
+        str(field): value
+        for field, value in raw.items()
+        if field not in PARITY_EXACT_FIDELITY_OMIT_FIELDS
+        and not str(field).startswith("_parity_envelope_")
+    }
+
+
+def _exact_fidelity_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
 def _normalize_parity_row(raw: Mapping[str, Any], side: str) -> dict[str, Any]:
     normalized = normalize_score_row(raw, source_path=str(raw.get("_source_path") or ""))
     normalized["probability"] = _parity_probability(raw, side)
@@ -1997,7 +2172,46 @@ def _normalize_parity_row(raw: Mapping[str, Any], side: str) -> dict[str, Any]:
     normalized["parity_branch_scenario"] = str(
         _first(raw, "parity_branch_scenario", "branch_scenario") or ""
     ).strip()
+    normalized["embedded_coverage_contract"] = _embedded_coverage_contract(raw)
+    fidelity_row = _authenticated_parity_fidelity_row(raw)
+    normalized["authenticated_fidelity_row"] = fidelity_row
+    normalized["authenticated_fidelity_sha256"] = (
+        hashlib.sha256(_exact_fidelity_json(fidelity_row).encode("utf-8")).hexdigest()
+        if fidelity_row is not None
+        else ""
+    )
+    for field in (
+        "_parity_envelope_side",
+        "_parity_envelope_pair_sha256",
+        "_parity_envelope_row_set_sha256",
+        "_parity_envelope_peer_row_set_sha256",
+        "_parity_envelope_evidence_sha256",
+        "_parity_envelope_coverage_contract_sha256",
+        "_parity_envelope_generated_at_utc",
+    ):
+        normalized[field] = str(raw.get(field) or "")
     return normalized
+
+
+def _embedded_coverage_contract(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    value = raw.get("parity_coverage_contract")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(value, Mapping):
+        return None
+    contract = dict(value)
+    expected = finalize_self_hash(
+        contract,
+        hash_field="coverage_contract_sha256",
+    )
+    if contract.get("coverage_contract_sha256") != expected.get(
+        "coverage_contract_sha256"
+    ):
+        return None
+    return contract
 
 
 def _parity_row_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -2008,34 +2222,108 @@ def _parity_coverage_contract(
     rows: Sequence[Mapping[str, Any]],
     declared: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Require the exact predeclared candidate/market/branch cross product."""
+    """Require the exact declared candidate/market/branch coverage.
 
-    contract = dict(declared or {})
-    candidate_id = str(contract.get("candidate_id") or "").strip()
-    expected_markets = sorted({
-        str(value).strip()
-        for value in contract.get("expected_market_ids") or []
-        if str(value).strip()
-    })
-    expected_branches = sorted({
-        str(value).strip()
-        for value in contract.get("expected_branch_scenarios") or []
-        if str(value).strip()
-    })
-    raw_band_counts = contract.get("expected_band_count_by_market")
-    expected_band_counts = {
-        str(market_id): int(count)
-        for market_id, count in (raw_band_counts or {}).items()
-        if str(market_id) and int(count) > 0
-    } if isinstance(raw_band_counts, Mapping) else {}
-    expected_pairs = {
-        (market_id, branch)
-        for market_id in expected_markets
-        for branch in expected_branches
-    }
+    Explicit callers retain the historical one-contract cross-product shape.
+    File-based captured-input evidence may contain one independently self-hashed
+    contract per market, so compatible contracts are merged without weakening
+    the expected candidate, branch, or band count for any market.
+    """
+
+    embedded = [row.get("embedded_coverage_contract") for row in rows]
+    embedded_complete = bool(rows) and all(
+        isinstance(contract, Mapping) for contract in embedded
+    )
+    unique_embedded: list[dict[str, Any]] = []
+    seen_embedded: set[str] = set()
+    if embedded_complete:
+        for value in embedded:
+            contract = dict(value or {})
+            encoded = json.dumps(
+                contract,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            if encoded not in seen_embedded:
+                seen_embedded.add(encoded)
+                unique_embedded.append(contract)
+    if declared is not None:
+        contracts = [dict(declared)]
+        contract_source = "argument"
+    elif embedded_complete:
+        contracts = unique_embedded
+        contract_source = "self_hashed_rows"
+    else:
+        contracts = []
+        contract_source = "missing_or_invalid"
+    embedded_consistent = bool(contracts)
+    expected_candidates_by_market: dict[str, str] = {}
+    expected_band_counts: dict[str, int] = {}
+    expected_pairs: set[tuple[str, str]] = set()
+    expected_branches_set: set[str] = set()
+    for contract in contracts:
+        candidate = str(contract.get("candidate_id") or "").strip()
+        markets = {
+            str(value).strip()
+            for value in contract.get("expected_market_ids") or []
+            if str(value).strip()
+        }
+        branches = {
+            str(value).strip()
+            for value in contract.get("expected_branch_scenarios") or []
+            if str(value).strip()
+        }
+        raw_counts = contract.get("expected_band_count_by_market")
+        counts: dict[str, int] = {}
+        if isinstance(raw_counts, Mapping):
+            try:
+                counts = {
+                    str(market_id).strip(): int(count)
+                    for market_id, count in raw_counts.items()
+                    if str(market_id).strip() and int(count) > 0
+                }
+            except (TypeError, ValueError):
+                counts = {}
+        if (
+            not candidate
+            or not markets
+            or not branches
+            or set(counts) != markets
+        ):
+            embedded_consistent = False
+            continue
+        for market_id in markets:
+            if (
+                market_id in expected_candidates_by_market
+                and expected_candidates_by_market[market_id] != candidate
+            ) or (
+                market_id in expected_band_counts
+                and expected_band_counts[market_id] != counts[market_id]
+            ):
+                embedded_consistent = False
+                continue
+            expected_candidates_by_market[market_id] = candidate
+            expected_band_counts[market_id] = counts[market_id]
+        expected_branches_set.update(branches)
+        expected_pairs.update(
+            (market_id, branch) for market_id in markets for branch in branches
+        )
+    if declared is None and not embedded_consistent:
+        contract_source = "missing_or_invalid"
+    expected_markets = sorted(expected_candidates_by_market)
+    expected_branches = sorted(expected_branches_set)
+    candidate_ids = sorted(set(expected_candidates_by_market.values()))
+    candidate_id = candidate_ids[0] if len(candidate_ids) == 1 else ""
     observed_candidates = sorted({
         str(row.get("variant_id") or "") for row in rows if row.get("variant_id")
     })
+    observed_candidates_by_market: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        market_id = str(row.get("market_id") or "")
+        variant_id = str(row.get("variant_id") or "")
+        if market_id and variant_id:
+            observed_candidates_by_market[market_id].add(variant_id)
     missing_scenario_rows = sum(
         not str(row.get("parity_branch_scenario") or "").strip() for row in rows
     )
@@ -2059,12 +2347,18 @@ def _parity_coverage_contract(
     extra_pairs = sorted(observed_pairs - expected_pairs)
     checks = {
         "predeclared_contract_present": bool(
-            candidate_id
-            and expected_markets
-            and expected_branches
+            embedded_consistent
+            and expected_pairs
+            and expected_candidates_by_market
             and set(expected_band_counts) == set(expected_markets)
         ),
-        "exact_candidate_set": observed_candidates == [candidate_id],
+        "exact_candidate_set": (
+            set(observed_candidates_by_market) == set(expected_candidates_by_market)
+            and all(
+                observed_candidates_by_market.get(market_id) == {expected_candidate}
+                for market_id, expected_candidate in expected_candidates_by_market.items()
+            )
+        ),
         "all_rows_name_branch_scenario": missing_scenario_rows == 0,
         "expected_market_branch_cross_product_complete": not missing_pairs,
         "no_unexpected_market_branch_pairs": not extra_pairs,
@@ -2077,7 +2371,12 @@ def _parity_coverage_contract(
     }
     return {
         "status": "PASS" if checks and all(checks.values()) else "BLOCK",
+        "contract_source": contract_source,
+        "embedded_contract_complete": embedded_complete,
+        "embedded_contract_consistent": embedded_consistent,
+        "embedded_contract_count": len(unique_embedded),
         "candidate_id": candidate_id,
+        "expected_candidate_id_by_market": expected_candidates_by_market,
         "expected_market_ids": expected_markets,
         "expected_branch_scenarios": expected_branches,
         "expected_band_count_by_market": expected_band_counts,
@@ -2130,6 +2429,85 @@ def compare_replay_to_served(
 
     mismatches: list[dict[str, Any]] = []
     identity_rows = [*served, *replay]
+    envelope_present = any(
+        row.get("_parity_envelope_evidence_sha256") for row in identity_rows
+    )
+    if envelope_present:
+        envelope_complete = bool(identity_rows) and all(
+            row.get("_parity_envelope_evidence_sha256")
+            and row.get("_parity_envelope_pair_sha256")
+            and row.get("_parity_envelope_row_set_sha256")
+            and row.get("_parity_envelope_peer_row_set_sha256")
+            and row.get("_parity_envelope_coverage_contract_sha256")
+            and row.get("_parity_envelope_generated_at_utc")
+            for row in identity_rows
+        )
+        def envelope_groups(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, set[str]]]:
+            grouped: dict[str, dict[str, set[str]]] = {}
+            for row in rows:
+                pair = str(row.get("_parity_envelope_pair_sha256") or "")
+                group = grouped.setdefault(
+                    pair,
+                    {
+                        "sides": set(),
+                        "row_sets": set(),
+                        "peer_sets": set(),
+                        "files": set(),
+                        "coverage_contracts": set(),
+                        "generated_at_utc": set(),
+                    },
+                )
+                group["sides"].add(str(row.get("_parity_envelope_side") or ""))
+                group["row_sets"].add(
+                    str(row.get("_parity_envelope_row_set_sha256") or "")
+                )
+                group["peer_sets"].add(
+                    str(row.get("_parity_envelope_peer_row_set_sha256") or "")
+                )
+                group["files"].add(
+                    str(row.get("_parity_envelope_evidence_sha256") or "")
+                )
+                group["coverage_contracts"].add(
+                    str(row.get("_parity_envelope_coverage_contract_sha256") or "")
+                )
+                group["generated_at_utc"].add(
+                    str(row.get("_parity_envelope_generated_at_utc") or "")
+                )
+            return grouped
+
+        served_groups = envelope_groups(served)
+        replay_groups = envelope_groups(replay)
+        exact_pair = envelope_complete and set(served_groups) == set(replay_groups)
+        for pair_sha256 in sorted(set(served_groups) | set(replay_groups)):
+            served_group = served_groups.get(pair_sha256) or {}
+            replay_group = replay_groups.get(pair_sha256) or {}
+            exact_pair = exact_pair and bool(pair_sha256) and (
+                served_group.get("sides") == {"served"}
+                and replay_group.get("sides") == {"replay"}
+                and len(served_group.get("row_sets") or ()) == 1
+                and len(replay_group.get("row_sets") or ()) == 1
+                and len(served_group.get("peer_sets") or ()) == 1
+                and len(replay_group.get("peer_sets") or ()) == 1
+                and len(served_group.get("files") or ()) == 1
+                and len(replay_group.get("files") or ()) == 1
+                and len(served_group.get("coverage_contracts") or ()) == 1
+                and len(replay_group.get("coverage_contracts") or ()) == 1
+                and len(served_group.get("generated_at_utc") or ()) == 1
+                and len(replay_group.get("generated_at_utc") or ()) == 1
+                and served_group.get("coverage_contracts")
+                == replay_group.get("coverage_contracts")
+                and served_group.get("generated_at_utc")
+                == replay_group.get("generated_at_utc")
+                and served_group.get("peer_sets") == replay_group.get("row_sets")
+                and replay_group.get("peer_sets") == served_group.get("row_sets")
+            )
+        if not exact_pair:
+            mismatches.append(
+                _issue(
+                    "parity_envelope_pair_mismatch",
+                    "served and replay self-hashed envelopes are incomplete or do not name matching exact pairs",
+                )
+            )
     release_ids = {
         str(row.get("release_id") or "")
         for row in identity_rows
@@ -2300,6 +2678,28 @@ def compare_replay_to_served(
                             absolute_error=error,
                         )
                     )
+        served_fidelity = served_row.get("authenticated_fidelity_row")
+        replay_fidelity = replay_row.get("authenticated_fidelity_row")
+        if isinstance(served_fidelity, Mapping) and isinstance(
+            replay_fidelity, Mapping
+        ) and served_row.get("authenticated_fidelity_sha256") != replay_row.get(
+            "authenticated_fidelity_sha256"
+        ):
+            differing_fields = sorted(
+                field
+                for field in set(served_fidelity) | set(replay_fidelity)
+                if _exact_fidelity_json(served_fidelity.get(field))
+                != _exact_fidelity_json(replay_fidelity.get(field))
+            )
+            mismatches.append(
+                _issue(
+                    "authenticated_parity_row_fidelity_mismatch",
+                    "served and replay authenticated envelopes differ in exact row metadata",
+                    key=list(key),
+                    differing_fields=differing_fields[:50],
+                    differing_field_count=len(differing_fields),
+                )
+            )
     if compared_rows == 0:
         mismatches.insert(0, _issue("no_comparable_rows", "served and replay inputs contain no one-to-one comparable rows"))
     coverage = _parity_coverage_contract(identity_rows, coverage_contract)
@@ -2365,6 +2765,91 @@ def _parity_paths(values: str | Path | Sequence[str | Path] | None) -> list[Path
     if isinstance(values, (str, Path)):
         return [Path(values)]
     return [Path(value) for value in values if str(value or "").strip()]
+
+
+def _authenticated_parity_freshness_issues(
+    side: str,
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    current: datetime,
+    max_input_age_hours: float,
+    path: Path,
+    source_record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Apply self-hashed generation-time freshness to authenticated envelopes."""
+
+    authenticated = [
+        row for row in rows if row.get("_parity_envelope_evidence_sha256")
+    ]
+    if not authenticated:
+        # Plain CSV/JSON/JSONL inputs retain their legacy mtime-only contract.
+        return []
+    generated_values = {
+        str(row.get("_parity_envelope_generated_at_utc") or "").strip()
+        for row in authenticated
+    }
+    if len(authenticated) != len(rows) or len(generated_values) != 1 or "" in generated_values:
+        return [
+            _issue(
+                f"{side}_parity_authenticated_generated_at_invalid",
+                f"{side} authenticated parity rows do not name one complete generation timestamp",
+                path=str(path),
+            )
+        ]
+    generated_text = next(iter(generated_values))
+    try:
+        generated = datetime.fromisoformat(
+            generated_text.replace("Z", "+00:00")
+        )
+    except ValueError:
+        return [
+            _issue(
+                f"{side}_parity_authenticated_generated_at_invalid",
+                f"{side} authenticated parity generation timestamp is invalid",
+                path=str(path),
+                generated_at_utc=generated_text,
+            )
+        ]
+    if generated.tzinfo is None:
+        return [
+            _issue(
+                f"{side}_parity_authenticated_generated_at_invalid",
+                f"{side} authenticated parity generation timestamp is timezone-naive",
+                path=str(path),
+                generated_at_utc=generated_text,
+            )
+        ]
+    generated = generated.astimezone(timezone.utc)
+    age_hours = (current - generated).total_seconds() / 3600.0
+    source_record.update(
+        {
+            "authenticated_generated_at_utc": generated.isoformat(),
+            "authenticated_age_hours": age_hours,
+        }
+    )
+    if age_hours < -(5.0 / 60.0):
+        return [
+            _issue(
+                f"{side}_parity_authenticated_generated_at_from_future",
+                f"{side} authenticated parity generation timestamp is in the future",
+                path=str(path),
+                generated_at_utc=generated.isoformat(),
+                age_hours=age_hours,
+            )
+        ]
+    if age_hours > max_input_age_hours:
+        return [
+            _issue(
+                f"{side}_parity_authenticated_generated_at_stale",
+                f"{side} authenticated parity generation exceeds the freshness window",
+                path=str(path),
+                generated_at_utc=generated.isoformat(),
+                age_hours=age_hours,
+                max_age_hours=float(max_input_age_hours),
+                next_action="regenerate parity rows from current captured inputs",
+            )
+        ]
+    return []
 
 
 def _append_parity_issues(
@@ -2462,6 +2947,7 @@ def build_captured_input_replay_parity(
                 )
                 continue
             try:
+                issue_count_before_path = len(issues)
                 stat = path.stat()
                 modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
                 age_hours = (current - modified).total_seconds() / 3600.0
@@ -2493,9 +2979,21 @@ def build_captured_input_replay_parity(
                         )
                     )
                 rows = read_rows(path)
+                issues.extend(
+                    _authenticated_parity_freshness_issues(
+                        side,
+                        rows,
+                        current=current,
+                        max_input_age_hours=float(max_input_age_hours),
+                        path=path,
+                        source_record=record,
+                    )
+                )
                 source_rows[side].extend(rows)
                 record["row_count"] = len(rows)
-                record["status"] = "PASS"
+                record["status"] = (
+                    "PASS" if len(issues) == issue_count_before_path else "BLOCK"
+                )
             except (OSError, UnicodeDecodeError, ValueError, csv.Error, json.JSONDecodeError) as exc:
                 issues.append(
                     _issue(

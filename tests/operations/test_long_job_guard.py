@@ -282,6 +282,55 @@ class TestLongJobGuard(unittest.TestCase):
         else:
             self.assertEqual(result["working_set_limit"]["reason"], "non_windows")
 
+    def test_isolated_subprocess_retains_only_bounded_child_output(self):
+        result = run_isolated_subprocess(
+            [
+                sys.executable,
+                "-c",
+                "import sys;sys.stdout.write('x'*200000);sys.stdout.flush()",
+            ],
+            timeout_seconds=60,
+            working_set_max_bytes=64 * 1024 * 1024,
+            output_tail_chars=1024,
+            output_max_bytes=4096,
+        )
+
+        self.assertEqual(
+            result["resource_limit_exceeded"]["resource"],
+            "child_output_bytes",
+        )
+        self.assertLessEqual(len(result["stdout"].encode("utf-8")), 1024)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object lifetime accounting")
+    def test_fast_child_accepts_lifetime_io_accounting_without_live_sample(self):
+        unavailable_sample = {
+            "available": False,
+            "process_count": 0,
+            "working_set_bytes": 0,
+            "private_bytes": 0,
+            "io_accounting_available": True,
+            "read_bytes": 0,
+            "write_bytes": 0,
+        }
+        with patch(
+            "weather.operations.long_job_guard._contained_process_memory_metrics",
+            return_value=unavailable_sample,
+        ):
+            result = run_isolated_subprocess(
+                [sys.executable, "-c", "pass"],
+                timeout_seconds=60,
+                io_read_max_bytes=512 * 1024 * 1024,
+                io_write_max_bytes=512 * 1024 * 1024,
+            )
+
+        self.assertIsNone(result["runner_error"], result)
+        self.assertIsNone(result["resource_limit_exceeded"], result)
+        self.assertEqual(
+            result["resource_io"]["source"],
+            "windows_job_object_lifetime",
+        )
+        self.assertTrue(result["resource_io"]["enforcement_verified"])
+
     def test_timeout_kills_launcher_descendants_without_touching_unrelated_process(self):
         base_python = getattr(sys, "_base_executable", sys.executable)
         sentinel = subprocess.Popen([base_python, "-c", "import time; time.sleep(60)"])

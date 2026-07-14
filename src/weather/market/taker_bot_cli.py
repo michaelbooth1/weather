@@ -13,6 +13,22 @@ from weather.market.taker_evidence_starvation import (
     classify_taker_evidence_starvation,
 )
 from weather.operations import event_metadata_validation
+from weather.paths import REPO_ROOT
+from weather.release_artifacts import (
+    DEFAULT_ACTIVE_RELEASE_POINTER,
+    DEFAULT_RELEASES_ROOT,
+)
+from weather.market.worker_release_binding import (
+    WorkerReleaseBindingError,
+    load_worker_release_binding,
+    stamp_worker_release_lineage,
+    verify_worker_snapshot_binding,
+    worker_release_summary_fields,
+    worker_tape_columns,
+    worker_tape_summary_fields,
+    verify_worker_csv_tape_for_append,
+    verify_worker_tape_lineage,
+)
 from weather.runtime_identity import get_runtime_identity
 from weather.market.taker_bot_incremental import (
     BENCHMARK_REFRESH_GROUP_LIMIT,
@@ -126,6 +142,7 @@ def discover_inputs(
     now=None,
     observation_status=None,
     event_metadata_state=None,
+    release_binding=None,
 ):
     now = utc_now(now)
     config = {**DEFAULT_CONFIG, **(config or {})}
@@ -135,6 +152,17 @@ def discover_inputs(
         market_config = config_for_date(target_date, spec.id)
         folder = Path(snapshots_root) / market_config.event_slug
         snapshot_rows = load_latest_snapshot_rows(folder)
+        if release_binding is not None:
+            # Authenticate the immutable snapshot projection before CLOB/book
+            # enrichment overwrites fields such as captured_at_utc with the
+            # supporting evidence timestamp.
+            verify_worker_snapshot_binding(
+                folder,
+                snapshot_rows,
+                release_binding,
+                market_id=spec.id,
+                target_date=target_date,
+            )
         current_high_assessment = current_high_probability_summary(
             snapshot_rows,
             normalized_high_for_market(observation_status, spec.id),
@@ -562,6 +590,8 @@ def _complete_pending_incremental_tick(
     counterfactual_path,
     budget_ledger_path,
     counterfactual_ledger_path,
+    order_columns,
+    counterfactual_columns,
 ):
     order_rows = list(pending.get("order_rows") or [])
     benchmark_groups = list(pending.get("order_benchmark_groups") or [])
@@ -574,7 +604,7 @@ def _complete_pending_incremental_tick(
         store.append_rows(
             "orders",
             order_path,
-            ORDER_COLUMNS,
+            order_columns,
             missing_orders,
             benchmark_groups=benchmark_groups,
         )
@@ -591,7 +621,7 @@ def _complete_pending_incremental_tick(
         store.append_rows(
             "counterfactual",
             counterfactual_path,
-            COUNTERFACTUAL_ORDER_COLUMNS,
+            counterfactual_columns,
             missing_counterfactual,
         )
     if any(
@@ -807,11 +837,31 @@ def build_run_once(
     exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    active_release_pointer_path=None,
+    releases_root=DEFAULT_RELEASES_ROOT,
+    release_repo_root=REPO_ROOT,
+    release_check_runtime=True,
 ):
     tick_started = time.perf_counter()
     resource_start = process_resource_sample()
     now = utc_now(now)
     target = ensure_date(target_date)
+    release_binding = load_worker_release_binding(
+        pointer_path=active_release_pointer_path or DEFAULT_ACTIVE_RELEASE_POINTER,
+        releases_root=releases_root,
+        repo_root=release_repo_root,
+        check_runtime=release_check_runtime,
+        enabled=(
+            active_release_pointer_path is not None
+            or _uses_default_snapshot_root(snapshots_root)
+        ),
+    )
+    release_summary_fields = worker_release_summary_fields(release_binding)
+    order_columns = worker_tape_columns(ORDER_COLUMNS, release_binding)
+    counterfactual_columns = worker_tape_columns(
+        COUNTERFACTUAL_ORDER_COLUMNS,
+        release_binding,
+    )
     config = enrich_config_with_performance_gates({**DEFAULT_CONFIG, **(config or {})}, target)
     exchange_gate, exchange_fields = _exchange_economics_gate_for_run(
         exchange_economics_snapshot_path,
@@ -844,11 +894,23 @@ def build_run_once(
     budget_ledger_path = run_folder / "budget_ledger.jsonl"
     counterfactual_ledger_path = run_folder / "counterfactual_budget_ledger.jsonl"
     counterfactual_enabled = bool_value(config.get("counterfactual_tape_enabled"), True)
+    verify_worker_csv_tape_for_append(
+        order_path,
+        order_columns,
+        release_binding,
+        label="taker order tape",
+    )
+    verify_worker_csv_tape_for_append(
+        counterfactual_path,
+        counterfactual_columns,
+        release_binding,
+        label="taker counterfactual tape",
+    )
     incremental_store = IncrementalTakerStore(run_folder) if append else None
     counterfactual_prepared = False
     pending_recovery = {}
     if incremental_store is not None:
-        incremental_store.prepare_tape("orders", order_path, ORDER_COLUMNS)
+        incremental_store.prepare_tape("orders", order_path, order_columns)
         pending = incremental_store.pending_tick()
         if (
             counterfactual_enabled
@@ -858,10 +920,20 @@ def build_run_once(
             incremental_store.prepare_tape(
                 "counterfactual",
                 counterfactual_path,
-                COUNTERFACTUAL_ORDER_COLUMNS,
+                counterfactual_columns,
             )
             counterfactual_prepared = True
         if pending:
+            verify_worker_tape_lineage(
+                pending.get("order_rows") or [],
+                release_binding,
+                label="pending taker order tape rows",
+            )
+            verify_worker_tape_lineage(
+                pending.get("counterfactual_rows") or [],
+                release_binding,
+                label="pending taker counterfactual tape rows",
+            )
             pending_recovery = _complete_pending_incremental_tick(
                 incremental_store,
                 pending,
@@ -869,8 +941,21 @@ def build_run_once(
                 counterfactual_path=counterfactual_path,
                 budget_ledger_path=budget_ledger_path,
                 counterfactual_ledger_path=counterfactual_ledger_path,
+                order_columns=order_columns,
+                counterfactual_columns=counterfactual_columns,
             )
         existing_rows = incremental_store.filled_rows("orders")
+        verify_worker_tape_lineage(
+            existing_rows,
+            release_binding,
+            label="existing taker order tape",
+        )
+        if counterfactual_prepared:
+            verify_worker_tape_lineage(
+                incremental_store.filled_rows("counterfactual"),
+                release_binding,
+                label="existing taker counterfactual tape",
+            )
     else:
         existing_rows = []
     if (
@@ -881,15 +966,21 @@ def build_run_once(
     else:
         observation_status = load_observation_status(observation_status_path, now=now, config=config)
     event_state = _event_metadata_state(event_metadata_validation_path, target, snapshots_root)
-    input_rows, market_summaries = discover_inputs(
-        target,
-        markets=markets,
-        snapshots_root=snapshots_root,
-        config=config,
-        now=now,
-        observation_status=observation_status,
-        event_metadata_state=event_state,
-    )
+    try:
+        input_rows, market_summaries = discover_inputs(
+            target,
+            markets=markets,
+            snapshots_root=snapshots_root,
+            config=config,
+            now=now,
+            observation_status=observation_status,
+            event_metadata_state=event_state,
+            release_binding=release_binding,
+        )
+    except WorkerReleaseBindingError:
+        if incremental_store is not None:
+            incremental_store.close()
+        raise
     new_rows = []
     budget_ledger = []
     for strategy in strategy_specs:
@@ -922,6 +1013,7 @@ def build_run_once(
         now=now,
     )
     _apply_exchange_economics_fields(new_rows, exchange_fields)
+    stamp_worker_release_lineage(new_rows, release_binding)
     order_benchmark_groups = _benchmark_group_payloads(new_rows, config)
     counterfactual_rows = []
     all_counterfactual_rows = []
@@ -988,6 +1080,7 @@ def build_run_once(
             real_rows=real_attribution_rows,
             strategy_set=",".join(counterfactual_strategy_ids),
         )
+        stamp_worker_release_lineage(counterfactual_rows, release_binding)
 
     if incremental_store is not None:
         incremental_tick_id = uuid.uuid4().hex
@@ -1019,7 +1112,7 @@ def build_run_once(
             incremental_store.append_rows(
                 "orders",
                 order_path,
-                ORDER_COLUMNS,
+                order_columns,
                 new_rows,
                 benchmark_groups=order_benchmark_groups,
             )
@@ -1027,7 +1120,7 @@ def build_run_once(
                 incremental_store.append_rows(
                     "counterfactual",
                     counterfactual_path,
-                    COUNTERFACTUAL_ORDER_COLUMNS,
+                    counterfactual_columns,
                     counterfactual_rows,
                 )
             _append_jsonl_batch_idempotent(budget_ledger_path, budget_ledger)
@@ -1071,11 +1164,11 @@ def build_run_once(
             _apply_exchange_economics_fields(all_counterfactual_rows, exchange_fields)
     else:
         all_rows = new_rows
-        write_csv_rows(order_path, ORDER_COLUMNS, all_rows)
+        write_csv_rows(order_path, order_columns, all_rows)
         tape_integrity = tape_integrity_summary(order_path, len(all_rows), "orders_long")
         if counterfactual_enabled:
             all_counterfactual_rows = counterfactual_rows
-            write_csv_rows(counterfactual_path, COUNTERFACTUAL_ORDER_COLUMNS, all_counterfactual_rows)
+            write_csv_rows(counterfactual_path, counterfactual_columns, all_counterfactual_rows)
             counterfactual_tape_integrity = tape_integrity_summary(
                 counterfactual_path,
                 len(all_counterfactual_rows),
@@ -1105,6 +1198,7 @@ def build_run_once(
         event_metadata_state=event_state,
         exchange_economics_gate=exchange_gate,
     )
+    run_config.update(release_summary_fields)
     if incremental_store is not None:
         benchmark_refresh = _refresh_incremental_benchmark(
             incremental_store,
@@ -1242,6 +1336,7 @@ def build_run_once(
         "run_id": run_id,
         "target_date": target.isoformat(),
         "runtime_identity": runtime_identity,
+        **release_summary_fields,
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
         "active_strategy_id": run_config.get("active_strategy_id"),
@@ -1332,6 +1427,7 @@ def build_run_once(
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
         "runtime_identity": runtime_identity,
+        **release_summary_fields,
         "run_folder": str(run_folder),
         "run_config_path": str(run_folder / "run_config.json"),
         "orders_path": str(order_path),
@@ -1505,6 +1601,10 @@ def recover_run_artifacts_from_orders(
         )
     else:
         counterfactual_rows = []
+    recovered_release_fields = worker_tape_summary_fields(
+        [*all_rows, *counterfactual_rows]
+    )
+    run_config.update(recovered_release_fields)
     counterfactual_no_side_campaign = no_side_campaign_summary(counterfactual_rows)
     edge_permission_coverage = taker_edge_permission_coverage(latest_rows, config)
     run_config["taker_edge_permission_coverage"] = edge_permission_coverage
@@ -1548,6 +1648,7 @@ def recover_run_artifacts_from_orders(
         "run_id": run_id,
         "target_date": target.isoformat(),
         "runtime_identity": runtime_identity,
+        **recovered_release_fields,
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
         "active_strategy_id": run_config.get("active_strategy_id"),
@@ -1637,6 +1738,7 @@ def recover_run_artifacts_from_orders(
         "mode": "paper-taker-multi-arm" if len(strategy_specs) > 1 else "paper-taker",
         "experiment_id": experiment_id,
         "runtime_identity": runtime_identity,
+        **recovered_release_fields,
         "run_folder": str(run_folder),
         "run_config_path": str(run_folder / "run_config.json"),
         "orders_path": str(order_path),

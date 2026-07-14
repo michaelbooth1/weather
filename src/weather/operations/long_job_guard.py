@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,76 @@ DEFAULT_STATE_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard_status.json"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "long_job_guard.lock"
 ACTIVE_ENV_VAR = "WEATHER_LONG_JOB_GUARD_ACTIVE"
 DEFAULT_CHILD_OUTPUT_TAIL_CHARS = 4000
+
+
+class _BoundedPipeCapture:
+    """Drain child pipes without retaining unbounded parent-process output."""
+
+    def __init__(self, stdout, stderr, *, tail_bytes, max_bytes=None):
+        self._lock = threading.Lock()
+        self._tail_bytes = max(0, int(tail_bytes or 0))
+        self._max_bytes = (
+            int(max_bytes) if max_bytes is not None and int(max_bytes) > 0 else None
+        )
+        self._total_bytes = 0
+        self._tails = {"stdout": bytearray(), "stderr": bytearray()}
+        self._errors = []
+        self._threads = []
+        for name, stream in (("stdout", stdout), ("stderr", stderr)):
+            thread = threading.Thread(
+                target=self._drain,
+                args=(name, stream),
+                name=f"long-job-{name}-drain",
+                daemon=True,
+            )
+            self._threads.append(thread)
+            thread.start()
+
+    def _drain(self, name, stream):
+        try:
+            while True:
+                chunk = stream.read(64 * 1024)
+                if not chunk:
+                    break
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8", errors="replace")
+                with self._lock:
+                    self._total_bytes += len(chunk)
+                    if self._tail_bytes:
+                        tail = self._tails[name]
+                        tail.extend(chunk)
+                        overflow = len(tail) - self._tail_bytes
+                        if overflow > 0:
+                            del tail[:overflow]
+        except Exception as exc:  # noqa: BLE001 - report pipe failures fail closed
+            with self._lock:
+                self._errors.append(f"{name}: {type(exc).__name__}: {exc}")
+        finally:
+            with contextlib.suppress(Exception):
+                stream.close()
+
+    def exceeded_limit(self):
+        with self._lock:
+            return bool(
+                self._max_bytes is not None and self._total_bytes > self._max_bytes
+            )
+
+    def total_bytes(self):
+        with self._lock:
+            return int(self._total_bytes)
+
+    def finish(self, *, timeout=5.0):
+        deadline = time.time() + max(0.0, float(timeout))
+        for thread in self._threads:
+            thread.join(max(0.0, deadline - time.time()))
+        alive = [thread.name for thread in self._threads if thread.is_alive()]
+        with self._lock:
+            stdout = bytes(self._tails["stdout"]).decode("utf-8", errors="replace")
+            stderr = bytes(self._tails["stderr"]).decode("utf-8", errors="replace")
+            errors = list(self._errors)
+        if alive:
+            errors.append(f"pipe drain did not reach EOF: {', '.join(alive)}")
+        return stdout, stderr, "; ".join(errors) if errors else None
 
 
 class LongJobBusy(RuntimeError):
@@ -910,7 +981,7 @@ def _contained_process_memory_metrics(job, root_pid):
             "error": f"{type(exc).__name__}: {exc}",
             "process_count": 0,
         }
-    return {
+    result = {
         "available": bool(rows),
         "process_count": len(rows),
         "working_set_bytes": sum(row["working_set_bytes"] for row in rows),
@@ -921,6 +992,33 @@ def _contained_process_memory_metrics(job, root_pid):
         "write_bytes": sum(row.get("write_bytes", 0) for row in rows),
         "processes": rows,
     }
+    if os.name == "nt" and job is not None:
+        try:
+            accounting = job.accounting()
+        except Exception as exc:  # noqa: BLE001 - caller fails closed when I/O is capped
+            result.update({
+                "io_accounting_available": False,
+                "io_accounting_error": f"{type(exc).__name__}: {exc}",
+            })
+        else:
+            result.update({
+                "io_accounting_available": True,
+                "io_accounting_source": "windows_job_object_lifetime",
+                "read_operation_count": int(
+                    accounting.get("read_operation_count") or 0
+                ),
+                "write_operation_count": int(
+                    accounting.get("write_operation_count") or 0
+                ),
+                "read_bytes": int(accounting.get("read_bytes") or 0),
+                "write_bytes": int(accounting.get("write_bytes") or 0),
+            })
+    else:
+        result.update({
+            "io_accounting_available": bool(rows),
+            "io_accounting_source": "sampled_process_group",
+        })
+    return result
 
 
 def run_isolated_subprocess(
@@ -932,11 +1030,14 @@ def run_isolated_subprocess(
     cwd=None,
     env=None,
     output_tail_chars=DEFAULT_CHILD_OUTPUT_TAIL_CHARS,
+    output_max_bytes=None,
+    io_read_max_bytes=None,
+    io_write_max_bytes=None,
     on_started=None,
     resource_sample_interval_seconds=0.2,
     resource_sampling_grace_seconds=1.0,
 ):
-    """Run a heavy command inside a memory-bounded, killable process tree.
+    """Run a heavy command inside a memory/I/O-bounded, killable process tree.
 
     Windows launches the root suspended, assigns it to a Job Object, and only
     then resumes it.  That ordering is essential for venv/store launchers: the
@@ -947,6 +1048,7 @@ def run_isolated_subprocess(
     command_row = [str(item) for item in command]
     process = None
     job = None
+    output_capture = None
     stdout = ""
     stderr = ""
     timed_out = False
@@ -971,6 +1073,16 @@ def run_isolated_subprocess(
         if working_set_max_bytes and int(working_set_max_bytes) > 0
         else None
     )
+    io_read_limit = (
+        int(io_read_max_bytes) if io_read_max_bytes is not None else None
+    )
+    io_write_limit = (
+        int(io_write_max_bytes) if io_write_max_bytes is not None else None
+    )
+    if io_read_limit is not None and io_read_limit < 0:
+        raise ValueError("io_read_max_bytes must be non-negative")
+    if io_write_limit is not None and io_write_limit < 0:
+        raise ValueError("io_write_max_bytes must be non-negative")
     memory_limits = {
         "requested": bool(private_limit or working_set_limit),
         "applied": False,
@@ -995,10 +1107,21 @@ def run_isolated_subprocess(
         "read_bytes": 0,
         "write_bytes": 0,
         "source": "sampled_process_tree",
+        "read_limit_bytes": io_read_limit,
+        "write_limit_bytes": io_write_limit,
+        "enforcement_requested": bool(
+            io_read_limit is not None or io_write_limit is not None
+        ),
     }
     resource_limit_exceeded = None
-    sampling_enforcement_required = False
+    memory_sampling_enforcement_required = False
+    io_sampling_enforcement_required = bool(
+        io_read_limit is not None or io_write_limit is not None
+    )
     sampling_unavailable_started = None
+    io_sampling_unavailable_started = None
+    io_sample_count = 0
+    io_lifetime_accounting_verified = False
     containment = {
         "requested": True,
         "status": "PENDING",
@@ -1011,7 +1134,7 @@ def run_isolated_subprocess(
     }
 
     popen_kwargs = {
-        "text": True,
+        "text": False,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "cwd": cwd,
@@ -1043,6 +1166,12 @@ def run_isolated_subprocess(
                     "scope": "not_applied",
                 })
         process = subprocess.Popen(command_row, **popen_kwargs)
+        output_capture = _BoundedPipeCapture(
+            process.stdout,
+            process.stderr,
+            tail_bytes=output_tail_chars,
+            max_bytes=output_max_bytes,
+        )
         if os.name == "nt":
             job.assign(process._handle)  # noqa: SLF001 - Win32 handle is required for Job assignment
             containment.update({
@@ -1064,7 +1193,7 @@ def run_isolated_subprocess(
             # JOB_OBJECT_LIMIT_WORKINGSET is per process. The declared budget
             # is for the entire child tree, so aggregate sampling remains
             # mandatory even when the kernel flag is available.
-            sampling_enforcement_required = bool(working_set_limit)
+            memory_sampling_enforcement_required = bool(working_set_limit)
         else:
             containment.update({
                 "status": "PASS",
@@ -1108,9 +1237,13 @@ def run_isolated_subprocess(
             except Exception as termination_exc:  # noqa: BLE001
                 termination["error"] = f"{type(termination_exc).__name__}: {termination_exc}"
             try:
-                stdout, stderr = process.communicate(timeout=5)
+                process.wait(timeout=5)
             except Exception:  # noqa: BLE001 - process never ran user code while suspended
-                stdout = stderr = ""
+                pass
+            if output_capture is not None:
+                stdout, stderr, capture_error = output_capture.finish(timeout=5)
+                if capture_error:
+                    containment["output_capture_error"] = capture_error
         if job is not None:
             job.close()
         tail = max(0, int(output_tail_chars or 0))
@@ -1141,6 +1274,12 @@ def run_isolated_subprocess(
             sample_interval = max(0.02, float(resource_sample_interval_seconds or 0.2))
             while True:
                 sample = _contained_process_memory_metrics(job, process.pid)
+                io_sample_available = bool(
+                    sample.get("available")
+                    and sample.get("io_accounting_available", True)
+                    and "read_bytes" in sample
+                    and "write_bytes" in sample
+                )
                 if sample.get("available"):
                     sampling_unavailable_started = None
                     resource_peaks["sample_count"] += 1
@@ -1167,6 +1306,8 @@ def run_isolated_subprocess(
                             int(resource_io.get(metric) or 0),
                             int(sample.get(metric) or 0),
                         )
+                    if io_sample_available:
+                        io_sample_count += 1
                     if (
                         working_set_limit
                         and int(sample.get("working_set_bytes") or 0) > working_set_limit
@@ -1187,9 +1328,39 @@ def run_isolated_subprocess(
                             "limit_bytes": int(private_limit),
                             "sample": sample,
                         }
+                    elif (
+                        io_read_limit is not None
+                        and io_sample_available
+                        and int(sample.get("read_bytes") or 0) > io_read_limit
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "io_read_bytes",
+                            "observed_bytes": int(sample.get("read_bytes") or 0),
+                            "limit_bytes": int(io_read_limit),
+                            "sample": sample,
+                            "detected_from": str(
+                                sample.get("io_accounting_source")
+                                or "sampled_process_tree"
+                            ),
+                        }
+                    elif (
+                        io_write_limit is not None
+                        and io_sample_available
+                        and int(sample.get("write_bytes") or 0) > io_write_limit
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "io_write_bytes",
+                            "observed_bytes": int(sample.get("write_bytes") or 0),
+                            "limit_bytes": int(io_write_limit),
+                            "sample": sample,
+                            "detected_from": str(
+                                sample.get("io_accounting_source")
+                                or "sampled_process_tree"
+                            ),
+                        }
                 elif sample.get("error"):
                     resource_peaks["last_sample"] = sample
-                if sampling_enforcement_required and not sample.get("available"):
+                if memory_sampling_enforcement_required and not sample.get("available"):
                     if sampling_unavailable_started is None:
                         sampling_unavailable_started = time.time()
                     if (
@@ -1202,6 +1373,35 @@ def run_isolated_subprocess(
                             "reason": "process_tree_memory_sampling_unavailable",
                             "sample": sample,
                         }
+                if io_sampling_enforcement_required and not io_sample_available:
+                    if io_sampling_unavailable_started is None:
+                        io_sampling_unavailable_started = time.time()
+                    if (
+                        resource_limit_exceeded is None
+                        and time.time() - io_sampling_unavailable_started
+                        >= max(0.1, float(resource_sampling_grace_seconds or 1.0))
+                    ):
+                        resource_limit_exceeded = {
+                            "resource": "io_enforcement",
+                            "read_limit_bytes": io_read_limit,
+                            "write_limit_bytes": io_write_limit,
+                            "reason": "process_tree_io_sampling_unavailable",
+                            "sample": sample,
+                        }
+                else:
+                    io_sampling_unavailable_started = None
+
+                if (
+                    output_capture is not None
+                    and output_capture.exceeded_limit()
+                    and resource_limit_exceeded is None
+                ):
+                    resource_limit_exceeded = {
+                        "resource": "child_output_bytes",
+                        "observed_bytes": output_capture.total_bytes(),
+                        "limit_bytes": int(output_max_bytes),
+                        "detected_from": "bounded_parent_pipe_capture",
+                    }
 
                 reason = None
                 exit_code = None
@@ -1237,7 +1437,7 @@ def run_isolated_subprocess(
                             reason=reason,
                         )
                     try:
-                        stdout, stderr = process.communicate(timeout=5)
+                        process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         if job is not None:
                             process.kill()
@@ -1247,7 +1447,7 @@ def run_isolated_subprocess(
                                 reason=f"{reason}_escalation",
                                 force=True,
                             )
-                        stdout, stderr = process.communicate(timeout=5)
+                        process.wait(timeout=5)
                     break
 
                 remaining = deadline - time.time() if deadline is not None else None
@@ -1257,7 +1457,7 @@ def run_isolated_subprocess(
                     else sample_interval
                 )
                 try:
-                    stdout, stderr = process.communicate(timeout=wait_seconds)
+                    process.wait(timeout=wait_seconds)
                     break
                 except subprocess.TimeoutExpired:
                     continue
@@ -1282,15 +1482,43 @@ def run_isolated_subprocess(
             else:
                 termination = _terminate_posix_process_group(process.pid, reason="runner_error")
             try:
-                stdout, stderr = process.communicate(timeout=5)
+                process.wait(timeout=5)
             except Exception:  # noqa: BLE001 - preserve the original runner exception
-                stdout = stderr = ""
+                pass
             if not isinstance(exc, Exception):
                 raise
             runner_error = f"{type(exc).__name__}: {exc}"
 
+        if output_capture is not None:
+            stdout, stderr, capture_error = output_capture.finish(timeout=1)
+            if capture_error and "did not reach EOF" in capture_error:
+                if job is not None:
+                    try:
+                        job.terminate(exit_code=0)
+                        termination = {
+                            "triggered": True,
+                            "reason": "descendant_cleanup",
+                            "method": "TerminateJobObject",
+                            "tree_termination_requested": True,
+                        }
+                    except Exception as exc:  # noqa: BLE001
+                        capture_error = f"{capture_error}; {type(exc).__name__}: {exc}"
+                else:
+                    termination = _finish_posix_process_group(process.pid, termination)
+                stdout, stderr, retry_error = output_capture.finish(timeout=5)
+                capture_error = retry_error
+            if capture_error:
+                runner_error = runner_error or f"bounded output capture failed: {capture_error}"
+            if output_capture.exceeded_limit() and resource_limit_exceeded is None:
+                resource_limit_exceeded = {
+                    "resource": "child_output_bytes",
+                    "observed_bytes": output_capture.total_bytes(),
+                    "limit_bytes": int(output_max_bytes),
+                    "detected_from": "bounded_parent_pipe_capture_post_exit",
+                }
+
         if (
-            sampling_enforcement_required
+            memory_sampling_enforcement_required
             and resource_peaks["sample_count"] == 0
             and resource_limit_exceeded is None
         ):
@@ -1300,14 +1528,19 @@ def run_isolated_subprocess(
                 "error": runner_error,
                 "working_set_enforcement": "unverified",
             })
-
         if job is not None:
             try:
                 accounting = job.accounting()
                 quiescence_deadline = time.time() + 0.5
-                while accounting.get("active_processes", 0) > 0 and time.time() < quiescence_deadline:
+                while (
+                    accounting.get("active_processes", 0) > 0
+                    and time.time() < quiescence_deadline
+                ):
                     time.sleep(0.02)
                     accounting = job.accounting()
+                io_lifetime_accounting_verified = (
+                    int(accounting.get("active_processes") or 0) == 0
+                )
                 containment["accounting"] = accounting
                 resource_io.update({
                     "read_operation_count": int(accounting.get("read_operation_count") or 0),
@@ -1322,6 +1555,40 @@ def run_isolated_subprocess(
                     resource_peaks["private_memory_peak_bytes"],
                     int(accounting.get("peak_job_memory_bytes") or 0),
                 )
+                if (
+                    resource_limit_exceeded is None
+                    and io_read_limit is not None
+                    and int(resource_io.get("read_bytes") or 0) > io_read_limit
+                ):
+                    resource_limit_exceeded = {
+                        "resource": "io_read_bytes",
+                        "observed_bytes": int(resource_io.get("read_bytes") or 0),
+                        "limit_bytes": int(io_read_limit),
+                        "detected_from": "windows_job_object_lifetime_post_exit",
+                    }
+                elif (
+                    resource_limit_exceeded is None
+                    and io_write_limit is not None
+                    and int(resource_io.get("write_bytes") or 0) > io_write_limit
+                ):
+                    resource_limit_exceeded = {
+                        "resource": "io_write_bytes",
+                        "observed_bytes": int(resource_io.get("write_bytes") or 0),
+                        "limit_bytes": int(io_write_limit),
+                        "detected_from": "windows_job_object_lifetime_post_exit",
+                    }
+                if (
+                    resource_limit_exceeded is not None
+                    and str(resource_limit_exceeded.get("resource") or "").startswith("io_")
+                    and not termination.get("triggered")
+                ):
+                    termination = {
+                        "triggered": False,
+                        "reason": "resource_budget_exceeded",
+                        "method": "windows_job_object_lifetime_post_exit",
+                        "tree_termination_requested": False,
+                        "process_exited_over_limit": True,
+                    }
                 if (
                     resource_limit_exceeded is None
                     and private_limit
@@ -1372,6 +1639,22 @@ def run_isolated_subprocess(
         else:
             termination = _finish_posix_process_group(process.pid, termination)
             termination["tree_scope"] = "posix_process_group"
+        if (
+            io_sampling_enforcement_required
+            and io_sample_count == 0
+            and not io_lifetime_accounting_verified
+            and resource_limit_exceeded is None
+        ):
+            runner_error = (
+                runner_error
+                or "I/O enforcement unavailable: no contained process-tree sample "
+                "or lifetime accounting"
+            )
+            containment.update({
+                "status": "BLOCK",
+                "error": runner_error,
+                "io_enforcement": "unverified",
+            })
     finally:
         if job is not None:
             job.close()
@@ -1380,6 +1663,12 @@ def run_isolated_subprocess(
         not working_set_limit
         or resource_peaks["sample_count"] > 0
     )
+    resource_io["enforcement_verified"] = bool(
+        not io_sampling_enforcement_required
+        or io_sample_count > 0
+        or io_lifetime_accounting_verified
+    )
+    resource_io["sample_count"] = io_sample_count
 
     tail = max(0, int(output_tail_chars or 0))
     return {

@@ -132,6 +132,19 @@ from weather.runtime_identity import (  # noqa: E402
 )
 from weather.operations import event_metadata_validation
 from weather.operations.power import keep_system_awake
+from weather.paths import REPO_ROOT
+from weather.release_artifacts import (
+    DEFAULT_ACTIVE_RELEASE_POINTER,
+    DEFAULT_RELEASES_ROOT,
+)
+from weather.market.worker_release_binding import (
+    load_worker_release_binding,
+    stamp_worker_release_lineage,
+    verify_worker_csv_tape_for_append,
+    verify_worker_snapshot_binding,
+    worker_tape_columns,
+    worker_release_summary_fields,
+)
 from weather.market.market_making_preflight import (  # noqa: E402
     REMEDIATION_RULES,
     SECRET_FIELD_NAMES,
@@ -1268,10 +1281,27 @@ def build_run_once(
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     event_metadata_validation_path=None,
     evidence_mode=EVIDENCE_MODE_AUTO,
+    active_release_pointer_path=None,
+    releases_root=DEFAULT_RELEASES_ROOT,
+    release_repo_root=REPO_ROOT,
+    release_check_runtime=True,
 ):
     mode = normalize_mode(mode)
     now = utc_now(now)
     target = ensure_date(target_date)
+    release_binding = load_worker_release_binding(
+        pointer_path=active_release_pointer_path or DEFAULT_ACTIVE_RELEASE_POINTER,
+        releases_root=releases_root,
+        repo_root=release_repo_root,
+        check_runtime=release_check_runtime,
+        enabled=(
+            active_release_pointer_path is not None
+            or Path(snapshots_root).resolve()
+            == Path(DEFAULT_SNAPSHOTS_ROOT).resolve()
+        ),
+    )
+    release_summary_fields = worker_release_summary_fields(release_binding)
+    quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
     evidence_classification = classify_market_making_evidence(
@@ -1284,6 +1314,21 @@ def build_run_once(
     run_id = run_id or make_run_id(now)
     run_folder = run_folder_for(runs_root, target, run_id)
     run_folder.mkdir(parents=True, exist_ok=True)
+    quote_path = run_folder / "quote_intents_long.csv"
+    model_variant_quote_path = run_folder / "model_variant_quote_intents_long.csv"
+    if append:
+        verify_worker_csv_tape_for_append(
+            quote_path,
+            quote_columns,
+            release_binding,
+            label="maker quote-intent tape",
+        )
+        verify_worker_csv_tape_for_append(
+            model_variant_quote_path,
+            quote_columns,
+            release_binding,
+            label="maker model-variant quote-intent tape",
+        )
     policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
     policy_config["max_daily_loss"] = min(float(policy_config.get("max_daily_loss", budget_usdc)), float(budget_usdc))
     policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
@@ -1342,7 +1387,7 @@ def build_run_once(
         for key, value in event_metadata_state.items()
         if key != "payload"
     }
-    write_json(run_folder / "run_config.json", run_config)
+    run_config.update(release_summary_fields)
 
     raw_quote_rows = []
     model_variant_policy_inputs = []
@@ -1352,6 +1397,13 @@ def build_run_once(
         config = config_for_date(target, spec.id)
         folder = Path(snapshots_root) / config.event_slug
         snapshot_rows = load_latest_snapshot_rows(folder)
+        verify_worker_snapshot_binding(
+            folder,
+            snapshot_rows,
+            release_binding,
+            market_id=spec.id,
+            target_date=target,
+        )
         current_high_assessment = current_high_probability_summary(
             snapshot_rows,
             normalized_high_for_market(observation, spec.id),
@@ -1447,6 +1499,7 @@ def build_run_once(
                 detail,
             ))
 
+    write_json(run_folder / "run_config.json", run_config)
     preflight_status = "PASS"
     if any(row.get("status") == "BLOCK" for row in preflight_rows):
         preflight_status = "BLOCK" if all(row.get("status") != "PASS" for row in preflight_rows) else "WARN"
@@ -1478,6 +1531,7 @@ def build_run_once(
         "clob_recon": clob_recon_diag,
         "observation_status": observation,
         "runtime_identity": runtime_identity,
+        **release_summary_fields,
         "useful_work_liveness": useful_work_liveness,
         "live_readiness": live_readiness,
         "data_layer_live_gate": data_layer_live_gate,
@@ -1542,6 +1596,7 @@ def build_run_once(
             "exchange_economics_hash": exchange_economics_fields.get("exchange_economics_hash"),
             "exchange_economics_evidence_basis": exchange_economics_fields.get("exchange_economics_evidence_basis"),
         })
+    stamp_worker_release_lineage(quote_rows, release_binding)
     risk_events.extend(budget_risk_events)
     model_variant_quote_rows = [
         add_run_columns(
@@ -1565,6 +1620,7 @@ def build_run_once(
             "exchange_economics_hash": exchange_economics_fields.get("exchange_economics_hash"),
             "exchange_economics_evidence_basis": exchange_economics_fields.get("exchange_economics_evidence_basis"),
         })
+    stamp_worker_release_lineage(model_variant_quote_rows, release_binding)
     if any(row.get("live_trade_permission") for row in quote_rows) and mode != "live-pilot":
         raise RuntimeError("shadow/paper run attempted to emit live-trade permission")
     event_gate_summary = summarize_event_gate_rows(quote_rows)
@@ -1593,14 +1649,12 @@ def build_run_once(
     top_preflight_blocker = (preflight_diagnostics.get("top_blocking_reasons") or [{}])[0]
     top_preflight_gate = (preflight_diagnostics.get("top_failing_gates") or [{}])[0]
 
-    quote_path = run_folder / "quote_intents_long.csv"
-    model_variant_quote_path = run_folder / "model_variant_quote_intents_long.csv"
     if append:
-        append_csv(quote_path, RUN_QUOTE_COLUMNS, quote_rows)
-        append_csv(model_variant_quote_path, RUN_QUOTE_COLUMNS, model_variant_quote_rows)
+        append_csv(quote_path, quote_columns, quote_rows)
+        append_csv(model_variant_quote_path, quote_columns, model_variant_quote_rows)
     else:
-        write_csv(quote_path, RUN_QUOTE_COLUMNS, quote_rows)
-        write_csv(model_variant_quote_path, RUN_QUOTE_COLUMNS, model_variant_quote_rows)
+        write_csv(quote_path, quote_columns, quote_rows)
+        write_csv(model_variant_quote_path, quote_columns, model_variant_quote_rows)
     model_variant_bakeoff_path = run_folder / "model_variant_bakeoff.json"
     model_variant_report_path = run_folder / "model_variant_bakeoff.md"
     write_json(model_variant_bakeoff_path, model_variant_bakeoff)
@@ -1633,6 +1687,7 @@ def build_run_once(
         "run_id": run_id,
         "target_date": target.isoformat(),
         "mode": mode,
+        **release_summary_fields,
         "run_folder": str(run_folder),
         "run_config_path": str(run_folder / "run_config.json"),
         "preflight_path": str(run_folder / "preflight.json"),
