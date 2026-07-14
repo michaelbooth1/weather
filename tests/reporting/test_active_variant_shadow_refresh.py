@@ -55,6 +55,8 @@ def _variant(variant_id: str, export_path: Path, *, lifecycle="active", runtime=
         "track": "no_market",
         "roles": ["candidate", "no-market"],
         "active_for_headline": True,
+        "live_capture_enabled": True,
+        "counts_toward_weather_model_promotion": False,
         "artifact_required": False,
         "prediction_function": "weather.tests:predict",
         "prediction_mode": "band_binary",

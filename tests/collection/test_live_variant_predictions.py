@@ -15,6 +15,10 @@ from weather.collection.live_variant_predictions import (
 from weather.collection.collection_health import variant_prediction_tape_health
 from weather.collection.snapshot_tracker import SnapshotStore
 from weather.release_artifacts import canonical_payload_sha256
+from weather.release_contract import (
+    PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_RELEASE_KIND,
+)
 from weather.release_serving import STATUS_BLOCKED, STATUS_BOUND, VerifiedServingBundle
 from weather.reporting.candidate_lifecycle.variant_registry import SCHEMA_VERSION as REGISTRY_SCHEMA_VERSION
 
@@ -598,6 +602,9 @@ class TestLiveVariantPredictions(unittest.TestCase):
                 manifest_sha256="a" * 64,
                 pointer_sha256="b" * 64,
                 sequence=11,
+                release_kind=PRODUCTION_RELEASE_KIND,
+                candidate_mode=PRODUCTION_CANDIDATE_MODE,
+                production_capable=True,
                 base_model_bound=True,
                 base_model_binding_reason="fixture complete base-model binding",
             )
@@ -653,6 +660,9 @@ class TestLiveVariantPredictions(unittest.TestCase):
             "release_manifest_sha256": "a" * 64,
             "release_pointer_sha256": "b" * 64,
             "release_sequence": 11,
+            "release_kind": PRODUCTION_RELEASE_KIND,
+            "release_candidate_mode": PRODUCTION_CANDIDATE_MODE,
+            "release_production_capable": True,
             "release_identity_status": "verified_variant_serving_bundle",
             "release_identity_reason": replay["release_identity_reason"],
             "base_model_release_bound": True,

@@ -515,7 +515,7 @@ class TestLoopHealth(unittest.TestCase):
                 return {"ok": True}
 
         class FakeStore:
-            def __init__(self, event_slug=None):
+            def __init__(self, event_slug=None, **_kwargs):
                 self.event_slug = event_slug
                 calls["store_event_slug"] = event_slug
 
@@ -595,7 +595,7 @@ class TestLoopHealth(unittest.TestCase):
                 return {"ok": True}
 
         class FakeStore:
-            def __init__(self, event_slug=None):
+            def __init__(self, event_slug=None, **_kwargs):
                 self.event_slug = event_slug
 
             def maybe_write(self, event, model, model_client, **kwargs):
