@@ -1,10 +1,13 @@
 import csv
 import tempfile
+import tracemalloc
 import unittest
 from pathlib import Path
 
 from weather.reporting.hourly.candidate_hourly_performance import candidate_rows_corpus_hash, read_variant_rows
 from weather.reporting.hourly.ten_minute_model_performance import (
+    TenMinuteMarketDayAggregation,
+    build_replay_probes,
     build_candidate_item147,
     candidate_ten_minute_gate,
     rank_slots,
@@ -52,6 +55,58 @@ def write_candidate_rows(path, rows):
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def scored_market_day(day_index, *, slots=(180, 190)):
+    rows = []
+    target_date = f"synthetic-day-{day_index:04d}"
+    for slot in slots:
+        hour = slot // 60
+        minute = slot % 60
+        snapshot_id = f"day-{day_index:04d}-slot-{slot:04d}"
+        for band, outcome, bin_value, probability, market_yes in (
+            ("loser", 0, 79.0, 0.25 + (slot % 20) / 100.0, 0.35),
+            ("winner", 1, 80.0, 0.75 - (slot % 20) / 100.0, 0.65),
+        ):
+            rows.append(
+                {
+                    "market_id": "toronto",
+                    "target_date": target_date,
+                    "snapshot_id": snapshot_id,
+                    "captured_at_local": (
+                        f"2026-06-07T{hour:02d}:{minute:02d}:00-04:00"
+                    ),
+                    "capture_minute": slot,
+                    "cutoff_hour": hour,
+                    "band": band,
+                    "bin_type": "eq",
+                    "bin_value_c": bin_value,
+                    "bin_value_hi": bin_value,
+                    "feature_forecast_high": 80.0,
+                    "model_probability": probability,
+                    "market_yes": market_yes,
+                    "model_edge": probability - market_yes,
+                    "outcome": outcome,
+                }
+            )
+    return rows
+
+
+def assert_nested_almost_equal(testcase, actual, expected):
+    if isinstance(expected, dict):
+        testcase.assertEqual(set(actual), set(expected))
+        for key in expected:
+            assert_nested_almost_equal(testcase, actual[key], expected[key])
+        return
+    if isinstance(expected, list):
+        testcase.assertEqual(len(actual), len(expected))
+        for actual_item, expected_item in zip(actual, expected):
+            assert_nested_almost_equal(testcase, actual_item, expected_item)
+        return
+    if isinstance(expected, float):
+        testcase.assertAlmostEqual(actual, expected, places=12)
+        return
+    testcase.assertEqual(actual, expected)
 
 
 class TestTenMinuteModelPerformance(unittest.TestCase):
@@ -118,6 +173,70 @@ class TestTenMinuteModelPerformance(unittest.TestCase):
         self.assertEqual(len(csv_rows), 144)
         self.assertEqual(csv_rows[0]["time_slot_label"], "00:00")
         self.assertEqual(csv_rows[-1]["time_slot_label"], "23:50")
+
+    def test_market_day_aggregation_matches_materialized_checkpoint_outputs(self):
+        market_days = [scored_market_day(index) for index in range(3)]
+        materialized = ten_minute_checkpoint_rows(
+            [row for day_rows in market_days for row in day_rows]
+        )
+        expected_by_slot = summarize_by_slot(materialized)
+        expected_by_regime = summarize_by_regime(materialized)
+        expected_overall = summarize_rows(materialized) or {}
+        weak_slots = {180}
+        expected_weak = summarize_rows(
+            [row for row in materialized if row.get("time_slot_minute") in weak_slots]
+        ) or {}
+        expected_probes = build_replay_probes(
+            materialized,
+            expected_by_slot,
+            weak_slots,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with TenMinuteMarketDayAggregation(tmp) as aggregation:
+                for day_rows in market_days:
+                    aggregation.add_market_day_rows(day_rows)
+                actual_by_slot = aggregation.by_slot()
+                actual_by_regime = aggregation.by_regime()
+                actual_overall = aggregation.summary_for_slots({180, 190}) or {}
+                actual_weak = aggregation.summary_for_slots(weak_slots) or {}
+                actual_probes = aggregation.replay_probes(actual_by_slot, weak_slots)
+                checkpoint_row_count = aggregation.checkpoint_row_count
+
+        self.assertEqual(checkpoint_row_count, len(materialized))
+        assert_nested_almost_equal(self, actual_by_slot, expected_by_slot)
+        assert_nested_almost_equal(self, actual_by_regime, expected_by_regime)
+        assert_nested_almost_equal(self, actual_overall, expected_overall)
+        assert_nested_almost_equal(self, actual_weak, expected_weak)
+        assert_nested_almost_equal(self, actual_probes, expected_probes)
+
+    def test_market_day_aggregation_peak_memory_stays_roughly_flat_as_days_grow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with TenMinuteMarketDayAggregation(tmp) as aggregation:
+                first_window_peak = 0
+                second_window_peak = 0
+                tracemalloc.start()
+                try:
+                    for day_index in range(600):
+                        tracemalloc.reset_peak()
+                        aggregation.add_market_day_rows(
+                            scored_market_day(day_index, slots=(180,))
+                        )
+                        _current, peak = tracemalloc.get_traced_memory()
+                        if day_index < 300:
+                            first_window_peak = max(first_window_peak, peak)
+                        else:
+                            second_window_peak = max(second_window_peak, peak)
+                finally:
+                    tracemalloc.stop()
+
+                self.assertEqual(aggregation.checkpoint_row_count, 1_200)
+                # The later 300 market-days are reduced into fixed slot state;
+                # only the exact distinct keys grow, and those spill to SQLite.
+                self.assertLessEqual(
+                    second_window_peak,
+                    first_window_peak + 512 * 1024,
+                )
 
     def test_candidate_ten_minute_gate_scores_weak_slot_overlap(self):
         with tempfile.TemporaryDirectory() as tmp:

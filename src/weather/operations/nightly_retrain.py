@@ -7,6 +7,7 @@ from weather.operations.windows_silent import apply_windows_silent_subprocess_de
 apply_windows_silent_subprocess_defaults()
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -52,6 +53,13 @@ from weather.operations.producer_provenance import (
     producer_release_proof,
 )
 from weather.paths import REPO_ROOT, data_path
+from weather.io import write_json_atomic
+from weather.release_contract import (
+    CANDIDATE_MODES,
+    PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
+    RESEARCH_ONLY_CANDIDATE_MODE,
+)
 from weather.reporting.scorecards import live_variant_settlement_scorecard
 from weather.reporting.serving_gates import production_readiness_gate
 from weather.schema_registry import schema_version
@@ -365,7 +373,7 @@ def run_subprocess_step(command, *, timeout_seconds=DEFAULT_STEP_TIMEOUT_SECONDS
 
 
 def family_secondary_command(args):
-    return [
+    command = [
         sys.executable,
         "-m",
         "weather.calibration.family_secondary_artifacts",
@@ -385,6 +393,19 @@ def family_secondary_command(args):
         "--report",
         backtest_path(args, "f_family_secondary_artifacts_report.md"),
     ]
+    if args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        command.extend(
+            [
+                "--point-in-time-preselection-lock",
+                args.point_in_time_preselection_lock,
+                "--artifact-root",
+                str(
+                    Path(args.family_secondary_out).resolve().parent
+                    / "family_secondary_components"
+                ),
+            ]
+        )
+    return command
 
 
 def default_settled_day_target_date(now=None):
@@ -471,6 +492,25 @@ def pooled_feature_command(args):
     ]
     if args.allow_legacy_serving_output:
         command.append("--allow-legacy-serving-output")
+    if args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        command.extend(
+            [
+                "--point-in-time-preselection-lock",
+                args.point_in_time_preselection_lock,
+                "--point-in-time-outer-min-train-dates",
+                str(args.point_in_time_outer_min_train_dates),
+                "--point-in-time-inner-min-train-dates",
+                str(args.point_in_time_inner_min_train_dates),
+                "--point-in-time-embargo-days",
+                str(args.point_in_time_embargo_days),
+                "--point-in-time-step-dates",
+                str(args.point_in_time_step_dates),
+                "--point-in-time-max-fold-scopes",
+                str(args.point_in_time_max_fold_scopes),
+                "--point-in-time-private-memory-budget-bytes",
+                str(args.point_in_time_private_memory_budget_bytes),
+            ]
+        )
     return command
 
 
@@ -485,7 +525,267 @@ def artifact_registry_command(args):
     ]
 
 
-def promotion_refresh_command(args):
+def prepare_production_point_in_time_outputs(args, candidate_guard):
+    """Resolve production PIT roles inside this run's candidate directory."""
+
+    mode = str(
+        getattr(args, "release_candidate_mode", RESEARCH_ONLY_CANDIDATE_MODE)
+        or RESEARCH_ONLY_CANDIDATE_MODE
+    )
+    candidate_guard["candidate_mode"] = mode
+    candidate_guard["production_capable"] = mode == PRODUCTION_CANDIDATE_MODE
+    if mode != PRODUCTION_CANDIDATE_MODE:
+        for role in PRODUCTION_POINT_IN_TIME_ROLE_KINDS:
+            setattr(args, role, "")
+        candidate_guard["point_in_time_outputs"] = []
+        return candidate_guard
+
+    candidate_dir = Path(candidate_guard["candidate_dir"]).resolve()
+    work_dir = candidate_dir / "qualification" / "point_in_time" / "work"
+    auxiliary_defaults = {
+        "point_in_time_preselection_lock": work_dir / "preselection_lock.json",
+        "point_in_time_source_materialized_corpus": work_dir / "source_corpus.parquet",
+        "point_in_time_source_materialized_manifest": work_dir / "source_manifest.json",
+        "point_in_time_replay_manifest": work_dir / "replay_manifest.json",
+        "point_in_time_promotion_selection_corpus": (
+            work_dir / "promotion_selection_corpus.json"
+        ),
+    }
+    for attribute, path in auxiliary_defaults.items():
+        configured = str(getattr(args, attribute, "") or "").strip()
+        resolved = Path(configured).resolve() if configured else path
+        setattr(args, attribute, str(resolved))
+        try:
+            resolved.relative_to(candidate_dir)
+        except ValueError:
+            candidate_guard.setdefault("failures", []).append(
+                {
+                    "attribute": attribute,
+                    "path": str(resolved),
+                    "error": "production point-in-time work output must stay inside the candidate directory",
+                }
+            )
+    defaults = {
+        "point_in_time_corpus": "qualification/point_in_time/corpus.parquet",
+        "point_in_time_materialization_manifest": (
+            "qualification/point_in_time/materialization_manifest.json"
+        ),
+        "point_in_time_validation_plan": (
+            "qualification/point_in_time/validation_plan.json"
+        ),
+        "point_in_time_streaming_evaluation": (
+            "qualification/point_in_time/streaming_evaluation.json"
+        ),
+    }
+    rows = []
+    failures = list(candidate_guard.get("failures") or ())
+    for role, relative in defaults.items():
+        configured = str(getattr(args, role, "") or "").strip()
+        path = Path(configured).resolve() if configured else candidate_dir / relative
+        setattr(args, role, str(path))
+        try:
+            path.relative_to(candidate_dir)
+        except ValueError:
+            failures.append(
+                {
+                    "attribute": role,
+                    "path": str(path),
+                    "error": "production point-in-time output must stay inside the candidate directory",
+                }
+            )
+        rows.append({"role": role, "path": str(path), "relative_path": relative})
+    paths = [row["path"] for row in rows]
+    if len(paths) != len(set(paths)):
+        failures.append(
+            {
+                "attribute": "point_in_time_outputs",
+                "path": "",
+                "error": "production point-in-time output paths must be distinct",
+            }
+        )
+    source_corpus = str(getattr(args, "point_in_time_source_corpus", "") or "").strip()
+    source_manifest = str(
+        getattr(args, "point_in_time_source_manifest", "") or ""
+    ).strip()
+    folders = [
+        str(path).strip()
+        for path in getattr(args, "point_in_time_folder", []) or ()
+        if str(path).strip()
+    ]
+    if bool(source_corpus) != bool(source_manifest):
+        failures.append(
+            {
+                "attribute": "point_in_time_source",
+                "path": source_corpus or source_manifest,
+                "error": "source corpus and source manifest must be configured together",
+            }
+        )
+    if source_corpus and folders:
+        failures.append(
+            {
+                "attribute": "point_in_time_source",
+                "path": source_corpus,
+                "error": "source corpus cannot be combined with point-in-time folders",
+            }
+        )
+    if not source_corpus and not folders:
+        failures.append(
+            {
+                "attribute": "point_in_time_source",
+                "path": "",
+                "error": "production mode requires explicit point-in-time folders or a staged corpus/manifest",
+            }
+        )
+    candidate_guard["point_in_time_outputs"] = rows
+    candidate_guard["failures"] = failures
+    if failures:
+        candidate_guard["status"] = "BLOCK"
+        candidate_guard["release_eligible"] = False
+    return candidate_guard
+
+
+def point_in_time_preselection_command(args):
+    command = [
+        sys.executable,
+        "-m",
+        "weather.reporting.validation.point_in_time_evaluation",
+        "prelock-production",
+        "--lock-out",
+        args.point_in_time_preselection_lock,
+        "--replay-manifest-out",
+        args.point_in_time_replay_manifest,
+        "--quality-grades",
+        args.quality_grades,
+        "--snapshots-root",
+        args.snapshots_root,
+        "--max-market-days",
+        str(args.point_in_time_max_market_days),
+        "--max-rows-per-market-day",
+        str(args.point_in_time_max_rows_per_market_day),
+        "--batch-rows",
+        str(args.point_in_time_batch_rows),
+    ]
+    archive_root = str(getattr(args, "point_in_time_archive_root", "") or "").strip()
+    if archive_root:
+        command.extend(["--archive-root", archive_root])
+    as_of = str(getattr(args, "point_in_time_as_of", "") or "").strip()
+    if as_of:
+        command.extend(["--as-of", as_of])
+    window_end = str(getattr(args, "point_in_time_window_end", "") or "").strip()
+    if window_end:
+        command.extend(["--window-end", window_end])
+    source_replay_manifest = str(
+        getattr(args, "point_in_time_source_replay_manifest", "") or ""
+    ).strip()
+    if source_replay_manifest:
+        command.extend(["--source-replay-manifest", source_replay_manifest])
+    source_corpus = str(getattr(args, "point_in_time_source_corpus", "") or "").strip()
+    if source_corpus:
+        command.extend(
+            [
+                "--source-corpus",
+                source_corpus,
+                "--source-manifest",
+                str(args.point_in_time_source_manifest),
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "--source-corpus-out",
+                args.point_in_time_source_materialized_corpus,
+                "--source-manifest-out",
+                args.point_in_time_source_materialized_manifest,
+            ]
+        )
+        for folder in getattr(args, "point_in_time_folder", []) or ():
+            command.extend(["--folder", str(folder)])
+    return command
+
+
+def point_in_time_qualification_command(args):
+    command = [
+        sys.executable,
+        "-m",
+        "weather.reporting.validation.point_in_time_evaluation",
+        "qualify-production",
+        "--candidate-id",
+        args.candidate_id,
+        "--release-id",
+        args.candidate_id,
+        "--snapshots-root",
+        args.snapshots_root,
+        "--model-artifact",
+        args.pooled_band_artifact,
+        "--calibration-artifact",
+        args.family_secondary_out,
+        "--routing-artifact",
+        args.promotion_out,
+        "--preselection-lock",
+        args.point_in_time_preselection_lock,
+        "--replay-manifest",
+        args.point_in_time_replay_manifest,
+        "--corpus-out",
+        args.point_in_time_corpus,
+        "--manifest-out",
+        args.point_in_time_materialization_manifest,
+        "--validation-plan-out",
+        args.point_in_time_validation_plan,
+        "--evaluation-out",
+        args.point_in_time_streaming_evaluation,
+        "--max-market-days",
+        str(args.point_in_time_max_market_days),
+        "--max-rows-per-market-day",
+        str(args.point_in_time_max_rows_per_market_day),
+        "--batch-rows",
+        str(args.point_in_time_batch_rows),
+        "--outer-min-train-dates",
+        str(args.point_in_time_outer_min_train_dates),
+        "--inner-min-train-dates",
+        str(args.point_in_time_inner_min_train_dates),
+        "--embargo-days",
+        str(args.point_in_time_embargo_days),
+        "--step-dates",
+        str(args.point_in_time_step_dates),
+        "--bootstrap-iterations",
+        str(args.point_in_time_bootstrap_iterations),
+        "--private-memory-budget-bytes",
+        str(args.point_in_time_private_memory_budget_bytes),
+        "--max-fold-scopes",
+        str(args.point_in_time_max_fold_scopes),
+    ]
+    archive_root = str(getattr(args, "point_in_time_archive_root", "") or "").strip()
+    if archive_root:
+        command.extend(["--archive-root", archive_root])
+    as_of = str(getattr(args, "point_in_time_as_of", "") or "").strip()
+    if as_of:
+        command.extend(["--as-of", as_of])
+    window_end = str(getattr(args, "point_in_time_window_end", "") or "").strip()
+    if window_end:
+        command.extend(["--window-end", window_end])
+    source_corpus = str(getattr(args, "point_in_time_source_corpus", "") or "").strip()
+    if source_corpus:
+        command.extend(
+            [
+                "--source-corpus",
+                source_corpus,
+                "--source-manifest",
+                str(args.point_in_time_source_manifest),
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "--source-corpus",
+                args.point_in_time_source_materialized_corpus,
+                "--source-manifest",
+                args.point_in_time_source_materialized_manifest,
+            ]
+        )
+    return command
+
+
+def promotion_refresh_command(args, *, folders=()):
     command = [
         sys.executable,
         "-m",
@@ -519,7 +819,124 @@ def promotion_refresh_command(args):
         command.append("--require-all-markets")
     if args.no_baseline:
         command.append("--no-baseline")
+    command.extend(str(folder) for folder in folders)
     return command
+
+
+def _canonical_sha256(payload):
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _sha256_file(path, *, chunk_bytes=1024 * 1024):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while True:
+            chunk = handle.read(chunk_bytes)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def production_promotion_selection(args):
+    """Resolve the exact unlocked promotion folders from the prelock manifest."""
+
+    from weather.calibration.pooled_training import (
+        load_production_point_in_time_preselection,
+    )
+    from weather.reporting.promotion.promotion_corpus import (
+        folders_from_manifest,
+        load_manifest,
+    )
+
+    preselection = load_production_point_in_time_preselection(
+        args.point_in_time_preselection_lock
+    )
+    replay_manifest_path = Path(args.point_in_time_replay_manifest).resolve()
+    manifest = load_manifest(replay_manifest_path)
+    source = preselection.get("source") or {}
+    replay_manifest_sha256 = _sha256_file(replay_manifest_path)
+    replay_corpus_hash = str(manifest.get("corpus_hash") or "")
+    if (
+        replay_manifest_sha256 != source.get("replay_manifest_sha256")
+        or replay_corpus_hash != source.get("replay_corpus_hash")
+    ):
+        raise ValueError(
+            "production promotion replay manifest differs from the prelocked source"
+        )
+    entries = list(manifest.get("entries") or ())
+    folders = list(folders_from_manifest(manifest, args.snapshots_root))
+    if not entries or len(entries) != len(folders):
+        raise ValueError("production promotion replay manifest is incomplete")
+    locked = set(preselection["window_lock"]["target_dates"])
+    universe_dates = set(preselection["selection_universe"]["fleet_dates"])
+    selected = []
+    inventory = []
+    manifest_dates = set()
+    for entry, folder in zip(entries, folders):
+        target_date = str(entry.get("target_date") or "")
+        manifest_dates.add(target_date)
+        if target_date in locked:
+            continue
+        selected.append(Path(folder).resolve())
+        inventory.append(
+            {
+                "folder": str(Path(folder).resolve()),
+                "event_slug": str(entry.get("event_slug") or ""),
+                "target_date": target_date,
+                "market_id": str(entry.get("market_id") or ""),
+            }
+        )
+    expected_dates = universe_dates - locked
+    selected_dates = {row["target_date"] for row in inventory}
+    if (
+        manifest_dates != universe_dates
+        or selected_dates != expected_dates
+        or not selected
+        or len(selected) > int(args.point_in_time_max_market_days)
+    ):
+        raise ValueError(
+            "production promotion population differs from the bounded unlocked preselection"
+        )
+    inventory.sort(
+        key=lambda row: (row["target_date"], row["market_id"], row["event_slug"])
+    )
+    return preselection, selected, inventory
+
+
+def bind_production_promotion_selection(args, preselection, inventory):
+    """Attach a self-hashed no-reuse proof to the just-written routing artifact."""
+
+    path = Path(args.promotion_out).resolve()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    source_inventory = {
+        "entries": inventory,
+        "entry_count": len(inventory),
+        "replay_manifest_sha256": preselection["source"][
+            "replay_manifest_sha256"
+        ],
+        "replay_corpus_hash": preselection["source"]["replay_corpus_hash"],
+    }
+    source_inventory["sha256"] = _canonical_sha256(source_inventory)
+    binding = {
+        "preselection_hash": preselection["preselection_hash"],
+        "window_lock_id": preselection["window_lock"]["window_lock_id"],
+        "locked_dates": list(preselection["window_lock"]["target_dates"]),
+        "used_for_selection": False,
+        "source_folder_date_inventory_sha256": source_inventory["sha256"],
+        "source_inventory": source_inventory,
+    }
+    binding["binding_sha256"] = _canonical_sha256(binding)
+    payload["point_in_time_selection_binding"] = binding
+    write_json_atomic(path, payload, trailing_newline=True)
+    return binding
 
 
 def shadow_ab_monitor_command(args):
@@ -553,6 +970,13 @@ def planned_steps(args):
         steps.append(("daily_learning", daily_learning_command(args)))
     if not args.skip_experiment_queue:
         steps.append(("experiment_queue", []))
+    if args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        steps.append(
+            (
+                "point_in_time_preselection_lock",
+                point_in_time_preselection_command(args),
+            )
+        )
     if not args.skip_family_secondary:
         steps.append(("family_secondary_artifacts", family_secondary_command(args)))
     if not args.skip_pooled_feature:
@@ -561,6 +985,13 @@ def planned_steps(args):
         steps.append(("artifact_registry", artifact_registry_command(args)))
     if not args.skip_promotion_refresh:
         steps.append(("promotion_refresh", promotion_refresh_command(args)))
+    if args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        steps.append(
+            (
+                "point_in_time_production_qualification",
+                point_in_time_qualification_command(args),
+            )
+        )
     if not args.skip_shadow_ab_monitor:
         steps.append(("shadow_ab_monitor", shadow_ab_monitor_command(args)))
     return steps
@@ -1329,6 +1760,9 @@ def _run_nightly_retrain_guarded(
         }
     else:
         candidate_guard = prepare_candidate_outputs(args)
+        candidate_guard = prepare_production_point_in_time_outputs(
+            args, candidate_guard
+        )
     plan = (
         planned_steps(args)
         if candidate_guard["status"] not in {"BLOCK", "DEFERRED"}
@@ -1384,6 +1818,13 @@ def _run_nightly_retrain_guarded(
             "candidate_id": args.candidate_id,
             "candidate_dir": candidate_guard.get("candidate_dir"),
             "candidate_output_guard": candidate_guard,
+            "release_candidate_mode": args.release_candidate_mode,
+            "point_in_time_outputs": candidate_guard.get(
+                "point_in_time_outputs", []
+            ),
+            "point_in_time_private_memory_budget_bytes": getattr(
+                args, "point_in_time_private_memory_budget_bytes", None
+            ),
             "build_candidate_release": args.build_candidate_release,
             "release_pointer": args.release_pointer,
             "long_job_guard": long_job_guard_info or {},
@@ -1531,6 +1972,7 @@ def _run_nightly_retrain_guarded(
         payload["status"] = "dry_run"
     else:
         for name, command in plan:
+            promotion_selection_context = None
             if name == "experiment_queue":
                 step = run_experiment_queue_step(args, runner)
             else:
@@ -1547,7 +1989,57 @@ def _run_nightly_retrain_guarded(
                             "retrain_recommendation": payload["daily_learning"].get("retrain_recommendation") or {},
                         })
                         break
+                if (
+                    name == "promotion_refresh"
+                    and args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE
+                ):
+                    try:
+                        preselection, folders, inventory = (
+                            production_promotion_selection(args)
+                        )
+                        command = promotion_refresh_command(args, folders=folders)
+                        corpus_option = command.index("--out")
+                        command[corpus_option:corpus_option] = [
+                            "--corpus-out",
+                            args.point_in_time_promotion_selection_corpus,
+                        ]
+                        promotion_selection_context = (preselection, inventory)
+                    except Exception as exc:  # noqa: BLE001 - fail closed before replay
+                        step = {
+                            "name": name,
+                            "command": ["internal", "production_promotion_selection"],
+                            "status": "error",
+                            "returncode": -1,
+                            "duration_seconds": 0.0,
+                            "stdout": "",
+                            "stderr": str(exc),
+                        }
+                        steps.append(step)
+                        if not args.continue_on_error:
+                            break
+                        continue
                 step = run_step(name, command, args, runner)
+                if (
+                    name == "promotion_refresh"
+                    and step.get("status") == "ok"
+                    and promotion_selection_context is not None
+                ):
+                    try:
+                        preselection, inventory = promotion_selection_context
+                        binding = bind_production_promotion_selection(
+                            args,
+                            preselection,
+                            inventory,
+                        )
+                        step["point_in_time_selection_binding"] = binding
+                    except Exception as exc:  # noqa: BLE001 - unbound route is unusable
+                        step["status"] = "error"
+                        step["returncode"] = -1
+                        step["stderr"] = (
+                            str(step.get("stderr") or "")
+                            + "\nproduction promotion binding failed: "
+                            + str(exc)
+                        ).strip()
             steps.append(step)
             if (step.get("result") or {}).get("hard_stop_pipeline") or (
                 step["status"] == "error" and not args.continue_on_error
@@ -1725,11 +2217,58 @@ def build_run_parser(parser):
     parser.add_argument("--pooled-band-artifact", default="")
     parser.add_argument("--artifact-registry", default="")
     parser.add_argument("--candidate-id", default="")
+    parser.add_argument(
+        "--release-candidate-mode",
+        choices=sorted(CANDIDATE_MODES),
+        default=RESEARCH_ONLY_CANDIDATE_MODE,
+        help=(
+            "research_only remains the default; production requires an explicit "
+            "bounded point-in-time source and materializes all qualification roles"
+        ),
+    )
     parser.add_argument("--candidates-root", default=str(DEFAULT_CANDIDATES_ROOT))
     parser.add_argument("--releases-root", default=str(DEFAULT_RELEASES_ROOT))
     parser.add_argument("--release-pointer", default="")
     parser.add_argument("--release-parent", default="")
     parser.add_argument("--repo-root", default=str(REPO_ROOT))
+    parser.add_argument("--point-in-time-folder", action="append", default=[])
+    parser.add_argument("--point-in-time-source-corpus", default="")
+    parser.add_argument("--point-in-time-source-manifest", default="")
+    parser.add_argument("--point-in-time-source-replay-manifest", default="")
+    parser.add_argument("--point-in-time-archive-root", default="")
+    parser.add_argument("--point-in-time-as-of", default="")
+    parser.add_argument("--point-in-time-window-end", default="")
+    parser.add_argument("--point-in-time-corpus", default="")
+    parser.add_argument("--point-in-time-materialization-manifest", default="")
+    parser.add_argument("--point-in-time-validation-plan", default="")
+    parser.add_argument("--point-in-time-streaming-evaluation", default="")
+    parser.add_argument("--point-in-time-max-market-days", type=int, default=60)
+    parser.add_argument(
+        "--point-in-time-max-rows-per-market-day", type=int, default=250_000
+    )
+    parser.add_argument("--point-in-time-batch-rows", type=int, default=65_536)
+    parser.add_argument(
+        "--point-in-time-outer-min-train-dates", type=int, default=14
+    )
+    parser.add_argument(
+        "--point-in-time-inner-min-train-dates", type=int, default=7
+    )
+    parser.add_argument(
+        "--point-in-time-embargo-days", type=int, choices=range(3, 8), default=3
+    )
+    parser.add_argument("--point-in-time-step-dates", type=int, default=7)
+    parser.add_argument(
+        "--point-in-time-max-fold-scopes", type=int, default=128
+    )
+    parser.add_argument(
+        "--point-in-time-bootstrap-iterations", type=int, default=2_000
+    )
+    parser.add_argument(
+        "--point-in-time-private-memory-budget-bytes",
+        type=int,
+        default=4 * 1024**3,
+        help="Declared private-memory ceiling for bounded production qualification.",
+    )
     parser.add_argument(
         "--expected-live-runtimes",
         default="snapshot_loop,observation_trigger,market_making,taker_bot",

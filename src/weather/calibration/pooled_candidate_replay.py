@@ -10,10 +10,11 @@ import csv
 import hashlib
 import json
 import math
+import os
 import pickle
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.paths import data_path
@@ -51,6 +52,7 @@ from weather.model.variant_prediction_runtime import (
     apply_density_band_postprocessing,
     density_projection_index,
     density_projection_probability,
+    pooled_band_regime_route,
 )
 from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_microstructure_features import (
@@ -80,6 +82,8 @@ from weather.calibration.residual_distribution_corpus import (
 from weather.calibration.pooled_feature_model import (
     DEFAULT_BAND_ARTIFACT,
     FEATURE_SUBSET_FORECAST_PROFILE,
+    MARINE_WATER_CONTRAST_COLUMNS,
+    SOURCE_RELIABILITY_COLUMNS,
     add_dynamic_source_state_features,
     add_city_features,
     apply_band_postprocessing,
@@ -230,6 +234,21 @@ DEFAULT_JSON_OUT = data_path() / "backtest" / "pooled_candidate_replay.json"
 DEFAULT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_report.md"
 DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
 DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl")
+
+BOUNDED_CANDIDATE_REPLAY_SCHEMA_VERSION = "pooled_candidate_replay_day_rows_v0.1"
+_SETTLEMENT_LABEL_FIELDS = frozenset({
+    "label",
+    "outcome",
+    "settled_label",
+    "is_winner",
+    "settlement_bucket",
+    "settlement_distance",
+    "settlement_distance_bucket",
+})
+
+
+class BoundedCandidateReplayError(RuntimeError):
+    """A fail-closed identity, lineage, or resource-bound violation."""
 
 
 def cutoff_regime(hour):
@@ -433,13 +452,70 @@ def _model_for_market(models, market_id):
     return models[market_id]
 
 
-def _climate_for_market(climates, model, market_id):
+def _verified_production_static_context(artifact):
+    training = (artifact or {}).get("point_in_time_training")
+    if not isinstance(training, dict):
+        return None
+    context = (artifact or {}).get("production_static_context")
+    if not isinstance(context, dict):
+        raise ValueError("production artifact is missing its static feature context")
+    unhashed = dict(context)
+    actual = str(unhashed.pop("context_sha256", "") or "")
+    expected = hashlib.sha256(
+        json.dumps(
+            unhashed,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    lock = training.get("preselection_lock") or {}
+    if (
+        actual != expected
+        or context.get("preselection_hash") != lock.get("preselection_hash")
+        or context.get("window_lock_id") != lock.get("window_lock_id")
+        or tuple(context.get("context_fields") or ())
+        != ("climate_normal", "climate_std", *SOURCE_RELIABILITY_COLUMNS)
+        or context.get("external_sidecar_policy")
+        != {
+            "reanalysis_synoptic": "disabled_unpinned",
+            "marine_water_contrast": "disabled_unpinned",
+        }
+        or not isinstance(context.get("markets"), dict)
+    ):
+        raise ValueError("production artifact static feature context is invalid")
+    return context
+
+
+def _climate_for_market(climates, model, market_id, production_context=None):
+    if production_context is not None:
+        values = (production_context.get("markets") or {}).get(market_id)
+        if not isinstance(values, dict):
+            raise ValueError(
+                f"production static feature context has no market {market_id}"
+            )
+        return {
+            "climate_normal": values.get("climate_normal"),
+            "climate_std": values.get("climate_std"),
+        }
     if market_id not in climates:
         climates[market_id] = market_climate_stats(model.historical_target_cache())
     return climates[market_id]
 
 
-def _source_reliability_for_market(source_reliability, spec):
+def _source_reliability_for_market(
+    source_reliability, spec, production_context=None
+):
+    if production_context is not None:
+        values = (production_context.get("markets") or {}).get(spec.id)
+        if not isinstance(values, dict):
+            raise ValueError(
+                f"production static feature context has no market {spec.id}"
+            )
+        return {
+            field: values.get(field) for field in SOURCE_RELIABILITY_COLUMNS
+        }
     if spec.id not in source_reliability:
         source_reliability[spec.id] = market_source_reliability(spec)
     return source_reliability[spec.id]
@@ -534,9 +610,13 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
     source_reliability = {}
     reanalysis_indexes = {}
     marine_water_contrast_indexes = {}
+    production_context = _verified_production_static_context(artifact)
     reanalysis_promotion_lane = _artifact_reanalysis_lane(artifact)
-    needs_reanalysis = _artifact_needs_reanalysis(artifact)
-    needs_marine_water_contrast = _artifact_needs_marine_water_contrast(artifact)
+    needs_reanalysis = production_context is None and _artifact_needs_reanalysis(artifact)
+    needs_marine_water_contrast = (
+        production_context is None
+        and _artifact_needs_marine_water_contrast(artifact)
+    )
     diagnostics = {
         "family_unit": family_unit,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
@@ -555,6 +635,11 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
         "marine_water_contrast_sidecar_rows_missing": 0,
         "marine_water_contrast_sidecar_rows_without_observed_features": 0,
         "marine_water_contrast_sidecar_filled_columns": {},
+        "production_static_context_sha256": (
+            production_context.get("context_sha256")
+            if production_context is not None
+            else None
+        ),
     }
     include_reconstructed = bool(manifest.get("include_reconstructed"))
     features = {}
@@ -569,8 +654,12 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
             continue
 
         model = _model_for_market(models, market_id)
-        climate = _climate_for_market(climates, model, market_id)
-        reliability = _source_reliability_for_market(source_reliability, spec)
+        climate = _climate_for_market(
+            climates, model, market_id, production_context
+        )
+        reliability = _source_reliability_for_market(
+            source_reliability, spec, production_context
+        )
         records = index_records_by_snapshot(load_replay_records(folder))
         for snapshot_id in pinned_ids:
             record = records.get(snapshot_id)
@@ -598,6 +687,12 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
                     reanalysis_synoptic_features=reanalysis_features,
                     reanalysis_promotion_lane=reanalysis_promotion_lane,
                 )
+                if production_context is not None:
+                    for column in {
+                        *REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
+                        *MARINE_WATER_CONTRAST_COLUMNS,
+                    }:
+                        feature_row[column] = None
                 if needs_marine_water_contrast and target_date is not None:
                     sidecar_features = _marine_water_contrast_index_for_market(
                         marine_water_contrast_indexes,
@@ -1057,7 +1152,10 @@ def attach_band_candidate_probabilities(
                     copy[column] = clob_row.get(column)
             hour = str(band_row.get("cutoff_hour"))
             copy["candidate_cutoff_hour"] = band_row.get("cutoff_hour")
-            if hour in models_by_hour:
+            if (
+                pooled_band_regime_route(band_row) == "pooled_band_default"
+                and hour in models_by_hour
+            ):
                 by_hour[hour].append((len(rows), band_row))
             else:
                 coverage["missing_candidate_rows"] += 1
@@ -1509,7 +1607,77 @@ def _pooled_replay_cache_config(args, manifest, artifact, *, prediction_mode, fa
     }
 
 
-def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_unit, prediction_mode):
+def _candidate_replay_row_identity(row):
+    """Identity stable before and after the settlement-label join."""
+
+    return (
+        str((row or {}).get("market_id") or ""),
+        str((row or {}).get("target_date") or ""),
+        str((row or {}).get("snapshot_id") or ""),
+        str((row or {}).get("band") or ""),
+        str((row or {}).get("bin_type") or ""),
+        str((row or {}).get("bin_value_c") or ""),
+        str((row or {}).get("bin_value_hi") or ""),
+    )
+
+
+def _prediction_only_replay_results(replay_results):
+    """Remove settlement-derived values before candidate prediction.
+
+    ``run_replay_backtest`` remains the canonical captured-input row
+    enumerator.  It resolves settlement to decide which tape rows are
+    scoreable, but none of those settlement-derived fields are allowed across
+    the candidate prediction boundary in the bounded production adapter.
+    """
+
+    labels_by_identity = {}
+    prediction_rows = []
+    for source_row in (replay_results or {}).get("all_rows") or ():
+        identity = _candidate_replay_row_identity(source_row)
+        if not all(identity[:4]) or identity in labels_by_identity:
+            raise BoundedCandidateReplayError(
+                "candidate replay row identity is missing or duplicated before prediction"
+            )
+        labels_by_identity[identity] = {
+            key: source_row.get(key)
+            for key in _SETTLEMENT_LABEL_FIELDS
+            if key in source_row
+        }
+        prediction_rows.append({
+            key: value
+            for key, value in source_row.items()
+            if key not in _SETTLEMENT_LABEL_FIELDS
+        })
+    prediction_results = dict(replay_results or {})
+    prediction_results["all_rows"] = prediction_rows
+    return prediction_results, labels_by_identity
+
+
+def _join_deferred_settlement_labels(candidate_rows, labels_by_identity):
+    joined = []
+    for candidate_row in candidate_rows:
+        identity = _candidate_replay_row_identity(candidate_row)
+        labels = labels_by_identity.get(identity)
+        if labels is None:
+            raise BoundedCandidateReplayError(
+                "candidate prediction cannot be joined to its pinned settlement row"
+            )
+        row = dict(candidate_row)
+        row.update(labels)
+        joined.append(row)
+    return joined
+
+
+def _compute_pooled_candidate_day(
+    args,
+    manifest,
+    folder,
+    artifact,
+    *,
+    family_unit,
+    prediction_mode,
+    defer_settlement_join=False,
+):
     day_manifest = _single_entry_manifest(manifest, folder, args.snapshots_root)
     replay_results = run_replay_backtest(
         [str(folder)],
@@ -1522,6 +1690,12 @@ def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_un
         long_job_guard_info=getattr(args, "long_job_guard_info", None),
     )
     if prediction_mode == "band_binary":
+        labels_by_identity = None
+        prediction_replay_results = replay_results
+        if defer_settlement_join:
+            prediction_replay_results, labels_by_identity = (
+                _prediction_only_replay_results(replay_results)
+            )
         feature_rows, diagnostics = build_candidate_features(
             day_manifest,
             args.snapshots_root,
@@ -1542,13 +1716,17 @@ def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_un
         diagnostics.update(clob_diagnostics)
         diagnostics.update(source_freshness_diagnostics)
         candidate_rows, coverage = attach_band_candidate_probabilities(
-            replay_results,
+            prediction_replay_results,
             feature_rows,
             artifact,
             family_unit,
             clob_features=clob_features,
             source_freshness=source_freshness,
         )
+        if labels_by_identity is not None:
+            candidate_rows = _join_deferred_settlement_labels(
+                candidate_rows, labels_by_identity
+            )
     elif prediction_mode == RESIDUAL_DISTRIBUTION_V1_MODE:
         feature_rows, diagnostics = build_candidate_features(
             day_manifest,
@@ -1610,6 +1788,757 @@ def _compute_pooled_candidate_day(args, manifest, folder, artifact, *, family_un
         "coverage": coverage,
         "diagnostics": diagnostics,
         "replay_results": _compact_replay_results(replay_results),
+    }
+
+
+def _bounded_required_identity(value, field):
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise BoundedCandidateReplayError(f"{field} is required")
+    return normalized
+
+
+def _bounded_expected_sha256(value, field):
+    normalized = str(value or "").strip()
+    if (
+        len(normalized) != 64
+        or normalized != normalized.lower()
+        or any(char not in "0123456789abcdef" for char in normalized)
+    ):
+        raise BoundedCandidateReplayError(
+            f"{field} must be a lowercase SHA-256 digest"
+        )
+    return normalized
+
+
+def _bounded_positive_int(value, field):
+    if isinstance(value, bool):
+        raise BoundedCandidateReplayError(f"{field} must be a positive integer")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise BoundedCandidateReplayError(
+            f"{field} must be a positive integer"
+        ) from exc
+    if normalized <= 0:
+        raise BoundedCandidateReplayError(f"{field} must be a positive integer")
+    return normalized
+
+
+def _bounded_locked_date(value):
+    normalized = str(value or "").strip()
+    try:
+        parsed = date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise BoundedCandidateReplayError(
+            f"locked date {normalized!r} must be YYYY-MM-DD"
+        ) from exc
+    if normalized != parsed.isoformat():
+        raise BoundedCandidateReplayError(
+            f"locked date {normalized!r} is not canonical"
+        )
+    return normalized
+
+
+def _bounded_manifest_snapshot_hash(entry, field, snapshot_id):
+    value = ((entry or {}).get(field) or {}).get(snapshot_id)
+    return _bounded_expected_sha256(
+        value,
+        f"manifest {field}[{snapshot_id!r}]",
+    )
+
+
+def _bounded_locked_manifest_entries(
+    manifest,
+    *,
+    snapshots_root,
+    locked_dates,
+    locked_folders,
+    max_market_days,
+    max_rows_per_market_day,
+):
+    dates = {_bounded_locked_date(value) for value in (locked_dates or ())}
+    folder_values = [str(value).strip() for value in (locked_folders or ())]
+    if any(not value for value in folder_values):
+        raise BoundedCandidateReplayError("locked folders cannot contain blanks")
+    if not dates and not folder_values:
+        raise BoundedCandidateReplayError(
+            "at least one explicit locked date or manifest-pinned folder is required"
+        )
+
+    entries = list((manifest or {}).get("entries") or ())
+    folders = list(folders_from_manifest(manifest, snapshots_root))
+    if len(entries) != len(folders):
+        raise BoundedCandidateReplayError(
+            "promotion manifest entries and resolved folders differ"
+        )
+
+    rows = []
+    by_slug = {}
+    by_resolved_path = {}
+    for entry, folder in zip(entries, folders):
+        slug = _bounded_required_identity(entry.get("event_slug"), "event_slug")
+        if slug in by_slug:
+            raise BoundedCandidateReplayError(
+                f"duplicate promotion-manifest event_slug: {slug}"
+            )
+        folder = Path(folder)
+        if not folder.exists() or not folder.is_dir():
+            raise BoundedCandidateReplayError(
+                f"manifest-pinned market-day folder is missing: {folder}"
+            )
+        resolved = folder.resolve()
+        if folder.name != slug:
+            raise BoundedCandidateReplayError(
+                f"manifest event_slug {slug!r} does not match folder {folder.name!r}"
+            )
+        resolved_key = os.path.normcase(str(resolved))
+        if resolved_key in by_resolved_path:
+            raise BoundedCandidateReplayError(
+                f"duplicate resolved promotion-manifest folder: {resolved}"
+            )
+        row = (entry, resolved)
+        rows.append(row)
+        by_slug[slug] = row
+        by_resolved_path[resolved_key] = row
+
+    selected = []
+    if folder_values:
+        seen_folders = set()
+        for value in folder_values:
+            matched = by_slug.get(value)
+            if matched is None:
+                path_key = os.path.normcase(str(Path(value).resolve()))
+                matched = by_resolved_path.get(path_key)
+            if matched is None:
+                raise BoundedCandidateReplayError(
+                    f"locked folder is not pinned by the promotion manifest: {value}"
+                )
+            slug = str(matched[0]["event_slug"])
+            if slug in seen_folders:
+                raise BoundedCandidateReplayError(
+                    f"duplicate locked folder: {value}"
+                )
+            seen_folders.add(slug)
+            selected.append(matched)
+    else:
+        selected = [
+            row for row in rows if str(row[0].get("target_date") or "") in dates
+        ]
+
+    selected_dates = {
+        _bounded_locked_date(entry.get("target_date"))
+        for entry, _folder in selected
+    }
+    if dates:
+        outside_lock = sorted(selected_dates - dates)
+        missing_dates = sorted(dates - selected_dates)
+        if outside_lock:
+            raise BoundedCandidateReplayError(
+                "locked folders include dates outside the explicit lock: "
+                + ", ".join(outside_lock)
+            )
+        if missing_dates:
+            raise BoundedCandidateReplayError(
+                "explicit locked dates have no selected manifest folder: "
+                + ", ".join(missing_dates)
+            )
+    if not selected:
+        raise BoundedCandidateReplayError("the explicit lock selected no market-days")
+    if len(selected) > max_market_days:
+        raise BoundedCandidateReplayError(
+            f"market-day bound exceeded: {len(selected)} > {max_market_days}"
+        )
+
+    market_days = set()
+    validated = []
+    for entry, folder in selected:
+        target_date = _bounded_locked_date(entry.get("target_date"))
+        market_id = _bounded_required_identity(entry.get("market_id"), "market_id")
+        market_day = (target_date, market_id)
+        if market_day in market_days:
+            raise BoundedCandidateReplayError(
+                f"duplicate manifest market-day identity: {market_day}"
+            )
+        market_days.add(market_day)
+
+        raw_row_count = _bounded_positive_int(
+            entry.get("row_count"), f"manifest row_count for {entry['event_slug']}"
+        )
+        if raw_row_count > max_rows_per_market_day:
+            raise BoundedCandidateReplayError(
+                f"manifest row bound exceeded for {entry['event_slug']}: "
+                f"{raw_row_count} > {max_rows_per_market_day}"
+            )
+        snapshot_ids = [str(item) for item in entry.get("snapshot_ids") or ()]
+        if not snapshot_ids or len(snapshot_ids) != len(set(snapshot_ids)):
+            raise BoundedCandidateReplayError(
+                f"manifest snapshot identities are missing or duplicated for {entry['event_slug']}"
+            )
+        if int(entry.get("snapshot_count") or -1) != len(snapshot_ids):
+            raise BoundedCandidateReplayError(
+                f"manifest snapshot_count mismatch for {entry['event_slug']}"
+            )
+        for snapshot_id in snapshot_ids:
+            _bounded_manifest_snapshot_hash(
+                entry, "replay_record_hashes", snapshot_id
+            )
+            _bounded_manifest_snapshot_hash(entry, "tape_row_hashes", snapshot_id)
+        _bounded_expected_sha256(
+            entry.get("label_hash"),
+            f"manifest label_hash for {entry['event_slug']}",
+        )
+        if entry.get("settlement_bucket") is None:
+            raise BoundedCandidateReplayError(
+                f"manifest settlement is missing for {entry['event_slug']}"
+            )
+        validated.append((entry, folder))
+    return sorted(
+        validated,
+        key=lambda item: (
+            str(item[0]["target_date"]),
+            str(item[0]["market_id"]),
+            str(item[0]["event_slug"]),
+        ),
+    )
+
+
+def _bounded_load_band_artifact(
+    artifact_path,
+    *,
+    expected_artifact_sha256,
+    candidate_id,
+    release_id,
+):
+    path = Path(artifact_path).resolve()
+    if not path.is_file():
+        raise BoundedCandidateReplayError(f"candidate artifact is missing: {path}")
+    actual_sha256 = sha256_file(path)
+    if actual_sha256 != expected_artifact_sha256:
+        raise BoundedCandidateReplayError(
+            "candidate artifact SHA-256 does not match the predeclared identity"
+        )
+    artifact = load_artifact(path)
+    if artifact.get("prediction_mode") != "band_binary":
+        raise BoundedCandidateReplayError(
+            "bounded pooled replay accepts only a serialized band_binary artifact"
+        )
+    if not isinstance(artifact.get("models"), dict) or not artifact.get("models"):
+        raise BoundedCandidateReplayError("candidate artifact has no band models")
+    for field in ("artifact_hash", "candidate_artifact_sha256"):
+        embedded = str(artifact.get(field) or "").strip()
+        if embedded and embedded != expected_artifact_sha256:
+            raise BoundedCandidateReplayError(
+                f"candidate artifact embedded {field} does not match its exact file SHA"
+            )
+    for field, expected in (
+        ("candidate_id", candidate_id),
+        ("variant_id", candidate_id),
+        ("release_id", release_id),
+    ):
+        embedded = str(artifact.get(field) or "").strip()
+        if embedded and embedded != expected:
+            raise BoundedCandidateReplayError(
+                f"candidate artifact embedded {field}={embedded!r}; expected {expected!r}"
+            )
+    return path, artifact
+
+
+def _bounded_optional_float(value, field):
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise BoundedCandidateReplayError(f"{field} must be numeric") from exc
+    if not math.isfinite(number):
+        raise BoundedCandidateReplayError(f"{field} must be finite")
+    return number
+
+
+def _bounded_captured_times(row):
+    captured_local = str(
+        (row or {}).get("captured_at_local")
+        or (row or {}).get("captured_at_utc")
+        or ""
+    ).strip()
+    if not captured_local:
+        raise BoundedCandidateReplayError(
+            "candidate replay row is missing its captured timestamp"
+        )
+    normalized = captured_local[:-1] + "+00:00" if captured_local.endswith("Z") else captured_local
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise BoundedCandidateReplayError(
+            f"candidate replay captured timestamp is invalid: {captured_local!r}"
+        ) from exc
+    if parsed.tzinfo is None:
+        raise BoundedCandidateReplayError(
+            "candidate replay captured timestamp must include a timezone"
+        )
+    return captured_local, parsed.astimezone(timezone.utc).isoformat()
+
+
+def _bounded_canonical_candidate_row(
+    row,
+    *,
+    entry,
+    pinned_snapshot_ids,
+    folder,
+    manifest,
+    manifest_path,
+    manifest_sha256,
+    artifact,
+    artifact_sha256,
+    candidate_id,
+    release_id,
+    replayed_at_utc,
+):
+    target_date = _bounded_locked_date(row.get("target_date"))
+    market_id = _bounded_required_identity(row.get("market_id"), "row market_id")
+    if (
+        target_date != str(entry.get("target_date"))
+        or market_id != str(entry.get("market_id"))
+    ):
+        raise BoundedCandidateReplayError(
+            "candidate replay row escaped its manifest-pinned market-day"
+        )
+    snapshot_id = _bounded_required_identity(
+        row.get("snapshot_id"), "row snapshot_id"
+    )
+    if snapshot_id not in pinned_snapshot_ids:
+        raise BoundedCandidateReplayError(
+            f"candidate replay snapshot {snapshot_id!r} is not manifest-pinned"
+        )
+    band = _bounded_required_identity(row.get("band"), "row band")
+    probability = _bounded_optional_float(row.get("candidate_p"), "candidate_p")
+    if probability is None or not 0.0 <= probability <= 1.0:
+        raise BoundedCandidateReplayError(
+            "every bounded candidate replay row requires a probability in [0, 1]"
+        )
+    label = _bounded_optional_float(row.get("outcome"), "outcome")
+    if label not in {0.0, 1.0}:
+        raise BoundedCandidateReplayError(
+            "settled outcome must be binary and joined after prediction"
+        )
+    row_settlement = _bounded_optional_float(
+        row.get("settlement_bucket"), "row settlement_bucket"
+    )
+    entry_settlement = _bounded_optional_float(
+        entry.get("settlement_bucket"), "manifest settlement_bucket"
+    )
+    if row_settlement != entry_settlement:
+        raise BoundedCandidateReplayError(
+            "candidate replay settlement does not match the pinned manifest label"
+        )
+    captured_local, captured_utc = _bounded_captured_times(row)
+    replay_record_sha256 = _bounded_manifest_snapshot_hash(
+        entry, "replay_record_hashes", snapshot_id
+    )
+    tape_rows_sha256 = _bounded_manifest_snapshot_hash(
+        entry, "tape_row_hashes", snapshot_id
+    )
+    label_sha256 = _bounded_expected_sha256(
+        entry.get("label_hash"), "manifest label_hash"
+    )
+    label_quality = str(entry.get("quality_grade") or "").strip().lower()
+    if (
+        label_quality not in {"complete", "manual_override"}
+        or entry.get("admitted_by") not in {None, "quality_grade"}
+    ):
+        raise BoundedCandidateReplayError(
+            "production candidate replay requires a complete or manual_override "
+            "manifest label admitted by quality grade"
+        )
+    source_integrity = {
+        "manifest_pinned": True,
+        "snapshot_pinned": True,
+        "replay_record_hash_verified": True,
+        "snapshot_tape_hash_verified": True,
+        "feature_quality_quarantine_applied": True,
+    }
+    lineage = {
+        "source_mode": "promotion_manifest_pinned_captured_replay",
+        "manifest_path": str(manifest_path),
+        "manifest_schema_version": manifest.get("schema_version"),
+        "manifest_sha256": manifest_sha256,
+        "corpus_hash": manifest.get("corpus_hash"),
+        "event_slug": entry.get("event_slug"),
+        "market_day_folder": str(folder),
+        "target_date": target_date,
+        "market_id": market_id,
+        "snapshot_id": snapshot_id,
+        "captured_at_local": captured_local,
+        "captured_at_utc": captured_utc,
+        "replay_record_sha256": replay_record_sha256,
+        "snapshot_tape_rows_sha256": tape_rows_sha256,
+        "settlement_label_sha256": label_sha256,
+        "label_quality": label_quality,
+        "source_integrity": source_integrity,
+    }
+    lineage_json = json.dumps(
+        lineage,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return {
+        "schema_version": BOUNDED_CANDIDATE_REPLAY_SCHEMA_VERSION,
+        "candidate_id": candidate_id,
+        "candidate_artifact_sha256": artifact_sha256,
+        "candidate_artifact_hash": artifact_sha256,
+        "candidate_prediction_mode": "band_binary",
+        "candidate_trained_at": str(artifact.get("trained_at") or ""),
+        "target_date": target_date,
+        "market_id": market_id,
+        "cutoff_or_snapshot": snapshot_id,
+        "snapshot_id": snapshot_id,
+        "band": band,
+        "range_label": band,
+        "bin_type": str(row.get("bin_type") or ""),
+        "bin_value_c": _bounded_optional_float(row.get("bin_value_c"), "bin_value_c"),
+        "bin_value_hi": _bounded_optional_float(row.get("bin_value_hi"), "bin_value_hi"),
+        "candidate_cutoff_hour": _bounded_optional_float(
+            row.get("candidate_cutoff_hour"), "candidate_cutoff_hour"
+        ),
+        "feature_schema_version": str(row.get("feature_schema_version") or ""),
+        "source_freshness_state": str(
+            row.get("source_freshness_state") or "missing_source_status"
+        ),
+        "market_yes": _bounded_optional_float(row.get("market_yes"), "market_yes"),
+        "market_no": _bounded_optional_float(row.get("market_no"), "market_no"),
+        "recorded_p": _bounded_optional_float(row.get("recorded_p"), "recorded_p"),
+        "replayed_p": _bounded_optional_float(row.get("replayed_p"), "replayed_p"),
+        "prediction_probability": probability,
+        "candidate_p": probability,
+        "label": label,
+        "outcome": int(label),
+        "settlement_bucket": entry_settlement,
+        "settlement_unit": str(entry.get("settlement_unit") or ""),
+        "settlement_source": str(entry.get("settlement_source") or ""),
+        "label_quality": label_quality,
+        "countable": True,
+        "claim_lane": "weather_only",
+        "replay_serve_parity": "pass",
+        "source_quality": "healthy",
+        "source_integrity": source_integrity,
+        "variant_id": candidate_id,
+        "release_id": release_id,
+        "runtime_identity": f"pooled_band_sha256:{artifact_sha256}",
+        "captured_at_local": captured_local,
+        "captured_at_utc": captured_utc,
+        "feature_available_at_utc": captured_utc,
+        "prediction_made_at_utc": captured_utc,
+        "replayed_at_utc": replayed_at_utc,
+        "source_manifest_sha256": manifest_sha256,
+        "source_corpus_hash": str(manifest.get("corpus_hash") or ""),
+        "source_lineage": lineage,
+        "source_lineage_json": lineage_json,
+        "source_provenance_json": lineage_json,
+    }
+
+
+def iter_bounded_pooled_band_candidate_replay_market_days(
+    *,
+    artifact_path,
+    expected_artifact_sha256,
+    candidate_id,
+    corpus_manifest_path,
+    expected_manifest_sha256,
+    preselection_lock_path,
+    expected_preselection_hash,
+    expected_window_lock_id,
+    snapshots_root,
+    locked_dates=(),
+    locked_folders=(),
+    max_market_days,
+    max_rows_per_market_day,
+    release_id=None,
+    clob_max_age_seconds=180,
+):
+    """Yield freshly scored, label-deferred batches one market-day at a time.
+
+    Each yielded list owns exactly one pinned market-day.  The producer does
+    not compute the next market-day until the consumer requests the next
+    batch, which lets bounded writers flush and release the current batch
+    before scorer state for another day is allocated.  Callers must discard
+    already-consumed batches if iteration raises; the companion atomic writer
+    provides that fail-closed behavior for persisted evidence.
+    """
+
+    candidate_id = _bounded_required_identity(candidate_id, "candidate_id")
+    release_id = _bounded_required_identity(
+        release_id or candidate_id, "release_id"
+    )
+    expected_artifact_sha256 = _bounded_expected_sha256(
+        expected_artifact_sha256, "expected_artifact_sha256"
+    )
+    expected_manifest_sha256 = _bounded_expected_sha256(
+        expected_manifest_sha256, "expected_manifest_sha256"
+    )
+    expected_preselection_hash = _bounded_expected_sha256(
+        expected_preselection_hash, "expected_preselection_hash"
+    )
+    expected_window_lock_id = _bounded_expected_sha256(
+        expected_window_lock_id, "expected_window_lock_id"
+    )
+    max_market_days = _bounded_positive_int(max_market_days, "max_market_days")
+    max_rows_per_market_day = _bounded_positive_int(
+        max_rows_per_market_day, "max_rows_per_market_day"
+    )
+    clob_max_age_seconds = _bounded_positive_int(
+        clob_max_age_seconds, "clob_max_age_seconds"
+    )
+
+    manifest_path = Path(corpus_manifest_path).resolve()
+    if not manifest_path.is_file():
+        raise BoundedCandidateReplayError(
+            f"promotion corpus manifest is missing: {manifest_path}"
+        )
+    actual_manifest_sha256 = sha256_file(manifest_path)
+    if actual_manifest_sha256 != expected_manifest_sha256:
+        raise BoundedCandidateReplayError(
+            "promotion corpus manifest SHA-256 does not match the explicit lock"
+        )
+    manifest = load_manifest(manifest_path)
+    artifact_path, artifact = _bounded_load_band_artifact(
+        artifact_path,
+        expected_artifact_sha256=expected_artifact_sha256,
+        candidate_id=candidate_id,
+        release_id=release_id,
+    )
+    from weather.calibration.pooled_training import (
+        load_production_point_in_time_preselection,
+        verify_pooled_point_in_time_training_evidence,
+    )
+
+    try:
+        preselection = load_production_point_in_time_preselection(
+            preselection_lock_path
+        )
+        training = verify_pooled_point_in_time_training_evidence(artifact)
+    except (OSError, TypeError, ValueError) as exc:
+        raise BoundedCandidateReplayError(
+            f"candidate replay preselection/training evidence is invalid: {exc}"
+        ) from exc
+    training_lock = training.get("preselection_lock") or {}
+    if (
+        preselection.get("preselection_hash") != expected_preselection_hash
+        or (preselection.get("window_lock") or {}).get("window_lock_id")
+        != expected_window_lock_id
+        or training_lock.get("preselection_hash") != expected_preselection_hash
+        or training_lock.get("window_lock_id") != expected_window_lock_id
+        or training_lock.get("selection_universe_sha256")
+        != (preselection.get("selection_universe") or {}).get("sha256")
+        or training_lock.get("locked_dates")
+        != (preselection.get("window_lock") or {}).get("target_dates")
+        or training_lock.get("locked_dates_used_for_selection") is not False
+    ):
+        raise BoundedCandidateReplayError(
+            "candidate artifact is not bound to the exact production preselection lock"
+        )
+    source_binding = preselection.get("source") or {}
+    if (
+        source_binding.get("replay_manifest_sha256") != expected_manifest_sha256
+        or source_binding.get("replay_corpus_hash") != manifest.get("corpus_hash")
+    ):
+        raise BoundedCandidateReplayError(
+            "candidate replay manifest differs from the preselected source population"
+        )
+    if locked_folders:
+        raise BoundedCandidateReplayError(
+            "production candidate replay requires the preselected fleet-date universe"
+        )
+    replay_dates = sorted({_bounded_locked_date(value) for value in locked_dates or ()})
+    expected_replay_dates = list(
+        (preselection.get("selection_universe") or {}).get("fleet_dates") or ()
+    )
+    if replay_dates != expected_replay_dates:
+        raise BoundedCandidateReplayError(
+            "candidate replay dates differ from the preselected selection universe"
+        )
+    selected = _bounded_locked_manifest_entries(
+        manifest,
+        snapshots_root=snapshots_root,
+        locked_dates=locked_dates,
+        locked_folders=locked_folders,
+        max_market_days=max_market_days,
+        max_rows_per_market_day=max_rows_per_market_day,
+    )
+    family_unit = artifact.get("family_unit") or "F"
+    args = argparse.Namespace(
+        snapshots_root=str(Path(snapshots_root).resolve()),
+        clob_max_age_seconds=clob_max_age_seconds,
+        long_job_guard_info=None,
+    )
+    for entry, folder in selected:
+        computed = _compute_pooled_candidate_day(
+            args,
+            manifest,
+            folder,
+            artifact,
+            family_unit=family_unit,
+            prediction_mode="band_binary",
+            defer_settlement_join=True,
+        )
+        warnings = (
+            (computed.get("replay_results") or {}).get("corpus_warnings") or []
+        )
+        if warnings:
+            raise BoundedCandidateReplayError(
+                "manifest-pinned captured inputs changed: " + "; ".join(map(str, warnings))
+            )
+        candidate_rows = computed.get("candidate_rows") or []
+        if not isinstance(candidate_rows, list):
+            candidate_rows = list(candidate_rows)
+        if not candidate_rows:
+            raise BoundedCandidateReplayError(
+                f"candidate produced no rows for explicit market-day {entry['event_slug']}"
+            )
+        if len(candidate_rows) > max_rows_per_market_day:
+            raise BoundedCandidateReplayError(
+                f"candidate row bound exceeded for {entry['event_slug']}: "
+                f"{len(candidate_rows)} > {max_rows_per_market_day}"
+            )
+        coverage = computed.get("coverage") or {}
+        if int(coverage.get("missing_candidate_rows") or 0) != 0:
+            raise BoundedCandidateReplayError(
+                f"candidate scoring is incomplete for {entry['event_slug']}"
+            )
+        seen_row_identities = set()
+        pinned_snapshot_ids = frozenset(
+            str(item) for item in entry.get("snapshot_ids") or ()
+        )
+        replayed_at_utc = datetime.now(timezone.utc).isoformat()
+        candidate_rows.sort(key=_candidate_replay_row_identity)
+        for index, row in enumerate(candidate_rows):
+            identity = _candidate_replay_row_identity(row)
+            if identity in seen_row_identities:
+                raise BoundedCandidateReplayError(
+                    f"duplicate candidate replay row for {entry['event_slug']}: {identity}"
+                )
+            seen_row_identities.add(identity)
+            # Replace the scorer row in place so the market-day batch never
+            # retains a second full list of canonical output rows.
+            candidate_rows[index] = _bounded_canonical_candidate_row(
+                row,
+                entry=entry,
+                pinned_snapshot_ids=pinned_snapshot_ids,
+                folder=folder,
+                manifest=manifest,
+                manifest_path=manifest_path,
+                manifest_sha256=expected_manifest_sha256,
+                artifact=artifact,
+                artifact_sha256=expected_artifact_sha256,
+                candidate_id=candidate_id,
+                release_id=release_id,
+                replayed_at_utc=replayed_at_utc,
+            )
+        # The generator frame survives while the consumer flushes this batch.
+        # Drop the compute graph and its raw replay payload before yielding so
+        # only this one canonical market-day remains retained by the producer.
+        del computed, warnings, coverage, seen_row_identities
+        row = None
+        yield candidate_rows
+        # Clear the producer's reference before the next scorer invocation.
+        candidate_rows = None
+
+    # Detect mutation during a long stream.  The artifact was loaded once, so
+    # every prediction above used the bytes identified at entry; persisted
+    # output is accepted only when both source identities remain unchanged.
+    if sha256_file(artifact_path) != expected_artifact_sha256:
+        raise BoundedCandidateReplayError(
+            "candidate artifact changed while bounded replay was running"
+        )
+    if sha256_file(manifest_path) != expected_manifest_sha256:
+        raise BoundedCandidateReplayError(
+            "promotion corpus manifest changed while bounded replay was running"
+        )
+
+
+def iter_bounded_pooled_band_candidate_replay(**replay_kwargs):
+    """Preserve the public row iterator over the bounded day-batch producer."""
+
+    day_iterator = iter_bounded_pooled_band_candidate_replay_market_days(
+        **replay_kwargs
+    )
+    for market_day_rows in day_iterator:
+        yield from market_day_rows
+        # Avoid retaining the completed batch while requesting the next one.
+        del market_day_rows
+
+
+def write_bounded_pooled_band_candidate_replay_jsonl(out_path, **replay_kwargs):
+    """Atomically write canonical JSONL from the bounded replay iterator."""
+
+    out_path = Path(out_path).resolve()
+    if out_path.exists():
+        raise FileExistsError(f"bounded candidate replay already exists: {out_path}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = out_path.with_name(f".{out_path.name}.{os.getpid()}.tmp")
+    digest = hashlib.sha256()
+    row_count = 0
+    market_days = set()
+    identities = None
+    try:
+        with temp_path.open("xb") as handle:
+            for row in iter_bounded_pooled_band_candidate_replay(**replay_kwargs):
+                line = (
+                    json.dumps(
+                        row,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+                handle.write(line)
+                digest.update(line)
+                row_count += 1
+                market_days.add((row["target_date"], row["market_id"]))
+                row_identities = (
+                    row["candidate_id"],
+                    row["candidate_artifact_sha256"],
+                    row["source_manifest_sha256"],
+                )
+                if identities is None:
+                    identities = row_identities
+                elif identities != row_identities:
+                    raise BoundedCandidateReplayError(
+                        "candidate or source identity changed within replay output"
+                    )
+            if row_count <= 0:
+                raise BoundedCandidateReplayError(
+                    "bounded candidate replay produced no persisted rows"
+                )
+            handle.flush()
+            os.fsync(handle.fileno())
+        if out_path.exists():
+            raise FileExistsError(
+                f"bounded candidate replay appeared during write: {out_path}"
+            )
+        os.replace(temp_path, out_path)
+    except Exception:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+    return {
+        "schema_version": BOUNDED_CANDIDATE_REPLAY_SCHEMA_VERSION,
+        "path": str(out_path),
+        "sha256": digest.hexdigest(),
+        "bytes": out_path.stat().st_size,
+        "row_count": row_count,
+        "market_day_count": len(market_days),
+        "candidate_id": identities[0],
+        "candidate_artifact_sha256": identities[1],
+        "source_manifest_sha256": identities[2],
+        "write_mode": "market_day_streaming_atomic_jsonl",
+        "raw_market_days_retained_at_once": 1,
     }
 
 

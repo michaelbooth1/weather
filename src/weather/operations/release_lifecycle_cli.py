@@ -18,6 +18,7 @@ from weather.release_artifacts import strict_json_loads
 from weather.operations.release_promotion import (
     DEFAULT_ACTIVE_POINTER,
     DEFAULT_CANDIDATES_ROOT,
+    DEFAULT_ROLLBACK_DRILL,
     assert_candidate_only_output,
     promote_release,
     resolve_active_release,
@@ -82,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     rollback = subparsers.add_parser("rollback", help="atomically return to the prior verified release")
     rollback.add_argument("--market-day-boundary", type=Path, required=True)
+    rollback.add_argument(
+        "--drill-record",
+        type=Path,
+        default=DEFAULT_ROLLBACK_DRILL,
+        help="atomic rollback drill record output (default: data/backtest/release_rollback_drill.json)",
+    )
 
     subparsers.add_parser("active", help="resolve the active release after complete verification")
 
@@ -140,6 +147,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             market_day_boundary=_read_object(args.market_day_boundary, label="market-day boundary proof"),
             releases_root=args.releases_root,
             pointer_path=pointer,
+            drill_record_path=args.drill_record,
         )
     if args.command == "active":
         return resolve_active_release(

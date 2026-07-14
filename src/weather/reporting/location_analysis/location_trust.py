@@ -25,6 +25,7 @@ CLI:
 """
 import argparse
 import json
+from datetime import date
 from pathlib import Path
 
 from weather.paths import data_path
@@ -58,6 +59,19 @@ ACCEPTED_QUALITY_GRADES = {"complete", "manual_override"}
 
 GRADE_BANDS = [(80, "Strong"), (65, "Good"), (45, "Moderate"), (25, "Low"), (0, "Unproven")]
 DEFAULT_OUT = data_path() / "backtest" / "location_trust.json"
+
+
+def _canonical_target_date_filter(values):
+    if values is None:
+        return None
+    try:
+        return frozenset(
+            date.fromisoformat(str(value)).isoformat() for value in values
+        )
+    except (TypeError, ValueError):
+        raise ValueError(
+            "included trust target dates must be YYYY-MM-DD"
+        ) from None
 
 
 def _clamp01(value):
@@ -94,9 +108,21 @@ def trust_from_components(n_settled, ece):
     }
 
 
-def market_settled_folders(market_id, root, as_of):
+def market_settled_folders(
+    market_id,
+    root,
+    as_of,
+    *,
+    included_target_dates=None,
+):
+    included = _canonical_target_date_filter(included_target_dates)
     folders = []
     for folder in discover_settled_folders(root, as_of=as_of):
+        target_date = date_from_event_slug(Path(folder).name)
+        if included is not None and (
+            target_date is None or target_date.isoformat() not in included
+        ):
+            continue
         spec = spec_for_slug(Path(folder).name)
         label = load_market_day_label(folder)
         if (
@@ -138,13 +164,25 @@ def _rationale(n_settled, ece, components):
             f"Maturity {components['maturity_subscore']:.2f} of 1.0 -- more days raise confidence.")
 
 
-def score_market(market_id, root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_DAILY_SUMMARY, as_of=None):
+def score_market(
+    market_id,
+    root=DEFAULT_SNAPSHOTS_ROOT,
+    daily_summary=DEFAULT_DAILY_SUMMARY,
+    as_of=None,
+    *,
+    included_target_dates=None,
+):
     spec = next((item for item in all_specs() if item.id == market_id), None)
     if spec and Path(daily_summary) == DEFAULT_DAILY_SUMMARY:
         daily_index = load_daily_summary(spec.data_root / "daily" / "daily_summary.csv")
     else:
         daily_index = load_daily_summary(daily_summary)
-    folders = market_settled_folders(market_id, root, as_of)
+    folders = market_settled_folders(
+        market_id,
+        root,
+        as_of,
+        included_target_dates=included_target_dates,
+    )
     n_settled = len(folders)
     rows = collect_scored_rows(folders, daily_index)
     ece = expected_calibration_error(rows, "model_probability") if rows else None
@@ -190,8 +228,24 @@ def score_market(market_id, root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_D
     }
 
 
-def score_all_markets(root=DEFAULT_SNAPSHOTS_ROOT, daily_summary=DEFAULT_DAILY_SUMMARY, as_of=None):
-    return [score_market(spec.id, root, daily_summary, as_of) for spec in all_specs()]
+def score_all_markets(
+    root=DEFAULT_SNAPSHOTS_ROOT,
+    daily_summary=DEFAULT_DAILY_SUMMARY,
+    as_of=None,
+    *,
+    included_target_dates=None,
+):
+    included = _canonical_target_date_filter(included_target_dates)
+    return [
+        score_market(
+            spec.id,
+            root,
+            daily_summary,
+            as_of,
+            included_target_dates=included,
+        )
+        for spec in all_specs()
+    ]
 
 
 def main():

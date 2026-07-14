@@ -210,6 +210,8 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain run --dry-run
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain status
+.\venv\Scripts\python.exe -m weather.operations.release_lifecycle rollback `
+  --market-day-boundary <reviewed-boundary-proof.json>
 ```
 
 `daily_refresh` is the morning settlement-to-reporting chain. It can finalize
@@ -247,7 +249,20 @@ reviewing drift. The operator workflow is documented in
 `nightly_retrain` is the overnight self-improvement job. It refreshes daily
 learning, retrains/validates candidate artifacts, refreshes artifact registries
 and promotion decisions, and writes `data/backtest/nightly_retrain_status.json`
-plus `data/backtest/nightly_retrain_report.md`.
+plus `data/backtest/nightly_retrain_report.md`. Candidate mode defaults to
+`research_only`. Explicit production mode first locks a candidate-independent
+14-day evaluation window, then writes four candidate-local point-in-time roles;
+it can build only an inactive release and never changes the active pointer. See
+the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
+
+Release rollback is a reviewed, market-day-boundary operation. The command
+hash-verifies the prior immutable release, atomically switches the active
+pointer, emits the post-rollback release identity, and writes
+`data/backtest/release_rollback_drill.json`. A self-hashed reconciliation
+journal is durable before the pointer changes, so the same command can safely
+finalize the record after an interrupted post-swap write. It does not control
+workers: the record remains pending until the required coordinated restart and
+health proof are completed.
 
 ### Backtests, Audits, And Model Training
 

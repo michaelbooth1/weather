@@ -10,6 +10,7 @@ def train_band_hour_model(
     feature_names=None,
     include_dynamic_source_state=False,
     feature_subset=FEATURE_SUBSET_ALL,
+    prefit_imputer=None,
 ):
     build_started = time.perf_counter()
     with warnings.catch_warnings(record=True) as caught:
@@ -28,8 +29,17 @@ def train_band_hour_model(
     # Preserve the declared feature contract even when a training fold has an
     # entirely missing column; otherwise sklearn drops it and serving-time
     # transforms can silently change shape across folds/runs.
-    imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-    x_train = imputer.fit_transform(train_frame)
+    imputer = prefit_imputer
+    if imputer is None:
+        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
+        x_train = imputer.fit_transform(train_frame)
+        imputer_fit_scope = "model_training_rows"
+    else:
+        # Production point-in-time fitting records imputation as its own
+        # training-only stage, then hands that exact fitted object to the HGB
+        # trainer.  Research callers retain the historical fit-in-model path.
+        x_train = imputer.transform(train_frame)
+        imputer_fit_scope = "prefit_training_only_stage"
     y_train = np.array([int(row["outcome"]) for row in train_rows])
     weights = np.array([float(row.get("_sample_weight", 1.0)) for row in train_rows])
     model = HistGradientBoostingClassifier(
@@ -48,6 +58,7 @@ def train_band_hour_model(
         "model_fit_seconds": round(fit_seconds, 6),
         "performance_warning_count": performance_warning_count(caught),
         "feature_subset": feature_subset or FEATURE_SUBSET_ALL,
+        "imputer_fit_scope": imputer_fit_scope,
     }
     return model, imputer, feature_names, metrics
 
@@ -676,6 +687,7 @@ from weather.model.variant_prediction_runtime import (  # noqa: E402
     market_bias_calibration_contexts,
     market_bias_calibration_factor,
     normal_cdf,
+    pooled_band_regime_route,
     predict_band_probabilities,
     predict_band_rows_for_bundle,
     source_trust_bucket,

@@ -108,6 +108,14 @@ only after schema/step/PID validation and preserves the completed step result.
 The representative scheduled Stage-A soak and measured inventory values remain
 open and must not be inferred from unit tests.
 
+The ten-minute scorecard follow-up reduces checkpoint rows market-day by
+market-day instead of retaining the full multi-week scored corpus. After this
+bounded scorer change is adopted, the 2026-07-12 settled-day analysis completes
+through the barrier's recorded resume commands for
+`ten_minute_model_performance` and `maker_paper_score` with
+`--settled-analysis-target-date 2026-07-12`; the barrier status must not be
+hand-edited to substitute for that recorded step evidence.
+
 ## 2026-07-13b scheduled-soak checkpoint
 
 The 2026-07-13 scheduled task remains non-countable soak evidence. Its Task

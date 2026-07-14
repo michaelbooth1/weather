@@ -7,6 +7,7 @@ import json
 import math
 import os
 import pickle
+import re
 import shutil
 import time
 from collections.abc import Mapping, Sequence
@@ -16,6 +17,8 @@ from typing import Any
 from weather.model.feature_safety import audit_recursive_model_inputs
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
+    verify_embedded_point_in_time_training_evidence,
+    verify_point_in_time_selection_binding,
     verify_production_point_in_time_artifacts,
 )
 from weather.release_artifacts import ReleaseArtifactVerificationError, sha256_file, strict_json_loads
@@ -60,6 +63,7 @@ SEMANTIC_PATHS = {
 }
 
 MAX_PRODUCTION_EVALUATION_AGE_DAYS = 7
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 INTERNALLY_HASHED_ROLES = {
     "market_route_table",
@@ -310,12 +314,26 @@ def _pickle_feature_contract(path: Path, *, expected_sha256: str, label: str) ->
     }
 
 
+def _family_secondary_output_role(entry: Mapping[str, Any]) -> str:
+    tokens = [
+        str(entry.get("fit_scope") or "scope"),
+        str(entry.get("market_id") or "family"),
+        str(entry.get("artifact_kind") or "artifact"),
+    ]
+    suffix = ".".join(
+        re.sub(r"[^a-z0-9_-]+", "_", token.casefold()).strip("_")
+        for token in tokens
+    )
+    return f"family_secondary_output.{suffix}"
+
+
 def _freeze_base_model_serving_graph(
     *,
     candidate_dir: Path,
     repo_root: Path,
     market_ids: Sequence[str],
     family_secondary_path: Path,
+    family_secondary_manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
     role_paths: dict[str, str] = {}
     role_kinds: dict[str, str] = {}
@@ -380,6 +398,47 @@ def _freeze_base_model_serving_graph(
             "family-secondary calibration is not a regular candidate artifact"
         )
     family_relative = family_secondary_path.relative_to(candidate_dir).as_posix()
+    family_output_components: dict[str, Any] = {}
+    output_inventory = family_secondary_manifest.get("output_artifact_inventory")
+    if isinstance(output_inventory, Mapping):
+        for entry in output_inventory.get("entries") or ():
+            if not isinstance(entry, Mapping):
+                raise CandidateContractError(
+                    "family-secondary output inventory entry is invalid"
+                )
+            source = Path(str(entry.get("path") or "")).resolve()
+            if (
+                source.is_symlink()
+                or not source.is_file()
+                or not source.is_relative_to(candidate_dir)
+                or sha256_file(source) != entry.get("sha256")
+                or source.stat().st_size != int(entry.get("bytes") or -1)
+            ):
+                raise CandidateContractError(
+                    "family-secondary output is not an exact candidate artifact"
+                )
+            role = _family_secondary_output_role(entry)
+            if role in role_paths:
+                raise CandidateContractError(
+                    f"duplicate family-secondary output role: {role}"
+                )
+            relative = source.relative_to(candidate_dir).as_posix()
+            component = {
+                "role": role,
+                "kind": "calibration",
+                "path": relative,
+                "sha256": str(entry["sha256"]),
+                "bytes": int(entry["bytes"]),
+                "artifact_kind": str(entry.get("artifact_kind") or ""),
+                "fit_scope": str(entry.get("fit_scope") or ""),
+                "market_id": str(entry.get("market_id") or ""),
+            }
+            role_paths[role] = relative
+            role_kinds[role] = "calibration"
+            family_output_components[role] = component
+            audit_payloads[role] = _read_json(
+                source, label=f"family-secondary output {role}"
+            )
     graph = _finalize_payload(
         {
             "schema_version": BASE_MODEL_SERVING_GRAPH_SCHEMA_VERSION,
@@ -398,6 +457,16 @@ def _freeze_base_model_serving_graph(
                     "path": family_relative,
                     "sha256": sha256_file(family_secondary_path),
                 },
+                **(
+                    {
+                        "family_secondary_outputs": {
+                            "inventory_sha256": output_inventory.get("sha256"),
+                            "components": family_output_components,
+                        }
+                    }
+                    if family_output_components
+                    else {}
+                ),
             },
             "code_constant_components": {
                 "empirical_distribution": {
@@ -600,6 +669,31 @@ def _route_table(
     )
 
 
+def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
+    decisions = {"promote": [], "shadow": [], "blocked": []}
+    for market_id, row in (route.get("markets") or {}).items():
+        if not isinstance(row, Mapping) or row.get("decision") not in decisions:
+            raise CandidateContractError(
+                "market route table has an invalid point-in-time decision"
+            )
+        decisions[str(row["decision"])].append(str(market_id))
+    for values in decisions.values():
+        values.sort()
+    verdict = (
+        "blocked"
+        if decisions["blocked"]
+        else "promote_ready"
+        if decisions["promote"]
+        else "shadow"
+    )
+    return {
+        "verdict": verdict,
+        "promote_markets": decisions["promote"],
+        "shadow_markets": decisions["shadow"],
+        "blocked_markets": decisions["blocked"],
+    }
+
+
 def _settlement_rules(locations: Mapping[str, Any]) -> dict[str, Any]:
     rows = []
     for raw in locations.get("locations") or []:
@@ -645,8 +739,24 @@ def _settlement_rules(locations: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def _corpus_manifest(bundle: Mapping[str, Any], bundle_sha256: str) -> dict[str, Any]:
+def _corpus_manifest(
+    bundle: Mapping[str, Any],
+    bundle_sha256: str,
+    *,
+    production_evaluation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     lineage = _json_safe(bundle.get("corpus_lineage") or {})
+    if production_evaluation is not None:
+        trainer_evaluation = lineage.get("evaluation")
+        lineage["evaluation"] = _json_safe(production_evaluation)
+        lineage["evaluation_source"] = (
+            "production_point_in_time_locked_candidate_corpus"
+        )
+        if (
+            isinstance(trainer_evaluation, Mapping)
+            and int(trainer_evaluation.get("row_count") or 0) > 0
+        ):
+            lineage["trainer_diagnostic_evaluation"] = trainer_evaluation
     required_partitions = ("selection_training", "evaluation", "final_refit")
     failures = []
     for name in required_partitions:
@@ -670,6 +780,94 @@ def _corpus_manifest(bundle: Mapping[str, Any], bundle_sha256: str) -> dict[str,
             "corpus_lineage": lineage,
         }
     )
+
+
+def _production_evaluation_lineage(
+    manifest: Mapping[str, Any],
+    qualification: Mapping[str, Any],
+) -> dict[str, Any]:
+    derived = manifest.get("derived_artifact")
+    inputs = manifest.get("inputs")
+    if not isinstance(derived, Mapping) or not isinstance(inputs, list):
+        raise CandidateContractError(
+            "production point-in-time evaluation lineage is incomplete"
+        )
+    graph = manifest.get("candidate_training_graph")
+    stage_bindings = (
+        graph.get("selection_stage_bindings")
+        if isinstance(graph, Mapping)
+        else None
+    )
+    calibration_binding = (
+        stage_bindings.get("calibration")
+        if isinstance(stage_bindings, Mapping)
+        else None
+    )
+    dates = sorted(
+        str(value)
+        for value in (
+            calibration_binding.get("locked_dates")
+            if isinstance(calibration_binding, Mapping)
+            else ()
+        )
+    )
+    locked_inputs = [
+        row
+        for row in inputs
+        if isinstance(row, Mapping)
+        and str(row.get("target_date") or "") in set(dates)
+    ]
+    observed_dates = {
+        str(row.get("target_date") or "") for row in locked_inputs
+    }
+    row_count = sum(int(row.get("source_row_count") or 0) for row in locked_inputs)
+    corpus_sha256 = str(qualification.get("corpus_sha256") or "")
+    manifest_hash = str(
+        qualification.get("materialization_manifest_hash") or ""
+    )
+    failures = []
+    if row_count <= 0:
+        failures.append("empty_corpus")
+    if len(dates) != 14 or observed_dates != set(dates):
+        failures.append(f"locked_fleet_dates={len(observed_dates)}/{len(dates)}")
+    if not _SHA256_RE.fullmatch(corpus_sha256):
+        failures.append("invalid_corpus_sha256")
+    if not _SHA256_RE.fullmatch(manifest_hash):
+        failures.append("invalid_manifest_hash")
+    if failures:
+        raise CandidateContractError(
+            "production point-in-time evaluation lineage is invalid: "
+            + ", ".join(failures)
+        )
+    evaluation_binding = {
+        "corpus_sha256": corpus_sha256,
+        "locked_dates": dates,
+        "streaming_evaluation_hash": qualification.get(
+            "streaming_evaluation_hash"
+        ),
+    }
+    return {
+        "row_count": row_count,
+        "sha256": _payload_sha256(evaluation_binding),
+        "hash_algorithm": "sha256_canonical_binding",
+        "corpus_sha256": corpus_sha256,
+        "evaluation_binding": evaluation_binding,
+        "target_date_min": dates[0],
+        "target_date_max": dates[-1],
+        "target_date_count": len(dates),
+        "window_days": int(qualification.get("locked_window_days") or 0),
+        "materialization_manifest_hash": manifest_hash,
+        "validation_plan_hash": qualification.get("validation_plan_hash"),
+        "streaming_evaluation_hash": qualification.get(
+            "streaming_evaluation_hash"
+        ),
+        "candidate_training_graph_hash": qualification.get(
+            "candidate_training_graph_hash"
+        ),
+        "selection_universe_sha256": qualification.get(
+            "selection_universe_sha256"
+        ),
+    }
 
 
 def _verify_payload_hash(payload: Mapping[str, Any], *, label: str) -> None:
@@ -817,6 +1015,49 @@ def _verify_base_model_graph(
         )
     ):
         raise CandidateContractError("base model shared family-secondary binding is invalid")
+    family_outputs = shared.get("family_secondary_outputs")
+    production_graph = bool(
+        set(required_role_kinds) & set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS)
+    )
+    if production_graph:
+        components = (
+            family_outputs.get("components")
+            if isinstance(family_outputs, Mapping)
+            else None
+        )
+        if (
+            not isinstance(components, Mapping)
+            or not components
+            or not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(family_outputs.get("inventory_sha256") or ""),
+            )
+        ):
+            raise CandidateContractError(
+                "base model family-secondary output inventory is missing"
+            )
+        for role, component in sorted(components.items()):
+            artifact = artifacts.get(role)
+            if (
+                not str(role).startswith("family_secondary_output.")
+                or not isinstance(component, Mapping)
+                or component.get("role") != role
+                or component.get("kind") != "calibration"
+                or required_role_kinds.get(role) != "calibration"
+                or not isinstance(artifact, Mapping)
+                or any(
+                    component.get(field) != artifact.get(field)
+                    for field in ("path", "kind", "sha256", "bytes")
+                )
+            ):
+                raise CandidateContractError(
+                    f"base model family-secondary output binding is invalid: {role}"
+                )
+            dynamic_roles.add(role)
+    elif family_outputs is not None:
+        raise CandidateContractError(
+            "research-only base graph declares production family-secondary outputs"
+        )
     expected_dynamic_roles = (
         set(required_role_kinds)
         - set(SEMANTIC_SERVING_ROLE_KINDS)
@@ -912,7 +1153,96 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
     )
     qualification: dict[str, Any] | None = None
     if candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        frozen_qualification = contract.get("point_in_time_qualification")
+        if not isinstance(frozen_qualification, Mapping):
+            raise CandidateContractError(
+                "production candidate has no frozen point-in-time qualification identity"
+            )
+        frozen_candidate_artifacts = frozen_qualification.get("candidate_artifacts")
+        if not isinstance(frozen_candidate_artifacts, Mapping):
+            raise CandidateContractError(
+                "production candidate point-in-time artifact identities are missing"
+            )
+        frozen_stage_bindings = frozen_qualification.get(
+            "selection_stage_bindings"
+        )
+        if (
+            not isinstance(frozen_stage_bindings, Mapping)
+            or not isinstance(frozen_stage_bindings.get("routing"), Mapping)
+        ):
+            raise CandidateContractError(
+                "production candidate frozen routing selection binding is missing"
+            )
+        release_bundle, _ = _load_verified_bundle(
+            root / str(artifacts["pooled_band_model"]["path"])
+        )
+        release_family_secondary = _read_json(
+            root / str(artifacts["family_secondary_calibration"]["path"]),
+            label="family secondary calibration",
+        )
+        family_inventory = release_family_secondary.get(
+            "output_artifact_inventory"
+        )
+        family_output_graph = (
+            sidecars["base_model_serving_graph"].get("shared_components") or {}
+        ).get("family_secondary_outputs")
+        family_components = (
+            family_output_graph.get("components")
+            if isinstance(family_output_graph, Mapping)
+            else None
+        )
+        inventory_entries = (
+            family_inventory.get("entries")
+            if isinstance(family_inventory, Mapping)
+            else None
+        )
+        if (
+            not isinstance(inventory_entries, list)
+            or not isinstance(family_components, Mapping)
+            or family_inventory.get("sha256")
+            != family_output_graph.get("inventory_sha256")
+            or int(family_inventory.get("entry_count") or -1)
+            != len(inventory_entries)
+            or {
+                _family_secondary_output_role(entry)
+                for entry in inventory_entries
+                if isinstance(entry, Mapping)
+            }
+            != set(family_components)
+        ):
+            raise CandidateContractError(
+                "production family-secondary output inventory differs from the frozen graph"
+            )
+        for entry in inventory_entries:
+            if not isinstance(entry, Mapping):
+                raise CandidateContractError(
+                    "production family-secondary output inventory is malformed"
+                )
+            component = family_components[_family_secondary_output_role(entry)]
+            if any(
+                component.get(graph_field) != entry.get(inventory_field)
+                for graph_field, inventory_field in (
+                    ("sha256", "sha256"),
+                    ("bytes", "bytes"),
+                    ("artifact_kind", "artifact_kind"),
+                    ("fit_scope", "fit_scope"),
+                    ("market_id", "market_id"),
+                )
+            ):
+                raise CandidateContractError(
+                    "production family-secondary component differs from its manifest"
+                )
         try:
+            embedded_training_evidence = (
+                verify_embedded_point_in_time_training_evidence(release_bundle)
+            )
+            expected_stage_bindings = {
+                "calibration": verify_point_in_time_selection_binding(
+                    release_family_secondary,
+                    stage="calibration",
+                ),
+                "routing": dict(frozen_stage_bindings["routing"]),
+            }
             qualification = verify_production_point_in_time_artifacts(
                 corpus_path=root / str(artifacts["point_in_time_corpus"]["path"]),
                 materialization_manifest_path=(
@@ -926,6 +1256,20 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
                 ),
                 expected_candidate_id=str(contract.get("candidate_id") or ""),
                 expected_release_id=str(contract.get("candidate_id") or ""),
+                expected_candidate_artifact_sha256=str(
+                    artifacts["pooled_band_model"]["sha256"]
+                ),
+                expected_calibration_artifact_sha256=str(
+                    artifacts["family_secondary_calibration"]["sha256"]
+                ),
+                expected_routing_artifact_sha256=str(
+                    frozen_candidate_artifacts.get("routing_sha256") or ""
+                ),
+                expected_route_selection=_point_in_time_route_selection(
+                    sidecars["market_route_table"]
+                ),
+                expected_training_evidence=embedded_training_evidence,
+                expected_selection_stage_bindings=expected_stage_bindings,
                 max_age_days=MAX_PRODUCTION_EVALUATION_AGE_DAYS,
                 inspect_corpus_parquet=True,
             )
@@ -933,6 +1277,10 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
             raise CandidateContractError(
                 f"production point-in-time qualification failed: {exc}"
             ) from exc
+        if qualification != dict(frozen_qualification):
+            raise CandidateContractError(
+                "production point-in-time qualification differs from the frozen identity"
+            )
     audit = _read_json(
         root / SEMANTIC_PATHS["candidate_input_leakage_audit"],
         label="candidate input leakage audit",
@@ -997,8 +1345,22 @@ def freeze_candidate_semantic_contract(
     config_root = Path(repo_root).resolve() / "config"
     model_path = Path(model_bundle_path).resolve()
     bundle, bundle_sha = _load_verified_bundle(model_path)
+    family_secondary = _read_json(
+        Path(family_secondary_path).resolve(),
+        label="family secondary calibration",
+    )
+    if mode == PRODUCTION_CANDIDATE_MODE:
+        try:
+            from weather.calibration.family_secondary_artifacts import (
+                verify_production_family_manifest,
+            )
+
+            verify_production_family_manifest(family_secondary)
+        except (OSError, TypeError, ValueError) as exc:
+            raise CandidateContractError(
+                f"production family-secondary calibration failed verification: {exc}"
+            ) from exc
     sidecars = _bundle_sidecars(bundle, bundle_sha)
-    corpus = _corpus_manifest(bundle, bundle_sha)
     model_relative_path = model_path.relative_to(root).as_posix()
     source_documents = {
         "model_variant_registry": _freeze_model_variant_registry(
@@ -1036,6 +1398,7 @@ def freeze_candidate_semantic_contract(
         repo_root=Path(repo_root).resolve(),
         market_ids=list((route_without_base.get("markets") or {}).keys()),
         family_secondary_path=Path(family_secondary_path),
+        family_secondary_manifest=family_secondary,
     )
     base_graph = base_graph_info["graph"]
     route = _route_table(
@@ -1046,15 +1409,6 @@ def freeze_candidate_semantic_contract(
         base_model_graph=base_graph,
     )
     settlement = _settlement_rules(source_documents["locations_config"])
-    generated = {
-        **sidecars,
-        "market_route_table": route,
-        "settlement_rules": settlement,
-        "training_evaluation_corpus": corpus,
-    }
-    for role, payload in generated.items():
-        _write_json_exclusive(root / SEMANTIC_PATHS[role], payload)
-
     frozen_point_in_time_paths: dict[str, Path] = {}
     for role, source_value in sorted(point_in_time_sources.items()):
         source = Path(source_value).resolve()
@@ -1064,9 +1418,32 @@ def freeze_candidate_semantic_contract(
         elif source.is_symlink() or not source.exists() or not source.is_file():
             raise CandidateContractError(f"{role} is missing or invalid: {source}")
         frozen_point_in_time_paths[role] = destination
+    frozen_point_in_time_qualification: dict[str, Any] | None = None
     if mode == PRODUCTION_CANDIDATE_MODE:
+        routing_source = Path(str(promotion.get("path") or "")).resolve()
+        if not routing_source.is_file() or routing_source.is_symlink():
+            raise CandidateContractError(
+                "production promotion routing artifact is missing or invalid"
+            )
+        routing_payload = _read_json(
+            routing_source,
+            label="production promotion routing artifact",
+        )
         try:
-            verify_production_point_in_time_artifacts(
+            embedded_training_evidence = (
+                verify_embedded_point_in_time_training_evidence(bundle)
+            )
+            expected_stage_bindings = {
+                "calibration": verify_point_in_time_selection_binding(
+                    family_secondary,
+                    stage="calibration",
+                ),
+                "routing": verify_point_in_time_selection_binding(
+                    routing_payload,
+                    stage="routing",
+                ),
+            }
+            frozen_point_in_time_qualification = verify_production_point_in_time_artifacts(
                 corpus_path=frozen_point_in_time_paths["point_in_time_corpus"],
                 materialization_manifest_path=frozen_point_in_time_paths[
                     "point_in_time_materialization_manifest"
@@ -1079,6 +1456,14 @@ def freeze_candidate_semantic_contract(
                 ],
                 expected_candidate_id=candidate_id,
                 expected_release_id=candidate_id,
+                expected_candidate_artifact_sha256=bundle_sha,
+                expected_calibration_artifact_sha256=sha256_file(
+                    Path(family_secondary_path).resolve()
+                ),
+                expected_routing_artifact_sha256=sha256_file(routing_source),
+                expected_route_selection=_point_in_time_route_selection(route),
+                expected_training_evidence=embedded_training_evidence,
+                expected_selection_stage_bindings=expected_stage_bindings,
                 max_age_days=MAX_PRODUCTION_EVALUATION_AGE_DAYS,
                 inspect_corpus_parquet=True,
             )
@@ -1087,10 +1472,32 @@ def freeze_candidate_semantic_contract(
                 f"production point-in-time qualification failed: {exc}"
             ) from exc
 
-    family_secondary = _read_json(
-        Path(family_secondary_path).resolve(),
-        label="family secondary calibration",
+    production_evaluation = None
+    if frozen_point_in_time_qualification is not None:
+        frozen_manifest = _read_json(
+            frozen_point_in_time_paths[
+                "point_in_time_materialization_manifest"
+            ],
+            label="point-in-time materialization manifest",
+        )
+        production_evaluation = _production_evaluation_lineage(
+            frozen_manifest,
+            frozen_point_in_time_qualification,
+        )
+    corpus = _corpus_manifest(
+        bundle,
+        bundle_sha,
+        production_evaluation=production_evaluation,
     )
+    generated = {
+        **sidecars,
+        "market_route_table": route,
+        "settlement_rules": settlement,
+        "training_evaluation_corpus": corpus,
+    }
+    for role, payload in generated.items():
+        _write_json_exclusive(root / SEMANTIC_PATHS[role], payload)
+
     artifact_registry = _read_json(
         Path(artifact_registry_path).resolve(),
         label="artifact registry",
@@ -1220,6 +1627,15 @@ def freeze_candidate_semantic_contract(
             "leakage_audit_status": audit["status"],
             "required_role_kinds": required_role_kinds,
             "artifacts": artifact_rows,
+            **(
+                {
+                    "point_in_time_qualification": (
+                        frozen_point_in_time_qualification
+                    )
+                }
+                if frozen_point_in_time_qualification is not None
+                else {}
+            ),
             "generated_in_seconds": round(time.time() - started, 3),
         }
     )

@@ -1,9 +1,13 @@
+import hashlib
+import json
 import os
+import pickle
 import subprocess
 import sys
 import tempfile
 import unittest
 import warnings
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -49,6 +53,7 @@ from weather.calibration.pooled_feature_model import (
     historical_only_source_feature_manifest,
     late_lockin_strength_from_features,
     market_source_reliability,
+    load_production_point_in_time_preselection_from_payload,
     market_bias_calibration_contexts,
     merge_pooled_band_artifacts,
     normalize_band_probabilities_for_rows,
@@ -61,11 +66,217 @@ from weather.calibration.pooled_feature_model import (
     tune_density_shape_policy,
     tune_density_sigma_f,
     write_density_report,
+    verify_pooled_point_in_time_training_evidence,
 )
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
+from weather.reporting.validation.point_in_time_evaluation import build_window_lock
+from weather.schema_registry import schema_version
 
 
 class TestPooledFeatureModel(unittest.TestCase):
+    @staticmethod
+    def _production_preselection(fleet_dates):
+        generated_at = "2026-02-05T12:00:00+00:00"
+        universe_sha256 = "1" * 64
+        lock = build_window_lock(
+            fleet_dates,
+            input_sha256=universe_sha256,
+            input_kind="selection_universe_sha256",
+            window_days=14,
+            window_end=fleet_dates[-1],
+            generated_at_utc=generated_at,
+        )
+        payload = {
+            "schema_version": schema_version(
+                "production_point_in_time_preselection"
+            ),
+            "artifact_type": "production_point_in_time_preselection",
+            "generated_at_utc": generated_at,
+            "status": "PASS",
+            "candidate_selection_permission": "forbidden",
+            "locked_before_candidate_training": True,
+            "selection_universe": {
+                "schema_version": schema_version(
+                    "point_in_time_streaming_evaluation"
+                ),
+                "hash_algorithm": "sha256",
+                "canonicalization": "canonical_json_lines",
+                "sha256": universe_sha256,
+                "row_count": len(fleet_dates),
+                "fleet_dates": list(fleet_dates),
+                "candidate_dependent_fields_excluded": [],
+            },
+            "window_lock": lock,
+        }
+        payload["preselection_hash"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        return payload
+
+    def test_production_preselection_self_hash_fails_closed(self):
+        fleet_dates = [
+            (date(2026, 1, 1) + timedelta(days=offset)).isoformat()
+            for offset in range(36)
+        ]
+        payload = self._production_preselection(fleet_dates)
+        verified = load_production_point_in_time_preselection_from_payload(
+            payload
+        )
+        self.assertEqual(verified["preselection_hash"], payload["preselection_hash"])
+
+        payload["window_lock"]["target_dates"][-1] = "2026-03-01"
+        with self.assertRaisesRegex(ValueError, "preselection_hash"):
+            load_production_point_in_time_preselection_from_payload(payload)
+
+    def test_production_preselection_rejects_a_historical_fourteen_day_window(self):
+        fleet_dates = [
+            (date(2026, 1, 1) + timedelta(days=offset)).isoformat()
+            for offset in range(36)
+        ]
+        payload = self._production_preselection(fleet_dates)
+        payload["window_lock"] = build_window_lock(
+            fleet_dates,
+            input_sha256=payload["selection_universe"]["sha256"],
+            input_kind="selection_universe_sha256",
+            window_days=14,
+            window_end=fleet_dates[-2],
+            generated_at_utc=payload["generated_at_utc"],
+        )
+        payload.pop("preselection_hash")
+        payload["preselection_hash"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        with self.assertRaisesRegex(ValueError, "most recent"):
+            load_production_point_in_time_preselection_from_payload(payload)
+
+    def test_production_preselection_rejects_a_stale_latest_target_date(self):
+        fleet_dates = [
+            (date(2026, 1, 1) + timedelta(days=offset)).isoformat()
+            for offset in range(36)
+        ]
+        payload = self._production_preselection(fleet_dates)
+        payload["generated_at_utc"] = "2026-03-01T12:00:00+00:00"
+        payload["window_lock"] = build_window_lock(
+            fleet_dates,
+            input_sha256=payload["selection_universe"]["sha256"],
+            input_kind="selection_universe_sha256",
+            window_days=14,
+            window_end=fleet_dates[-1],
+            generated_at_utc=payload["generated_at_utc"],
+        )
+        payload.pop("preselection_hash")
+        payload["preselection_hash"] = hashlib.sha256(
+            json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        with self.assertRaisesRegex(ValueError, "stale or future"):
+            load_production_point_in_time_preselection_from_payload(payload)
+
+    def test_production_pooled_training_uses_real_nested_receipts_and_excludes_lock(self):
+        first_date = date(2026, 1, 1)
+        fleet_dates = [
+            (first_date + timedelta(days=offset)).isoformat()
+            for offset in range(36)
+        ]
+        preselection = self._production_preselection(fleet_dates)
+        locked = set(preselection["window_lock"]["target_dates"])
+        records = []
+        for index, target_date in enumerate(fleet_dates):
+            if target_date in locked:
+                continue
+            final_bucket = 80 + (index % 5)
+            records.append(add_city_features({
+                **self._base_record(),
+                "target_date": target_date,
+                "market_id": "nyc",
+                "high_so_far": 77.0 + (index % 3),
+                "forecast_high": final_bucket + 0.25,
+                "final_bucket": final_bucket,
+                "cutoff_hour": 12,
+                "year": 2026,
+            }, NYC, {"climate_normal": 82.0, "climate_std": 5.0}))
+        artifact, _validation_rows = train_pooled_band_models(
+            records,
+            holdout_year=None,
+            production_preselection=preselection,
+        )
+        evidence = verify_pooled_point_in_time_training_evidence(artifact)
+        scopes = sum(
+            1 + len(item["inner"]) for item in evidence["folds"]
+        )
+
+        self.assertEqual(evidence["status"], "PASS")
+        resources = evidence["resource_contract"]
+        self.assertEqual(resources["raw_market_days_retained_at_once"], 1)
+        self.assertTrue(resources["normalized_training_population_retained"])
+        self.assertLessEqual(
+            resources["observed_training_source_rows"],
+            resources["max_normalized_training_source_rows"],
+        )
+        self.assertEqual(len(evidence["fit_receipts"]), scopes * 6)
+        self.assertEqual(
+            {row["stage_name"] for row in evidence["fit_receipts"]},
+            {
+                "feature_selection",
+                "scaling_imputation",
+                "model",
+                "calibration",
+                "postprocessing",
+                "regime_router",
+            },
+        )
+        self.assertTrue(all(
+            not locked
+            & set(
+                row["train_dates"]
+                + row["embargo_dates"]
+                + row["validation_dates"]
+            )
+            for row in evidence["fit_receipts"]
+        ))
+        self.assertFalse(
+            locked & set(evidence["final_fit_receipt"]["train_dates"])
+        )
+        self.assertEqual(
+            evidence["final_fit_receipt"]["model_sha256_by_hour"].keys(),
+            artifact["models"].keys(),
+        )
+
+        persisted_artifact = pickle.loads(
+            pickle.dumps(artifact, protocol=pickle.HIGHEST_PROTOCOL)
+        )
+        persisted_evidence = verify_pooled_point_in_time_training_evidence(
+            persisted_artifact
+        )
+        self.assertEqual(
+            persisted_evidence["final_fit_receipt"]["model_sha256_by_hour"],
+            evidence["final_fit_receipt"]["model_sha256_by_hour"],
+        )
+
+        first_bundle = next(iter(persisted_artifact["models"].values()))
+        first_bundle["model"]._predictors[0][0].nodes["value"][0] += 0.125
+        with self.assertRaisesRegex(ValueError, "final-refit receipt"):
+            verify_pooled_point_in_time_training_evidence(persisted_artifact)
+
     def test_training_export_guard_requires_candidate_path_and_quarantines_legacy_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

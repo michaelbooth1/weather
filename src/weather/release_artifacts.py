@@ -412,6 +412,50 @@ def _verify_base_model_graph_metadata(
         raise ReleaseArtifactVerificationError(
             "base model shared family-secondary calibration binding is invalid"
         )
+    family_outputs = shared.get("family_secondary_outputs")
+    production_graph = bool(
+        set(required_role_kinds) & set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS)
+    )
+    if production_graph:
+        components = (
+            family_outputs.get("components")
+            if isinstance(family_outputs, Mapping)
+            else None
+        )
+        if (
+            not isinstance(components, Mapping)
+            or not components
+            or not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(family_outputs.get("inventory_sha256") or ""),
+            )
+        ):
+            raise ReleaseArtifactVerificationError(
+                "base model family-secondary output inventory is missing"
+            )
+        for role, component in sorted(components.items()):
+            artifact = artifacts.get(role)
+            if (
+                not str(role).startswith("family_secondary_output.")
+                or not isinstance(component, Mapping)
+                or component.get("role") != role
+                or component.get("kind") != "calibration"
+                or required_role_kinds.get(role) != "calibration"
+                or not isinstance(artifact, Mapping)
+                or any(
+                    component.get(field) != artifact.get(field)
+                    for field in ("path", "kind", "sha256", "bytes")
+                )
+            ):
+                raise ReleaseArtifactVerificationError(
+                    "base model family-secondary output binding is invalid: "
+                    f"{role}"
+                )
+            graph_dynamic_roles.add(role)
+    elif family_outputs is not None:
+        raise ReleaseArtifactVerificationError(
+            "research-only base graph declares production family-secondary outputs"
+        )
     dynamic_roles = (
         set(required_role_kinds)
         - set(SEMANTIC_SERVING_ROLE_KINDS)
@@ -447,6 +491,36 @@ def _verify_base_model_graph_metadata(
         raise ReleaseArtifactVerificationError(
             "base model code-constant contract is incomplete"
         )
+
+
+def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
+    decisions = {"promote": [], "shadow": [], "blocked": []}
+    markets = route.get("markets")
+    if not isinstance(markets, Mapping) or not markets:
+        raise ReleaseArtifactVerificationError(
+            "release route table has no point-in-time market decisions"
+        )
+    for market_id, row in markets.items():
+        decision = row.get("decision") if isinstance(row, Mapping) else None
+        if decision not in decisions:
+            raise ReleaseArtifactVerificationError(
+                "release route table has an invalid point-in-time decision"
+            )
+        decisions[str(decision)].append(str(market_id))
+    for values in decisions.values():
+        values.sort()
+    return {
+        "verdict": (
+            "blocked"
+            if decisions["blocked"]
+            else "promote_ready"
+            if decisions["promote"]
+            else "shadow"
+        ),
+        "promote_markets": decisions["promote"],
+        "shadow_markets": decisions["shadow"],
+        "blocked_markets": decisions["blocked"],
+    }
 
 
 def _verify_semantic_contract_after_inventory(
@@ -623,6 +697,30 @@ def _verify_semantic_contract_after_inventory(
             )
     qualification: dict[str, Any] | None = None
     if candidate_mode == PRODUCTION_CANDIDATE_MODE:
+        frozen_qualification = contract.get("point_in_time_qualification")
+        frozen_candidate_artifacts = (
+            frozen_qualification.get("candidate_artifacts")
+            if isinstance(frozen_qualification, Mapping)
+            else None
+        )
+        frozen_stage_bindings = (
+            frozen_qualification.get("selection_stage_bindings")
+            if isinstance(frozen_qualification, Mapping)
+            else None
+        )
+        if (
+            not isinstance(frozen_candidate_artifacts, Mapping)
+            or frozen_candidate_artifacts.get("model_sha256") != bundle_sha
+            or frozen_candidate_artifacts.get("calibration_sha256")
+            != by_role["family_secondary_calibration"].get("sha256")
+            or not SHA256_RE.fullmatch(
+                str(frozen_candidate_artifacts.get("routing_sha256") or "")
+            )
+            or not isinstance(frozen_stage_bindings, Mapping)
+        ):
+            raise ReleaseArtifactVerificationError(
+                "frozen production qualification disagrees with release artifacts"
+            )
         try:
             qualification = verify_production_point_in_time_artifacts(
                 corpus_path=release_dir / str(by_role["point_in_time_corpus"]["path"]),
@@ -639,6 +737,17 @@ def _verify_semantic_contract_after_inventory(
                 ),
                 expected_candidate_id=str(contract.get("candidate_id") or ""),
                 expected_release_id=str(contract.get("candidate_id") or ""),
+                expected_candidate_artifact_sha256=bundle_sha,
+                expected_calibration_artifact_sha256=str(
+                    by_role["family_secondary_calibration"].get("sha256") or ""
+                ),
+                expected_routing_artifact_sha256=str(
+                    frozen_candidate_artifacts["routing_sha256"]
+                ),
+                expected_route_selection=_point_in_time_route_selection(
+                    sidecars["market_route_table"]
+                ),
+                expected_selection_stage_bindings=frozen_stage_bindings,
                 max_age_days=None,
                 inspect_corpus_parquet=False,
             )
@@ -646,6 +755,15 @@ def _verify_semantic_contract_after_inventory(
             raise ReleaseArtifactVerificationError(
                 f"production point-in-time qualification failed: {exc}"
             ) from exc
+        comparable_frozen = dict(frozen_qualification)
+        comparable_verified = dict(qualification)
+        for payload in (comparable_frozen, comparable_verified):
+            payload.pop("corpus_structure_reverified", None)
+            payload.pop("verification_mode", None)
+        if comparable_verified != comparable_frozen:
+            raise ReleaseArtifactVerificationError(
+                "immutable release qualification differs from its frozen candidate proof"
+            )
     return {
         "status": "PASS",
         "contract_role": "semantic_serving_contract",

@@ -28,6 +28,80 @@ python -m weather.operations.nightly_retrain run --fail-on-daily-learning-blocke
 That flag is also the CLI default. It makes `daily_learning.status == BLOCKED`
 stop the run before expensive retraining or promotion refresh steps.
 
+## Research And Production Candidate Modes
+
+`--release-candidate-mode research_only` is the default. It preserves the
+ordinary candidate-only research workflow and schedules no production
+point-in-time prelock or qualification steps.
+
+Production capability is explicit and requires a bounded point-in-time source.
+Supply either repeated `--point-in-time-folder` arguments, or the paired
+`--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. A
+reviewed `--point-in-time-source-replay-manifest` may pin the replay inventory;
+when omitted, the prelock step derives a bounded replay manifest from the
+verified source. For example:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --release-candidate-mode production `
+  --point-in-time-source-corpus <bounded-corpus.parquet> `
+  --point-in-time-source-manifest <materialization-manifest.json> `
+  --point-in-time-source-replay-manifest <promotion-corpus.json>
+```
+
+Production ordering is fail-closed:
+
+1. Freeze the candidate-independent source/replay inventory and contiguous
+   14-day evaluation window before any candidate-dependent selection. The
+   source's latest target date must be no more than seven days old.
+2. Fit family calibration/trust and pooled feature/model artifacts with every
+   locked date excluded. Feature priors, source-reliability priors,
+   calibration/trust selection, and pooled fitting are confined to the exact
+   immutable preselection universe and cannot see the window.
+3. Refresh routing/promotion selection from only the manifest-pinned unlocked
+   folders and persist a self-hashed `used_for_selection: false` lock binding.
+4. Replay the exact serialized pooled candidate over the pinned population,
+   attach settlement evidence only after prediction, and write the four
+   qualification roles.
+5. Reverify the complete model/calibration/routing/route hash graph while
+   freezing the immutable candidate release. The release stays inactive.
+
+Each outer and inner training scope carries chained, self-hashed receipts for
+`feature_selection`, `scaling_imputation`, `model`, `calibration`,
+`postprocessing`, and `regime_router`. A separate final-refit receipt binds the
+serialized serving bundle. Candidate and immutable-release verification reject
+missing receipts, changed stage payloads, reused locked dates, or mismatched
+artifact and route identities.
+
+The currently served calibration temperature and learned-postprocessing
+switches are identity-disabled, and the regime router has one predeclared
+pooled route. Their receipts execute and hash those exact canonical transforms
+over each fold; they do not claim nonexistent learned parameters. Any future
+learned calibration, postprocessor, or route must be selected from training-
+only/inner-OOF data and bound into the final serving receipt before promotion.
+
+Candidate-local qualification outputs are:
+
+- `qualification/point_in_time/corpus.parquet`
+- `qualification/point_in_time/materialization_manifest.json`
+- `qualification/point_in_time/validation_plan.json`
+- `qualification/point_in_time/streaming_evaluation.json`
+
+Immutable candidate construction copies those exact roles to
+`contract/point_in_time/` and binds their hashes in the semantic serving
+contract. Production defaults cap the source/replay population at 60 market
+days and 250,000 rows per market-day, read Parquet in 65,536-row batches, retain
+one raw market-day at a time, declare a 4 GiB private-memory budget, allow at
+most 128 fold scopes, and advance folds in seven-date steps. The non-incremental
+HGB trainer retains its normalized training population, so its separate source
+contract caps that population at 60 × 1,000 rows and records the observed row
+count; it does not claim that fitted feature rows are streamed away. These are
+bounded qualification declarations, not permission to raise the host load
+limits.
+
+Production mode remains candidate-only. It does not promote, replace the
+active pointer, restart workers, or grant trading permission.
+
 ## Smoke Test
 
 Before or after registration, use the non-activating dry-run and read-only
@@ -62,6 +136,32 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
+## Reviewed Rollback
+
+Rollback is also separate from nightly retraining. At a reviewed market-day
+boundary, one command returns the pointer to its recorded prior release:
+
+```powershell
+python -m weather.operations.release_lifecycle rollback --market-day-boundary <reviewed-boundary-proof.json>
+```
+
+The command fully hash-verifies the rollback target and atomically writes a
+self-hashed reconciliation intent before the atomic pointer replacement. It
+then re-reads both the pointer and immutable release, emits the post-rollback
+identity proof, and atomically finalizes the drill record at
+`data/backtest/release_rollback_drill.json`. If finalization is interrupted,
+the same command recognizes the exact pointer-bound intent and retries only
+the proof/record finalization; it never toggles back to the failed release.
+`--drill-record` may select an isolated output for a synthetic drill but cannot
+point inside the immutable release tree.
+
+Loop control remains an explicit operator step. The initial record truthfully
+uses `status=PENDING_MANUAL_RESTART` and names the target runtimes under
+`manual_coordinated_restart.required_runtimes`. A real drill becomes complete
+only after those workers are coordinated onto the restored release, their
+runtime-identity proof is attached, post-restart health passes, and the manual
+restart, health, and overall statuses are all recorded as `PASS`.
+
 Training output paths are candidate-only by default. An old serving path fails
 before training begins. `--allow-legacy-serving-output` is a temporary migration
 flag: it marks the run quarantined, blocks immutable release construction, and
@@ -86,5 +186,6 @@ count, and the first P0 gate.
 
 ## Update this file when
 
-Update when nightly step ordering, candidate/release output contracts,
-registration parameters, scheduling topology, or SLA semantics change.
+Update when nightly mode defaults, point-in-time inputs or step ordering,
+candidate/release output contracts, registration parameters, scheduling
+topology, or SLA semantics change.

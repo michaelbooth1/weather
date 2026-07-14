@@ -228,6 +228,18 @@ release pointer or production release directory. The one-command rollback
 checkbox remains open because a real coordinated worker restart, restored
 release-identity proof, and health drill have not been executed.
 
+2026-07-13 rollback-drill readiness: the reviewed lifecycle rollback command
+now verifies the recorded prior release, atomically replaces the pointer,
+re-reads the resulting pointer/release identity, emits that hash-linked proof,
+and writes `data/backtest/release_rollback_drill.json`. The initial record is
+explicitly pending and includes target/timing fields plus a structured manual
+coordinated-restart and health completion surface. Synthetic release tests
+cover the pointer, proof, record, protected output path, CLI behavior, and an
+injected post-swap write failure. A self-hashed pre-swap journal makes that
+partial success recoverable by rerunning the same command without toggling the
+pointer. The checkbox remains open until an actual release permits the
+coordinated restart and post-restart health drill to run.
+
 ## Phase 2 — P0 Resource-Isolated Shadow Operations
 
 ### Capture isolation, sharding, and identity
@@ -569,9 +581,31 @@ lanes, fleet-date-clustered intervals, exact candidate/release/corpus hashes,
 all 14 weather-only dates under one identity, and evidence no older than seven
 days. Research-only candidates forbid these roles and cannot be promoted or
 served. Immutable release re-verification checks the qualified hash graph
-without loading PyArrow into serving/snapshot processes. This closes the
-release-contract integration only; nightly production-mode arguments, real fit
-receipts, a real locked evaluation, and a production candidate remain open.
+without loading PyArrow into serving/snapshot processes.
+
+2026-07-13 nightly production-mode integration update: `nightly_retrain` now
+keeps `research_only` as its default and requires an explicit bounded source
+for production mode. Production prelocks the candidate-independent selection
+universe before any candidate-dependent work, then excludes all 14 locked dates
+and every out-of-universe date from pooled feature/source-reliability priors,
+family calibration/trust, pooled fitting, and routing selection. The latest
+source target must be no more than seven days old when locked. The pooled
+training path emits six chained,
+self-hashed stage receipts for every actual outer/inner fit scope plus a final-
+refit receipt bound to the serialized serving bundle. Qualification freshly
+replays that exact model, attaches settlement evidence only after scoring, and
+freezes the Parquet corpus, materialization manifest, rolling validation plan,
+and streaming evaluation under one candidate graph. Candidate construction and
+immutable-release verification both recheck the exact model, calibration,
+routing artifact, and normalized route identities. Source/replay work is capped
+at 60 market-days and retains one raw market-day at a time under declared row,
+fold-scope, batch, and private-memory bounds.
+
+The software integration is complete, but the two Phase 4 production-evidence
+boxes remain open. This work did not run a real retrain, materialize a retained
+production corpus, or create a scheduled candidate/evaluation window; the next
+scheduled production-mode retrain must supply that operational evidence before
+either box can close.
 
 Primary child evidence: Items 20, 24-31, 64, 69, 83, 85, 106, 113-117, 120,
 140, 143, 179, 203, 208, 216, 243-245, 262-265, 287, 290, 296, and 319.

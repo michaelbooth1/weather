@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
+import weather.operations.release_promotion as release_promotion
 from weather.artifacts import ReleaseArtifactVerificationError, resolve_verified_active_release
 from weather.operations.release_lifecycle import (
     MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
     PROMOTION_DECISION_SCHEMA_VERSION,
     RELEASE_MANIFEST_NAME,
+    ROLLBACK_DRILL_SCHEMA_VERSION,
     ReleaseLifecycleError,
     assert_candidate_only_output,
     assert_training_output_path,
@@ -25,6 +27,7 @@ from weather.operations.release_lifecycle import (
     verify_release,
 )
 from weather.operations.release_lifecycle_cli import main as release_cli_main
+from weather.operations.release_manifest import canonical_payload_sha256
 
 
 NOW = datetime(2026, 7, 11, 15, 0, tzinfo=timezone.utc)
@@ -305,6 +308,7 @@ def test_market_day_boundary_proof_is_targeted_complete_and_fresh():
 
 def test_atomic_promotion_active_resolution_and_one_command_rollback(tmp_path: Path):
     pointer_path = tmp_path / "releases" / "current_release.json"
+    drill_record_path = tmp_path / "backtest" / "release_rollback_drill.json"
     r1 = build_release(tmp_path, "r1")
     assert promote(tmp_path, r1)["status"] == "PROMOTED"
     first = load_active_pointer(pointer_path)
@@ -367,10 +371,21 @@ def test_atomic_promotion_active_resolution_and_one_command_rollback(tmp_path: P
     assert second["previous_release_id"] == "r1"
     assert second["sequence"] == 2
 
+    with pytest.raises(ReleaseLifecycleError, match="outside the immutable releases root"):
+        rollback_release(
+            market_day_boundary=boundary("r1", r1["manifest_sha256"]),
+            releases_root=tmp_path / "releases",
+            pointer_path=pointer_path,
+            drill_record_path=pointer_path,
+            now=NOW,
+        )
+    assert load_active_pointer(pointer_path)["active_release_id"] == "r2"
+
     rolled_back = rollback_release(
         market_day_boundary=boundary("r1", r1["manifest_sha256"]),
         releases_root=tmp_path / "releases",
         pointer_path=pointer_path,
+        drill_record_path=drill_record_path,
         now=NOW,
     )
     assert rolled_back["status"] == "ROLLED_BACK"
@@ -380,13 +395,131 @@ def test_atomic_promotion_active_resolution_and_one_command_rollback(tmp_path: P
     assert final["active_release_id"] == "r1"
     assert final["previous_release_id"] == "r2"
     assert final["sequence"] == 3
+    identity = rolled_back["release_identity_proof"]
+    assert identity == json.loads(drill_record_path.read_text(encoding="utf-8"))[
+        "post_rollback_identity"
+    ]
+    assert identity["status"] == "PASS"
+    assert identity["release_id"] == "r1"
+    assert identity["manifest_sha256"] == r1["manifest_sha256"]
+    assert identity["pointer_sha256"] == final["pointer_sha256"]
+    assert identity["pointer_sequence"] == 3
+    assert identity["pointer_action"] == "ROLLBACK"
+    assert identity["integrity_verified"] is True
+    assert identity["runtime_compatibility_checked"] is False
+    assert len(identity["proof_sha256"]) == 64
+
+    drill = json.loads(drill_record_path.read_text(encoding="utf-8"))
+    assert drill["schema_version"] == ROLLBACK_DRILL_SCHEMA_VERSION
+    assert drill["evidence_contract"] == "release_rollback_drill"
+    assert drill["status"] == "PENDING_MANUAL_RESTART"
+    assert drill["rollback_status"] == "PASS"
+    assert drill["rollback_source_release_id"] == "r2"
+    assert drill["rollback_target_release_id"] == "r1"
+    assert drill["restored_release_id"] == "r1"
+    assert drill["release_id"] == "r1"
+    assert drill["manifest_sha256"] == r1["manifest_sha256"]
+    assert drill["rollback_duration_seconds"] > 0
+    assert drill["rollback_started_at_utc"] == NOW.isoformat()
+    assert drill["rollback_completed_at_utc"] == NOW.isoformat()
+    assert drill["post_rollback_identity_status"] == "PASS"
+    assert drill["manual_coordinated_restart"] == {
+        "required": True,
+        "status": "PENDING",
+        "release_id": "r1",
+        "required_runtimes": ["observation_trigger", "snapshot_loop"],
+        "completed_at_utc": None,
+        "completed_by": None,
+        "runtime_identity_proof": None,
+    }
+    assert drill["health_status"] == "PENDING"
+    assert drill["health_proof"] is None
+    assert drill["rollback_intent_sha256"] == drill["rollback_intent"][
+        "record_sha256"
+    ]
+    assert drill["rollback_intent"]["planned_pointer_sha256"] == final[
+        "pointer_sha256"
+    ]
+    assert drill["record_sha256"] == canonical_payload_sha256(
+        drill,
+        omit=("record_sha256",),
+    )
     with pytest.raises(ReleaseLifecycleError, match="refusing to toggle"):
         rollback_release(
             market_day_boundary=boundary("r2", r2["manifest_sha256"]),
             releases_root=tmp_path / "releases",
             pointer_path=pointer_path,
+            drill_record_path=drill_record_path,
             now=NOW,
         )
+
+
+def test_rollback_finalization_failure_leaves_recoverable_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    r1 = build_release(tmp_path, "r1")
+    promote(tmp_path, r1)
+    r2 = build_release(tmp_path, "r2", rollback_target="r1")
+    promote(tmp_path, r2)
+    pointer_path = tmp_path / "releases" / "current_release.json"
+    drill_record_path = tmp_path / "backtest" / "release_rollback_drill.json"
+
+    real_write = release_promotion._write_json_atomic
+    failed_finalization = False
+
+    def fail_first_final_record(path: Path, payload: dict) -> None:
+        nonlocal failed_finalization
+        if (
+            payload.get("status") == "PENDING_MANUAL_RESTART"
+            and not failed_finalization
+        ):
+            failed_finalization = True
+            raise OSError("injected final record failure")
+        real_write(path, payload)
+
+    monkeypatch.setattr(
+        release_promotion,
+        "_write_json_atomic",
+        fail_first_final_record,
+    )
+    with pytest.raises(
+        ReleaseLifecycleError,
+        match="same rollback command can retry finalization",
+    ):
+        rollback_release(
+            market_day_boundary=boundary("r1", r1["manifest_sha256"]),
+            releases_root=tmp_path / "releases",
+            pointer_path=pointer_path,
+            drill_record_path=drill_record_path,
+            now=NOW,
+        )
+
+    rolled_pointer = load_active_pointer(pointer_path)
+    assert rolled_pointer["action"] == "ROLLBACK"
+    assert rolled_pointer["active_release_id"] == "r1"
+    intent = json.loads(drill_record_path.read_text(encoding="utf-8"))
+    assert intent["status"] == "PENDING_POINTER_RECONCILIATION"
+    assert intent["planned_pointer_sha256"] == rolled_pointer["pointer_sha256"]
+    assert intent["record_sha256"] == canonical_payload_sha256(
+        intent,
+        omit=("record_sha256",),
+    )
+
+    recovered = rollback_release(
+        market_day_boundary={},
+        releases_root=tmp_path / "releases",
+        pointer_path=pointer_path,
+        drill_record_path=drill_record_path,
+        now=NOW,
+    )
+    assert recovered["status"] == "ROLLED_BACK"
+    assert recovered["release_identity_proof"]["pointer_sha256"] == rolled_pointer[
+        "pointer_sha256"
+    ]
+    completed = json.loads(drill_record_path.read_text(encoding="utf-8"))
+    assert completed["status"] == "PENDING_MANUAL_RESTART"
+    assert completed["rollback_intent"] == intent
 
 
 def test_promotion_rejects_dirty_release_and_wrong_rollback_target(tmp_path: Path):
@@ -571,8 +704,24 @@ def test_cli_builds_and_verifies_a_release_from_a_candidate_spec(tmp_path: Path,
         ),
         encoding="utf-8",
     )
+    rollback_drill = tmp_path / "backtest" / "release_rollback_drill.json"
     assert release_cli_main(
-        common + ["rollback", "--market-day-boundary", str(rollback_boundary)]
+        common
+        + [
+            "rollback",
+            "--market-day-boundary",
+            str(rollback_boundary),
+            "--drill-record",
+            str(rollback_drill),
+        ]
     ) == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "ROLLED_BACK"
+    rollback_output = json.loads(capsys.readouterr().out)
+    assert rollback_output["status"] == "ROLLED_BACK"
+    assert rollback_output["drill_status"] == "PENDING_MANUAL_RESTART"
+    assert rollback_output["drill_record_path"] == str(rollback_drill.resolve())
+    assert rollback_output["release_identity_proof"]["release_id"] == "cli-r1"
+    assert rollback_output["release_identity_proof"]["status"] == "PASS"
+    assert json.loads(rollback_drill.read_text(encoding="utf-8"))[
+        "post_rollback_identity"
+    ] == rollback_output["release_identity_proof"]
     assert load_active_pointer(releases / "current_release.json")["active_release_id"] == "cli-r1"

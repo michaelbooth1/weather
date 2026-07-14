@@ -132,6 +132,29 @@ def main():
                               "marine_water_contrast for roadmap item 191."))
     parser.add_argument("--reanalysis-lane-json", default=None,
                         help="Source-family inventory JSON or promotion-lane JSON for Item 32 allowed-market masking.")
+    parser.add_argument(
+        "--point-in-time-preselection-lock",
+        default=None,
+        help=(
+            "Production band training only: self-hashed preselection JSON "
+            "created before candidate fitting. Its locked 14 dates are "
+            "excluded from every selection and final-refit input."
+        ),
+    )
+    parser.add_argument("--point-in-time-outer-min-train-dates", type=int, default=14)
+    parser.add_argument("--point-in-time-inner-min-train-dates", type=int, default=7)
+    parser.add_argument("--point-in-time-embargo-days", type=int, default=3)
+    parser.add_argument("--point-in-time-step-dates", type=int, default=7)
+    parser.add_argument(
+        "--point-in-time-max-fold-scopes",
+        type=int,
+        default=POOLED_PIT_MAX_FOLD_SCOPES,
+    )
+    parser.add_argument(
+        "--point-in-time-private-memory-budget-bytes",
+        type=int,
+        default=4 * 1024**3,
+    )
     parser.add_argument("--min-artifact-free-bytes", type=int, default=DEFAULT_ARTIFACT_EXPORT_MIN_FREE_BYTES,
                         help="Require this much free disk headroom before fitting and writing model artifacts. Use 0 to disable.")
     parser.add_argument("--write-merge-payload", action="store_true",
@@ -149,6 +172,10 @@ def main():
     )
     args = parser.parse_args()
     if args.merge_band_shards:
+        if args.point_in_time_preselection_lock:
+            raise SystemExit(
+                "--point-in-time-preselection-lock cannot be used while merging legacy shards"
+            )
         required_hours = parse_hours(args.hours)
         artifact_path_arg = args.artifact or str(DEFAULT_BAND_ARTIFACT)
         report_path_arg = args.out or str(DEFAULT_BAND_REPORT)
@@ -183,6 +210,31 @@ def main():
         raise SystemExit("--feature-subset is currently supported only with --objective band")
     if args.feature_subset != FEATURE_SUBSET_ALL and (args.exact_winner_catchup or args.dynamic_source_state):
         raise SystemExit("--feature-subset lanes cannot be combined with exact/dynamic source variants")
+    if args.point_in_time_preselection_lock and args.objective != "band":
+        raise SystemExit(
+            "--point-in-time-preselection-lock is production-only and requires --objective band"
+        )
+    if args.point_in_time_preselection_lock and args.allow_legacy_serving_output:
+        raise SystemExit(
+            "production point-in-time training cannot write a legacy serving path"
+        )
+    if (
+        args.point_in_time_preselection_lock
+        and args.point_in_time_step_dates < POOLED_PIT_MIN_STEP_DATES
+    ):
+        raise SystemExit(
+            f"production point-in-time step dates must be >= {POOLED_PIT_MIN_STEP_DATES}"
+        )
+    production_preselection = None
+    if args.point_in_time_preselection_lock:
+        try:
+            production_preselection = load_production_point_in_time_preselection(
+                args.point_in_time_preselection_lock
+            )
+        except ValueError as exc:
+            raise SystemExit(
+                f"Invalid production point-in-time preselection lock: {exc}"
+            ) from exc
     reanalysis_promotion_lane = load_reanalysis_promotion_lane(args.reanalysis_lane_json)
     family_unit = args.family_unit or ("all" if args.objective == "density" else "F")
     if args.objective == "bucket" and family_unit != "F":
@@ -209,14 +261,39 @@ def main():
         min_free_bytes=args.min_artifact_free_bytes,
     )
 
-    records, counts = build_family_dataset(
-        unit=family_unit,
-        cutoff_hours=parse_hours(args.hours),
-        max_days_per_market=args.max_days_per_market or None,
-        reanalysis_promotion_lane=reanalysis_promotion_lane,
+    locked_dates = (
+        set(production_preselection["window_lock"]["target_dates"])
+        if production_preselection is not None
+        else None
     )
+    included_dates = (
+        set(production_preselection["selection_universe"]["fleet_dates"])
+        if production_preselection is not None
+        else None
+    )
+    try:
+        records, counts = build_family_dataset(
+            unit=family_unit,
+            cutoff_hours=parse_hours(args.hours),
+            max_days_per_market=args.max_days_per_market or None,
+            reanalysis_promotion_lane=reanalysis_promotion_lane,
+            excluded_target_dates=locked_dates,
+            included_target_dates=included_dates,
+            prior_as_of_exclusive=(
+                min(included_dates) if included_dates else None
+            ),
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not records:
         raise SystemExit("No pooled family records available.")
+    if production_preselection is not None:
+        record_dates = {_pooled_pit_target_date(row) for row in records}
+        expected_dates = included_dates - locked_dates
+        if record_dates != expected_dates:
+            raise SystemExit(
+                "Production pooled records differ from the prelocked training universe"
+            )
     if args.objective == "density":
         artifact, validation_rows = train_pooled_density_models(
             records,
@@ -243,6 +320,19 @@ def main():
             family_unit=family_unit,
             source_freshness_guardrail=args.source_freshness_guardrail,
             write_merge_payload=args.write_merge_payload,
+            production_preselection=production_preselection,
+            production_outer_min_train_dates=(
+                args.point_in_time_outer_min_train_dates
+            ),
+            production_inner_min_train_dates=(
+                args.point_in_time_inner_min_train_dates
+            ),
+            production_embargo_days=args.point_in_time_embargo_days,
+            production_step_dates=args.point_in_time_step_dates,
+            production_max_fold_scopes=args.point_in_time_max_fold_scopes,
+            production_private_memory_budget_bytes=(
+                args.point_in_time_private_memory_budget_bytes
+            ),
         )
         artifact_path = write_artifact(artifact, artifact_path_arg)
         report_path = write_band_report(
