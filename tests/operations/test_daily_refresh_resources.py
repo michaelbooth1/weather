@@ -14,8 +14,11 @@ from weather.operations.daily_refresh_resources import (
     StageAChildFailure,
     bounded_resume_command,
     build_stage_a_step_admission,
+    prepare_step_child_invocation,
     step_resource_budget,
 )
+from weather.operations.daily_refresh_step_child import _runner_for_step
+from weather.operations.daily_refresh_steps import DEFAULT_RUNNERS
 
 
 def _args(tmp, **overrides):
@@ -52,6 +55,8 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertIn("taker_edge_permission_map", STAGE_A_ISOLATED_STEPS)
         self.assertIn("maker_paper_score", STAGE_A_ISOLATED_STEPS)
         self.assertIn("closed_day_parquet_incremental", STAGE_A_ISOLATED_STEPS)
+        self.assertIn("public_wu_settlement_restore", STAGE_A_ISOLATED_STEPS)
+        self.assertIn("taker_finalization_watchdog", STAGE_A_ISOLATED_STEPS)
         maker = step_resource_budget("maker_paper_score", reserve_mb=1536)
         self.assertEqual(maker["private_memory_max_bytes"], 4096 * MIB)
         self.assertEqual(maker["working_set_max_bytes"], 3072 * MIB)
@@ -59,6 +64,111 @@ class TestDailyRefreshResources(unittest.TestCase):
             maker["required_available_before_start_bytes"],
             (1536 + 3072) * MIB,
         )
+        wu_restore = step_resource_budget(
+            "public_wu_settlement_restore",
+            reserve_mb=1536,
+        )
+        self.assertEqual(wu_restore["timeout_seconds"], 60 * 60)
+        self.assertEqual(wu_restore["private_memory_max_bytes"], 4096 * MIB)
+        self.assertEqual(wu_restore["working_set_max_bytes"], 2560 * MIB)
+        self.assertEqual(
+            wu_restore["required_available_before_start_bytes"],
+            4096 * MIB,
+        )
+        watchdog = step_resource_budget(
+            "taker_finalization_watchdog",
+            reserve_mb=1536,
+        )
+        self.assertEqual(watchdog["timeout_seconds"], 60 * 60)
+        self.assertEqual(watchdog["private_memory_max_bytes"], 5120 * MIB)
+        self.assertEqual(watchdog["working_set_max_bytes"], 2048 * MIB)
+        self.assertEqual(
+            watchdog["required_available_before_start_bytes"],
+            3584 * MIB,
+        )
+
+    def test_public_wu_restore_is_child_compatible_and_preserves_arguments(self):
+        self.assertIs(
+            _runner_for_step("public_wu_settlement_restore"),
+            dict(DEFAULT_RUNNERS)["public_wu_settlement_restore"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            invocation = prepare_step_child_invocation(
+                _args(
+                    tmp,
+                    wu_settlement_restore_markets="nyc,toronto",
+                    wu_settlement_restore_sleep=0.25,
+                    wu_settlement_restore_timeout=12.5,
+                    wu_settlement_restore_skip_existing=False,
+                    wu_settlement_restore_continue_on_error=False,
+                ),
+                "public_wu_settlement_restore",
+                run_id="wu-isolation",
+            )
+            manifest = json.loads(
+                Path(invocation["args_json"]).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(manifest["step"], "public_wu_settlement_restore")
+        self.assertEqual(
+            manifest["args"]["wu_settlement_restore_markets"],
+            "nyc,toronto",
+        )
+        self.assertEqual(manifest["args"]["wu_settlement_restore_sleep"], 0.25)
+        self.assertEqual(manifest["args"]["wu_settlement_restore_timeout"], 12.5)
+        self.assertFalse(manifest["args"]["wu_settlement_restore_skip_existing"])
+        self.assertFalse(
+            manifest["args"]["wu_settlement_restore_continue_on_error"]
+        )
+
+    def test_taker_watchdog_is_child_compatible_and_preserves_arguments(self):
+        self.assertIs(
+            _runner_for_step("taker_finalization_watchdog"),
+            dict(DEFAULT_RUNNERS)["taker_finalization_watchdog"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            invocation = prepare_step_child_invocation(
+                _args(
+                    tmp,
+                    taker_finalization_date="2026-07-13",
+                    taker_finalization_sla_hours=7.5,
+                    taker_finalization_min_free_bytes=123456789,
+                    taker_finalization_no_finalize=True,
+                    skip_taker_bakeoff=False,
+                    taker_bakeoff_strategies="raw_edge_control,edge_band_v1",
+                    taker_champion_strategy_id="raw_edge_control",
+                    taker_champion_min_complete_label_days=4,
+                    taker_champion_min_settled_orders=9,
+                ),
+                "taker_finalization_watchdog",
+                run_id="taker-finalization-isolation",
+            )
+            manifest = json.loads(
+                Path(invocation["args_json"]).read_text(encoding="utf-8")
+            )
+
+        child_args = manifest["args"]
+        self.assertEqual(child_args["taker_finalization_date"], "2026-07-13")
+        self.assertEqual(child_args["taker_finalization_sla_hours"], 7.5)
+        self.assertEqual(
+            child_args["taker_finalization_min_free_bytes"],
+            123456789,
+        )
+        self.assertTrue(child_args["taker_finalization_no_finalize"])
+        self.assertFalse(child_args["skip_taker_bakeoff"])
+        self.assertEqual(
+            child_args["taker_bakeoff_strategies"],
+            "raw_edge_control,edge_band_v1",
+        )
+        self.assertEqual(
+            child_args["taker_champion_strategy_id"],
+            "raw_edge_control",
+        )
+        self.assertEqual(
+            child_args["taker_champion_min_complete_label_days"],
+            4,
+        )
+        self.assertEqual(child_args["taker_champion_min_settled_orders"], 9)
 
     def test_physical_availability_is_required_in_addition_to_child_budget(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -21,6 +21,7 @@ from weather.market.taker_bot import (
     CHAMPION_CHALLENGER_LEDGER_SCHEMA_VERSION,
     apply_taker_budget,
     bad_tail_no_go_state,
+    bakeoff_needs_refresh,
     build_champion_challenger_ledger,
     build_pnl_payload,
     build_run_once,
@@ -2006,6 +2007,24 @@ class TestTakerBot(unittest.TestCase):
         self.assertEqual(bakeoff["label_summary"]["snapshot_quality_complete_rows"], 0)
         self.assertEqual(bakeoff["label_summary"]["partial_rows"], 1)
         self.assertEqual(bakeoff["promotion_gates"][0]["status"], "PASS")
+
+    def test_corrupt_newer_strategy_bakeoff_requires_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "run"
+            run.mkdir()
+            orders = run / "orders_long.csv"
+            labels = root / "labels.csv"
+            orders.write_text("header\n", encoding="utf-8")
+            labels.write_text("header\n", encoding="utf-8")
+            os.utime(orders, (1, 1))
+            os.utime(labels, (1, 1))
+
+            bakeoff = run / "strategy_bakeoff.json"
+            bakeoff.write_text("{", encoding="utf-8")
+            os.utime(bakeoff, (2, 2))
+
+            self.assertTrue(bakeoff_needs_refresh(run, labels_csv=labels))
 
     def test_champion_ledger_blocks_partial_quality_winner_from_dethroning_champion(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -631,5 +631,8 @@ def worker_release_summary_fields(binding: WorkerReleaseBinding) -> dict[str, An
     lineage = {field: binding.lineage.get(field) for field in LINEAGE_FIELDS}
     return {
         **lineage,
+        "release_kind": binding.bundle.release_kind,
+        "release_candidate_mode": binding.bundle.candidate_mode,
+        "release_production_capable": binding.bundle.production_capable,
         "release_identity": dict(lineage),
     }

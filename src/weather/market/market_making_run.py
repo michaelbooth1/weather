@@ -1440,6 +1440,7 @@ def build_run_once(
             exchange_economics_gate=exchange_economics_gate,
             event_metadata_gate=_event_metadata_gate_for_market(event_metadata_state, spec.id),
             current_high_assessment=current_high_assessment,
+            release_production_capable=release_binding.bundle.production_capable,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":

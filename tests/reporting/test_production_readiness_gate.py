@@ -11,6 +11,12 @@ from weather.operations.capture_resource_gate import (
     EVIDENCE_CONTRACT as CAPTURE_RESOURCE_EVIDENCE_CONTRACT,
 )
 from weather.release_artifacts import ReleaseArtifactVerificationError, canonical_payload_sha256
+from weather.release_contract import (
+    PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_RELEASE_KIND,
+    RESEARCH_ONLY_CANDIDATE_MODE,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+)
 from weather.reporting.serving_gates.production_readiness_gate import (
     EVIDENCE_SPECS,
     STAGE_CAPITAL_CANARY,
@@ -404,6 +410,9 @@ def _full_fixture(tmp_path: Path) -> dict:
             "manifest_sha256": MANIFEST_SHA,
             "pointer_sha256": "b" * 64,
             "sequence": 1,
+            "release_kind": PRODUCTION_RELEASE_KIND,
+            "candidate_mode": PRODUCTION_CANDIDATE_MODE,
+            "production_capable": True,
             "served_binding_sha256": "c" * 64,
             "served_bindings_verified": True,
             "served_artifact_roles": ["model"],
@@ -435,6 +444,47 @@ def test_full_synthetic_contract_classifies_capital_but_never_grants_permissions
         payload,
         omit=("gate_sha256",),
     )
+
+
+def test_bootstrap_release_permits_evidence_stages_but_blocks_capital(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    production_resolver = fixture["release_resolver"]
+
+    def bootstrap_resolver(**kwargs):
+        resolved = dict(production_resolver(**kwargs))
+        resolved.update(
+            {
+                "release_kind": SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+                "candidate_mode": RESEARCH_ONLY_CANDIDATE_MODE,
+                "production_capable": False,
+            }
+        )
+        return resolved
+
+    fixture["release_resolver"] = bootstrap_resolver
+
+    payload = build_production_readiness_gate(**fixture)
+    capital_blockers = {
+        row["code"]
+        for row in payload["blockers"]
+        if row["stage"] == STAGE_CAPITAL_CANARY
+    }
+
+    assert payload["status"] == "PASS"
+    assert payload["stage"] == STAGE_PAPER
+    assert payload["stage_results"][STAGE_SHADOW]["status"] == "PASS"
+    assert payload["stage_results"][STAGE_PAPER]["status"] == "PASS"
+    assert payload["stage_results"][STAGE_CAPITAL_CANARY]["status"] == "BLOCK"
+    assert "active_release_not_production_capable" in capital_blockers
+    assert (
+        payload["release_identity"]["release_kind"]
+        == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    )
+    assert (
+        payload["release_identity"]["candidate_mode"]
+        == RESEARCH_ONLY_CANDIDATE_MODE
+    )
+    assert payload["release_identity"]["production_capable"] is False
 
 
 def test_offline_host_admission_also_satisfies_capture_resource_contract(tmp_path):

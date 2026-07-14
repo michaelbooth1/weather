@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 from weather.paths import data_path
+from weather.io import write_json_atomic
 
 from zoneinfo import ZoneInfo
 
@@ -325,9 +326,9 @@ class WundergroundHistoryStore:
 
         for obs_date, rows in by_day.items():
             raw_path = self.raw_root / f"year={obs_date:%Y}" / f"month={obs_date:%m}" / f"{obs_date}.json"
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
-            with raw_path.open("w", encoding="utf-8") as handle:
-                json.dump({
+            write_json_atomic(
+                raw_path,
+                {
                     "station": self.station_icao,
                     "station_name": self.station_name,
                     "source": provenance.get("source") or "local Weather Underground historical observations",
@@ -342,7 +343,9 @@ class WundergroundHistoryStore:
                         "end": end_date.isoformat(),
                     },
                     "observations": rows,
-                }, handle, indent=2, sort_keys=True)
+                },
+                trailing_newline=True,
+            )
 
     def rebuild_normalized_files(self):
         records = list(self.iter_raw_records())
@@ -429,10 +432,12 @@ class WundergroundHistoryStore:
             "condition_mode",
             "cloud_mode",
         ]
-        with path.open("w", encoding="utf-8", newline="") as handle:
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        with tmp_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields)
             writer.writeheader()
             writer.writerows(daily_rows)
+        replace_with_retry(tmp_path, path)
 
     def write_manifest(self, hourly_records, daily_rows, quarantined_records=None):
         path = self.root / "manifest.json"
@@ -466,7 +471,7 @@ class WundergroundHistoryStore:
                 try:
                     with raw_path.open("r", encoding="utf-8") as raw_handle:
                         raw_payload = json.load(raw_handle)
-                except (OSError, json.JSONDecodeError):
+                except (OSError, UnicodeError, json.JSONDecodeError):
                     continue
                 raw_sources[normalize_wu_source_label(raw_payload.get("source"))] += 1
         public_raw_days = raw_sources.get(PUBLIC_WU_HISTORY_SOURCE, 0)
@@ -525,8 +530,7 @@ class WundergroundHistoryStore:
             },
             "partitions": partitions
         }
-        with path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+        write_json_atomic(path, payload, trailing_newline=True)
 
     def audit_partitions(self):
         manifest_path = self.root / "manifest.json"
@@ -573,8 +577,17 @@ class WundergroundHistoryStore:
         dates = set()
         for path in self.raw_root.glob("year=*/month=*/*.json"):
             try:
-                dates.add(date.fromisoformat(path.stem))
-            except ValueError:
+                raw_date = date.fromisoformat(path.stem)
+                with path.open("r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("local_date") != raw_date.isoformat()
+                    or not isinstance(payload.get("observations"), list)
+                ):
+                    continue
+                dates.add(raw_date)
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
                 continue
         return dates
 

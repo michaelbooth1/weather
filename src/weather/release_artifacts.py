@@ -25,15 +25,20 @@ from weather.point_in_time_contract import (
 )
 from weather.runtime_identity import get_runtime_identity
 from weather.release_contract import (
+    ACTIVE_RELEASE_KINDS,
     BASE_MODEL_MARKET_COMPONENT_KINDS,
     BASE_MODEL_SERVING_GRAPH_SCHEMA_VERSION,
     BASE_MODEL_SHARED_COMPONENT_ROLES,
     CANDIDATE_MODES,
     PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_RELEASE_KIND,
     PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
     SEMANTIC_CONTRACT_SCHEMA_VERSION,
     SEMANTIC_SERVING_ROLE_KINDS,
     SERVING_ARTIFACT_KINDS,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+    active_release_kind,
+    has_serving_identity_bootstrap_provenance,
 )
 from weather.schema_registry import schema_version
 
@@ -1073,9 +1078,82 @@ def load_active_release_pointer(
             raise ReleaseArtifactVerificationError(
                 "active release pointer previous manifest hash is invalid"
             )
+        previous_release_kind = (
+            str(pointer.get("previous_release_kind") or "")
+            if "previous_release_kind" in pointer
+            else PRODUCTION_RELEASE_KIND
+        )
+        if previous_release_kind not in ACTIVE_RELEASE_KINDS:
+            raise ReleaseArtifactVerificationError(
+                "active release pointer previous_release_kind is invalid"
+            )
+        if previous_release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+            previous_pointer = {
+                "release_kind": previous_release_kind,
+                "release_kind_provenance": pointer.get(
+                    "previous_release_kind_provenance"
+                ),
+                "active_release_id": previous,
+                "active_manifest_sha256": pointer.get("previous_manifest_sha256"),
+            }
+            if not has_serving_identity_bootstrap_provenance(previous_pointer):
+                raise ReleaseArtifactVerificationError(
+                    "active release pointer previous bootstrap provenance is invalid"
+                )
+        elif pointer.get("previous_release_kind_provenance") is not None:
+            raise ReleaseArtifactVerificationError(
+                "production previous release must not carry bootstrap provenance"
+            )
     elif pointer.get("previous_manifest_sha256") is not None:
         raise ReleaseArtifactVerificationError(
             "active release pointer has a previous hash without a previous release"
+        )
+    elif (
+        pointer.get("previous_release_kind") is not None
+        or pointer.get("previous_release_kind_provenance") is not None
+    ):
+        raise ReleaseArtifactVerificationError(
+            "active release pointer has previous release-kind provenance without a previous release"
+        )
+    release_kind = active_release_kind(pointer)
+    if release_kind not in ACTIVE_RELEASE_KINDS:
+        raise ReleaseArtifactVerificationError(
+            f"active release pointer release_kind is invalid: {release_kind!r}"
+        )
+    if (
+        release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+        and not has_serving_identity_bootstrap_provenance(pointer)
+    ):
+        raise ReleaseArtifactVerificationError(
+            "serving-identity bootstrap pointer provenance is invalid"
+        )
+    if release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+        provenance = pointer["release_kind_provenance"]
+        if pointer.get("action") == "PROMOTE" and (
+            pointer.get("sequence") != 1
+            or pointer.get("previous_release_id") is not None
+            or provenance.get("promotion_decision_sha256")
+            != pointer.get("promotion_decision_sha256")
+            or provenance.get("market_day_boundary_sha256")
+            != pointer.get("market_day_boundary_sha256")
+            or provenance.get("reviewed_by") != pointer.get("reviewed_by")
+        ):
+            raise ReleaseArtifactVerificationError(
+                "serving-identity bootstrap promotion is not the reviewed first pointer"
+            )
+        if pointer.get("action") == "ROLLBACK" and (
+            pointer.get("sequence", 0) < 2
+            or pointer.get("previous_release_id") is None
+        ):
+            raise ReleaseArtifactVerificationError(
+                "serving-identity bootstrap rollback transition is invalid"
+            )
+    if (
+        release_kind != SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+        and pointer.get("release_kind_provenance") is not None
+    ):
+        raise ReleaseArtifactVerificationError(
+            "production active release must not carry bootstrap provenance"
         )
     if pointer.get("pointer_sha256") != pointer_content_sha256(pointer):
         raise ReleaseArtifactVerificationError(
@@ -1120,6 +1198,20 @@ def resolve_verified_active_release(
         current_runtime_versions=current_runtime_versions,
         current_runtime_identity=current_runtime_identity,
     )
+    release_kind = active_release_kind(pointer)
+    semantic_contract = verified.get("semantic_contract")
+    production_capable = bool(
+        semantic_contract and semantic_contract.get("production_capable") is True
+    )
+    if release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+        if semantic_contract is None or production_capable:
+            raise ReleaseArtifactVerificationError(
+                "serving-identity bootstrap pointer does not bind a research-only release"
+            )
+    elif semantic_contract is not None and not production_capable:
+        raise ReleaseArtifactVerificationError(
+            "research-only active release lacks serving-identity bootstrap provenance"
+        )
     manifest = verified["manifest"]
     required_roles = {
         str(row["role"]): row
@@ -1179,6 +1271,10 @@ def resolve_verified_active_release(
         "manifest_sha256": verified["manifest_sha256"],
         "pointer_sha256": pointer["pointer_sha256"],
         "sequence": pointer["sequence"],
+        "release_kind": release_kind,
+        "candidate_mode": (semantic_contract or {}).get("candidate_mode"),
+        "production_capable": (semantic_contract or {}).get("production_capable"),
+        "manifest": manifest,
         "runtime_checked": verified["runtime_checked"],
         "served_bindings_verified": bool(require_served_bindings),
         "served_binding_sha256": binding_sha,

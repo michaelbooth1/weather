@@ -1,7 +1,9 @@
-"""Verified active-release loading for production-capable live prediction.
+"""Verified active-release loading for immutable prediction identities.
 
 No model or JSON serving input is deserialized until the pointer, complete
 release inventory, semantic contract, role bindings, and frozen route all pass.
+Research-only loading is limited to the reviewed first-release bootstrap and
+remains explicitly non-capital; all other research releases fail closed.
 The process cache is deliberately sticky: a pointer appearance, disappearance,
 or byte change requires an explicit cache clear/process restart.
 """
@@ -28,7 +30,10 @@ from weather.release_artifacts import (
 from weather.release_contract import (
     BASE_MODEL_MARKET_COMPONENT_KINDS,
     BASE_MODEL_SHARED_COMPONENT_ROLES,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
     SERVING_ARTIFACT_KINDS,
+    active_release_kind,
+    has_serving_identity_bootstrap_provenance,
 )
 
 
@@ -69,6 +74,9 @@ class VerifiedServingBundle:
     manifest_sha256: str = ""
     pointer_sha256: str = ""
     sequence: int | None = None
+    release_kind: str = ""
+    candidate_mode: str = ""
+    production_capable: bool = False
     release_dir: str = ""
     route: Mapping[str, Any] = field(default_factory=dict)
     model_variant_registry: Mapping[str, Any] = field(default_factory=dict)
@@ -415,7 +423,15 @@ def load_verified_active_serving_bundle(
         raise ReleaseServingBindingError(
             "active release has no verified semantic serving contract"
         )
-    if not (verified.get("semantic_contract") or {}).get("production_capable"):
+    semantic_contract = verified.get("semantic_contract") or {}
+    production_capable = semantic_contract.get("production_capable") is True
+    release_kind = active_release_kind(pointer)
+    bootstrap_bound = has_serving_identity_bootstrap_provenance(pointer)
+    if release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND and production_capable:
+        raise ReleaseServingBindingError(
+            "a production-capable release cannot use serving-identity bootstrap provenance"
+        )
+    if not production_capable and not bootstrap_bound:
         raise ReleaseServingBindingError(
             "active release is research-only and cannot bind a serving runtime"
         )
@@ -500,13 +516,21 @@ def load_verified_active_serving_bundle(
     )
     return VerifiedServingBundle(
         status=STATUS_BOUND,
-        reason="all manifest serving roles and frozen route verified before deserialization",
+        reason=(
+            "reviewed first-release serving-identity bootstrap; research-only, "
+            "non-capital manifest roles and frozen route verified before deserialization"
+            if bootstrap_bound
+            else "all manifest serving roles and frozen route verified before deserialization"
+        ),
         pointer_present=True,
         pointer_file_sha256=pointer_file_sha,
         release_id=str(resolved["release_id"]),
         manifest_sha256=str(resolved["manifest_sha256"]),
         pointer_sha256=str(resolved["pointer_sha256"]),
         sequence=int(resolved["sequence"]),
+        release_kind=release_kind,
+        candidate_mode=str(semantic_contract.get("candidate_mode") or ""),
+        production_capable=production_capable,
         release_dir=str(release_dir),
         route=_deep_freeze(route),
         model_variant_registry=_deep_freeze(registry),
@@ -743,6 +767,9 @@ def serving_bundle_lineage(bundle: VerifiedServingBundle) -> dict[str, Any]:
             "release_manifest_sha256": bundle.manifest_sha256,
             "release_pointer_sha256": bundle.pointer_sha256,
             "release_sequence": bundle.sequence,
+            "release_kind": bundle.release_kind,
+            "release_candidate_mode": bundle.candidate_mode,
+            "release_production_capable": bundle.production_capable,
             "release_identity_status": (
                 "verified_variant_serving_bundle"
                 if bundle.status == STATUS_BOUND
@@ -762,6 +789,9 @@ def serving_bundle_lineage(bundle: VerifiedServingBundle) -> dict[str, Any]:
         "release_manifest_sha256": "",
         "release_pointer_sha256": "",
         "release_sequence": None,
+        "release_kind": "",
+        "release_candidate_mode": "",
+        "release_production_capable": False,
         "release_identity_status": status,
         "release_identity_reason": bundle.reason,
         "base_model_release_bound": False,

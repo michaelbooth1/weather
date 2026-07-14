@@ -1,7 +1,11 @@
+import json
 import os
 import sys
+import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
 from weather.sources.wu_history import (
     normalize_observation,
     summarize_daily,
@@ -219,6 +223,123 @@ class TestTorontoModelCore(unittest.TestCase):
 
 
 class TestWundergroundHistoryRebuildAndAudit(unittest.TestCase):
+    def test_corrupt_raw_day_is_not_treated_as_skip_existing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(Path(tmp))
+            target_date = date(2026, 7, 13)
+            raw_path = (
+                store.raw_root
+                / "year=2026"
+                / "month=07"
+                / "2026-07-13.json"
+            )
+            raw_path.parent.mkdir(parents=True)
+            raw_path.write_text("{", encoding="utf-8")
+
+            self.assertNotIn(target_date, store.raw_dates())
+            self.assertEqual(
+                store.missing_dates(target_date, target_date),
+                [target_date],
+            )
+
+            observed_at = datetime(2026, 7, 13, 16, 0, tzinfo=timezone.utc)
+            store.write_payload(
+                target_date,
+                target_date,
+                {
+                    "observations": [
+                        {
+                            "valid_time_gmt": int(observed_at.timestamp()),
+                            "temp": 25,
+                        }
+                    ]
+                },
+            )
+
+            self.assertIn(target_date, store.raw_dates())
+            payload = json.loads(raw_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["local_date"], target_date.isoformat())
+            self.assertEqual(len(payload["observations"]), 1)
+
+    def test_invalid_utf8_raw_day_is_refetchable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(Path(tmp))
+            target_date = date(2026, 7, 13)
+            raw_path = (
+                store.raw_root
+                / "year=2026"
+                / "month=07"
+                / "2026-07-13.json"
+            )
+            raw_path.parent.mkdir(parents=True)
+            raw_path.write_bytes(b"\xff\xfe\xfa")
+
+            self.assertNotIn(target_date, store.raw_dates())
+            self.assertEqual(
+                store.missing_dates(target_date, target_date),
+                [target_date],
+            )
+
+    def test_failed_publication_preserves_last_good_wu_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(Path(tmp))
+            target_date = date(2026, 7, 13)
+            observed_at = datetime(2026, 7, 13, 16, 0, tzinfo=timezone.utc)
+            raw_path = (
+                store.raw_root
+                / "year=2026"
+                / "month=07"
+                / "2026-07-13.json"
+            )
+            raw_path.parent.mkdir(parents=True)
+            raw_before = b'{"local_date":"2026-07-13","observations":[]}\n'
+            raw_path.write_bytes(raw_before)
+
+            def fail_json_publication(*_args, **_kwargs):
+                raise OSError("injected replacement failure")
+
+            with patch(
+                "weather.sources.wu_history.write_json_atomic",
+                side_effect=fail_json_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "replacement failure"):
+                    store.write_payload(
+                        target_date,
+                        target_date,
+                        {
+                            "observations": [
+                                {
+                                    "valid_time_gmt": int(observed_at.timestamp()),
+                                    "temp": 25,
+                                }
+                            ]
+                        },
+                    )
+            self.assertEqual(raw_path.read_bytes(), raw_before)
+
+            daily_path = store.daily_root / "daily_summary.csv"
+            daily_path.parent.mkdir(parents=True)
+            daily_before = b"last-good-daily\n"
+            daily_path.write_bytes(daily_before)
+            with patch(
+                "weather.sources.wu_history.replace_with_retry",
+                side_effect=OSError("injected replacement failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "replacement failure"):
+                    store.write_daily_summary([])
+            self.assertEqual(daily_path.read_bytes(), daily_before)
+
+            manifest_path = store.root / "manifest.json"
+            manifest_before = b'{"status":"last-good"}\n'
+            manifest_path.write_bytes(manifest_before)
+            with patch(
+                "weather.sources.wu_history.write_json_atomic",
+                side_effect=fail_json_publication,
+            ):
+                with self.assertRaisesRegex(OSError, "replacement failure"):
+                    store.write_manifest([], [])
+            self.assertEqual(manifest_path.read_bytes(), manifest_before)
+
     def test_get_code_version(self):
         ver = get_code_version()
         self.assertTrue(ver.startswith("git:") or ver.startswith("file_sha256:"))

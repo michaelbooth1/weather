@@ -136,6 +136,54 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
+## First Serving-Identity Bootstrap
+
+Ordinary `research_only` releases still fail closed at promotion and serving.
+There is one explicit exception for establishing the first verified serving
+identity on a repository that has no active pointer:
+
+```powershell
+python -m weather.operations.release_lifecycle promote <release-id> `
+  --decision <reviewed-promotion-decision.json> `
+  --market-day-boundary <fresh-boundary-proof.json> `
+  --bootstrap-first-release
+```
+
+This exception applies only when all of the following are true:
+
+- `artifacts/releases/current_release.json` does not exist, the candidate's
+  `rollback_target` is null, and the research-only immutable release passes its
+  complete integrity, runtime, clean-code, and exact-commit checks.
+- The ordinary promotion decision passes and declares
+  `"release_kind": "serving_identity_bootstrap"` in addition to the exact
+  release/manifest identity, `decision=PROMOTE`, `gate_status=PASS`, review,
+  and candidate-only-build proof.
+- The market-day-boundary proof is fresh and binds the same release and
+  manifest.
+
+Without `--bootstrap-first-release`, the research-only promotion is rejected.
+Once an active pointer exists, the flag cannot authorize a replacement
+research-only release. A successful bootstrap writes pointer sequence 1 with
+`release_kind=serving_identity_bootstrap` and self-hashed origin provenance for
+the reviewed decision, market-day boundary, reviewer, action, and sequence.
+Serving accepts the research-only manifest only while that exact provenance is
+valid.
+
+Bootstrap is a serving-identity state, not a production qualification or a
+trading permission. It may support release-bound research, shadow, and paper
+evidence, but `production_capable` remains false: capital-canary readiness and
+`live-pilot` are blocked even if their other inputs pass. A later reviewed
+production promotion records the bootstrap kind and origin proof with the
+previous-release identity. Reviewed rollback carries that proof back to the
+active pointer, preserving the release's non-capital semantics.
+
+Every promotion returns `restart_required=true`; coordinate all release-bound
+workers onto the new pointer before treating runtime identity as adopted. The
+serving loader is loop-loaded, so deploying changes to this bootstrap contract
+also consumes the repository's normal fleet-roll/restart budget. Do not combine
+that rollout with an unreviewed promotion or use the bootstrap path to bypass
+the existing release, readiness, or live-order gates.
+
 ## Reviewed Rollback
 
 Rollback is also separate from nightly retraining. At a reviewed market-day

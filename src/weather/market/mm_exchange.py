@@ -343,6 +343,7 @@ def item45_gate_summary(preflight):
         "live_readiness_ok": bool(live_readiness.get("ok")),
         "data_layer_live_gate_ok": bool(data_layer.get("ok")),
         "platform_verification_gate_ok": bool(platform.get("ok")),
+        "release_production_capable": preflight.get("release_production_capable") is True,
         "market_preflights_pass": all((row.get("status") == "PASS") for row in preflight.get("markets") or []),
     }
     missing = [name for name, ok in checks.items() if not ok]

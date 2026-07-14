@@ -15,6 +15,10 @@ from weather.operations.producer_provenance import (
     build_stage_sla,
     verified_active_release_proof,
 )
+from weather.release_contract import (
+    PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_RELEASE_KIND,
+)
 
 
 NOW = datetime(2026, 7, 12, 6, 30, tzinfo=timezone.utc)
@@ -192,6 +196,9 @@ def test_release_identity_only_emits_after_verified_serving_binding(tmp_path):
         manifest_sha256="a" * 64,
         pointer_sha256="b" * 64,
         sequence=3,
+        release_kind=PRODUCTION_RELEASE_KIND,
+        candidate_mode=PRODUCTION_CANDIDATE_MODE,
+        production_capable=True,
         artifact_paths={"pooled_band_model": str(tmp_path / "model.pkl")},
     )
     unbound = SimpleNamespace(
@@ -201,6 +208,9 @@ def test_release_identity_only_emits_after_verified_serving_binding(tmp_path):
         manifest_sha256="c" * 64,
         pointer_sha256="",
         sequence=None,
+        release_kind="",
+        candidate_mode="",
+        production_capable=False,
         artifact_paths={},
     )
 

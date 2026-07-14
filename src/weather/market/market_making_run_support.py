@@ -532,6 +532,7 @@ def preflight_market(
     exchange_economics_gate=None,
     event_metadata_gate=None,
     current_high_assessment=None,
+    release_production_capable=False,
 ):
     gates = []
     blockers = []
@@ -646,20 +647,29 @@ def preflight_market(
         "confirm_live_orders": bool(live_confirmed),
         "live_ready": bool(live_ready),
         "platform_verified": bool(platform_verification_gate.get("ok")),
+        "release_production_capable": release_production_capable is True,
         "ok": mode != "live-pilot" or (
-            pilot and live_confirmed and live_ready and bool(platform_verification_gate.get("ok"))
+            pilot
+            and live_confirmed
+            and live_ready
+            and bool(platform_verification_gate.get("ok"))
+            and release_production_capable is True
         ),
     }
     if mode == "live-pilot" and not live_gate["ok"]:
         blockers.append(
             "live-pilot requires --pilot, --confirm-live-orders, "
-            "a passing live-readiness file, and passing platform verification"
+            "a passing live-readiness file, passing platform verification, "
+            "and a production-capable active release"
         )
         gates.append({
             "name": "live_account_gate",
             "ok": False,
             "severity": "missing",
-            "detail": "live account/platform/wallet/allowance/heartbeat/user-WS readiness is not verified",
+            "detail": (
+                "live account/platform/wallet/allowance/heartbeat/user-WS readiness "
+                "or production-capable release binding is not verified"
+            ),
         })
 
     if blockers:

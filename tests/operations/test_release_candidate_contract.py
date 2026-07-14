@@ -15,17 +15,22 @@ from weather.operations.release_candidate_contract import (
     verify_candidate_semantic_contract,
 )
 from weather.operations.release_manifest import ReleaseLifecycleError, create_release
-from weather.operations.release_promotion import promote_release
+from weather.operations.release_promotion import (
+    MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
+    PROMOTION_DECISION_SCHEMA_VERSION,
+    promote_release,
+)
 from weather.point_in_time_contract import (
     verify_embedded_point_in_time_training_evidence,
     verify_point_in_time_selection_binding,
     verify_production_point_in_time_artifacts,
 )
-from weather.release_artifacts import verify_release
+from weather.release_artifacts import load_active_release_pointer, verify_release
 from weather.release_contract import SEMANTIC_SERVING_ROLE_KINDS
 from weather.release_contract import (
     PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
     RESEARCH_ONLY_CANDIDATE_MODE,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
 )
 from weather.reporting.validation.point_in_time_evaluation import (
     CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION,
@@ -1089,6 +1094,76 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
                 "dirty_fingerprint": None,
             },
         )
+
+    promotion_now = datetime(2026, 7, 14, 14, 0, tzinfo=timezone.utc)
+    decision = {
+        "schema_version": PROMOTION_DECISION_SCHEMA_VERSION,
+        "decision": "PROMOTE",
+        "gate_status": "PASS",
+        "release_id": "r1",
+        "manifest_sha256": result["manifest_sha256"],
+        "candidate_only_build": True,
+        "reviewed": True,
+        "reviewed_by": "release-reviewer",
+        "reviewed_at_utc": promotion_now.isoformat(),
+        "release_kind": SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+    }
+    market_day_boundary = {
+        "schema_version": MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
+        "status": "PASS",
+        "release_id": "r1",
+        "manifest_sha256": result["manifest_sha256"],
+        "at_market_day_boundary": True,
+        "processes_quiesced": True,
+        "open_market_days": [],
+        "mixed_release_market_days": [],
+        "effective_target_date": promotion_now.date().isoformat(),
+        "observed_at_utc": promotion_now.isoformat(),
+    }
+    promoted = promote_release(
+        "r1",
+        decision=decision,
+        market_day_boundary=market_day_boundary,
+        releases_root=tmp_path / "releases",
+        pointer_path=tmp_path / "releases" / "current_release.json",
+        repo_root=paths["repo"],
+        now=promotion_now,
+        current_runtime_versions={
+            "python": "3.13.0",
+            "implementation": "CPython",
+            "platform": "test",
+            "direct_dependencies": {
+                "scikit-learn": {
+                    "version": "1.7.0",
+                    "declared": "scikit-learn",
+                }
+            },
+        },
+        current_runtime_identity={
+            "source_fingerprint": "source",
+            "git_commit": "a" * 40,
+        },
+        current_code_identity={
+            "git_commit": "a" * 40,
+            "git_branch": "main",
+            "git_dirty": False,
+            "dirty_fingerprint": None,
+        },
+        bootstrap_first_release=True,
+    )
+    pointer = load_active_release_pointer(
+        tmp_path / "releases" / "current_release.json"
+    )
+
+    assert promoted["status"] == "PROMOTED"
+    assert promoted["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert pointer["sequence"] == 1
+    assert pointer["previous_release_id"] is None
+    assert pointer["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert pointer["release_kind_provenance"]["origin_release_id"] == "r1"
+    assert pointer["release_kind_provenance"]["origin_manifest_sha256"] == (
+        result["manifest_sha256"]
+    )
 
 
 def test_candidate_contract_persists_rejections_and_refuses_release_on_hidden_alias(tmp_path: Path):

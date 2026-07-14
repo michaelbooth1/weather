@@ -487,6 +487,9 @@ def verified_active_release_proof(
             "served_bindings_verified": False,
             "release_id": "",
             "release_manifest_sha256": "",
+            "release_kind": "",
+            "candidate_mode": "",
+            "production_capable": False,
             "reason": f"{type(exc).__name__}: {exc}",
         }
     if bundle.status != STATUS_BOUND or not bundle.release_id or not bundle.manifest_sha256:
@@ -497,6 +500,9 @@ def verified_active_release_proof(
             "release_manifest_sha256": "",
             "release_pointer_sha256": "",
             "release_sequence": None,
+            "release_kind": bundle.release_kind,
+            "candidate_mode": bundle.candidate_mode,
+            "production_capable": bundle.production_capable,
             "reason": bundle.reason,
             "binding_status": bundle.status,
         }
@@ -507,6 +513,9 @@ def verified_active_release_proof(
         "release_manifest_sha256": bundle.manifest_sha256,
         "release_pointer_sha256": bundle.pointer_sha256,
         "release_sequence": bundle.sequence,
+        "release_kind": bundle.release_kind,
+        "candidate_mode": bundle.candidate_mode,
+        "production_capable": bundle.production_capable,
         "served_artifact_roles": sorted(bundle.artifact_paths),
         "reason": bundle.reason,
         "binding_status": bundle.status,

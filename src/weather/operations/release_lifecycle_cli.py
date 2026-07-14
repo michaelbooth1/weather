@@ -80,6 +80,14 @@ def build_parser() -> argparse.ArgumentParser:
     promote.add_argument("release_id")
     promote.add_argument("--decision", type=Path, required=True)
     promote.add_argument("--market-day-boundary", type=Path, required=True)
+    promote.add_argument(
+        "--bootstrap-first-release",
+        action="store_true",
+        help=(
+            "allow one reviewed research-only serving-identity release only when "
+            "no active pointer exists"
+        ),
+    )
 
     rollback = subparsers.add_parser("rollback", help="atomically return to the prior verified release")
     rollback.add_argument("--market-day-boundary", type=Path, required=True)
@@ -141,6 +149,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             releases_root=args.releases_root,
             pointer_path=pointer,
             repo_root=args.repo_root,
+            bootstrap_first_release=args.bootstrap_first_release,
         )
     if args.command == "rollback":
         return rollback_release(

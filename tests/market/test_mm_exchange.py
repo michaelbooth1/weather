@@ -47,7 +47,12 @@ def write_csv(path, fieldnames, rows):
         writer.writerows(rows)
 
 
-def write_run_folder(root, preflight_status="PASS"):
+def write_run_folder(
+    root,
+    preflight_status="PASS",
+    *,
+    release_production_capable=True,
+):
     run_folder = root / "mm_runs" / "2026-06-14" / "exchange-run"
     run_folder.mkdir(parents=True)
     run_config = {
@@ -64,14 +69,15 @@ def write_run_folder(root, preflight_status="PASS"):
         "target_date": "2026-06-14",
         "mode": "live-pilot",
         "status": preflight_status,
+        "release_production_capable": release_production_capable,
         "live_readiness": {"ok": preflight_status == "PASS"},
         "data_layer_live_gate": {"ok": preflight_status == "PASS"},
-            "platform_verification_gate": {
-                "ok": preflight_status == "PASS",
-                "platform": "polymarket_us",
-                "path": "platform.json",
-                "market_slug": "highest-temperature-in-atlanta-on-june-14-2026",
-            },
+        "platform_verification_gate": {
+            "ok": preflight_status == "PASS",
+            "platform": "polymarket_us",
+            "path": "platform.json",
+            "market_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+        },
         "markets": [{
             "market_id": "atlanta",
             "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
@@ -371,6 +377,36 @@ class TestMMExchange(unittest.TestCase):
 
         self.assertEqual(payload["status"], "BLOCK")
         self.assertFalse(payload["item45_gates"]["ok"])
+        self.assertIn("item-45 gates are not all passing", payload["blockers"])
+
+    def test_live_execution_blocks_a_non_production_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_folder = write_run_folder(
+                root,
+                release_production_capable=False,
+            )
+
+            payload = build_exchange_reconciliation(
+                run_folder,
+                execution_mode="live",
+                allow_live=True,
+                now=NOW,
+                env={
+                    "POLYMARKET_US_KEY_ID": "key-id",
+                    "POLYMARKET_US_SECRET_KEY_STORAGE_REF": "vault://pm/us",
+                },
+            )
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertFalse(payload["item45_gates"]["ok"])
+        self.assertFalse(
+            payload["item45_gates"]["checks"]["release_production_capable"]
+        )
+        self.assertEqual(
+            payload["item45_gates"]["missing"],
+            ["release_production_capable"],
+        )
         self.assertIn("item-45 gates are not all passing", payload["blockers"])
 
     def test_credential_diagnostics_redacts_values_and_flags_direct_secret_env(self):

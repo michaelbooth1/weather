@@ -1924,6 +1924,9 @@ def _verify_active_release(
         "pointer_sha256": str(resolved.get("pointer_sha256")) if resolved else None,
         "served_binding_sha256": str(resolved.get("served_binding_sha256")) if resolved else None,
         "pointer_sequence": resolved.get("sequence") if resolved else None,
+        "release_kind": resolved.get("release_kind") if resolved else None,
+        "candidate_mode": resolved.get("candidate_mode") if resolved else None,
+        "production_capable": resolved.get("production_capable") if resolved else False,
         "served_artifact_roles": list(resolved.get("served_artifact_roles") or []) if resolved else [],
         "runtime_checked": resolved.get("runtime_checked") if resolved else None,
         "served_bindings_verified": resolved.get("served_bindings_verified") if resolved else False,
@@ -2199,6 +2202,26 @@ def build_production_readiness_gate(
                 record["validation_status"] = "BLOCK"
 
     capital_payload = payloads.get("capital_canary") or {}
+    if release_identity.get("status") == "PASS" and (
+        release_identity.get("production_capable") is not True
+    ):
+        blockers.append(
+            {
+                "stage": STAGE_CAPITAL_CANARY,
+                "input": "active_release",
+                "code": "active_release_not_production_capable",
+                "detail": (
+                    "the verified active release is serving-identity/bootstrap evidence, "
+                    "not a production-capable release"
+                ),
+                "next_action": (
+                    "qualify and promote a production-capable immutable release before "
+                    "requesting capital-canary authorization"
+                ),
+                "release_kind": release_identity.get("release_kind"),
+                "candidate_mode": release_identity.get("candidate_mode"),
+            }
+        )
     capital_authorization = capital_payload.get("manual_authorization")
     capital_authorization = (
         capital_authorization if isinstance(capital_authorization, Mapping) else {}

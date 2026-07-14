@@ -1,4 +1,4 @@
-# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-13 - INCREMENTAL PATH AND RESTART TESTS LANDED; MULTI-HOUR SOAK PENDING]
+# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-14 - 488-TICK SOAK COLLECTED; ACCEPTANCE REVIEW PENDING]
 
 Goal: keep the taker paper loop's steady-state memory and per-tick I/O bounded
 by its current working set rather than elapsed tick count or cumulative tape
@@ -69,8 +69,9 @@ whose read/write work is independent of complete tape length.
 - [ ] Add an accelerated growing-tape test and a representative multi-hour
   paper soak proving a constant number of tick payloads remain live and the
   declared post-warmup memory/I/O budgets hold. The accelerated deterministic
-  growing-tape and restart-tail tests pass; the representative scheduled paper
-  soak remains outstanding.
+  growing-tape and restart-tail tests pass. A 488-tick scheduled soak has now
+  been audited, but its tapes did not grow and its earlier post-warmup slope
+  verdicts did not remain continuously passing, so acceptance remains open.
 - [x] If a resource-triggered recycle remains necessary, make it supervisor
   owned, backoff bounded, evidence preserving, and fail closed; never delete
   tapes or broaden trading permission as part of recovery. The incremental
@@ -131,6 +132,40 @@ and every declared budget verdict. Any process replacement, positive growing
 slope, missing tick receipt, or ceiling breach reopens implementation rather
 than being averaged away. This checkbox remains open until that evidence is
 present.
+
+## 2026-07-14 audited 488-tick soak
+
+The quarantined run at
+`data/taker_runs/2026-07-14/_quarantine/taker-20260714-9f58e760__20260714T124945Z/`
+contains 488 contiguous resource samples from worker PID 35804 under one
+process-instance identity with restart count zero. The complete observation
+covered 8.725912 hours (8.73 hours rounded), including 8.473055 post-warmup
+hours (8.47 hours rounded). Final private-memory slope was
+11.599731 MiB/hour, below the declared 16 MiB/hour ceiling. Peak private memory
+and working set were 835.97 MiB and 210.92 MiB, respectively, and maximum tick
+duration was 11.227930 seconds.
+
+That final verdict does not by itself satisfy the strict adoption plan above.
+There were 364 earlier `WARN` samples, all caused solely by slope above
+16 MiB/hour; the last was tick 448 at 16.096031 MiB/hour. Only ticks 449-488
+formed the final continuous `PASS` interval, and the final slope remained
+positive. The evidence must not average those earlier warnings away.
+
+The run also did not exercise growing-tape behavior. Its event metadata still
+targeted 2026-07-13 while the run date was 2026-07-14, so all 12 markets blocked
+and the final order and counterfactual row counts were both zero. Persisted
+diagnostics nevertheless confirm zero ordinary full-history reads and zero
+full-history rewrites. Maximum per-tick tape read/write bytes were 0/10,991;
+those bounded writes were not evidence of cumulative-tape scaling. The
+deterministic 600-tick regression remains the only populated growing-tape
+proof.
+
+This is useful bounded-memory and incremental-I/O evidence, but it is not a
+representative populated-tape acceptance soak. The checkbox remains open
+pending review of the earlier slope warnings and a current-target-date,
+multi-hour paper run that exercises growing order and counterfactual tapes
+without a ceiling breach, process replacement, manual recycle, or evidence
+loss.
 
 Acceptance: ordinary paper ticks do not reread or rewrite the complete order
 and counterfactual histories; persisted outputs and cumulative scores remain

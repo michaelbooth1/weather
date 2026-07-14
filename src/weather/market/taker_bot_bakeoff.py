@@ -1494,6 +1494,12 @@ def bakeoff_needs_refresh(run_folder, labels_csv=DEFAULT_LABELS_CSV, out_json=No
     out_json = Path(out_json) if out_json else run_folder / "strategy_bakeoff.json"
     if not out_json.exists():
         return True
+    payload = read_json(out_json, {}) or {}
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != STRATEGY_BAKEOFF_SCHEMA_VERSION
+    ):
+        return True
     bakeoff_mtime = _bakeoff_mtime_utc(out_json)
     cutoff = max(
         (

@@ -607,6 +607,29 @@ production corpus, or create a scheduled candidate/evaluation window; the next
 scheduled production-mode retrain must supply that operational evidence before
 either box can close.
 
+2026-07-14 first-serving-identity bootstrap update: the categorical
+research-only promotion/serving prohibition above remains the default. One
+reviewed exception can establish pointer sequence 1 when no active pointer
+exists. It requires the explicit `--bootstrap-first-release` flag, an otherwise
+valid research-only immutable release with null `rollback_target`, the usual
+fresh boundary proof, and a promotion decision whose `release_kind` is exactly
+`serving_identity_bootstrap`. The pointer binds the decision hash, boundary
+hash, reviewer, origin action, and origin sequence as self-hashed provenance.
+The same flag cannot authorize a replacement research-only release after an
+active pointer exists.
+
+This bootstrap is release-bound research infrastructure, not production
+qualification. Serving exposes `candidate_mode=research_only` and
+`production_capable=false`; capital-canary readiness and maker `live-pilot`
+therefore fail closed while shadow and paper identity evidence can proceed. A
+later production promotion preserves the bootstrap kind and origin proof on
+the previous-release edge, and rollback restores both rather than converting
+the release into an implicit production identity. Promotion still requires a
+coordinated restart. Because the serving gate is loaded by long-running loops,
+landing this contract change also consumes the normal fleet-roll budget; it is
+not a roll-free documentation-only exception. This does not close either open
+Phase 4 production-evidence box.
+
 Primary child evidence: Items 20, 24-31, 64, 69, 83, 85, 106, 113-117, 120,
 140, 143, 179, 203, 208, 216, 243-245, 262-265, 287, 290, 296, and 319.
 

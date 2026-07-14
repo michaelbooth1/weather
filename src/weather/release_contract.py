@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from weather.schema_registry import schema_version
 
 
@@ -26,6 +28,59 @@ BASE_MODEL_SHARED_COMPONENT_ROLES = {
 PRODUCTION_CANDIDATE_MODE = "production"
 RESEARCH_ONLY_CANDIDATE_MODE = "research_only"
 CANDIDATE_MODES = frozenset({PRODUCTION_CANDIDATE_MODE, RESEARCH_ONLY_CANDIDATE_MODE})
+
+PRODUCTION_RELEASE_KIND = "production"
+SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND = "serving_identity_bootstrap"
+ACTIVE_RELEASE_KINDS = frozenset(
+    {PRODUCTION_RELEASE_KIND, SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND}
+)
+
+
+def active_release_kind(pointer: Mapping[str, Any]) -> str:
+    """Return the explicit kind, treating pre-kind pointers as production.
+
+    Older pointers could only be created for production-capable releases, so
+    the absent-field interpretation is backward-compatible and cannot turn an
+    older research candidate into a serving release.
+    """
+
+    if "release_kind" not in pointer:
+        return PRODUCTION_RELEASE_KIND
+    return str(pointer.get("release_kind") or "")
+
+
+def has_serving_identity_bootstrap_provenance(pointer: Mapping[str, Any]) -> bool:
+    """Recognize bootstrap origin provenance carried across pointer changes."""
+
+    provenance = pointer.get("release_kind_provenance")
+    if not isinstance(provenance, Mapping):
+        return False
+    origin_release_id = str(provenance.get("origin_release_id") or "").strip()
+    origin_manifest_sha = str(provenance.get("origin_manifest_sha256") or "")
+    decision_sha = str(provenance.get("promotion_decision_sha256") or "")
+    boundary_sha = str(provenance.get("market_day_boundary_sha256") or "")
+    reviewed_by = str(provenance.get("reviewed_by") or "").strip()
+    return bool(
+        active_release_kind(pointer) == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+        and provenance.get("origin_action") == "PROMOTE"
+        and provenance.get("origin_sequence") == 1
+        and origin_release_id
+        and len(origin_manifest_sha) == 64
+        and all(character in "0123456789abcdef" for character in origin_manifest_sha)
+        and len(decision_sha) == 64
+        and all(character in "0123456789abcdef" for character in decision_sha)
+        and len(boundary_sha) == 64
+        and all(character in "0123456789abcdef" for character in boundary_sha)
+        and reviewed_by
+        and (
+            "active_release_id" not in pointer
+            or pointer.get("active_release_id") == origin_release_id
+        )
+        and (
+            "active_manifest_sha256" not in pointer
+            or pointer.get("active_manifest_sha256") == origin_manifest_sha
+        )
+    )
 
 # These roles are qualification evidence, not runtime inputs. They are
 # mandatory only for a production-capable candidate/release and are retained

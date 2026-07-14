@@ -34,6 +34,9 @@ from weather.operations.release_promotion import (  # noqa: F401
     validate_market_day_boundary,
     validate_promotion_decision,
 )
+from weather.release_contract import (  # noqa: F401
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

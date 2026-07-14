@@ -1,15 +1,13 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_strategy_registry import *  # noqa: F403
+from weather.io import write_json_atomic
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return str(path)
+    return str(write_json_atomic(path, payload, trailing_newline=True))
 
 
 def tape_integrity_summary(path, expected_rows, row_kind):

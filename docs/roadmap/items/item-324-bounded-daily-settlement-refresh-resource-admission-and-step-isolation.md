@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-13 - CODE GATES LANDED; SCHEDULED SOAK REMAINS]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-14 - NON-COUNTABLE SOAK EXPOSED TWO UNISOLATED MEMORY PATHS; CORRECTIVE GATES PENDING]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -134,6 +134,89 @@ zero but whose terminal manifest failed validation, so the run ended `error`.
 They remain durable operational evidence but are excluded from scheduled-soak
 counts.
 
+## 2026-07-14 scheduled-soak readback - non-countable
+
+The 2026-07-14 09:30 scheduled run is safety evidence but does not count toward
+the soak. Two agent-owned `rg` searches traversed ignored `data/` at startup,
+driving antivirus/CPU load and delaying the scheduled interpreter's entry into
+the daily-refresh CLI until 09:46. The worktree also changed while the run was
+active. The invocation's durable producer attestation therefore reported
+`scheduler_contract_missing`, `scheduler_attested=false`, and
+`mode=manual_or_unverified`; it cannot prove scheduler correlation internally.
+
+The only clean isolated receipt was `ingest_quality_gate`. It completed in
+14.694 seconds with `pid_match_mode=launcher_parent`, containment and terminal
+validation `PASS`, and before/after admission decisions `ADMIT` with zero
+blockers. Its lifetime resource evidence was:
+
+- private peak 1,506,394,112 bytes against a 2 GiB ceiling (70.147%);
+- working-set peak 256,155,648 bytes against a 1.5 GiB ceiling (15.904%);
+- lifetime read/write bytes 461,357,152 / 888,362.
+
+The resource row is retained in `data/backtest/daily_refresh_status.json`; its
+child argument and result manifests are under
+`data/backtest/daily_refresh_step_children/2026-07-14T134615.508266_0000-57976/`.
+
+No ingest metric reached the 80% review threshold. Its 30-minute timeout and
+working-set ceiling are grossly above this one observation and require review
+after representative clean receipts; one low sample is not authority to
+tighten them.
+
+Two steps classified as in-process invalidated the run before the next
+isolated child. `public_wu_settlement_restore` took 898.459 seconds and rebuilds
+full retained WU history even though network fetches target one day. Live
+whole-parent samples reached approximately 3.25 GiB private memory and
+1.75 GiB working set while available physical RAM fell to approximately
+1.26 GiB, below the 1.5 GiB capture reserve. These are sampled lower bounds,
+not a durable child receipt.
+
+The snapshot loop restarted for stale code, entered its restart circuit, and
+later died. An explicit recovery restart's first catch-up pass recorded
+Miami/Seattle child exit 137 errors. Capture was therefore not continuously
+fresh or impact-free. `taker_finalization_watchdog` then retained repeated
+full current-day order/counterfactual materializations and the seven-strategy
+bakeoff in the parent. Last-observed lower bounds before emergency intervention
+were 5,792,079,872 private bytes and 4,118,310,912 working-set bytes, with only
+617 MiB physically available. The operations owner manually stopped the
+scheduled task to protect capture.
+
+Task Scheduler recorded `267014` (externally terminated). The canonical
+`repair-stale-locks` command verified the owner PID was dead, removed both the
+daily-refresh and long-job locks, and wrote `status=interrupted`,
+`terminal=true`, with the exact bounded resume point
+`--resume-from-step taker_finalization_watchdog`. Both locks were absent after
+repair. The daily-refresh Markdown report and settlement-stage manifest remain
+the stale 2026-07-13 versions because this run never reached fleet
+observability. The numerical scheduler result is consistent with an external
+stop, but this path does not prove the normal or self-terminated CLI exit-code
+contract.
+
+This run supplies neither a clean scheduled pass nor an isolated budget kill.
+All scheduled-soak checkboxes remain open.
+
+### Corrective containment required before the next countable run
+
+- `public_wu_settlement_restore` runs as an isolated child with a 60-minute,
+  4,096 MiB private-memory, and 2,560 MiB working-set ceiling. Admission
+  requires 4,096 MiB physically available, including the 1,536 MiB capture
+  reserve.
+- `taker_finalization_watchdog` runs as an isolated child with a 60-minute,
+  5,120 MiB private-memory, and 2,048 MiB working-set ceiling. Admission
+  requires 3,584 MiB physically available, including the capture reserve.
+- WU raw payload, daily summary, and manifest publication must be atomic, and
+  an existing raw filename must parse as valid JSON before `skip_existing`
+  treats it as reusable. A budget kill must leave the previous valid artifact
+  or a refetchable absence, not a filename-valid truncated payload.
+- Taker-derived JSON publication must be atomic, and bakeoff freshness must
+  require valid JSON with the expected schema. A terminated child must resume
+  from raw tapes instead of accepting a newer truncated derived artifact.
+
+These limits are fail-closed containment ceilings. In particular, the
+watchdog ceilings are intended to terminate today's oversized shape before it
+repeats the physical-memory incident; their existence does not prove that the
+current corpus completes within budget. The first isolated receipts must be
+compared with the 80% thresholds before any adjustment.
+
 The readback checklist for each next scheduled 09:30 run is therefore still
 open:
 
@@ -149,8 +232,10 @@ open:
 - [ ] Two consecutive clean scheduled runs, or one clean run plus one correctly
   terminated budget kill, are recorded before the soak checkbox closes.
 
-No extra full-stage run is authorized for this checklist. Readbacks are queued
-after the 2026-07-14 and 2026-07-15 scheduled runs.
+No extra full-stage run is authorized for this checklist. The 2026-07-14
+readback above is non-countable; the next eligible readback is the next
+scheduled 09:30 run after the corrective containment lands and capture is
+stable.
 
 Verification:
 

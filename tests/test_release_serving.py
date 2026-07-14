@@ -20,6 +20,12 @@ from weather.release_artifacts import (
     ReleaseArtifactVerificationError,
     pointer_content_sha256,
 )
+from weather.release_contract import (
+    PRODUCTION_CANDIDATE_MODE,
+    RESEARCH_ONLY_CANDIDATE_MODE,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+)
+from weather.operations.release_promotion import resolve_active_release
 from weather.release_serving import (
     STATUS_BLOCKED,
     STATUS_BOUND,
@@ -94,7 +100,15 @@ def _functionalize(paths: dict) -> None:
         pickle.dump(bundle, handle)
 
 
-def _write_pointer(path: Path, *, release_id: str, manifest_sha256: str, sequence: int = 1) -> None:
+def _write_pointer(
+    path: Path,
+    *,
+    release_id: str,
+    manifest_sha256: str,
+    sequence: int = 1,
+    release_kind: str | None = None,
+    release_kind_provenance: dict | None = None,
+) -> None:
     payload = {
         "schema_version": ACTIVE_POINTER_SCHEMA_VERSION,
         "sequence": sequence,
@@ -105,6 +119,17 @@ def _write_pointer(path: Path, *, release_id: str, manifest_sha256: str, sequenc
         "previous_release_id": None,
         "previous_manifest_sha256": None,
     }
+    if release_kind is not None:
+        payload["release_kind"] = release_kind
+    if release_kind_provenance is not None:
+        payload["release_kind_provenance"] = release_kind_provenance
+        payload["promotion_decision_sha256"] = release_kind_provenance[
+            "promotion_decision_sha256"
+        ]
+        payload["market_day_boundary_sha256"] = release_kind_provenance[
+            "market_day_boundary_sha256"
+        ]
+        payload["reviewed_by"] = release_kind_provenance["reviewed_by"]
     payload["pointer_sha256"] = pointer_content_sha256(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -116,14 +141,21 @@ def _active_fixture(
     functional: bool = False,
     mutate_declarations=None,
     manifest_route=None,
+    candidate_mode: str = PRODUCTION_CANDIDATE_MODE,
+    release_kind: str | None = None,
+    release_kind_provenance: dict | None = None,
 ):
     paths = _fixture(tmp_path)
     if functional:
         _functionalize(paths)
     frozen = _freeze(
         paths,
-        candidate_mode="production",
-        point_in_time_artifacts=_production_evidence(paths),
+        candidate_mode=candidate_mode,
+        point_in_time_artifacts=(
+            _production_evidence(paths)
+            if candidate_mode == PRODUCTION_CANDIDATE_MODE
+            else None
+        ),
     )
     declarations = list(frozen["declarations"])
     if mutate_declarations:
@@ -147,8 +179,32 @@ def _active_fixture(
         runtime_identity=_runtime_identity(),
     )
     pointer = releases / "current_release.json"
-    _write_pointer(pointer, release_id="r1", manifest_sha256=result["manifest_sha256"])
+    _write_pointer(
+        pointer,
+        release_id="r1",
+        manifest_sha256=result["manifest_sha256"],
+        release_kind=release_kind,
+        release_kind_provenance=(
+            {
+                **release_kind_provenance,
+                "origin_release_id": "r1",
+                "origin_manifest_sha256": result["manifest_sha256"],
+            }
+            if release_kind_provenance is not None
+            else None
+        ),
+    )
     return paths, frozen, result, releases, pointer
+
+
+def _bootstrap_provenance() -> dict:
+    return {
+        "origin_action": "PROMOTE",
+        "origin_sequence": 1,
+        "promotion_decision_sha256": "d" * 64,
+        "market_day_boundary_sha256": "e" * 64,
+        "reviewed_by": "test-reviewer",
+    }
 
 
 def _load(pointer: Path, releases: Path, repo: Path):
@@ -168,6 +224,9 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
     assert bundle.status == STATUS_BOUND
     assert bundle.release_id == "r1"
     assert bundle.manifest_sha256 == result["manifest_sha256"]
+    assert bundle.release_kind == "production"
+    assert bundle.candidate_mode == PRODUCTION_CANDIDATE_MODE
+    assert bundle.production_capable is True
     assert bundle.route["markets"]["nyc"]["candidate_variant_id"] == "r1.pooled_band"
     assert bundle.model_variant_registry["variants"][0]["variant_id"] == "candidate"
     assert Path(bundle.artifact_paths["pooled_band_model"]).is_relative_to(releases / "r1")
@@ -194,6 +253,113 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
         "afternoon_residual_centering",
         "family_secondary_artifacts",
     }
+
+
+def test_research_release_without_valid_bootstrap_provenance_is_rejected(
+    tmp_path: Path,
+):
+    paths, _frozen, result, releases, pointer = _active_fixture(
+        tmp_path,
+        candidate_mode=RESEARCH_ONLY_CANDIDATE_MODE,
+    )
+
+    with pytest.raises(ReleaseServingBindingError, match="research-only"):
+        _load(pointer, releases, paths["repo"])
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="research-only active release lacks",
+    ):
+        resolve_active_release(
+            pointer_path=pointer,
+            releases_root=releases,
+            repo_root=paths["repo"],
+            current_runtime_versions=_runtime_versions(),
+            current_runtime_identity=_runtime_identity(),
+        )
+
+    _write_pointer(
+        pointer,
+        release_id="r1",
+        manifest_sha256=result["manifest_sha256"],
+        release_kind=SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+    )
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="bootstrap pointer provenance is invalid",
+    ):
+        _load(pointer, releases, paths["repo"])
+
+    _write_pointer(
+        pointer,
+        release_id="r1",
+        manifest_sha256=result["manifest_sha256"],
+        release_kind="serving_identity_bootstrap_typo",
+    )
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="release_kind is invalid",
+    ):
+        _load(pointer, releases, paths["repo"])
+
+
+def test_reviewed_bootstrap_research_release_binds_as_non_production(
+    tmp_path: Path,
+):
+    paths, _frozen, _result, releases, pointer = _active_fixture(
+        tmp_path,
+        candidate_mode=RESEARCH_ONLY_CANDIDATE_MODE,
+        release_kind=SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+        release_kind_provenance=_bootstrap_provenance(),
+    )
+
+    bundle = _load(pointer, releases, paths["repo"])
+    active = resolve_active_release(
+        pointer_path=pointer,
+        releases_root=releases,
+        repo_root=paths["repo"],
+        current_runtime_versions=_runtime_versions(),
+        current_runtime_identity=_runtime_identity(),
+    )
+
+    assert bundle.status == STATUS_BOUND
+    assert bundle.release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert bundle.candidate_mode == RESEARCH_ONLY_CANDIDATE_MODE
+    assert bundle.production_capable is False
+    assert bundle.base_model_bound is True
+    assert "research-only" in bundle.reason
+    assert "non-capital" in bundle.reason
+    lineage = serving_bundle_lineage(bundle)
+    assert lineage["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert lineage["release_candidate_mode"] == RESEARCH_ONLY_CANDIDATE_MODE
+    assert lineage["release_production_capable"] is False
+    assert active["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert active["candidate_mode"] == RESEARCH_ONLY_CANDIDATE_MODE
+    assert active["production_capable"] is False
+
+
+def test_production_release_cannot_be_mislabeled_as_bootstrap(tmp_path: Path):
+    paths, _frozen, _result, releases, pointer = _active_fixture(
+        tmp_path,
+        release_kind=SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+        release_kind_provenance=_bootstrap_provenance(),
+    )
+
+    with pytest.raises(
+        ReleaseServingBindingError,
+        match="production-capable release cannot use serving-identity bootstrap",
+    ):
+        _load(pointer, releases, paths["repo"])
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="bootstrap pointer does not bind a research-only release",
+    ):
+        resolve_active_release(
+            pointer_path=pointer,
+            releases_root=releases,
+            repo_root=paths["repo"],
+            current_runtime_versions=_runtime_versions(),
+            current_runtime_identity=_runtime_identity(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -423,7 +589,10 @@ def test_bound_base_model_construction_never_reads_global_artifact_paths(
     assert model.afternoon_residual_centering["fixture_component"] == (
         "afternoon_residual_centering"
     )
-    assert model.family_secondary_artifacts["schema_version"] == "family_calibration_v0.1"
+    assert (
+        model.family_secondary_artifacts["schema_version"]
+        == "family_secondary_artifacts_v0.1"
+    )
 
 
 @pytest.mark.parametrize("mode", ["partial_components", "base_flag_unbound"])

@@ -155,6 +155,65 @@ def test_event_metadata_gate_blocks_maker_preflight_as_market_discovery():
     assert diagnosis["root_cause_class"] == "blocked_by_market_discovery"
 
 
+def test_live_pilot_preflight_requires_a_production_capable_release():
+    now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
+    policy = {
+        "max_book_age_seconds": 300,
+        "max_model_age_seconds": 300,
+        "max_watcher_age_seconds": 300,
+    }
+    platform_gate = {"required": True, "ok": True}
+    common = {
+        "live_ready": True,
+        "live_confirmed": True,
+        "pilot": True,
+        "platform_verification_gate": platform_gate,
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        blocked = preflight_market(
+            spec_for_id("atlanta"),
+            config_for_date("2026-06-14", "atlanta"),
+            folder,
+            [],
+            [],
+            [],
+            [],
+            {"promotion_state": "PAPER", "action": "paper"},
+            {"fresh": True, "reason": "ok"},
+            now,
+            "live-pilot",
+            policy,
+            release_production_capable=False,
+            **common,
+        )
+        production = preflight_market(
+            spec_for_id("atlanta"),
+            config_for_date("2026-06-14", "atlanta"),
+            folder,
+            [],
+            [],
+            [],
+            [],
+            {"promotion_state": "PAPER", "action": "paper"},
+            {"fresh": True, "reason": "ok"},
+            now,
+            "live-pilot",
+            policy,
+            release_production_capable=True,
+            **common,
+        )
+
+    assert blocked["live_gate"]["release_production_capable"] is False
+    assert blocked["live_gate"]["ok"] is False
+    assert any(
+        "production-capable active release" in reason
+        for reason in blocked["blocking_reasons"]
+    )
+    assert production["live_gate"]["release_production_capable"] is True
+    assert production["live_gate"]["ok"] is True
+
+
 def write_market_fixture(root, stale_book=False, blank_tokens=False, inactive_tokens=False):
     snapshots_root = root / "snapshots"
     folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"

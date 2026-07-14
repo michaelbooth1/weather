@@ -32,6 +32,21 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
+The WU settlement restore fetches a target day but rebuilds each market's full
+retained normalized history, so it is not a light one-day operation. It runs in
+an isolated child with a 60-minute timeout, 4,096 MiB private-memory ceiling,
+and 2,560 MiB working-set ceiling; admission requires 4,096 MiB physically
+available including the 1,536 MiB capture reserve. Raw payload, daily-summary,
+and manifest publication is atomic, and an existing raw payload must parse as
+valid JSON before skip-existing logic may reuse it.
+
+The target-day taker finalization watchdog can materialize complete order and
+counterfactual tapes repeatedly and expand a seven-strategy bakeoff. It runs in
+an isolated child with a 60-minute timeout, 5,120 MiB private-memory ceiling,
+and 2,048 MiB working-set ceiling; admission requires 3,584 MiB physically
+available including the capture reserve. Taker-derived JSON publication is
+atomic, and bakeoff freshness requires valid JSON with the expected schema.
+
 Stage-A high-risk steps are now isolated one child at a time. The orchestrator
 persists an interruption-safe resume receipt before resuming child code and
 enforces the repository-declared private-memory, working-set, and timeout
@@ -43,6 +58,14 @@ memory, lifetime process-tree read/write bytes, and bounded result cardinality
 fields. Do not loosen the ceilings to force a scheduled run through; Item
 324 remains partial until a representative scheduled soak supplies measured
 per-step peaks and I/O/cardinality evidence.
+
+These ceilings authorize containment, not completion claims. A child that
+reaches a ceiling must terminate inside its container and leave an exact safe
+resume point; the first isolated WU and watchdog receipts must be reviewed at
+the 80% thresholds before any adjustment. The 2026-07-14 scheduled run is
+explicitly non-countable: both steps still ran in-process, the watchdog reached
+at least 5,792,079,872 private bytes and 4,118,310,912 working-set bytes, and
+available physical RAM fell to 617 MiB before an emergency manual task stop.
 
 ### The training window (adopted 2026-07-12)
 

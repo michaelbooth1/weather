@@ -255,6 +255,22 @@ plus `data/backtest/nightly_retrain_report.md`. Candidate mode defaults to
 it can build only an inactive release and never changes the active pointer. See
 the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
 
+There is one narrow first-serving-identity exception to the ordinary rule that
+a `research_only` release cannot be activated. When no active pointer exists, a
+reviewed operator may use `release_lifecycle promote --bootstrap-first-release`
+with a promotion decision whose `release_kind` is exactly
+`serving_identity_bootstrap`. The pointer records the decision, boundary, and
+reviewer as immutable bootstrap-origin provenance. The resulting release can
+bind research, shadow, and paper runtimes, but remains non-production and
+non-capital: production readiness and `live-pilot` fail closed. The flag does
+not authorize another research-only release once a pointer exists. A later
+production promotion carries the bootstrap kind and origin proof as its
+rollback target, so reviewed rollback restores the same non-capital identity
+rather than silently upgrading it. Promotion still requires a coordinated
+worker restart; changes to this loop-loaded serving contract also use the
+repository's normal fleet-roll budget. See the
+[nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md#first-serving-identity-bootstrap).
+
 Release rollback is a reviewed, market-day-boundary operation. The command
 hash-verifies the prior immutable release, atomically switches the active
 pointer, emits the post-rollback release identity, and writes

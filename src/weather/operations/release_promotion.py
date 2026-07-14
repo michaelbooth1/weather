@@ -16,9 +16,15 @@ from weather.artifacts import (
     training_artifact_output_policy,
 )
 from weather.paths import REPO_ROOT, data_path
+from weather.release_contract import (
+    PRODUCTION_RELEASE_KIND,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
+    active_release_kind,
+)
 from weather.release_artifacts import (
     load_active_release_pointer as load_active_pointer,
     pointer_content_sha256,
+    resolve_verified_active_release,
     strict_json_loads,
     validate_release_id,
 )
@@ -58,6 +64,7 @@ def validate_promotion_decision(
     *,
     release_id: str,
     manifest_sha256: str,
+    expected_release_kind: str | None = None,
 ) -> dict[str, Any]:
     failures = []
     expected = {
@@ -72,6 +79,20 @@ def validate_promotion_decision(
     for field, value in expected.items():
         if decision.get(field) != value:
             failures.append(f"{field} must be {value!r}")
+    if (
+        expected_release_kind is not None
+        and decision.get("release_kind") != expected_release_kind
+    ):
+        failures.append(f"release_kind must be {expected_release_kind!r}")
+    elif (
+        expected_release_kind is None
+        and "release_kind" in decision
+        and decision.get("release_kind") != PRODUCTION_RELEASE_KIND
+    ):
+        failures.append(
+            f"release_kind must be absent or {PRODUCTION_RELEASE_KIND!r} "
+            "for a production-capable release"
+        )
     if not str(decision.get("reviewed_by") or "").strip():
         failures.append("reviewed_by is required")
     try:
@@ -80,12 +101,15 @@ def validate_promotion_decision(
         failures.append(str(exc))
     if failures:
         raise ReleaseLifecycleError("promotion decision failed closed: " + "; ".join(failures))
-    return {
+    result = {
         "status": "PASS",
         "sha256": canonical_payload_sha256(decision),
         "reviewed_by": str(decision["reviewed_by"]),
         "reviewed_at_utc": str(decision["reviewed_at_utc"]),
     }
+    if expected_release_kind is not None:
+        result["release_kind"] = expected_release_kind
+    return result
 
 
 def validate_market_day_boundary(
@@ -284,6 +308,13 @@ def _post_rollback_identity_proof(
         "pointer_action": observed["action"],
         "pointer_sequence": observed["sequence"],
         "pointer_sha256": observed["pointer_sha256"],
+        "release_kind": active_release_kind(observed),
+        "candidate_mode": (verified.get("semantic_contract") or {}).get(
+            "candidate_mode"
+        ),
+        "production_capable": (verified.get("semantic_contract") or {}).get(
+            "production_capable"
+        ),
         "integrity_verified": True,
         "runtime_compatibility_checked": False,
     }
@@ -316,8 +347,10 @@ def _rollback_drill_record(
         "rollback_status": "PASS",
         "rollback_source_release_id": source_pointer["active_release_id"],
         "rollback_source_manifest_sha256": source_pointer["active_manifest_sha256"],
+        "rollback_source_release_kind": active_release_kind(source_pointer),
         "rollback_target_release_id": target_release_id,
         "rollback_target_manifest_sha256": target_manifest_sha256,
+        "rollback_target_release_kind": identity_proof["release_kind"],
         "restored_release_id": target_release_id,
         "rollback_started_at_utc": started_at_utc,
         "rollback_completed_at_utc": completed_at_utc,
@@ -377,10 +410,12 @@ def _rollback_drill_intent(
         "rollback_source_manifest_sha256": source_pointer[
             "active_manifest_sha256"
         ],
+        "rollback_source_release_kind": active_release_kind(source_pointer),
         "rollback_target_release_id": planned_pointer["active_release_id"],
         "rollback_target_manifest_sha256": planned_pointer[
             "active_manifest_sha256"
         ],
+        "rollback_target_release_kind": active_release_kind(planned_pointer),
         "planned_pointer_sequence": planned_pointer["sequence"],
         "planned_pointer_sha256": planned_pointer["pointer_sha256"],
         "rollback_started_at_utc": started_at_utc,
@@ -440,10 +475,14 @@ def _load_rollback_drill_intent(
         "rollback_source_manifest_sha256": active_pointer.get(
             "previous_manifest_sha256"
         ),
+        "rollback_source_release_kind": (
+            active_pointer.get("previous_release_kind") or PRODUCTION_RELEASE_KIND
+        ),
         "rollback_target_release_id": active_pointer.get("active_release_id"),
         "rollback_target_manifest_sha256": active_pointer.get(
             "active_manifest_sha256"
         ),
+        "rollback_target_release_kind": active_release_kind(active_pointer),
         "planned_pointer_sequence": active_pointer.get("sequence"),
         "planned_pointer_sha256": active_pointer.get("pointer_sha256"),
     }
@@ -502,6 +541,13 @@ def _finalize_rollback_drill(
         source_pointer={
             "active_release_id": active_pointer["previous_release_id"],
             "active_manifest_sha256": active_pointer["previous_manifest_sha256"],
+            "release_kind": (
+                active_pointer.get("previous_release_kind")
+                or PRODUCTION_RELEASE_KIND
+            ),
+            "release_kind_provenance": active_pointer.get(
+                "previous_release_kind_provenance"
+            ),
         },
         target=target,
         identity_proof=identity_proof,
@@ -529,6 +575,10 @@ def _new_pointer(
     boundary: Mapping[str, Any],
     decision: Mapping[str, Any] | None,
     changed_at_utc: str | None,
+    release_kind: str | None = None,
+    release_kind_provenance: Mapping[str, Any] | None = None,
+    previous_release_kind: str | None = None,
+    previous_release_kind_provenance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     pointer: dict[str, Any] = {
         "schema_version": ACTIVE_POINTER_SCHEMA_VERSION,
@@ -545,6 +595,36 @@ def _new_pointer(
         "promotion_decision_sha256": decision["sha256"] if decision else None,
         "reviewed_by": decision["reviewed_by"] if decision else None,
     }
+    if release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+        provenance = release_kind_provenance
+        if provenance is None:
+            if action != "PROMOTE" or sequence != 1 or decision is None:
+                raise ReleaseLifecycleError(
+                    "bootstrap release-kind provenance must originate from the first promotion"
+                )
+            provenance = {
+                "origin_action": "PROMOTE",
+                "origin_sequence": 1,
+                "origin_release_id": active_release_id,
+                "origin_manifest_sha256": active_manifest_sha256,
+                "promotion_decision_sha256": decision["sha256"],
+                "market_day_boundary_sha256": boundary["sha256"],
+                "reviewed_by": decision["reviewed_by"],
+            }
+        pointer["release_kind"] = release_kind
+        pointer["release_kind_provenance"] = dict(provenance)
+    elif release_kind not in {None, PRODUCTION_RELEASE_KIND}:
+        raise ReleaseLifecycleError(f"unsupported active release kind: {release_kind!r}")
+    if previous_release_kind is not None:
+        pointer["previous_release_kind"] = previous_release_kind
+        if previous_release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+            if previous_release_kind_provenance is None:
+                raise ReleaseLifecycleError(
+                    "previous bootstrap release kind requires its origin provenance"
+                )
+            pointer["previous_release_kind_provenance"] = dict(
+                previous_release_kind_provenance
+            )
     pointer["pointer_sha256"] = pointer_content_sha256(pointer)
     return pointer
 
@@ -561,6 +641,7 @@ def promote_release(
     current_runtime_versions: Mapping[str, Any] | None = None,
     current_runtime_identity: Mapping[str, Any] | None = None,
     current_code_identity: Mapping[str, Any] | None = None,
+    bootstrap_first_release: bool = False,
 ) -> dict[str, Any]:
     """Verify and atomically activate a release through one pointer file."""
 
@@ -581,10 +662,17 @@ def promote_release(
             current_runtime_identity=current_runtime_identity,
         )
         semantic_contract = verified.get("semantic_contract")
+        release_kind = None
         if semantic_contract is not None and not semantic_contract.get("production_capable"):
-            raise ReleaseLifecycleError(
-                "research-only release cannot be promoted to the active pointer"
-            )
+            if not bootstrap_first_release:
+                raise ReleaseLifecycleError(
+                    "research-only release cannot be promoted to the active pointer"
+                )
+            if existing is not None:
+                raise ReleaseLifecycleError(
+                    "--bootstrap-first-release is valid only when no active pointer exists"
+                )
+            release_kind = SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
         manifest = verified["manifest"]
         if manifest["code"].get("git_dirty") is not False:
             raise ReleaseLifecycleError("dirty or unknown source attestations cannot be promoted")
@@ -614,12 +702,20 @@ def promote_release(
             decision,
             release_id=release_id,
             manifest_sha256=verified["manifest_sha256"],
+            expected_release_kind=release_kind,
         )
         boundary_gate = validate_market_day_boundary(
             market_day_boundary,
             release_id=release_id,
             manifest_sha256=verified["manifest_sha256"],
             now=now,
+        )
+        previous_release_kind = active_release_kind(existing) if existing else None
+        previous_release_kind_provenance = (
+            existing.get("release_kind_provenance")
+            if existing
+            and previous_release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+            else None
         )
         pointer = _new_pointer(
             sequence=(existing["sequence"] + 1) if existing else 1,
@@ -631,6 +727,9 @@ def promote_release(
             boundary=boundary_gate,
             decision=decision_gate,
             changed_at_utc=(now or datetime.now(timezone.utc)).isoformat(),
+            release_kind=release_kind,
+            previous_release_kind=previous_release_kind,
+            previous_release_kind_provenance=previous_release_kind_provenance,
         )
         _write_json_atomic(pointer_path, pointer)
     return {
@@ -639,6 +738,7 @@ def promote_release(
         "previous_release_id": previous_id,
         "pointer_path": str(pointer_path),
         "pointer_sha256": pointer["pointer_sha256"],
+        "release_kind": active_release_kind(pointer),
         "restart_required": True,
     }
 
@@ -711,6 +811,33 @@ def rollback_release(
                 expected_manifest_sha256=str(target_hash),
                 check_runtime=False,
             )
+            target_release_kind = (
+                str(current.get("previous_release_kind") or "")
+                if "previous_release_kind" in current
+                else PRODUCTION_RELEASE_KIND
+            )
+            target_release_kind_provenance = current.get(
+                "previous_release_kind_provenance"
+            )
+            target_semantic_contract = target.get("semantic_contract")
+            target_production_capable = bool(
+                target_semantic_contract
+                and target_semantic_contract.get("production_capable") is True
+            )
+            if target_release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND:
+                if target_semantic_contract is None or target_production_capable:
+                    raise ReleaseLifecycleError(
+                        "bootstrap rollback target is not a verified research-only release"
+                    )
+            elif (
+                target_semantic_contract is not None
+                and not target_production_capable
+            ):
+                raise ReleaseLifecycleError(
+                    "research-only rollback target lacks serving-identity bootstrap provenance"
+                )
+            source_release_kind = active_release_kind(current)
+            source_release_kind_provenance = current.get("release_kind_provenance")
             boundary_gate = validate_market_day_boundary(
                 market_day_boundary,
                 release_id=str(target_id),
@@ -727,6 +854,10 @@ def rollback_release(
                 boundary=boundary_gate,
                 decision=None,
                 changed_at_utc=operation_time.isoformat(),
+                release_kind=target_release_kind,
+                release_kind_provenance=target_release_kind_provenance,
+                previous_release_kind=source_release_kind,
+                previous_release_kind_provenance=source_release_kind_provenance,
             )
             rollback_intent = _rollback_drill_intent(
                 started_at_utc=started_at_utc,
@@ -755,6 +886,7 @@ def rollback_release(
         "previous_release_id": source_release_id,
         "pointer_path": str(pointer_path),
         "pointer_sha256": pointer["pointer_sha256"],
+        "release_kind": active_release_kind(pointer),
         "release_identity_proof": identity_proof,
         "drill_record_path": str(drill_record_path),
         "drill_status": drill_record["status"],
@@ -772,23 +904,25 @@ def resolve_active_release(
 ) -> dict[str, Any]:
     """Resolve an active release only after complete integrity/runtime checks."""
 
-    releases_root = Path(releases_root).resolve()
-    pointer = load_active_pointer(pointer_path)
-    verified = verify_release(
-        _release_dir(releases_root, pointer["active_release_id"]),
+    resolved = resolve_verified_active_release(
+        pointer_path=pointer_path,
+        releases_root=releases_root,
         repo_root=repo_root,
-        expected_manifest_sha256=pointer["active_manifest_sha256"],
         check_runtime=True,
         current_runtime_versions=current_runtime_versions,
         current_runtime_identity=current_runtime_identity,
+        require_served_bindings=False,
     )
     return {
         "status": "PASS",
-        "release_id": pointer["active_release_id"],
-        "release_dir": verified["release_dir"],
-        "manifest_path": verified["manifest_path"],
-        "manifest_sha256": verified["manifest_sha256"],
-        "pointer_sha256": pointer["pointer_sha256"],
-        "sequence": pointer["sequence"],
-        "manifest": verified["manifest"],
+        "release_id": resolved["release_id"],
+        "release_dir": resolved["release_dir"],
+        "manifest_path": resolved["manifest_path"],
+        "manifest_sha256": resolved["manifest_sha256"],
+        "pointer_sha256": resolved["pointer_sha256"],
+        "sequence": resolved["sequence"],
+        "release_kind": resolved["release_kind"],
+        "candidate_mode": resolved["candidate_mode"],
+        "production_capable": resolved["production_capable"],
+        "manifest": resolved["manifest"],
     }

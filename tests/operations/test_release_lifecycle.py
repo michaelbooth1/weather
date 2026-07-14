@@ -14,6 +14,7 @@ from weather.operations.release_lifecycle import (
     PROMOTION_DECISION_SCHEMA_VERSION,
     RELEASE_MANIFEST_NAME,
     ROLLBACK_DRILL_SCHEMA_VERSION,
+    SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
     ReleaseLifecycleError,
     assert_candidate_only_output,
     assert_training_output_path,
@@ -315,6 +316,7 @@ def test_atomic_promotion_active_resolution_and_one_command_rollback(tmp_path: P
     assert first["active_release_id"] == "r1"
     assert first["previous_release_id"] is None
     assert first["sequence"] == 1
+    assert "release_kind" not in first
 
     resolved = resolve_active_release(
         releases_root=tmp_path / "releases",
@@ -546,6 +548,147 @@ def test_promotion_rejects_dirty_release_and_wrong_rollback_target(tmp_path: Pat
         promote(clean_root, wrong)
 
 
+def test_production_promotion_rejects_a_bootstrap_only_review_decision(
+    tmp_path: Path,
+):
+    release = build_release(tmp_path, "production-r1")
+    reviewed = decision(release["release_id"], release["manifest_sha256"])
+    reviewed["release_kind"] = SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+
+    with pytest.raises(
+        ReleaseLifecycleError,
+        match="release_kind must be absent or 'production'",
+    ):
+        promote_release(
+            release["release_id"],
+            decision=reviewed,
+            market_day_boundary=boundary(
+                release["release_id"], release["manifest_sha256"]
+            ),
+            releases_root=tmp_path / "releases",
+            pointer_path=tmp_path / "releases" / "current_release.json",
+            repo_root=tmp_path,
+            now=NOW,
+            current_runtime_versions=runtime_versions(),
+            current_runtime_identity=runtime_identity(),
+            current_code_identity=code_identity(),
+            bootstrap_first_release=True,
+        )
+
+
+def test_first_release_bootstrap_is_reviewed_one_time_and_survives_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    real_verify = release_promotion.verify_release
+
+    def verify_with_research_semantics(release_dir, *args, **kwargs):
+        verified = real_verify(release_dir, *args, **kwargs)
+        if Path(release_dir).name.startswith("research"):
+            verified = dict(verified)
+            verified["semantic_contract"] = {
+                "candidate_mode": "research_only",
+                "production_capable": False,
+            }
+            verified["semantic_contract_verified"] = True
+        return verified
+
+    monkeypatch.setattr(release_promotion, "verify_release", verify_with_research_semantics)
+    research = build_release(tmp_path, "research-r1")
+    bootstrap_decision = decision(
+        research["release_id"], research["manifest_sha256"]
+    ) | {"release_kind": SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND}
+    common = {
+        "market_day_boundary": boundary(
+            research["release_id"], research["manifest_sha256"]
+        ),
+        "releases_root": tmp_path / "releases",
+        "pointer_path": tmp_path / "releases" / "current_release.json",
+        "repo_root": tmp_path,
+        "now": NOW,
+        "current_runtime_versions": runtime_versions(),
+        "current_runtime_identity": runtime_identity(),
+        "current_code_identity": code_identity(),
+    }
+
+    with pytest.raises(ReleaseLifecycleError, match="research-only release"):
+        promote_release(research["release_id"], decision=bootstrap_decision, **common)
+    with pytest.raises(ReleaseLifecycleError, match="release_kind must be"):
+        promote_release(
+            research["release_id"],
+            decision=decision(research["release_id"], research["manifest_sha256"]),
+            bootstrap_first_release=True,
+            **common,
+        )
+
+    promoted = promote_release(
+        research["release_id"],
+        decision=bootstrap_decision,
+        bootstrap_first_release=True,
+        **common,
+    )
+    pointer_path = tmp_path / "releases" / "current_release.json"
+    bootstrap_pointer = load_active_pointer(pointer_path)
+    assert promoted["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert bootstrap_pointer["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert bootstrap_pointer["sequence"] == 1
+    assert bootstrap_pointer["previous_release_id"] is None
+    assert bootstrap_pointer["promotion_decision_sha256"] == canonical_payload_sha256(
+        bootstrap_decision
+    )
+    assert bootstrap_pointer["release_kind_provenance"][
+        "promotion_decision_sha256"
+    ] == canonical_payload_sha256(bootstrap_decision)
+    assert bootstrap_pointer["release_kind_provenance"]["origin_release_id"] == (
+        research["release_id"]
+    )
+    assert bootstrap_pointer["release_kind_provenance"][
+        "origin_manifest_sha256"
+    ] == research["manifest_sha256"]
+
+    pointer_before = pointer_path.read_bytes()
+    blocked = build_release(tmp_path, "research-r2", rollback_target="research-r1")
+    with pytest.raises(ReleaseLifecycleError, match="only when no active pointer exists"):
+        promote_release(
+            blocked["release_id"],
+            decision=decision(blocked["release_id"], blocked["manifest_sha256"])
+            | {"release_kind": SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND},
+            market_day_boundary=boundary(
+                blocked["release_id"], blocked["manifest_sha256"]
+            ),
+            bootstrap_first_release=True,
+            **{key: value for key, value in common.items() if key != "market_day_boundary"},
+        )
+    assert pointer_path.read_bytes() == pointer_before
+
+    production = build_release(tmp_path, "production-r2", rollback_target="research-r1")
+    assert promote(tmp_path, production)["release_kind"] == "production"
+    production_pointer = load_active_pointer(pointer_path)
+    assert production_pointer["previous_release_kind"] == (
+        SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    )
+    assert production_pointer["previous_release_kind_provenance"] == (
+        bootstrap_pointer["release_kind_provenance"]
+    )
+
+    rolled_back = rollback_release(
+        market_day_boundary=boundary(
+            research["release_id"], research["manifest_sha256"]
+        ),
+        releases_root=tmp_path / "releases",
+        pointer_path=pointer_path,
+        drill_record_path=tmp_path / "backtest" / "rollback.json",
+        now=NOW,
+    )
+    restored = load_active_pointer(pointer_path)
+    assert rolled_back["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert restored["release_kind"] == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND
+    assert restored["release_kind_provenance"] == bootstrap_pointer[
+        "release_kind_provenance"
+    ]
+    assert rolled_back["release_identity_proof"]["production_capable"] is False
+
+
 def test_pointer_and_manifest_tampering_fail_closed(tmp_path: Path):
     release = build_release(tmp_path, "r1")
     promote(tmp_path, release)
@@ -647,6 +790,7 @@ def test_cli_builds_and_verifies_a_release_from_a_candidate_spec(tmp_path: Path,
             str(decision_path),
             "--market-day-boundary",
             str(boundary_path),
+            "--bootstrap-first-release",
         ]
     ) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "PROMOTED"
