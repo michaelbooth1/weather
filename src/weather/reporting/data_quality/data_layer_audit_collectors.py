@@ -9,6 +9,14 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from weather.collection.collection_health import summarize_folder
+from weather.collection.forecast_payload_cas import (
+    ForecastPayloadCASIntegrityError,
+    forecast_payload_byte_summary,
+)
+from weather.forecast_payload_contracts import (
+    ForecastPayloadExtractionIdentityError,
+    deduplicate_fanout_coordinator_attributions,
+)
 from weather.io import read_csv_rows as io_read_csv_rows, read_json as io_read_json
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
@@ -320,47 +328,194 @@ def source_status_summary_for_folder(folder):
     }
 
 
+def _merge_offline_coordinator_attributions(grouped, values):
+    """Merge receipt evidence without applying the bounded live-status cap."""
+
+    for value in values:
+        evidence_id = str(value.get("coordinator_evidence_id") or "")
+        previous = grouped.get(evidence_id)
+        if previous is None:
+            grouped[evidence_id] = dict(value)
+            continue
+        try:
+            merged = deduplicate_fanout_coordinator_attributions(
+                [previous, value]
+            )
+        except ForecastPayloadExtractionIdentityError as exc:
+            raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+        if len(merged) != 1:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out coordinator attribution identity mismatch"
+            )
+        grouped[evidence_id] = merged[0]
+
+
+def _offline_coordinator_totals(grouped):
+    """Return exact-ID totals for arbitrary-length historical evidence."""
+
+    rows = list(grouped.values())
+    physical = sum(row["physical_bytes_written"] for row in rows)
+    logical = sum(row["logical_referenced_bytes"] for row in rows)
+    if physical > logical:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out physical bytes exceed referenced bytes"
+        )
+    return {
+        "coordinator_evidence_count": len(rows),
+        "network_fetch_count": sum(row["network_fetch_count"] for row in rows),
+        "physical_bytes_written": physical,
+        "logical_referenced_bytes": logical,
+        "avoided_bytes": logical - physical,
+    }
+
+
+def _offline_forecast_payload_accounting(rows):
+    """Aggregate historical rows while retaining exact-ID evidence internally."""
+
+    grouped = {}
+    logical = 0
+    uncoordinated = {
+        "physical_bytes_written": 0,
+        "avoided_bytes": 0,
+        "network_fetch_count": 0,
+    }
+    network_reuse_count = 0
+    cross_process_reuse_count = 0
+    wait_timeout_count = 0
+    unavailable_count = 0
+    for row in rows:
+        storage = forecast_payload_byte_summary([row])
+        logical += storage["logical_referenced_bytes"]
+        network_reuse_count += storage["network_reuse_count"]
+        cross_process_reuse_count += storage["cross_process_reuse_count"]
+        wait_timeout_count += storage["network_wait_timeout_fail_open_count"]
+        unavailable_count += storage[
+            "coordinator_attribution_unavailable_count"
+        ]
+        child_grouped = {
+            value["coordinator_evidence_id"]: value
+            for value in storage["coordinator_attributions"]
+        }
+        child_totals = _offline_coordinator_totals(child_grouped)
+        for field in uncoordinated:
+            if storage[field] < child_totals[field]:
+                raise ForecastPayloadCASIntegrityError(
+                    f"forecast coordinator {field} exceeds row total"
+                )
+            uncoordinated[field] += storage[field] - child_totals[field]
+        _merge_offline_coordinator_attributions(
+            grouped,
+            storage["coordinator_attributions"],
+        )
+    coordinator = _offline_coordinator_totals(grouped)
+    return {
+        "logical_referenced_bytes": logical,
+        "physical_bytes_written": (
+            uncoordinated["physical_bytes_written"]
+            + coordinator["physical_bytes_written"]
+        ),
+        "avoided_bytes": (
+            uncoordinated["avoided_bytes"] + coordinator["avoided_bytes"]
+        ),
+        "network_fetch_count": (
+            uncoordinated["network_fetch_count"]
+            + coordinator["network_fetch_count"]
+        ),
+        "network_reuse_count": network_reuse_count,
+        "cross_process_reuse_count": cross_process_reuse_count,
+        "network_wait_timeout_fail_open_count": wait_timeout_count,
+        "coordinator_evidence_count": coordinator[
+            "coordinator_evidence_count"
+        ],
+        "coordinator_network_fetch_count": coordinator[
+            "network_fetch_count"
+        ],
+        "coordinator_physical_bytes_written": coordinator[
+            "physical_bytes_written"
+        ],
+        "coordinator_attribution_unavailable_count": unavailable_count,
+        "_coordinator_attributions": [
+            grouped[key] for key in sorted(grouped)
+        ],
+        "_uncoordinated_physical_bytes_written": uncoordinated[
+            "physical_bytes_written"
+        ],
+        "_uncoordinated_avoided_bytes": uncoordinated["avoided_bytes"],
+        "_uncoordinated_network_fetch_count": uncoordinated[
+            "network_fetch_count"
+        ],
+    }
+
+
 def forecast_payload_summary_for_folder(folder):
     rows = read_csv_dicts(Path(folder) / "forecast_payloads_long.csv")
-    logical_bytes = sum(
-        int(
-            safe_float(row.get("logical_referenced_bytes"))
-            or safe_float(row.get("payload_bytes"))
-            or 0
-        )
-        for row in rows
-    )
-    physical_bytes = sum(
-        int(
-            safe_float(row.get("physical_bytes_written"))
-            or (
-                safe_float(row.get("payload_bytes"))
-                if truthy(row.get("payload_blob_created"))
-                else 0
-            )
-            or 0
-        )
-        for row in rows
-    )
-    avoided_bytes = sum(
-        int(
-            safe_float(row.get("avoided_bytes"))
-            or (
-                safe_float(row.get("payload_bytes"))
-                if truthy(row.get("payload_blob_reused"))
-                else 0
-            )
-            or 0
-        )
-        for row in rows
-    )
+    normalized_rows = []
+    integer_fields = {
+        "payload_bytes",
+        "logical_referenced_bytes",
+        "physical_bytes_written",
+        "avoided_bytes",
+        "coordinator_network_fetch_count",
+        "coordinator_physical_bytes_written",
+    }
+    boolean_fields = {
+        "payload_blob_created",
+        "payload_blob_reused",
+        "single_fetch_fetched",
+        "single_fetch_reused",
+        "single_fetch_wait_timed_out",
+        "coordinator_payload_blob_created",
+        "coordinator_payload_blob_reused",
+    }
+    for row in rows:
+        normalized = dict(row)
+        for field in integer_fields:
+            normalized[field] = int(safe_float(row.get(field)) or 0)
+        if not normalized["physical_bytes_written"] and truthy(
+            row.get("payload_blob_created")
+        ):
+            normalized["physical_bytes_written"] = normalized["payload_bytes"]
+        if not normalized["avoided_bytes"] and truthy(
+            row.get("payload_blob_reused")
+        ):
+            normalized["avoided_bytes"] = normalized["payload_bytes"]
+        for field in boolean_fields:
+            normalized[field] = truthy(row.get(field))
+        normalized_rows.append(normalized)
+    storage = _offline_forecast_payload_accounting(normalized_rows)
     return {
         "row_count": len(rows),
         "source_count": len({row.get("source") for row in rows if row.get("source")}),
-        "payload_bytes": logical_bytes,
-        "logical_referenced_bytes": logical_bytes,
-        "physical_bytes_written": physical_bytes,
-        "avoided_bytes": avoided_bytes,
+        "payload_bytes": storage["logical_referenced_bytes"],
+        "logical_referenced_bytes": storage["logical_referenced_bytes"],
+        "physical_bytes_written": storage["physical_bytes_written"],
+        "avoided_bytes": storage["avoided_bytes"],
+        "coordinator_evidence_count": storage["coordinator_evidence_count"],
+        "network_fetch_count": storage["network_fetch_count"],
+        "network_reuse_count": storage["network_reuse_count"],
+        "cross_process_reuse_count": storage["cross_process_reuse_count"],
+        "network_wait_timeout_fail_open_count": storage[
+            "network_wait_timeout_fail_open_count"
+        ],
+        "coordinator_network_fetch_count": storage[
+            "coordinator_network_fetch_count"
+        ],
+        "coordinator_physical_bytes_written": storage[
+            "coordinator_physical_bytes_written"
+        ],
+        "coordinator_attribution_unavailable_count": storage[
+            "coordinator_attribution_unavailable_count"
+        ],
+        "_coordinator_attributions": storage["_coordinator_attributions"],
+        "_uncoordinated_physical_bytes_written": storage[
+            "_uncoordinated_physical_bytes_written"
+        ],
+        "_uncoordinated_avoided_bytes": storage[
+            "_uncoordinated_avoided_bytes"
+        ],
+        "_uncoordinated_network_fetch_count": storage[
+            "_uncoordinated_network_fetch_count"
+        ],
         "created_blob_count": sum(
             1 for row in rows if truthy(row.get("payload_blob_created"))
         ),
@@ -651,8 +806,14 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     source_status_counts = Counter()
     forecast_payload_rows = 0
     forecast_payload_bytes = 0
-    forecast_payload_physical_bytes = 0
-    forecast_payload_avoided_bytes = 0
+    forecast_payload_uncoordinated_physical_bytes = 0
+    forecast_payload_uncoordinated_avoided_bytes = 0
+    forecast_payload_uncoordinated_network_fetches = 0
+    forecast_payload_coordinator_attributions = {}
+    forecast_payload_network_reuses = 0
+    forecast_payload_cross_process_reuses = 0
+    forecast_payload_wait_timeouts = 0
+    forecast_payload_attribution_unavailable = 0
     forecast_payload_created_blobs = 0
     forecast_payload_reused_blobs = 0
     forecast_payload_shared_rows = 0
@@ -795,8 +956,31 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         payloads = row.get("forecast_payloads") or {}
         forecast_payload_rows += int(payloads.get("row_count") or 0)
         forecast_payload_bytes += int(payloads.get("payload_bytes") or 0)
-        forecast_payload_physical_bytes += int(payloads.get("physical_bytes_written") or 0)
-        forecast_payload_avoided_bytes += int(payloads.get("avoided_bytes") or 0)
+        forecast_payload_uncoordinated_physical_bytes += int(
+            payloads.pop("_uncoordinated_physical_bytes_written", 0) or 0
+        )
+        forecast_payload_uncoordinated_avoided_bytes += int(
+            payloads.pop("_uncoordinated_avoided_bytes", 0) or 0
+        )
+        forecast_payload_uncoordinated_network_fetches += int(
+            payloads.pop("_uncoordinated_network_fetch_count", 0) or 0
+        )
+        _merge_offline_coordinator_attributions(
+            forecast_payload_coordinator_attributions,
+            payloads.pop("_coordinator_attributions", []),
+        )
+        forecast_payload_network_reuses += int(
+            payloads.get("network_reuse_count") or 0
+        )
+        forecast_payload_cross_process_reuses += int(
+            payloads.get("cross_process_reuse_count") or 0
+        )
+        forecast_payload_wait_timeouts += int(
+            payloads.get("network_wait_timeout_fail_open_count") or 0
+        )
+        forecast_payload_attribution_unavailable += int(
+            payloads.get("coordinator_attribution_unavailable_count") or 0
+        )
         forecast_payload_created_blobs += int(payloads.get("created_blob_count") or 0)
         forecast_payload_reused_blobs += int(payloads.get("reused_blob_count") or 0)
         forecast_payload_shared_rows += int(payloads.get("shared_manifest_row_count") or 0)
@@ -807,6 +991,21 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         clob_ws_event_window_rows += int(clob.get("ws_event_window_rows") or 0)
         replay = row.get("replay_input_status") or {}
         replay_status_counts.update(replay.get("status_counts") or {})
+    forecast_payload_coordinator_totals = _offline_coordinator_totals(
+        forecast_payload_coordinator_attributions
+    )
+    forecast_payload_physical_bytes = (
+        forecast_payload_uncoordinated_physical_bytes
+        + forecast_payload_coordinator_totals["physical_bytes_written"]
+    )
+    forecast_payload_avoided_bytes = (
+        forecast_payload_uncoordinated_avoided_bytes
+        + forecast_payload_coordinator_totals["avoided_bytes"]
+    )
+    forecast_payload_network_fetches = (
+        forecast_payload_uncoordinated_network_fetches
+        + forecast_payload_coordinator_totals["network_fetch_count"]
+    )
     low_fill = []
     for field, total in sorted(field_totals.items()):
         filled = field_nonempty[field]
@@ -932,6 +1131,26 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
             "logical_referenced_bytes": forecast_payload_bytes,
             "physical_bytes_written": forecast_payload_physical_bytes,
             "avoided_bytes": forecast_payload_avoided_bytes,
+            "network_fetch_count": forecast_payload_network_fetches,
+            "network_reuse_count": forecast_payload_network_reuses,
+            "cross_process_reuse_count": forecast_payload_cross_process_reuses,
+            "network_wait_timeout_fail_open_count": (
+                forecast_payload_wait_timeouts
+            ),
+            "coordinator_evidence_count": forecast_payload_coordinator_totals[
+                "coordinator_evidence_count"
+            ],
+            "coordinator_network_fetch_count": (
+                forecast_payload_coordinator_totals["network_fetch_count"]
+            ),
+            "coordinator_physical_bytes_written": (
+                forecast_payload_coordinator_totals[
+                    "physical_bytes_written"
+                ]
+            ),
+            "coordinator_attribution_unavailable_count": (
+                forecast_payload_attribution_unavailable
+            ),
             "created_blob_count": forecast_payload_created_blobs,
             "reused_blob_count": forecast_payload_reused_blobs,
             "shared_manifest_row_count": forecast_payload_shared_rows,

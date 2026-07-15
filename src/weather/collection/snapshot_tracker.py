@@ -23,6 +23,11 @@ from weather.collection.forecast_archive import (
 from weather.collection.forecast_payload_cas import (
     SHARED_FORECAST_PAYLOAD_CAS_ROOT,
 )
+from weather.forecast_payload_contracts import (
+    ForecastPayloadExtractionIdentityError,
+    deduplicate_fanout_coordinator_attributions,
+    fanout_coordinator_attribution_totals,
+)
 from weather.collection.forecast_payload_fetch_fanout import (
     fanout_from_environment,
 )
@@ -42,16 +47,20 @@ from weather.runtime_identity import (
 from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
+    authorize_managed_process_termination,
+    authorize_writer_lock_removal,
     age_minutes,
     append_jsonl,
     acquire_writer_lock,
     attach_status_writer,
     atomic_write_json,
     configure_json_console_logging,
+    capture_managed_process_identity,
     default_ensure_decision,
     launch_detached,
     loop_file_offsets,
     loop_writer_lock_health,
+    managed_stop_allows_start,
     pid_is_python,
     persist_supervisor_status,
     quarantine_malformed_loop_lines,
@@ -63,7 +72,7 @@ from weather.operations.supervisor import (
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
     supervisor_recovery_guard,
-    terminate_python_pid,
+    terminate_managed_process,
 )
 
 from weather.collection.snapshot_capture_batch import (  # noqa: E402
@@ -669,7 +678,21 @@ def _normalized_pid(value):
         return None
 
 
-def _cleanup_loop_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
+def _snapshot_loop_command(interval_minutes=10.0):
+    return SNAPSHOT_SUPERVISOR.command(
+        "--loop",
+        "--interval-minutes",
+        interval_minutes,
+    )
+
+
+def _cleanup_loop_writer_lock(
+    expected_pid=None,
+    attempts=1,
+    sleep_seconds=0.1,
+    confirmed_exit=None,
+    exited_identity=None,
+):
     """Remove this loop's writer lock when its owner has been stopped or died."""
     attempts = max(1, int(attempts))
     last_result = None
@@ -679,17 +702,22 @@ def _cleanup_loop_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
             return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
         owner_pid = _normalized_pid(lock.get("pid"))
         expected = _normalized_pid(expected_pid)
-        if expected is not None and owner_pid == expected:
-            reason = "stopped writer pid"
-        elif owner_pid is not None and not pid_is_python(owner_pid):
-            reason = "dead writer pid"
-        else:
+        removal = authorize_writer_lock_removal(
+            lock,
+            expected_pid=expected,
+            confirmed_exit=confirmed_exit,
+            exited_identity=exited_identity,
+        )
+        if not removal.get("authorized"):
             return {
                 "removed": False,
-                "reason": "writer lock owner is still live",
+                "blocked": True,
+                "reason": removal.get("reason"),
                 "pid": owner_pid,
                 "path": lock.get("path"),
+                "authorization": removal,
             }
+        reason = "stopped writer pid" if expected is not None and owner_pid == expected else "dead writer pid"
         try:
             Path(lock["path"]).unlink()
         except FileNotFoundError:
@@ -710,17 +738,67 @@ def stop_loop(now=None):
     now = now or datetime.now(TORONTO_TZ)
     status = read_loop_status()
     pid = (status or {}).get("pid")
-    if not pid_is_python(pid):
-        return {"stopped": False, "reason": f"no live loop process (pid={pid})"}
-    stop = terminate_python_pid(pid)
+    writer_lock = read_writer_lock(LOOP_STATUS_PATH)
+    expected_command = _snapshot_loop_command((status or {}).get("interval_minutes", 10.0))
+    authorization = authorize_managed_process_termination(
+        status,
+        writer_lock,
+        expected_command,
+    )
+    if not authorization.get("authorized"):
+        return {
+            "stopped": False,
+            "pid": pid,
+            "reason": authorization.get("reason"),
+            "authorization": authorization,
+            "writer_lock": writer_lock,
+        }
+    managed_process = authorization["managed_process"]
+    stop = terminate_managed_process(managed_process, expected_command)
     if not stop.get("stopped"):
-        return {"stopped": False, "pid": pid, "reason": stop.get("reason")}
-    lock_cleanup = _cleanup_loop_writer_lock(expected_pid=pid, attempts=20, sleep_seconds=0.1)
+        return {
+            "stopped": False,
+            "termination_requested": bool(stop.get("termination_requested")),
+            "pid": pid,
+            "reason": stop.get("reason"),
+            "termination_scope": stop.get("termination_scope"),
+            "authorization": authorization,
+            "writer_lock": writer_lock,
+        }
+    confirmed_exit = {
+        "exited": stop.get("exited") is True,
+        "reason": stop.get("reason"),
+        "pid": pid,
+        "termination_scope": stop.get("termination_scope"),
+    }
+    lock_cleanup = _cleanup_loop_writer_lock(
+        expected_pid=pid,
+        attempts=20,
+        sleep_seconds=0.1,
+        confirmed_exit=confirmed_exit,
+        exited_identity=managed_process,
+    )
+    if not confirmed_exit.get("exited"):
+        return {
+            "stopped": False,
+            "termination_requested": True,
+            "pid": pid,
+            "reason": confirmed_exit.get("reason"),
+            "authorization": authorization,
+            "post_termination_observation": confirmed_exit,
+            "writer_lock": lock_cleanup,
+        }
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_loop_status(status)
     append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "writer_lock": lock_cleanup})
-    return {"stopped": True, "pid": pid, "writer_lock": lock_cleanup}
+    return {
+        "stopped": True,
+        "pid": pid,
+        "authorization": authorization,
+        "post_termination_observation": confirmed_exit,
+        "writer_lock": lock_cleanup,
+    }
 
 
 def start_loop_detached(interval_minutes=10.0, now=None):
@@ -729,25 +807,28 @@ def start_loop_detached(interval_minutes=10.0, now=None):
     status immediately so a racing --ensure does not double-start."""
     now = now or datetime.now(TORONTO_TZ)
     lock_cleanup = _cleanup_loop_writer_lock(attempts=3, sleep_seconds=0.1)
-    if lock_cleanup.get("reason") == "writer lock owner is still live":
+    if lock_cleanup.get("blocked"):
         append_diagnostic({
             "time": now.isoformat(),
             "supervisor": "start_blocked",
-            "reason": "writer lock owner is still live",
+            "reason": lock_cleanup.get("reason"),
             "writer_lock": lock_cleanup,
         })
-        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+        return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
+    command = _snapshot_loop_command(interval_minutes)
     child = launch_detached(
-        SNAPSHOT_SUPERVISOR.command("--loop", "--interval-minutes", interval_minutes),
+        command,
         cwd=SNAPSHOT_SUPERVISOR.cwd,
         console_log_path=LOOP_CONSOLE_LOG_PATH,
         popen_fn=subprocess.Popen,
     )
+    managed_process = capture_managed_process_identity(child.pid, command)
     write_loop_status({
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "managed_process": managed_process,
         "interval_minutes": interval_minutes,
         "iterations": 0,
         "consecutive_errors": 0,
@@ -879,6 +960,13 @@ def ensure_loop(interval_minutes=10.0, now=None):
             result["loop_offsets_before"] = loop_file_offsets(spec)
         if action == "restart":
             result["stop"] = stop_loop(now=now)
+            if not managed_stop_allows_start(result["stop"]):
+                result["intended_action"] = "restart"
+                result["action"] = "restart_blocked"
+                result["reason"] = result["stop"].get("reason") or "managed loop stop was not confirmed"
+                result = persist_supervisor_status(spec, result, now=now)
+                append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+                return result
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_loop_detached(interval_minutes, now=now)
         elif action == "start":
@@ -927,7 +1015,7 @@ def _nonnegative_int(value):
 
 
 def compact_forecast_payload_storage(value):
-    """Project one capture's storage evidence to bounded scalar fields."""
+    """Project one capture to bounded scalars plus receipt attributions."""
     if not isinstance(value, dict):
         return None
     if value.get("schema_version") != FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION:
@@ -935,6 +1023,44 @@ def compact_forecast_payload_storage(value):
     result = {"schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION}
     for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS:
         result[field] = _nonnegative_int(value.get(field)) or 0
+    raw_attributions = value.get("coordinator_attributions") or []
+    if not isinstance(raw_attributions, list):
+        raise ValueError("forecast coordinator attributions must be a list")
+    try:
+        attributions = deduplicate_fanout_coordinator_attributions(
+            raw_attributions
+        )
+        coordinator_totals = fanout_coordinator_attribution_totals(
+            attributions
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ValueError(str(exc)) from exc
+    declared_count = _nonnegative_int(value.get("coordinator_evidence_count"))
+    if declared_count not in (None, coordinator_totals["coordinator_evidence_count"]):
+        raise ValueError("forecast coordinator evidence count mismatch")
+    for field, total_field in (
+        ("coordinator_network_fetch_count", "network_fetch_count"),
+        ("coordinator_physical_bytes_written", "physical_bytes_written"),
+    ):
+        declared = _nonnegative_int(value.get(field))
+        if declared not in (None, coordinator_totals[total_field]):
+            raise ValueError(f"forecast {field} mismatch")
+    result["coordinator_attributions"] = attributions
+    result["coordinator_evidence_count"] = coordinator_totals[
+        "coordinator_evidence_count"
+    ]
+    result["coordinator_network_fetch_count"] = coordinator_totals[
+        "network_fetch_count"
+    ]
+    result["coordinator_physical_bytes_written"] = coordinator_totals[
+        "physical_bytes_written"
+    ]
+    result["coordinator_attribution_unavailable_count"] = (
+        _nonnegative_int(
+            value.get("coordinator_attribution_unavailable_count")
+        )
+        or 0
+    )
     result["physical_write_budget_bytes"] = _nonnegative_int(
         value.get("physical_write_budget_bytes")
     )
@@ -948,7 +1074,7 @@ def compact_forecast_payload_storage(value):
 
 
 def summarize_forecast_payload_storage(market_results):
-    """Aggregate the current fleet pass without retaining payload detail."""
+    """Aggregate one fleet pass with exact-id coordinator deduplication."""
     rows = []
     for result in (market_results or {}).values():
         if not isinstance(result, dict):
@@ -957,13 +1083,73 @@ def summarize_forecast_payload_storage(market_results):
         if row is not None:
             rows.append(row)
 
+    raw_attributions = [
+        attribution
+        for row in rows
+        for attribution in row["coordinator_attributions"]
+    ]
+    try:
+        attributions = deduplicate_fanout_coordinator_attributions(
+            raw_attributions
+        )
+        coordinator_totals = fanout_coordinator_attribution_totals(
+            attributions
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ValueError(str(exc)) from exc
     summary = {
         "schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION,
         **{
             field: sum(row[field] for row in rows)
             for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS
+            if field not in {
+                "physical_bytes_written",
+                "avoided_bytes",
+                "network_fetch_count",
+            }
         },
     }
+    uncoordinated = {
+        "physical_bytes_written": 0,
+        "avoided_bytes": 0,
+        "network_fetch_count": 0,
+    }
+    for row in rows:
+        child_totals = fanout_coordinator_attribution_totals(
+            row["coordinator_attributions"]
+        )
+        for field in uncoordinated:
+            child_value = row[field]
+            coordinator_value = child_totals[field]
+            if child_value < coordinator_value:
+                raise ValueError(
+                    f"forecast coordinator {field} exceeds child total"
+                )
+            uncoordinated[field] += child_value - coordinator_value
+    summary["physical_bytes_written"] = (
+        uncoordinated["physical_bytes_written"]
+        + coordinator_totals["physical_bytes_written"]
+    )
+    summary["avoided_bytes"] = (
+        uncoordinated["avoided_bytes"] + coordinator_totals["avoided_bytes"]
+    )
+    summary["network_fetch_count"] = (
+        uncoordinated["network_fetch_count"]
+        + coordinator_totals["network_fetch_count"]
+    )
+    summary["coordinator_attributions"] = attributions
+    summary["coordinator_evidence_count"] = coordinator_totals[
+        "coordinator_evidence_count"
+    ]
+    summary["coordinator_network_fetch_count"] = coordinator_totals[
+        "network_fetch_count"
+    ]
+    summary["coordinator_physical_bytes_written"] = coordinator_totals[
+        "physical_bytes_written"
+    ]
+    summary["coordinator_attribution_unavailable_count"] = sum(
+        row["coordinator_attribution_unavailable_count"] for row in rows
+    )
     budgets = [row["physical_write_budget_bytes"] for row in rows]
     all_budgets_configured = bool(rows) and all(value is not None for value in budgets)
     summary["physical_write_budget_bytes"] = (
@@ -1205,9 +1391,15 @@ def run_loop(
     preflight_due_enabled = production_capture
     capture_fn = capture_fn or capture_snapshot
     target_date = ensure_date(target_date) if target_date is not None else None
+    managed_command = _snapshot_loop_command(interval_minutes)
+    managed_process = capture_managed_process_identity(os.getpid(), managed_command)
     writer_lock = acquire_writer_lock(
         LOOP_STATUS_PATH,
-        owner={"loop": SNAPSHOT_SUPERVISOR.name, "module": SNAPSHOT_SUPERVISOR.module},
+        owner={
+            "loop": SNAPSHOT_SUPERVISOR.name,
+            "module": SNAPSHOT_SUPERVISOR.module,
+            "managed_process": managed_process,
+        },
         stale_after_seconds=max(120.0, float(interval_minutes) * 60.0 * 3.0),
     )
     if writer_lock is None:
@@ -1225,6 +1417,7 @@ def run_loop(
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
         "runtime_identity": PROCESS_RUNTIME_IDENTITY,
+        "managed_process": managed_process,
         "power_request": power_request,
         "interval_minutes": interval_minutes,
         "iterations": 0,
@@ -1857,7 +2050,12 @@ def main():
         print(json.dumps(stop_loop(), indent=2, sort_keys=True))
         return
     if args.restart:
-        result = {"stop": stop_loop(), "start": start_loop_detached(args.interval_minutes)}
+        stop = stop_loop()
+        result = {"stop": stop}
+        if managed_stop_allows_start(stop):
+            result["start"] = start_loop_detached(args.interval_minutes)
+        else:
+            result["start"] = {"started": False, "reason": "managed stop was not confirmed"}
         print(json.dumps(result, indent=2, sort_keys=True))
         return
     if args.start_detached:

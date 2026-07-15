@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-14T14:33:11.550653+00:00
+Generated: 2026-07-15T05:48:55.396092+00:00
 Status: `OK`
 
 ## Summary
@@ -54,7 +54,7 @@ Status: `OK`
 | 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | PARTIAL | 2026-07-14 | 488-TICK SOAK COLLECTED; ACCEPTANCE REVIEW PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
-| 323 | PARTIAL | 2026-07-13 | CROSS-PROCESS FAN-OUT IMPLEMENTED; CONTROLLED HOUR AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
+| 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-07-14 | NON-COUNTABLE SOAK EXPOSED TWO UNISOLATED MEMORY PATHS; CORRECTIVE GATES PENDING | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 
 ## Lint Issues

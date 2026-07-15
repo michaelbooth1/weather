@@ -27,6 +27,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from weather.io import acquire_writer_lock, append_jsonl, release_writer_lock, write_json_atomic
+from weather.forecast_payload_contracts import (
+    ForecastPayloadExtractionIdentityError,
+    deduplicate_fanout_coordinator_attributions,
+    fanout_coordinator_attribution_totals,
+)
 from weather.paths import REPO_ROOT, data_path, relative_to_repo
 
 
@@ -323,6 +328,44 @@ def _compact_forecast_payload_storage(value: Any) -> dict[str, Any] | None:
     projected = {"schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION}
     for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS:
         projected[field] = _nonnegative_int(value.get(field)) or 0
+    raw_attributions = value.get("coordinator_attributions") or []
+    if not isinstance(raw_attributions, list):
+        raise ValueError("forecast coordinator attributions must be a list")
+    try:
+        attributions = deduplicate_fanout_coordinator_attributions(
+            raw_attributions
+        )
+        coordinator_totals = fanout_coordinator_attribution_totals(
+            attributions
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ValueError(str(exc)) from exc
+    declared_count = _nonnegative_int(value.get("coordinator_evidence_count"))
+    if declared_count not in (None, coordinator_totals["coordinator_evidence_count"]):
+        raise ValueError("forecast coordinator evidence count mismatch")
+    for field, total_field in (
+        ("coordinator_network_fetch_count", "network_fetch_count"),
+        ("coordinator_physical_bytes_written", "physical_bytes_written"),
+    ):
+        declared = _nonnegative_int(value.get(field))
+        if declared not in (None, coordinator_totals[total_field]):
+            raise ValueError(f"forecast {field} mismatch")
+    projected["coordinator_attributions"] = attributions
+    projected["coordinator_evidence_count"] = coordinator_totals[
+        "coordinator_evidence_count"
+    ]
+    projected["coordinator_network_fetch_count"] = coordinator_totals[
+        "network_fetch_count"
+    ]
+    projected["coordinator_physical_bytes_written"] = coordinator_totals[
+        "physical_bytes_written"
+    ]
+    projected["coordinator_attribution_unavailable_count"] = (
+        _nonnegative_int(
+            value.get("coordinator_attribution_unavailable_count")
+        )
+        or 0
+    )
     projected["physical_write_budget_bytes"] = _nonnegative_int(
         value.get("physical_write_budget_bytes")
     )
@@ -357,13 +400,62 @@ def _forecast_payload_storage(payload: dict[str, Any]) -> dict[str, Any] | None:
     if not rows:
         return None
 
+    raw_attributions = [
+        attribution
+        for row in rows
+        for attribution in row["coordinator_attributions"]
+    ]
+    try:
+        attributions = deduplicate_fanout_coordinator_attributions(
+            raw_attributions
+        )
+        coordinator_totals = fanout_coordinator_attribution_totals(
+            attributions
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ValueError(str(exc)) from exc
     summary = {
         "schema_version": FORECAST_PAYLOAD_STORAGE_SCHEMA_VERSION,
         **{
             field: sum(row[field] for row in rows)
             for field in FORECAST_PAYLOAD_STORAGE_COUNT_FIELDS
+            if field not in {
+                "physical_bytes_written",
+                "avoided_bytes",
+                "network_fetch_count",
+            }
         },
     }
+    uncoordinated = {
+        "physical_bytes_written": 0,
+        "avoided_bytes": 0,
+        "network_fetch_count": 0,
+    }
+    for row in rows:
+        child_totals = fanout_coordinator_attribution_totals(
+            row["coordinator_attributions"]
+        )
+        for field in uncoordinated:
+            if row[field] < child_totals[field]:
+                raise ValueError(
+                    f"forecast coordinator {field} exceeds child total"
+                )
+            uncoordinated[field] += row[field] - child_totals[field]
+    for field in uncoordinated:
+        summary[field] = uncoordinated[field] + coordinator_totals[field]
+    summary["coordinator_attributions"] = attributions
+    summary["coordinator_evidence_count"] = coordinator_totals[
+        "coordinator_evidence_count"
+    ]
+    summary["coordinator_network_fetch_count"] = coordinator_totals[
+        "network_fetch_count"
+    ]
+    summary["coordinator_physical_bytes_written"] = coordinator_totals[
+        "physical_bytes_written"
+    ]
+    summary["coordinator_attribution_unavailable_count"] = sum(
+        row["coordinator_attribution_unavailable_count"] for row in rows
+    )
     budgets = [row["physical_write_budget_bytes"] for row in rows]
     all_budgets_configured = all(value is not None for value in budgets)
     summary["physical_write_budget_bytes"] = (

@@ -12,6 +12,7 @@ from unittest import mock
 
 from weather.operations import supervisor
 from weather.operations import bot_daily_roll_supervisor
+from weather.operations import windows_processes
 
 
 class FakeProcess:
@@ -695,6 +696,231 @@ class TestSupervisorPrimitives(unittest.TestCase):
 
         self.assertTrue(result["stopped"])
         self.assertEqual(killed[0][0], 123)
+
+    def test_managed_process_authorization_requires_exact_command_and_creation_token(self):
+        command = ["C:/Python/python.exe", "-m", "weather.example", "loop", "--interval", "10"]
+        identity = {
+            "pid": 123,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        status = {"pid": 123, "managed_process": identity}
+        lock = {"exists": True, "pid": 123, "managed_process": dict(identity)}
+
+        authorized = supervisor.authorize_managed_process_termination(
+            status,
+            lock,
+            command,
+            observe_fn=lambda _pid: {
+                "state": "running",
+                "pid": 123,
+                "argv": command,
+                "command_line": "managed command",
+                "creation_time_token": "win32-filetime:100",
+                "inspectable": True,
+            },
+        )
+
+        self.assertTrue(authorized["authorized"])
+        self.assertEqual(authorized["reason"], "exact_managed_process_confirmed")
+
+    def test_managed_command_comparison_keeps_non_executable_arguments_case_sensitive(self):
+        expected = [
+            "C:/Python/python.exe",
+            "-m",
+            "weather.example",
+            "loop",
+            "--market",
+            "all",
+        ]
+
+        self.assertTrue(supervisor.commands_match_exact(list(expected), expected))
+        self.assertFalse(
+            supervisor.commands_match_exact(
+                [*expected[:-1], "ALL"],
+                expected,
+            )
+        )
+
+    def test_managed_process_authorization_rejects_reused_pid_and_command_mismatch(self):
+        command = ["C:/Python/python.exe", "-m", "weather.example", "loop"]
+        identity = {
+            "pid": 123,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        status = {"pid": 123, "managed_process": identity}
+        lock = {"exists": True, "pid": 123, "managed_process": dict(identity)}
+
+        reused = supervisor.authorize_managed_process_termination(
+            status,
+            lock,
+            command,
+            observe_fn=lambda _pid: {
+                "state": "running",
+                "pid": 123,
+                "argv": command,
+                "creation_time_token": "win32-filetime:200",
+                "inspectable": True,
+            },
+        )
+        mismatched_command = supervisor.authorize_managed_process_termination(
+            status,
+            lock,
+            command,
+            observe_fn=lambda _pid: {
+                "state": "running",
+                "pid": 123,
+                "argv": ["C:/Python/python.exe", "-m", "weather.other", "loop"],
+                "creation_time_token": "win32-filetime:100",
+                "inspectable": True,
+            },
+        )
+
+        self.assertFalse(reused["authorized"])
+        self.assertEqual(reused["reason"], "reused_pid_process_instance_mismatch")
+        self.assertFalse(mismatched_command["authorized"])
+        self.assertEqual(mismatched_command["reason"], "managed_process_command_mismatch")
+
+    def test_managed_process_authorization_fails_closed_on_unknown_or_live_lock_mismatch(self):
+        command = ["C:/Python/python.exe", "-m", "weather.example", "loop"]
+        identity = {
+            "pid": 123,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        status = {"pid": 123, "managed_process": identity}
+
+        unknown = supervisor.authorize_managed_process_termination(
+            status,
+            {"exists": False},
+            command,
+            observe_fn=lambda _pid: {"state": "unknown", "pid": 123},
+        )
+        mismatched_lock = supervisor.authorize_managed_process_termination(
+            status,
+            {"exists": True, "pid": 999},
+            command,
+            observe_fn=lambda pid: {
+                "state": "running",
+                "pid": pid,
+                "inspectable": False,
+            },
+        )
+
+        self.assertEqual(unknown["reason"], "live_process_identity_uninspectable")
+        self.assertEqual(
+            mismatched_lock["reason"],
+            "mismatched_writer_lock_owner_is_authoritative",
+        )
+
+    def test_wait_for_managed_process_exit_distinguishes_same_instance_and_reused_pid(self):
+        identity = {"pid": 123, "creation_time_token": "win32-filetime:100"}
+        observations = iter([
+            {
+                "state": "running",
+                "pid": 123,
+                "creation_time_token": "win32-filetime:100",
+            },
+            {
+                "state": "running",
+                "pid": 123,
+                "creation_time_token": "win32-filetime:200",
+            },
+        ])
+
+        result = supervisor.wait_for_managed_process_exit(
+            identity,
+            observe_fn=lambda _pid: next(observations),
+            attempts=2,
+            sleep_seconds=0,
+        )
+
+        self.assertTrue(result["exited"])
+        self.assertEqual(result["reason"], "pid_reused_after_managed_exit")
+
+    def test_replacement_start_requires_confirmed_stop_or_proven_absence(self):
+        self.assertTrue(supervisor.managed_stop_allows_start({"stopped": True}))
+        self.assertTrue(supervisor.managed_stop_allows_start({
+            "stopped": False,
+            "authorization": {"process_gone": True},
+        }))
+        self.assertFalse(supervisor.managed_stop_allows_start({
+            "stopped": False,
+            "authorization": {"process_gone": False},
+        }))
+        self.assertFalse(supervisor.managed_stop_allows_start(None))
+
+    @unittest.skipUnless(os.name == "nt", "Windows process snapshot semantics")
+    def test_windows_process_snapshot_failure_is_unknown_not_absence(self):
+        with mock.patch.object(windows_processes, "snapshot_processes", return_value=None):
+            observation = supervisor.observe_process(123)
+
+        self.assertEqual(observation["state"], "unknown")
+        self.assertEqual(observation["reason"], "Windows process snapshot unavailable")
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-scoped termination")
+    def test_terminate_managed_process_passes_exact_token_and_command_check_to_handle_backend(self):
+        command = ["C:/Python/python.exe", "-m", "weather.example", "loop"]
+        identity = {
+            "pid": 123,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        captured = {}
+
+        def fake_terminate(pid, **kwargs):
+            captured.update({"pid": pid, **kwargs})
+            return {"pid": pid, "stopped": False, "reason": "process_command_changed_before_termination"}
+
+        result = supervisor.terminate_managed_process(
+            identity,
+            command,
+            windows_terminate_fn=fake_terminate,
+        )
+
+        self.assertFalse(result["stopped"])
+        self.assertEqual(captured["pid"], 123)
+        self.assertEqual(captured["expected_creation_time_token"], "win32-filetime:100")
+        self.assertTrue(captured["command_line_check"]('"C:/Python/python.exe" -m weather.example loop'))
+        self.assertFalse(captured["command_line_check"]('"C:/Python/python.exe" -m weather.other loop'))
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-scoped termination")
+    def test_windows_handle_backend_rejects_instance_change_before_terminate(self):
+        with mock.patch.object(windows_processes, "_open_process", return_value=object()), \
+                mock.patch.object(windows_processes, "_creation_time_token", return_value="win32-filetime:new"), \
+                mock.patch.object(windows_processes, "TerminateProcess") as terminate, \
+                mock.patch.object(windows_processes, "CloseHandle"):
+            result = windows_processes.terminate_verified_process(
+                123,
+                expected_creation_time_token="win32-filetime:old",
+                command_line_check=lambda _command: True,
+            )
+
+        self.assertFalse(result["stopped"])
+        self.assertEqual(result["reason"], "process_instance_changed_before_termination")
+        terminate.assert_not_called()
+
+    @unittest.skipUnless(os.name == "nt", "Windows handle-scoped termination")
+    def test_windows_handle_backend_waits_for_exact_instance_exit(self):
+        handle = object()
+        with mock.patch.object(windows_processes, "_open_process", return_value=handle), \
+                mock.patch.object(windows_processes, "_creation_time_token", return_value="win32-filetime:100"), \
+                mock.patch.object(windows_processes, "_remote_command_line", return_value="managed command"), \
+                mock.patch.object(windows_processes, "TerminateProcess", return_value=True) as terminate, \
+                mock.patch.object(windows_processes, "WaitForSingleObject", return_value=windows_processes.WAIT_OBJECT_0) as wait, \
+                mock.patch.object(windows_processes, "CloseHandle"):
+            result = windows_processes.terminate_verified_process(
+                123,
+                expected_creation_time_token="win32-filetime:100",
+                command_line_check=lambda command: command == "managed command",
+            )
+
+        self.assertTrue(result["stopped"])
+        self.assertTrue(result["exited"])
+        self.assertEqual(result["termination_scope"], "verified_process_handle")
+        terminate.assert_called_once_with(handle, 15)
+        wait.assert_called_once_with(handle, 2000)
 
 
 if __name__ == "__main__":
