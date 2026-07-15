@@ -321,3 +321,43 @@ risen to 44 consecutive error iterations: Seattle and San Francisco ended in
 `MemoryError`, while Denver returned 137. Free RAM/commit/free-disk headroom
 was 3.437 GiB/49.30%/296.196 GiB. This later evidence was likewise read without
 controlling the process.
+
+## 2026-07-15 08:20 readback
+
+Capture recovered without intervention. At 08:21 and again after the inventory
+at 08:28, exact PID 35100 still ran the same snapshot-loop command from its
+01:02 process instance. Loaded and current source remained
+`713692de26ea` / `4867a3ef74fe4668`. The later status had a fresh heartbeat,
+505 iterations, zero consecutive errors, and 12/12 current-target markets
+without a reported error. No loop was restarted, signaled, or otherwise
+controlled.
+
+Item 322 did not pass its strict four-hour adoption proof. The current-day run
+provided 218 contiguous ticks over 4.016 hours on PID 56560 and one
+process-instance ID with zero restarts or missing ticks. Absolute memory,
+working-set, tick-duration, process-I/O, and tape-I/O ceilings passed. However,
+147 samples warned solely on slope; slope peaked at 22.927 MiB/hour and remained
+positive at 12.271, with only the final 14 ticks continuously below the
+16 MiB/hour ceiling. All 12 markets were blocked by a 2026-07-14 event-metadata
+date in the 2026-07-15 run, so both tapes stayed at zero rows. Item 322 remains
+open; this is neither flat-slope nor populated-tape evidence.
+
+Current instantaneous safeguards permitted the bounded Item-323 scan: commit
+was 48.93%, free RAM was 3.450 GiB, free disk was 291.223 GiB, capture was
+healthy/current, and no training process was running. The July v0.2 inventory
+returned the expected partial exit 2 after 60.062 seconds at its 8 GiB
+payload-read bound. In the scanned scope it verified 3,226,770,459 legacy
+stored bytes, projected 166,416,442 one-copy physical bytes and 3,060,354,017
+reclaimable bytes, and recorded 94 verified versus 480 blocked candidate rows.
+The unique JSON and Markdown outputs explicitly record truncation and a resume
+cursor. They also record no mutation, rewrite, deletion, or GC. The figures are
+not a complete monthly total or GC authority. Capture remained healthy after
+the scan, with free RAM/commit/free disk at 4.132 GiB/47.12%/291.165 GiB.
+
+The installed 09:30 Stage-A task still lacks the current scheduler provenance
+flags and retains a 20-hour execution limit rather than the registration
+script's four-hour contract. Without re-registration authority, receipts that
+report `scheduler_contract_missing`, `scheduler_attested=false`, or
+`manual_or_unverified` cannot count toward Item 324 even when their resource
+execution is otherwise healthy. The July 15 and July 16 13:30 readbacks remain
+scheduled for receipt-only inspection; no extra Stage-A run will be launched.

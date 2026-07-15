@@ -366,3 +366,39 @@ real-root monthly migration inventory is also still pending; no migration
 apply, rewrite, GC, or evidence deletion was performed. Item 323 therefore
 remains partial pending owner adoption, a clean live network proof, and the
 bounded real-root inventory.
+
+## 2026-07-15 bounded real-root July inventory
+
+At 08:26 local, current-source capture PID 35100 was healthy with zero
+consecutive errors, host commit was 48.93%, free physical RAM was 3.450 GiB,
+free C: space was 291.223 GiB, and no training process was running. The
+inventory-only v0.2 command then read the canonical snapshot and shared-CAS
+roots for month `2026-07`, with every bound explicit and a stricter 180-second
+elapsed ceiling. Its only writes were the new ignored report artifacts
+`data/backtest/forecast_payload_cas_migration_dry_run_20260715T1226Z.json` and
+`data/backtest/forecast_payload_cas_migration_dry_run_report_20260715T1226Z.md`.
+
+The command returned 2 with an explicit `TRUNCATED` result after 60.062 seconds
+at the 8,589,934,592-byte payload-read bound; it actually read 8,587,122,190
+payload bytes. The resume cursor identifies line 642 of Atlanta's July 14
+forecast manifest and the next 34,714,882-byte shared blob. Before stopping it
+visited 507 directories and 61,465 tree entries, read 8,766,333 manifest bytes,
+scanned 6 manifests and 6,278 rows, and found no manifest scan error.
+
+Within that bounded partial scope, the July month row reports 574 candidate
+rows, 94 verified and 480 blocked; 3,226,770,459 verified legacy stored bytes;
+166,416,442 projected one-copy physical bytes; and 3,060,354,017 projected
+reclaimable legacy bytes. The shared-reference side saw 151 rows, 150 verified
+and one blocked. These are partial observations only: they must not be
+extrapolated into a monthly reclaim total or used as garbage-collection
+authority. The artifact records `mutation_performed=false`, with deletion,
+manifest rewrite, and GC all disabled. No apply, copy, rewrite, delete, or GC
+was performed.
+
+At 08:28 after the scan, the same exact capture process and loaded/current
+identity still had a fresh heartbeat, 505 iterations, zero consecutive errors,
+and 12/12 current-target markets without a reported error. Free RAM/commit/free
+disk was 4.132 GiB/47.12%/291.165 GiB. Item 323 remains partial pending live
+adoption and the clean network-fetch proof; completing or resuming the monthly
+inventory is also still required before its partial figures can be called a
+month total.
