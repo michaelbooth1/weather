@@ -361,3 +361,35 @@ report `scheduler_contract_missing`, `scheduler_attested=false`, or
 `manual_or_unverified` cannot count toward Item 324 even when their resource
 execution is otherwise healthy. The July 15 and July 16 13:30 readbacks remain
 scheduled for receipt-only inspection; no extra Stage-A run will be launched.
+
+## 2026-07-15 13:30 Item-324 receipt readback
+
+Task Scheduler recorded its daily occurrence at 09:30:01 local with result 2.
+The exact producer receipt, run
+`2026-07-15T133008.086105_0000-47292`, began at 09:30:08 and became terminal
+`deferred` at 09:33:42 after 214.793 seconds. It is non-countable: the installed
+action still omits all three scheduler-provenance flags, and the receipt itself
+records `scheduler_contract_missing`, `scheduler_attested=false`,
+`mode=manual_or_unverified`, blocked correlation, and blank task identity.
+
+Only four of 23 Stage-A rows materialized. Three completed, then
+`public_wu_settlement_restore` deferred before launch because physical
+availability was 4,270,419,968 bytes against 4,294,967,296 required. The
+24,547,328-byte shortfall produced a durable bounded resume point, not a budget
+kill. Steps 5 through 23 did not run. Only `ingest_quality_gate` produced one
+of the 16 declared isolated receipts. Its child returned zero, passed terminal
+validation and job containment, and stayed below every configured ceiling:
+70.12% private, 16.04% working set, and 0.747% of timeout, with no value at the
+80% review threshold. Lifetime read/write was 461,368,763/888,362 bytes and no
+I/O cap was configured.
+
+The stage manifest is fresh and terminal `DEFERRED`, but its barrier was not
+reached. Scheduler result 2 agrees semantically with the deferred exit mapping;
+the root receipt nevertheless lacks a durable actual `exit_code` field. Lock
+proof passed, both lock files are absent, and the long-job state is complete.
+Capture remained healthy across admission, child completion, defer, and
+readback; exact snapshot PID 35100 retained the same command/process instance,
+current identity, and zero consecutive errors. No extra run, Claude resume,
+task registration, process control, or evidence change was counted. The first
+requested readback therefore adds no clean scheduled run and no qualifying
+budget kill. Item 324 remains open for the July 16 scheduled receipt review.

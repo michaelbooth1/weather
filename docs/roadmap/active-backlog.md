@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-15T12:32:32.168989+00:00
+Generated: 2026-07-15T17:36:31.126744+00:00
 Status: `OK`
 
 ## Summary
@@ -55,7 +55,7 @@ Status: `OK`
 | 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | PARTIAL | 2026-07-14 | 488-TICK SOAK COLLECTED; ACCEPTANCE REVIEW PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | PARTIAL | 2026-07-14 | NON-COUNTABLE SOAK EXPOSED TWO UNISOLATED MEMORY PATHS; CORRECTIVE GATES PENDING | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 324 | PARTIAL | 2026-07-15 | FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 
 ## Lint Issues
 
