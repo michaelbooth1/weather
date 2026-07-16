@@ -8,9 +8,11 @@ from types import SimpleNamespace
 
 import weather.collection.snapshot_tracker as tracker
 from weather.collection.snapshot_capture_batch import (
+    DEFAULT_CAPTURE_HOST_RESERVE_MB,
     DEFAULT_CAPTURE_WORKERS,
     DEFAULT_CHILD_WORKING_SET_MAX_MB,
     capture_command,
+    capture_worker_admission,
     console_python_executable,
     run_bounded_capture_batch,
     run_isolated_capture,
@@ -208,6 +210,39 @@ def test_production_defaults_bound_aggregate_commit_with_headroom():
     assert DEFAULT_CAPTURE_WORKERS == 2
     assert DEFAULT_CHILD_WORKING_SET_MAX_MB == 1792
     assert DEFAULT_CAPTURE_WORKERS * DEFAULT_CHILD_WORKING_SET_MAX_MB < 3 * 1536
+    assert DEFAULT_CAPTURE_HOST_RESERVE_MB == 1536
+
+
+def test_worker_admission_preserves_full_child_ceilings_and_host_reserve():
+    mib = 1024 * 1024
+    two_workers = capture_worker_admission(
+        2,
+        child_memory_max_mb=1792,
+        host_reserve_mb=1536,
+        available_memory_bytes=(1536 + 2 * 1792) * mib,
+    )
+    one_worker = capture_worker_admission(
+        2,
+        child_memory_max_mb=1792,
+        host_reserve_mb=1536,
+        available_memory_bytes=(1536 + 1792) * mib,
+    )
+    blocked = capture_worker_admission(
+        2,
+        child_memory_max_mb=1792,
+        host_reserve_mb=1536,
+        available_memory_bytes=(1536 + 1792) * mib - 1,
+    )
+    unknown = capture_worker_admission(2, available_memory_bytes=None)
+
+    assert two_workers["admitted_worker_count"] == 2
+    assert two_workers["reason"] == "requested_workers_admitted"
+    assert one_worker["admitted_worker_count"] == 1
+    assert one_worker["reason"] == "worker_count_reduced_for_physical_memory"
+    assert blocked["status"] == "BLOCK"
+    assert blocked["admitted_worker_count"] == 0
+    assert unknown["status"] == "BLOCK"
+    assert unknown["reason"] == "measurement_unavailable"
 
 
 def test_isolated_capture_classifies_and_persists_resource_limit_evidence():
@@ -426,6 +461,7 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
         sleep_fn=lambda _seconds: None,
         now_fn=lambda: NOW,
         capture_workers=3,
+        available_memory_fn=lambda: 16 * 1024**3,
     )
 
     persisted = json.loads((tmp_path / "loop_status.json").read_text(encoding="utf-8"))
@@ -458,3 +494,69 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
         "physical_write_budget_bytes": 400,
         "physical_write_budget_status": "PASS",
     }
+
+
+def test_managed_loop_fails_closed_before_spawning_when_memory_cannot_admit_one(
+    tmp_path,
+    monkeypatch,
+):
+    spec = SimpleNamespace(id="atlanta")
+    due_state = {
+        "market_id": spec.id,
+        "event_slug": "event-atlanta",
+        "target_date": "2026-07-11",
+        "due": True,
+        "last_snapshot_at": (NOW - timedelta(minutes=20)).isoformat(),
+        "next_due_at": (NOW - timedelta(minutes=11)).isoformat(),
+    }
+
+    class NoopPower:
+        def start(self):
+            return {"status": "synthetic"}
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json")
+    monkeypatch.setattr(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl")
+    monkeypatch.setattr(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag")
+    monkeypatch.setattr(tracker, "all_specs", lambda: [spec])
+    monkeypatch.setattr(
+        tracker,
+        "ordered_snapshot_specs",
+        lambda *_args, **_kwargs: [(spec, due_state)],
+    )
+    monkeypatch.setattr(
+        tracker,
+        "run_bounded_capture_batch",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("memory-blocked pass must not start a child batch")
+        ),
+    )
+    monkeypatch.setattr(
+        tracker,
+        "runtime_identity_status",
+        lambda *_args, **_kwargs: {"runtime_code_state": "current_code"},
+    )
+    monkeypatch.setattr(
+        tracker,
+        "current_fleet_collection_health",
+        lambda **_kwargs: {"summary": {}, "markets": []},
+    )
+    monkeypatch.setattr(tracker, "keep_system_awake", lambda _reason: NoopPower())
+
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=1,
+        sleep_fn=lambda _seconds: None,
+        now_fn=lambda: NOW,
+        available_memory_fn=lambda: 0,
+    )
+
+    persisted = json.loads((tmp_path / "loop_status.json").read_text(encoding="utf-8"))
+    assert status["last_iteration_outcome"] == "error"
+    assert "capture_host_memory_admission" in status["last_error"]
+    assert persisted["capture_execution"]["worker_admission"]["status"] == "BLOCK"
+    execution = persisted["last_market_results"]["atlanta"]["execution"]
+    assert execution["mode"] == "host_memory_admission"
+    assert execution["worker_admission"]["admitted_worker_count"] == 0
