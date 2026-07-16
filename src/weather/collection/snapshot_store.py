@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import csv
+import errno
 import hashlib
 import inspect
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -111,6 +113,50 @@ RESIDUAL_SHADOW_MANIFEST_SHA256_ENV = (
     "WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_MANIFEST_SHA256"
 )
 _SHADOW_CAPTURE_BUNDLES: dict[tuple[str, str], VerifiedServingBundle] = {}
+
+# ``json.JSONEncoder.iterencode`` bounds allocation by encoder token instead of
+# by the whole document. Slice unusually large scalar tokens as well so their
+# transient UTF-8 copies stay small. The encoder can still hold the escaped
+# representation of one scalar, but never joins all document tokens in memory.
+JSON_STREAM_TEXT_CHUNK_CHARS = 1024 * 1024
+JSON_STREAM_BYTE_CHUNK_BYTES = 1024 * 1024
+
+
+def _iter_json_text_chunks(
+    payload,
+    *,
+    sort_keys=True,
+    separators=None,
+    ensure_ascii=True,
+    default=str,
+    allow_nan=True,
+):
+    """Yield the exact text emitted by matching ``json.dumps`` options."""
+
+    encoder = json.JSONEncoder(
+        sort_keys=sort_keys,
+        separators=separators,
+        ensure_ascii=ensure_ascii,
+        default=default,
+        allow_nan=allow_nan,
+    )
+    for encoded_token in encoder.iterencode(payload):
+        for offset in range(0, len(encoded_token), JSON_STREAM_TEXT_CHUNK_CHARS):
+            yield encoded_token[offset : offset + JSON_STREAM_TEXT_CHUNK_CHARS]
+
+
+def _iter_json_byte_chunks(payload, **encoder_options):
+    for text_chunk in _iter_json_text_chunks(payload, **encoder_options):
+        yield text_chunk.encode("utf-8")
+
+
+def _json_digest_and_size(payload, algorithm, **encoder_options):
+    digest = hashlib.new(algorithm)
+    payload_bytes = 0
+    for byte_chunk in _iter_json_byte_chunks(payload, **encoder_options):
+        digest.update(byte_chunk)
+        payload_bytes += len(byte_chunk)
+    return digest.hexdigest(), payload_bytes
 
 
 def _verified_serving_bundle_once_per_process() -> VerifiedServingBundle:
@@ -1192,20 +1238,40 @@ class SnapshotStore:
         return max(0.0, (captured_at.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds() / 60.0)
 
     def payload_hash(self, payload):
-        raw = json.dumps(payload, sort_keys=True, default=str)
-        return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+        digest, _ = _json_digest_and_size(
+            payload,
+            "sha1",
+            sort_keys=True,
+            default=str,
+        )
+        return digest
 
     @staticmethod
     def canonical_raw_payload(payload):
         """Return the exact canonical bytes addressed by raw-evidence hashes."""
 
-        return json.dumps(
+        return b"".join(
+            _iter_json_byte_chunks(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+
+    @staticmethod
+    def canonical_raw_payload_digest(payload):
+        """Hash and count canonical raw evidence without joining its bytes."""
+
+        return _json_digest_and_size(
             payload,
+            "sha256",
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
             default=str,
-        ).encode("utf-8")
+        )
 
     @staticmethod
     def content_addressed_file_digest(path):
@@ -1238,37 +1304,93 @@ class SnapshotStore:
         canonical_bytes=None,
         payload_hash=None,
     ):
-        """Persist one immutable SHA-256 blob, deduplicating repeated content.
+        """Stream and atomically publish one immutable SHA-256 JSON blob.
 
-        Callers which already need canonical bytes for their manifest should
-        pass them here.  Re-serializing a large provider response while the
-        first byte string is live can exceed an isolated capture's commit cap.
+        The complete, fsynced blob is staged before a hard link makes its
+        digest path visible. Concurrent writers may reuse that path, but no
+        reader can observe a partially serialized evidence file.
         """
 
-        if canonical_bytes is None:
-            if payload is None:
-                raise ValueError("payload or canonical_bytes is required")
-            raw = self.canonical_raw_payload(payload)
-        else:
-            raw = bytes(canonical_bytes)
-        digest = hashlib.sha256(raw).hexdigest()
-        if payload_hash is not None and str(payload_hash) != digest:
-            raise RuntimeError("precomputed content-addressed payload hash mismatch")
-        path = Path(directory) / "sha256" / digest[:2] / f"{digest}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if canonical_bytes is None and payload is None:
+            raise ValueError("payload or canonical_bytes is required")
+
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        staging = directory / (
+            f".payload-staging-{os.getpid()}-{uuid.uuid4().hex}.json"
+        )
+        digest_state = hashlib.sha256()
+        payload_bytes = 0
         created = False
         try:
-            with path.open("xb") as handle:
-                handle.write(raw + b"\n")
+            with staging.open("xb") as handle:
+                if canonical_bytes is None:
+                    byte_chunks = _iter_json_byte_chunks(
+                        payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                else:
+                    raw = (
+                        canonical_bytes
+                        if isinstance(canonical_bytes, bytes)
+                        else bytes(canonical_bytes)
+                    )
+                    view = memoryview(raw)
+                    byte_chunks = (
+                        view[offset : offset + JSON_STREAM_BYTE_CHUNK_BYTES]
+                        for offset in range(
+                            0,
+                            len(view),
+                            JSON_STREAM_BYTE_CHUNK_BYTES,
+                        )
+                    )
+                for byte_chunk in byte_chunks:
+                    digest_state.update(byte_chunk)
+                    payload_bytes += len(byte_chunk)
+                    handle.write(byte_chunk)
+                handle.write(b"\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            created = True
-        except FileExistsError:
-            # A content-addressed path must never point at different/corrupt
-            # bytes. Fail closed instead of silently blessing bad evidence.
+
+            digest = digest_state.hexdigest()
+            if payload_hash is not None and str(payload_hash) != digest:
+                raise RuntimeError(
+                    "precomputed content-addressed payload hash mismatch"
+                )
+            path = directory / "sha256" / digest[:2] / f"{digest}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(staging, path)
+                created = True
+            except FileExistsError:
+                created = False
+            except OSError as exc:
+                if exc.errno == errno.EEXIST:
+                    created = False
+                else:
+                    raise
+
+            if path.is_symlink() or not path.is_file():
+                raise RuntimeError(
+                    f"content-addressed payload is not a regular file: {path}"
+                )
+            if path.stat().st_size != payload_bytes + 1:
+                raise RuntimeError(
+                    f"content-addressed payload byte-count mismatch: {path}"
+                )
             if self.content_addressed_file_digest(path) != digest:
-                raise RuntimeError(f"content-addressed payload hash mismatch: {path}")
-        return path, digest, len(raw), created
+                raise RuntimeError(
+                    f"content-addressed payload hash mismatch: {path}"
+                )
+            return path, digest, payload_bytes, created
+        finally:
+            try:
+                staging.unlink()
+            except FileNotFoundError:
+                pass
 
     @staticmethod
     def provenance_value(item, data, payload, *keys):
@@ -1488,6 +1610,8 @@ class SnapshotStore:
             attested = parse_market_invariant_attestation(source, payload)
             if attested is not None:
                 raw_bytes = attested["payload_bytes"]
+                payload_hash = hashlib.sha256(raw_bytes).hexdigest()
+                payload_bytes = len(raw_bytes)
                 payload_storage_scope = SHARED_FORECAST_PAYLOAD_SCOPE
                 payload_cas_kind = SHARED_FORECAST_PAYLOAD_CAS_KIND
                 payload_media_type = attested["media_type"]
@@ -1507,7 +1631,7 @@ class SnapshotStore:
                         "forecast extraction target_date does not match market configuration"
                     )
             else:
-                raw_bytes = self.canonical_raw_payload(payload)
+                raw_bytes = None
                 payload_storage_scope = LOCAL_FORECAST_PAYLOAD_SCOPE
                 payload_cas_kind = LOCAL_FORECAST_PAYLOAD_CAS_KIND
                 payload_media_type = "application/json"
@@ -1516,12 +1640,10 @@ class SnapshotStore:
                 cycle_key = ""
                 extraction_schema = ""
                 extraction_identity = {}
-            payload_hash = hashlib.sha256(raw_bytes).hexdigest()
             raw_payload_path = ""
             payload_blob_created = False
             payload_blob_reused = False
             physical_bytes_written = 0
-            logical_referenced_bytes = len(raw_bytes)
             avoided_bytes = 0
             payload_ref = ""
             if self.retain_raw_forecast_payloads:
@@ -1541,20 +1663,21 @@ class SnapshotStore:
                     physical_bytes_written = accounting["physical_bytes_written"]
                     avoided_bytes = accounting["avoided_bytes"]
                 else:
-                    payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
+                    payload_path, stored_hash, payload_bytes, payload_blob_created = self.write_content_addressed_payload(
                         self.forecast_payload_dir,
-                        canonical_bytes=raw_bytes,
-                        payload_hash=payload_hash,
+                        payload=payload,
                     )
-                    if stored_hash != payload_hash:
-                        raise RuntimeError("forecast raw-payload hash changed during persistence")
+                    payload_hash = stored_hash
                     raw_payload_path = str(payload_path)
                     payload_ref = (
                         f"sha256/{payload_hash[:2]}/{payload_hash}.json"
                     )
                     payload_blob_reused = not payload_blob_created
-                    physical_bytes_written = len(raw_bytes) if payload_blob_created else 0
-                    avoided_bytes = 0 if payload_blob_created else len(raw_bytes)
+                    physical_bytes_written = payload_bytes if payload_blob_created else 0
+                    avoided_bytes = 0 if payload_blob_created else payload_bytes
+            elif attested is None:
+                payload_hash, payload_bytes = self.canonical_raw_payload_digest(payload)
+            logical_referenced_bytes = payload_bytes
             provider_issue_time = data.get("provider_issue_time") or data.get("issued_at")
             provider_update_time = (
                 data.get("provider_update_time")
@@ -1625,7 +1748,7 @@ class SnapshotStore:
                     )
                 ),
                 "payload_hash": payload_hash,
-                "payload_bytes": len(raw_bytes),
+                "payload_bytes": payload_bytes,
                 "payload_storage_scope": payload_storage_scope,
                 "payload_cas_kind": payload_cas_kind,
                 "payload_ref": payload_ref,
@@ -1775,19 +1898,16 @@ class SnapshotStore:
             ttl_minutes = item.get("ttl_minutes")
             if ttl_minutes is None:
                 ttl_minutes = self.source_ttl_minutes(source)
-            raw_bytes = self.canonical_raw_payload(payload)
-            payload_hash = hashlib.sha256(raw_bytes).hexdigest()
             raw_payload_path = ""
             payload_blob_created = False
             if self.retain_raw_observation_payloads:
-                payload_path, stored_hash, _, payload_blob_created = self.write_content_addressed_payload(
+                payload_path, payload_hash, payload_bytes, payload_blob_created = self.write_content_addressed_payload(
                     self.observation_payload_dir,
-                    canonical_bytes=raw_bytes,
-                    payload_hash=payload_hash,
+                    payload=payload,
                 )
-                if stored_hash != payload_hash:
-                    raise RuntimeError("observation raw-payload hash changed during persistence")
                 raw_payload_path = str(payload_path)
+            else:
+                payload_hash, payload_bytes = self.canonical_raw_payload_digest(payload)
             provider_observed_at = (
                 data.get("provider_observed_at")
                 or data.get("observation_time")
@@ -1829,7 +1949,7 @@ class SnapshotStore:
                 "provider_update_time": provider_update_time,
                 **provenance,
                 "payload_hash": payload_hash,
-                "payload_bytes": len(raw_bytes),
+                "payload_bytes": payload_bytes,
                 "raw_payload_retained": bool(raw_payload_path),
                 "payload_blob_created": payload_blob_created,
                 "row_count": self.source_row_count(data),
@@ -2381,7 +2501,13 @@ class SnapshotStore:
 
     def append_jsonl(self, path, payload, *, durable=False):
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
+            for text_chunk in _iter_json_text_chunks(
+                payload,
+                sort_keys=True,
+                default=str,
+            ):
+                handle.write(text_chunk)
+            handle.write("\n")
             if durable:
                 handle.flush()
                 os.fsync(handle.fileno())
