@@ -15,11 +15,48 @@ class TestDataAuditor(unittest.TestCase):
     """
 
     def test_no_corruption_in_target_window(self):
-        result = audit_historical_data(target_month=5, target_day=27)
-        self.assertIsNotNone(result, "daily_summary.csv should exist in the repo")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "daily").mkdir(parents=True)
+            hourly_path = root / "hourly" / "year=2026" / "month=05" / "observations.jsonl"
+            hourly_path.parent.mkdir(parents=True)
+            (root / "daily" / "daily_summary.csv").write_text(
+                "\n".join([
+                    "schema_version,local_date,temperature_unit,row_count,max_temp_native,max_temp_c,max_temp_bucket_native",
+                    "wu_daily_native_v2,2026-05-27,C,18,24,24,24",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            hourly_rows = [
+                {
+                    "local_date": "2026-05-27",
+                    "local_time": f"{hour:02d}:00",
+                    "temperature_unit": "C",
+                    "temp_native": 8 + hour * 0.75,
+                    "humidity": 55,
+                    "pressure_hpa": 1012,
+                    "wind_speed_kmh": 12,
+                }
+                for hour in range(18)
+            ]
+            hourly_path.write_text(
+                "\n".join(__import__("json").dumps(row) for row in hourly_rows) + "\n",
+                encoding="utf-8",
+            )
+
+            result = audit_historical_data(
+                data_root=root,
+                market_id="toronto",
+                target_month=5,
+                target_day=27,
+                years=[2026],
+                quiet=True,
+            )
+
+        self.assertIsNotNone(result)
         self.assertEqual(result["duplicate_timestamps"], [])
         self.assertEqual(result["impossible_values"], [])
-        self.assertGreater(result["hourly_days_audited"], 0)
+        self.assertEqual(result["hourly_days_audited"], 1)
 
     def test_fahrenheit_market_uses_native_temperature_bounds(self):
         with tempfile.TemporaryDirectory() as tmp:

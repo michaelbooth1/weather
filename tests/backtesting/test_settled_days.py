@@ -112,17 +112,26 @@ class TestSettledDayDiscovery(unittest.TestCase):
         self.assertIn(AUSTIN_DAY, str(ctx.exception))
 
     def test_reproduces_real_six_day_list(self):
-        # Against the live data root, as of today it must match the former
-        # hand-maintained list (and exclude today's still-resolving market).
-        slugs = discover_settled_slugs(as_of=date(2026, 6, 3))
-        self.assertEqual(slugs, [
+        # Reproduce the historical migration contract from a deterministic
+        # checkout-local layout.  The repository's ignored data tree is
+        # operational evidence and is intentionally absent in CI.
+        expected = [
             "highest-temperature-in-toronto-on-may-27-2026",
             "highest-temperature-in-toronto-on-may-28-2026",
             "highest-temperature-in-toronto-on-may-30-2026",
             "highest-temperature-in-toronto-on-may-31-2026",
             "highest-temperature-in-toronto-on-june-1-2026",
             "highest-temperature-in-toronto-on-june-2-2026",
-        ])
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for slug in expected:
+                _make_day(tmp, slug)
+            _make_day(tmp, TODAY)
+            _make_day(tmp, FUTURE)
+
+            slugs = discover_settled_slugs(tmp, as_of=date(2026, 6, 3))
+
+        self.assertEqual(slugs, expected)
 
 
 if __name__ == "__main__":
