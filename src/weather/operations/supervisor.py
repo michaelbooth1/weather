@@ -912,6 +912,39 @@ def _normalized_executable(value: object) -> str:
     return os.path.normcase(os.path.normpath(os.path.abspath(text)))
 
 
+def _trusted_windows_venv_base_resolution(
+    observed_executable: object,
+    expected_executable: object,
+) -> bool:
+    """Accept only this runtime's exact venv-launcher to base-exe redirect.
+
+    Windows venv ``python.exe``/``pythonw.exe`` files are redirector launchers.
+    The child PEB can therefore report the matching base interpreter as
+    ``argv[0]`` even though ``Popen`` received the venv path.  ``sys.prefix``
+    and ``sys.base_prefix`` are interpreter-owned evidence for that one pair;
+    unrelated venvs, Python installs, or executable flavors remain mismatches.
+    """
+
+    if os.name != "nt" or sys.prefix == sys.base_prefix:
+        return False
+    expected_name = Path(str(expected_executable or "").strip().strip('"')).name.lower()
+    observed_name = Path(str(observed_executable or "").strip().strip('"')).name.lower()
+    if expected_name not in {"python.exe", "pythonw.exe"}:
+        return False
+    if observed_name != expected_name:
+        return False
+    expected_launcher = Path(sys.prefix) / "Scripts" / expected_name
+    resolved_base = Path(sys.base_prefix) / expected_name
+    if not expected_launcher.is_file() or not resolved_base.is_file():
+        return False
+    return bool(
+        _normalized_executable(expected_executable)
+        == _normalized_executable(expected_launcher)
+        and _normalized_executable(observed_executable)
+        == _normalized_executable(resolved_base)
+    )
+
+
 def commands_match_exact(observed: Sequence[object] | None, expected: Sequence[object] | None) -> bool:
     """Compare complete managed argv, including the interpreter and every flag."""
 
@@ -919,7 +952,14 @@ def commands_match_exact(observed: Sequence[object] | None, expected: Sequence[o
     expected_values = [str(value) for value in expected or []]
     if not observed_values or len(observed_values) != len(expected_values):
         return False
-    if _normalized_executable(observed_values[0]) != _normalized_executable(expected_values[0]):
+    executable_matches = (
+        _normalized_executable(observed_values[0])
+        == _normalized_executable(expected_values[0])
+    )
+    if not executable_matches and not _trusted_windows_venv_base_resolution(
+        observed_values[0],
+        expected_values[0],
+    ):
         return False
     return observed_values[1:] == expected_values[1:]
 
@@ -1012,6 +1052,12 @@ def capture_managed_process_identity(
         "expected_command": expected,
         "creation_time_token": observation.get("creation_time_token"),
         "command_line": observation.get("command_line"),
+        "observed_executable": (
+            str(observation["argv"][0])
+            if observation.get("argv")
+            else None
+        ),
+        "observed_image_path": observation.get("image_path"),
         "captured_state": observation.get("state"),
     }
     identity["verified_at_capture"] = bool(

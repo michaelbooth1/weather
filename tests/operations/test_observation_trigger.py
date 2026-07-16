@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import sys
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -30,6 +31,12 @@ from weather.collection.snapshot_tracker import (  # noqa: E402
     backfill_source_status,
 )
 from weather.model.toronto_model import TorontoHighTempModel  # noqa: E402
+
+
+def observed_runtime_command(command):
+    if os.name == "nt" and sys.prefix != sys.base_prefix:
+        return [str(Path(sys.base_prefix) / Path(command[0]).name), *command[1:]]
+    return list(command)
 
 
 def obs_state(high=20.0, current=20.1, metar=None, swob=None, status=None, captured="2026-06-13T16:00:00+00:00"):
@@ -306,7 +313,7 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(result["reason"], "writer_lock_process_instance_mismatch")
         self.assertTrue(lock_still_exists)
 
-    def test_stop_watcher_loop_removes_stopped_writer_lock(self):
+    def test_stop_watcher_accepts_venv_resolution_and_removes_writer_lock(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -338,7 +345,7 @@ class ObservationTriggerTests(unittest.TestCase):
                     patch("weather.operations.supervisor.observe_process", return_value={
                         "state": "running",
                         "pid": 2468,
-                        "argv": command,
+                        "argv": observed_runtime_command(command),
                         "command_line": "managed observation command",
                         "creation_time_token": "win32-filetime:100",
                         "inspectable": True,
@@ -369,11 +376,11 @@ class ObservationTriggerTests(unittest.TestCase):
         cases = (
             (
                 "reused_pid_process_instance_mismatch",
-                {"state": "running", "pid": 2468, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+                {"state": "running", "pid": 2468, "argv": observed_runtime_command(command), "creation_time_token": "win32-filetime:200", "inspectable": True},
             ),
             (
                 "managed_process_command_mismatch",
-                {"state": "running", "pid": 2468, "argv": [*command[:-1], "181.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+                {"state": "running", "pid": 2468, "argv": [*observed_runtime_command(command)[:-1], "181.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
             ),
             (
                 "live_process_identity_uninspectable",
