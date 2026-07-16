@@ -1,4 +1,4 @@
-# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-11 - SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED]
+# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]
 
 Goal: converge the current research, collection, model, promotion, storage, and
 trading systems into one fail-closed production release program that can move a
@@ -312,6 +312,23 @@ read-only scheduler audit found Stage A enabled/ready but still on the old
 action contract, while Stage B and nightly were disabled and also predated the
 new flags. No ledger row was appended, so the honest forward counts remain
 `0/3` clean days and `0/7` unattended cycles.
+
+2026-07-16 scheduler-provenance hardening: exact task action fields and a fresh
+`Running` label were not sufficient to prove that the reporting Python process
+was descended from that task; a manual look-alike could otherwise copy the
+flags while an unrelated real instance was running. Direct and training-window
+delegated producers now query the current Windows PID plus a maximum of two
+ancestors. They bind the OS image and complete command at every required depth,
+the current process working directory, the exact venv redirector when present,
+the scheduler engine PID/instance GUID/running state, and child/parent/task
+creation-time order. Delegated topology must terminate at the exact registered
+PowerShell action; direct topology must terminate at the exact registered
+Python action. Missing timestamps, stale or inverted starts, PID breaks,
+over-deep chains, copied child arguments, wrong cwd, unrelated parents, and
+non-finite correlation bounds all fail closed. Registration/runtime action
+tokens remain single-sourced in `training_window_contract.ps1`. This software
+closure did not register or run a task and does not advance the real `0/3` or
+`0/7` evidence streaks.
 
 2026-07-12 bounded snapshot-capture implementation: the July 11 scheduled tape
 shows why a heartbeat alone is insufficient. All 12 markets had repeated
@@ -629,6 +646,76 @@ coordinated restart. Because the serving gate is loaded by long-running loops,
 landing this contract change also consumes the normal fleet-roll budget; it is
 not a roll-free documentation-only exception. This does not close either open
 Phase 4 production-evidence box.
+
+2026-07-15 first-inactive-production-release bootstrap update: nightly's
+unconditional pre-candidate parity check created a circular dependency on an
+active release identity. The new explicit
+`--bootstrap-first-inactive-release` contract waives only that impossible
+pre-release check and only when candidate mode is `production`, immutable build
+is enabled, the releases root is absent/empty, the active pointer and release
+parent are absent, and neither generic parity skip nor parity inputs are
+configured. All offline point-in-time, leakage, semantic, clean-source, and
+promotion-refresh gates remain binding.
+
+The PASS contract is self-hashed and frozen into release lineage. After the
+one immutable directory is copied, nightly independently verifies every
+artifact and manifest hash, production capability, null parent/rollback
+target, the one-release store inventory, and pointer absence. The result has
+`activation=NONE` and explicitly denies promotion, serving, and live fallback;
+the whole-run finalizer rechecks pointer absence. Ordinary runs and invalid or
+ambiguous bootstrap requests still fail closed before heavy children. Focused
+synthetic coverage includes contract tampering, non-first stores, conflicting
+flags/evidence, research mode, parent binding, pre-child denial, and a complete
+production freeze with no pointer. This closes the bootstrap ordering defect in
+software, not the open operational evidence: no real production candidate or
+release was created, and exact release-bound parity plus forward qualification
+are still required.
+
+2026-07-16 candidate-independent source closure: the first-release bootstrap
+still had a second circular contract. Production preselection reused the full
+candidate-scoring row schema, so every otherwise usable historical row was
+rejected for missing `release_id`; supplying a syntactically valid old source
+would also have let the ambient model decide which rows existed before the
+lock. Production preselection now requires the separate
+`production_point_in_time_preselection_source_v1` projection. It enumerates
+every manifest-pinned snapshot/band row directly from the bounded captured
+tape, joins only the manifest-pinned settlement label, and stores coordinates,
+capture/prediction-boundary times, countability/quality, lane, and label. Model,
+variant, release, probability, runtime, and payload fields are physically
+absent. The old generic materialization manifest is rejected in production.
+
+The producer caps the request before input I/O, reads one market-day at a time,
+limits tape/replay bytes, fields, lines, records, rows, Arrow batches, and total
+market-days, rejects reconstructed/unsettled/promotion-countable admission,
+requires paths below the configured snapshots root, verifies source mutation,
+exactly one winning band per snapshot, and exact replay/source market-day and
+snapshot/label inventories. Exclusive output locks reject concurrent writers;
+files publish atomically with the manifest last, and consumers require the
+complete hash-bound pair. A host crash can leave a fail-closed orphan or lock
+that requires reviewed cleanup. The final owner-focused checkpoint passes 105
+tests and 23 subtests, with 1 Windows symlink-privilege skip. A real Toronto
+June 3 probe
+materialized all 231 pinned
+rows with zero candidate-dependent fields and an identical 231-row selection
+universe. This closes the software source deadlock only; no retained production
+corpus, real retrain, inactive release, positive edge result, shadow window,
+paper window, or capital permission has been produced.
+
+2026-07-15 artifact-lineage closure refreshed all four tracked artifact
+manifests through their
+canonical producers. The current LFS object for
+`feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl` is now consistently recorded
+as SHA-256 `c4eaa40df23a43702cbf3fdecd5be0d190235b0e832653e690b3e8196aabe3bc`
+and 211,935 bytes instead of the two stale historical identities. Registry,
+externalization, size-audit, and promotion-preflight outputs now agree with the
+complete current artifact tree; promotion preflight reports PASS with zero
+warnings/errors. Promotion preflight now independently recomputes the
+checkout-stable identity of the tracked registry and externalization manifests,
+so future byte/hash/classification drift fails instead of being reported PASS;
+generation time and checkout mtimes remain diagnostic. The producer also
+normalizes its registry reference to a repository-relative path so a worktree
+name is not embedded as artifact identity. No model binary was edited or
+generated by this repair.
 
 Primary child evidence: Items 20, 24-31, 64, 69, 83, 85, 106, 113-117, 120,
 140, 143, 179, 203, 208, 216, 243-245, 262-265, 287, 290, 296, and 319.

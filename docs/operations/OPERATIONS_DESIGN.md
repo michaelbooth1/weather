@@ -98,7 +98,18 @@ new handle.
 - `data/snapshots/observation_trigger_diagnostics.jsonl`
 - `data/snapshots/observation_trigger_console.log`
 - `data/snapshots/observation_triggers.jsonl`
+- `data/snapshots/observation_source_cache/<market>.json`
 - forced snapshot rows tagged with trigger context
+
+The watcher uses one observation-only last-good cache per market. It does not
+read or migrate the full model cache under `data/wunderground/`; a missing
+dedicated cache remains fail closed until a live observation bootstraps it.
+Only `wu_history`, `wu_current`, `metar`, and `eccc_swob` entries are accepted,
+and each file has an 8 MiB read/write ceiling. An oversized or out-of-scope
+cache is quarantined before JSON materialization. Cache scope, readiness, and
+the live-bootstrap transition are recorded with each market's latest
+observation state. These files are bounded operator caches, not canonical
+evidence.
 
 These files are runtime state under ignored `data/`, but many of the tapes are
 canonical evidence. Follow the
@@ -154,6 +165,9 @@ at its configured time without stopping capture. Use this pattern only on a
 host where the capture-resource gate permits the workload, such as an offline
 or separate training host. The registration script requires explicit
 production-evidence arguments; its `param(...)` block is the source of truth.
+Countable direct runs bind the current OS PID, image, complete argument vector,
+working directory, creation time, optional exact venv redirector, and current
+Task Scheduler engine PID/instance to the registered action and fresh task run.
 
 ### Single-Host Training Window
 
@@ -162,7 +176,14 @@ host that otherwise captures continuously:
 
 - `WeatherTrainingWindow` performs a resource preflight, disables all three
   capture supervisors, stops all three workers, runs bounded nightly retraining,
-  and restores capture in a `finally` block.
+  and restores capture in a `finally` block. Its nightly process is a delegated
+  child, not a direct scheduled action: the child must attest the exact running
+  PowerShell task action plus its own Python executable, arguments, working
+  directory, and task-run correlation. OS-observed process lineage must reach
+  the registered PowerShell engine PID, image, and complete action command line,
+  with wrapper/child creation times correlated to the task run. Only the exact
+  expected Windows venv redirector may appear between producer and wrapper;
+  the observed chain is bounded to two ancestors and fails closed if over-deep.
 - `WeatherTrainingWindowRestore` is a later dead-man task that unconditionally
   re-enables supervisors and issues all three `ensure` commands.
 
@@ -174,6 +195,12 @@ Do not enable both the direct nightly task and the single-host training window
 for the same workload. The registration scripts do not remove the alternative
 task automatically; inspect and reconcile Task Scheduler explicitly when
 changing topology.
+
+`scripts/ops/training_window_contract.ps1` is the single action-token owner for
+both training-window registration and delegated-child attestation. Changing
+the task name, executable, repository path, or wrapper action requires a
+deliberate re-registration; stale definitions fail closed rather than being
+treated as scheduled evidence.
 
 ## Why Capture Is Not Packaged Into The Dashboard
 

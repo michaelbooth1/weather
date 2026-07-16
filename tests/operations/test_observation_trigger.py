@@ -92,6 +92,60 @@ class FakeProcess:
 
 
 class ObservationTriggerTests(unittest.TestCase):
+    def test_market_fetch_declares_fail_closed_observation_only_cache_transition(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir) / "observation_source_cache"
+            captured_kwargs = {}
+
+            class Model:
+                market_id = "toronto"
+                target_date = date(2026, 6, 16)
+                spec = SimpleNamespace(tz=timezone.utc, unit="C")
+
+                def __init__(self, **kwargs):
+                    captured_kwargs.update(kwargs)
+                    self.load_calls = 0
+
+                def load_last_good_sources(self):
+                    self.load_calls += 1
+                    if self.load_calls == 1:
+                        return {}
+                    return {
+                        "metar": {
+                            "target_date": "2026-06-16",
+                            "data": {"temp_native": 24.0},
+                        }
+                    }
+
+            now = datetime(2026, 6, 16, 15, 0, tzinfo=timezone.utc)
+            config = SimpleNamespace(
+                target_date=date(2026, 6, 16),
+                event_slug="highest-temperature-in-toronto-on-june-16-2026",
+            )
+            base_state = obs_state(captured=now.isoformat())
+            with patch.object(observation_trigger, "DEFAULT_OBSERVATION_SOURCE_CACHE_ROOT", cache_root), \
+                    patch.object(observation_trigger, "spec_for_id", return_value=Model.spec), \
+                    patch.object(observation_trigger, "config_for_date", return_value=config), \
+                    patch.object(observation_trigger, "TorontoHighTempModel", Model), \
+                    patch.object(observation_trigger, "fetch_observation_sources", return_value={}), \
+                    patch.object(observation_trigger, "observation_state_from_sources", return_value=base_state):
+                state = observation_trigger.fetch_market_observation_state("toronto", now=now)
+
+        expected_path = cache_root / "toronto.json"
+        self.assertEqual(captured_kwargs["source_cache_path"], expected_path)
+        self.assertEqual(set(captured_kwargs["source_cache_names"]), set(observation_trigger.OBSERVATION_SOURCES))
+        self.assertEqual(
+            captured_kwargs["source_cache_max_bytes"],
+            observation_trigger.DEFAULT_OBSERVATION_SOURCE_CACHE_MAX_BYTES,
+        )
+        self.assertEqual(state["observation_source_cache"]["state"], "bootstrapped_from_live")
+        self.assertTrue(state["observation_source_cache"]["ready"])
+        self.assertEqual(state["observation_source_cache"]["source_keys"], ["metar"])
+        self.assertEqual(
+            state["observation_source_cache"]["legacy_cache_migration"],
+            "disabled_fail_closed_live_bootstrap",
+        )
+
     def test_ensure_restarts_source_identity_watcher_before_erroring(self):
         self.assertEqual(
             ensure_decision(

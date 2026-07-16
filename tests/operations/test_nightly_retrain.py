@@ -23,12 +23,10 @@ from weather.operations.nightly_retrain import (  # noqa: E402
 from tests.operations.test_experiment_contract import materialized_manifest
 from weather.operations.release_candidate_contract import verify_candidate_semantic_contract
 from weather.reporting.validation.point_in_time_evaluation import (
-    MATERIALIZER_SCHEMA_VERSION,
-    POINT_IN_TIME_ARROW_SCHEMA,
+    PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+    PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
     canonical_json,
-    canonicalize_raw_row,
     main as point_in_time_main,
-    point_in_time_key,
     prepare_production_preselection,
     sha256_file as point_in_time_sha256_file,
     sha256_text,
@@ -201,97 +199,50 @@ def _write_promotion(path, *, promote=None, shadow=None, blocked=None):
 def _write_point_in_time_source(
     root: Path, *, candidate_id: str
 ) -> tuple[Path, Path, Path]:
+    del candidate_id
     source = root / "point-in-time-source"
     source.mkdir(parents=True, exist_ok=True)
     end = datetime.now(timezone.utc).date() - timedelta(days=1)
     fleet_dates = [
         (end - timedelta(days=35 - offset)).isoformat() for offset in range(36)
     ]
-    provenance = {
-        "artifact_family": "snapshots_long",
-        "source_mode": "validated_parquet",
-        "manifest_hash": "fixture-source-manifest",
-        "source_file_hash": "fixture-source-file",
-    }
     rows = []
     for target_date in fleet_dates:
-        for band, probability, label in (("low", 0.8, 1), ("high", 0.2, 0)):
+        for band, label in (("low", 1.0), ("high", 0.0)):
             rows.append(
-                canonicalize_raw_row(
-                    {
-                        "target_date": target_date,
-                        "market_id": "nyc",
-                        "snapshot_id": "08:00",
-                        "range_label": band,
-                        "variant_id": f"{candidate_id}.pooled_band",
-                        "release_id": candidate_id,
-                        "feature_available_at_utc": f"{target_date}T12:00:00+00:00",
-                        "captured_at_utc": f"{target_date}T12:00:00+00:00",
-                        "label_quality": "complete",
-                        "countable": True,
-                        "claim_lane": "weather_only",
-                        "replay_serve_parity": "pass",
-                        "source_quality": "healthy",
-                        "prediction_probability": probability,
-                        "label": label,
-                        "runtime_identity": f"runtime-{candidate_id}",
-                    },
-                    provenance=provenance,
-                )
+                {
+                    "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
+                    "target_date": target_date,
+                    "market_id": "nyc",
+                    "cutoff_or_snapshot": "08:00",
+                    "band": band,
+                    "feature_available_at_utc": f"{target_date}T12:00:00+00:00",
+                    "prediction_boundary_at_utc": f"{target_date}T12:00:00+00:00",
+                    "label_quality": "complete",
+                    "countable": True,
+                    "claim_lane": "weather_only",
+                    "source_quality": "healthy",
+                    "label": label,
+                }
             )
-    rows.sort(key=point_in_time_key)
+    rows.sort(
+        key=lambda row: (
+            row["target_date"],
+            row["market_id"],
+            row["cutoff_or_snapshot"],
+            row["band"],
+        )
+    )
     corpus = source / "corpus.parquet"
-    pq.write_table(pa.Table.from_pylist(rows, schema=POINT_IN_TIME_ARROW_SCHEMA), corpus)
-    corpus_sha = point_in_time_sha256_file(corpus)
+    pq.write_table(
+        pa.Table.from_pylist(
+            rows,
+            schema=PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+        ),
+        corpus,
+    )
     now = datetime.now(timezone.utc)
-    manifest = {
-        "schema_version": MATERIALIZER_SCHEMA_VERSION,
-        "artifact_type": "point_in_time_materialization_manifest",
-        "generated_at_utc": now.isoformat(),
-        "status": "PASS",
-        "derived_artifact": {
-            "path": str(corpus),
-            "sha256": corpus_sha,
-            "row_count": len(rows),
-            "bytes": corpus.stat().st_size,
-            "compression": "zstd",
-        },
-        "streaming_bounds": {
-            "max_market_days": 60,
-            "max_rows_per_market_day": 250_000,
-            "raw_market_days_retained_at_once": 1,
-        },
-        "counts": {"source_modes": {"validated_parquet": len(fleet_dates)}},
-        "inputs": [
-            {
-                "folder": f"data/snapshots/fleet-{target_date}",
-                "target_date": target_date,
-                "market_id": "nyc",
-                "artifact_family": "snapshots_long",
-                "source_mode": "validated_parquet",
-                "source_row_count": 2,
-                "source_file_hash": hashlib.sha256(
-                    f"source:{target_date}".encode("utf-8")
-                ).hexdigest(),
-                "parquet_file_hash": hashlib.sha256(
-                    f"parquet:{target_date}".encode("utf-8")
-                ).hexdigest(),
-                "manifest_hash": hashlib.sha256(
-                    f"archive-manifest:{target_date}".encode("utf-8")
-                ).hexdigest(),
-                "event_manifest_hash": hashlib.sha256(
-                    f"event-manifest:{target_date}".encode("utf-8")
-                ).hexdigest(),
-                "release_id": candidate_id,
-                "runtime_identity_key": f"runtime-{candidate_id}",
-                "fallback_reason": None,
-            }
-            for target_date in fleet_dates
-        ],
-    }
-    manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
     manifest_path = source / "materialization_manifest.json"
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     snapshots_root = root / "snapshots"
     snapshots_root.mkdir(exist_ok=True)
     replay_entries = []
@@ -311,6 +262,7 @@ def _write_point_in_time_source(
                 "settlement_bucket": 80,
                 "settlement_unit": "F",
                 "settlement_source": "wu_history",
+                "winning_band": "low",
                 "quality_grade": "complete",
                 "admitted_by": "quality_grade",
                 "snapshot_ids": [snapshot_id],
@@ -338,6 +290,8 @@ def _write_point_in_time_source(
         "snapshots_root": str(snapshots_root),
         "quality_grades": ["complete", "manual_override"],
         "include_reconstructed": False,
+        "allow_unsettled": False,
+        "admit_promotion_countable": False,
         "entries": replay_entries,
         "summary": {"market_day_count": len(replay_entries)},
     }
@@ -346,6 +300,66 @@ def _write_point_in_time_source(
     replay_manifest_path.write_text(
         json.dumps(replay_manifest, sort_keys=True), encoding="utf-8"
     )
+    manifest = {
+        "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
+        "artifact_type": "production_point_in_time_preselection_source_manifest",
+        "generated_at_utc": now.isoformat(),
+        "status": "PASS",
+        "candidate_dependent_fields_included": [],
+        "candidate_dependent_fields_absent": [
+            "candidate_id",
+            "variant_id",
+            "release_id",
+            "prediction_probability",
+            "runtime_identity",
+            "source_payload_json",
+            "source_payload_sha256",
+        ],
+        "derived_artifact": {
+            "path": str(corpus),
+            "sha256": point_in_time_sha256_file(corpus),
+            "row_count": len(rows),
+            "bytes": corpus.stat().st_size,
+            "compression": "zstd",
+        },
+        "source_replay_manifest": {
+            "path": str(replay_manifest_path),
+            "sha256": point_in_time_sha256_file(replay_manifest_path),
+            "corpus_hash": replay_manifest["corpus_hash"],
+        },
+        "streaming_bounds": {
+            "max_market_days": 60,
+            "max_rows_per_market_day": 250_000,
+            "max_arrow_batch_rows": 65_536,
+            "max_replay_manifest_bytes": 16 * 1024**2,
+            "max_source_manifest_bytes": 4 * 1024**2,
+            "max_source_parquet_bytes": 1024**3,
+            "max_tape_bytes": 128 * 1024**2,
+            "max_tape_field_bytes": 1024**2,
+            "max_replay_bytes": 64 * 1024**2,
+            "max_replay_line_bytes": 8 * 1024**2,
+            "max_settlement_bytes": 1024**2,
+            "max_source_text_bytes": 1024,
+            "raw_market_days_retained_at_once": 1,
+        },
+        "counts": {
+            "market_days_read": len(fleet_dates),
+            "accepted_rows": len(rows),
+        },
+        "inputs": [
+            {
+                "event_slug": entry["event_slug"],
+                "target_date": entry["target_date"],
+                "market_id": entry["market_id"],
+                "row_count": entry["row_count"],
+                "snapshot_count": entry["snapshot_count"],
+                "label_hash": entry["label_hash"],
+            }
+            for entry in replay_entries
+        ],
+    }
+    manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return corpus, manifest_path, replay_manifest_path
 
 
@@ -431,6 +445,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
+        self.assertFalse(args.bootstrap_first_inactive_release)
 
     def test_folder_backed_qualification_uses_prelock_materialized_source(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -655,6 +670,32 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertTrue(gate_report_exists)
         self.assertFalse(pointer_exists)
 
+    def test_invalid_first_inactive_bootstrap_blocks_before_parity_or_candidate_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            args.bootstrap_first_inactive_release = True
+            args.skip_captured_input_replay_parity = False
+            with patch(
+                "weather.operations.nightly_retrain.prepare_candidate_outputs",
+                side_effect=AssertionError("candidate preparation started"),
+            ):
+                payload, _status, _report = run_nightly_retrain(
+                    args,
+                    runner=lambda *_args, **_kwargs: self.fail("child started"),
+                )
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(
+            payload["steps"][0]["name"],
+            "first_inactive_release_bootstrap",
+        )
+        self.assertIn(
+            "production_candidate_mode_required",
+            payload["steps"][0]["blocker_codes"],
+        )
+        self.assertIsNone(payload["captured_input_replay_parity"])
+        self.assertEqual(payload["candidate_release"]["activation"], "NONE")
+
     def test_parity_exception_persists_block_and_final_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -797,6 +838,8 @@ class TestNightlyRetrain(unittest.TestCase):
                 "--point-in-time-bootstrap-iterations",
                 "10",
             )
+            args.bootstrap_first_inactive_release = True
+            args.skip_captured_input_replay_parity = False
 
             def production_runner(command, **kwargs):
                 if (
@@ -1050,8 +1093,44 @@ class TestNightlyRetrain(unittest.TestCase):
                     / "streaming_evaluation.json"
                 ).read_text(encoding="utf-8")
             )
+            release_manifest = json.loads(
+                (
+                    root
+                    / "artifacts"
+                    / "releases"
+                    / "test-nightly"
+                    / "release_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            pointer_exists = (
+                root / "artifacts" / "releases" / "current_release.json"
+            ).exists()
 
         self.assertEqual(payload["candidate_release"]["candidate_mode"], "production")
+        self.assertEqual(
+            payload["first_inactive_release_bootstrap"]["status"],
+            "PASS",
+        )
+        self.assertEqual(payload["candidate_release"]["activation"], "NONE")
+        self.assertEqual(
+            payload["candidate_release"]["promotion_eligibility"],
+            "BLOCKED_PENDING_POST_FREEZE_EVIDENCE",
+        )
+        qualification = payload["candidate_release"][
+            "first_inactive_release_qualification"
+        ]
+        self.assertEqual(qualification["status"], "PASS")
+        self.assertTrue(qualification["immutable_integrity_verified"])
+        self.assertFalse(qualification["promotion_authorized"])
+        self.assertFalse(qualification["serving_authorized"])
+        self.assertFalse(qualification["live_fallback_authorized"])
+        self.assertFalse(pointer_exists)
+        self.assertEqual(
+            release_manifest["lineage"]["first_inactive_release_bootstrap"][
+                "contract_sha256"
+            ],
+            payload["first_inactive_release_bootstrap"]["contract_sha256"],
+        )
         self.assertTrue(verified["production_capable"])
         self.assertEqual(verified["point_in_time_qualification"]["locked_window_days"], 14)
         self.assertEqual(

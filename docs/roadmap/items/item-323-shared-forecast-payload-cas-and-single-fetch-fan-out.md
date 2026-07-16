@@ -441,3 +441,39 @@ This follow-up is isolated on `codex/snapshot-memory-stabilization`, stacked on
 touch snapshot persistence and the managed fleet path. It has not been merged
 or live-adopted. Item 323 remains partial for the same adoption, clean network-
 fetch proof, and bounded inventory completion gates stated above.
+
+## 2026-07-16 live child-headroom follow-up
+
+After the streaming repair was merged and adopted, the long-lived parent
+stayed healthy but isolated child captures intermittently exited `137`. A
+successful Denver capture's Windows Job Object receipt recorded
+`1,598,382,080` bytes peak process-tree private commit against the unchanged
+`1,610,612,736`-byte cap, leaving only about 12 MiB of allocation headroom.
+External full-tree sampling observed successful children near 325 MiB physical
+working set and 1.51 GiB private commit; two concurrent children reduced free
+physical memory to about 2.51 GiB. The old three-child topology could therefore
+fail a normal allocation while also admitting more aggregate pressure than the
+host should carry.
+
+The production defaults now admit two children at 1,792 MiB each. That gives an
+individual capture 256 MiB more headroom while reducing the declared aggregate
+child ceiling from 4,608 MiB to 3,584 MiB. Six worst-case waves still fit the
+existing 540-second fleet budget because per-market timeouts tighten
+automatically. The cap remains both a sampled process-tree working-set ceiling
+and a Windows Job Object private-commit ceiling.
+
+The configured count is not admitted blindly. At each pass the parent measures
+available physical memory and reserves the full child ceiling per slot plus a
+1,536 MiB host/capture reserve. Two workers therefore require 5,120 MiB, one
+requires 3,328 MiB, and an unavailable or insufficient measurement produces a
+retryable `capture_host_memory_admission` result without spawning a child.
+
+Capture receipts now persist the runner's resource peaks, lifetime I/O,
+specific breached metric, runner error, containment, and termination evidence.
+A resource kill is classified as `capture_resource_budget` with observed and
+limit bytes instead of the opaque `capture_process_error: returncode=137`.
+Focused tests prove the aggregate ceiling, exact receipt propagation, and
+resource-specific failure classification. This is implementation evidence;
+the new defaults still require coordinated live adoption and a clean complete
+fleet iteration before the incident can be closed. Item 323 remains partial
+for its clean network-fetch proof and bounded inventory gates.

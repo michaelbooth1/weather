@@ -25,7 +25,9 @@ import os
 import pickle
 import random
 import re
+import stat
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -37,7 +39,9 @@ import pyarrow.parquet as pq
 
 from weather.backtesting.settled_days import discover_settled_folders, folder_market_id
 from weather.calibration.pooled_candidate_replay import (
+    iter_bounded_preselection_source_market_days,
     iter_bounded_pooled_band_candidate_replay_market_days,
+    load_bounded_preselection_folder_inputs,
 )
 from weather.calibration.pooled_training import (
     verify_pooled_point_in_time_training_evidence,
@@ -63,6 +67,9 @@ FIT_RECEIPT_SCHEMA_VERSION = schema_version("point_in_time_fit_receipt")
 EVALUATION_SCHEMA_VERSION = schema_version("point_in_time_streaming_evaluation")
 PRODUCTION_PRESELECTION_SCHEMA_VERSION = schema_version(
     "production_point_in_time_preselection"
+)
+PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION = schema_version(
+    "production_point_in_time_preselection_source"
 )
 CANDIDATE_TRAINING_GRAPH_SCHEMA_VERSION = schema_version(
     "point_in_time_candidate_training_graph"
@@ -148,6 +155,23 @@ POINT_IN_TIME_ARROW_SCHEMA = pa.schema(
         pa.field("prediction_probability", pa.float64(), nullable=True),
         pa.field("label", pa.float64(), nullable=True),
         pa.field("runtime_identity", pa.string(), nullable=False),
+    ]
+)
+
+PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA = pa.schema(
+    [
+        pa.field("schema_version", pa.string(), nullable=False),
+        pa.field("target_date", pa.string(), nullable=False),
+        pa.field("market_id", pa.string(), nullable=False),
+        pa.field("cutoff_or_snapshot", pa.string(), nullable=False),
+        pa.field("band", pa.string(), nullable=False),
+        pa.field("feature_available_at_utc", pa.string(), nullable=False),
+        pa.field("prediction_boundary_at_utc", pa.string(), nullable=False),
+        pa.field("label_quality", pa.string(), nullable=False),
+        pa.field("countable", pa.bool_(), nullable=False),
+        pa.field("claim_lane", pa.string(), nullable=False),
+        pa.field("source_quality", pa.string(), nullable=False),
+        pa.field("label", pa.float64(), nullable=False),
     ]
 )
 
@@ -752,6 +776,14 @@ def materialize_point_in_time_table(
                         compression="zstd",
                     )
                 writer.write_table(table)
+                if (
+                    temp_out.exists()
+                    and temp_out.stat().st_size
+                    > PRODUCTION_MAX_SOURCE_PARQUET_BYTES
+                ):
+                    raise BoundedReadError(
+                        "production preselection Parquet byte bound exceeded"
+                    )
                 accepted_rows += len(day_rows)
     except BaseException:
         if writer is not None:
@@ -763,6 +795,14 @@ def materialize_point_in_time_table(
     finally:
         if writer is not None:
             writer.close()
+    if (
+        temp_out.exists()
+        and temp_out.stat().st_size > PRODUCTION_MAX_SOURCE_PARQUET_BYTES
+    ):
+        temp_out.unlink(missing_ok=True)
+        raise BoundedReadError(
+            "production preselection Parquet byte bound exceeded"
+        )
 
     if not temp_out.exists():
         pq.write_table(
@@ -871,6 +911,667 @@ def verify_materialization_manifest(
         raise ContractViolation(
             "materialization_release_identity_mismatch",
             "materialization release identity mismatch",
+        )
+    return manifest
+
+
+def validate_production_preselection_source_row(
+    row: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate one candidate-independent production population row."""
+
+    if row.get("schema_version") != PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION:
+        raise ContractViolation(
+            "invalid_preselection_source_schema",
+            "unexpected production preselection source row schema",
+        )
+    normalized = dict(row)
+    _parse_date(row.get("target_date"))
+    for field in ("target_date", "market_id", "cutoff_or_snapshot", "band"):
+        normalized[field] = _required_text(
+            row.get(field), f"missing_{field}", field
+        )
+        if len(normalized[field].encode("utf-8")) > PRODUCTION_MAX_SOURCE_TEXT_BYTES:
+            raise ContractViolation(
+                "oversized_preselection_source_field",
+                f"{field} exceeds the production source text bound",
+            )
+    feature_time = _parse_utc(
+        row.get("feature_available_at_utc"), "feature_available_at_utc"
+    )
+    boundary_time = _parse_utc(
+        row.get("prediction_boundary_at_utc"), "prediction_boundary_at_utc"
+    )
+    if feature_time > boundary_time:
+        raise ContractViolation(
+            "feature_available_after_prediction_boundary",
+            "feature availability cannot be later than the frozen prediction boundary",
+        )
+    normalized["feature_available_at_utc"] = feature_time.isoformat()
+    normalized["prediction_boundary_at_utc"] = boundary_time.isoformat()
+    normalized["label_quality"] = _normalize_label_quality(row.get("label_quality"))
+    normalized["countable"] = _strict_bool(row.get("countable"), "countable")
+    normalized["claim_lane"] = normalize_claim_lane(row.get("claim_lane"))
+    normalized["source_quality"] = _normalize_source_quality(row.get("source_quality"))
+    normalized["label"] = _normalized_label(row.get("label"))
+    if (
+        not normalized["countable"]
+        or normalized["label_quality"] not in COUNTABLE_LABEL_QUALITIES
+        or normalized["claim_lane"] != "weather_only"
+        or normalized["source_quality"] not in COUNTABLE_SOURCE_QUALITIES
+        or normalized["label"] is None
+    ):
+        raise ContractViolation(
+            "noncountable_preselection_source_row",
+            "production preselection source rows must be countable, healthy, "
+            "weather-only rows with complete labels",
+        )
+    return {
+        field.name: normalized.get(field.name)
+        for field in PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA
+    }
+
+
+def iter_production_preselection_source_parquet(
+    path: str | Path,
+    *,
+    batch_rows: int = 65_536,
+) -> Iterator[dict[str, Any]]:
+    """Yield the narrow pre-candidate population projection in bounded batches."""
+
+    if batch_rows <= 0:
+        raise ValueError("batch_rows must be positive")
+    parquet = pq.ParquetFile(path)
+    actual_schema = parquet.schema_arrow
+    if not actual_schema.equals(
+        PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+        check_metadata=False,
+    ):
+        raise ContractViolation(
+            "invalid_preselection_source_columns",
+            "production preselection source must use the exact candidate-independent schema",
+        )
+    for batch in parquet.iter_batches(batch_size=batch_rows):
+        for row in batch.to_pylist():
+            yield validate_production_preselection_source_row(row)
+
+
+@contextmanager
+def _exclusive_preselection_output_locks(*paths: str | Path):
+    """Reserve every final output name against concurrent materializers."""
+
+    locks = sorted(
+        {
+            Path(path).resolve().with_name(
+                f".{Path(path).name}.preselection-publish.lock"
+            )
+            for path in paths
+        },
+        key=str,
+    )
+    opened: list[tuple[Path, int]] = []
+    try:
+        for lock in locks:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError as exc:
+                raise FileExistsError(
+                    f"concurrent production preselection publication is locked: {lock}"
+                ) from exc
+            opened.append((lock, fd))
+        yield
+    finally:
+        for lock, fd in reversed(opened):
+            try:
+                os.close(fd)
+            finally:
+                lock.unlink(missing_ok=True)
+
+
+def materialize_production_preselection_source(
+    *,
+    replay_manifest: str | Path,
+    parquet_out: str | Path,
+    manifest_out: str | Path,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    max_market_days: int = 60,
+    max_rows_per_market_day: int = 250_000,
+    batch_rows: int = 65_536,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    with _exclusive_preselection_output_locks(parquet_out, manifest_out):
+        return _materialize_production_preselection_source_locked(
+            replay_manifest=replay_manifest,
+            parquet_out=parquet_out,
+            manifest_out=manifest_out,
+            snapshots_root=snapshots_root,
+            max_market_days=max_market_days,
+            max_rows_per_market_day=max_rows_per_market_day,
+            batch_rows=batch_rows,
+            generated_at_utc=generated_at_utc,
+        )
+
+
+def _materialize_production_preselection_source_locked(
+    *,
+    replay_manifest: str | Path,
+    parquet_out: str | Path,
+    manifest_out: str | Path,
+    snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
+    max_market_days: int = 60,
+    max_rows_per_market_day: int = 250_000,
+    batch_rows: int = 65_536,
+    generated_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Replay a pinned population before training without inventing model identity."""
+
+    if (
+        max_market_days <= 0
+        or max_market_days > 60
+        or max_rows_per_market_day <= 0
+        or max_rows_per_market_day > 250_000
+        or batch_rows <= 0
+        or batch_rows > 65_536
+    ):
+        raise ValueError("production preselection streaming bounds are invalid")
+    parquet_out = Path(parquet_out).resolve()
+    manifest_out = Path(manifest_out).resolve()
+    if parquet_out == manifest_out:
+        raise ValueError("preselection corpus and manifest outputs must be distinct")
+    if parquet_out.exists() or manifest_out.exists():
+        raise FileExistsError(
+            "production preselection source outputs are immutable and already exist"
+        )
+    replay_manifest = Path(replay_manifest).resolve()
+    replay = _load_production_replay_manifest(replay_manifest)
+    replay_sha256 = sha256_file(replay_manifest)
+    entries = list(replay.get("entries") or ())
+    expected_market_day_counts: dict[tuple[str, str], int] = {}
+    for entry in entries:
+        key = (
+            str(entry.get("target_date") or ""),
+            str(entry.get("market_id") or ""),
+        )
+        entry_rows = int(entry.get("row_count") or 0)
+        if (
+            not all(key)
+            or key in expected_market_day_counts
+            or not 0 < entry_rows <= max_rows_per_market_day
+        ):
+            raise BoundedReadError("replay manifest market-day inventory is invalid")
+        expected_market_day_counts[key] = entry_rows
+    if not entries or len(entries) > max_market_days:
+        raise BoundedReadError(
+            f"market-day bound exceeded: {len(entries)} > {max_market_days}"
+        )
+
+    parquet_out.parent.mkdir(parents=True, exist_ok=True)
+    manifest_out.parent.mkdir(parents=True, exist_ok=True)
+    temp_out = parquet_out.with_name(f".{parquet_out.name}.{os.getpid()}.tmp")
+    temp_manifest = manifest_out.with_name(
+        f".{manifest_out.name}.{os.getpid()}.tmp"
+    )
+    if temp_out.exists():
+        temp_out.unlink()
+    if temp_manifest.exists():
+        temp_manifest.unlink()
+    writer: pq.ParquetWriter | None = None
+    row_count = 0
+    market_days = 0
+    observed_market_day_counts: Counter[tuple[str, str]] = Counter()
+    previous_coordinate: tuple[str, str, str, str] | None = None
+    try:
+        for day_rows in iter_bounded_preselection_source_market_days(
+            corpus_manifest_path=replay_manifest,
+            expected_manifest_sha256=replay_sha256,
+            snapshots_root=snapshots_root,
+            max_market_days=max_market_days,
+            max_rows_per_market_day=max_rows_per_market_day,
+        ):
+            if not day_rows or len(day_rows) > max_rows_per_market_day:
+                raise BoundedReadError("preselection replay produced an invalid market-day")
+            day_market_days = {
+                (str(row.get("target_date") or ""), str(row.get("market_id") or ""))
+                for row in day_rows
+            }
+            if len(day_market_days) != 1:
+                raise ContractViolation(
+                    "preselection_source_market_day_mismatch",
+                    "one replay batch must contain exactly one market-day",
+                )
+            day_market_day = next(iter(day_market_days))
+            for index, raw_row in enumerate(day_rows):
+                canonical = validate_production_preselection_source_row(
+                    {
+                        "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
+                        **raw_row,
+                    }
+                )
+                coordinate = (
+                    canonical["target_date"],
+                    canonical["market_id"],
+                    canonical["cutoff_or_snapshot"],
+                    canonical["band"],
+                )
+                if previous_coordinate is not None and coordinate <= previous_coordinate:
+                    raise ContractViolation(
+                        "unsorted_preselection_source",
+                        "candidate-independent source coordinates must be unique and sorted",
+                )
+                previous_coordinate = coordinate
+                day_rows[index] = canonical
+            for offset in range(0, len(day_rows), batch_rows):
+                table = pa.Table.from_pylist(
+                    day_rows[offset : offset + batch_rows],
+                    schema=PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+                )
+                if writer is None:
+                    writer = pq.ParquetWriter(
+                        temp_out,
+                        PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+                        compression="zstd",
+                    )
+                writer.write_table(table)
+            row_count += len(day_rows)
+            market_days += 1
+            observed_market_day_counts[day_market_day] += len(day_rows)
+            day_rows = None
+    except BaseException:
+        if writer is not None:
+            writer.close()
+            writer = None
+        if temp_out.exists():
+            temp_out.unlink()
+        if temp_manifest.exists():
+            temp_manifest.unlink()
+        raise
+    finally:
+        if writer is not None:
+            writer.close()
+    if not row_count or not temp_out.exists():
+        if temp_out.exists():
+            temp_out.unlink()
+        raise ContractViolation(
+            "empty_preselection_source",
+            "manifest-pinned replay produced no candidate-independent rows",
+        )
+    if (
+        market_days != len(entries)
+        or dict(observed_market_day_counts) != expected_market_day_counts
+    ):
+        temp_out.unlink(missing_ok=True)
+        raise ContractViolation(
+            "preselection_source_inventory_mismatch",
+            "candidate-independent replay did not consume the exact manifest inventory",
+        )
+
+    inputs = [
+        {
+            "event_slug": str(entry.get("event_slug") or ""),
+            "target_date": str(entry.get("target_date") or ""),
+            "market_id": str(entry.get("market_id") or ""),
+            "row_count": int(entry.get("row_count") or 0),
+            "snapshot_count": int(entry.get("snapshot_count") or 0),
+            "label_hash": str(entry.get("label_hash") or ""),
+        }
+        for entry in entries
+    ]
+    manifest = {
+        "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
+        "artifact_type": "production_point_in_time_preselection_source_manifest",
+        "generated_at_utc": _generated_at_utc(generated_at_utc),
+        "status": "PASS",
+        "candidate_dependent_fields_included": [],
+        "candidate_dependent_fields_absent": [
+            "candidate_id",
+            "variant_id",
+            "release_id",
+            "prediction_probability",
+            "runtime_identity",
+            "source_payload_json",
+            "source_payload_sha256",
+        ],
+        "derived_artifact": {
+            "path": str(parquet_out),
+            "sha256": sha256_file(temp_out),
+            "row_count": row_count,
+            "bytes": temp_out.stat().st_size,
+            "compression": "zstd",
+        },
+        "source_replay_manifest": {
+            "path": str(replay_manifest),
+            "sha256": replay_sha256,
+            "corpus_hash": str(replay.get("corpus_hash") or ""),
+        },
+        "streaming_bounds": {
+            "max_market_days": max_market_days,
+            "max_rows_per_market_day": max_rows_per_market_day,
+            "max_arrow_batch_rows": batch_rows,
+            "max_replay_manifest_bytes": PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
+            "max_source_manifest_bytes": PRODUCTION_MAX_SOURCE_MANIFEST_BYTES,
+            "max_source_parquet_bytes": PRODUCTION_MAX_SOURCE_PARQUET_BYTES,
+            "max_tape_bytes": PRODUCTION_MAX_TAPE_BYTES,
+            "max_tape_field_bytes": PRODUCTION_MAX_TAPE_FIELD_BYTES,
+            "max_replay_bytes": PRODUCTION_MAX_REPLAY_BYTES,
+            "max_replay_line_bytes": PRODUCTION_MAX_REPLAY_LINE_BYTES,
+            "max_settlement_bytes": PRODUCTION_MAX_SETTLEMENT_BYTES,
+            "max_source_text_bytes": PRODUCTION_MAX_SOURCE_TEXT_BYTES,
+            "raw_market_days_retained_at_once": 1,
+        },
+        "counts": {
+            "market_days_read": market_days,
+            "accepted_rows": row_count,
+        },
+        "inputs": inputs,
+    }
+    manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
+    temp_manifest.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    published_corpus = False
+    try:
+        os.replace(temp_out, parquet_out)
+        published_corpus = True
+        os.replace(temp_manifest, manifest_out)
+        verified = verify_production_preselection_source_manifest(
+            parquet_out,
+            manifest_out,
+            replay_manifest=replay_manifest,
+            batch_rows=batch_rows,
+        )
+    except BaseException:
+        if published_corpus and parquet_out.exists():
+            parquet_out.unlink()
+        if manifest_out.exists():
+            manifest_out.unlink()
+        if temp_out.exists():
+            temp_out.unlink()
+        if temp_manifest.exists():
+            temp_manifest.unlink()
+        raise
+    return verified
+
+
+def verify_production_preselection_source_manifest(
+    parquet_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    replay_manifest: str | Path | None = None,
+    batch_rows: int = 65_536,
+) -> dict[str, Any]:
+    """Verify the narrow pre-candidate source, including its replay binding."""
+
+    parquet_source_path = Path(parquet_path)
+    if parquet_source_path.is_symlink():
+        raise ContractViolation(
+            "invalid_preselection_source_manifest",
+            "production preselection source Parquet cannot be a symlink",
+        )
+    parquet_path = parquet_source_path.resolve()
+    manifest_source_path = Path(manifest_path)
+    manifest_path = manifest_source_path.resolve()
+    if not 0 < int(batch_rows) <= 65_536:
+        raise ValueError("batch_rows exceeds the production preselection bound")
+    manifest = _read_bounded_contract_json(
+        manifest_source_path,
+        code="invalid_preselection_source_manifest",
+        max_bytes=PRODUCTION_MAX_SOURCE_MANIFEST_BYTES,
+    )
+    if (
+        manifest.get("schema_version")
+        != PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION
+        or manifest.get("artifact_type")
+        != "production_point_in_time_preselection_source_manifest"
+        or manifest.get("status") != "PASS"
+        or manifest.get("candidate_dependent_fields_included") != []
+        or set(manifest.get("candidate_dependent_fields_absent") or ())
+        != {
+            "candidate_id",
+            "variant_id",
+            "release_id",
+            "prediction_probability",
+            "runtime_identity",
+            "source_payload_json",
+            "source_payload_sha256",
+        }
+    ):
+        raise ContractViolation(
+            "invalid_preselection_source_manifest",
+            "candidate-independent source manifest contract is incomplete",
+        )
+    _verify_self_hash(
+        manifest,
+        "manifest_hash",
+        "preselection_source_manifest_hash_mismatch",
+    )
+    artifact = manifest.get("derived_artifact") or {}
+    try:
+        parquet_stat = parquet_path.stat()
+    except OSError as exc:
+        raise ContractViolation(
+            "preselection_source_hash_mismatch",
+            f"cannot inspect production source Parquet: {exc}",
+        ) from exc
+    if (
+        not stat.S_ISREG(parquet_stat.st_mode)
+        or parquet_stat.st_size <= 0
+        or parquet_stat.st_size > PRODUCTION_MAX_SOURCE_PARQUET_BYTES
+        or int(artifact.get("bytes") or -1) != parquet_stat.st_size
+        or artifact.get("sha256") != sha256_file(parquet_path)
+    ):
+        raise ContractViolation(
+            "preselection_source_hash_mismatch",
+            "preselection source Parquet changed or exceeds its byte bound",
+        )
+    actual_rows = int(pq.ParquetFile(parquet_path).metadata.num_rows)
+    if (
+        actual_rows <= 0
+        or actual_rows
+        > PRODUCTION_MAX_MARKET_DAYS * PRODUCTION_MAX_ROWS_PER_MARKET_DAY
+        or int(artifact.get("row_count") or -1) != actual_rows
+    ):
+        raise ContractViolation(
+            "preselection_source_row_count_mismatch",
+            "preselection source row count changed",
+        )
+    bounds = manifest.get("streaming_bounds") or {}
+    if (
+        not 0 < int(bounds.get("max_market_days") or 0) <= 60
+        or not 0 < int(bounds.get("max_rows_per_market_day") or 0) <= 250_000
+        or not 0 < int(bounds.get("max_arrow_batch_rows") or 0) <= 65_536
+        or int(bounds.get("max_replay_manifest_bytes") or 0)
+        != PRODUCTION_MAX_REPLAY_MANIFEST_BYTES
+        or int(bounds.get("max_source_manifest_bytes") or 0)
+        != PRODUCTION_MAX_SOURCE_MANIFEST_BYTES
+        or int(bounds.get("max_source_parquet_bytes") or 0)
+        != PRODUCTION_MAX_SOURCE_PARQUET_BYTES
+        or int(bounds.get("max_tape_bytes") or 0) != PRODUCTION_MAX_TAPE_BYTES
+        or int(bounds.get("max_tape_field_bytes") or 0)
+        != PRODUCTION_MAX_TAPE_FIELD_BYTES
+        or int(bounds.get("max_replay_bytes") or 0) != PRODUCTION_MAX_REPLAY_BYTES
+        or int(bounds.get("max_replay_line_bytes") or 0)
+        != PRODUCTION_MAX_REPLAY_LINE_BYTES
+        or int(bounds.get("max_settlement_bytes") or 0)
+        != PRODUCTION_MAX_SETTLEMENT_BYTES
+        or int(bounds.get("max_source_text_bytes") or 0)
+        != PRODUCTION_MAX_SOURCE_TEXT_BYTES
+        or int(bounds.get("raw_market_days_retained_at_once") or 0) != 1
+    ):
+        raise ContractViolation(
+            "invalid_point_in_time_resource_contract",
+            "candidate-independent source streaming bounds are invalid",
+        )
+    previous_coordinate = None
+    observed_rows = 0
+    observed_market_day_counts: Counter[tuple[str, str]] = Counter()
+    observed_snapshot_ids: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+    observed_winner_counts: Counter[tuple[str, str, str]] = Counter()
+    observed_winner_bands: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+    observed_label_qualities: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+    for row in iter_production_preselection_source_parquet(
+        parquet_path, batch_rows=batch_rows
+    ):
+        coordinate = (
+            row["target_date"],
+            row["market_id"],
+            row["cutoff_or_snapshot"],
+            row["band"],
+        )
+        if previous_coordinate is not None and coordinate <= previous_coordinate:
+            raise ContractViolation(
+                "unsorted_preselection_source",
+                "candidate-independent source coordinates are duplicated or unsorted",
+            )
+        previous_coordinate = coordinate
+        observed_rows += 1
+        market_day = (row["target_date"], row["market_id"])
+        snapshot_id = row["cutoff_or_snapshot"]
+        observed_market_day_counts[market_day] += 1
+        observed_snapshot_ids[market_day].add(snapshot_id)
+        observed_label_qualities[market_day].add(row["label_quality"])
+        if float(row["label"]) == 1.0:
+            observed_winner_counts[(*market_day, snapshot_id)] += 1
+            observed_winner_bands[market_day].add(row["band"])
+    input_market_day_counts: dict[tuple[str, str], int] = {}
+    input_inventory: dict[tuple[str, str], tuple[str, int, int, str]] = {}
+    for item in manifest.get("inputs") or ():
+        key = (
+            str(item.get("target_date") or ""),
+            str(item.get("market_id") or ""),
+        )
+        item_rows = int(item.get("row_count") or 0)
+        event_slug = str(item.get("event_slug") or "")
+        label_hash = str(item.get("label_hash") or "")
+        snapshot_count = int(item.get("snapshot_count") or 0)
+        if (
+            not all(key)
+            or not event_slug
+            or not SHA256_RE.fullmatch(label_hash)
+            or key in input_market_day_counts
+            or item_rows <= 0
+            or not 0 < snapshot_count <= item_rows
+        ):
+            raise ContractViolation(
+                "preselection_source_inventory_mismatch",
+                "candidate-independent source input inventory is invalid",
+            )
+        input_market_day_counts[key] = item_rows
+        input_inventory[key] = (
+            event_slug,
+            item_rows,
+            snapshot_count,
+            label_hash,
+        )
+    counts = manifest.get("counts") or {}
+    if (
+        observed_rows != actual_rows
+        or int(counts.get("accepted_rows") or -1) != observed_rows
+        or int(counts.get("market_days_read") or -1)
+        != len(observed_market_day_counts)
+        or dict(observed_market_day_counts) != input_market_day_counts
+    ):
+        raise ContractViolation(
+            "preselection_source_inventory_mismatch",
+            "candidate-independent source inventory changed",
+        )
+    replay_binding = manifest.get("source_replay_manifest") or {}
+    replay_path = Path(
+        replay_manifest or str(replay_binding.get("path") or "")
+    ).resolve()
+    replay = _load_production_replay_manifest(replay_path)
+    replay_bytes = _read_bounded_contract_bytes(
+        replay_path,
+        code="preselection_source_replay_mismatch",
+        max_bytes=PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
+    )
+    try:
+        replay_as_of = date.fromisoformat(str(replay.get("as_of") or ""))
+    except ValueError as exc:
+        raise ContractViolation(
+            "preselection_source_replay_mismatch",
+            "candidate-independent replay has no valid as_of date",
+        ) from exc
+    replay_inventory = {}
+    for item in replay.get("entries") or ():
+        key = (
+            str(item.get("target_date") or ""),
+            str(item.get("market_id") or ""),
+        )
+        snapshot_ids = tuple(str(value) for value in item.get("snapshot_ids") or ())
+        snapshot_id_set = set(snapshot_ids)
+        row_count = int(item.get("row_count") or 0)
+        snapshot_count = int(item.get("snapshot_count") or 0)
+        label_hash = str(item.get("label_hash") or "")
+        quality_grade = str(item.get("quality_grade") or "").strip().lower()
+        winning_band = str(item.get("winning_band") or "").strip()
+        try:
+            target_date = date.fromisoformat(key[0])
+        except ValueError as exc:
+            raise ContractViolation(
+                "preselection_source_replay_mismatch",
+                "replay manifest contains an invalid target date",
+            ) from exc
+        if (
+            key in replay_inventory
+            or not all(key)
+            or target_date >= replay_as_of
+            or not 0 < row_count <= int(bounds["max_rows_per_market_day"])
+            or not snapshot_ids
+            or len(snapshot_id_set) != len(snapshot_ids)
+            or snapshot_count != len(snapshot_ids)
+            or snapshot_count > row_count
+            or not SHA256_RE.fullmatch(label_hash)
+            or quality_grade not in COUNTABLE_LABEL_QUALITIES
+            or item.get("admitted_by") != "quality_grade"
+            or not winning_band
+            or set(item.get("replay_record_hashes") or {}) != snapshot_id_set
+            or set(item.get("tape_row_hashes") or {}) != snapshot_id_set
+            or any(
+                not SHA256_RE.fullmatch(str(value or ""))
+                for value in (item.get("replay_record_hashes") or {}).values()
+            )
+            or any(
+                not SHA256_RE.fullmatch(str(value or ""))
+                for value in (item.get("tape_row_hashes") or {}).values()
+            )
+        ):
+            raise ContractViolation(
+                "preselection_source_replay_mismatch",
+                "replay manifest contains an invalid production market-day",
+            )
+        replay_inventory[key] = (
+            str(item.get("event_slug") or ""),
+            row_count,
+            snapshot_count,
+            label_hash,
+        )
+        if (
+            observed_snapshot_ids.get(key, set()) != snapshot_id_set
+            or observed_label_qualities.get(key, set()) != {quality_grade}
+            or observed_winner_bands.get(key, set()) != {winning_band}
+            or any(
+                observed_winner_counts[(*key, snapshot_id)] != 1
+                for snapshot_id in snapshot_ids
+            )
+        ):
+            raise ContractViolation(
+                "preselection_source_replay_mismatch",
+                "source rows differ from the exact replay snapshot/label inventory",
+            )
+    if (
+        hashlib.sha256(replay_bytes).hexdigest() != replay_binding.get("sha256")
+        or replay.get("corpus_hash") != replay_binding.get("corpus_hash")
+        or replay.get("include_reconstructed") is not False
+        or replay.get("allow_unsettled") is not False
+        or replay.get("admit_promotion_countable") is not False
+        or len(replay_inventory) > int(bounds["max_market_days"])
+        or replay_inventory != input_inventory
+    ):
+        raise ContractViolation(
+            "preselection_source_replay_mismatch",
+            "candidate-independent source differs from the exact replay inventory",
         )
     return manifest
 
@@ -2318,7 +3019,11 @@ def _selection_universe_basis(row: Mapping[str, Any]) -> dict[str, Any]:
         "cutoff_or_snapshot": str(row["cutoff_or_snapshot"]),
         "band": str(row["band"]),
         "feature_available_at_utc": str(row["feature_available_at_utc"]),
-        "prediction_made_at_utc": str(row["prediction_made_at_utc"]),
+        "prediction_made_at_utc": str(
+            row.get("prediction_made_at_utc")
+            or row.get("prediction_boundary_at_utc")
+            or ""
+        ),
         "label_quality": str(row["label_quality"]),
         "countable": bool(row["countable"]),
         "claim_lane": str(row["claim_lane"]),
@@ -2342,7 +3047,17 @@ def selection_universe_contract(
     row_count = 0
     dates: set[str] = set()
     previous_coordinate: tuple[str, str, str, str] | None = None
-    for row in iter_point_in_time_parquet(parquet_path, batch_rows=batch_rows):
+    parquet_schema = pq.ParquetFile(parquet_path).schema_arrow
+    if parquet_schema.equals(
+        PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+        check_metadata=False,
+    ):
+        rows = iter_production_preselection_source_parquet(
+            parquet_path, batch_rows=batch_rows
+        )
+    else:
+        rows = iter_point_in_time_parquet(parquet_path, batch_rows=batch_rows)
+    for row in rows:
         if row.get("claim_lane") != "weather_only" or not row.get("countable"):
             continue
         coordinate = (
@@ -2766,6 +3481,81 @@ def _read_contract_json(path: str | Path, *, code: str) -> dict[str, Any]:
     return payload
 
 
+def _reject_duplicate_json_pairs(pairs):
+    payload = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        payload[key] = value
+    return payload
+
+
+def _reject_nonfinite_json_constant(value):
+    raise ValueError(f"non-finite JSON value {value}")
+
+
+def _read_bounded_contract_json(
+    path: str | Path,
+    *,
+    code: str,
+    max_bytes: int,
+) -> dict[str, Any]:
+    """Read a small production control artifact without an unbounded parse."""
+
+    path = Path(path)
+    raw = _read_bounded_contract_bytes(path, code=code, max_bytes=max_bytes)
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=_reject_nonfinite_json_constant,
+            object_pairs_hook=_reject_duplicate_json_pairs,
+        )
+    except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ContractViolation(code, f"cannot read {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ContractViolation(code, f"{path} must contain a JSON object")
+    return payload
+
+
+def _read_bounded_contract_bytes(
+    path: str | Path,
+    *,
+    code: str,
+    max_bytes: int,
+) -> bytes:
+    path = Path(path)
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
+    if path.is_symlink():
+        raise ContractViolation(code, f"{path} cannot be a symlink")
+    try:
+        with path.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size <= 0
+                or before.st_size > max_bytes
+            ):
+                raise ContractViolation(
+                    code,
+                    f"{path} must be between 1 and {max_bytes} bytes",
+                )
+            raw = handle.read(max_bytes + 1)
+            after = os.fstat(handle.fileno())
+    except OSError as exc:
+        raise ContractViolation(code, f"cannot read {path}: {exc}") from exc
+    if (
+        len(raw) != before.st_size
+        or len(raw) > max_bytes
+        or before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+    ):
+        raise ContractViolation(code, f"{path} changed during bounded read")
+    return raw
+
+
 def _verify_candidate_training_graph(
     graph: Mapping[str, Any],
     *,
@@ -3108,6 +3898,22 @@ PRODUCTION_MAX_MARKET_DAYS = 60
 PRODUCTION_MAX_ROWS_PER_MARKET_DAY = 250_000
 PRODUCTION_MAX_ARROW_BATCH_ROWS = 65_536
 PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS = 7
+PRODUCTION_MAX_REPLAY_MANIFEST_BYTES = 16 * 1024**2
+PRODUCTION_MAX_SOURCE_MANIFEST_BYTES = 4 * 1024**2
+PRODUCTION_MAX_SOURCE_PARQUET_BYTES = 1024**3
+PRODUCTION_MAX_TAPE_BYTES = 128 * 1024**2
+PRODUCTION_MAX_TAPE_FIELD_BYTES = 1024**2
+PRODUCTION_MAX_REPLAY_BYTES = 64 * 1024**2
+PRODUCTION_MAX_REPLAY_LINE_BYTES = 8 * 1024**2
+PRODUCTION_MAX_SETTLEMENT_BYTES = 1024**2
+PRODUCTION_MAX_SOURCE_TEXT_BYTES = 1024
+
+
+def _load_production_replay_manifest(path: str | Path) -> dict[str, Any]:
+    return load_promotion_corpus_manifest(
+        path,
+        max_bytes=PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
+    )
 
 
 def _verify_production_latest_target_freshness(
@@ -3147,6 +3953,34 @@ def _verify_production_latest_target_freshness(
     return target_age_days
 
 
+def _verify_preselection_source_corpus(
+    source_corpus: str | Path,
+    source_manifest: str | Path,
+    *,
+    replay_manifest: str | Path | None = None,
+    batch_rows: int = 65_536,
+) -> dict[str, Any]:
+    payload = _read_bounded_contract_json(
+        source_manifest,
+        code="invalid_materialization_manifest",
+        max_bytes=PRODUCTION_MAX_SOURCE_MANIFEST_BYTES,
+    )
+    if (
+        payload.get("artifact_type")
+        == "production_point_in_time_preselection_source_manifest"
+    ):
+        return verify_production_preselection_source_manifest(
+            source_corpus,
+            source_manifest,
+            replay_manifest=replay_manifest,
+            batch_rows=batch_rows,
+        )
+    raise ContractViolation(
+        "candidate_dependent_preselection_source",
+        "production preselection requires the narrow candidate-independent source schema",
+    )
+
+
 def prepare_production_preselection(
     *,
     source_corpus: str | Path,
@@ -3161,10 +3995,26 @@ def prepare_production_preselection(
 ) -> dict[str, Any]:
     """Freeze the candidate-independent evaluation population before training."""
 
+    if (
+        not 0 < int(batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS
+        or not 0 < int(max_market_days) <= PRODUCTION_MAX_MARKET_DAYS
+        or not 0
+        < int(max_rows_per_market_day)
+        <= PRODUCTION_MAX_ROWS_PER_MARKET_DAY
+    ):
+        raise ContractViolation(
+            "invalid_point_in_time_resource_contract",
+            "preselection request exceeds the production streaming bounds",
+        )
     source_corpus = Path(source_corpus).resolve()
     source_manifest = Path(source_manifest).resolve()
     replay_manifest = Path(replay_manifest).resolve()
-    manifest = verify_materialization_manifest(source_corpus, source_manifest)
+    manifest = _verify_preselection_source_corpus(
+        source_corpus,
+        source_manifest,
+        replay_manifest=replay_manifest,
+        batch_rows=batch_rows,
+    )
     bounds = manifest.get("streaming_bounds") or {}
     if (
         not 0 < int(batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS
@@ -3183,7 +4033,7 @@ def prepare_production_preselection(
         )
     universe = selection_universe_contract(source_corpus, batch_rows=batch_rows)
     try:
-        replay = load_promotion_corpus_manifest(replay_manifest)
+        replay = _load_production_replay_manifest(replay_manifest)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise ContractViolation(
             "invalid_candidate_replay_manifest",
@@ -3302,14 +4152,19 @@ def verify_production_preselection(
             "point_in_time_preselection_source_mismatch",
             "preselection source corpus or manifest changed after the lock",
         )
-    manifest = verify_materialization_manifest(corpus_path, manifest_path)
+    manifest = _verify_preselection_source_corpus(
+        corpus_path,
+        manifest_path,
+        replay_manifest=replay_manifest_path,
+        batch_rows=batch_rows,
+    )
     if manifest.get("manifest_hash") != source.get("manifest_hash"):
         raise ContractViolation(
             "point_in_time_preselection_source_mismatch",
             "preselection materialization manifest identity changed",
         )
     try:
-        replay = load_promotion_corpus_manifest(replay_manifest_path)
+        replay = _load_production_replay_manifest(replay_manifest_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise ContractViolation(
             "point_in_time_preselection_source_mismatch",
@@ -4217,24 +5072,6 @@ def _cmd_evaluate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
-def _materialization_input_folders(manifest_path: str | Path) -> list[Path]:
-    payload = _read_contract_json(
-        manifest_path,
-        code="invalid_materialization_manifest",
-    )
-    folders = [
-        Path(str(row.get("folder") or "")).resolve()
-        for row in payload.get("inputs") or ()
-        if isinstance(row, Mapping) and str(row.get("folder") or "").strip()
-    ]
-    if not folders or len(folders) != len(set(folders)):
-        raise ContractViolation(
-            "invalid_materialization_manifest",
-            "preselection source manifest has missing or duplicate folder identities",
-        )
-    return folders
-
-
 def _prepare_replay_manifest(
     *,
     source_manifest: str | Path,
@@ -4245,30 +5082,73 @@ def _prepare_replay_manifest(
     quality_grades: str,
 ) -> Path:
     output = Path(replay_manifest_out).resolve()
+    copy_source: Path | None = None
+    copy_bytes: bytes | None = None
     if source_replay_manifest:
         source = Path(source_replay_manifest).resolve()
-        load_promotion_corpus_manifest(source)
-        payload = _read_contract_json(
+        _load_production_replay_manifest(source)
+        copy_source = source
+        copy_bytes = _read_bounded_contract_bytes(
             source,
             code="invalid_candidate_replay_manifest",
+            max_bytes=PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
         )
     else:
-        folders = _materialization_input_folders(source_manifest)
-        grades = tuple(
-            value.strip() for value in str(quality_grades).split(",") if value.strip()
+        source_payload = _read_bounded_contract_json(
+            source_manifest,
+            code="invalid_materialization_manifest",
+            max_bytes=PRODUCTION_MAX_SOURCE_MANIFEST_BYTES,
         )
-        payload = build_promotion_corpus(
-            folders=folders,
-            snapshots_root=snapshots_root,
-            as_of=as_of or None,
-            quality_grades=grades or None,
+        if (
+            source_payload.get("artifact_type")
+            == "production_point_in_time_preselection_source_manifest"
+        ):
+            binding = source_payload.get("source_replay_manifest") or {}
+            source = Path(str(binding.get("path") or "")).resolve()
+            copy_source = source
+            copy_bytes = _read_bounded_contract_bytes(
+                source,
+                code="invalid_candidate_replay_manifest",
+                max_bytes=PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
+            )
+            replay = _load_production_replay_manifest(source)
+            if (
+                hashlib.sha256(copy_bytes).hexdigest() != binding.get("sha256")
+                or replay.get("corpus_hash") != binding.get("corpus_hash")
+            ):
+                raise ContractViolation(
+                    "preselection_source_replay_mismatch",
+                    "staged preselection source replay binding is invalid",
+                )
+        else:
+            raise ContractViolation(
+                "candidate_dependent_preselection_source",
+                "production preselection rejects the generic materialization schema",
+            )
+    if copy_source is not None:
+        if copy_source != output:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            temp = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+            temp.write_bytes(copy_bytes or b"")
+            os.replace(temp, output)
+    else:  # pragma: no cover - every accepted production source is byte-copied
+        raise ContractViolation(
+            "invalid_candidate_replay_manifest",
+            "production replay manifest source is missing",
         )
-    _atomic_write_json(output, payload)
-    load_promotion_corpus_manifest(output)
+    _load_production_replay_manifest(output)
     return output
 
 
 def _cmd_prelock(args: argparse.Namespace) -> None:
+    if (
+        not 0 < int(args.batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS
+        or not 0 < int(args.max_market_days) <= PRODUCTION_MAX_MARKET_DAYS
+        or not 0
+        < int(args.max_rows_per_market_day)
+        <= PRODUCTION_MAX_ROWS_PER_MARKET_DAY
+    ):
+        raise SystemExit("production preselection bounds exceed the reviewed maximum")
     source_corpus = args.source_corpus
     source_manifest = args.source_manifest
     if bool(source_corpus) != bool(source_manifest):
@@ -4278,31 +5158,67 @@ def _cmd_prelock(args: argparse.Namespace) -> None:
     if not source_corpus:
         if not args.folder:
             raise SystemExit("preselection requires a staged source or explicit folders")
+        if len(args.folder) > int(args.max_market_days):
+            raise SystemExit("explicit folders exceed the production market-day bound")
         if not args.source_corpus_out or not args.source_manifest_out:
             raise SystemExit("folder materialization requires source output paths")
-        manifest = materialize_point_in_time_table(
-            [Path(item) for item in args.folder],
+        grades = tuple(
+            value.strip()
+            for value in str(args.quality_grades).split(",")
+            if value.strip()
+        )
+        built_replay = build_promotion_corpus(
+            folders=[Path(item) for item in args.folder],
+            snapshots_root=args.snapshots_root,
+            as_of=args.as_of or None,
+            quality_grades=grades or None,
+            admit_promotion_countable=False,
+            input_loader=lambda folder: load_bounded_preselection_folder_inputs(
+                folder,
+                snapshots_root=args.snapshots_root,
+                max_rows_per_market_day=args.max_rows_per_market_day,
+            ),
+            max_manifest_bytes=PRODUCTION_MAX_REPLAY_MANIFEST_BYTES,
+        )
+        if args.source_replay_manifest:
+            supplied_path = Path(args.source_replay_manifest).resolve()
+            supplied_replay = _load_production_replay_manifest(supplied_path)
+            if supplied_replay.get("corpus_hash") != built_replay.get("corpus_hash"):
+                raise ContractViolation(
+                    "candidate_replay_manifest_population_mismatch",
+                    "explicit folders differ from the supplied replay manifest",
+                )
+            replay_payload = _read_contract_json(
+                supplied_path,
+                code="invalid_candidate_replay_manifest",
+            )
+        else:
+            replay_payload = built_replay
+        _atomic_write_json(args.replay_manifest_out, replay_payload)
+        replay_manifest = Path(args.replay_manifest_out).resolve()
+        _load_production_replay_manifest(replay_manifest)
+        manifest = materialize_production_preselection_source(
+            replay_manifest=replay_manifest,
             parquet_out=args.source_corpus_out,
             manifest_out=args.source_manifest_out,
-            artifact_family=args.artifact_family,
             snapshots_root=args.snapshots_root,
-            archive_root=args.archive_root,
-            archive_as_of_date=args.as_of or None,
             max_market_days=args.max_market_days,
             max_rows_per_market_day=args.max_rows_per_market_day,
+            batch_rows=args.batch_rows,
         )
         if manifest.get("status") != "PASS":
-            raise SystemExit("point-in-time source materialization did not pass")
+            raise SystemExit("candidate-independent source materialization did not pass")
         source_corpus = args.source_corpus_out
         source_manifest = args.source_manifest_out
-    replay_manifest = _prepare_replay_manifest(
-        source_manifest=source_manifest,
-        source_replay_manifest=args.source_replay_manifest or None,
-        replay_manifest_out=args.replay_manifest_out,
-        snapshots_root=args.snapshots_root,
-        as_of=args.as_of or None,
-        quality_grades=args.quality_grades,
-    )
+    else:
+        replay_manifest = _prepare_replay_manifest(
+            source_manifest=source_manifest,
+            source_replay_manifest=args.source_replay_manifest or None,
+            replay_manifest_out=args.replay_manifest_out,
+            snapshots_root=args.snapshots_root,
+            as_of=args.as_of or None,
+            quality_grades=args.quality_grades,
+        )
     payload = prepare_production_preselection(
         source_corpus=source_corpus,
         source_manifest=source_manifest,

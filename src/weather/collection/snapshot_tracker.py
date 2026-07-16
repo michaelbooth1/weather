@@ -37,6 +37,7 @@ from weather.model.feature_store import FEATURE_AUDIT_COLUMNS, audit_row
 from weather.model.model_constants import LIVE_CACHE_MAX_AGE_MINUTES, SOURCE_CACHE_TTL_MINUTES
 from weather.model.model_identity import model_replay_identity
 from weather.model.toronto_model import MODEL_VERSION_HGB, TORONTO_TZ
+from weather.operations.capture_resource_gate import available_memory_bytes
 from weather.operations.power import keep_system_awake
 from weather.runtime_identity import (
     current_identity_for,
@@ -76,10 +77,12 @@ from weather.operations.supervisor import (
 )
 
 from weather.collection.snapshot_capture_batch import (  # noqa: E402
+    DEFAULT_CAPTURE_HOST_RESERVE_MB,
     DEFAULT_CAPTURE_WORKERS,
     DEFAULT_CHILD_WORKING_SET_MAX_MB,
     DEFAULT_FLEET_BUDGET_SECONDS,
     DEFAULT_MARKET_TIMEOUT_SECONDS,
+    capture_worker_admission,
     run_bounded_capture_batch,
     run_isolated_capture,
 )
@@ -1382,6 +1385,8 @@ def run_loop(
     capture_fleet_budget_seconds=DEFAULT_FLEET_BUDGET_SECONDS,
     capture_timeout_seconds=DEFAULT_MARKET_TIMEOUT_SECONDS,
     capture_child_working_set_max_mb=DEFAULT_CHILD_WORKING_SET_MAX_MB,
+    capture_host_reserve_mb=DEFAULT_CAPTURE_HOST_RESERVE_MB,
+    available_memory_fn=available_memory_bytes,
 ):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
@@ -1442,6 +1447,7 @@ def run_loop(
             "fleet_budget_seconds": float(capture_fleet_budget_seconds),
             "market_timeout_seconds": float(capture_timeout_seconds),
             "child_working_set_max_mb": int(capture_child_working_set_max_mb),
+            "host_reserve_mb": int(capture_host_reserve_mb),
         },
     }
     attach_status_writer(status, writer_lock)
@@ -1600,15 +1606,84 @@ def run_loop(
                         )
 
                     try:
-                        capture_batch = run_bounded_capture_batch(
-                            due_requests,
-                            worker_count=capture_workers,
-                            fleet_budget_seconds=capture_fleet_budget_seconds,
-                            market_timeout_seconds=capture_timeout_seconds,
-                            runner_fn=isolated_runner,
-                            progress_fn=capture_progress,
-                            now_fn=now_fn,
+                        if due_requests:
+                            try:
+                                available_memory = available_memory_fn()
+                            except Exception:  # noqa: BLE001 - fail closed below
+                                available_memory = None
+                            worker_admission = capture_worker_admission(
+                                capture_workers,
+                                child_memory_max_mb=capture_child_working_set_max_mb,
+                                host_reserve_mb=capture_host_reserve_mb,
+                                available_memory_bytes=available_memory,
+                            )
+                        else:
+                            worker_admission = {
+                                "status": "NOT_REQUIRED",
+                                "requested_worker_count": max(
+                                    1, int(capture_workers)
+                                ),
+                                "admitted_worker_count": 0,
+                                "reason": "no_due_markets",
+                            }
+                        status["capture_execution"]["worker_admission"] = (
+                            worker_admission
                         )
+                        admitted_workers = int(
+                            worker_admission["admitted_worker_count"]
+                        )
+                        if due_requests and not admitted_workers:
+                            detail = (
+                                f"{worker_admission['reason']}: "
+                                f"available_bytes={worker_admission['available_memory_bytes']}, "
+                                "required_for_one_worker_bytes="
+                                f"{worker_admission['required_for_one_worker_bytes']}"
+                            )
+                            blocked_at = now_fn()
+                            capture_batch = {
+                                "records": [
+                                    {
+                                        "market_id": request["market_id"],
+                                        "started_at": blocked_at,
+                                        "completed_at": blocked_at,
+                                        "result": {
+                                            "written": False,
+                                            "error": (
+                                                "capture_host_memory_admission: "
+                                                f"{detail}"
+                                            ),
+                                            "capture_status": (
+                                                "capture_host_memory_admission"
+                                            ),
+                                            "retryable": True,
+                                        },
+                                        "execution": {
+                                            "mode": "host_memory_admission",
+                                            "worker_admission": worker_admission,
+                                        },
+                                    }
+                                    for request in due_requests
+                                ],
+                                "summary": {
+                                    "mode": "isolated_subprocess_batch",
+                                    "request_count": len(due_requests),
+                                    "worker_count": 0,
+                                    "worker_admission": worker_admission,
+                                },
+                            }
+                        else:
+                            capture_batch = run_bounded_capture_batch(
+                                due_requests,
+                                worker_count=max(1, admitted_workers),
+                                fleet_budget_seconds=capture_fleet_budget_seconds,
+                                market_timeout_seconds=capture_timeout_seconds,
+                                runner_fn=isolated_runner,
+                                progress_fn=capture_progress,
+                                now_fn=now_fn,
+                            )
+                            capture_batch.setdefault("summary", {})[
+                                "worker_admission"
+                            ] = worker_admission
                     except Exception as exc:  # noqa: BLE001 - preserve loop liveness
                         failed_at = now_fn()
                         detail = f"{type(exc).__name__}: {exc}"
@@ -1926,7 +2001,10 @@ def main():
         "--capture-workers",
         type=int,
         default=DEFAULT_CAPTURE_WORKERS,
-        help="Maximum concurrent isolated market captures in the managed loop.",
+        help=(
+            "Maximum concurrent isolated market captures in the managed loop "
+            f"(default: {DEFAULT_CAPTURE_WORKERS})."
+        ),
     )
     parser.add_argument(
         "--capture-fleet-budget-seconds",
@@ -1944,7 +2022,21 @@ def main():
         "--capture-child-working-set-max-mb",
         type=int,
         default=DEFAULT_CHILD_WORKING_SET_MAX_MB,
-        help="Per-child process-tree memory ceiling for an isolated market capture.",
+        help=(
+            "Per-child process-tree working-set and private-commit ceiling for "
+            "an isolated market capture "
+            f"(default: {DEFAULT_CHILD_WORKING_SET_MAX_MB} MiB)."
+        ),
+    )
+    parser.add_argument(
+        "--capture-host-reserve-mb",
+        type=int,
+        default=DEFAULT_CAPTURE_HOST_RESERVE_MB,
+        help=(
+            "Physical memory that must remain available after admitting full "
+            "child ceilings "
+            f"(default: {DEFAULT_CAPTURE_HOST_RESERVE_MB} MiB)."
+        ),
     )
     parser.add_argument("--result-json", default="", help=argparse.SUPPRESS)
     parser.add_argument(
@@ -2151,6 +2243,7 @@ def main():
         capture_fleet_budget_seconds=args.capture_fleet_budget_seconds,
         capture_timeout_seconds=args.capture_timeout_seconds,
         capture_child_working_set_max_mb=args.capture_child_working_set_max_mb,
+        capture_host_reserve_mb=args.capture_host_reserve_mb,
     )
 
 

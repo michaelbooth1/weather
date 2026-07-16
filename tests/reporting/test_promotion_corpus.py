@@ -6,6 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+
+import pandas as pd
+
+from weather.backtesting.replay import index_records_by_snapshot, load_replay_records
 from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
 from weather.reporting.promotion.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
 from weather.backtesting.replay_backtest import run_replay_backtest
@@ -124,6 +129,192 @@ class TestPromotionCorpus(unittest.TestCase):
             write_manifest(manifest, path)
             loaded = load_manifest(path)
             self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
+
+    def test_manifest_bounded_load_accepts_exact_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            manifest = build_promotion_corpus(
+                [folder], snapshots_root=tmp, as_of="2026-06-04"
+            )
+            path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
+
+            loaded = load_manifest(path, max_bytes=path.stat().st_size)
+
+            self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
+
+    def test_manifest_bounded_load_rejects_bad_inputs(self):
+        cases = (
+            (b"", 32, "empty"),
+            (b"{}", 1, "exceeds max_bytes"),
+            (b"\xff", 32, "valid UTF-8"),
+            (b"{", 32, "valid JSON"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion_corpus.json"
+            for raw, max_bytes, message in cases:
+                with self.subTest(message=message):
+                    path.write_bytes(raw)
+                    with self.assertRaisesRegex(ValueError, message):
+                        load_manifest(path, max_bytes=max_bytes)
+
+    def test_manifest_bounded_load_rejects_ambiguous_json(self):
+        cases = (
+            (b'{"schema_version":"a","schema_version":"b"}', "duplicate JSON key"),
+            (b'{"schema_version":NaN}', "non-finite JSON constant"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion_corpus.json"
+            for raw, message in cases:
+                with self.subTest(message=message):
+                    path.write_bytes(raw)
+                    with self.assertRaisesRegex(ValueError, message):
+                        load_manifest(path, max_bytes=len(raw))
+
+    def test_manifest_bounded_load_requires_positive_integer_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion_corpus.json"
+            path.write_text("{}", encoding="utf-8")
+            for max_bytes in (0, -1, True, 1.5):
+                with self.subTest(max_bytes=max_bytes):
+                    with self.assertRaisesRegex(ValueError, "positive integer"):
+                        load_manifest(path, max_bytes=max_bytes)
+
+    def test_prevalidated_input_loader_skips_legacy_readers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            label = json.loads((folder / "settlement.json").read_text(encoding="utf-8"))
+            frame = pd.read_csv(folder / "snapshots_long.csv")
+            records = index_records_by_snapshot(load_replay_records(folder))
+            feature_quality = {"rows": [], "summary": {"source": "prevalidated"}}
+            calls = []
+
+            def input_loader(received_folder):
+                calls.append(received_folder)
+                return {
+                    "label": label,
+                    "frame": frame,
+                    "records": records,
+                    "feature_quality": feature_quality,
+                }
+
+            with (
+                patch(
+                    "weather.reporting.promotion.promotion_corpus.load_market_day_label",
+                    side_effect=AssertionError("legacy label reader called"),
+                ),
+                patch(
+                    "weather.reporting.promotion.promotion_corpus.pd.read_csv",
+                    side_effect=AssertionError("legacy tape reader called"),
+                ),
+                patch(
+                    "weather.reporting.promotion.promotion_corpus.load_replay_records",
+                    side_effect=AssertionError("legacy replay reader called"),
+                ),
+                patch(
+                    "weather.reporting.promotion.promotion_corpus.audit_folder_feature_quality",
+                    side_effect=AssertionError("legacy feature audit called"),
+                ),
+            ):
+                manifest = build_promotion_corpus(
+                    [folder],
+                    snapshots_root=tmp,
+                    as_of="2026-06-04",
+                    input_loader=input_loader,
+                )
+
+            self.assertEqual(calls, [folder])
+            self.assertEqual(manifest["summary"]["market_day_count"], 1)
+            self.assertEqual(
+                manifest["entries"][0]["feature_quality_quarantine"],
+                {"source": "prevalidated"},
+            )
+
+    def test_prevalidated_input_loader_accepts_four_item_tuple(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            label = json.loads((folder / "settlement.json").read_text(encoding="utf-8"))
+            frame = pd.read_csv(folder / "snapshots_long.csv")
+            records = index_records_by_snapshot(load_replay_records(folder))
+
+            manifest = build_promotion_corpus(
+                [folder],
+                snapshots_root=tmp,
+                as_of="2026-06-04",
+                input_loader=lambda _folder: (label, frame, records, {"rows": []}),
+            )
+
+            self.assertEqual(manifest["summary"]["market_day_count"], 1)
+
+    def test_prevalidated_input_loader_rejects_invalid_shapes_and_types(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            label = json.loads((folder / "settlement.json").read_text(encoding="utf-8"))
+            frame = pd.read_csv(folder / "snapshots_long.csv")
+            records = index_records_by_snapshot(load_replay_records(folder))
+            valid = {
+                "label": label,
+                "frame": frame,
+                "records": records,
+                "feature_quality": {"rows": [], "summary": {}},
+            }
+            invalid_results = (
+                None,
+                (label, frame, records),
+                {"label": label, "frame": frame, "records": records},
+                {**valid, "label": []},
+                {**valid, "frame": []},
+                {**valid, "records": []},
+                {**valid, "records": {"snap1": []}},
+                {**valid, "feature_quality": []},
+                {**valid, "feature_quality": {"rows": {}}},
+                {**valid, "feature_quality": {"rows": [], "summary": []}},
+            )
+
+            for result in invalid_results:
+                with self.subTest(result_type=type(result).__name__, result=result):
+                    with self.assertRaises((TypeError, ValueError)):
+                        build_promotion_corpus(
+                            [folder],
+                            snapshots_root=tmp,
+                            as_of="2026-06-04",
+                            input_loader=lambda _folder, value=result: value,
+                        )
+
+            with self.assertRaisesRegex(TypeError, "must be callable"):
+                build_promotion_corpus(
+                    [folder],
+                    snapshots_root=tmp,
+                    as_of="2026-06-04",
+                    input_loader=object(),
+                )
+
+    def test_manifest_build_limit_fails_during_entry_accumulation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+
+            with (
+                patch(
+                    "weather.reporting.promotion.promotion_corpus.summarize_entries",
+                    side_effect=AssertionError("summary assembled after limit breach"),
+                ),
+                self.assertRaisesRegex(ValueError, "in-progress manifest exceeds"),
+            ):
+                build_promotion_corpus(
+                    [folder],
+                    snapshots_root=tmp,
+                    as_of="2026-06-04",
+                    max_manifest_bytes=100,
+                )
 
     def test_manifest_excludes_feature_quality_quarantined_snapshots_before_hashing(self):
         with tempfile.TemporaryDirectory() as tmp:

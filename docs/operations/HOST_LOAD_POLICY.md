@@ -32,15 +32,27 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
-Snapshot fleet children retain their 1,536 MiB process-tree cap. Canonical
-source hashing and market-local raw-evidence persistence must stream JSON into
-the digest/file sink and publish a complete fsynced CAS blob atomically; do not
-raise the child cap to accommodate a whole-document `json.dumps` copy. The
+Snapshot fleet capture admits at most two isolated children by default, with a
+1,792 MiB process-tree working-set and private-commit cap per child. The 3,584
+MiB aggregate ceiling is below the prior three-by-1,536 MiB envelope while
+leaving allocation headroom above the 1,598,382,080-byte peak measured in a
+successful production child on 2026-07-16. Canonical source hashing and
+market-local raw-evidence persistence must stream JSON into the digest/file
+sink and publish a complete fsynced CAS blob atomically; the higher per-child
+cap is not authority to restore a whole-document `json.dumps` copy. The
 long-lived snapshot parent must likewise stream fleet-health tape scans and
 retain only per-snapshot summaries or the latest snapshot rows. An older
 already-running parent can retain its pre-fix allocator high-water mark until
 a supported, separately authorized code-adoption restart; that retained value
 is not authority to stop or replace the worker ad hoc.
+
+Worker launch is additionally admitted against current available physical
+memory. Every admitted slot reserves its complete 1,792 MiB ceiling and must
+leave 1,536 MiB available for the parent and other capture loops. The loop
+therefore runs one worker when only one full slot is safe, uses two only above
+the complete 5,120 MiB requirement, and records an explicit retryable host-
+memory admission failure when even one slot cannot be proven safe. Missing
+physical-memory measurement fails closed.
 
 The WU settlement restore fetches a target day but rebuilds each market's full
 retained normalized history, so it is not a light one-day operation. It runs in
@@ -92,6 +104,10 @@ maintenance window:
   child, and the child runs with `capture_resource_mode=no_live_capture`.
   Window commit preflight owns the memory decision; a blocked/error/missing
   nightly status is surfaced as a nonzero window result after capture restore.
+  The nightly process is scheduler topology `delegated_child`: it attests the
+  exact running PowerShell wrapper action, its own Python command, and the
+  OS-observed bounded parent process lineage. A stale, disabled, unrelated,
+  mismatched, or manually invoked topology remains non-countable.
 - **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
   unconditionally re-enables supervisors and ensures all loops, in case the
   window process dies mid-flight.

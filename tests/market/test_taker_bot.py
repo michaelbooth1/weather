@@ -1080,9 +1080,12 @@ class TestTakerBot(unittest.TestCase):
             "settlement_outcome": "1",
         }
 
+        def fake_iter(path, **_kwargs):
+            yield {**row, "target_date": str(path)}
+
         with patch(
-            "weather.market.taker_edge_permission.read_csv_rows",
-            side_effect=lambda path, **_kwargs: [{**row, "target_date": str(path)}],
+            "weather.market.taker_edge_permission.iter_csv_rows",
+            side_effect=fake_iter,
         ) as read_rows:
             rows = rows_from_order_tapes(["day-one.csv", "day-two.csv"])
             self.assertEqual(read_rows.call_count, 0)

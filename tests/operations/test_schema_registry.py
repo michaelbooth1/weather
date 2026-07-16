@@ -69,6 +69,10 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(schema_version("release_manifest"), "release_manifest_v0.1")
         self.assertEqual(
+            schema_version("first_inactive_release_bootstrap"),
+            "first_inactive_release_bootstrap_v0.1",
+        )
+        self.assertEqual(
             schema_version("active_release_pointer"),
             "active_release_pointer_v0.1",
         )
@@ -99,6 +103,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("production_point_in_time_preselection"),
             "production_point_in_time_preselection_v1",
+        )
+        self.assertEqual(
+            schema_version("production_point_in_time_preselection_source"),
+            "production_point_in_time_preselection_source_v1",
         )
         self.assertEqual(
             schema_version("point_in_time_candidate_training_graph"),

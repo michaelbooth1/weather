@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 from collections import Counter
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -160,6 +161,7 @@ def _entry_for_folder(
     include_reconstructed=False,
     min_snapshots=1,
     admit_promotion_countable=False,
+    input_loader=None,
 ):
     folder = Path(folder)
     tape = folder / "snapshots_long.csv"
@@ -170,7 +172,63 @@ def _entry_for_folder(
     if spec is None or target_date is None:
         return None, "unregistered_market"
 
-    label = load_market_day_label(folder)
+    if input_loader is None:
+        label = load_market_day_label(folder)
+    else:
+        loaded = input_loader(folder)
+        if isinstance(loaded, Mapping):
+            required = {"label", "frame", "records", "feature_quality"}
+            missing = sorted(required - set(loaded))
+            if missing:
+                raise ValueError(
+                    "promotion corpus input_loader result is missing required "
+                    f"field(s): {', '.join(missing)}"
+                )
+            label = loaded["label"]
+            frame = loaded["frame"]
+            records = loaded["records"]
+            feature_quality = loaded["feature_quality"]
+        elif isinstance(loaded, tuple):
+            if len(loaded) != 4:
+                raise ValueError(
+                    "promotion corpus input_loader tuple must contain exactly "
+                    "(label, frame, records, feature_quality)"
+                )
+            label, frame, records, feature_quality = loaded
+        else:
+            raise TypeError(
+                "promotion corpus input_loader must return a mapping or a "
+                "four-item tuple"
+            )
+
+        if not isinstance(label, Mapping):
+            raise TypeError("promotion corpus input_loader label must be a mapping")
+        if not isinstance(frame, pd.DataFrame):
+            raise TypeError("promotion corpus input_loader frame must be a pandas DataFrame")
+        if not isinstance(records, Mapping):
+            raise TypeError("promotion corpus input_loader records must be a mapping")
+        if any(not isinstance(record, Mapping) for record in records.values()):
+            raise TypeError(
+                "promotion corpus input_loader record values must be mappings"
+            )
+        if not isinstance(feature_quality, Mapping):
+            raise TypeError(
+                "promotion corpus input_loader feature_quality must be a mapping"
+            )
+        feature_quality_rows = feature_quality.get("rows", [])
+        if not isinstance(feature_quality_rows, (list, tuple)) or any(
+            not isinstance(row, Mapping) for row in feature_quality_rows
+        ):
+            raise TypeError(
+                "promotion corpus input_loader feature_quality rows must be a "
+                "list or tuple of mappings"
+            )
+        feature_quality_summary = feature_quality.get("summary", {})
+        if not isinstance(feature_quality_summary, Mapping):
+            raise TypeError(
+                "promotion corpus input_loader feature_quality summary must be a mapping"
+            )
+
     if not label or label.get("settlement_bucket") is None:
         return None, "missing_settlement_label"
     grade = label.get("quality_grade")
@@ -186,9 +244,10 @@ def _entry_for_folder(
     if not grade_admitted and not countable_admitted:
         return None, f"quality:{grade or 'missing'}"
 
-    frame = pd.read_csv(tape)
+    if input_loader is None:
+        frame = pd.read_csv(tape)
+        records = index_records_by_snapshot(load_replay_records(folder))
     tape_snapshot_ids = _ordered_snapshot_ids(frame)
-    records = index_records_by_snapshot(load_replay_records(folder))
     pinned_snapshot_ids = []
     reconstructed_excluded = 0
     for snapshot_id in tape_snapshot_ids:
@@ -199,7 +258,8 @@ def _entry_for_folder(
             reconstructed_excluded += 1
             continue
         pinned_snapshot_ids.append(str(snapshot_id))
-    feature_quality = audit_folder_feature_quality(folder)
+    if input_loader is None:
+        feature_quality = audit_folder_feature_quality(folder)
     feature_quality_rows = [
         row for row in feature_quality.get("rows") or []
         if row.get("training_excluded") and row.get("snapshot_id")
@@ -355,7 +415,19 @@ def build_promotion_corpus(
     market_id=None,
     min_snapshots=1,
     admit_promotion_countable=True,
+    input_loader=None,
+    max_manifest_bytes=None,
 ):
+    if input_loader is not None and not callable(input_loader):
+        raise TypeError("promotion corpus input_loader must be callable")
+    if max_manifest_bytes is not None and (
+        isinstance(max_manifest_bytes, bool)
+        or not isinstance(max_manifest_bytes, int)
+        or max_manifest_bytes <= 0
+    ):
+        raise ValueError(
+            "promotion corpus max_manifest_bytes must be a positive integer"
+        )
     snapshots_root = Path(snapshots_root)
     as_of_day = _as_of_date(as_of)
     selected = [Path(folder) for folder in folders] if folders else discover_settled_folders(
@@ -366,14 +438,51 @@ def build_promotion_corpus(
     )
     entries = []
     skipped = []
+    accumulated_json_bytes = 0
+    if max_manifest_bytes is not None:
+        accumulated_json_bytes = len(
+            _canonical_json({"entries": entries, "skipped": skipped}).encode("utf-8")
+        )
+    if (
+        max_manifest_bytes is not None
+        and accumulated_json_bytes > max_manifest_bytes
+    ):
+        raise ValueError(
+            "promotion corpus in-progress manifest exceeds "
+            f"max_manifest_bytes={max_manifest_bytes}"
+        )
+
+    def append_bounded(items, item):
+        nonlocal accumulated_json_bytes
+        if max_manifest_bytes is None:
+            items.append(item)
+            return
+        item_bytes = len(_canonical_json(item).encode("utf-8"))
+        next_size = accumulated_json_bytes + item_bytes + (1 if items else 0)
+        if max_manifest_bytes is not None and next_size > max_manifest_bytes:
+            raise ValueError(
+                "promotion corpus in-progress manifest exceeds "
+                f"max_manifest_bytes={max_manifest_bytes}"
+            )
+        items.append(item)
+        accumulated_json_bytes = next_size
+
     for folder in sorted(selected, key=_folder_sort_key):
         spec = spec_for_slug(Path(folder).name)
         target_date = date_from_event_slug(Path(folder).name)
         if market_id and (not spec or spec.id != market_id):
-            skipped.append({"folder": str(folder), "reason": f"market:{spec.id if spec else 'unknown'}"})
+            append_bounded(
+                skipped,
+                {
+                    "folder": str(folder),
+                    "reason": f"market:{spec.id if spec else 'unknown'}",
+                },
+            )
             continue
         if target_date and target_date >= as_of_day and not allow_unsettled:
-            skipped.append({"folder": str(folder), "reason": "unsettled"})
+            append_bounded(
+                skipped, {"folder": str(folder), "reason": "unsettled"}
+            )
             continue
         entry, reason = _entry_for_folder(
             folder,
@@ -382,11 +491,14 @@ def build_promotion_corpus(
             include_reconstructed=include_reconstructed,
             min_snapshots=min_snapshots,
             admit_promotion_countable=admit_promotion_countable,
+            input_loader=input_loader,
         )
         if entry:
-            entries.append(entry)
+            append_bounded(entries, entry)
         else:
-            skipped.append({"folder": str(folder), "reason": reason or "unknown"})
+            append_bounded(
+                skipped, {"folder": str(folder), "reason": reason or "unknown"}
+            )
 
     summary = summarize_entries(entries)
     manifest = {
@@ -405,6 +517,13 @@ def build_promotion_corpus(
         "skipped": skipped,
     }
     manifest["corpus_hash"] = corpus_hash(entries)
+    if max_manifest_bytes is not None and len(
+        _canonical_json(manifest).encode("utf-8")
+    ) > max_manifest_bytes:
+        raise ValueError(
+            "promotion corpus manifest exceeds "
+            f"max_manifest_bytes={max_manifest_bytes}"
+        )
     return manifest
 
 
@@ -415,8 +534,55 @@ def write_manifest(manifest, path=DEFAULT_OUT):
     return path
 
 
-def load_manifest(path):
-    manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+def load_manifest(path, *, max_bytes=None):
+    if max_bytes is None:
+        manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    else:
+        if (
+            isinstance(max_bytes, bool)
+            or not isinstance(max_bytes, int)
+            or max_bytes <= 0
+        ):
+            raise ValueError(
+                "promotion corpus manifest max_bytes must be a positive integer"
+            )
+        with Path(path).open("rb") as handle:
+            raw = handle.read(max_bytes + 1)
+        if not raw:
+            raise ValueError("promotion corpus manifest is empty")
+        if len(raw) > max_bytes:
+            raise ValueError(
+                f"promotion corpus manifest exceeds max_bytes={max_bytes}"
+            )
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("promotion corpus manifest is not valid UTF-8") from exc
+        try:
+            def reject_duplicate_keys(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError(
+                            "promotion corpus manifest contains duplicate JSON "
+                            f"key {key!r}"
+                        )
+                    result[key] = value
+                return result
+
+            def reject_non_finite(value):
+                raise ValueError(
+                    "promotion corpus manifest contains non-finite JSON "
+                    f"constant {value!r}"
+                )
+
+            manifest = json.loads(
+                text,
+                object_pairs_hook=reject_duplicate_keys,
+                parse_constant=reject_non_finite,
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError("promotion corpus manifest is not valid JSON") from exc
     if manifest.get("schema_version") != PROMOTION_CORPUS_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported promotion corpus schema {manifest.get('schema_version')!r}"

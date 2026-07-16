@@ -4,12 +4,14 @@ import unittest
 from pathlib import Path
 from weather.artifacts import (
     CandidateArtifactPathError,
+    DEFAULT_VARIANT_REGISTRY_PATH,
     artifact_candidates,
     artifact_path,
     build_artifact_externalization_manifest,
     build_artifact_promotion_preflight,
     build_artifact_size_audit,
     build_artifact_registry,
+    tracked_artifact_manifest_checks,
     legacy_artifact_path,
     training_artifact_output_policy,
     write_artifact_size_audit,
@@ -165,6 +167,69 @@ class TestArtifactPaths(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], "model_artifact_externalization_v0.1")
         self.assertEqual(manifest["managed_artifact_count"], 0)
         self.assertIn("git_lfs", manifest["restore_instructions"])
+
+    def test_promotion_preflight_normalizes_repo_variant_registry_path(self):
+        payload = build_artifact_promotion_preflight(
+            root=Path("missing-artifact-root"),
+            variant_registry_path=DEFAULT_VARIANT_REGISTRY_PATH,
+            generated_at="2026-06-20T00:00:00+00:00",
+        )
+
+        self.assertEqual(
+            payload["variant_registry_path"],
+            "config/model_variant_registry.json",
+        )
+
+    def test_tracked_artifact_manifests_match_current_repository_identity(self):
+        checks = tracked_artifact_manifest_checks()
+
+        self.assertEqual(checks, [])
+
+    def test_promotion_preflight_rejects_stale_tracked_registry_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            root.mkdir()
+            artifact = root / "demo.json"
+            artifact.write_text('{"schema_version":"demo_v1"}\n', encoding="utf-8")
+            registry_path = Path(tmp) / "registry.json"
+            externalization_path = Path(tmp) / "externalization.json"
+            registry_path.write_text(
+                json.dumps(
+                    build_artifact_registry(
+                        root=root,
+                        generated_at="2026-06-20T00:00:00+00:00",
+                        variant_registry_path=None,
+                    )
+                ),
+                encoding="utf-8",
+            )
+            externalization_path.write_text(
+                json.dumps(
+                    build_artifact_externalization_manifest(
+                        root=root,
+                        generated_at="2026-06-20T00:00:00+00:00",
+                        variant_registry_path=None,
+                    )
+                ),
+                encoding="utf-8",
+            )
+            artifact.write_text('{"schema_version":"demo_v2"}\n', encoding="utf-8")
+
+            payload = build_artifact_promotion_preflight(
+                root=root,
+                variant_registry_path=None,
+                generated_at="2026-06-20T01:00:00+00:00",
+                verify_tracked_manifests=True,
+                registry_manifest_path=registry_path,
+                externalization_manifest_path=externalization_path,
+            )
+
+        self.assertEqual(payload["status"], "FAIL")
+        self.assertEqual(payload["tracked_manifest_verification"]["status"], "BLOCK")
+        self.assertIn(
+            "artifact_registry_identity_mismatch",
+            {row.get("category") for row in payload["checks"]},
+        )
 
     def test_promotion_preflight_blocks_active_local_data_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

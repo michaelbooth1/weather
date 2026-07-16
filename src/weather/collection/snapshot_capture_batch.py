@@ -26,10 +26,17 @@ from weather.collection.forecast_payload_fetch_fanout import (
 )
 
 
-DEFAULT_CAPTURE_WORKERS = 3
+# Two workers keep the worst-case aggregate child commit below the previous
+# three-worker envelope while still fitting six waves inside the fleet budget.
+DEFAULT_CAPTURE_WORKERS = 2
 DEFAULT_FLEET_BUDGET_SECONDS = 540.0
 DEFAULT_MARKET_TIMEOUT_SECONDS = 120.0
-DEFAULT_CHILD_WORKING_SET_MAX_MB = 1536
+# ``run_isolated_subprocess`` preserves this legacy argument as both a real
+# working-set ceiling and a Windows Job Object private-commit ceiling.  Normal
+# production captures can approach 1.51 GiB of private commit, so 1.5 GiB left
+# no allocation headroom and caused intermittent kernel-enforced exit 137s.
+DEFAULT_CHILD_WORKING_SET_MAX_MB = 1792
+DEFAULT_CAPTURE_HOST_RESERVE_MB = 1536
 DEFAULT_HEARTBEAT_SECONDS = 5.0
 
 
@@ -83,6 +90,52 @@ def _error_result(kind, detail, *, retryable=True):
         "error": f"{kind}: {detail}",
         "capture_status": kind,
         "retryable": bool(retryable),
+    }
+
+
+def capture_worker_admission(
+    requested_workers,
+    *,
+    child_memory_max_mb=DEFAULT_CHILD_WORKING_SET_MAX_MB,
+    host_reserve_mb=DEFAULT_CAPTURE_HOST_RESERVE_MB,
+    available_memory_bytes=None,
+):
+    """Admit only workers whose full ceilings leave the host reserve intact."""
+
+    requested = max(1, int(requested_workers))
+    child_bytes = max(1, int(child_memory_max_mb)) * 1024 * 1024
+    reserve_bytes = max(0, int(host_reserve_mb)) * 1024 * 1024
+    available = (
+        int(available_memory_bytes)
+        if available_memory_bytes is not None and int(available_memory_bytes) >= 0
+        else None
+    )
+    admitted = 0
+    if available is not None and available >= reserve_bytes + child_bytes:
+        admitted = min(
+            requested,
+            max(0, (available - reserve_bytes) // child_bytes),
+        )
+    return {
+        "status": "PASS" if admitted else "BLOCK",
+        "requested_worker_count": requested,
+        "admitted_worker_count": int(admitted),
+        "available_memory_bytes": available,
+        "child_memory_ceiling_bytes": child_bytes,
+        "host_reserve_bytes": reserve_bytes,
+        "required_for_one_worker_bytes": reserve_bytes + child_bytes,
+        "required_for_requested_workers_bytes": (
+            reserve_bytes + requested * child_bytes
+        ),
+        "reason": (
+            "measurement_unavailable"
+            if available is None
+            else "insufficient_physical_memory"
+            if not admitted
+            else "requested_workers_admitted"
+            if admitted == requested
+            else "worker_count_reduced_for_physical_memory"
+        ),
     }
 
 
@@ -151,6 +204,15 @@ def run_isolated_capture(
                 "capture_runner_error",
                 execution["runner_error"],
             )
+        elif execution.get("resource_limit_exceeded"):
+            resource_limit = execution["resource_limit_exceeded"]
+            resource = str(resource_limit.get("resource") or "unknown")
+            observed = resource_limit.get("observed_bytes")
+            limit = resource_limit.get("limit_bytes")
+            detail = f"{resource} exceeded"
+            if observed is not None and limit is not None:
+                detail = f"{detail}: observed_bytes={observed}, limit_bytes={limit}"
+            result = _error_result("capture_resource_budget", detail)
         elif execution.get("returncode") not in (0, None):
             stderr = str(execution.get("stderr") or "").strip()
             result = _error_result(
@@ -186,8 +248,12 @@ def run_isolated_capture(
             "timed_out": bool(execution.get("timed_out")),
             "returncode": execution.get("returncode"),
             "working_set_limit": execution.get("working_set_limit"),
+            "resource_peaks": execution.get("resource_peaks"),
+            "resource_io": execution.get("resource_io"),
+            "resource_limit_exceeded": execution.get("resource_limit_exceeded"),
             "containment": execution.get("containment"),
             "termination": execution.get("termination"),
+            "runner_error": execution.get("runner_error"),
         },
     }
 

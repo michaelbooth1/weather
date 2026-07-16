@@ -1,4 +1,4 @@
-# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-14 - 488-TICK SOAK COLLECTED; ACCEPTANCE REVIEW PENDING]
+# 322. Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]
 
 Goal: keep the taker paper loop's steady-state memory and per-tick I/O bounded
 by its current working set rather than elapsed tick count or cumulative tape
@@ -63,6 +63,12 @@ whose read/write work is independent of complete tape length.
 - [x] Replace ordinary full-history reread/rewrite work with an incremental,
   indexed, or checkpointed path. Keep any full rebuild as an explicit bounded
   recovery or maintenance operation.
+- [x] Bound active-day snapshot, source-status, token, book, derived-feature,
+  price-history, and WebSocket input discovery independently of cumulative
+  tape length. Require a proven append-batch start, a complete-record tail,
+  every feature horizon, and the midpoint-stickiness boundary; block the
+  market instead of approximating a feature or falling back to a full
+  historical scan.
 - [x] Preserve deterministic order intent keys, idempotent append semantics,
   counterfactual strategy attribution, cumulative PnL/scoring equivalence, and
   crash recovery from repository-owned artifacts.
@@ -195,6 +201,38 @@ also no persisted four-hour host-RAM/commit/disk series from which to claim a
 host slope. Item 322 remains open pending one continuously passing,
 current-target-date populated-tape soak; the earlier warnings and positive
 slope are not averaged away.
+
+## 2026-07-16 bounded active-input closure
+
+The first populated current-day ticks exposed a separate cumulative-I/O path
+before incremental order persistence: taker discovery still scanned complete
+`snapshots_long.csv`, `source_status_long.csv`, `clob_tokens.csv`, and
+`order_books_summary.csv` tapes, and rebuilt missing CLOB features from the
+complete raw book, price-history, and WebSocket histories. A tick's process
+reads therefore still grew with the day-wide evidence corpus even though
+ordinary order and counterfactual persistence was already incremental.
+
+`weather.market.market_latest_inputs` now reads fixed-size UTF-8 CSV/JSONL
+suffixes and emits per-tape byte, boundary, selection, sufficiency, and error
+diagnostics. Latest snapshot, source, token, book, and precomputed feature
+groups are accepted only after their append-batch start is inside the bounded
+projection. Raw feature fallback uses the same canonical transformation as the
+historical full-tape path, but only after the projection proves the 300-second
+book/enrichment horizons and finds the preceding midpoint-change boundary
+needed for exact stickiness. Missing proof, incomplete records, concurrent
+file changes, malformed rows, non-monotonic suffixes, and exhausted scan
+windows remain explicit blocking states; they never trigger an unbounded
+fallback. The taker preflight persists these diagnostics and refuses to
+assemble decision rows whenever the bounded projection is unproven.
+
+Deterministic tests compare bounded features with the full historical
+reference at current, stale-book, 60-second, 300-second, enrichment-count, and
+stickiness boundaries. They also prove multi-megabyte prefixes are skipped,
+reject incomplete or malformed CSV and JSONL tails, and exercise the final
+fail-closed taker gate. This closes the cumulative active-input read path in
+code without touching a live worker or retained runtime evidence. Item 322
+still requires adoption plus a continuously passing, current-target-date,
+populated-tape multi-hour soak before acceptance.
 
 Acceptance: ordinary paper ticks do not reread or rewrite the complete order
 and counterfactual histories; persisted outputs and cumulative scores remain

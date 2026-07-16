@@ -14,6 +14,7 @@ import logging
 from collections import OrderedDict
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 
 from weather.artifacts import resolve_artifact_path
 from weather.market.market_config import config_for_date, config_from_event
@@ -83,9 +84,25 @@ class TorontoHighTempModel(
         target_date=None,
         market_id=DEFAULT_MARKET_ID,
         serving_bundle=None,
+        source_cache_path=None,
+        source_cache_names=None,
+        source_cache_max_bytes=None,
     ):
         self.timeout = timeout
         self.market_id = market_id
+        self._source_cache_path = (
+            Path(source_cache_path) if source_cache_path is not None else None
+        )
+        self._source_cache_names = (
+            frozenset(str(name) for name in source_cache_names)
+            if source_cache_names is not None
+            else None
+        )
+        self._source_cache_max_bytes = (
+            max(1, int(source_cache_max_bytes))
+            if source_cache_max_bytes is not None
+            else None
+        )
         self.serving_bundle = serving_bundle or get_process_active_serving_bundle()
         if self.serving_bundle.status not in {STATUS_BOUND, STATUS_RESEARCH_UNBOUND}:
             raise ReleaseServingBindingError(

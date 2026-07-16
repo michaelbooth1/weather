@@ -19,6 +19,27 @@ requires explicit served/replay captured-input parity files, served artifact
 bindings, and the served route. Read its `param(...)` block and provide reviewed
 current paths; there is intentionally no argument-free production example.
 
+Both patterns are scheduler-attested, but their process topology is different.
+The direct task records `scheduler-invocation-topology=direct` and requires its
+registered Python executable, complete argument vector, working directory,
+running state, and task-run time to match the producer exactly. Its OS-observed
+process chain must bind the current PID, base-Python image and complete command,
+current working directory, and expected venv redirector to the current Task
+Scheduler engine PID and instance identity. The single-host window is a
+scheduled PowerShell wrapper. Its registration and runtime share
+`scripts/ops/training_window_contract.ps1`; the nightly Python child records
+`delegated_child`, the exact registered wrapper action tokens, its own Python
+executable and arguments, the repository working directory, and a correlation
+allowance that covers the bounded capture-stop phase. The same bounded Windows
+lineage then continues through at most the expected venv redirector to the
+exact PowerShell engine PID, image, complete command line, and start time for
+the current task instance. Child, redirector, wrapper, and scheduler-run start
+times must be present and ordered within their declared bounds. A missing,
+disabled, stale, unrelated, over-deep, or mismatched parent/child contract
+remains `manual_or_unverified` and is not countable production evidence.
+Re-register the window after any task name, PowerShell executable, repository
+path, or wrapper action change.
+
 The direct task calls:
 
 ```powershell
@@ -34,26 +55,42 @@ stop the run before expensive retraining or promotion refresh steps.
 ordinary candidate-only research workflow and schedules no production
 point-in-time prelock or qualification steps.
 
-Production capability is explicit and requires a bounded point-in-time source.
-Supply either repeated `--point-in-time-folder` arguments, or the paired
-`--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. A
-reviewed `--point-in-time-source-replay-manifest` may pin the replay inventory;
-when omitted, the prelock step derives a bounded replay manifest from the
-verified source. For example:
+Production capability is explicit and requires the narrow, candidate-
+independent `production_point_in_time_preselection_source_v1` source. Supply
+either repeated `--point-in-time-folder` arguments, or the paired
+`--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. The
+generic candidate-scoring materialization schema is rejected. Folder mode
+builds a quality-grade-only replay manifest, then projects every manifest-
+pinned captured snapshot/band without loading a model. A reviewed
+`--point-in-time-source-replay-manifest` may pin the replay inventory; when it
+is omitted for a staged source, the prelock copies the exact replay manifest
+already hash-bound by that source. For example:
 
 ```powershell
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
-  --point-in-time-source-corpus <bounded-corpus.parquet> `
-  --point-in-time-source-manifest <materialization-manifest.json> `
+  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
+  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
   --point-in-time-source-replay-manifest <promotion-corpus.json>
+```
+
+Folder mode accepts repeated, reviewed settled folders and writes the same
+narrow staged source inside the candidate work area:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --release-candidate-mode production `
+  --point-in-time-folder <snapshots-root>/<settled-event-1> `
+  --point-in-time-folder <snapshots-root>/<settled-event-2>
 ```
 
 Production ordering is fail-closed:
 
-1. Freeze the candidate-independent source/replay inventory and contiguous
-   14-day evaluation window before any candidate-dependent selection. The
-   source's latest target date must be no more than seven days old.
+1. Enumerate the manifest-pinned captured tape and replay rows directly, attach
+   only the pinned settlement label, and freeze that candidate-independent
+   source/replay inventory plus the contiguous 14-day evaluation window before
+   any model is loaded or candidate-dependent selection occurs. The source's
+   latest target date must be no more than seven days old.
 2. Fit family calibration/trust and pooled feature/model artifacts with every
    locked date excluded. Feature priors, source-reliability priors,
    calibration/trust selection, and pooled fitting are confined to the exact
@@ -90,17 +127,70 @@ Candidate-local qualification outputs are:
 Immutable candidate construction copies those exact roles to
 `contract/point_in_time/` and binds their hashes in the semantic serving
 contract. Production defaults cap the source/replay population at 60 market
-days and 250,000 rows per market-day, read Parquet in 65,536-row batches, retain
-one raw market-day at a time, declare a 4 GiB private-memory budget, allow at
-most 128 fold scopes, and advance folds in seven-date steps. The non-incremental
-HGB trainer retains its normalized training population, so its separate source
-contract caps that population at 60 × 1,000 rows and records the observed row
-count; it does not claim that fitted feature rows are streamed away. These are
-bounded qualification declarations, not permission to raise the host load
-limits.
+days and 250,000 rows per market-day, read Parquet in 65,536-row batches, and
+retain one raw market-day at a time. Preselection additionally caps each tape
+at 128 MiB with 1 MiB CSV fields and each captured replay file at 64 MiB with
+8 MiB lines. Optional feature CSVs use the tape bounds; settlement JSON is
+capped at 1 MiB, replay/source manifests at 16/4 MiB, and source Parquet at
+1 GiB. It rejects reconstructed/unsettled inputs, root escapes, source mutation,
+row-inventory drift, and zero or multiple winners per snapshot. Exclusive
+output locks reject concurrent writers; publication is per-file atomic and
+manifest-last, and consumers require the complete hash-bound pair.
+Qualification declares a
+4 GiB private-memory budget, permits at most 128 fold scopes, and advances
+folds in seven-date steps. The non-incremental HGB trainer retains its
+normalized training population, so its separate source contract caps that
+population at 60 × 1,000 rows and records the observed row count; it does not
+claim that fitted feature rows are streamed away. These are bounded
+qualification declarations, not permission to raise the host load limits.
 
 Production mode remains candidate-only. It does not promote, replace the
 active pointer, restart workers, or grant trading permission.
+
+### First inactive production release
+
+Captured-input parity is ordinarily checked before candidate work and must bind
+the currently active release. On a new release store, that ordering cannot be
+satisfied because no immutable release identity exists yet. Do not use the
+generic `--skip-captured-input-replay-parity` switch to hide that condition.
+
+The one fail-closed bootstrap is explicit:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --release-candidate-mode production `
+  --bootstrap-first-inactive-release `
+  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
+  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
+  --point-in-time-source-replay-manifest <promotion-corpus.json>
+```
+
+The contract passes only when all of these conditions hold:
+
+- `artifacts/releases/current_release.json` is absent and the releases root is
+  absent or completely empty. Existing releases, files, symlinks, locks, or an
+  injected serving identity block before candidate preparation.
+- Candidate mode is `production`, immutable release construction is enabled,
+  and no release parent is supplied.
+- Neither the generic parity-skip flag nor served/replay parity inputs are
+  supplied. If parity evidence exists, verify it through the ordinary path.
+- Every ordinary offline training, leakage, point-in-time, promotion-refresh,
+  clean-source, and semantic-contract gate still passes.
+
+The preflight writes a self-hashed contract into
+`nightly_retrain_status.json`. The immutable manifest binds the contract hash
+in `lineage.first_inactive_release_bootstrap`. After copying, the nightly job
+independently verifies every release file and manifest hash, the exact
+production semantic contract, null parent and rollback target, and the release
+store's one-directory inventory. It then checks again at whole-run finalization
+that the active pointer is still absent.
+
+Success creates only `IMMUTABLE_CANDIDATE` state. Its reported activation is
+`NONE`; promotion, serving, and live fallback are explicitly unauthorized and
+remain blocked pending exact release-bound captured-input parity, forward
+shadow qualification, and a separate reviewed promotion decision. The
+bootstrap flag itself does not configure shadow capture, start or restart a
+worker, or authorize the separate serving-identity exception below.
 
 ## Smoke Test
 
@@ -120,6 +210,9 @@ python -m weather.operations.nightly_retrain run --step-timeout-seconds 300
 python -m weather.operations.nightly_retrain status
 ```
 
+Manual and dry-run commands intentionally cannot claim scheduled provenance;
+use their outputs for smoke diagnostics, not scheduled-run acceptance.
+
 Expected outputs:
 
 - `data/backtest/nightly_retrain_status.json`
@@ -136,7 +229,12 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
-## First Serving-Identity Bootstrap
+## Separate Serving-Identity Bootstrap
+
+This manual research-serving exception is not part of the first inactive
+production-release workflow above and does not satisfy production
+qualification. Prefer the inactive production bootstrap when the objective is
+a production release.
 
 Ordinary `research_only` releases still fail closed at promotion and serving.
 There is one explicit exception for establishing the first verified serving

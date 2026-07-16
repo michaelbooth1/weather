@@ -450,11 +450,14 @@ class SourceFetchMixin:
         if not cache_path.exists():
             return {}
         try:
+            max_bytes = getattr(self, "_source_cache_max_bytes", None)
+            if max_bytes is not None and cache_path.stat().st_size > int(max_bytes):
+                raise ValueError(
+                    f"last good sources cache exceeds {int(max_bytes)} byte scope limit"
+                )
             with cache_path.open("r", encoding="utf-8") as f:
                 payload = json.load(f)
-            if isinstance(payload, dict):
-                return payload
-            raise ValueError("last good sources cache root must be a JSON object")
+            return self.validate_last_good_sources_cache(payload)
         except (json.JSONDecodeError, ValueError) as e:
             quarantine_path = self.quarantine_last_good_sources_cache(cache_path)
             logger.warning("Error loading last good sources cache: %s", e)
@@ -464,6 +467,32 @@ class SourceFetchMixin:
         except Exception as e:
             logger.warning("Error loading last good sources cache: %s", e)
             return {}
+
+    def validate_last_good_sources_cache(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("last good sources cache root must be a JSON object")
+        allowed_names = getattr(self, "_source_cache_names", None)
+        if allowed_names is not None:
+            unexpected = sorted(set(payload) - set(allowed_names))
+            if unexpected:
+                raise ValueError(
+                    "last good sources cache contains out-of-scope sources: "
+                    + ", ".join(unexpected)
+                )
+        return payload
+
+    def validate_last_good_sources_cache_size(self, payload):
+        max_bytes = getattr(self, "_source_cache_max_bytes", None)
+        if max_bytes is None:
+            return
+        encoded_bytes = 0
+        encoder = json.JSONEncoder(indent=2, sort_keys=True, default=str)
+        for chunk in encoder.iterencode(payload):
+            encoded_bytes += len(chunk.encode("utf-8"))
+            if encoded_bytes > int(max_bytes):
+                raise ValueError(
+                    f"last good sources cache exceeds {int(max_bytes)} byte scope limit"
+                )
 
     def quarantine_last_good_sources_cache(self, cache_path):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -500,6 +529,8 @@ class SourceFetchMixin:
                 return
             merged = self.load_last_good_sources()
             merged.update(cache)
+            self.validate_last_good_sources_cache(merged)
+            self.validate_last_good_sources_cache_size(merged)
             write_json_atomic(cache_path, merged)
         except Exception as e:
             logger.warning("Error saving last good sources cache: %s", e)
@@ -507,6 +538,9 @@ class SourceFetchMixin:
             release_writer_lock(lock)
 
     def last_good_sources_path(self):
+        override = getattr(self, "_source_cache_path", None)
+        if override is not None:
+            return Path(override)
         return self.spec.data_root / "last_good_sources.json"
 
     def with_source_fetch_meta(self, data, metadata):
