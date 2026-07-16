@@ -1,3 +1,4 @@
+import csv
 from types import SimpleNamespace
 
 from weather.model.toronto_model import TorontoHighTempModel
@@ -10,6 +11,42 @@ def model_with_data_root(tmp_path, target_date):
         data_root=tmp_path / str(target_date),
         c_to_native=lambda value: value,
     )
+    return model
+
+
+def model_with_native_climatology(tmp_path, market_id, buckets):
+    model = TorontoHighTempModel(market_id=market_id, target_date="2026-06-21")
+    c_to_native = model.spec.c_to_native
+    model.spec = SimpleNamespace(
+        id=market_id,
+        data_root=tmp_path / market_id,
+        c_to_native=c_to_native,
+    )
+    summary_path = model.spec.data_root / "daily" / "daily_summary.csv"
+    summary_path.parent.mkdir(parents=True)
+    with summary_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=(
+                "schema_version",
+                "local_date",
+                "temperature_unit",
+                "row_count",
+                "max_temp_native",
+                "max_temp_bucket_native",
+            ),
+        )
+        writer.writeheader()
+        for index, year in enumerate(range(1990, 2026)):
+            bucket = buckets[index % len(buckets)]
+            writer.writerow({
+                "schema_version": "wu_daily_native_v2",
+                "local_date": f"{year}-06-21",
+                "temperature_unit": "F",
+                "row_count": 24,
+                "max_temp_native": bucket,
+                "max_temp_bucket_native": bucket,
+            })
     return model
 
 
@@ -50,8 +87,8 @@ def test_toronto_fallback_prior_keeps_legacy_uniform():
     assert {round(probability, 12) for probability in prior.values()} == {0.04}
 
 
-def test_miami_fallback_prior_uses_hot_native_climatology():
-    model = TorontoHighTempModel(market_id="miami", target_date="2026-06-21")
+def test_miami_fallback_prior_uses_hot_native_climatology(tmp_path):
+    model = model_with_native_climatology(tmp_path, "miami", [88, 89, 89, 90])
     prior = model.climatology_fallback_prior()
     legacy_uniform = model.wide_uniform_climatology_prior()
 
@@ -63,8 +100,8 @@ def test_miami_fallback_prior_uses_hot_native_climatology():
     assert max(prior.values()) > max(legacy_uniform.values()) * 5
 
 
-def test_seattle_fallback_prior_uses_cooler_native_climatology():
-    model = TorontoHighTempModel(market_id="seattle", target_date="2026-06-21")
+def test_seattle_fallback_prior_uses_cooler_native_climatology(tmp_path):
+    model = model_with_native_climatology(tmp_path, "seattle", [67, 68, 68, 69, 70])
     prior = model.climatology_fallback_prior()
     legacy_uniform = model.wide_uniform_climatology_prior()
 

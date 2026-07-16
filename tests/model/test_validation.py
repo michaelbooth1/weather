@@ -358,11 +358,34 @@ class TestWundergroundHistoryRebuildAndAudit(unittest.TestCase):
             os.unlink(filename)
 
     def test_audit_partitions_success(self):
-        from weather.sources.wu_history import DEFAULT_DATA_ROOT
-        store = WundergroundHistoryStore(DEFAULT_DATA_ROOT)
-        if store.root.exists():
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(Path(tmp))
+            partition_path = (
+                store.hourly_root / "year=2026" / "month=05" / "observations.jsonl"
+            )
+            partition_path.parent.mkdir(parents=True)
+            partition_path.write_text(
+                "\n".join([
+                    json.dumps({"local_date": "2026-05-27", "local_time": "08:00"}),
+                    json.dumps({"local_date": "2026-05-27", "local_time": "09:00"}),
+                ]) + "\n",
+                encoding="utf-8",
+            )
+            manifest = {
+                "partitions": [{
+                    "path": partition_path.relative_to(store.root).as_posix(),
+                    "row_count": 2,
+                    "sha256": calculate_sha256(partition_path),
+                }],
+            }
+            (store.root / "manifest.json").write_text(
+                json.dumps(manifest) + "\n",
+                encoding="utf-8",
+            )
+
             success = store.audit_partitions()
-            self.assertTrue(success)
+
+        self.assertTrue(success)
 
 
 if __name__ == "__main__":
