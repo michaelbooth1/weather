@@ -1,4 +1,4 @@
-# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-11 - SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED]
+# 321. Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]
 
 Goal: converge the current research, collection, model, promotion, storage, and
 trading systems into one fail-closed production release program that can move a
@@ -671,7 +671,38 @@ software, not the open operational evidence: no real production candidate or
 release was created, and exact release-bound parity plus forward qualification
 are still required.
 
-The same repair refreshed all four tracked artifact manifests through their
+2026-07-16 candidate-independent source closure: the first-release bootstrap
+still had a second circular contract. Production preselection reused the full
+candidate-scoring row schema, so every otherwise usable historical row was
+rejected for missing `release_id`; supplying a syntactically valid old source
+would also have let the ambient model decide which rows existed before the
+lock. Production preselection now requires the separate
+`production_point_in_time_preselection_source_v1` projection. It enumerates
+every manifest-pinned snapshot/band row directly from the bounded captured
+tape, joins only the manifest-pinned settlement label, and stores coordinates,
+capture/prediction-boundary times, countability/quality, lane, and label. Model,
+variant, release, probability, runtime, and payload fields are physically
+absent. The old generic materialization manifest is rejected in production.
+
+The producer caps the request before input I/O, reads one market-day at a time,
+limits tape/replay bytes, fields, lines, records, rows, Arrow batches, and total
+market-days, rejects reconstructed/unsettled/promotion-countable admission,
+requires paths below the configured snapshots root, verifies source mutation,
+exactly one winning band per snapshot, and exact replay/source market-day and
+snapshot/label inventories. Exclusive output locks reject concurrent writers;
+files publish atomically with the manifest last, and consumers require the
+complete hash-bound pair. A host crash can leave a fail-closed orphan or lock
+that requires reviewed cleanup. The final owner-focused checkpoint passes 105
+tests and 23 subtests, with 1 Windows symlink-privilege skip. A real Toronto
+June 3 probe
+materialized all 231 pinned
+rows with zero candidate-dependent fields and an identical 231-row selection
+universe. This closes the software source deadlock only; no retained production
+corpus, real retrain, inactive release, positive edge result, shadow window,
+paper window, or capital permission has been produced.
+
+2026-07-15 artifact-lineage closure refreshed all four tracked artifact
+manifests through their
 canonical producers. The current LFS object for
 `feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl` is now consistently recorded
 as SHA-256 `c4eaa40df23a43702cbf3fdecd5be0d190235b0e832653e690b3e8196aabe3bc`

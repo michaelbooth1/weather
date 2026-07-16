@@ -158,7 +158,7 @@ def disposition_for_raw_evidence(has_raw):
     return "training_excluded_no_raw_evidence", "raw_evidence_absent"
 
 
-def folder_context(folder):
+def folder_context(folder, *, unit=None):
     folder = Path(folder)
     spec = spec_for_slug(folder.name)
     target_date = date_from_event_slug(folder.name)
@@ -166,7 +166,7 @@ def folder_context(folder):
         "event_slug": folder.name,
         "market_id": getattr(spec, "id", None),
         "target_date": target_date.isoformat() if target_date else None,
-        "unit": folder_unit(folder),
+        "unit": str(unit or folder_unit(folder)).upper(),
         "raw_evidence_available": raw_evidence_available(folder),
     }
 
@@ -404,6 +404,31 @@ def annotate_replay_presence(folder, rows):
     return rows
 
 
+def annotate_replay_presence_from_records(rows, records):
+    """Annotate quarantine rows from already parsed replay records."""
+
+    wanted = {row.get("snapshot_id") for row in rows if row.get("snapshot_id")}
+    if not rows or not wanted:
+        return rows
+    by_snapshot = defaultdict(list)
+    for row in rows:
+        by_snapshot[row.get("snapshot_id")].append(row)
+    values = records.values() if isinstance(records, dict) else records
+    for record in values or ():
+        if not isinstance(record, dict):
+            continue
+        snapshot_id = str(record.get("snapshot_id") or "")
+        if snapshot_id not in wanted:
+            continue
+        for row in by_snapshot[snapshot_id]:
+            row["replay_input_present"] = True
+            row["replay_input_feature_contaminated"] = replay_feature_contaminated(
+                record,
+                row,
+            )
+    return rows
+
+
 def apply_recovery_classification(rows):
     contaminated_snapshots = {
         row.get("snapshot_id")
@@ -506,6 +531,44 @@ def summarize_rows(rows, *, folder_count=0, scanned_feature_row_count=0, scanned
     }
 
 
+def audit_folder_feature_quality_from_rows(
+    folder,
+    *,
+    feature_rows,
+    snapshot_rows,
+    replay_records,
+    settlement_unit=None,
+):
+    """Audit one folder from caller-bounded, already parsed inputs."""
+
+    folder = Path(folder)
+    feature_rows = list(feature_rows or ())
+    snapshot_rows = list(snapshot_rows or ())
+    context = folder_context(folder, unit=settlement_unit)
+    rows = []
+    rows.extend(feature_rows_for_folder(folder, context, feature_rows))
+    rows.extend(sidecar_rows_for_folder(folder, context, snapshot_rows, feature_rows))
+    rows = apply_recovery_classification(
+        annotate_replay_presence_from_records(dedupe_rows(rows), replay_records)
+    )
+    summary = summarize_rows(
+        rows,
+        folder_count=1,
+        scanned_feature_row_count=len(feature_rows),
+        scanned_snapshot_row_count=len(snapshot_rows),
+    )
+    return {
+        "schema_version": FOLDER_SCHEMA_VERSION,
+        "folder": str(folder),
+        "event_slug": context["event_slug"],
+        "market_id": context["market_id"],
+        "target_date": context["target_date"],
+        "unit": context["unit"],
+        "summary": summary,
+        "rows": rows,
+    }
+
+
 def audit_folder_feature_quality(folder):
     folder = Path(folder)
     context = folder_context(folder)
@@ -513,8 +576,17 @@ def audit_folder_feature_quality(folder):
     snapshot_rows = read_csv_rows(folder / SNAPSHOTS_LONG)
     rows = []
     rows.extend(feature_rows_for_folder(folder, context, feature_rows))
-    rows.extend(sidecar_rows_for_folder(folder, context, snapshot_rows, feature_rows))
-    rows = apply_recovery_classification(annotate_replay_presence(folder, dedupe_rows(rows)))
+    rows.extend(
+        sidecar_rows_for_folder(
+            folder,
+            context,
+            snapshot_rows,
+            feature_rows,
+        )
+    )
+    rows = apply_recovery_classification(
+        annotate_replay_presence(folder, dedupe_rows(rows))
+    )
     summary = summarize_rows(
         rows,
         folder_count=1,

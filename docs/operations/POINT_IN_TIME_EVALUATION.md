@@ -19,6 +19,15 @@ label quality/countability, claim lane, replay/serve parity, source quality,
 transformation version, score fields, and runtime identity. Missing release or
 runtime identity is rejected; it is never inferred from an old model name.
 
+That full row contract applies after a candidate exists. The production
+preselection source uses the separate, narrow
+`production_point_in_time_preselection_source_v1` schema. It contains only
+`target_date`, `market_id`, `cutoff_or_snapshot`, `band`, feature-availability
+and prediction-boundary timestamps, label quality/countability, claim lane,
+source quality, and the settled binary label. Candidate, variant, release,
+probability, runtime, and source-payload fields are physically absent so a
+model cannot determine the population that is locked before training.
+
 Only these evidence lanes are valid, and evaluation never pools them:
 
 - `weather_only`
@@ -34,21 +43,57 @@ evaluation window:
 
 ```powershell
 python -m weather.reporting.validation.point_in_time_evaluation prelock-production `
-  --source-corpus <bounded-source.parquet> `
-  --source-manifest <source-manifest.json> `
+  --source-corpus <production-preselection-source-v1.parquet> `
+  --source-manifest <production-preselection-source-v1-manifest.json> `
   --source-replay-manifest <promotion-corpus.json> `
   --replay-manifest-out <candidate>/qualification/point_in_time/work/replay_manifest.json `
   --lock-out <candidate>/qualification/point_in_time/work/preselection_lock.json
 ```
 
+To build that narrow source directly from reviewed market-day folders:
+
+```powershell
+python -m weather.reporting.validation.point_in_time_evaluation prelock-production `
+  --folder <snapshots-root>/<settled-event-1> `
+  --folder <snapshots-root>/<settled-event-2> `
+  --source-corpus-out <candidate>/qualification/point_in_time/work/preselection-source.parquet `
+  --source-manifest-out <candidate>/qualification/point_in_time/work/preselection-source-manifest.json `
+  --replay-manifest-out <candidate>/qualification/point_in_time/work/replay_manifest.json `
+  --lock-out <candidate>/qualification/point_in_time/work/preselection_lock.json
+```
+
 Repeated `--folder` may be used instead of the paired source corpus and
-manifest. The source replay manifest is optional, but any supplied inventory is
-hash-verified. The prelock records the complete selection universe, its hash,
-the source/replay hashes, and the 14 locked dates. Its latest target date must
-be no more than seven days old when the lock is created; a freshly generated
-evaluation over a stale or truncated corpus cannot qualify. Production limits
-the source to 60 market-days, 250,000 rows per market-day, and one retained raw
-market-day. No candidate artifact exists when this lock is chosen.
+manifest. Folder mode first builds a quality-grade-only, manifest-pinned replay
+inventory and then enumerates every pinned snapshot/band directly from
+`snapshots_long.csv` plus captured `replay_inputs.jsonl`; it does not load or
+score an ambient model. A supplied source replay manifest is hash-verified.
+When it is omitted for a staged source, the exact replay manifest bound in the
+source manifest is copied byte-for-byte into the candidate work area.
+
+The prelock records the complete candidate-independent selection universe, its
+hash, the source/replay hashes, and the 14 locked dates. Its latest target date
+must be no more than seven days old when the lock is created; a freshly
+generated evaluation over a stale or truncated corpus cannot qualify. The
+reader rejects reconstructed or unsettled inputs, promotion-countable
+admission, folders outside the configured snapshots root, changed input bytes,
+inventory drift, duplicate coordinates, and any snapshot without exactly one
+winning band. `source_quality=healthy` means those pinned structural and input-
+integrity checks passed; it is not a claim that the forecast has predictive
+edge.
+
+Production accepts at most 60 market-days and 250,000 rows per market-day,
+retains one raw market-day at a time, and writes Arrow batches of at most 65,536
+rows. Each tape is capped at 128 MiB with 1 MiB CSV fields; each captured replay
+file is capped at 64 MiB with 8 MiB lines and the same per-day record bound;
+optional feature CSVs use the tape bounds, settlement JSON is capped at 1 MiB,
+the replay manifest at 16 MiB, the source manifest at 4 MiB, and the source
+Parquet at 1 GiB. Request bounds are validated before source I/O. Exclusive
+output locks reject concurrent writers. Each file is published atomically with
+the manifest last, and consumers require both files plus their exact hashes;
+the pair is not a single atomic filesystem operation. Failed verification
+removes published outputs. A host crash can leave a lock or manifest-less
+orphan requiring reviewed cleanup. No candidate artifact exists when this lock
+is chosen.
 
 The lock must then flow into every selection owner. Pooled feature and source-
 reliability priors, family calibration/trust, final pooled fitting, and routing
@@ -130,7 +175,10 @@ Use `--folder` repeatedly for a bounded pilot. `--text-only` is a diagnostic
 fallback and records that choice in source-mode provenance. Historical rows
 without immutable `release_id`, point-in-time timestamps, countable settlement
 labels, or runtime identity will correctly block until their lineage is joined
-from canonical evidence.
+from canonical evidence. This generic materializer is not accepted as a
+production preselection source. The narrow production source instead begins
+from manifest-pinned captured rows before candidate identity exists; it never
+invents release or runtime lineage.
 
 ## Create nested rolling-origin folds
 

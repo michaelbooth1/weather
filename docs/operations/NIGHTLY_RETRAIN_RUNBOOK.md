@@ -55,26 +55,42 @@ stop the run before expensive retraining or promotion refresh steps.
 ordinary candidate-only research workflow and schedules no production
 point-in-time prelock or qualification steps.
 
-Production capability is explicit and requires a bounded point-in-time source.
-Supply either repeated `--point-in-time-folder` arguments, or the paired
-`--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. A
-reviewed `--point-in-time-source-replay-manifest` may pin the replay inventory;
-when omitted, the prelock step derives a bounded replay manifest from the
-verified source. For example:
+Production capability is explicit and requires the narrow, candidate-
+independent `production_point_in_time_preselection_source_v1` source. Supply
+either repeated `--point-in-time-folder` arguments, or the paired
+`--point-in-time-source-corpus` and `--point-in-time-source-manifest` paths. The
+generic candidate-scoring materialization schema is rejected. Folder mode
+builds a quality-grade-only replay manifest, then projects every manifest-
+pinned captured snapshot/band without loading a model. A reviewed
+`--point-in-time-source-replay-manifest` may pin the replay inventory; when it
+is omitted for a staged source, the prelock copies the exact replay manifest
+already hash-bound by that source. For example:
 
 ```powershell
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
-  --point-in-time-source-corpus <bounded-corpus.parquet> `
-  --point-in-time-source-manifest <materialization-manifest.json> `
+  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
+  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
   --point-in-time-source-replay-manifest <promotion-corpus.json>
+```
+
+Folder mode accepts repeated, reviewed settled folders and writes the same
+narrow staged source inside the candidate work area:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --release-candidate-mode production `
+  --point-in-time-folder <snapshots-root>/<settled-event-1> `
+  --point-in-time-folder <snapshots-root>/<settled-event-2>
 ```
 
 Production ordering is fail-closed:
 
-1. Freeze the candidate-independent source/replay inventory and contiguous
-   14-day evaluation window before any candidate-dependent selection. The
-   source's latest target date must be no more than seven days old.
+1. Enumerate the manifest-pinned captured tape and replay rows directly, attach
+   only the pinned settlement label, and freeze that candidate-independent
+   source/replay inventory plus the contiguous 14-day evaluation window before
+   any model is loaded or candidate-dependent selection occurs. The source's
+   latest target date must be no more than seven days old.
 2. Fit family calibration/trust and pooled feature/model artifacts with every
    locked date excluded. Feature priors, source-reliability priors,
    calibration/trust selection, and pooled fitting are confined to the exact
@@ -111,14 +127,22 @@ Candidate-local qualification outputs are:
 Immutable candidate construction copies those exact roles to
 `contract/point_in_time/` and binds their hashes in the semantic serving
 contract. Production defaults cap the source/replay population at 60 market
-days and 250,000 rows per market-day, read Parquet in 65,536-row batches, retain
-one raw market-day at a time, declare a 4 GiB private-memory budget, allow at
-most 128 fold scopes, and advance folds in seven-date steps. The non-incremental
-HGB trainer retains its normalized training population, so its separate source
-contract caps that population at 60 × 1,000 rows and records the observed row
-count; it does not claim that fitted feature rows are streamed away. These are
-bounded qualification declarations, not permission to raise the host load
-limits.
+days and 250,000 rows per market-day, read Parquet in 65,536-row batches, and
+retain one raw market-day at a time. Preselection additionally caps each tape
+at 128 MiB with 1 MiB CSV fields and each captured replay file at 64 MiB with
+8 MiB lines. Optional feature CSVs use the tape bounds; settlement JSON is
+capped at 1 MiB, replay/source manifests at 16/4 MiB, and source Parquet at
+1 GiB. It rejects reconstructed/unsettled inputs, root escapes, source mutation,
+row-inventory drift, and zero or multiple winners per snapshot. Exclusive
+output locks reject concurrent writers; publication is per-file atomic and
+manifest-last, and consumers require the complete hash-bound pair.
+Qualification declares a
+4 GiB private-memory budget, permits at most 128 fold scopes, and advances
+folds in seven-date steps. The non-incremental HGB trainer retains its
+normalized training population, so its separate source contract caps that
+population at 60 × 1,000 rows and records the observed row count; it does not
+claim that fitted feature rows are streamed away. These are bounded
+qualification declarations, not permission to raise the host load limits.
 
 Production mode remains candidate-only. It does not promote, replace the
 active pointer, restart workers, or grant trading permission.
@@ -136,8 +160,8 @@ The one fail-closed bootstrap is explicit:
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
   --bootstrap-first-inactive-release `
-  --point-in-time-source-corpus <bounded-corpus.parquet> `
-  --point-in-time-source-manifest <materialization-manifest.json> `
+  --point-in-time-source-corpus <production-preselection-source-v1.parquet> `
+  --point-in-time-source-manifest <production-preselection-source-v1-manifest.json> `
   --point-in-time-source-replay-manifest <promotion-corpus.json>
 ```
 
