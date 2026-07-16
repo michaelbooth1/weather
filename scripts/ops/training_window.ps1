@@ -149,6 +149,36 @@ if ($DryRun) {
 Write-WindowLog "INFO" "window opening: commit $([math]::Round($commitPercent,1))%, disk $([math]::Round($freeDisk/1GB,1))GB free"
 Write-WindowStatus "opening" "in_progress"
 
+# ---- Commit scheduled location-config drift so clean-source gates can pass ----
+# WeatherLocationConfigRefresh regenerates the two config JSONs at 00:00, one
+# hour before this window; an uncommitted diff makes the nightly clean-source
+# gate (and therefore immutable release construction) fail closed. Only these
+# two generated files are ever auto-committed, and only after JSON validation;
+# any other dirt is logged and left for the operator.
+$autoCommitPaths = @("config/location_market_events.json", "config/locations.json")
+$dirtyPaths = @(git -C $RepoRoot status --porcelain |
+    Where-Object { $_ } |
+    ForEach-Object { ($_.Substring(3).Trim('"') -replace '\\', '/') })
+if ($dirtyPaths.Count -gt 0) {
+    $unexpected = @($dirtyPaths | Where-Object { $autoCommitPaths -notcontains $_ })
+    if ($unexpected.Count -gt 0) {
+        Write-WindowLog "CONFIG" "worktree has non-config changes ($($unexpected -join ', ')); not auto-committing; clean-source gates will fail closed"
+    } else {
+        $jsonValid = $true
+        foreach ($rel in $dirtyPaths) {
+            & $python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8'))" (Join-Path $RepoRoot $rel)
+            if ($LASTEXITCODE -ne 0) { $jsonValid = $false }
+        }
+        if ($jsonValid) {
+            git -C $RepoRoot add -- $autoCommitPaths 2>$null
+            git -C $RepoRoot commit -m "config: scheduled location refresh drift (training-window auto-commit)" | Out-Null
+            Write-WindowLog "CONFIG" "committed scheduled location-config drift ($($dirtyPaths -join ', '))"
+        } else {
+            Write-WindowLog "CONFIG" "location-config drift failed JSON validation; leaving uncommitted; clean-source gates will fail closed"
+        }
+    }
+}
+
 $childExit = -1
 $nightlyStatus = "not_run"
 $nightlyAdmission = "not_run"
@@ -196,6 +226,30 @@ try {
         "--scheduler-correlation-seconds", ([string]$schedulerCorrelationSeconds),
         "--producer-sla-seconds", ([string]$producerSlaSeconds)
     )
+    # ---- Self-disarming first-inactive-release bootstrap ----
+    # Armed only while ALL hold: a reviewed staged candidate-independent PIT
+    # source exists, the release store is absent/empty, and no active pointer
+    # exists. Once release #1 exists the same window falls back to the ordinary
+    # research invocation instead of wedging on an invalid bootstrap request.
+    $pitSourceRoot = Join-Path $RepoRoot "data\analysis\point_in_time\production_source_2026-07-16"
+    $pitCorpus = Join-Path $pitSourceRoot "preselection-source.parquet"
+    $pitManifest = Join-Path $pitSourceRoot "preselection-source-manifest.json"
+    $pitReplay = Join-Path $pitSourceRoot "replay_manifest.json"
+    $releasesRoot = Join-Path $RepoRoot "artifacts\releases"
+    $activePointer = Join-Path $releasesRoot "current_release.json"
+    $releaseStoreEmpty = (-not (Test-Path $releasesRoot)) -or
+        (@(Get-ChildItem $releasesRoot -Force -ErrorAction SilentlyContinue).Count -eq 0)
+    if ((Test-Path $pitCorpus) -and (Test-Path $pitManifest) -and (Test-Path $pitReplay) -and
+        $releaseStoreEmpty -and (-not (Test-Path $activePointer))) {
+        $childArgs += @(
+            "--release-candidate-mode", "production",
+            "--bootstrap-first-inactive-release",
+            "--point-in-time-source-corpus", $pitCorpus,
+            "--point-in-time-source-manifest", $pitManifest,
+            "--point-in-time-source-replay-manifest", $pitReplay
+        )
+        Write-WindowLog "RETRAIN" "staged PIT source + empty release store: production mode with first-inactive-release bootstrap"
+    }
     $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
     $child = Start-Process -FilePath $python `
         -ArgumentList $childArgumentString `
