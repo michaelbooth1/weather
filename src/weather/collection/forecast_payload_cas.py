@@ -21,6 +21,10 @@ from weather.forecast_payload_contracts import (
     NBM_NBP_ENCODING,
     NBM_NBP_MEDIA_TYPE,
     NBM_NBP_SOURCE,
+    deduplicate_fanout_coordinator_attributions,
+    fanout_coordinator_attribution_totals,
+    forecast_fanout_coordination_id,
+    forecast_fanout_receipt_ref,
     validate_nbm_shared_payload_identity,
     validate_forecast_extraction_identity,
 )
@@ -196,9 +200,11 @@ def fanout_prepublish_accounting(
 
     Cross-process waiters need the immutable bytes before their per-market
     persistence runs, so the holder publishes through this same CAS.  The
-    holder's eventual manifest owns the one physical-write receipt; followers
-    remain ordinary reuse rows.  Every optional declaration is checked against
-    the verified ``put`` result before it can affect byte observability.
+    receipt owns the network/physical attribution and every market manifest
+    carries the same bounded evidence identity. Per-market created/reused rows
+    remain useful lineage, while fleet summaries deduplicate receipt evidence
+    even if the holder never persists a manifest. Every optional declaration
+    is checked against the verified ``put`` result.
     """
 
     single_fetch = single_fetch or {}
@@ -207,6 +213,9 @@ def fanout_prepublish_accounting(
     declared_bytes = single_fetch.get("prepublished_payload_bytes")
     declared_created = bool(single_fetch.get("prepublished_blob_created"))
     declared_reused = bool(single_fetch.get("prepublished_blob_reused"))
+    coordinator_physical = single_fetch.get(
+        "coordinator_physical_bytes_written"
+    )
     if not declared_hash and declared_bytes in (None, "") and not declared_ref:
         if declared_created or declared_reused:
             raise ForecastPayloadCASIntegrityError(
@@ -228,6 +237,19 @@ def fanout_prepublish_accounting(
         raise ForecastPayloadCASIntegrityError(
             "forecast fan-out prepublished blob cannot be created and reused"
         )
+    if single_fetch.get("coordinator_evidence_id"):
+        if type(coordinator_physical) is not int or coordinator_physical < 0:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out coordinator physical-write count is invalid"
+            )
+        coordinator_created = single_fetch.get(
+            "coordinator_payload_blob_created"
+        )
+        expected_physical = declared_bytes if coordinator_created is True else 0
+        if coordinator_physical != expected_physical:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out coordinator physical-write attribution mismatch"
+            )
     for field, declared, actual in (
         ("hash", declared_hash, stored.get("payload_hash")),
         ("ref", declared_ref, stored.get("payload_ref")),
@@ -262,6 +284,102 @@ def fanout_prepublish_accounting(
         "payload_blob_reused": True,
         "physical_bytes_written": 0,
         "avoided_bytes": declared_bytes,
+    }
+
+
+def _validated_fanout_coordinator_evidence(
+    single_fetch: Mapping[str, Any],
+    *,
+    source: str,
+    request_key: str,
+    cycle_key: str,
+    payload_bytes: int,
+) -> dict[str, Any] | None:
+    """Validate receipt-owned accounting copied into a market attestation."""
+
+    evidence_id = str(single_fetch.get("coordinator_evidence_id") or "").strip()
+    receipt_ref = str(single_fetch.get("coordinator_receipt_ref") or "").strip()
+    attribution_status = str(
+        single_fetch.get("coordinator_attribution_status") or "not_applicable"
+    ).strip()
+    receipt_sha256 = str(
+        single_fetch.get("coordinator_receipt_sha256") or ""
+    ).lower().strip()
+    if not evidence_id and not receipt_ref:
+        if (
+            single_fetch.get("coordinator_network_fetch_count") not in (None, 0)
+            or single_fetch.get("coordinator_physical_bytes_written") not in (None, 0)
+            or single_fetch.get("coordinator_payload_blob_created") is True
+            or single_fetch.get("coordinator_payload_blob_reused") is True
+        ):
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out coordinator accounting lacks evidence identity"
+            )
+        if attribution_status == "legacy_receipt_attribution_unavailable":
+            validate_sha256(receipt_sha256)
+        elif attribution_status != "not_applicable" or receipt_sha256:
+            raise ForecastPayloadCASIntegrityError(
+                "forecast fan-out coordinator attribution status is invalid"
+            )
+        return None
+    scope_key = str(single_fetch.get("capture_pass_scope") or "").strip()
+    try:
+        expected_id = forecast_fanout_coordination_id(
+            source=source,
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=scope_key,
+        )
+        expected_ref = forecast_fanout_receipt_ref(expected_id)
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+    if evidence_id != expected_id or receipt_ref != expected_ref:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator evidence identity mismatch"
+        )
+    if attribution_status != "available":
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator attribution status is invalid"
+        )
+    receipt_sha256 = validate_sha256(receipt_sha256)
+    if single_fetch.get("coordination_status") not in {
+        "cross_process_holder_published",
+        "cross_process_receipt_reused",
+        "same_process_scoped_receipt_reused",
+    }:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator evidence has invalid status"
+        )
+    network_fetch_count = single_fetch.get("coordinator_network_fetch_count")
+    physical_bytes = single_fetch.get("coordinator_physical_bytes_written")
+    created = single_fetch.get("coordinator_payload_blob_created")
+    reused = single_fetch.get("coordinator_payload_blob_reused")
+    if type(network_fetch_count) is not int or network_fetch_count != 1:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator network-fetch count is invalid"
+        )
+    if type(physical_bytes) is not int or physical_bytes < 0:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator physical-write count is invalid"
+        )
+    if type(created) is not bool or type(reused) is not bool or created == reused:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator blob outcome is invalid"
+        )
+    expected_physical = payload_bytes if created else 0
+    if physical_bytes != expected_physical:
+        raise ForecastPayloadCASIntegrityError(
+            "forecast fan-out coordinator physical-write attribution mismatch"
+        )
+    return {
+        "coordinator_evidence_id": expected_id,
+        "coordinator_receipt_ref": expected_ref,
+        "coordinator_receipt_sha256": receipt_sha256,
+        "coordinator_attribution_status": attribution_status,
+        "coordinator_network_fetch_count": network_fetch_count,
+        "coordinator_payload_blob_created": created,
+        "coordinator_payload_blob_reused": reused,
+        "coordinator_physical_bytes_written": physical_bytes,
     }
 
 
@@ -308,6 +426,7 @@ def parse_market_invariant_attestation(source: str, payload: Any) -> dict[str, A
         raise ForecastPayloadCASIntegrityError(
             f"attested market-invariant body field is not text: {body_field}"
         )
+    body_bytes = body.encode(encoding)
     extraction_schema = str(attestation.get("extraction_schema") or "").strip()
     extraction_identity = attestation.get("extraction_identity")
     try:
@@ -339,15 +458,25 @@ def parse_market_invariant_attestation(source: str, payload: Any) -> dict[str, A
             raise ForecastPayloadCASIntegrityError(
                 f"forecast single-fetch {key} does not match its attestation"
             )
+    single_fetch = dict(single_fetch)
+    coordinator_evidence = _validated_fanout_coordinator_evidence(
+        single_fetch,
+        source=source,
+        request_key=request_key,
+        cycle_key=cycle_key,
+        payload_bytes=len(body_bytes),
+    )
+    if coordinator_evidence is not None:
+        single_fetch.update(coordinator_evidence)
     return {
-        "payload_bytes": body.encode(encoding),
+        "payload_bytes": body_bytes,
         "request_key": request_key,
         "cycle_key": cycle_key,
         "media_type": media_type,
         "encoding": encoding,
         "extraction_schema": extraction_schema,
         "extraction_identity": extraction_identity,
-        "single_fetch": dict(single_fetch),
+        "single_fetch": single_fetch,
         "single_fetch_reused": bool(single_fetch.get("reused")),
     }
 
@@ -509,9 +638,113 @@ def forecast_payload_byte_summary(
     created = sum(1 for row in rows if row.get("payload_blob_created"))
     reused = sum(1 for row in rows if row.get("payload_blob_reused"))
     logical = sum(int(row.get("logical_referenced_bytes") or row.get("payload_bytes") or 0) for row in rows)
-    physical = sum(int(row.get("physical_bytes_written") or 0) for row in rows)
-    avoided = sum(int(row.get("avoided_bytes") or 0) for row in rows)
-    network_fetches = sum(1 for row in rows if row.get("single_fetch_fetched"))
+    coordinator_attributions: list[dict[str, Any]] = []
+    coordinator_attribution_unavailable_count = 0
+    uncoordinated_physical = 0
+    uncoordinated_avoided = 0
+    uncoordinated_network_fetches = 0
+    for row in rows:
+        single_fetch = {
+            "capture_pass_scope": row.get("single_fetch_scope"),
+            "coordination_status": row.get(
+                "single_fetch_coordination_status"
+            ),
+            "coordinator_evidence_id": row.get("coordinator_evidence_id"),
+            "coordinator_receipt_ref": row.get("coordinator_receipt_ref"),
+            "coordinator_receipt_sha256": row.get(
+                "coordinator_receipt_sha256"
+            ),
+            "coordinator_attribution_status": row.get(
+                "coordinator_attribution_status"
+            ),
+            "coordinator_network_fetch_count": row.get(
+                "coordinator_network_fetch_count"
+            ),
+            "coordinator_payload_blob_created": row.get(
+                "coordinator_payload_blob_created"
+            ),
+            "coordinator_payload_blob_reused": row.get(
+                "coordinator_payload_blob_reused"
+            ),
+            "coordinator_physical_bytes_written": row.get(
+                "coordinator_physical_bytes_written"
+            ),
+        }
+        evidence = _validated_fanout_coordinator_evidence(
+            single_fetch,
+            source=str(row.get("source") or ""),
+            request_key=str(row.get("request_key") or ""),
+            cycle_key=str(row.get("cycle_key") or ""),
+            payload_bytes=int(row.get("payload_bytes") or 0),
+        )
+        if evidence is None:
+            if (
+                single_fetch.get("coordinator_attribution_status")
+                == "legacy_receipt_attribution_unavailable"
+            ):
+                coordinator_attribution_unavailable_count += 1
+            uncoordinated_physical += int(
+                row.get("physical_bytes_written") or 0
+            )
+            uncoordinated_avoided += int(row.get("avoided_bytes") or 0)
+            uncoordinated_network_fetches += int(
+                bool(row.get("single_fetch_fetched"))
+            )
+            continue
+        payload_hash = validate_sha256(str(row.get("payload_hash") or ""))
+        coordinator_attributions.append(
+            {
+                "coordinator_evidence_id": evidence[
+                    "coordinator_evidence_id"
+                ],
+                "coordinator_receipt_ref": evidence[
+                    "coordinator_receipt_ref"
+                ],
+                "coordinator_receipt_sha256": evidence[
+                    "coordinator_receipt_sha256"
+                ],
+                "source": str(row.get("source") or ""),
+                "request_key": str(row.get("request_key") or ""),
+                "cycle_key": str(row.get("cycle_key") or ""),
+                "scope_key": str(row.get("single_fetch_scope") or ""),
+                "network_fetch_count": evidence[
+                    "coordinator_network_fetch_count"
+                ],
+                "payload_blob_created": evidence[
+                    "coordinator_payload_blob_created"
+                ],
+                "payload_blob_reused": evidence[
+                    "coordinator_payload_blob_reused"
+                ],
+                "physical_bytes_written": evidence[
+                    "coordinator_physical_bytes_written"
+                ],
+                "payload_hash": payload_hash,
+                "payload_bytes": int(row.get("payload_bytes") or 0),
+                "logical_referenced_bytes": int(
+                    row.get("logical_referenced_bytes")
+                    or row.get("payload_bytes")
+                    or 0
+                ),
+            }
+        )
+    try:
+        coordinator_attributions = deduplicate_fanout_coordinator_attributions(
+            coordinator_attributions
+        )
+        coordinator_totals = fanout_coordinator_attribution_totals(
+            coordinator_attributions
+        )
+    except ForecastPayloadExtractionIdentityError as exc:
+        raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+    coordinator_physical = coordinator_totals["physical_bytes_written"]
+    coordinator_network_fetches = coordinator_totals["network_fetch_count"]
+    coordinator_avoided = coordinator_totals["avoided_bytes"]
+    physical = uncoordinated_physical + coordinator_physical
+    avoided = uncoordinated_avoided + coordinator_avoided
+    network_fetches = (
+        uncoordinated_network_fetches + coordinator_network_fetches
+    )
     network_reuses = sum(1 for row in rows if row.get("single_fetch_reused"))
     cross_process_reuses = sum(
         1
@@ -538,6 +771,13 @@ def forecast_payload_byte_summary(
         "network_reuse_count": network_reuses,
         "cross_process_reuse_count": cross_process_reuses,
         "network_wait_timeout_fail_open_count": wait_timeouts,
+        "coordinator_evidence_count": len(coordinator_attributions),
+        "coordinator_network_fetch_count": coordinator_network_fetches,
+        "coordinator_physical_bytes_written": coordinator_physical,
+        "coordinator_attribution_unavailable_count": (
+            coordinator_attribution_unavailable_count
+        ),
+        "coordinator_attributions": coordinator_attributions,
         "physical_write_budget_bytes": budget,
         "physical_write_budget_status": (
             "NOT_CONFIGURED"

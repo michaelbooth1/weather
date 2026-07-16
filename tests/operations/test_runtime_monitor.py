@@ -4,7 +4,36 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Event
 
+import pytest
+
+from weather.forecast_payload_contracts import (
+    forecast_fanout_coordination_id,
+    forecast_fanout_receipt_ref,
+)
 from weather.operations import runtime_monitor
+
+
+def _coordinator_attribution(*, receipt_sha256="a" * 64):
+    fields = {
+        "source": "nbm_probabilistic_tmax",
+        "request_key": "request-key",
+        "cycle_key": "nbm-nbp:20260713T00Z",
+        "scope_key": "fleet-pass",
+    }
+    evidence_id = forecast_fanout_coordination_id(**fields)
+    return {
+        "coordinator_evidence_id": evidence_id,
+        "coordinator_receipt_ref": forecast_fanout_receipt_ref(evidence_id),
+        "coordinator_receipt_sha256": receipt_sha256,
+        **fields,
+        "network_fetch_count": 1,
+        "payload_blob_created": True,
+        "payload_blob_reused": False,
+        "physical_bytes_written": 100,
+        "payload_hash": "b" * 64,
+        "payload_bytes": 100,
+        "logical_referenced_bytes": 100,
+    }
 
 
 def test_snapshot_projection_keeps_large_payload_bounded(tmp_path):
@@ -88,9 +117,66 @@ def test_snapshot_payload_storage_projection_falls_back_to_compact_market_rows()
         "network_reuse_count": 0,
         "cross_process_reuse_count": 0,
         "network_wait_timeout_fail_open_count": 0,
+        "coordinator_attributions": [],
+        "coordinator_evidence_count": 0,
+        "coordinator_network_fetch_count": 0,
+        "coordinator_physical_bytes_written": 0,
+        "coordinator_attribution_unavailable_count": 0,
         "physical_write_budget_bytes": 150,
         "physical_write_budget_status": "BLOCK",
     }
+
+
+def test_runtime_fallback_deduplicates_coordinator_evidence_and_rejects_conflict():
+    def child(attribution):
+        return {
+            "forecast_payload_storage": {
+                "schema_version": "forecast_payload_storage_observability_v0.1",
+                "manifest_row_count": 1,
+                "created_blob_count": 0,
+                "reused_blob_count": 1,
+                "logical_referenced_bytes": 100,
+                "physical_bytes_written": 100,
+                "avoided_bytes": 0,
+                "network_fetch_count": 1,
+                "network_reuse_count": 1,
+                "cross_process_reuse_count": 1,
+                "network_wait_timeout_fail_open_count": 0,
+                "coordinator_evidence_count": 1,
+                "coordinator_network_fetch_count": 1,
+                "coordinator_physical_bytes_written": 100,
+                "coordinator_attributions": [attribution],
+                "physical_write_budget_bytes": 200,
+                "physical_write_budget_status": "PASS",
+            }
+        }
+
+    attribution = _coordinator_attribution()
+    projected = runtime_monitor._forecast_payload_storage(
+        {
+            "last_market_results": {
+                "boston": child(dict(attribution)),
+                "nyc": child(dict(attribution)),
+            }
+        }
+    )
+    assert projected["coordinator_evidence_count"] == 1
+    assert projected["network_fetch_count"] == 1
+    assert projected["physical_bytes_written"] == 100
+    assert projected["logical_referenced_bytes"] == 200
+    assert projected["avoided_bytes"] == 100
+
+    conflicting = dict(attribution)
+    conflicting["coordinator_receipt_sha256"] = "c" * 64
+    with pytest.raises(ValueError, match="conflicts across records"):
+        runtime_monitor._forecast_payload_storage(
+            {
+                "last_market_results": {
+                    "boston": child(dict(attribution)),
+                    "nyc": child(conflicting),
+                }
+            }
+        )
 
 
 def test_bot_policy_state_is_not_misclassified_as_crash(tmp_path):

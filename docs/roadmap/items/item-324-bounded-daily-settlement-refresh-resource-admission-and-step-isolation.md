@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-14 - NON-COUNTABLE SOAK EXPOSED TWO UNISOLATED MEMORY PATHS; CORRECTIVE GATES PENDING]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -236,6 +236,57 @@ No extra full-stage run is authorized for this checklist. The 2026-07-14
 readback above is non-countable; the next eligible readback is the next
 scheduled 09:30 run after the corrective containment lands and capture is
 stable.
+
+## 2026-07-15 scheduled receipt readback - non-countable
+
+The first requested post-gate receipt is fresh and terminal, but it does not
+count toward the soak. Task Scheduler recorded the 09:30:01 local occurrence,
+result 2, and the next daily trigger for July 16. The installed action still
+uses a 20-hour task limit and omits `--scheduler-task-name`,
+`--scheduler-task-executable`, and `--scheduler-task-working-directory`.
+Run `2026-07-15T133008.086105_0000-47292` began seven seconds after the task
+timestamp and finished at 09:33:42 local after 214.793 seconds, but timestamp
+correlation is not producer attestation. Its durable invocation records
+`scheduler_contract_missing`, `scheduler_attested=false`,
+`mode=manual_or_unverified`, blocked task correlation, and blank task identity.
+
+The settlement manifest is terminal `DEFERRED` for target 2026-07-14 and never
+reached its barrier. Four of the exact 23 Stage-A rows materialized: reanalysis,
+ingest quality, and event-metadata validation completed, then
+`public_wu_settlement_restore` deferred before child launch. Steps 5 through 23
+did not run. The progress total of 24 is the 23-step registry plus the separately
+declared production-readiness gate; it is not a 24th Stage-A step. Of the 16
+declared isolated steps, only `ingest_quality_gate` has child argument and
+result receipts under
+`data/backtest/daily_refresh_step_children/2026-07-15T133008.086105_0000-47292/`.
+
+That one child is clean isolation evidence. It returned zero in 13.442 seconds,
+did not time out, passed terminal validation and Windows job containment, and
+left no active or terminated process in the job. Peak private memory was
+1,505,812,480 of 2,147,483,648 bytes (70.12%); peak working set was 258,355,200
+of 1,610,612,736 bytes (16.04%); elapsed time was 0.747% of its 1,800-second
+ceiling. No measured ceiling reached the 80% review threshold. Lifetime
+read/write was 461,368,763/888,362 bytes; that receipt configured no I/O
+ceiling.
+
+The public-WU pre-launch admission correctly failed closed with 4,270,419,968
+bytes available against 4,294,967,296 required, a 24,547,328-byte shortfall.
+No child started, no resource limit fired, and no process was terminated, so
+this was a resumable admission defer rather than a budget kill. The bounded
+resume point is `public_wu_settlement_restore`. Scheduler result 2 is
+semantically consistent with the root `deferred` mapping, but the receipt has
+no durable root `exit_code` field; only the ingest child's return zero is
+directly recorded.
+
+Lock proof passed with no stale or forced repair, both runtime lock files are
+absent, and the long-job state is inactive/complete. Snapshot, CLOB, and
+observation capture were healthy and fresh before and after the child and at
+the defer. At readback, exact snapshot PID 35100 remained on the same process
+instance and command at loaded/current identity `713692de26ea` /
+`4867a3ef74fe4668`, iteration 903, and zero consecutive errors. No extra run,
+resume, task repair, loop control, or evidence rewrite was performed. This is
+the first of the two requested receipt inspections, but it contributes zero
+countable runs and no budget-kill lane; every soak checkbox remains open.
 
 Verification:
 

@@ -14,6 +14,7 @@ import errno
 import hashlib
 import json
 import os
+import stat
 import time
 import uuid
 from dataclasses import replace
@@ -27,6 +28,13 @@ from weather.collection.forecast_payload_cas import (
     SharedForecastPayloadCAS,
     shared_payload_ref,
 )
+from weather.forecast_payload_contracts import (
+    ForecastPayloadExtractionIdentityError,
+    NBM_NBP_SOURCE,
+    forecast_fanout_coordination_id,
+    forecast_fanout_receipt_ref,
+    nbm_nbp_cycle_key_from_bulletin,
+)
 from weather.sources.forecast_payload_fanout import (
     FanoutFetchResult,
     MarketInvariantFetchFanout,
@@ -38,6 +46,9 @@ FANOUT_CAS_ROOT_ENV = "WEATHER_FORECAST_FANOUT_CAS_ROOT"
 FANOUT_SCOPE_ENV = "WEATHER_FORECAST_FANOUT_SCOPE"
 DEFAULT_WAIT_TIMEOUT_SECONDS = 30.0
 DEFAULT_POLL_SECONDS = 0.05
+MAX_RECEIPT_BYTES = 16 * 1024
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+_RECEIPT_CONTENT_SHA256_KEY = "_verified_receipt_content_sha256"
 
 
 def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -47,16 +58,115 @@ def _canonical_json_bytes(payload: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def _write_immutable_json(path: Path, payload: Mapping[str, Any]) -> None:
+def _receipt_stat_signature(value: os.stat_result) -> tuple[int, ...]:
+    """Return the path identity and mutation-sensitive receipt metadata."""
+
+    return (
+        int(value.st_dev),
+        int(value.st_ino),
+        int(value.st_mode),
+        int(value.st_size),
+        int(value.st_mtime_ns),
+        int(value.st_ctime_ns),
+    )
+
+
+def _validate_receipt_stat(path: Path, value: os.stat_result) -> None:
+    attributes = int(getattr(value, "st_file_attributes", 0) or 0)
+    if not stat.S_ISREG(value.st_mode) or (
+        attributes & _FILE_ATTRIBUTE_REPARSE_POINT
+    ):
+        raise ForecastPayloadCASIntegrityError(
+            f"cross-process fan-out receipt is not a regular non-reparse file: {path}"
+        )
+    if value.st_size > MAX_RECEIPT_BYTES:
+        raise ForecastPayloadCASIntegrityError(
+            f"cross-process fan-out receipt exceeds {MAX_RECEIPT_BYTES} bytes: {path}"
+        )
+
+
+def _receipt_ancestor_paths(cas_root: Path, parent: Path) -> list[Path]:
+    """Return the lexical CAS-root-to-parent chain without resolving links."""
+
+    root = Path(os.path.abspath(cas_root))
+    parent = Path(os.path.abspath(parent))
+    try:
+        relative = parent.relative_to(root)
+    except ValueError as exc:
+        raise ForecastPayloadCASIntegrityError(
+            f"cross-process fan-out receipt path escapes CAS root: {parent}"
+        ) from exc
+    paths = [root]
+    current = root
+    for part in relative.parts:
+        current = current / part
+        paths.append(current)
+    return paths
+
+
+def _validate_receipt_ancestors(
+    cas_root: Path,
+    parent: Path,
+    *,
+    allow_missing: bool,
+) -> None:
+    """Reject symlink/reparse ancestors from the CAS root through the parent."""
+
+    missing_seen = False
+    for path in _receipt_ancestor_paths(cas_root, parent):
+        try:
+            value = os.lstat(path)
+        except FileNotFoundError:
+            if not allow_missing:
+                raise ForecastPayloadCASIntegrityError(
+                    f"cross-process fan-out receipt ancestor is missing: {path}"
+                )
+            missing_seen = True
+            continue
+        except OSError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt ancestor is unreadable: {path}: {exc}"
+            ) from exc
+        if missing_seen:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out receipt ancestor exists below a missing "
+                f"directory: {path}"
+            )
+        attributes = int(getattr(value, "st_file_attributes", 0) or 0)
+        if not stat.S_ISDIR(value.st_mode) or (
+            attributes & _FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out receipt ancestor is not a regular "
+                f"non-reparse directory: {path}"
+            )
+
+
+def _ensure_receipt_parent(cas_root: Path, parent: Path) -> None:
+    _validate_receipt_ancestors(cas_root, parent, allow_missing=True)
+    parent.mkdir(parents=True, exist_ok=True)
+    _validate_receipt_ancestors(cas_root, parent, allow_missing=False)
+
+
+def _write_immutable_json(
+    cas_root: Path,
+    path: Path,
+    payload: Mapping[str, Any],
+) -> None:
     """Publish one complete receipt without replacing an existing receipt."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = _canonical_json_bytes(payload)
+    if len(encoded) > MAX_RECEIPT_BYTES:
+        raise ForecastPayloadCASIntegrityError(
+            f"cross-process fan-out receipt exceeds {MAX_RECEIPT_BYTES} bytes"
+        )
+    _ensure_receipt_parent(cas_root, path.parent)
     staging = path.with_name(
         f".{path.name}.staging-{os.getpid()}-{uuid.uuid4().hex}"
     )
     try:
         with staging.open("xb") as handle:
-            handle.write(_canonical_json_bytes(payload))
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
         try:
@@ -66,6 +176,11 @@ def _write_immutable_json(path: Path, payload: Mapping[str, Any]) -> None:
         except OSError as exc:
             if exc.errno != errno.EEXIST:
                 raise
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=False,
+        )
     finally:
         try:
             staging.unlink()
@@ -150,6 +265,10 @@ class CrossProcessMarketInvariantFetchFanout:
             request_key,
             cycle_key,
         )
+        if source != NBM_NBP_SOURCE:
+            raise ValueError(
+                "cross-process single-fetch fan-out is registered only for NBM NBP"
+            )
         scope_key = str(scope_key or "").strip()
         if not scope_key:
             raise ValueError("cross-process single-fetch fan-out requires scope_key")
@@ -162,19 +281,22 @@ class CrossProcessMarketInvariantFetchFanout:
         cycle_key: str,
         scope_key: str,
     ) -> tuple[Path, Path]:
-        identity = _canonical_json_bytes({
-            "scope_key": scope_key,
-            "source": source,
-            "request_key": request_key,
-            "cycle_key": cycle_key,
-        })
-        digest = hashlib.sha256(identity).hexdigest()
-        folder = self.cas.root / "fetch_fanout" / "sha256" / digest[:2]
-        return folder / f"{digest}.receipt.json", folder / f"{digest}.claim"
+        digest = forecast_fanout_coordination_id(
+            source=source,
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=scope_key,
+        )
+        receipt_path = self.cas.root / forecast_fanout_receipt_ref(digest)
+        return receipt_path, receipt_path.with_name(f"{digest}.claim")
 
     @staticmethod
-    def _try_claim(path: Path, key_fields: Mapping[str, str]) -> str | None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def _try_claim(
+        cas_root: Path,
+        path: Path,
+        key_fields: Mapping[str, str],
+    ) -> str | None:
+        _ensure_receipt_parent(cas_root, path.parent)
         token = uuid.uuid4().hex
         payload = {
             **dict(key_fields),
@@ -191,10 +313,20 @@ class CrossProcessMarketInvariantFetchFanout:
             os.fsync(handle)
         finally:
             os.close(handle)
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=False,
+        )
         return token
 
     @staticmethod
-    def _release_claim(path: Path, token: str) -> None:
+    def _release_claim(cas_root: Path, path: Path, token: str) -> None:
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=False,
+        )
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -205,14 +337,93 @@ class CrossProcessMarketInvariantFetchFanout:
             path.unlink()
         except FileNotFoundError:
             pass
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=False,
+        )
 
     @staticmethod
-    def _read_receipt(path: Path) -> dict[str, Any] | None:
+    def _read_receipt(cas_root: Path, path: Path) -> dict[str, Any] | None:
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=True,
+        )
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            before = os.lstat(path)
         except FileNotFoundError:
+            _validate_receipt_ancestors(
+                cas_root,
+                path.parent,
+                allow_missing=True,
+            )
             return None
-        except (OSError, json.JSONDecodeError) as exc:
+        except OSError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt is unreadable: {path}: {exc}"
+            ) from exc
+        _validate_receipt_stat(path, before)
+        flags = os.O_RDONLY | int(getattr(os, "O_BINARY", 0))
+        flags |= int(getattr(os, "O_NOFOLLOW", 0))
+        try:
+            handle = os.open(path, flags)
+        except OSError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt changed before open: {path}: {exc}"
+            ) from exc
+        try:
+            opened = os.fstat(handle)
+            _validate_receipt_stat(path, opened)
+            if _receipt_stat_signature(opened) != _receipt_stat_signature(before):
+                raise ForecastPayloadCASIntegrityError(
+                    f"cross-process fan-out receipt changed before read: {path}"
+                )
+            chunks: list[bytes] = []
+            remaining = MAX_RECEIPT_BYTES + 1
+            while remaining > 0:
+                chunk = os.read(handle, min(4096, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            encoded = b"".join(chunks)
+            after_read = os.fstat(handle)
+        except OSError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt is unreadable: {path}: {exc}"
+            ) from exc
+        finally:
+            os.close(handle)
+        try:
+            after_path = os.lstat(path)
+        except OSError as exc:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt changed after read: {path}: {exc}"
+            ) from exc
+        _validate_receipt_stat(path, after_read)
+        _validate_receipt_stat(path, after_path)
+        _validate_receipt_ancestors(
+            cas_root,
+            path.parent,
+            allow_missing=False,
+        )
+        signature = _receipt_stat_signature(before)
+        if (
+            _receipt_stat_signature(after_read) != signature
+            or _receipt_stat_signature(after_path) != signature
+            or len(encoded) != before.st_size
+        ):
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt mutated during read: {path}"
+            )
+        if len(encoded) > MAX_RECEIPT_BYTES:
+            raise ForecastPayloadCASIntegrityError(
+                f"cross-process fan-out receipt exceeds {MAX_RECEIPT_BYTES} bytes: {path}"
+            )
+        try:
+            payload = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ForecastPayloadCASIntegrityError(
                 f"cross-process fan-out receipt is unreadable: {path}: {exc}"
             ) from exc
@@ -220,7 +431,74 @@ class CrossProcessMarketInvariantFetchFanout:
             raise ForecastPayloadCASIntegrityError(
                 f"cross-process fan-out receipt is not an object: {path}"
             )
+        payload[_RECEIPT_CONTENT_SHA256_KEY] = hashlib.sha256(encoded).hexdigest()
         return payload
+
+    @staticmethod
+    def _validated_coordinator_evidence(
+        receipt: Mapping[str, Any],
+        *,
+        source: str,
+        request_key: str,
+        cycle_key: str,
+        scope_key: str,
+        payload_bytes: int,
+    ) -> dict[str, Any]:
+        evidence_id = forecast_fanout_coordination_id(
+            source=source,
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=scope_key,
+        )
+        expected_ref = forecast_fanout_receipt_ref(evidence_id)
+        receipt_sha256 = str(
+            receipt.get(_RECEIPT_CONTENT_SHA256_KEY) or ""
+        ).lower()
+        if len(receipt_sha256) != 64 or any(
+            char not in "0123456789abcdef" for char in receipt_sha256
+        ):
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out receipt content hash is invalid"
+            )
+        if receipt.get("coordinator_evidence_id") != evidence_id:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator evidence identity mismatch"
+            )
+        if receipt.get("coordinator_receipt_ref") != expected_ref:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator receipt reference mismatch"
+            )
+        network_fetch_count = receipt.get("coordinator_network_fetch_count")
+        physical_bytes = receipt.get("coordinator_physical_bytes_written")
+        if type(network_fetch_count) is not int or network_fetch_count != 1:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator network-fetch count is invalid"
+            )
+        if type(physical_bytes) is not int or physical_bytes < 0:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator physical-write count is invalid"
+            )
+        created = receipt.get("coordinator_payload_blob_created")
+        reused = receipt.get("coordinator_payload_blob_reused")
+        if type(created) is not bool or type(reused) is not bool or created == reused:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator blob outcome is invalid"
+            )
+        expected_physical = payload_bytes if created else 0
+        if physical_bytes != expected_physical:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out coordinator physical-write attribution mismatch"
+            )
+        return {
+            "coordinator_evidence_id": evidence_id,
+            "coordinator_receipt_ref": expected_ref,
+            "coordinator_receipt_sha256": receipt_sha256,
+            "coordinator_attribution_status": "available",
+            "coordinator_network_fetch_count": network_fetch_count,
+            "coordinator_payload_blob_created": created,
+            "coordinator_payload_blob_reused": reused,
+            "coordinator_physical_bytes_written": physical_bytes,
+        }
 
     def _result_from_receipt(
         self,
@@ -277,6 +555,50 @@ class CrossProcessMarketInvariantFetchFanout:
             raise ForecastPayloadCASIntegrityError(
                 "cross-process fan-out CAS payload is not UTF-8"
             ) from exc
+        try:
+            bulletin_cycle_key = nbm_nbp_cycle_key_from_bulletin(text)
+        except ForecastPayloadExtractionIdentityError as exc:
+            raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+        if bulletin_cycle_key != cycle_key:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out payload does not match the requested NBM cycle"
+            )
+        new_success_fields = {
+            "bulletin_cycle_key",
+            "coordinator_evidence_id",
+            "coordinator_receipt_ref",
+            "coordinator_network_fetch_count",
+            "coordinator_payload_blob_created",
+            "coordinator_payload_blob_reused",
+            "coordinator_physical_bytes_written",
+        }
+        present_new_fields = new_success_fields.intersection(receipt)
+        if present_new_fields and present_new_fields != new_success_fields:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out receipt has partial coordinator evidence"
+            )
+        if present_new_fields:
+            if receipt.get("bulletin_cycle_key") != bulletin_cycle_key:
+                raise ForecastPayloadCASIntegrityError(
+                    "cross-process fan-out receipt bulletin cycle mismatch"
+                )
+            coordinator_evidence = self._validated_coordinator_evidence(
+                receipt,
+                source=source,
+                request_key=request_key,
+                cycle_key=cycle_key,
+                scope_key=scope_key,
+                payload_bytes=expected_bytes,
+            )
+        else:
+            coordinator_evidence = {
+                "coordinator_receipt_sha256": receipt.get(
+                    _RECEIPT_CONTENT_SHA256_KEY
+                ),
+                "coordinator_attribution_status": (
+                    "legacy_receipt_attribution_unavailable"
+                ),
+            }
         value = {
             "text": text,
             "fetched_at": receipt.get("fetched_at"),
@@ -296,6 +618,7 @@ class CrossProcessMarketInvariantFetchFanout:
             prepublished_payload_bytes=expected_bytes,
             prepublished_payload_ref=receipt.get("payload_ref"),
             prepublished_blob_reused=True,
+            **coordinator_evidence,
         )
 
     def _holder_fetch(
@@ -311,12 +634,22 @@ class CrossProcessMarketInvariantFetchFanout:
         fetch_fn: Callable[[], Any],
         waited_seconds: float,
     ) -> FanoutFetchResult:
+        coordinator_evidence_id = forecast_fanout_coordination_id(
+            source=source,
+            request_key=request_key,
+            cycle_key=cycle_key,
+            scope_key=scope_key,
+        )
         base_receipt = {
             "schema_version": RECEIPT_SCHEMA_VERSION,
             "source": source,
             "request_key": request_key,
             "cycle_key": cycle_key,
             "scope_key": scope_key,
+            "coordinator_evidence_id": coordinator_evidence_id,
+            "coordinator_receipt_ref": forecast_fanout_receipt_ref(
+                coordinator_evidence_id
+            ),
         }
         try:
             value = fetch_fn()
@@ -324,21 +657,43 @@ class CrossProcessMarketInvariantFetchFanout:
                 raise ForecastPayloadCASIntegrityError(
                     "cross-process NBM fan-out fetch must return a mapping with text"
                 )
+            try:
+                bulletin_cycle_key = nbm_nbp_cycle_key_from_bulletin(
+                    value["text"]
+                )
+            except ForecastPayloadExtractionIdentityError as exc:
+                raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+            if bulletin_cycle_key != cycle_key:
+                raise ForecastPayloadCASIntegrityError(
+                    "cross-process fan-out payload does not match the requested NBM cycle"
+                )
             payload_bytes = value["text"].encode("utf-8")
             stored = self.cas.put(payload_bytes)
             receipt = {
                 **base_receipt,
                 "status": "success",
+                "bulletin_cycle_key": bulletin_cycle_key,
                 "fetched_at": value.get("fetched_at"),
                 "request_started_at": value.get("request_started_at"),
                 "response_received_at": value.get("response_received_at"),
                 "payload_hash": stored["payload_hash"],
                 "payload_bytes": stored["payload_bytes"],
                 "payload_ref": stored["payload_ref"],
+                "coordinator_network_fetch_count": 1,
+                "coordinator_payload_blob_created": stored["created"],
+                "coordinator_payload_blob_reused": stored["reused"],
+                "coordinator_physical_bytes_written": stored[
+                    "physical_bytes_written"
+                ],
             }
-            _write_immutable_json(receipt_path, receipt)
-            published = self._read_receipt(receipt_path)
-            if published != receipt:
+            _write_immutable_json(self.cas.root, receipt_path, receipt)
+            published = self._read_receipt(self.cas.root, receipt_path)
+            published_payload = {
+                key: value
+                for key, value in (published or {}).items()
+                if key != _RECEIPT_CONTENT_SHA256_KEY
+            }
+            if published_payload != receipt:
                 return self._result_from_receipt(
                     published or {},
                     source=source,
@@ -347,6 +702,14 @@ class CrossProcessMarketInvariantFetchFanout:
                     scope_key=scope_key,
                     waited_seconds=waited_seconds,
                 )
+            coordinator_evidence = self._validated_coordinator_evidence(
+                published or {},
+                source=source,
+                request_key=request_key,
+                cycle_key=cycle_key,
+                scope_key=scope_key,
+                payload_bytes=stored["payload_bytes"],
+            )
             return FanoutFetchResult(
                 dict(value),
                 source,
@@ -361,15 +724,17 @@ class CrossProcessMarketInvariantFetchFanout:
                 prepublished_payload_ref=stored["payload_ref"],
                 prepublished_blob_created=stored["created"],
                 prepublished_blob_reused=stored["reused"],
+                **coordinator_evidence,
             )
         except Exception as exc:
             _write_immutable_json(
+                self.cas.root,
                 receipt_path,
                 {**base_receipt, "status": "error", "error": _error_receipt(exc)},
             )
             raise
         finally:
-            self._release_claim(claim_path, claim_token)
+            self._release_claim(self.cas.root, claim_path, claim_token)
 
     def _cross_process_fetch(
         self,
@@ -400,20 +765,20 @@ class CrossProcessMarketInvariantFetchFanout:
             "scope_key": scope_key,
         }
         while True:
-            receipt = self._read_receipt(receipt_path)
+            receipt = self._read_receipt(self.cas.root, receipt_path)
             if receipt is not None:
                 return self._result_from_receipt(
                     receipt,
                     **key_fields,
                     waited_seconds=self.monotonic_fn() - started,
                 )
-            claim_token = self._try_claim(claim_path, key_fields)
+            claim_token = self._try_claim(self.cas.root, claim_path, key_fields)
             if claim_token is not None:
                 # Recheck after claiming in case another holder published just
                 # before releasing its claim.
-                receipt = self._read_receipt(receipt_path)
+                receipt = self._read_receipt(self.cas.root, receipt_path)
                 if receipt is not None:
-                    self._release_claim(claim_path, claim_token)
+                    self._release_claim(self.cas.root, claim_path, claim_token)
                     return self._result_from_receipt(
                         receipt,
                         **key_fields,
@@ -443,6 +808,23 @@ class CrossProcessMarketInvariantFetchFanout:
                 )
             self.sleep_fn(min(self.poll_seconds, self.wait_timeout_seconds - waited))
 
+    @staticmethod
+    def _validate_result_cycle(result: FanoutFetchResult) -> FanoutFetchResult:
+        value = result.value
+        if not isinstance(value, Mapping) or not isinstance(value.get("text"), str):
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process NBM fan-out result must contain text"
+            )
+        try:
+            bulletin_cycle = nbm_nbp_cycle_key_from_bulletin(value["text"])
+        except ForecastPayloadExtractionIdentityError as exc:
+            raise ForecastPayloadCASIntegrityError(str(exc)) from exc
+        if bulletin_cycle != result.cycle_key:
+            raise ForecastPayloadCASIntegrityError(
+                "cross-process fan-out payload does not match the requested NBM cycle"
+            )
+        return result
+
     def fetch(
         self,
         *,
@@ -453,12 +835,14 @@ class CrossProcessMarketInvariantFetchFanout:
         scope_key: str | None = None,
     ) -> FanoutFetchResult:
         if not str(scope_key or "").strip():
-            return self._local.fetch(
-                source=source,
-                request_key=request_key,
-                cycle_key=cycle_key,
-                fetch_fn=fetch_fn,
-                scope_key=scope_key,
+            return self._validate_result_cycle(
+                self._local.fetch(
+                    source=source,
+                    request_key=request_key,
+                    cycle_key=cycle_key,
+                    fetch_fn=fetch_fn,
+                    scope_key=scope_key,
+                )
             )
         outer = self._local.fetch(
             source=source,
@@ -479,14 +863,16 @@ class CrossProcessMarketInvariantFetchFanout:
                 "cross-process fan-out returned an invalid local result"
             )
         if not outer.reused:
-            return inner
-        return replace(
-            inner,
-            fetched=False,
-            reused=True,
-            coordination_status="same_process_scoped_receipt_reused",
-            prepublished_blob_created=False,
-            prepublished_blob_reused=bool(inner.prepublished_payload_hash),
+            return self._validate_result_cycle(inner)
+        return self._validate_result_cycle(
+            replace(
+                inner,
+                fetched=False,
+                reused=True,
+                coordination_status="same_process_scoped_receipt_reused",
+                prepublished_blob_created=False,
+                prepublished_blob_reused=bool(inner.prepublished_payload_hash),
+            )
         )
 
     def clear(self) -> None:

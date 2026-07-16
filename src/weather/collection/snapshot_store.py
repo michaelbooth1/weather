@@ -368,6 +368,18 @@ FORECAST_PAYLOAD_COLUMNS = [
     "request_key",
     "cycle_key",
     "single_fetch_reused",
+    "single_fetch_fetched",
+    "single_fetch_coordination_status",
+    "single_fetch_wait_timed_out",
+    "single_fetch_scope",
+    "coordinator_evidence_id",
+    "coordinator_receipt_ref",
+    "coordinator_receipt_sha256",
+    "coordinator_attribution_status",
+    "coordinator_network_fetch_count",
+    "coordinator_payload_blob_created",
+    "coordinator_payload_blob_reused",
+    "coordinator_physical_bytes_written",
     "extraction_schema",
     "extraction_identity",
     "raw_payload_retained",
@@ -1649,6 +1661,62 @@ class SnapshotStore:
                     )
                     if attested is not None
                     else None
+                ),
+                "coordinator_evidence_id": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_evidence_id"
+                    )
+                    if attested is not None
+                    else None
+                ),
+                "coordinator_receipt_ref": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_receipt_ref"
+                    )
+                    if attested is not None
+                    else None
+                ),
+                "coordinator_receipt_sha256": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_receipt_sha256"
+                    )
+                    if attested is not None
+                    else None
+                ),
+                "coordinator_attribution_status": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_attribution_status"
+                    )
+                    if attested is not None
+                    else "not_applicable"
+                ),
+                "coordinator_network_fetch_count": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_network_fetch_count"
+                    )
+                    if attested is not None
+                    else 0
+                ),
+                "coordinator_payload_blob_created": bool(
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_payload_blob_created"
+                    )
+                    if attested is not None
+                    else False
+                ),
+                "coordinator_payload_blob_reused": bool(
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_payload_blob_reused"
+                    )
+                    if attested is not None
+                    else False
+                ),
+                "coordinator_physical_bytes_written": (
+                    (attested.get("single_fetch") or {}).get(
+                        "coordinator_physical_bytes_written"
+                    )
+                    if attested is not None
+                    else 0
                 ),
                 "extraction_schema": extraction_schema,
                 "extraction_identity": json.dumps(

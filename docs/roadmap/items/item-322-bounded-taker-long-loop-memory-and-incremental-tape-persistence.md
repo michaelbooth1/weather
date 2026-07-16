@@ -167,6 +167,35 @@ multi-hour paper run that exercises growing order and counterfactual tapes
 without a ceiling breach, process replacement, manual recycle, or evidence
 loss.
 
+## 2026-07-15 four-hour adoption readback
+
+The current-day run at
+`data/taker_runs/2026-07-15/taker-20260715-c318b182/` contributed 218
+contiguous persisted samples from ticks 242 through 459 between 04:18:41 and
+08:19:39 local, a 4.016-hour interval. Every sample retained PID 56560 and
+process-instance ID `ff093a1838ed48cb9cfebe454f972262`; restart count stayed
+zero, no tick was missing, and the largest inter-sample gap was 72.183 seconds.
+
+Absolute resource ceilings had ample margin. Private memory ranged from
+762.930 to 818.312 MiB and the process peak field reached 832.570 MiB against
+the 3,072 MiB ceiling. Working set ranged from 137.965 to 191.051 MiB and its
+peak field reached 205.086 MiB against 2,560 MiB. Maximum tick duration was
+12.171970 seconds against 55 seconds. Maximum per-tick process read/write was
+439,297,352/95,972 bytes against 536,870,912/134,217,728. Ordinary tape reads,
+writes, full-history reads, and full-history rewrites were all zero.
+
+The strict slope and populated-tape evidence did not pass. Of the 218 samples,
+147 were `WARN` solely for post-warmup private-memory slope. The slope began at
+22.896 MiB/hour, peaked at 22.927, and remained positive at 12.271 at the end;
+only the final 14 ticks, about 15 minutes, were continuously below the declared
+16 MiB/hour ceiling. Although the run target was 2026-07-15, all 12 markets
+were blocked because event metadata still said 2026-07-14. Both order and
+counterfactual tapes therefore remained header-only with zero rows. There was
+also no persisted four-hour host-RAM/commit/disk series from which to claim a
+host slope. Item 322 remains open pending one continuously passing,
+current-target-date populated-tape soak; the earlier warnings and positive
+slope are not averaged away.
+
 Acceptance: ordinary paper ticks do not reread or rewrite the complete order
 and counterfactual histories; persisted outputs and cumulative scores remain
 equivalent across uninterrupted and restart/recovery runs; status and fleet

@@ -379,6 +379,11 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
         "network_reuse_count": 0,
         "cross_process_reuse_count": 0,
         "network_wait_timeout_fail_open_count": 0,
+        "coordinator_attributions": [],
+        "coordinator_evidence_count": 0,
+        "coordinator_network_fetch_count": 0,
+        "coordinator_physical_bytes_written": 0,
+        "coordinator_attribution_unavailable_count": 0,
         "physical_write_budget_bytes": 400,
         "physical_write_budget_status": "PASS",
     }

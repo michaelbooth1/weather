@@ -322,7 +322,7 @@ class TestEnsureDecision(unittest.TestCase):
                     patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
                     patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", root / "loop_console.log"), \
                     patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
-                    patch.object(snapshot_tracker, "pid_is_python", return_value=False), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "not_found", "pid": 9999}), \
                     patch.object(snapshot_tracker.subprocess, "Popen", fake_popen):
                 result = snapshot_tracker.start_loop_detached(interval_minutes=10.0, now=NOW)
 
@@ -343,32 +343,229 @@ class TestEnsureDecision(unittest.TestCase):
                     patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
                     patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", root / "loop_console.log"), \
                     patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
-                    patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "running", "pid": 9999}), \
                     patch.object(snapshot_tracker.subprocess, "Popen", fail_popen):
                 result = snapshot_tracker.start_loop_detached(interval_minutes=10.0, now=NOW)
                 lock_still_exists = lock_path.exists()
 
         self.assertFalse(result["started"])
-        self.assertEqual(result["reason"], "writer lock owner is still live")
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
+        self.assertTrue(lock_still_exists)
+
+    def test_start_loop_detached_fails_closed_when_writer_owner_is_uninspectable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_path = root / ".loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", root / "loop_status.json"), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "unknown", "pid": 9999}), \
+                    patch.object(snapshot_tracker.subprocess, "Popen") as popen:
+                result = snapshot_tracker.start_loop_detached(now=NOW)
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
+        self.assertTrue(lock_still_exists)
+        popen.assert_not_called()
+
+    def test_snapshot_cleanup_retains_same_pid_replacement_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            lock_path = root / ".loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({
+                "pid": 1234,
+                "managed_process": {"pid": 1234, "creation_time_token": "win32-filetime:new"},
+            }), encoding="utf-8")
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path):
+                result = snapshot_tracker._cleanup_loop_writer_lock(
+                    expected_pid=1234,
+                    confirmed_exit={"exited": True},
+                    exited_identity={"pid": 1234, "creation_time_token": "win32-filetime:old"},
+                )
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["removed"])
+        self.assertEqual(result["reason"], "writer_lock_process_instance_mismatch")
         self.assertTrue(lock_still_exists)
 
     def test_stop_loop_removes_stopped_writer_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             status_path = root / "loop_status.json"
-            status_path.write_text(json.dumps(status(pid=1234)), encoding="utf-8")
+            command = snapshot_tracker._snapshot_loop_command(10.0)
+            identity = {
+                "pid": 1234,
+                "expected_command": command,
+                "creation_time_token": "win32-filetime:100",
+            }
+            status_path.write_text(
+                json.dumps(status(pid=1234, managed_process=identity)),
+                encoding="utf-8",
+            )
             lock_path = root / ".loop_status.json.writer.lock"
-            lock_path.write_text(json.dumps({"pid": 1234}), encoding="utf-8")
+            lock_path.write_text(
+                json.dumps({"pid": 1234, "managed_process": identity}),
+                encoding="utf-8",
+            )
 
             with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
                     patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
-                    patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
-                    patch.object(snapshot_tracker, "terminate_python_pid", return_value={"pid": 1234, "stopped": True}):
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 1234,
+                        "argv": command,
+                        "command_line": "managed snapshot command",
+                        "creation_time_token": "win32-filetime:100",
+                        "inspectable": True,
+                    }), \
+                    patch.object(snapshot_tracker, "terminate_managed_process", return_value={
+                        "pid": 1234,
+                        "stopped": True,
+                        "exited": True,
+                        "reason": "verified_process_exited",
+                        "termination_scope": "verified_process_handle",
+                    }):
                 result = snapshot_tracker.stop_loop(now=NOW)
 
         self.assertTrue(result["stopped"])
         self.assertTrue(result["writer_lock"]["removed"])
         self.assertFalse(lock_path.exists())
+
+    def test_stop_loop_rejects_reused_pid_command_mismatch_and_unknown_identity(self):
+        command = snapshot_tracker._snapshot_loop_command(10.0)
+        identity = {
+            "pid": 1234,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        cases = (
+            (
+                "reused_pid_process_instance_mismatch",
+                {"state": "running", "pid": 1234, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+            ),
+            (
+                "managed_process_command_mismatch",
+                {"state": "running", "pid": 1234, "argv": [*command[:-1], "99.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+            ),
+            (
+                "live_process_identity_uninspectable",
+                {"state": "unknown", "pid": 1234},
+            ),
+        )
+        for expected_reason, observation in cases:
+            with self.subTest(expected_reason=expected_reason), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                status_path = root / "loop_status.json"
+                status_path.write_text(
+                    json.dumps(status(pid=1234, managed_process=identity)),
+                    encoding="utf-8",
+                )
+                lock_path = root / ".loop_status.json.writer.lock"
+                lock_path.write_text(
+                    json.dumps({"pid": 1234, "managed_process": identity}),
+                    encoding="utf-8",
+                )
+                with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
+                        patch("weather.operations.supervisor.observe_process", return_value=observation), \
+                        patch.object(snapshot_tracker, "terminate_managed_process") as terminate:
+                    result = snapshot_tracker.stop_loop(now=NOW)
+
+                self.assertFalse(result["stopped"])
+                self.assertEqual(result["reason"], expected_reason)
+                self.assertTrue(lock_path.exists())
+                terminate.assert_not_called()
+
+    def test_ensure_snapshot_live_lock_mismatch_blocks_kill_and_replacement(self):
+        command = snapshot_tracker._snapshot_loop_command(10.0)
+        identity = {
+            "pid": 1234,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            status_path.write_text(
+                json.dumps(status(pid=1234, managed_process=identity)),
+                encoding="utf-8",
+            )
+            lock_path = root / ".loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(snapshot_tracker, "acquire_supervisor_lock", return_value=object()), \
+                    patch.object(snapshot_tracker, "release_supervisor_lock"), \
+                    patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
+                    patch.object(snapshot_tracker, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 9999,
+                        "inspectable": False,
+                    }), \
+                    patch.object(snapshot_tracker, "terminate_managed_process") as terminate, \
+                    patch.object(snapshot_tracker, "start_loop_detached") as start:
+                result = snapshot_tracker.ensure_loop(now=NOW)
+                lock_still_exists = lock_path.exists()
+
+        self.assertEqual(result["action"], "restart_blocked")
+        self.assertEqual(result["reason"], "mismatched_writer_lock_owner_is_authoritative")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        terminate.assert_not_called()
+        start.assert_not_called()
+        self.assertTrue(lock_still_exists)
+
+    def test_ensure_snapshot_restarts_when_managed_instance_is_already_gone(self):
+        already_gone = {
+            "stopped": False,
+            "reason": "managed_process_not_running",
+            "authorization": {"process_gone": True},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "loop_status.json"
+            status_path.write_text(json.dumps(status(pid=1234)), encoding="utf-8")
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", status_path), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(snapshot_tracker, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(snapshot_tracker, "acquire_supervisor_lock", return_value=object()), \
+                    patch.object(snapshot_tracker, "release_supervisor_lock"), \
+                    patch.object(snapshot_tracker, "pid_is_python", return_value=True), \
+                    patch.object(snapshot_tracker, "ensure_decision", return_value="restart"), \
+                    patch.object(snapshot_tracker, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch.object(snapshot_tracker, "loop_file_offsets", return_value={}), \
+                    patch.object(snapshot_tracker, "quarantine_malformed_loop_lines", return_value={}), \
+                    patch.object(snapshot_tracker, "stop_loop", return_value=already_gone), \
+                    patch.object(
+                        snapshot_tracker,
+                        "start_loop_detached",
+                        return_value={"started": True, "pid": 8765},
+                    ) as start:
+                result = snapshot_tracker.ensure_loop(now=NOW)
+
+        self.assertEqual(result["action"], "restart")
+        self.assertEqual(result["stop"], already_gone)
+        start.assert_called_once_with(10.0, now=NOW)
+
+    def test_snapshot_restart_cli_does_not_start_after_blocked_stop(self):
+        blocked = {
+            "stopped": False,
+            "reason": "managed_process_provenance_missing_or_mismatched",
+            "authorization": {"process_gone": False},
+        }
+        with patch.object(snapshot_tracker, "stop_loop", return_value=blocked), \
+                patch.object(snapshot_tracker, "start_loop_detached") as start, \
+                patch.object(sys, "argv", ["snapshot_tracker", "--restart"]), \
+                patch("builtins.print"):
+            snapshot_tracker.main()
+
+        start.assert_not_called()
 
 
 if __name__ == "__main__":

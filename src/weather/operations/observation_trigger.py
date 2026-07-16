@@ -43,14 +43,18 @@ from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
     acquire_writer_lock,
+    authorize_managed_process_termination,
+    authorize_writer_lock_removal,
     age_seconds as supervisor_age_seconds,
     append_jsonl as supervisor_append_jsonl,
     attach_status_writer,
     atomic_write_json,
     configure_json_console_logging,
+    capture_managed_process_identity,
     launch_detached,
     loop_file_offsets,
     loop_writer_lock_health,
+    managed_stop_allows_start,
     pid_is_python,
     persist_supervisor_status,
     quarantine_malformed_loop_lines,
@@ -61,7 +65,7 @@ from weather.operations.supervisor import (
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
     supervisor_recovery_guard,
-    terminate_python_pid,
+    terminate_managed_process,
 )
 from weather.schema_registry import schema_version
 from weather.sources.asos_one_minute import (
@@ -732,7 +736,30 @@ def _normalized_pid(value):
         return None
 
 
-def _cleanup_watcher_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1, status_path=None):
+def _watcher_loop_command(
+    market="all",
+    interval_seconds=DEFAULT_INTERVAL_SECONDS,
+    stale_after_seconds=DEFAULT_FAST_STALE_SECONDS,
+):
+    return OBSERVATION_SUPERVISOR.command(
+        "loop",
+        "--market",
+        market,
+        "--interval-seconds",
+        interval_seconds,
+        "--stale-after-seconds",
+        stale_after_seconds,
+    )
+
+
+def _cleanup_watcher_writer_lock(
+    expected_pid=None,
+    attempts=1,
+    sleep_seconds=0.1,
+    status_path=None,
+    confirmed_exit=None,
+    exited_identity=None,
+):
     attempts = max(1, int(attempts))
     status_path = status_path or STATUS_PATH
     last_result = None
@@ -742,17 +769,22 @@ def _cleanup_watcher_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.
             return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
         owner_pid = _normalized_pid(lock.get("pid"))
         expected = _normalized_pid(expected_pid)
-        if expected is not None and owner_pid == expected:
-            reason = "stopped writer pid"
-        elif owner_pid is not None and not pid_is_python(owner_pid):
-            reason = "dead writer pid"
-        else:
+        removal = authorize_writer_lock_removal(
+            lock,
+            expected_pid=expected,
+            confirmed_exit=confirmed_exit,
+            exited_identity=exited_identity,
+        )
+        if not removal.get("authorized"):
             return {
                 "removed": False,
-                "reason": "writer lock owner is still live",
+                "blocked": True,
+                "reason": removal.get("reason"),
                 "pid": owner_pid,
                 "path": lock.get("path"),
+                "authorization": removal,
             }
+        reason = "stopped writer pid" if expected is not None and owner_pid == expected else "dead writer pid"
         try:
             Path(lock["path"]).unlink()
         except FileNotFoundError:
@@ -772,26 +804,72 @@ def stop_watcher_loop(now=None, status_path=None):
     status_path = status_path or STATUS_PATH
     status = read_status(status_path)
     pid = (status or {}).get("pid")
+    writer_lock = read_writer_lock(status_path)
+    expected_command = _watcher_loop_command(
+        (status or {}).get("market", "all"),
+        (status or {}).get("interval_seconds", DEFAULT_INTERVAL_SECONDS),
+        (status or {}).get("stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
+    )
+    authorization = authorize_managed_process_termination(
+        status,
+        writer_lock,
+        expected_command,
+    )
+    if not authorization.get("authorized"):
+        return {
+            "stopped": False,
+            "pid": pid,
+            "reason": authorization.get("reason"),
+            "authorization": authorization,
+            "writer_lock": writer_lock,
+        }
+    managed_process = authorization["managed_process"]
+    stop = terminate_managed_process(managed_process, expected_command)
+    if not stop.get("stopped"):
+        return {
+            "stopped": False,
+            "termination_requested": bool(stop.get("termination_requested")),
+            "pid": pid,
+            "reason": stop.get("reason"),
+            "termination_scope": stop.get("termination_scope"),
+            "authorization": authorization,
+            "writer_lock": writer_lock,
+        }
+    confirmed_exit = {
+        "exited": stop.get("exited") is True,
+        "reason": stop.get("reason"),
+        "pid": pid,
+        "termination_scope": stop.get("termination_scope"),
+    }
     lock_cleanup = _cleanup_watcher_writer_lock(
         expected_pid=pid,
         attempts=20,
         sleep_seconds=0.1,
         status_path=status_path,
+        confirmed_exit=confirmed_exit,
+        exited_identity=managed_process,
     )
-    if not pid_is_python(pid):
+    if not confirmed_exit.get("exited"):
         return {
             "stopped": False,
-            "reason": f"no live observation trigger process (pid={pid})",
+            "termination_requested": True,
+            "pid": pid,
+            "reason": confirmed_exit.get("reason"),
+            "authorization": authorization,
+            "post_termination_observation": confirmed_exit,
             "writer_lock": lock_cleanup,
         }
-    stop = terminate_python_pid(pid)
-    if not stop.get("stopped"):
-        return {"stopped": False, "pid": pid, "reason": stop.get("reason"), "writer_lock": lock_cleanup}
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_status(status, status_path)
     append_diagnostic({"time": now.isoformat(), "supervisor": "stop", "pid": pid, "writer_lock": lock_cleanup})
-    return {"stopped": True, "pid": pid, "writer_lock": lock_cleanup}
+    return {
+        "stopped": True,
+        "pid": pid,
+        "authorization": authorization,
+        "post_termination_observation": confirmed_exit,
+        "writer_lock": lock_cleanup,
+    }
 
 
 def start_watcher_detached(
@@ -802,28 +880,22 @@ def start_watcher_detached(
 ):
     now = now or utc_now()
     lock_cleanup = _cleanup_watcher_writer_lock(attempts=3, sleep_seconds=0.1)
-    if lock_cleanup.get("reason") == "writer lock owner is still live":
+    if lock_cleanup.get("blocked"):
         append_diagnostic({
             "time": now.isoformat(),
             "supervisor": "start_blocked",
-            "reason": "writer lock owner is still live",
+            "reason": lock_cleanup.get("reason"),
             "writer_lock": lock_cleanup,
         })
-        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+        return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
+    command = _watcher_loop_command(market, interval_seconds, stale_after_seconds)
     child = launch_detached(
-        OBSERVATION_SUPERVISOR.command(
-            "loop",
-            "--market",
-            market,
-            "--interval-seconds",
-            interval_seconds,
-            "--stale-after-seconds",
-            stale_after_seconds,
-        ),
+        command,
         cwd=OBSERVATION_SUPERVISOR.cwd,
         console_log_path=CONSOLE_LOG_PATH,
         popen_fn=subprocess.Popen,
     )
+    managed_process = capture_managed_process_identity(child.pid, command)
     write_status({
         "schema_version": SCHEMA_VERSION,
         "runner": "observation_trigger",
@@ -839,6 +911,7 @@ def start_watcher_detached(
         "markets": {},
         "latest_triggered": {},
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "managed_process": managed_process,
         "started_by": "supervisor",
         "paused": PAUSE_FLAG_PATH.exists(),
     })
@@ -948,6 +1021,13 @@ def ensure_watcher_loop(
             result["loop_offsets_before"] = loop_file_offsets(spec)
         if action == "restart":
             result["stop"] = stop_watcher_loop(now=now)
+            if not managed_stop_allows_start(result["stop"]):
+                result["intended_action"] = "restart"
+                result["action"] = "restart_blocked"
+                result["reason"] = result["stop"].get("reason") or "managed watcher stop was not confirmed"
+                result = persist_supervisor_status(spec, result, now=now)
+                append_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+                return result
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_watcher_detached(market, interval_seconds, stale_after_seconds, now=now)
         elif action == "start":
@@ -964,9 +1044,19 @@ def ensure_watcher_loop(
 
 
 def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_observation_state):
+    managed_command = _watcher_loop_command(
+        args.market,
+        args.interval_seconds,
+        args.stale_after_seconds,
+    )
+    managed_process = capture_managed_process_identity(os.getpid(), managed_command)
     writer_lock = acquire_writer_lock(
         args.status_out,
-        owner={"loop": OBSERVATION_SUPERVISOR.name, "module": OBSERVATION_SUPERVISOR.module},
+        owner={
+            "loop": OBSERVATION_SUPERVISOR.name,
+            "module": OBSERVATION_SUPERVISOR.module,
+            "managed_process": managed_process,
+        },
         stale_after_seconds=max(120.0, float(args.interval_seconds) * 3.0),
     )
     if writer_lock is None:
@@ -995,6 +1085,7 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "consecutive_errors": 0,
         "last_error": None,
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "managed_process": managed_process,
     })
     attach_status_writer(status, writer_lock)
     write_status(status, args.status_out)
@@ -1613,10 +1704,16 @@ def main(argv=None):
         print(json.dumps(stop_watcher_loop(), indent=2, sort_keys=True, default=str))
         return
     if command == "restart":
-        result = {
-            "stop": stop_watcher_loop(),
-            "start": start_watcher_detached(args.market, args.interval_seconds, args.stale_after_seconds),
-        }
+        stop = stop_watcher_loop()
+        result = {"stop": stop}
+        if managed_stop_allows_start(stop):
+            result["start"] = start_watcher_detached(
+                args.market,
+                args.interval_seconds,
+                args.stale_after_seconds,
+            )
+        else:
+            result["start"] = {"started": False, "reason": "managed stop was not confirmed"}
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return
     if command == "replay":
