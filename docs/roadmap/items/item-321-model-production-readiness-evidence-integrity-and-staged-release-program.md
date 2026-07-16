@@ -313,6 +313,23 @@ action contract, while Stage B and nightly were disabled and also predated the
 new flags. No ledger row was appended, so the honest forward counts remain
 `0/3` clean days and `0/7` unattended cycles.
 
+2026-07-16 scheduler-provenance hardening: exact task action fields and a fresh
+`Running` label were not sufficient to prove that the reporting Python process
+was descended from that task; a manual look-alike could otherwise copy the
+flags while an unrelated real instance was running. Direct and training-window
+delegated producers now query the current Windows PID plus a maximum of two
+ancestors. They bind the OS image and complete command at every required depth,
+the current process working directory, the exact venv redirector when present,
+the scheduler engine PID/instance GUID/running state, and child/parent/task
+creation-time order. Delegated topology must terminate at the exact registered
+PowerShell action; direct topology must terminate at the exact registered
+Python action. Missing timestamps, stale or inverted starts, PID breaks,
+over-deep chains, copied child arguments, wrong cwd, unrelated parents, and
+non-finite correlation bounds all fail closed. Registration/runtime action
+tokens remain single-sourced in `training_window_contract.ps1`. This software
+closure did not register or run a task and does not advance the real `0/3` or
+`0/7` evidence streaks.
+
 2026-07-12 bounded snapshot-capture implementation: the July 11 scheduled tape
 shows why a heartbeat alone is insufficient. All 12 markets had repeated
 scheduled gaps above 15 minutes; the worst per-market gaps were approximately

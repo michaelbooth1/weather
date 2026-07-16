@@ -11,17 +11,34 @@ param(
     [string]$WindowTaskName = "WeatherTrainingWindow",
     [string]$RestoreTaskName = "WeatherTrainingWindowRestore",
     [string]$WindowAt = "01:00",
-    [string]$RestoreAt = "04:15"
+    [string]$RestoreAt = "04:15",
+    [string]$PowerShellExecutable = "powershell.exe"
 )
 
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $script = Join-Path $RepoRoot "scripts\ops\training_window.ps1"
-if (-not (Test-Path $script)) {
+if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
     throw "training window script not found at $script"
 }
+$script = (Resolve-Path -LiteralPath $script).Path
+$contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
+if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
+    throw "training window contract script not found at $contractScript"
+}
+. $contractScript
+
+$powerShellCommand = Get-Command $PowerShellExecutable -CommandType Application -ErrorAction Stop
+$PowerShellExecutable = [string]$powerShellCommand.Source
+$windowActionTokens = @(Get-TrainingWindowTaskActionTokens `
+    -RepoRoot $RepoRoot `
+    -ScriptPath $script `
+    -WindowTaskName $WindowTaskName `
+    -SchedulerTaskExecutable $PowerShellExecutable)
+$windowActionArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $windowActionTokens
 
 $windowAction = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`" -RepoRoot `"$RepoRoot`"" `
+    -Execute $PowerShellExecutable `
+    -Argument $windowActionArguments `
     -WorkingDirectory $RepoRoot
 
 $windowTrigger = New-ScheduledTaskTrigger -Daily -At $WindowAt
@@ -45,9 +62,17 @@ Register-ScheduledTask `
     -Description "Single-host training window: stops capture loops, runs nightly retrain (3h cap), restores capture. Skips on unhealthy commit/disk." `
     -Force | Out-Null
 
+$restoreActionTokens = @(Get-TrainingWindowTaskActionTokens `
+    -RepoRoot $RepoRoot `
+    -ScriptPath $script `
+    -WindowTaskName $WindowTaskName `
+    -SchedulerTaskExecutable $PowerShellExecutable `
+    -RestoreOnly)
+$restoreActionArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $restoreActionTokens
+
 $restoreAction = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`" -RepoRoot `"$RepoRoot`" -RestoreOnly" `
+    -Execute $PowerShellExecutable `
+    -Argument $restoreActionArguments `
     -WorkingDirectory $RepoRoot
 
 $restoreTrigger = New-ScheduledTaskTrigger -Daily -At $RestoreAt
@@ -70,3 +95,4 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Registered '$WindowTaskName' daily at $WindowAt and '$RestoreTaskName' daily at $RestoreAt."
+Write-Host "The window action carries the exact delegated-child scheduler provenance contract."

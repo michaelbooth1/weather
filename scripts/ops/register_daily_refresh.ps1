@@ -76,8 +76,8 @@ if ($ContinueOnError) {
 $releasePointer = Join-Path $RepoRoot "artifacts\releases\current_release.json"
 $releasesRoot = Join-Path $RepoRoot "artifacts\releases"
 $releaseContract = "--active-release-pointer `"$releasePointer`" --releases-root `"$releasesRoot`" --repo-root `"$RepoRoot`""
-$stageAProvenance = "--scheduler-task-name `"$TaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 14400"
-$stageBProvenance = "--scheduler-task-name `"$EvidenceTaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 28800"
+$stageAProvenance = "--scheduler-invocation-topology direct --scheduler-task-name `"$TaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 14400"
+$stageBProvenance = "--scheduler-invocation-topology direct --scheduler-task-name `"$EvidenceTaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 28800"
 
 $stageAArguments = "$baseArguments --stage settlement --evidence-task-name `"$EvidenceTaskName`" $stageAProvenance $releaseContract $productionEvidenceContract"
 $stageBArguments = "$baseArguments --stage evidence --status-out data\backtest\daily_refresh_evidence_status.json --report-out data\backtest\daily_refresh_evidence_report.md $stageBProvenance $releaseContract $productionEvidenceContract"

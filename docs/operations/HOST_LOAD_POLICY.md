@@ -104,6 +104,10 @@ maintenance window:
   child, and the child runs with `capture_resource_mode=no_live_capture`.
   Window commit preflight owns the memory decision; a blocked/error/missing
   nightly status is surfaced as a nonzero window result after capture restore.
+  The nightly process is scheduler topology `delegated_child`: it attests the
+  exact running PowerShell wrapper action, its own Python command, and the
+  OS-observed bounded parent process lineage. A stale, disabled, unrelated,
+  mismatched, or manually invoked topology remains non-countable.
 - **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
   unconditionally re-enables supervisors and ensures all loops, in case the
   window process dies mid-flight.

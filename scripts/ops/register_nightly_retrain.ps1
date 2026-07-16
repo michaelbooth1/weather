@@ -73,7 +73,7 @@ if ($FailOnDailyLearningBlocker) {
 
 $releasePointer = Join-Path $RepoRoot "artifacts\releases\current_release.json"
 $releasesRoot = Join-Path $RepoRoot "artifacts\releases"
-$arguments = "$arguments --scheduler-task-name `"$TaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 28800 --release-pointer `"$releasePointer`" --releases-root `"$releasesRoot`" --repo-root `"$RepoRoot`" $productionEvidenceContract"
+$arguments = "$arguments --scheduler-invocation-topology direct --scheduler-task-name `"$TaskName`" --scheduler-task-executable `"$python`" --scheduler-task-working-directory `"$RepoRoot`" --producer-sla-seconds 28800 --release-pointer `"$releasePointer`" --releases-root `"$releasesRoot`" --repo-root `"$RepoRoot`" $productionEvidenceContract"
 
 $action = New-ScheduledTaskAction `
     -Execute $python `

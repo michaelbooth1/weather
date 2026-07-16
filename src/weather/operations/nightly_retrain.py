@@ -2582,6 +2582,13 @@ def build_run_parser(parser):
     parser.add_argument("--scheduler-task-name", default="")
     parser.add_argument("--scheduler-task-executable", default="")
     parser.add_argument("--scheduler-task-working-directory", default="")
+    parser.add_argument(
+        "--scheduler-invocation-topology",
+        choices=("direct", "delegated_child"),
+        default="direct",
+    )
+    parser.add_argument("--scheduler-task-action-arguments-b64", default="")
+    parser.add_argument("--scheduler-process-executable", default="")
     parser.add_argument("--scheduler-correlation-seconds", type=float, default=120.0)
     parser.add_argument(
         "--producer-sla-seconds",

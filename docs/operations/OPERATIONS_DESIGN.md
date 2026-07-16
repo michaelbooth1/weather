@@ -165,6 +165,9 @@ at its configured time without stopping capture. Use this pattern only on a
 host where the capture-resource gate permits the workload, such as an offline
 or separate training host. The registration script requires explicit
 production-evidence arguments; its `param(...)` block is the source of truth.
+Countable direct runs bind the current OS PID, image, complete argument vector,
+working directory, creation time, optional exact venv redirector, and current
+Task Scheduler engine PID/instance to the registered action and fresh task run.
 
 ### Single-Host Training Window
 
@@ -173,7 +176,14 @@ host that otherwise captures continuously:
 
 - `WeatherTrainingWindow` performs a resource preflight, disables all three
   capture supervisors, stops all three workers, runs bounded nightly retraining,
-  and restores capture in a `finally` block.
+  and restores capture in a `finally` block. Its nightly process is a delegated
+  child, not a direct scheduled action: the child must attest the exact running
+  PowerShell task action plus its own Python executable, arguments, working
+  directory, and task-run correlation. OS-observed process lineage must reach
+  the registered PowerShell engine PID, image, and complete action command line,
+  with wrapper/child creation times correlated to the task run. Only the exact
+  expected Windows venv redirector may appear between producer and wrapper;
+  the observed chain is bounded to two ancestors and fails closed if over-deep.
 - `WeatherTrainingWindowRestore` is a later dead-man task that unconditionally
   re-enables supervisors and issues all three `ensure` commands.
 
@@ -185,6 +195,12 @@ Do not enable both the direct nightly task and the single-host training window
 for the same workload. The registration scripts do not remove the alternative
 task automatically; inspect and reconcile Task Scheduler explicitly when
 changing topology.
+
+`scripts/ops/training_window_contract.ps1` is the single action-token owner for
+both training-window registration and delegated-child attestation. Changing
+the task name, executable, repository path, or wrapper action requires a
+deliberate re-registration; stale definitions fail closed rather than being
+treated as scheduled evidence.
 
 ## Why Capture Is Not Packaged Into The Dashboard
 

@@ -21,6 +21,8 @@
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$WindowTaskName = "WeatherTrainingWindow",
+    [string]$SchedulerTaskExecutable = "powershell.exe",
     [double]$MaxCommitPercent = 70.0,
     [long]$MinFreeDiskBytes = 60GB,
     # A mid-flight snapshot fleet pass (12 markets, one isolated child each)
@@ -34,6 +36,13 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+$scriptPath = (Resolve-Path -LiteralPath $PSCommandPath -ErrorAction Stop).Path
+$contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
+if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
+    throw "training window contract script not found at $contractScript"
+}
+. $contractScript
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $logDir = Join-Path $RepoRoot "data\logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force $logDir | Out-Null }
@@ -163,15 +172,33 @@ try {
 
     # ---- Run the retrain child under a hard timeout ----
     Write-WindowStatus "retrain" "running"
-    Write-WindowLog "RETRAIN" "starting nightly_retrain (cap ${ChildTimeoutMinutes}m)"
+    $scheduledActionTokens = @(Get-TrainingWindowTaskActionTokens `
+        -RepoRoot $RepoRoot `
+        -ScriptPath $scriptPath `
+        -WindowTaskName $WindowTaskName `
+        -SchedulerTaskExecutable $SchedulerTaskExecutable)
+    $schedulerActionArgumentsB64 = ConvertTo-SchedulerArgumentContract `
+        -Tokens $scheduledActionTokens
+    $schedulerCorrelationSeconds = [int][math]::Ceiling($CaptureStopTimeoutSeconds + 300.0)
+    $producerSlaSeconds = [int][math]::Floor($ChildTimeoutMinutes * 60.0)
+    Write-WindowLog "RETRAIN" "starting nightly_retrain (cap ${ChildTimeoutMinutes}m; delegated scheduler task $WindowTaskName)"
     $childArgs = @(
         "-m", "weather.operations.nightly_retrain", "run",
         "--fail-on-daily-learning-blocker",
         "--capture-resource-mode", "no_live_capture",
-        "--capture-resource-min-free-memory-bytes", "0"
+        "--capture-resource-min-free-memory-bytes", "0",
+        "--scheduler-invocation-topology", "delegated_child",
+        "--scheduler-task-name", $WindowTaskName,
+        "--scheduler-task-executable", $SchedulerTaskExecutable,
+        "--scheduler-task-working-directory", $RepoRoot,
+        "--scheduler-task-action-arguments-b64", $schedulerActionArgumentsB64,
+        "--scheduler-process-executable", $python,
+        "--scheduler-correlation-seconds", ([string]$schedulerCorrelationSeconds),
+        "--producer-sla-seconds", ([string]$producerSlaSeconds)
     )
+    $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
     $child = Start-Process -FilePath $python `
-        -ArgumentList $childArgs `
+        -ArgumentList $childArgumentString `
         -WorkingDirectory $RepoRoot -PassThru -WindowStyle Hidden
     $completed = $child.WaitForExit([int]($ChildTimeoutMinutes * 60 * 1000))
     if (-not $completed) {
