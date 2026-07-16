@@ -258,27 +258,98 @@ class ObservationTriggerTests(unittest.TestCase):
             with patch.object(observation_trigger, "STATUS_PATH", status_path), \
                     patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
                     patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
-                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "running", "pid": 2468}), \
                     patch.object(observation_trigger.subprocess, "Popen") as popen:
                 result = observation_trigger.start_watcher_detached(now=now)
 
         self.assertFalse(result["started"])
-        self.assertEqual(result["reason"], "writer lock owner is still live")
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
         popen.assert_not_called()
+
+    def test_start_watcher_detached_fails_closed_when_writer_owner_is_uninspectable(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            lock_path = writer_lock_path(status_path)
+            lock_path.write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "unknown", "pid": 2468}), \
+                    patch.object(observation_trigger.subprocess, "Popen") as popen:
+                result = observation_trigger.start_watcher_detached(now=now)
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
+        self.assertTrue(lock_still_exists)
+        popen.assert_not_called()
+
+    def test_watcher_cleanup_retains_same_pid_replacement_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            lock_path = writer_lock_path(status_path)
+            lock_path.write_text(json.dumps({
+                "pid": 2468,
+                "managed_process": {"pid": 2468, "creation_time_token": "win32-filetime:new"},
+            }), encoding="utf-8")
+            result = observation_trigger._cleanup_watcher_writer_lock(
+                expected_pid=2468,
+                status_path=status_path,
+                confirmed_exit={"exited": True},
+                exited_identity={"pid": 2468, "creation_time_token": "win32-filetime:old"},
+            )
+            lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["removed"])
+        self.assertEqual(result["reason"], "writer_lock_process_instance_mismatch")
+        self.assertTrue(lock_still_exists)
 
     def test_stop_watcher_loop_removes_stopped_writer_lock(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             status_path = root / "status.json"
-            status_path.write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+            command = observation_trigger._watcher_loop_command("all", 60.0, 180.0)
+            identity = {
+                "pid": 2468,
+                "expected_command": command,
+                "creation_time_token": "win32-filetime:100",
+            }
+            status_path.write_text(
+                json.dumps({
+                    "pid": 2468,
+                    "market": "all",
+                    "interval_seconds": 60.0,
+                    "stale_after_seconds": 180.0,
+                    "managed_process": identity,
+                }),
+                encoding="utf-8",
+            )
             lock_path = writer_lock_path(status_path)
-            lock_path.write_text(json.dumps({"pid": 2468}), encoding="utf-8")
+            lock_path.write_text(
+                json.dumps({"pid": 2468, "managed_process": identity}),
+                encoding="utf-8",
+            )
 
             with patch.object(observation_trigger, "STATUS_PATH", status_path), \
                     patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
-                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
-                    patch.object(observation_trigger, "terminate_python_pid", return_value={"pid": 2468, "stopped": True}):
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 2468,
+                        "argv": command,
+                        "command_line": "managed observation command",
+                        "creation_time_token": "win32-filetime:100",
+                        "inspectable": True,
+                    }), \
+                    patch.object(observation_trigger, "terminate_managed_process", return_value={
+                        "pid": 2468,
+                        "stopped": True,
+                        "exited": True,
+                        "reason": "verified_process_exited",
+                        "termination_scope": "verified_process_handle",
+                    }):
                 result = observation_trigger.stop_watcher_loop(now=now, status_path=status_path)
 
             lock_exists = lock_path.exists()
@@ -286,6 +357,216 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertTrue(result["stopped"])
         self.assertEqual(result["writer_lock"]["reason"], "stopped writer pid")
         self.assertFalse(lock_exists)
+
+    def test_stop_watcher_rejects_reused_pid_command_mismatch_and_unknown_identity(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        command = observation_trigger._watcher_loop_command("all", 60.0, 180.0)
+        identity = {
+            "pid": 2468,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        cases = (
+            (
+                "reused_pid_process_instance_mismatch",
+                {"state": "running", "pid": 2468, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+            ),
+            (
+                "managed_process_command_mismatch",
+                {"state": "running", "pid": 2468, "argv": [*command[:-1], "181.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+            ),
+            (
+                "live_process_identity_uninspectable",
+                {"state": "unknown", "pid": 2468},
+            ),
+        )
+        for expected_reason, observation in cases:
+            with self.subTest(expected_reason=expected_reason), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                status_path = root / "status.json"
+                status_path.write_text(
+                    json.dumps({
+                        "pid": 2468,
+                        "market": "all",
+                        "interval_seconds": 60.0,
+                        "stale_after_seconds": 180.0,
+                        "managed_process": identity,
+                    }),
+                    encoding="utf-8",
+                )
+                lock_path = writer_lock_path(status_path)
+                lock_path.write_text(
+                    json.dumps({"pid": 2468, "managed_process": identity}),
+                    encoding="utf-8",
+                )
+                with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                        patch("weather.operations.supervisor.observe_process", return_value=observation), \
+                        patch.object(observation_trigger, "terminate_managed_process") as terminate:
+                    result = observation_trigger.stop_watcher_loop(now=now, status_path=status_path)
+
+                self.assertFalse(result["stopped"])
+                self.assertEqual(result["reason"], expected_reason)
+                self.assertTrue(lock_path.exists())
+                terminate.assert_not_called()
+
+    def test_stop_watcher_keeps_lock_until_managed_exit_is_observed(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        command = observation_trigger._watcher_loop_command("all", 60.0, 180.0)
+        identity = {
+            "pid": 2468,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 2468,
+                    "market": "all",
+                    "interval_seconds": 60.0,
+                    "stale_after_seconds": 180.0,
+                    "managed_process": identity,
+                }),
+                encoding="utf-8",
+            )
+            lock_path = writer_lock_path(status_path)
+            lock_path.write_text(
+                json.dumps({"pid": 2468, "managed_process": identity}),
+                encoding="utf-8",
+            )
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 2468,
+                        "argv": command,
+                        "command_line": "managed observation command",
+                        "creation_time_token": "win32-filetime:100",
+                        "inspectable": True,
+                    }), \
+                    patch.object(observation_trigger, "terminate_managed_process", return_value={
+                        "pid": 2468,
+                        "stopped": False,
+                        "exited": False,
+                        "termination_requested": True,
+                        "reason": "verified_process_exit_not_observed",
+                        "termination_scope": "verified_process_handle",
+                    }):
+                result = observation_trigger.stop_watcher_loop(now=now, status_path=status_path)
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["stopped"])
+        self.assertTrue(result["termination_requested"])
+        self.assertTrue(lock_still_exists)
+
+    def test_ensure_watcher_live_lock_mismatch_blocks_kill_and_replacement(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        command = observation_trigger._watcher_loop_command("all", 60.0, 180.0)
+        identity = {
+            "pid": 2468,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 2468,
+                    "market": "all",
+                    "last_heartbeat": now.isoformat(),
+                    "interval_seconds": 60.0,
+                    "stale_after_seconds": 180.0,
+                    "consecutive_errors": 0,
+                    "managed_process": identity,
+                }),
+                encoding="utf-8",
+            )
+            lock_path = writer_lock_path(status_path)
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(observation_trigger, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(observation_trigger, "acquire_supervisor_lock", return_value=object()), \
+                    patch.object(observation_trigger, "release_supervisor_lock"), \
+                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch.object(observation_trigger, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 9999,
+                        "inspectable": False,
+                    }), \
+                    patch.object(observation_trigger, "terminate_managed_process") as terminate, \
+                    patch.object(observation_trigger, "start_watcher_detached") as start:
+                result = observation_trigger.ensure_watcher_loop(now=now)
+                lock_still_exists = lock_path.exists()
+
+        self.assertEqual(result["action"], "restart_blocked")
+        self.assertEqual(result["reason"], "mismatched_writer_lock_owner_is_authoritative")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        terminate.assert_not_called()
+        start.assert_not_called()
+        self.assertTrue(lock_still_exists)
+
+    def test_ensure_watcher_restarts_when_managed_instance_is_already_gone(self):
+        now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
+        already_gone = {
+            "stopped": False,
+            "reason": "managed_process_not_running",
+            "authorization": {"process_gone": True},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            status_path.write_text(
+                json.dumps({
+                    "pid": 2468,
+                    "market": "all",
+                    "last_heartbeat": now.isoformat(),
+                    "interval_seconds": 60.0,
+                    "stale_after_seconds": 180.0,
+                    "consecutive_errors": 0,
+                }),
+                encoding="utf-8",
+            )
+            with patch.object(observation_trigger, "STATUS_PATH", status_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(observation_trigger, "SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(observation_trigger, "acquire_supervisor_lock", return_value=object()), \
+                    patch.object(observation_trigger, "release_supervisor_lock"), \
+                    patch.object(observation_trigger, "pid_is_python", return_value=True), \
+                    patch.object(observation_trigger, "ensure_decision", return_value="restart"), \
+                    patch.object(observation_trigger, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch.object(observation_trigger, "loop_file_offsets", return_value={}), \
+                    patch.object(observation_trigger, "quarantine_malformed_loop_lines", return_value={}), \
+                    patch.object(observation_trigger, "stop_watcher_loop", return_value=already_gone), \
+                    patch.object(
+                        observation_trigger,
+                        "start_watcher_detached",
+                        return_value={"started": True},
+                    ) as start:
+                result = observation_trigger.ensure_watcher_loop(now=now)
+
+        self.assertEqual(result["action"], "restart")
+        self.assertEqual(result["stop"], already_gone)
+        start.assert_called_once_with("all", 60.0, 180.0, now=now)
+
+    def test_watcher_restart_cli_does_not_start_after_blocked_stop(self):
+        blocked = {
+            "stopped": False,
+            "reason": "managed_process_provenance_missing_or_mismatched",
+            "authorization": {"process_gone": False},
+        }
+        with patch.object(observation_trigger, "stop_watcher_loop", return_value=blocked), \
+                patch.object(observation_trigger, "start_watcher_detached") as start, \
+                patch("builtins.print"):
+            observation_trigger.main(["restart"])
+
+        start.assert_not_called()
 
     def test_observation_state_reads_native_aliases_first(self):
         model = TorontoHighTempModel(target_date="2026-06-13", market_id="nyc")

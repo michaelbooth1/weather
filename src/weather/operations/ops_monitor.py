@@ -56,6 +56,7 @@ from weather.operations.observation_trigger import (
     watcher_health,
 )
 from weather.runtime_identity import format_runtime_identity, get_runtime_identity, identities_match
+from weather.operations.supervisor import managed_stop_allows_start
 from weather.operations.nightly_retrain import (
     DEFAULT_REPORT_OUT as NIGHTLY_RETRAIN_REPORT_OUT,
     DEFAULT_STATUS_OUT as NIGHTLY_RETRAIN_STATUS_OUT,
@@ -274,7 +275,15 @@ def ensure_observation_trigger_loop():
 
 
 def restart_weather_loop():
-    return {"stop": stop_loop(), "start": start_loop_detached()}
+    stop = stop_loop()
+    return {
+        "stop": stop,
+        "start": (
+            start_loop_detached()
+            if managed_stop_allows_start(stop)
+            else {"started": False, "reason": "managed stop was not confirmed"}
+        ),
+    }
 
 
 def restart_clob_loop():
@@ -283,16 +292,29 @@ def restart_clob_loop():
         return {"restarted": False, "reason": "another CLOB supervisor action is running"}
     try:
         clob_kwargs = _clob_loop_start_kwargs_from_status()
+        stop = stop_clob_loop()
         return {
-            "stop": stop_clob_loop(),
-            "start": start_clob_loop_detached(**clob_kwargs),
+            "stop": stop,
+            "start": (
+                start_clob_loop_detached(**clob_kwargs)
+                if managed_stop_allows_start(stop)
+                else {"started": False, "reason": "managed stop was not confirmed"}
+            ),
         }
     finally:
         release_clob_supervisor_lock(lock_handle)
 
 
 def restart_observation_trigger_loop():
-    return {"stop": stop_watcher_loop(), "start": start_watcher_detached()}
+    stop = stop_watcher_loop()
+    return {
+        "stop": stop,
+        "start": (
+            start_watcher_detached()
+            if managed_stop_allows_start(stop)
+            else {"started": False, "reason": "managed stop was not confirmed"}
+        ),
+    }
 
 
 def stop_all_loops():

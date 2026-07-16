@@ -4,6 +4,8 @@ import os
 import json
 import logging
 import signal
+import shlex
+import select
 import shutil
 import subprocess
 import sys
@@ -631,6 +633,17 @@ def ensure_exit_code(result: dict[str, Any] | None) -> int:
     return 1
 
 
+def managed_stop_allows_start(result: object) -> bool:
+    """Return whether a stop proved replacement launch cannot duplicate a loop."""
+
+    if not isinstance(result, dict):
+        return False
+    if result.get("stopped") is True:
+        return True
+    authorization = result.get("authorization")
+    return bool(isinstance(authorization, dict) and authorization.get("process_gone") is True)
+
+
 def persist_supervisor_status(
     spec: SupervisorSpec,
     result: dict[str, Any],
@@ -649,7 +662,7 @@ def persist_supervisor_status(
     action = str(result.get("action") or "").lower()
     if exit_code == 0:
         ensure_status = "OK"
-    elif action in {"locked", "backoff", "circuit_open"}:
+    elif action in {"locked", "backoff", "circuit_open", "restart_blocked"}:
         ensure_status = "BLOCKED"
     else:
         ensure_status = "FAILED"
@@ -850,6 +863,455 @@ def pid_is_python(pid: object, *, run_fn: Callable[..., subprocess.CompletedProc
     except (OSError, subprocess.SubprocessError):
         return False
     return "python" in (result.stdout or "").lower()
+
+
+def _normalized_pid(value: object) -> int | None:
+    try:
+        pid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _windows_command_argv(command_line: str) -> list[str] | None:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        argc = ctypes.c_int()
+        command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+        command_line_to_argv.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+        command_line_to_argv.restype = ctypes.POINTER(wintypes.LPWSTR)
+        argv = command_line_to_argv(str(command_line), ctypes.byref(argc))
+        if not argv:
+            return None
+        try:
+            return [argv[index] for index in range(argc.value)]
+        finally:
+            ctypes.windll.kernel32.LocalFree(argv)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def command_line_argv(command_line: object) -> list[str] | None:
+    text = str(command_line or "").strip()
+    if not text:
+        return None
+    if os.name == "nt":
+        return _windows_command_argv(text)
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return None
+
+
+def _normalized_executable(value: object) -> str:
+    text = os.path.expandvars(str(value or "").strip().strip('"'))
+    if not text:
+        return ""
+    return os.path.normcase(os.path.normpath(os.path.abspath(text)))
+
+
+def commands_match_exact(observed: Sequence[object] | None, expected: Sequence[object] | None) -> bool:
+    """Compare complete managed argv, including the interpreter and every flag."""
+
+    observed_values = [str(value) for value in observed or []]
+    expected_values = [str(value) for value in expected or []]
+    if not observed_values or len(observed_values) != len(expected_values):
+        return False
+    if _normalized_executable(observed_values[0]) != _normalized_executable(expected_values[0]):
+        return False
+    return observed_values[1:] == expected_values[1:]
+
+
+def observe_process(pid: object) -> dict[str, Any]:
+    """Return tri-state command and OS creation-token evidence for one PID.
+
+    ``not_found`` is affirmative absence. ``unknown`` is deliberately distinct:
+    an access or inspection failure must never authorize destructive recovery.
+    """
+
+    normalized = _normalized_pid(pid)
+    if normalized is None:
+        return {"state": "unknown", "pid": pid, "reason": "invalid_pid"}
+    if os.name == "nt":
+        try:
+            from weather.operations.windows_processes import describe_process, snapshot_processes
+
+            table = snapshot_processes()
+            if table is None:
+                return {
+                    "state": "unknown",
+                    "pid": normalized,
+                    "reason": "Windows process snapshot unavailable",
+                }
+            if normalized not in table:
+                return {"state": "not_found", "pid": normalized}
+            detail = describe_process(normalized, table)
+        except (OSError, TypeError, ValueError) as exc:
+            return {"state": "unknown", "pid": normalized, "reason": str(exc)}
+        command_line = detail.get("command_line")
+        creation_token = detail.get("creation_time_token")
+        return {
+            "state": "running",
+            "pid": normalized,
+            "parent_pid": detail.get("parent_pid"),
+            "image_path": detail.get("image_path"),
+            "command_line": command_line,
+            "argv": command_line_argv(command_line),
+            "creation_time_token": creation_token,
+            "inspectable": bool(command_line and creation_token),
+        }
+
+    proc_root = Path("/proc") / str(normalized)
+    if Path("/proc").is_dir():
+        try:
+            raw_stat = (proc_root / "stat").read_text(encoding="utf-8")
+            command_bytes = (proc_root / "cmdline").read_bytes()
+        except FileNotFoundError:
+            return {"state": "not_found", "pid": normalized}
+        except OSError as exc:
+            return {"state": "unknown", "pid": normalized, "reason": str(exc)}
+        closing_paren = raw_stat.rfind(")")
+        fields = raw_stat[closing_paren + 2 :].split() if closing_paren >= 0 else []
+        start_ticks = fields[19] if len(fields) > 19 else None
+        argv = [
+            value.decode("utf-8", errors="replace")
+            for value in command_bytes.split(b"\0")
+            if value
+        ]
+        return {
+            "state": "running",
+            "pid": normalized,
+            "command_line": shlex.join(argv) if argv else None,
+            "argv": argv or None,
+            "creation_time_token": f"proc-start-ticks:{start_ticks}" if start_ticks else None,
+            "inspectable": bool(argv and start_ticks),
+        }
+    return {
+        "state": "unknown",
+        "pid": normalized,
+        "reason": "OS process creation token is unavailable",
+    }
+
+
+def capture_managed_process_identity(
+    pid: object,
+    expected_command: Sequence[object],
+    *,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Capture PID-reuse-resistant provenance to persist in status and lock."""
+
+    normalized = _normalized_pid(pid)
+    expected = [str(value) for value in expected_command]
+    observe_fn = observe_fn or observe_process
+    observation = observe_fn(normalized)
+    identity = {
+        "pid": normalized,
+        "expected_command": expected,
+        "creation_time_token": observation.get("creation_time_token"),
+        "command_line": observation.get("command_line"),
+        "captured_state": observation.get("state"),
+    }
+    identity["verified_at_capture"] = bool(
+        observation.get("state") == "running"
+        and observation.get("creation_time_token")
+        and commands_match_exact(observation.get("argv"), expected)
+    )
+    return identity
+
+
+def _managed_identity_matches_expected(
+    identity: object,
+    *,
+    pid: int,
+    expected_command: Sequence[object],
+) -> bool:
+    return bool(
+        isinstance(identity, dict)
+        and _normalized_pid(identity.get("pid")) == pid
+        and identity.get("creation_time_token")
+        and commands_match_exact(identity.get("expected_command"), expected_command)
+    )
+
+
+def managed_process_matches(
+    identity: object,
+    expected_command: Sequence[object],
+    *,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+) -> bool:
+    """Re-observe and exactly match the recorded process immediately pre-kill."""
+
+    if not isinstance(identity, dict):
+        return False
+    observe_fn = observe_fn or observe_process
+    pid = _normalized_pid(identity.get("pid"))
+    if pid is None or not _managed_identity_matches_expected(
+        identity,
+        pid=pid,
+        expected_command=expected_command,
+    ):
+        return False
+    observation = observe_fn(pid)
+    return bool(
+        observation.get("state") == "running"
+        and observation.get("creation_time_token") == identity.get("creation_time_token")
+        and commands_match_exact(observation.get("argv"), expected_command)
+    )
+
+
+def authorize_managed_process_termination(
+    status: object,
+    writer_lock: object,
+    expected_command: Sequence[object],
+    *,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Authorize a kill only for the exact status/lock/OS process instance."""
+
+    status = status if isinstance(status, dict) else {}
+    writer_lock = writer_lock if isinstance(writer_lock, dict) else {}
+    observe_fn = observe_fn or observe_process
+    pid = _normalized_pid(status.get("pid"))
+    if pid is None:
+        return {"authorized": False, "process_gone": False, "reason": "status_pid_unknown", "pid": status.get("pid")}
+
+    if writer_lock.get("exists"):
+        owner_pid = _normalized_pid(writer_lock.get("pid"))
+        if owner_pid is None:
+            return {"authorized": False, "process_gone": False, "reason": "writer_lock_owner_unknown", "pid": pid}
+        if owner_pid != pid:
+            owner_observation = observe_fn(owner_pid)
+            if owner_observation.get("state") != "not_found":
+                return {
+                    "authorized": False,
+                    "process_gone": False,
+                    "reason": "mismatched_writer_lock_owner_is_authoritative",
+                    "pid": pid,
+                    "writer_lock_owner_pid": owner_pid,
+                    "writer_lock_owner_observation": owner_observation,
+                }
+
+    identity = status.get("managed_process")
+    if not _managed_identity_matches_expected(identity, pid=pid, expected_command=expected_command):
+        return {"authorized": False, "process_gone": False, "reason": "managed_process_provenance_missing_or_mismatched", "pid": pid}
+
+    if writer_lock.get("exists") and _normalized_pid(writer_lock.get("pid")) == pid:
+        lock_identity = writer_lock.get("managed_process")
+        if not _managed_identity_matches_expected(lock_identity, pid=pid, expected_command=expected_command):
+            return {"authorized": False, "process_gone": False, "reason": "writer_lock_process_provenance_missing_or_mismatched", "pid": pid}
+        if lock_identity.get("creation_time_token") != identity.get("creation_time_token"):
+            return {"authorized": False, "process_gone": False, "reason": "writer_lock_process_instance_mismatch", "pid": pid}
+
+    observation = observe_fn(pid)
+    if observation.get("state") == "not_found":
+        return {
+            "authorized": False,
+            "process_gone": True,
+            "reason": "recorded_process_not_found",
+            "pid": pid,
+            "managed_process": identity,
+            "observation": observation,
+        }
+    if observation.get("state") != "running" or not observation.get("inspectable"):
+        return {
+            "authorized": False,
+            "process_gone": False,
+            "reason": "live_process_identity_uninspectable",
+            "pid": pid,
+            "managed_process": identity,
+            "observation": observation,
+        }
+    if observation.get("creation_time_token") != identity.get("creation_time_token"):
+        return {
+            "authorized": False,
+            "process_gone": False,
+            "reason": "reused_pid_process_instance_mismatch",
+            "pid": pid,
+            "managed_process": identity,
+            "observation": observation,
+        }
+    if not commands_match_exact(observation.get("argv"), expected_command):
+        return {
+            "authorized": False,
+            "process_gone": False,
+            "reason": "managed_process_command_mismatch",
+            "pid": pid,
+            "managed_process": identity,
+            "observation": observation,
+        }
+    return {
+        "authorized": True,
+        "process_gone": False,
+        "reason": "exact_managed_process_confirmed",
+        "pid": pid,
+        "managed_process": identity,
+        "observation": observation,
+    }
+
+
+def authorize_writer_lock_removal(
+    writer_lock: object,
+    *,
+    expected_pid: object = None,
+    confirmed_exit: object = None,
+    exited_identity: object = None,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Authorize unlink only after owner absence or exact-instance exit proof."""
+
+    writer_lock = writer_lock if isinstance(writer_lock, dict) else {}
+    owner_pid = _normalized_pid(writer_lock.get("pid"))
+    expected = _normalized_pid(expected_pid)
+    if owner_pid is None:
+        return {"authorized": False, "reason": "writer_lock_owner_unknown", "pid": writer_lock.get("pid")}
+
+    if expected is not None and owner_pid == expected:
+        if not (
+            isinstance(confirmed_exit, dict)
+            and confirmed_exit.get("exited") is True
+            and isinstance(exited_identity, dict)
+        ):
+            return {"authorized": False, "reason": "writer_lock_owner_exit_not_proven", "pid": owner_pid}
+        exited_token = exited_identity.get("creation_time_token")
+        lock_identity = writer_lock.get("managed_process")
+        lock_token = lock_identity.get("creation_time_token") if isinstance(lock_identity, dict) else None
+        if not exited_token or lock_token != exited_token:
+            return {
+                "authorized": False,
+                "reason": "writer_lock_process_instance_mismatch",
+                "pid": owner_pid,
+                "exited_creation_time_token": exited_token,
+                "lock_creation_time_token": lock_token,
+            }
+        return {"authorized": True, "reason": "exact_managed_writer_exited", "pid": owner_pid}
+
+    observe_fn = observe_fn or observe_process
+    observation = observe_fn(owner_pid)
+    if observation.get("state") == "not_found":
+        return {
+            "authorized": True,
+            "reason": "writer_lock_owner_absence_proven",
+            "pid": owner_pid,
+            "observation": observation,
+        }
+    return {
+        "authorized": False,
+        "reason": "writer_lock_owner_not_proven_dead",
+        "pid": owner_pid,
+        "observation": observation,
+    }
+
+
+def wait_for_managed_process_exit(
+    identity: object,
+    *,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+    attempts: int = 20,
+    sleep_seconds: float = 0.1,
+    sleep_fn: SleepFn = time.sleep,
+) -> dict[str, Any]:
+    """Prove the recorded OS process instance is gone before lock cleanup."""
+
+    if not isinstance(identity, dict) or _normalized_pid(identity.get("pid")) is None:
+        return {"exited": False, "reason": "managed_process_provenance_missing"}
+    observe_fn = observe_fn or observe_process
+    pid = int(identity["pid"])
+    token = identity.get("creation_time_token")
+    if not token:
+        return {"exited": False, "reason": "process_creation_token_missing", "pid": pid}
+    last_observation = None
+    for attempt in range(max(1, int(attempts))):
+        last_observation = observe_fn(pid)
+        if last_observation.get("state") == "not_found":
+            return {"exited": True, "reason": "process_not_found", "pid": pid, "observation": last_observation}
+        observed_token = last_observation.get("creation_time_token")
+        if last_observation.get("state") == "running" and observed_token and observed_token != token:
+            return {"exited": True, "reason": "pid_reused_after_managed_exit", "pid": pid, "observation": last_observation}
+        if attempt + 1 < max(1, int(attempts)):
+            sleep_fn(float(sleep_seconds))
+    return {
+        "exited": False,
+        "reason": "managed_process_exit_not_observed",
+        "pid": pid,
+        "observation": last_observation,
+    }
+
+
+def terminate_managed_process(
+    identity: object,
+    expected_command: Sequence[object],
+    *,
+    observe_fn: Callable[[object], dict[str, Any]] | None = None,
+    windows_terminate_fn: Callable[..., dict[str, Any]] | None = None,
+    signal_number: int = signal.SIGTERM,
+) -> dict[str, Any]:
+    """Terminate the verified instance through a PID-reuse-safe OS handle."""
+
+    if not isinstance(identity, dict):
+        return {"stopped": False, "reason": "managed_process_provenance_missing"}
+    pid = _normalized_pid(identity.get("pid"))
+    token = identity.get("creation_time_token")
+    if pid is None or not token or not _managed_identity_matches_expected(
+        identity,
+        pid=pid,
+        expected_command=expected_command,
+    ):
+        return {"pid": pid, "stopped": False, "reason": "managed_process_provenance_missing_or_mismatched"}
+
+    if os.name == "nt":
+        if windows_terminate_fn is None:
+            from weather.operations.windows_processes import terminate_verified_process
+
+            windows_terminate_fn = terminate_verified_process
+        return windows_terminate_fn(
+            pid,
+            expected_creation_time_token=str(token),
+            command_line_check=lambda command_line: commands_match_exact(
+                command_line_argv(command_line),
+                expected_command,
+            ),
+            exit_code=int(signal_number),
+        )
+
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        return {
+            "pid": pid,
+            "stopped": False,
+            "reason": "handle-scoped process termination is unavailable",
+        }
+    observe_fn = observe_fn or observe_process
+    try:
+        pidfd = os.pidfd_open(pid)
+    except OSError as exc:
+        return {"pid": pid, "stopped": False, "reason": str(exc)}
+    try:
+        observation = observe_fn(pid)
+        if not (
+            observation.get("state") == "running"
+            and observation.get("creation_time_token") == token
+            and commands_match_exact(observation.get("argv"), expected_command)
+        ):
+            return {"pid": pid, "stopped": False, "reason": "process changed before handle-scoped termination"}
+        signal.pidfd_send_signal(pidfd, signal_number)
+        poller = select.poll()
+        poller.register(pidfd, select.POLLIN)
+        exited = bool(poller.poll(2000))
+    except OSError as exc:
+        return {"pid": pid, "stopped": False, "reason": str(exc)}
+    finally:
+        os.close(pidfd)
+    return {
+        "pid": pid,
+        "stopped": exited,
+        "termination_requested": True,
+        "termination_scope": "verified_pidfd",
+        "creation_time_token": token,
+        "exited": exited,
+        "reason": "verified_process_exited" if exited else "verified_process_exit_not_observed",
+    }
 
 
 def terminate_python_pid(

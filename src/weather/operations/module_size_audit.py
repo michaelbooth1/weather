@@ -23,10 +23,25 @@ OWNERSHIP_NOTES = {
         "boundary": "Compatibility facade for pooled feature model implementation slices.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
     },
+    "src/weather/calibration/pooled_training.py": {
+        "owner": "calibration",
+        "boundary": "Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting.",
+        "next_split": "Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior.",
+    },
     "src/weather/market/taker_bot.py": {
         "owner": "market",
         "boundary": "Compatibility facade for taker strategy, risk, tape, scoring, bakeoff, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
+    },
+    "src/weather/market/taker_bot_cli.py": {
+        "owner": "market",
+        "boundary": "Taker input discovery, run configuration, incremental benchmark persistence, run/recovery orchestration, loop control, and CLI dispatch.",
+        "next_split": "Move incremental run construction and artifact recovery into a taker runner module; retain argument parsing and command dispatch in the CLI owner.",
+    },
+    "src/weather/market/taker_bot_finalization.py": {
+        "owner": "market",
+        "boundary": "Taker settlement reconciliation, next-run policy, retention planning, finalization watchdog, counterfactual reporting, and run finalization.",
+        "next_split": "Extract finalization report rendering and watchdog inventory into dedicated modules while preserving settlement reconciliation and policy-gate payloads.",
     },
     "src/weather/reporting/promotion/promotion_refresh.py": {
         "owner": "reporting",
@@ -42,6 +57,11 @@ OWNERSHIP_NOTES = {
         "owner": "reporting",
         "boundary": "Compatibility facade for hourly scoring, slots, gates, context, rendering, and CLI modules.",
         "next_split": "Complete for item 173; keep facade stable while extracted modules settle.",
+    },
+    "src/weather/reporting/hourly/ten_minute_model_performance.py": {
+        "owner": "reporting",
+        "boundary": "Ten-minute checkpoint scoring, bounded market-day aggregation, candidate comparison gates, report rendering, persistence, and CLI.",
+        "next_split": "Extract report tables/rendering and candidate checkpoint readers from the bounded aggregation and scoring contract, preserving payload and CSV schemas.",
     },
     "src/weather/operations/daily_refresh.py": {
         "owner": "operations",
@@ -98,6 +118,16 @@ OWNERSHIP_NOTES = {
         "boundary": "Daily refresh CLI parser and command handlers with facade-injected dependencies.",
         "next_split": "Owner module for item 205; must not import the daily_refresh facade.",
     },
+    "src/weather/operations/nightly_retrain.py": {
+        "owner": "operations",
+        "boundary": "Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI.",
+        "next_split": "Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module.",
+    },
+    "src/weather/operations/experiment_executor.py": {
+        "owner": "operations",
+        "boundary": "Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication.",
+        "next_split": "Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed.",
+    },
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",
         "boundary": "Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers.",
@@ -142,6 +172,11 @@ OWNERSHIP_NOTES = {
         "owner": "collection",
         "boundary": "Snapshot schema constants, readers, writers, and compatibility exports for backfill utilities.",
         "next_split": "WARN in the 2026-07-03 audit; backfill helpers and utility CLI wiring already live in snapshot_store_backfill, so the next slice should extract payload persistence, explanation sidecar, or replay-input helpers while preserving SnapshotStore's public surface.",
+    },
+    "src/weather/collection/snapshot_tracker.py": {
+        "owner": "collection",
+        "boundary": "Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch.",
+        "next_split": "Extract managed-loop status rendering and fleet-health aggregation behind the stable snapshot_tracker CLI while preserving worker isolation, writer-lock, and supervisor contracts.",
     },
     "src/weather/model/model_sources.py": {
         "owner": "model",

@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-12
+Last updated: 2026-07-15
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 11 modules.
+- Current warning count: 18 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -16,17 +16,24 @@ Current module-size audit status:
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
   `weather.operations.event_day_manifest`, `weather.market.market_microstructure`,
-  and `weather.schema_registry_data`.
+  `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
+  `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
+  `weather.reporting.hourly.ten_minute_model_performance`,
+  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`, and
+  `weather.collection.snapshot_tracker`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
 | Module | Owner | Boundary | Status |
 | :--- | :--- | :--- | :--- |
 | `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
+| `weather.calibration.pooled_training` | Calibration | Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting. | WARN in the 2026-07-15 audit. Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior. |
 | `weather.calibration.pooled_candidate_replay` | Calibration | Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI. Diagnostics, CLOB microstructure shadow helpers, market verdicts, replay gates, and sidecar summaries live in `weather.calibration.pooled_candidate_replay_diagnostics`; Markdown rendering lives in `weather.calibration.pooled_candidate_replay_report`; scoring/variant row logic lives in `weather.calibration.pooled_candidate_scoring`. | WARN in the 2026-07-12 audit. Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads. |
 | `weather.calibration.pooled_candidate_replay_diagnostics` | Calibration | Candidate replay diagnostics, CLOB microstructure overlay training/scoring, casebook annotation, market verdicts, replay safety gates, forecast-profile guardrails, and data-layer sidecar summary loading. | Owner module; must not import the `pooled_candidate_replay` facade. |
 | `weather.calibration.residual_distribution_v1` | Calibration | ResidualDistributionV1 training, nested and locked evaluation, fit receipts, qualification orchestration, release construction, and CLI. | WARN in the 2026-07-12 audit. Extract receipt construction/verification and nested/locked evaluation; retain qualification orchestration and public release behavior in the facade. |
 | `weather.market.taker_bot` | Market | Compatibility facade for strategy registry, tape IO, strategy evaluation, sizing/risk, scoring, reporting, bakeoff, finalization, and CLI modules. | Split complete for item 173. |
+| `weather.market.taker_bot_cli` | Market | Taker input discovery, run configuration, incremental benchmark persistence, run/recovery orchestration, loop control, and CLI dispatch. | WARN in the 2026-07-15 audit. Move incremental run construction and artifact recovery into a taker runner module; retain argument parsing and command dispatch in the CLI owner. |
+| `weather.market.taker_bot_finalization` | Market | Taker settlement reconciliation, next-run policy, retention planning, finalization watchdog, counterfactual reporting, and run finalization. | WARN in the 2026-07-15 audit. Extract finalization report rendering and watchdog inventory into dedicated modules while preserving settlement reconciliation and policy-gate payloads. |
 | `weather.model.model_sources` | Model | Serving-time source fetch orchestration, source-group integration, and live/local source parsing for model assembly. Shared HTTP retry/backoff policy lives in `weather.io`. | WARN in the 2026-07-03 audit. Next split should move provider-specific fetch/parsing helpers toward `weather.sources` or `weather.model.source_adapters`, keeping `model_sources` focused on serving-time source assembly. |
 | `weather.market.market_microstructure` | Market | CLOB tape capture loops, tape audit, supervisor process lifecycle, status artifacts, compatibility exports, and CLI. | WARN in the 2026-07-12 audit. Extract tape audit and supervisor/process lifecycle behind the stable scheduled-task CLI, preserving lock, process, status, and audit behavior. |
 | `weather.reporting.promotion.promotion_refresh` | Reporting | Compatibility facade for gate readers, readiness decisions, gap analysis, report rendering, orchestration, and CLI modules. | Split complete for item 173. |
@@ -34,6 +41,7 @@ Current module-size audit status:
 | `weather.reporting.data_quality.data_layer_audit_collectors` | Reporting | Snapshot folder scanning, sidecar eligibility, artifact presence, source-status collection, and low-fill field classification. | Owner module; must not import the `data_layer_audit` facade. |
 | `weather.reporting.fleet.fleet_observability` | Reporting | Compatibility facade for artifact inventory/alerts, loop health, broad SLO gates, payload assembly, rendering, and CLI modules. | Split complete for item 173. |
 | `weather.reporting.hourly.hourly_model_performance` | Reporting | Compatibility facade for scoring, slot slices, remediation gates, context loading, report rendering, and CLI modules. | Split complete for item 173. |
+| `weather.reporting.hourly.ten_minute_model_performance` | Reporting | Ten-minute checkpoint scoring, bounded market-day aggregation, candidate comparison gates, report rendering, persistence, and CLI. | WARN in the 2026-07-15 audit. Extract report tables/rendering and candidate checkpoint readers from the bounded aggregation and scoring contract, preserving payload and CSV schemas. |
 | `weather.operations.daily_refresh` | Operations | Compatibility facade for daily refresh orchestration, lock/preflight, reporting, and CLI owner modules. | Split complete for item 205; scheduled command and public imports stay stable. |
 | `weather.operations.daily_refresh_locks` | Operations | Lock, stale-state repair, and disk-preflight helpers. | Owner module for item 205; must not import the facade. |
 | `weather.operations.daily_refresh_steps` | Operations | Compatibility facade for the daily refresh runner. Step order/resume filtering live in `weather.operations.daily_refresh_registry`; settled-day barrier contracts live in `weather.operations.daily_refresh_settled_day`; status aggregation and variant-learning gate summaries live in `weather.operations.daily_refresh_status`; step adapters live in source, trading, and reporting family modules. | Item 318 step-family split complete; facade is back below the 2,000-line warning threshold. |
@@ -45,7 +53,10 @@ Current module-size audit status:
 | `weather.operations.daily_refresh_status` | Operations | Step execution row wrapping, rollup freshness status, pipeline summary, and variant-learning operational gate. | Owner module for item 318; must not import the facade or step adapters. |
 | `weather.operations.daily_refresh_report` | Operations | Status Markdown rendering and report file writing. | Owner module for item 205; must not import the facade. |
 | `weather.operations.daily_refresh_cli` | Operations | CLI parser and command handlers with facade-injected dependencies. | Owner module for item 205; must not import the facade. |
+| `weather.operations.nightly_retrain` | Operations | Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI. | WARN in the 2026-07-15 audit. Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module. |
+| `weather.operations.experiment_executor` | Operations | Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication. | WARN in the 2026-07-15 audit. Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed. |
 | `weather.operations.event_day_manifest` | Operations | Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI. | WARN in the 2026-07-12 audit. Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged. |
+| `weather.collection.snapshot_tracker` | Collection | Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch. | WARN in the 2026-07-15 audit. Extract managed-loop status rendering and fleet-health aggregation behind the stable CLI while preserving worker isolation, writer-lock, and supervisor contracts. |
 | `weather.reporting.daily.daily_learning` | Reporting | Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers. Input readers, input gates, experiment queue builders, and scorecard assembly live in `weather.reporting.daily.daily_learning_scorecard`; report rendering lives in `weather.reporting.daily.daily_learning_render`. | Below the 2,000-line warning threshold in the 2026-07-12 audit; retain the documented next split if growth resumes. |
 | `weather.reporting.daily.daily_learning_scorecard` | Reporting | Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly. | Owner module for item 318; must not import the `daily_learning` facade. |
 | `weather.market.mm_paper` | Market | Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers. Tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in `weather.market.mm_paper_scoring`. | WARN in the 2026-07-03 audit. Next split should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade. |
@@ -70,9 +81,9 @@ Run the current audit with:
 python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
 ```
 
-The warning threshold is 2,000 lines. Item 318 owns the 2026-06-25 refreshed
-warning set; each warning must keep a concrete owner, next split target, and
-documented exception if it cannot be reduced immediately.
+The warning threshold is 2,000 lines. The 2026-07-15 audit refreshes the
+current warning set; each warning must keep a concrete owner, next split target,
+and documented exception if it cannot be reduced immediately.
 
 For a full repository structure snapshot, including tracked-file counts,
 package line counts, compatibility shim counts, artifact sizes, and optional

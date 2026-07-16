@@ -25,6 +25,14 @@ class FanoutFetchResult:
     prepublished_payload_ref: str | None = None
     prepublished_blob_created: bool = False
     prepublished_blob_reused: bool = False
+    coordinator_evidence_id: str | None = None
+    coordinator_receipt_ref: str | None = None
+    coordinator_receipt_sha256: str | None = None
+    coordinator_attribution_status: str = "not_applicable"
+    coordinator_network_fetch_count: int = 0
+    coordinator_payload_blob_created: bool = False
+    coordinator_payload_blob_reused: bool = False
+    coordinator_physical_bytes_written: int = 0
 
 
 class MarketInvariantFetchFanout:

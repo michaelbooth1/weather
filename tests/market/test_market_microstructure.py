@@ -1292,24 +1292,276 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(kwargs["raw_max_workers"], 12)
         self.assertEqual(kwargs["raw_market_timeout_seconds"], 20.0)
 
-    def test_stop_clob_loop_processes_stops_matching_orphans(self):
+    def test_managed_loop_command_reconstruction_uses_persisted_nondefault_fields(self):
+        status_payload = {
+            "market_id": "nyc",
+            "target_date": "2026-06-27",
+            "interval_seconds": 47.0,
+            "fast_interval_seconds": 13.0,
+            "fast_hours_before_close": 3.0,
+            "fast_after_local_hour": 14.5,
+            "fast_on_mid_change_bps": 321.0,
+            "outcomes": "yes",
+            "batch_size": 17,
+            "include_price_history": False,
+            "include_ws_events": False,
+            "websocket_seconds": 19.0,
+            "websocket_message_limit": 23,
+            "websocket_heartbeat_seconds": 11.0,
+            "websocket_connect_timeout": 7.0,
+            "raw_max_workers": 5,
+            "raw_market_timeout_seconds": 18.0,
+        }
+        with patch.object(mm, "_clob_loop_command", return_value=["managed"]) as build:
+            command = mm._clob_loop_command_from_status(status_payload)
+
+        self.assertEqual(command, ["managed"])
+        self.assertEqual(build.call_args.kwargs["market_id"], "nyc")
+        self.assertEqual(build.call_args.kwargs["interval_seconds"], 47.0)
+        self.assertEqual(build.call_args.kwargs["ws_seconds"], 19.0)
+        self.assertEqual(build.call_args.kwargs["ws_message_limit"], 23)
+        self.assertEqual(build.call_args.kwargs["ws_heartbeat_seconds"], 11.0)
+        self.assertEqual(build.call_args.kwargs["ws_connect_timeout"], 7.0)
+
+    def test_stop_clob_loop_processes_requires_exact_instance_provenance(self):
         stopped = []
         rows = [
-            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},
-            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all"},
+            {"pid": 100, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all", "creation_time_token": "win32-filetime:100"},
+            {"pid": 101, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure loop --market all", "creation_time_token": "win32-filetime:101"},
             {"pid": 102, "name": "pythonw.exe", "command_line": "pythonw.exe -m weather.market.market_microstructure ensure --market all"},
         ]
 
-        result = stop_clob_loop_processes(
+        unproven = stop_clob_loop_processes(
             process_rows=rows,
             keep_pids={101},
             terminate_fn=lambda pid: stopped.append(pid) or {"pid": pid, "stopped": True},
         )
+        supplied_provenance = stop_clob_loop_processes(
+            process_rows=rows,
+            keep_pids={101},
+            terminate_fn=lambda pid: stopped.append(pid) or {"pid": pid, "stopped": True},
+            expected_command=["pythonw.exe", "-m", "weather.market.market_microstructure", "loop", "--market", "all"],
+            managed_process={
+                "pid": 100,
+                "expected_command": ["pythonw.exe", "-m", "weather.market.market_microstructure", "loop", "--market", "all"],
+                "creation_time_token": "win32-filetime:100",
+            },
+        )
 
-        self.assertEqual(stopped, [100])
-        self.assertEqual(result["matched_process_count"], 2)
-        self.assertEqual(result["stopped_count"], 1)
-        self.assertEqual(result["kept_pids"], [101])
+        self.assertEqual(unproven["stopped_count"], 0)
+        self.assertEqual(supplied_provenance["stopped_count"], 0)
+        self.assertEqual(stopped, [])
+        self.assertEqual(supplied_provenance["matched_process_count"], 2)
+        self.assertEqual(supplied_provenance["kept_pids"], [101])
+
+    def test_stop_clob_loop_confirms_exact_instance_before_lock_cleanup(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        status_payload = {
+            "pid": 4321,
+            "market_id": "all",
+            "last_heartbeat": now.isoformat(),
+            "interval_seconds": 60.0,
+            "consecutive_errors": 0,
+        }
+        command = mm._clob_loop_command_from_status(status_payload)
+        identity = {
+            "pid": 4321,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        status_payload["managed_process"] = identity
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            status_path.write_text(json.dumps(status_payload), encoding="utf-8")
+            lock_path = root / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 4321, "managed_process": identity}),
+                encoding="utf-8",
+            )
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 4321,
+                        "argv": command,
+                        "command_line": "managed CLOB command",
+                        "creation_time_token": "win32-filetime:100",
+                        "inspectable": True,
+                    }), \
+                    patch.object(mm, "terminate_managed_process", return_value={
+                        "pid": 4321,
+                        "stopped": True,
+                        "exited": True,
+                        "reason": "verified_process_exited",
+                        "termination_scope": "verified_process_handle",
+                    }):
+                result = mm.stop_clob_loop(now=now)
+
+        self.assertTrue(result["stopped"])
+        self.assertTrue(result["writer_lock"]["removed"])
+        self.assertFalse(lock_path.exists())
+
+    def test_stop_clob_loop_rejects_reused_pid_command_mismatch_and_unknown_identity(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        base_status = {
+            "pid": 4321,
+            "market_id": "all",
+            "last_heartbeat": now.isoformat(),
+            "interval_seconds": 60.0,
+            "consecutive_errors": 0,
+        }
+        command = mm._clob_loop_command_from_status(base_status)
+        identity = {
+            "pid": 4321,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        cases = (
+            (
+                "reused_pid_process_instance_mismatch",
+                {"state": "running", "pid": 4321, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+            ),
+            (
+                "managed_process_command_mismatch",
+                {"state": "running", "pid": 4321, "argv": [*command[:-1], "21.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+            ),
+            (
+                "live_process_identity_uninspectable",
+                {"state": "unknown", "pid": 4321},
+            ),
+        )
+        for expected_reason, observation in cases:
+            with self.subTest(expected_reason=expected_reason), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                status_path = root / "clob_loop_status.json"
+                status_path.write_text(
+                    json.dumps({**base_status, "managed_process": identity}),
+                    encoding="utf-8",
+                )
+                lock_path = root / ".clob_loop_status.json.writer.lock"
+                lock_path.write_text(
+                    json.dumps({"pid": 4321, "managed_process": identity}),
+                    encoding="utf-8",
+                )
+                with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                        patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                        patch("weather.operations.supervisor.observe_process", return_value=observation), \
+                        patch.object(mm, "terminate_managed_process") as terminate:
+                    result = mm.stop_clob_loop(now=now)
+
+                self.assertFalse(result["stopped"])
+                self.assertEqual(result["reason"], expected_reason)
+                self.assertTrue(lock_path.exists())
+                terminate.assert_not_called()
+
+    def test_ensure_clob_live_lock_mismatch_blocks_kill_and_replacement(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        status_payload = {
+            "pid": 4321,
+            "market_id": "all",
+            "last_heartbeat": now.isoformat(),
+            "interval_seconds": 60.0,
+            "consecutive_errors": 0,
+            "last_market_results": {"toronto": {"books": 1, "captured_tokens": 2}},
+        }
+        command = mm._clob_loop_command_from_status(status_payload)
+        status_payload["managed_process"] = {
+            "pid": 4321,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            status_path.write_text(json.dumps(status_payload), encoding="utf-8")
+            lock_path = root / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(mm, "CLOB_PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(mm, "CLOB_SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(mm, "acquire_clob_supervisor_lock", return_value=object()), \
+                    patch.object(mm, "release_clob_supervisor_lock"), \
+                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                    patch.object(mm, "clob_runtime_matches_current", return_value=True), \
+                    patch.object(mm, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch("weather.operations.supervisor.observe_process", return_value={
+                        "state": "running",
+                        "pid": 9999,
+                        "inspectable": False,
+                    }), \
+                    patch.object(mm, "terminate_managed_process") as terminate, \
+                    patch.object(mm, "start_clob_loop_detached") as start:
+                result = mm.ensure_clob_loop(now=now)
+                lock_still_exists = lock_path.exists()
+
+        self.assertEqual(result["action"], "restart_blocked")
+        self.assertEqual(result["reason"], "mismatched_writer_lock_owner_is_authoritative")
+        self.assertEqual(result["ensure_status"], "BLOCKED")
+        terminate.assert_not_called()
+        start.assert_not_called()
+        self.assertTrue(lock_still_exists)
+
+    def test_ensure_clob_restarts_when_managed_instance_is_already_gone(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        already_gone = {
+            "stopped": False,
+            "reason": "managed_process_not_running",
+            "authorization": {"process_gone": True},
+        }
+        status_payload = {
+            "pid": 4321,
+            "market_id": "all",
+            "last_heartbeat": now.isoformat(),
+            "interval_seconds": 60.0,
+            "consecutive_errors": 0,
+            "last_market_results": {"toronto": {"books": 1, "captured_tokens": 2}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            status_path.write_text(json.dumps(status_payload), encoding="utf-8")
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", root / "console.log"), \
+                    patch.object(mm, "CLOB_PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch.object(mm, "CLOB_SUPERVISOR_LOCK_PATH", root / "supervisor.lock"), \
+                    patch.object(mm, "acquire_clob_supervisor_lock", return_value=object()), \
+                    patch.object(mm, "release_clob_supervisor_lock"), \
+                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch.object(mm, "running_clob_loop_processes", return_value=[]), \
+                    patch.object(mm, "clob_runtime_matches_current", return_value=True), \
+                    patch.object(mm, "clob_ensure_decision", return_value="restart"), \
+                    patch.object(mm, "supervisor_recovery_guard", return_value={"allowed": True}), \
+                    patch.object(mm, "loop_file_offsets", return_value={}), \
+                    patch.object(mm, "quarantine_malformed_loop_lines", return_value={}), \
+                    patch.object(mm, "stop_clob_loop", return_value=already_gone), \
+                    patch.object(mm, "start_clob_loop_detached", return_value={"started": True}) as start:
+                result = mm.ensure_clob_loop(now=now)
+
+        self.assertEqual(result["action"], "restart")
+        self.assertEqual(result["stop"], already_gone)
+        start.assert_called_once()
+
+    def test_clob_restart_cli_does_not_start_after_blocked_stop(self):
+        blocked = {
+            "stopped": False,
+            "reason": "managed_process_provenance_missing_or_mismatched",
+            "authorization": {"process_gone": False},
+        }
+        with patch.object(mm, "acquire_clob_supervisor_lock", return_value=object()), \
+                patch.object(mm, "release_clob_supervisor_lock"), \
+                patch.object(mm, "stop_clob_loop", return_value=blocked), \
+                patch.object(mm, "start_clob_loop_detached") as start, \
+                patch.object(sys, "argv", ["market_microstructure", "restart"]), \
+                patch("builtins.print"):
+            mm.main()
+
+        start.assert_not_called()
 
     def test_run_book_loop_is_raw_only_and_writes_isolation_status(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
@@ -1857,7 +2109,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \
                     patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"), \
                     patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", tmp_path / "clob_loop_console.log"), \
-                    patch.object(mm, "pid_is_python", return_value=False), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "not_found", "pid": 9999}), \
                     patch.object(mm.subprocess, "Popen", fake_popen):
                 result = start_clob_loop_detached(
                     market_id="toronto",
@@ -1882,7 +2134,7 @@ class TestMarketMicrostructure(unittest.TestCase):
             with patch.object(mm, "CLOB_LOOP_STATUS_PATH", tmp_path / "clob_loop_status.json"), \
                     patch.object(mm, "CLOB_DIAGNOSTICS_PATH", tmp_path / "clob_diagnostics.jsonl"), \
                     patch.object(mm, "CLOB_LOOP_CONSOLE_LOG_PATH", tmp_path / "clob_loop_console.log"), \
-                    patch.object(mm, "pid_is_python", return_value=True), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "running", "pid": 9999}), \
                     patch.object(mm.subprocess, "Popen", fail_popen):
                 result = start_clob_loop_detached(
                     market_id="toronto",
@@ -1893,7 +2145,45 @@ class TestMarketMicrostructure(unittest.TestCase):
                 lock_still_exists = lock_path.exists()
 
         self.assertFalse(result["started"])
-        self.assertEqual(result["reason"], "writer lock owner is still live")
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
+        self.assertTrue(lock_still_exists)
+
+    def test_start_clob_loop_detached_fails_closed_when_writer_owner_is_uninspectable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_path = root / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({"pid": 9999}), encoding="utf-8")
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", root / "clob_loop_status.json"), \
+                    patch.object(mm, "CLOB_DIAGNOSTICS_PATH", root / "diagnostics.jsonl"), \
+                    patch("weather.operations.supervisor.observe_process", return_value={"state": "unknown", "pid": 9999}), \
+                    patch.object(mm.subprocess, "Popen") as popen:
+                result = start_clob_loop_detached(now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc))
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["started"])
+        self.assertEqual(result["reason"], "writer_lock_owner_not_proven_dead")
+        self.assertTrue(lock_still_exists)
+        popen.assert_not_called()
+
+    def test_clob_cleanup_retains_same_pid_replacement_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "clob_loop_status.json"
+            lock_path = root / ".clob_loop_status.json.writer.lock"
+            lock_path.write_text(json.dumps({
+                "pid": 4321,
+                "managed_process": {"pid": 4321, "creation_time_token": "win32-filetime:new"},
+            }), encoding="utf-8")
+            with patch.object(mm, "CLOB_LOOP_STATUS_PATH", status_path):
+                result = mm._cleanup_clob_writer_lock(
+                    expected_pid=4321,
+                    confirmed_exit={"exited": True},
+                    exited_identity={"pid": 4321, "creation_time_token": "win32-filetime:old"},
+                )
+                lock_still_exists = lock_path.exists()
+
+        self.assertFalse(result["removed"])
+        self.assertEqual(result["reason"], "writer_lock_process_instance_mismatch")
         self.assertTrue(lock_still_exists)
 
 

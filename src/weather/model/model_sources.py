@@ -38,6 +38,7 @@ from weather.sources.nbm_probabilistic_tmax import (
     parse_nbp_station_tmax,
 )
 from weather.sources.forecast_payload_fanout import MarketInvariantFetchFanout
+from weather.forecast_payload_contracts import nbm_nbp_cycle_key_from_bulletin
 from weather.model.source_adapters import (
     FETCH_META_KEY,
     SourceExpectedUnavailable,
@@ -1610,6 +1611,11 @@ class SourceFetchMixin:
                 )
                 text = fanout_result.value["text"]
                 fetched_at = fanout_result.value["fetched_at"]
+                bulletin_cycle_key = nbm_nbp_cycle_key_from_bulletin(text)
+                if bulletin_cycle_key != fanout_result.cycle_key:
+                    raise ValueError(
+                        "NBM bulletin semantic cycle does not match the requested cycle"
+                    )
             except requests.HTTPError as exc:
                 if self.http_status(exc) in {403, 404}:
                     continue
@@ -1650,6 +1656,30 @@ class SourceFetchMixin:
                 ),
                 "prepublished_blob_reused": bool(
                     fanout_result.prepublished_blob_reused
+                ),
+                "coordinator_evidence_id": (
+                    fanout_result.coordinator_evidence_id
+                ),
+                "coordinator_receipt_ref": (
+                    fanout_result.coordinator_receipt_ref
+                ),
+                "coordinator_receipt_sha256": (
+                    fanout_result.coordinator_receipt_sha256
+                ),
+                "coordinator_attribution_status": (
+                    fanout_result.coordinator_attribution_status
+                ),
+                "coordinator_network_fetch_count": (
+                    fanout_result.coordinator_network_fetch_count
+                ),
+                "coordinator_payload_blob_created": bool(
+                    fanout_result.coordinator_payload_blob_created
+                ),
+                "coordinator_payload_blob_reused": bool(
+                    fanout_result.coordinator_payload_blob_reused
+                ),
+                "coordinator_physical_bytes_written": (
+                    fanout_result.coordinator_physical_bytes_written
                 ),
             }
             raw_payload = payload.get("raw_payload") or {}

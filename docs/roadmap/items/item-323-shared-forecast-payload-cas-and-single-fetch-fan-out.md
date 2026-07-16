@@ -1,4 +1,4 @@
-# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-13 - CROSS-PROCESS FAN-OUT IMPLEMENTED; CONTROLLED HOUR AND REAL-ROOT INVENTORY PENDING]
+# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]
 
 Goal: store one verified copy of a market-invariant raw forecast response and
 fan it out through point-in-time per-market manifests, so replay provenance is
@@ -68,13 +68,15 @@ cross-market raw-payload deduplication or fetch fan-out.
   market-specific capture timestamps or cutoff semantics.
 - [ ] Prove captured-input replay, feature parity, and per-market lineage across
   the shared reference path.
-- [ ] Add logical/physical/avoided-byte observability and a host disk-growth
-  budget gate.
-- [ ] Implement a dry-run-first migration/GC tool with reachability, restore,
-  hash, and replay proof; perform no evidence deletion until explicitly
-  reviewed.
-- [ ] Complete a multi-market soak showing repeated national NBM captures reuse
-  shared bytes and remain healthy through process restart.
+- [x] Add logical/physical/avoided-byte observability to capture status,
+  manifests, storage inventory, and runtime monitoring.
+- [ ] Add a reviewed host disk-growth budget gate.
+- [x] Implement a bounded inventory-only migration dry run with partial
+  reachability, restore, hash, and replay proof.
+- [ ] Design and review any apply/GC phase separately; perform no evidence
+  deletion until it is explicitly authorized.
+- [x] Complete a clean multi-market post-restart soak showing repeated national
+  NBM captures reuse one shared physical object.
 
 Acceptance: when all US markets capture identical raw NBM bytes for the same
 declared request/cycle, exactly one verified physical blob is created while
@@ -209,3 +211,233 @@ when the holder dies after publishing the CAS blob but before writing its
 market manifest. Those receipt and accounting corrections are held for the
 01:00–04:15 adoption window because those modules are loaded by the live
 snapshot worker.
+
+## 2026-07-14 controlled-hour readback
+
+The clean monitor at
+`data/monitoring/item323_controlled_healthy_hour/20260713T184446Z` completed
+from 14:44:46 to 15:44:46 local. All 60 one-minute snapshot observations were
+`HEALTHY` and `fresh`, all retained PID 9828 with zero consecutive errors, and
+capture/heartbeat age stayed below 405.329/397.623 seconds against the
+1,320-second dead threshold. The frozen diagnostic cursor contains 69 clean
+iterations, 72 successful snapshots, and six complete passes in which all 12
+markets wrote once. It omitted only the final NYC and Toronto snapshots: both
+iterations began after the monitor start and completed at 15:44:36/15:44:44,
+before the planned 15:44:46 end. Captured-at timestamps plus the immediately
+following diagnostic records therefore establish 74 successful in-hour
+snapshots. The incidents folder is empty. The earlier 14:29 monitor under
+`data/monitoring/item323_controlled_hour/20260713T182928Z` remains separate
+outage/repair evidence and is not relabeled.
+
+Across the full interval's 578 forecast-manifest rows, compact observability
+reports 65 created and 513 reused payload blobs, 2,342,478,936 logical bytes,
+3,022,842 canonical physical bytes written, and 2,339,456,094 avoided bytes.
+All 65 newly created market-local files were non-NBM source payloads; the extra
+boundary file is NYC `nws_hourly` at 85,791 canonical bytes. The cursor-only
+figures were 564 rows, 64/500 created/reused, 2,307,464,142 logical,
+2,937,051 physical, and 2,304,527,091 avoided bytes. All referenced payloads
+checked for this readback are present and pass their declared hash and
+byte-count checks.
+
+The NBM result is stronger for storage than for network fan-out. The 67 US-
+market NBM rows all reference one 34,714,882-byte shared blob and one digest;
+all 67 reused it, wrote zero shared physical bytes, avoided 2,325,897,094
+logical bytes, and created zero market-local NBM copies. Their JSONL reference
+rows total 224,554 bytes at 3,343–3,374 bytes each; the paired CSV rows add
+108,446 bytes, for 333,000 bytes total and 4,953–5,016 bytes per reference pair.
+Combined JSONL-plus-CSV reference bytes by market were ATL 29,814, AUS 29,790,
+CHI 29,837, DAL 29,790, DEN 29,790, HOU 29,837, LA 29,910, MIA 29,766,
+NYC 34,671, SF 29,981, and SEA 29,814; Toronto has no NBM row.
+
+Staggered cadence produced 64 coordination scopes for those 67 NBM rows:
+64 holders fetched from the provider and three followers reused receipts, with
+no timeout or fail-open. Across the six complete US-market sweeps, fetch/reuse
+was respectively 9/2, 10/1, 11/0, 11/0, 11/0, and 11/0; the final in-hour
+partial sweep added NYC at 1/0. This proves same-scope coalescing and closes the
+storage soak, but it does not prove one provider fetch for an entire fleet
+cadence pass or bulletin cycle; network coalescing remains open.
+
+Whole-host disk free fell 2.1399 GiB during unrelated concurrent activity,
+while forecast-payload physical writes were 2.883 MiB (0.132% of that delta)
+and NBM physical writes were zero. Physical headroom briefly reached 1.848 GiB,
+but capture stayed healthy. Daily-refresh and taker state transitions in the
+monitor are retained as unrelated host context and are not Item-323 failures.
+The generated `final_report.md` title says “12-Hour” even though the manifest
+and lifecycle prove a one-hour run; that cosmetic runtime artifact is preserved
+unchanged.
+
+Commits `391fb628` and `51460b7e` recorded the core implementation and both
+schema registrations. A current-code audit confirms the destructive supervisor
+authorization and fan-out receipt/accounting gaps described above were not
+actually completed by those commits. They remain queued for the next
+01:00–04:15 code window. The bounded real-root migration inventory also remains
+pending; no evidence was copied, rewritten, or deleted in this readback.
+
+## 2026-07-15 adoption-window hardening
+
+The preserved controlled-hour result above was re-read from its structured
+artifacts before this change. All 60 one-minute snapshot samples remained
+`HEALTHY` and `fresh` under PID 9828 with zero errors, and its incidents folder
+is empty. The 74-snapshot/578-row totals still reconcile to 65 created plus 513
+reused blobs, 2,342,478,936 logical bytes, 3,022,842 physical bytes, and
+2,339,456,094 avoided bytes. All 67 NBM rows still resolve to one
+34,714,882-byte shared blob, zero market-local NBM copies, 224,554 JSONL bytes
+plus 108,446 CSV bytes, and the documented 64/3 network-fetch/reuse split. The
+earlier 14:29 monitor remains unchanged as separate unhealthy-start evidence.
+
+Inside the verified 01:00–04:15 window, the destructive snapshot, CLOB, and
+observation paths were hardened to authorize termination only when the exact
+managed command, status and writer-lock provenance, and current OS process
+instance all agree. Windows holds the verified process handle through command
+and creation-FILETIME validation, termination, and exit observation; supported
+POSIX hosts use a pidfd. Unknown inspection, reused PIDs, command mismatches,
+and provenance mismatches fail closed. A live mismatched writer-lock owner is
+authoritative, generic CLOB process scans are diagnostic-only, and a same-PID
+replacement lock is retained. Every ensure, explicit restart, and operations-
+monitor restart path refuses to launch a replacement after an unconfirmed
+stop. Positive exact-instance and negative unknown, command-mismatch, reused-
+PID, lock-mismatch, lock-replacement, and restart-gating coverage exercises all
+three loops.
+
+Cross-process fan-out receipts now require a stable regular file no larger
+than 16 KiB. `lstat`, file-handle, and pre/post-read checks reject final-file
+links, non-regular files, mutation, and symlink/junction/reparse ancestry from
+the CAS root through the receipt parent. Every NBM outcome—including holder,
+receipt reuse, unscoped, and timeout-fail-open paths—parses the bulletin header
+and binds its semantic issue cycle to the requested cycle before the payload is
+accepted. Preserved legacy v0.1 success receipts remain readable, but their
+unrecoverable historical network/physical attribution is explicitly counted
+as unavailable rather than invented.
+
+New success receipts carry a content digest and one immutable coordinator
+attribution tuple. That tuple owns network-fetch and physical-write accounting
+even if the holder publishes the CAS blob and receipt but dies before its
+market manifest. Child summaries retain a maximum-32 bounded tuple list;
+snapshot-parent and runtime-monitor aggregation deduplicate identical
+coordination IDs and fail closed on conflicting receipt or payload evidence.
+The offline audit uses an internal exact-ID merge across separate market/event
+folders, supports normal histories with more than 32 scopes without relaxing
+the live-status bound, and strips the internal tuples before serialization.
+
+The post-review implementation matrix passed **299 tests plus 9 subtests**;
+one final-file symlink test skipped because this Windows account lacks symlink
+privilege, while the mocked reparse-parent fallback passed. The affected
+fan-out/schema rerun passed **58 tests** with that same single skip. The three
+daily-refresh assertions plus schema-registry and import-architecture suites
+passed **31 tests**, and `python -m compileall -q app src tests` passed.
+Roadmap regeneration/lint and the agent-docs audit passed, as did **15**
+roadmap/app/documentation regression tests. The work verified rather than
+duplicated the receipt v0.1 and migration dry-run v0.2
+registrations already present in `51460b7e`, as well as the explicit daily-
+refresh temp paths, promotion disk preflight, and exact 23-step Stage-A
+boundary.
+
+A final pre-commit audit also found and repaired an ensure-path availability
+regression: snapshot, CLOB, and observation now use the same proven-gone
+authorization predicate as their explicit restart paths, so an already-absent
+recorded instance permits replacement while unknown or mismatched identity
+still blocks it. The three loop suites then passed **128 tests plus 9
+subtests**; the final supervisor/fan-out/docs slice passed **98 tests** with the
+same one symlink-privilege skip, and a fresh compileall pass succeeded.
+
+All implementation, tests, and this checkpoint remain isolated on
+`codex/item323-hardening` from base `713692de`; they have not been merged into
+`master` or adopted by the live worker. At the 01:46 read-only checkpoint, the
+scheduled worker was still exact PID 35100 (started 01:02:17, parent 62336) at
+loaded/current main identity `713692de26ea` / `4867a3ef74fe4668`. It continued
+writing and fleet cadence reported 12/12 healthy markets, but the loop had 31
+consecutive error iterations: the latest Denver and San Francisco children
+ended in `MemoryError`, and Seattle ended with return code 137. Free physical
+RAM was 3.728 GiB, commit use was 47.21%, and free C: space was 296.561 GiB.
+That incident was inspected and preserved without restart, signal, lock
+cleanup, or any other loop control.
+
+At the final 01:59 readback, that same PID and command still had a current
+01:59:20 heartbeat and the same loaded/current source identity, but the count
+had risen to 44 consecutive error iterations: Seattle and San Francisco ended
+in `MemoryError`, while Denver returned 137. Free RAM had fallen to 3.437 GiB,
+commit use was 49.30%, and free C: space was 296.196 GiB. This later evidence
+was likewise read without controlling the process.
+
+Because this branch has not been live-adopted, the controlled hour's 64 fetches
+and three receipt reuses remain the only live network evidence and do not prove
+one provider fetch per fleet pass or bulletin cycle. The bounded read-only
+real-root monthly migration inventory is also still pending; no migration
+apply, rewrite, GC, or evidence deletion was performed. Item 323 therefore
+remains partial pending owner adoption, a clean live network proof, and the
+bounded real-root inventory.
+
+## 2026-07-15 bounded real-root July inventory
+
+At 08:26 local, current-source capture PID 35100 was healthy with zero
+consecutive errors, host commit was 48.93%, free physical RAM was 3.450 GiB,
+free C: space was 291.223 GiB, and no training process was running. The
+inventory-only v0.2 command then read the canonical snapshot and shared-CAS
+roots for month `2026-07`, with every bound explicit and a stricter 180-second
+elapsed ceiling. Its only writes were the new ignored report artifacts
+`data/backtest/forecast_payload_cas_migration_dry_run_20260715T1226Z.json` and
+`data/backtest/forecast_payload_cas_migration_dry_run_report_20260715T1226Z.md`.
+
+The command returned 2 with an explicit `TRUNCATED` result after 60.062 seconds
+at the 8,589,934,592-byte payload-read bound; it actually read 8,587,122,190
+payload bytes. The resume cursor identifies line 642 of Atlanta's July 14
+forecast manifest and the next 34,714,882-byte shared blob. Before stopping it
+visited 507 directories and 61,465 tree entries, read 8,766,333 manifest bytes,
+scanned 6 manifests and 6,278 rows, and found no manifest scan error.
+
+Within that bounded partial scope, the July month row reports 574 candidate
+rows, 94 verified and 480 blocked; 3,226,770,459 verified legacy stored bytes;
+166,416,442 projected one-copy physical bytes; and 3,060,354,017 projected
+reclaimable legacy bytes. The shared-reference side saw 151 rows, 150 verified
+and one blocked. These are partial observations only: they must not be
+extrapolated into a monthly reclaim total or used as garbage-collection
+authority. The artifact records `mutation_performed=false`, with deletion,
+manifest rewrite, and GC all disabled. No apply, copy, rewrite, delete, or GC
+was performed.
+
+At 08:28 after the scan, the same exact capture process and loaded/current
+identity still had a fresh heartbeat, 505 iterations, zero consecutive errors,
+and 12/12 current-target markets without a reported error. Free RAM/commit/free
+disk was 4.132 GiB/47.12%/291.165 GiB. Item 323 remains partial pending live
+adoption and the clean network-fetch proof; completing or resuming the monthly
+inventory is also still required before its partial figures can be called a
+month total.
+
+## 2026-07-15 snapshot-loop memory stabilization follow-up
+
+The later capture failure was reproduced without network access or tape
+mutation using an 800 MiB logical repeated-scalar payload inside the unchanged
+1,536 MiB Windows child cap. The pre-fix `SnapshotStore.payload_hash` failed at
+`json.dumps` in 2.094 seconds with `MemoryError`; process-tree private memory
+peaked at 1,561,866,240 bytes against the 1,610,612,736-byte cap and the guard
+classified it as `resource_budget_exceeded`. The same harness after the repair
+completed in 3.250 seconds with exit 0, no resource-limit event, 104,562,688
+bytes peak working set, and 717,688,832 bytes peak private memory.
+
+Status hashing, canonical raw-payload hashing, JSONL appends, and market-local
+forecast/observation CAS writes now consume incremental encoder chunks instead
+of joining a whole document and then making a second UTF-8 copy. CAS writes
+stage and fsync the complete canonical bytes plus the existing durability
+newline, then publish the immutable digest path with an atomic same-volume hard
+link. Existing digest algorithms, separators, Unicode handling, byte counts,
+newline convention, and manifest fields are unchanged. Stress parity tests
+compare the streamed hashes and stored bytes with the prior serializer while
+forbidding `json.dumps`; injected circular-serialization and link failures
+leave no partial evidence file.
+
+The long-lived parent had a second high-water source: fleet health materialized
+complete 20-24 MiB active-day variant CSVs only to select the latest snapshot.
+A read-only 12-market scan peaked at 200,220,672 working-set bytes and
+815,984,640 private bytes before the streaming repair. It now retains only
+per-snapshot integrity aggregates and matching latest rows; the same scan
+peaked at 99,344,384 working-set bytes and 712,388,608 private bytes. A clean
+`snapshot_tracker` import measured 718,934,016 private bytes, so the repaired
+scan no longer adds a lasting private-memory high-water allocation. The live
+pre-fix parent was not restarted or signalled and may retain its old allocator
+high-water mark until owner adoption.
+
+This follow-up is isolated on `codex/snapshot-memory-stabilization`, stacked on
+`codex/item323-hardening`; the dependency is required because both changes
+touch snapshot persistence and the managed fleet path. It has not been merged
+or live-adopted. Item 323 remains partial for the same adoption, clean network-
+fetch proof, and bounded inventory completion gates stated above.

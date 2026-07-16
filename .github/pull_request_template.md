@@ -1,5 +1,7 @@
 ## Summary
 
+Follow the [Git workflow SOP](../docs/git-workflow.md).
+
 - What changed:
 - Why:
 

@@ -29,15 +29,19 @@ from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
     acquire_writer_lock,
+    authorize_managed_process_termination,
+    authorize_writer_lock_removal,
     age_seconds as supervisor_age_seconds,
     append_jsonl,
     attach_status_writer,
     atomic_write_json,
     configure_json_console_logging,
+    capture_managed_process_identity,
     file_lock_is_stale,
     launch_detached,
     loop_file_offsets,
     loop_writer_lock_health,
+    managed_stop_allows_start,
     pid_is_python,
     persist_supervisor_status,
     process_query_creationflags,
@@ -49,6 +53,7 @@ from weather.operations.supervisor import (
     release_writer_lock,
     should_emit_recovery_block_diagnostic,
     supervisor_recovery_guard,
+    terminate_managed_process,
     terminate_python_pid,
 )
 from weather.paths import REPO_ROOT
@@ -750,8 +755,10 @@ def running_clob_loop_processes(process_rows=None, current_pid=None):
             continue
         matches.append({
             "pid": pid,
+            "parent_pid": row.get("parent_pid") if isinstance(row, dict) else None,
             "name": row.get("name") if isinstance(row, dict) else None,
             "command_line": command_line,
+            "creation_time_token": row.get("creation_time_token") if isinstance(row, dict) else None,
         })
     return sorted(matches, key=lambda row: row["pid"])
 
@@ -766,15 +773,34 @@ def terminate_pid(pid):
     return terminate_python_pid(pid)
 
 
-def stop_clob_loop_processes(process_rows=None, keep_pids=(), terminate_fn=terminate_pid):
+def stop_clob_loop_processes(
+    process_rows=None,
+    keep_pids=(),
+    terminate_fn=terminate_pid,
+    *,
+    expected_command=None,
+    managed_process=None,
+):
+    """Inventory matching CLOB processes without authorizing termination.
+
+    Process-list substring matches remain useful diagnostics but are not
+    destructive authorization. The status-bound ``stop_clob_loop`` path owns
+    live command/creation-token re-observation and is the only stop authority.
+    """
+
     keep = {int(pid) for pid in keep_pids or [] if pid is not None}
     rows = running_clob_loop_processes(process_rows=process_rows)
     stopped = []
     for row in rows:
         if row["pid"] in keep:
             continue
-        result = terminate_fn(row["pid"])
+        result = {
+            "pid": row["pid"],
+            "stopped": False,
+            "reason": "process inventory is diagnostic-only; use status-bound stop_clob_loop",
+        }
         result["command_line"] = row.get("command_line")
+        result["creation_time_token"] = row.get("creation_time_token")
         stopped.append(result)
     return {
         "matched_process_count": len(rows),
@@ -913,7 +939,13 @@ def _normalized_pid(value):
         return None
 
 
-def _cleanup_clob_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
+def _cleanup_clob_writer_lock(
+    expected_pid=None,
+    attempts=1,
+    sleep_seconds=0.1,
+    confirmed_exit=None,
+    exited_identity=None,
+):
     attempts = max(1, int(attempts))
     last_result = None
     for attempt in range(attempts):
@@ -922,17 +954,22 @@ def _cleanup_clob_writer_lock(expected_pid=None, attempts=1, sleep_seconds=0.1):
             return {"removed": False, "reason": "no writer lock", "path": lock.get("path")}
         owner_pid = _normalized_pid(lock.get("pid"))
         expected = _normalized_pid(expected_pid)
-        if expected is not None and owner_pid == expected:
-            reason = "stopped writer pid"
-        elif owner_pid is not None and not pid_is_python(owner_pid):
-            reason = "dead writer pid"
-        else:
+        removal = authorize_writer_lock_removal(
+            lock,
+            expected_pid=expected,
+            confirmed_exit=confirmed_exit,
+            exited_identity=exited_identity,
+        )
+        if not removal.get("authorized"):
             return {
                 "removed": False,
-                "reason": "writer lock owner is still live",
+                "blocked": True,
+                "reason": removal.get("reason"),
                 "pid": owner_pid,
                 "path": lock.get("path"),
+                "authorization": removal,
             }
+        reason = "stopped writer pid" if expected is not None and owner_pid == expected else "dead writer pid"
         try:
             Path(lock["path"]).unlink()
         except FileNotFoundError:
@@ -951,19 +988,65 @@ def stop_clob_loop(now=None):
     now = now or utc_now()
     status = read_clob_loop_status()
     pid = (status or {}).get("pid")
-    cleanup = stop_clob_loop_processes()
-    pid_alive = pid_is_python(pid)
-    lock_cleanup = _cleanup_clob_writer_lock(expected_pid=pid, attempts=20, sleep_seconds=0.1)
-    if not cleanup["stopped_count"] and not pid_alive:
+    writer_lock = read_writer_lock(CLOB_LOOP_STATUS_PATH)
+    expected_command = _clob_loop_command_from_status(status)
+    authorization = authorize_managed_process_termination(
+        status,
+        writer_lock,
+        expected_command,
+    )
+    process_inventory = running_clob_loop_processes()
+    if not authorization.get("authorized"):
         return {
             "stopped": False,
-            "reason": f"no live CLOB loop process (pid={pid})",
-            "cleanup": cleanup,
+            "pid": pid,
+            "reason": authorization.get("reason"),
+            "authorization": authorization,
+            "process_inventory": process_inventory,
+            "writer_lock": writer_lock,
+        }
+    managed_process = authorization["managed_process"]
+    stop = terminate_managed_process(managed_process, expected_command)
+    if not stop.get("stopped"):
+        return {
+            "stopped": False,
+            "termination_requested": bool(stop.get("termination_requested")),
+            "pid": pid,
+            "reason": stop.get("reason"),
+            "termination_scope": stop.get("termination_scope"),
+            "authorization": authorization,
+            "process_inventory": process_inventory,
+            "writer_lock": writer_lock,
+        }
+    confirmed_exit = {
+        "exited": stop.get("exited") is True,
+        "reason": stop.get("reason"),
+        "pid": pid,
+        "termination_scope": stop.get("termination_scope"),
+    }
+    lock_cleanup = _cleanup_clob_writer_lock(
+        expected_pid=pid,
+        attempts=20,
+        sleep_seconds=0.1,
+        confirmed_exit=confirmed_exit,
+        exited_identity=managed_process,
+    )
+    if not confirmed_exit.get("exited"):
+        return {
+            "stopped": False,
+            "termination_requested": True,
+            "pid": pid,
+            "reason": confirmed_exit.get("reason"),
+            "authorization": authorization,
+            "post_termination_observation": confirmed_exit,
+            "process_inventory": process_inventory,
             "writer_lock": lock_cleanup,
         }
-    if not cleanup["stopped_count"] and pid_alive:
-        cleanup["stopped"].append(terminate_pid(pid))
-        cleanup["stopped_count"] = sum(1 for row in cleanup["stopped"] if row.get("stopped"))
+    cleanup = {
+        "matched_process_count": len(process_inventory),
+        "stopped_count": 1,
+        "stopped": [{**stop, "command_line": authorization["observation"].get("command_line")}],
+    }
     if status is not None:
         status["last_stop_requested_at"] = now.isoformat()
         write_clob_loop_status(status)
@@ -974,7 +1057,14 @@ def stop_clob_loop(now=None):
         "cleanup": cleanup,
         "writer_lock": lock_cleanup,
     })
-    return {"stopped": bool(cleanup["stopped_count"]), "pid": pid, "cleanup": cleanup, "writer_lock": lock_cleanup}
+    return {
+        "stopped": True,
+        "pid": pid,
+        "cleanup": cleanup,
+        "authorization": authorization,
+        "post_termination_observation": confirmed_exit,
+        "writer_lock": lock_cleanup,
+    }
 
 
 def _assert_raw_loop_contract(include_price_history, include_ws_events):
@@ -1037,6 +1127,38 @@ def _clob_loop_command(
     return command
 
 
+def _clob_loop_command_from_status(status):
+    status = status if isinstance(status, dict) else {}
+    return _clob_loop_command(
+        market_id=status.get("market_id", "all"),
+        target_date=status.get("target_date"),
+        interval_seconds=status.get("interval_seconds", DEFAULT_BOOK_INTERVAL_SECONDS),
+        fast_interval_seconds=status.get("fast_interval_seconds", DEFAULT_FAST_INTERVAL_SECONDS),
+        fast_hours_before_close=status.get("fast_hours_before_close", 4.0),
+        fast_after_local_hour=status.get("fast_after_local_hour", 15.0),
+        fast_on_mid_change_bps=status.get("fast_on_mid_change_bps", 500.0),
+        outcomes=status.get("outcomes", "all"),
+        batch_size=status.get("batch_size", DEFAULT_BATCH_SIZE),
+        include_price_history=status.get("include_price_history", DEFAULT_LOOP_INCLUDE_PRICE_HISTORY),
+        include_ws_events=status.get("include_ws_events", DEFAULT_LOOP_INCLUDE_WS_EVENTS),
+        ws_seconds=status.get("websocket_seconds", DEFAULT_WS_SECONDS),
+        ws_message_limit=status.get("websocket_message_limit", DEFAULT_WS_MESSAGE_LIMIT),
+        ws_heartbeat_seconds=status.get(
+            "websocket_heartbeat_seconds",
+            DEFAULT_WS_HEARTBEAT_SECONDS,
+        ),
+        ws_connect_timeout=status.get(
+            "websocket_connect_timeout",
+            DEFAULT_WS_CONNECT_TIMEOUT,
+        ),
+        raw_max_workers=status.get("raw_max_workers", DEFAULT_RAW_MAX_WORKERS),
+        raw_market_timeout_seconds=status.get(
+            "raw_market_timeout_seconds",
+            DEFAULT_RAW_MARKET_TIMEOUT_SECONDS,
+        ),
+    )
+
+
 def start_clob_loop_detached(
     market_id="all",
     target_date=None,
@@ -1060,17 +1182,16 @@ def start_clob_loop_detached(
     now = now or utc_now()
     _assert_raw_loop_contract(include_price_history, include_ws_events)
     lock_cleanup = _cleanup_clob_writer_lock(attempts=3, sleep_seconds=0.1)
-    if lock_cleanup.get("reason") == "writer lock owner is still live":
+    if lock_cleanup.get("blocked"):
         append_clob_diagnostic({
             "time": now.isoformat(),
             "supervisor": "start_blocked",
-            "reason": "writer lock owner is still live",
+            "reason": lock_cleanup.get("reason"),
             "writer_lock": lock_cleanup,
         })
-        return {"started": False, "reason": "writer lock owner is still live", "writer_lock": lock_cleanup}
+        return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
     console_log_rotation = rotate_clob_sidecar(CLOB_LOOP_CONSOLE_LOG_PATH, now=now)
-    child = launch_detached(
-        _clob_loop_command(
+    command = _clob_loop_command(
             market_id=market_id,
             target_date=target_date,
             interval_seconds=interval_seconds,
@@ -1088,16 +1209,20 @@ def start_clob_loop_detached(
             ws_connect_timeout=ws_connect_timeout,
             raw_max_workers=raw_max_workers,
             raw_market_timeout_seconds=raw_market_timeout_seconds,
-        ),
+        )
+    child = launch_detached(
+        command,
         cwd=CLOB_SUPERVISOR.cwd,
         console_log_path=CLOB_LOOP_CONSOLE_LOG_PATH,
         popen_fn=subprocess.Popen,
     )
+    managed_process = capture_managed_process_identity(child.pid, command)
     write_clob_loop_status({
         "pid": child.pid,
         "started_at": now.isoformat(),
         "last_heartbeat": now.isoformat(),
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "managed_process": managed_process,
         "market_id": market_id,
         "target_date": target_date,
         "date_selection": "fixed_target_date" if target_date else "market_local_date",
@@ -1264,6 +1389,22 @@ def ensure_clob_loop(
             result["loop_offsets_before"] = loop_file_offsets(spec)
         if action == "restart":
             result["stop"] = stop_clob_loop(now=now)
+            if not managed_stop_allows_start(result["stop"]):
+                result["intended_action"] = "restart"
+                result["action"] = "restart_blocked"
+                result["reason"] = result["stop"].get("reason") or "managed CLOB stop was not confirmed"
+                result = persist_supervisor_status(spec, result, now=now)
+                append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+                return result
+            remaining_processes = running_clob_loop_processes()
+            result["running_processes_after_stop"] = remaining_processes
+            if remaining_processes:
+                result["intended_action"] = "restart"
+                result["action"] = "restart_blocked"
+                result["reason"] = "unproven CLOB loop process remains after managed stop"
+                result = persist_supervisor_status(spec, result, now=now)
+                append_clob_diagnostic({"time": now.isoformat(), "supervisor": "ensure", **result})
+                return result
             result["malformed_loop_line_quarantine"] = quarantine_malformed_loop_lines(spec)
             result["start"] = start_clob_loop_detached(
                 market_id=market_id,
@@ -1341,9 +1482,33 @@ def run_book_loop(
     now_fn=utc_now,
 ):
     _assert_raw_loop_contract(include_price_history, include_ws_events)
+    managed_command = _clob_loop_command(
+        market_id=market_id,
+        target_date=target_date,
+        interval_seconds=interval_seconds,
+        fast_interval_seconds=fast_interval_seconds,
+        fast_hours_before_close=fast_hours_before_close,
+        fast_after_local_hour=fast_after_local_hour,
+        fast_on_mid_change_bps=fast_on_mid_change_bps,
+        outcomes=outcomes,
+        batch_size=batch_size,
+        include_price_history=include_price_history,
+        include_ws_events=include_ws_events,
+        ws_seconds=ws_seconds,
+        ws_message_limit=ws_message_limit,
+        ws_heartbeat_seconds=ws_heartbeat_seconds,
+        ws_connect_timeout=ws_connect_timeout,
+        raw_max_workers=raw_max_workers,
+        raw_market_timeout_seconds=raw_market_timeout_seconds,
+    )
+    managed_process = capture_managed_process_identity(os.getpid(), managed_command)
     writer_lock = acquire_writer_lock(
         CLOB_LOOP_STATUS_PATH,
-        owner={"loop": CLOB_SUPERVISOR.name, "module": CLOB_SUPERVISOR.module},
+        owner={
+            "loop": CLOB_SUPERVISOR.name,
+            "module": CLOB_SUPERVISOR.module,
+            "managed_process": managed_process,
+        },
         stale_after_seconds=max(120.0, float(interval_seconds) * 3.0),
     )
     if writer_lock is None:
@@ -1362,6 +1527,7 @@ def run_book_loop(
         "pid": os.getpid(),
         "started_at": now_fn().isoformat(),
         "runtime_identity": get_runtime_identity(scope_files="loaded"),
+        "managed_process": managed_process,
         "power_request": power_request,
         "market_id": market_id,
         "target_date": target_date,
@@ -2124,9 +2290,10 @@ def main():
             print(json.dumps({"restarted": False, "reason": "another CLOB supervisor action is running"}, indent=2))
             return
         try:
-            result = {
-                "stop": stop_clob_loop(),
-                "start": start_clob_loop_detached(
+            stop = stop_clob_loop()
+            result = {"stop": stop}
+            if managed_stop_allows_start(stop):
+                result["start"] = start_clob_loop_detached(
                     market_id=args.market,
                     target_date=args.date,
                     interval_seconds=args.interval_seconds,
@@ -2144,8 +2311,9 @@ def main():
                     ws_connect_timeout=args.websocket_connect_timeout,
                     raw_max_workers=args.raw_max_workers,
                     raw_market_timeout_seconds=args.raw_market_timeout_seconds,
-                ),
-            }
+                )
+            else:
+                result["start"] = {"started": False, "reason": "managed stop was not confirmed"}
             print(json.dumps(result, indent=2, sort_keys=True, default=str))
         finally:
             release_clob_supervisor_lock(lock_handle)
