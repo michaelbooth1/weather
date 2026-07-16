@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import requests
 import pandas as pd
+import weather.collection.collection_health as collection_health
 from weather.collection.redaction import has_unredacted_sensitive_url_parts, redact_sensitive_url_parts
 import weather.collection.snapshot_tracker as tracker  # noqa: E402
 from weather.model.model_sources import request_with_retries, _is_retryable
@@ -920,6 +921,98 @@ class TestGapDetection(unittest.TestCase):
         self.assertTrue(integrity["action_required"])
         self.assertEqual(integrity["duplicate_snapshot_id_count"], 1)
         self.assertEqual(integrity["invalid_probability_sum_count"], 1)
+
+    def test_health_tape_scans_do_not_materialize_complete_csv_readers(self):
+        real_dict_reader = collection_health.csv.DictReader
+
+        class StreamingOnlyReader:
+            def __init__(self, *args, **kwargs):
+                self._reader = real_dict_reader(*args, **kwargs)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self._reader)
+
+            def __length_hint__(self):
+                raise AssertionError("complete CSV reader materialized")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "snapshot_id": "s2",
+                        "captured_at_utc": "2026-07-15T12:10:00+00:00",
+                        "model_probability": 0.4,
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": "2026-07-15T12:00:00+00:00",
+                        "model_probability": 1.0,
+                    },
+                    {
+                        "snapshot_id": "s2",
+                        "captured_at_utc": "2026-07-15T12:10:00+00:00",
+                        "model_probability": 0.6,
+                    },
+                ]
+            ).to_csv(folder / "snapshots_long.csv", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "snapshot_id": "s2",
+                        "captured_at_utc": "2026-07-15T12:10:00+00:00",
+                        "source": "metar",
+                    },
+                    {
+                        "snapshot_id": "s1",
+                        "captured_at_utc": "2026-07-15T12:00:00+00:00",
+                        "source": "metar",
+                    },
+                    {
+                        "snapshot_id": "s2",
+                        "captured_at_utc": "2026-07-15T12:10:00+00:00",
+                        "source": "wu_history",
+                    },
+                ]
+            ).to_csv(folder / "source_status_long.csv", index=False)
+            pd.DataFrame(
+                [
+                    {"snapshot_id": "s2", "variant_id": "v1"},
+                    {"snapshot_id": "s1", "variant_id": "v1"},
+                    {"snapshot_id": "s2", "variant_id": "v2"},
+                ]
+            ).to_csv(folder / "variant_predictions_long.csv", index=False)
+
+            with patch.object(
+                collection_health.csv,
+                "DictReader",
+                side_effect=lambda *args, **kwargs: StreamingOnlyReader(
+                    *args,
+                    **kwargs,
+                ),
+            ):
+                integrity = collection_health.snapshot_artifact_integrity(folder)
+                snapshot_rows, snapshot_meta = collection_health.latest_snapshot_rows(
+                    folder
+                )
+                source_rows, source_meta = collection_health.latest_source_status_rows(
+                    folder
+                )
+                variant_rows = collection_health.read_csv_rows(
+                    folder / "variant_predictions_long.csv",
+                    snapshot_id="s2",
+                )
+
+        self.assertEqual(integrity["status"], "PASS")
+        self.assertEqual(integrity["row_count"], 3)
+        self.assertEqual(snapshot_meta["snapshot_id"], "s2")
+        self.assertEqual(len(snapshot_rows), 2)
+        self.assertEqual(source_meta["snapshot_id"], "s2")
+        self.assertEqual(len(source_rows), 2)
+        self.assertEqual(len(variant_rows), 2)
 
     def test_early_hour_coverage_uses_market_native_timezone(self):
         # Los Angeles rows are persisted with the process/local -04:00 offset,

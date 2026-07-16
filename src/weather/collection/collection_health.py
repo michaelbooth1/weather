@@ -513,8 +513,40 @@ def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
             "snapshot_group_count": 0,
         }
     try:
+        groups = {}
+        row_count = 0
         with path.open(newline="", encoding="utf-8") as handle:
-            rows = list(csv.DictReader(handle))
+            for row in csv.DictReader(handle):
+                row_count += 1
+                snapshot_id = row.get("snapshot_id")
+                if not snapshot_id:
+                    continue
+                group = groups.setdefault(
+                    snapshot_id,
+                    {
+                        "capture_times": set(),
+                        "row_count": 0,
+                        "probability_count": 0,
+                        "probability_sum": 0.0,
+                    },
+                )
+                group["row_count"] += 1
+                capture_time = (
+                    row.get("captured_at_utc")
+                    or row.get("captured_at_local")
+                    or ""
+                )
+                if capture_time:
+                    group["capture_times"].add(capture_time)
+                value = row.get("model_probability")
+                if value in (None, ""):
+                    continue
+                try:
+                    probability = float(value)
+                except (TypeError, ValueError):
+                    continue
+                group["probability_count"] += 1
+                group["probability_sum"] += probability
     except OSError as exc:
         return {
             "status": "BLOCK",
@@ -524,42 +556,23 @@ def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
             "invalid_probability_sum_count": 0,
             "snapshot_group_count": 0,
         }
-    groups = {}
-    for row in rows:
-        snapshot_id = row.get("snapshot_id")
-        if not snapshot_id:
-            continue
-        groups.setdefault(snapshot_id, []).append(row)
     duplicate_examples = []
     invalid_examples = []
-    for snapshot_id, group_rows in groups.items():
-        capture_times = {
-            row.get("captured_at_utc") or row.get("captured_at_local") or ""
-            for row in group_rows
-        }
-        capture_times.discard("")
+    for snapshot_id, group in groups.items():
+        capture_times = group["capture_times"]
         if len(capture_times) > 1:
             duplicate_examples.append({
                 "snapshot_id": snapshot_id,
                 "distinct_capture_count": len(capture_times),
-                "row_count": len(group_rows),
+                "row_count": group["row_count"],
             })
-        probabilities = []
-        for row in group_rows:
-            value = row.get("model_probability")
-            if value in (None, ""):
-                continue
-            try:
-                probabilities.append(float(value))
-            except (TypeError, ValueError):
-                continue
-        if probabilities:
-            probability_sum = sum(probabilities)
+        if group["probability_count"]:
+            probability_sum = group["probability_sum"]
             if abs(probability_sum - 1.0) > probability_tolerance:
                 invalid_examples.append({
                     "snapshot_id": snapshot_id,
                     "probability_sum": probability_sum,
-                    "row_count": len(group_rows),
+                    "row_count": group["row_count"],
                 })
     duplicate_count = len(duplicate_examples)
     invalid_count = len(invalid_examples)
@@ -581,7 +594,7 @@ def snapshot_artifact_integrity(folder, probability_tolerance=1e-6):
         "invalid_probability_sum_count": invalid_count,
         "invalid_probability_sum_examples": invalid_examples[:5],
         "snapshot_group_count": len(groups),
-        "row_count": len(rows),
+        "row_count": row_count,
         "probability_tolerance": probability_tolerance,
     }
 
@@ -796,23 +809,28 @@ def latest_source_status_rows(folder):
     path = Path(folder) / "source_status_long.csv"
     if not path.exists():
         return [], {"available": False, "reason": "source_status_long.csv missing"}
-    rows = []
-    with path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        return [], {"available": False, "reason": "source_status_long.csv empty"}
     def row_sort_time(row):
-        parsed = parse_times([row.get("captured_at_utc") or row.get("captured_at_local")])
+        parsed = parse_times(
+            [row.get("captured_at_utc") or row.get("captured_at_local")]
+        )
         return parsed[0].timestamp() if parsed else float("-inf")
-    latest = max(
-        rows,
-        key=row_sort_time,
-    )
+
+    latest = None
+    latest_time = float("-inf")
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            candidate_time = row_sort_time(row)
+            if latest is None or candidate_time > latest_time:
+                latest = row
+                latest_time = candidate_time
+    if latest is None:
+        return [], {"available": False, "reason": "source_status_long.csv empty"}
     latest_snapshot_id = latest.get("snapshot_id")
-    latest_rows = [
-        row for row in rows
-        if row.get("snapshot_id") == latest_snapshot_id
-    ]
+    latest_rows = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("snapshot_id") == latest_snapshot_id:
+                latest_rows.append(row)
     return latest_rows, {
         "available": True,
         "snapshot_id": latest_snapshot_id,
@@ -1235,12 +1253,22 @@ def source_status_market_proof(row):
     }
 
 
-def read_csv_rows(path):
+_ALL_CSV_SNAPSHOTS = object()
+
+
+def read_csv_rows(path, *, snapshot_id=_ALL_CSV_SNAPSHOTS):
     path = Path(path)
     if not path.exists():
         return []
+    rows = []
     with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+        for row in csv.DictReader(handle):
+            if (
+                snapshot_id is _ALL_CSV_SNAPSHOTS
+                or row.get("snapshot_id") == snapshot_id
+            ):
+                rows.append(row)
+    return rows
 
 
 def row_sort_time(row):
@@ -1250,12 +1278,20 @@ def row_sort_time(row):
 
 def latest_snapshot_rows(folder):
     path = Path(folder) / "snapshots_long.csv"
-    rows = read_csv_rows(path)
-    if not rows:
+    if not path.exists():
         return [], {"available": False, "reason": "snapshots_long.csv missing or empty", "path": str(path)}
-    latest = max(rows, key=row_sort_time)
+    latest = None
+    latest_time = float("-inf")
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            candidate_time = row_sort_time(row)
+            if latest is None or candidate_time > latest_time:
+                latest = row
+                latest_time = candidate_time
+    if latest is None:
+        return [], {"available": False, "reason": "snapshots_long.csv missing or empty", "path": str(path)}
     snapshot_id = latest.get("snapshot_id")
-    latest_rows = [row for row in rows if row.get("snapshot_id") == snapshot_id]
+    latest_rows = read_csv_rows(path, snapshot_id=snapshot_id)
     return latest_rows, {
         "available": True,
         "snapshot_id": snapshot_id,
@@ -1310,7 +1346,7 @@ def variant_prediction_tape_health(folder, registry_path=DEFAULT_REGISTRY_PATH):
         }
 
     path = folder / "variant_predictions_long.csv"
-    rows = read_csv_rows(path)
+    rows = read_csv_rows(path, snapshot_id=snapshot_meta.get("snapshot_id"))
     if not rows:
         return {
             "available": False,
