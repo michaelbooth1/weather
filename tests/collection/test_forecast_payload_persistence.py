@@ -1,6 +1,8 @@
 import unittest
 import tempfile
+import errno
 import hashlib
+import json
 import os
 from pathlib import Path
 from datetime import datetime, timezone
@@ -16,7 +18,7 @@ from weather.model.source_adapters import fetch_source_group
 
 
 class TestForecastPayloadPersistence(unittest.TestCase):
-    def test_retained_payloads_serialize_once_and_stream_existing_blob_validation(self):
+    def test_retained_payloads_stream_serialization_and_existing_blob_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SnapshotStore(root=tmp, event_slug="event")
             forecast_sources = {
@@ -25,18 +27,31 @@ class TestForecastPayloadPersistence(unittest.TestCase):
             observation_sources = {
                 "metar": {"data": {"raw_payload": {"text": "METAR KLGA"}}}
             }
-            original = store.canonical_raw_payload
-            with patch.object(store, "canonical_raw_payload", wraps=original) as serializer:
+            with patch.object(
+                store,
+                "canonical_raw_payload",
+                side_effect=AssertionError("unbounded serializer"),
+            ):
                 first = store.write_forecast_payloads(
                     forecast_sources,
                     "f1",
                     datetime(2026, 7, 12, 11, tzinfo=timezone.utc),
                     "model-v",
                 )[0]
-                self.assertEqual(serializer.call_count, 1)
 
             # The dedupe validation must not load the existing blob at once.
-            with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded read")):
+            with (
+                patch.object(
+                    store,
+                    "canonical_raw_payload",
+                    side_effect=AssertionError("unbounded serializer"),
+                ),
+                patch.object(
+                    Path,
+                    "read_bytes",
+                    side_effect=AssertionError("unbounded read"),
+                ),
+            ):
                 second = store.write_forecast_payloads(
                     forecast_sources,
                     "f2",
@@ -46,14 +61,111 @@ class TestForecastPayloadPersistence(unittest.TestCase):
             self.assertEqual(first["payload_hash"], second["payload_hash"])
             self.assertFalse(second["payload_blob_created"])
 
-            with patch.object(store, "canonical_raw_payload", wraps=original) as serializer:
+            with patch.object(
+                store,
+                "canonical_raw_payload",
+                side_effect=AssertionError("unbounded serializer"),
+            ):
                 store.write_observation_payloads(
                     observation_sources,
                     "o1",
                     datetime(2026, 7, 12, 11, tzinfo=timezone.utc),
                     "model-v",
                 )
-                self.assertEqual(serializer.call_count, 1)
+
+    def test_streamed_hash_and_raw_blob_match_legacy_bytes_for_large_payload(self):
+        repeated = "x" * (128 * 1024)
+        payload = {
+            "rows": [repeated] * 64,
+            "metadata": {
+                "unicode": "Montréal",
+                "timestamp": datetime(2026, 7, 15, 22, 0, tzinfo=timezone.utc),
+                "not_a_number": float("nan"),
+            },
+        }
+        legacy_status_bytes = json.dumps(
+            payload,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        expected_status_hash = hashlib.sha1(legacy_status_bytes).hexdigest()
+        legacy_raw_bytes = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        expected_raw_hash = hashlib.sha256(legacy_raw_bytes).hexdigest()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=tmp, event_slug="event")
+            with patch(
+                "weather.collection.snapshot_store.json.dumps",
+                side_effect=AssertionError("whole-document json.dumps"),
+            ):
+                status_hash = store.payload_hash(payload)
+                path, raw_hash, payload_bytes, created = (
+                    store.write_content_addressed_payload(
+                        Path(tmp) / "payloads",
+                        payload=payload,
+                    )
+                )
+
+            self.assertEqual(status_hash, expected_status_hash)
+            self.assertEqual(raw_hash, expected_raw_hash)
+            self.assertEqual(payload_bytes, len(legacy_raw_bytes))
+            self.assertTrue(created)
+            self.assertEqual(path.read_bytes(), legacy_raw_bytes + b"\n")
+
+    def test_streamed_cas_failure_leaves_no_partial_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SnapshotStore(root=tmp, event_slug="event")
+            directory = Path(tmp) / "payloads"
+            recursive = []
+            recursive.append(recursive)
+
+            with self.assertRaisesRegex(ValueError, "Circular reference"):
+                store.write_content_addressed_payload(
+                    directory,
+                    payload={"recursive": recursive},
+                )
+            self.assertEqual(
+                [path for path in directory.rglob("*") if path.is_file()],
+                [],
+            )
+
+            with (
+                patch(
+                    "weather.collection.snapshot_store.os.link",
+                    side_effect=OSError(errno.EIO, "publish failed"),
+                ),
+                self.assertRaisesRegex(OSError, "publish failed"),
+            ):
+                store.write_content_addressed_payload(
+                    directory,
+                    payload={"complete": True},
+                )
+            self.assertEqual(
+                [path for path in directory.rglob("*") if path.is_file()],
+                [],
+            )
+
+    def test_streamed_jsonl_matches_legacy_serialization(self):
+        payload = {
+            "z": ["Montréal", datetime(2026, 7, 15, tzinfo=timezone.utc)],
+            "a": {"value": float("inf")},
+        }
+        expected = json.dumps(payload, sort_keys=True, default=str) + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rows.jsonl"
+            store = SnapshotStore(root=tmp, event_slug="event")
+            with patch(
+                "weather.collection.snapshot_store.json.dumps",
+                side_effect=AssertionError("whole-document json.dumps"),
+            ):
+                store.append_jsonl(path, payload, durable=True)
+            self.assertEqual(path.read_text(encoding="utf-8"), expected)
 
     def test_source_adapter_attempt_and_parser_contract_reach_snapshot_manifest(self):
         class StubSourceModel(SourceFetchMixin):
