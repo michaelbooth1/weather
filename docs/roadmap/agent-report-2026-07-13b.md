@@ -7,10 +7,14 @@ launch an extra Stage-A run. The unrelated generated changes in
 `config/location_market_events.json` and `config/locations.json` remain
 unmodified and excluded from this work.
 
+The 2026-07-14 checkpoint reconciliation at the end is current. Earlier status
+paragraphs preserve the chronology visible during the 2026-07-13 live run and
+are superseded where that reconciliation says so.
+
 ## Task 1 — snapshot supervisor dead-loop blindness
 
-Status: **PARTIAL — core repair live; destructive-authorization hardening and
-commit deferred to the adoption window**.
+Status: **PARTIAL — core repair committed; destructive-authorization hardening
+still pending the next 01:00–04:15 code window**.
 
 - Snapshot, CLOB, and observation ensures now verify status-PID/writer-lock
   ownership, serialize supervisor actions, persist the latest circuit/backoff
@@ -34,10 +38,8 @@ Verification so far:
 
 - Supervisor/loop/CLOB/observation/fleet slice: **175 passed**.
 - `python -m compileall -q app src tests`: passed before the follow-up review.
-- Schema/docs slice: **9 passed, 1 failed** only for the two Task-4 schema
-  registrations still pending in the adoption-safe window.
-- Import architecture: **20 passed, 1 failed** because the two new Task-4 files
-  are intentionally untracked until the adoption-window commit.
+- The initially pending schema and import-architecture ratchets were completed
+  later in commit `51460b7e`: **28 passed** across those two suites.
 
 This task made no commit outside the adoption window because changing HEAD or
 loaded capture source would force another live-code readoption. The unrelated
@@ -45,7 +47,7 @@ concurrent commit is attributed under Task 6.
 
 ## Task 2 — snapshot error latch and Stage-A admission
 
-Status: **IMPLEMENTED; commit pending with the loaded-source adoption**.
+Status: **IMPLEMENTED AND COMMITTED in `391fb628`**.
 
 - In-progress heartbeats retain the previous completed iteration's error.
   Only a complete all-registered-market iteration can replace that latch.
@@ -93,7 +95,8 @@ agent session or relabel its artifacts.
 
 ## Task 4 — Item 323 remaining proofs
 
-Status: **PARTIAL**.
+Status: **PARTIAL — controlled storage hour passed; network coalescing, receipt
+hardening, and real-root inventory remain open**.
 
 - Added a cross-process claim/receipt coordinator under the shared CAS. One
   isolated child holds the NBM fetch; followers wait a bounded 30 seconds,
@@ -134,18 +137,17 @@ Verification so far:
 
 ## Task 5 — Item 322 soak evidence
 
-Status: **DEFERRED to normal worker adoption and four-hour readback**.
+Status: **AUDITED 2026-07-14; acceptance remains open**.
 
-The incremental taker implementation does not adopt until the normal 00:05
-roll. No live paper worker was restarted, signaled, or forced to adopt early.
-A read-only 08:20 follow-up will evaluate at least four consecutive post-
-training hours for PID/process-instance continuity, private and working-set
-peaks, post-warmup slope, per-tick tape/process I/O, and tick duration against
-the declared budgets. Flat-slope evidence is required before closing the soak.
+The normal worker was not restarted or signaled early. Its later audit found
+488 contiguous ticks across 8.73 hours under one process instance, but 364
+earlier slope warnings and zero populated order/counterfactual rows made the
+run non-accepting. Item 322 owns the exact metrics and the required current-
+target-date populated-tape follow-up; the stale 08:20 readback is not repeated.
 
 ## Task 6 — hygiene
 
-Status: **IMPLEMENTED IN THE WORKTREE; adoption-window commit pending**.
+Status: **IMPLEMENTED AND COMMITTED across `34807b4a` and `391fb628`**.
 
 - Daily-refresh progress now counts only successful terminal step statuses,
   retains a declared total across resume, and repairs historical
@@ -203,3 +205,62 @@ active at the last readback; capture remained clean. Available physical memory
 reached 3.72 GiB before later fluctuating below 3 GiB, so broad tests remain
 deferred. This report keeps that concurrent ownership explicit rather than
 claiming those runs as work from this task.
+
+## 2026-07-14 checkpoint reconciliation
+
+The controlled Item-323 monitor completed normally from 14:44:46 to 15:44:46
+local on 2026-07-13. Snapshot capture was `HEALTHY` and `fresh` in all 60
+one-minute samples, retained PID 9828, recorded zero consecutive errors, and
+stayed below 405.329 seconds capture age against the 1,320-second dead limit.
+Its frozen diagnostic cursor contains 69 clean iterations and 72 successful
+writes: all 12 markets once in each of six complete passes. Captured-at records
+and the immediately following diagnostics add NYC and Toronto iterations that
+both completed before the 15:44:46 planned end, bringing the full interval to
+74 successful snapshots. The incidents folder is empty. The earlier 14:29 run
+remains separate outage/repair evidence.
+
+Those 74 snapshots wrote 578 forecast-manifest rows: 65 created and 513 reused
+blobs, 2,342,478,936 logical bytes, 3,022,842 canonical physical bytes, and
+2,339,456,094 avoided bytes. All newly created files were market-local non-NBM
+payloads; the end-boundary delta was one 85,791-byte NYC `nws_hourly` blob.
+For reproducibility, the tail-truncated cursor alone reports 564 rows,
+64/500 created/reused, and 2,937,051 physical bytes.
+
+All 67 NBM rows used one 34,714,882-byte shared blob and one digest. They wrote
+zero shared physical bytes, avoided 2,325,897,094 bytes, and created zero
+market-local NBM copies. Their JSONL rows total 224,554 bytes and the paired CSV
+rows 108,446 bytes: 333,000 bytes combined, or 4,953–5,016 bytes per reference.
+Network coalescing was much weaker: staggered cadence formed 64 NBM capture
+scopes, with 64 holder fetches and only three cross-process receipt reuses. The
+six complete US-market sweeps were 9/2, 10/1, 11/0, 11/0, 11/0, and 11/0
+fetch/reuse; final in-hour NYC added 1/0. No wait timed out or failed open. The
+hour therefore closes the controlled storage soak but not the one-fetch-per-
+fleet-pass or bulletin-cycle goal.
+
+Whole-host disk free still fell 2.1399 GiB under unrelated concurrent work,
+while forecast-payload physical writes were 2.883 MiB and NBM physical writes
+were zero. Physical RAM briefly reached 1.848 GiB, but capture stayed healthy.
+Daily-refresh/taker transitions are retained as external host context and do
+not count as scheduled Item-324 evidence. The generated monitor report's
+“12-Hour” title is cosmetic and incorrect; the one-hour manifest and runtime
+artifact are preserved unchanged.
+
+Commit `391fb628` recorded the core Task 1/2/4/6 work, and `51460b7e` registered
+both previously pending schemas. A current-source audit found that the broad
+adoption commit did not implement exact managed-process authorization for the
+three destructive supervisor paths or the receipt symlink/size/mutability,
+NBM-cycle-semantic, and holder-death attribution fixes. Those loaded-source
+changes remain queued for the next 01:00–04:15 code window. The bounded real-
+root migration scan also remains pending. No capture process was restarted or
+signaled, and no runtime evidence was changed during this readback.
+
+The repository was clean at HEAD `9ec0d90f` before this documentation update.
+The previously excluded config changes were later committed by a separate
+owner in `23d2131c`; this task did not modify or claim them. During final
+documentation verification at 12:00 local, the separate user-owned session
+regenerated those same two config files again. They remain untouched and
+excluded from this checkpoint. Item 322's 8.73-hour audit is already recorded
+but non-accepting. The 2026-07-14 09:30 Item-324 run is non-countable; the next
+eligible scheduled evidence is 2026-07-15 09:30. The heartbeat is therefore
+rebased to the next 01:05 code window, then to the July 15 and July 16
+scheduled-run readbacks, without extra Stage-A execution.

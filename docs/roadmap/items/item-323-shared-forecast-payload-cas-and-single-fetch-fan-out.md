@@ -1,4 +1,4 @@
-# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-13 - CROSS-PROCESS FAN-OUT IMPLEMENTED; CONTROLLED HOUR AND REAL-ROOT INVENTORY PENDING]
+# 323. Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-14 - CONTROLLED STORAGE HOUR PASSED; NETWORK COALESCING, RECEIPT HARDENING, AND REAL-ROOT INVENTORY PENDING]
 
 Goal: store one verified copy of a market-invariant raw forecast response and
 fan it out through point-in-time per-market manifests, so replay provenance is
@@ -68,13 +68,15 @@ cross-market raw-payload deduplication or fetch fan-out.
   market-specific capture timestamps or cutoff semantics.
 - [ ] Prove captured-input replay, feature parity, and per-market lineage across
   the shared reference path.
-- [ ] Add logical/physical/avoided-byte observability and a host disk-growth
-  budget gate.
-- [ ] Implement a dry-run-first migration/GC tool with reachability, restore,
-  hash, and replay proof; perform no evidence deletion until explicitly
-  reviewed.
-- [ ] Complete a multi-market soak showing repeated national NBM captures reuse
-  shared bytes and remain healthy through process restart.
+- [x] Add logical/physical/avoided-byte observability to capture status,
+  manifests, storage inventory, and runtime monitoring.
+- [ ] Add a reviewed host disk-growth budget gate.
+- [x] Implement a bounded inventory-only migration dry run with partial
+  reachability, restore, hash, and replay proof.
+- [ ] Design and review any apply/GC phase separately; perform no evidence
+  deletion until it is explicitly authorized.
+- [x] Complete a clean multi-market post-restart soak showing repeated national
+  NBM captures reuse one shared physical object.
 
 Acceptance: when all US markets capture identical raw NBM bytes for the same
 declared request/cycle, exactly one verified physical blob is created while
@@ -209,3 +211,64 @@ when the holder dies after publishing the CAS blob but before writing its
 market manifest. Those receipt and accounting corrections are held for the
 01:00–04:15 adoption window because those modules are loaded by the live
 snapshot worker.
+
+## 2026-07-14 controlled-hour readback
+
+The clean monitor at
+`data/monitoring/item323_controlled_healthy_hour/20260713T184446Z` completed
+from 14:44:46 to 15:44:46 local. All 60 one-minute snapshot observations were
+`HEALTHY` and `fresh`, all retained PID 9828 with zero consecutive errors, and
+capture/heartbeat age stayed below 405.329/397.623 seconds against the
+1,320-second dead threshold. The frozen diagnostic cursor contains 69 clean
+iterations, 72 successful snapshots, and six complete passes in which all 12
+markets wrote once. It omitted only the final NYC and Toronto snapshots: both
+iterations began after the monitor start and completed at 15:44:36/15:44:44,
+before the planned 15:44:46 end. Captured-at timestamps plus the immediately
+following diagnostic records therefore establish 74 successful in-hour
+snapshots. The incidents folder is empty. The earlier 14:29 monitor under
+`data/monitoring/item323_controlled_hour/20260713T182928Z` remains separate
+outage/repair evidence and is not relabeled.
+
+Across the full interval's 578 forecast-manifest rows, compact observability
+reports 65 created and 513 reused payload blobs, 2,342,478,936 logical bytes,
+3,022,842 canonical physical bytes written, and 2,339,456,094 avoided bytes.
+All 65 newly created market-local files were non-NBM source payloads; the extra
+boundary file is NYC `nws_hourly` at 85,791 canonical bytes. The cursor-only
+figures were 564 rows, 64/500 created/reused, 2,307,464,142 logical,
+2,937,051 physical, and 2,304,527,091 avoided bytes. All referenced payloads
+checked for this readback are present and pass their declared hash and
+byte-count checks.
+
+The NBM result is stronger for storage than for network fan-out. The 67 US-
+market NBM rows all reference one 34,714,882-byte shared blob and one digest;
+all 67 reused it, wrote zero shared physical bytes, avoided 2,325,897,094
+logical bytes, and created zero market-local NBM copies. Their JSONL reference
+rows total 224,554 bytes at 3,343–3,374 bytes each; the paired CSV rows add
+108,446 bytes, for 333,000 bytes total and 4,953–5,016 bytes per reference pair.
+Combined JSONL-plus-CSV reference bytes by market were ATL 29,814, AUS 29,790,
+CHI 29,837, DAL 29,790, DEN 29,790, HOU 29,837, LA 29,910, MIA 29,766,
+NYC 34,671, SF 29,981, and SEA 29,814; Toronto has no NBM row.
+
+Staggered cadence produced 64 coordination scopes for those 67 NBM rows:
+64 holders fetched from the provider and three followers reused receipts, with
+no timeout or fail-open. Across the six complete US-market sweeps, fetch/reuse
+was respectively 9/2, 10/1, 11/0, 11/0, 11/0, and 11/0; the final in-hour
+partial sweep added NYC at 1/0. This proves same-scope coalescing and closes the
+storage soak, but it does not prove one provider fetch for an entire fleet
+cadence pass or bulletin cycle; network coalescing remains open.
+
+Whole-host disk free fell 2.1399 GiB during unrelated concurrent activity,
+while forecast-payload physical writes were 2.883 MiB (0.132% of that delta)
+and NBM physical writes were zero. Physical headroom briefly reached 1.848 GiB,
+but capture stayed healthy. Daily-refresh and taker state transitions in the
+monitor are retained as unrelated host context and are not Item-323 failures.
+The generated `final_report.md` title says “12-Hour” even though the manifest
+and lifecycle prove a one-hour run; that cosmetic runtime artifact is preserved
+unchanged.
+
+Commits `391fb628` and `51460b7e` recorded the core implementation and both
+schema registrations. A current-code audit confirms the destructive supervisor
+authorization and fan-out receipt/accounting gaps described above were not
+actually completed by those commits. They remain queued for the next
+01:00–04:15 code window. The bounded real-root migration inventory also remains
+pending; no evidence was copied, rewritten, or deleted in this readback.
