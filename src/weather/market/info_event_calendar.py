@@ -701,61 +701,71 @@ def summarize_event_gate_rows(rows):
 
 
 def score_event_gate_decisions(quote_rows, fill_rows=None):
-    quote_rows = list(quote_rows or [])
-    fill_rows = list(fill_rows or [])
-    suppressed = [
-        row for row in quote_rows
-        if (row.get("event_gate_action") or "") == "suppress"
-        and not _truthy_quote(row.get("quote_permission"))
-    ]
-    widened = [row for row in quote_rows if (row.get("event_gate_action") or "") == "widen"]
-    exceptions = [row for row in quote_rows if (row.get("event_gate_action") or "") == "allow_exception"]
+    quote_row_count = 0
+    suppressed_count = 0
+    widened_count = 0
+    exception_count = 0
     opportunity = 0.0
-    for row in suppressed:
-        edge = finite_float(row.get("edge"), 0.0) or 0.0
-        size = finite_float(row.get("bid_size"), None)
-        if size in (None, 0.0):
-            size = finite_float(row.get("ask_size"), None)
-        if size in (None, 0.0):
-            size = finite_float(row.get("quote_size"), 5.0) or 5.0
-        opportunity += max(0.0, abs(edge)) * max(0.0, size)
     avoided = 0.0
     evidence_rows = 0
-    for row in suppressed:
-        value = finite_float(
-            row.get("event_gate_avoided_toxicity_usdc")
-            or row.get("avoided_toxicity_usdc")
-            or row.get("markout_30m_adverse_usdc")
-        )
-        if value is not None:
-            avoided += max(0.0, value)
-            evidence_rows += 1
+    by_class = Counter()
+    for row in quote_rows or []:
+        quote_row_count += 1
+        action = row.get("event_gate_action") or ""
+        relevant = False
+        if action == "suppress" and not _truthy_quote(row.get("quote_permission")):
+            suppressed_count += 1
+            relevant = True
+            edge = finite_float(row.get("edge"), 0.0) or 0.0
+            size = finite_float(row.get("bid_size"), None)
+            if size in (None, 0.0):
+                size = finite_float(row.get("ask_size"), None)
+            if size in (None, 0.0):
+                size = finite_float(row.get("quote_size"), 5.0) or 5.0
+            opportunity += max(0.0, abs(edge)) * max(0.0, size)
+            value = finite_float(
+                row.get("event_gate_avoided_toxicity_usdc")
+                or row.get("avoided_toxicity_usdc")
+                or row.get("markout_30m_adverse_usdc")
+            )
+            if value is not None:
+                avoided += max(0.0, value)
+                evidence_rows += 1
+        elif action == "widen":
+            widened_count += 1
+            relevant = True
+        elif action == "allow_exception":
+            exception_count += 1
+            relevant = True
+        if relevant:
+            by_class[row.get("event_gate_event_class") or "unknown"] += 1
     exception_bad_markout = 0
     exception_net = 0.0
-    for row in fill_rows:
+    exception_fill_rows = 0
+    for row in fill_rows or []:
         if (row.get("event_gate_action") or "") != "allow_exception":
             continue
+        exception_fill_rows += 1
         markout = finite_float(row.get("markout_30m_per_share"))
         if markout is not None and markout < 0:
             exception_bad_markout += 1
         exception_net += finite_float(row.get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0
-    by_class = Counter(row.get("event_gate_event_class") or "unknown" for row in suppressed + widened + exceptions)
     return {
         "schema_version": SCHEMA_VERSION,
-        "quote_rows": len(quote_rows),
-        "suppressed_rows": len(suppressed),
-        "widen_rows": len(widened),
-        "exception_rows": len(exceptions),
+        "quote_rows": quote_row_count,
+        "suppressed_rows": suppressed_count,
+        "widen_rows": widened_count,
+        "exception_rows": exception_count,
         "suppressed_opportunity_cost_usdc": round(opportunity, 6),
         "avoided_toxicity_usdc": round(avoided, 6),
         "avoided_toxicity_evidence_rows": evidence_rows,
-        "exception_fill_rows": sum(1 for row in fill_rows if (row.get("event_gate_action") or "") == "allow_exception"),
+        "exception_fill_rows": exception_fill_rows,
         "exception_negative_markout_fills": exception_bad_markout,
         "exception_net_pnl_after_fees_incentives_usdc": round(exception_net, 6),
         "by_event_class": dict(sorted(by_class.items())),
         "narrowing_gate": (
             "NEEDS_MARKOUT_EVIDENCE"
-            if suppressed and evidence_rows < len(suppressed)
+            if suppressed_count and evidence_rows < suppressed_count
             else "EVIDENCE_READY"
         ),
     }

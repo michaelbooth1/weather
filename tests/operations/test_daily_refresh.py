@@ -3638,6 +3638,10 @@ class TestDailyRefresh(unittest.TestCase):
             "active_day_live_forward",
         )
         self.assertEqual(payload["summary"]["input_preflight"]["status"], "PASS")
+        self.assertEqual(
+            payload["input_preflight"]["selected_run_folders"],
+            payload["run_folder_selection"]["selected_run_folders"],
+        )
         self.assertIn("Paper-score freshness", report)
 
     def test_maker_paper_score_step_blocks_before_loading_over_budget_inputs(self):
@@ -3659,6 +3663,32 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertGreater(result["input_bytes"], result["max_input_bytes"])
         self.assertEqual(result["input_preflight"]["latest_run_limit"], 14)
         build_payload.assert_not_called()
+
+    def test_maker_paper_score_step_scores_exact_preflight_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_active_mm_run(tmp, target_date="2026-06-18", run_id="mm-older")
+            latest = _write_active_mm_run(
+                tmp,
+                target_date="2026-06-19",
+                run_id="mm-latest",
+            )
+            args = _args(
+                tmp,
+                as_of="2026-06-20T12:00:00+00:00",
+                maker_paper_latest_active_runs=1,
+            )
+            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+
+            result = run_maker_paper_score_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        selected = payload["input_preflight"]["selected_run_folders"]
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(selected, [str(latest)])
+        self.assertEqual(payload["run_folder_selection"]["selected_run_folders"], selected)
+        self.assertEqual(payload["summary"]["run_folders"], 1)
+        self.assertEqual(list(payload["run_configs"]), [str(latest)])
+        self.assertEqual(payload["summary"]["quote_rows"], 1)
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

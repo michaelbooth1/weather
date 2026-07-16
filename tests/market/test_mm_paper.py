@@ -1,9 +1,12 @@
 import csv
+import gc
 import json
 import os
 import sys
 import tempfile
+import tracemalloc
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from weather.market import exchange_economics
 from weather.market.live_forward_gate import build_live_forward_gate
@@ -16,7 +19,7 @@ from weather.market.mm_paper import (
     run_folder_eligibility,
     write_outputs,
 )
-from weather.market.mm_paper_scoring import load_casebook_index
+from weather.market.mm_paper_scoring import load_casebook_index, write_json as write_scoring_json
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -220,6 +223,69 @@ def write_run_fixture(root):
     }
     write_csv(run_folder / "quote_intents_long.csv", list(quote_row.keys()), [quote_row])
     return runs_root, run_folder
+
+
+def write_no_quote_run_fixture(root, run_index, row_count):
+    target_date = (date(2026, 4, 1) + timedelta(days=run_index)).isoformat()
+    run_id = f"stream-run-{run_index:03d}"
+    run_folder = root / "mm_runs" / target_date / run_id
+    run_folder.mkdir(parents=True)
+    run_config = {
+        "run_id": run_id,
+        "mode": "paper-live-forward",
+        "target_date": target_date,
+        "policy_hash": "locked-policy",
+        "schema_version": "mm_run_v0.2",
+    }
+    (run_folder / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+    rows = [
+        {
+            "run_id": run_id,
+            "target_date": target_date,
+            "run_mode": "paper-live-forward",
+            "generated_at_utc": f"{target_date}T16:{row_index % 60:02d}:00+00:00",
+            "captured_at_utc": f"{target_date}T15:59:30+00:00",
+            "policy_hash": "locked-policy",
+            "quote_permission": "True" if row_index < 32 else "False",
+            "live_trade_permission": "False",
+            "market_id": "atlanta",
+            "event_slug": EVENT,
+            "range_label": "80-81 F",
+            "bin_kind": "eq",
+            "bin_value": "80",
+            "bin_value_hi": "81",
+            "clob_token_id": "token-80",
+            "fair_probability": "0.50",
+            "market_mid": "0.50",
+            "bid_price": "0.49",
+            "bid_size": "5",
+            "ask_price": "0.51",
+            "ask_size": "5",
+            "regime": "harvest",
+            "source_fresh": "True",
+            "book_imbalance_1pct": "0.10",
+            "min_order_size": "1",
+            "reason_code": "QUOTE_HARVEST_MID" if row_index < 32 else "NO_QUOTE_TEST",
+        }
+        for row_index in range(row_count)
+    ]
+    write_csv(run_folder / "quote_intents_long.csv", list(rows[0].keys()), rows)
+    variant_rows = [
+        {
+            **row,
+            "model_variant_id": "candidate_shadow",
+            "model_variant_family": "test",
+            "model_variant_role": "shadow",
+            "model_variant_counterfactual": "True",
+        }
+        for row in rows
+    ]
+    write_csv(
+        run_folder / "model_variant_quote_intents_long.csv",
+        list(variant_rows[0].keys()),
+        variant_rows,
+    )
+    return run_folder
 
 
 def write_minimal_run(root, run_id, schema_version, target_date, gate_counts=True):
@@ -1231,6 +1297,223 @@ class TestMMPaper(unittest.TestCase):
             self.assertIn(("atlanta", "edge_research"), permissions)
             self.assertIn(("chicago", "harvest_only"), permissions)
             self.assertIn(("san-francisco", "no_quote"), permissions)
+
+    def test_streamed_multi_run_scoring_matches_materialized_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, first_run = write_run_fixture(root)
+            first_quote = read_csv(first_run / "quote_intents_long.csv")[0]
+            second_run = runs_root / TARGET_DATE / "paper-run-second"
+            second_run.mkdir(parents=True)
+            second_config = {
+                "run_id": "paper-run-second",
+                "mode": "paper-live-forward",
+                "target_date": TARGET_DATE,
+                "policy_hash": "locked-policy",
+            }
+            (second_run / "run_config.json").write_text(
+                json.dumps(second_config),
+                encoding="utf-8",
+            )
+            second_quote = {**first_quote, "run_id": "paper-run-second"}
+            write_csv(
+                second_run / "quote_intents_long.csv",
+                list(second_quote.keys()),
+                [second_quote],
+            )
+            for run_folder, base_quote in (
+                (first_run, first_quote),
+                (second_run, second_quote),
+            ):
+                served = {
+                    **base_quote,
+                    "model_variant_id": "served_current",
+                    "model_variant_family": "served_current",
+                    "model_variant_role": "served",
+                    "model_variant_counterfactual": "False",
+                }
+                shadow = {
+                    **base_quote,
+                    "model_variant_id": "candidate_shadow",
+                    "model_variant_family": "test",
+                    "model_variant_role": "shadow",
+                    "model_variant_counterfactual": "True",
+                    "fair_probability": "0.62",
+                }
+                write_csv(
+                    run_folder / "model_variant_quote_intents_long.csv",
+                    list(served.keys()),
+                    [served, shadow],
+                )
+            snapshots_root = write_snapshot_fixture(root)
+            backtest_root = root / "backtest"
+            casebook = backtest_root / "casebook.json"
+            promotion = backtest_root / "promotion.json"
+            write_casebook(casebook)
+            write_promotion(promotion)
+            kwargs = {
+                "runs_root": runs_root,
+                "snapshots_root": snapshots_root,
+                "backtest_root": backtest_root,
+                "run_folders": [first_run, second_run],
+                "casebook_path": casebook,
+                "promotion_refresh": promotion,
+                "clob_recon_path": backtest_root / "clob_recon.json",
+                "config": {"quote_ttl_seconds": 120.0},
+                "now": "2026-06-14T17:00:00+00:00",
+            }
+
+            streamed = build_paper_payload(**kwargs, stream_run_inputs=True)
+            materialized = build_paper_payload(**kwargs, stream_run_inputs=False)
+            self.assertEqual(streamed, materialized)
+
+            artifact_paths = {
+                "json_out": backtest_root / "equivalence.json",
+                "report_out": backtest_root / "equivalence.md",
+                "fills_out": backtest_root / "equivalence_fills.csv",
+                "known_edge_out": backtest_root / "equivalence_known_edge.json",
+                "known_edge_report_out": backtest_root / "equivalence_known_edge.md",
+                "promotion_refresh": promotion,
+            }
+            deferred = build_paper_payload(
+                **kwargs,
+                stream_run_inputs=True,
+                materialize_output_rows=False,
+            )
+            write_outputs(deferred, **artifact_paths)
+            deferred_artifact = json.loads(
+                artifact_paths["json_out"].read_text(encoding="utf-8")
+            )
+            self.assertEqual(list(deferred["fills"]), streamed["fills"])
+            self.assertEqual(
+                list(deferred["queue_companion"]),
+                streamed["queue_companion"],
+            )
+            deferred.close()
+            write_outputs(materialized, **artifact_paths)
+            materialized_artifact = json.loads(
+                artifact_paths["json_out"].read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(deferred_artifact, materialized_artifact)
+        self.assertEqual(streamed["summary"]["quote_rows"], 2)
+        self.assertEqual(streamed["summary"]["quote_legs"], 4)
+        self.assertEqual(streamed["summary"]["conservative_fills"], 1)
+        self.assertEqual(streamed["summary"]["conservative_filled_shares"], 3.0)
+        self.assertEqual(len(streamed["queue_companion"]), 4)
+        self.assertEqual(streamed["summary"]["model_variant_quote_rows"], 4)
+        self.assertEqual(streamed["summary"]["model_variant_quote_legs"], 8)
+        self.assertEqual(len(streamed["model_variant_fills"]), 1)
+
+    def test_streamed_build_peak_memory_stays_roughly_flat_as_runs_grow(self):
+        def measured_peak(run_count):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                run_folders = [
+                    write_no_quote_run_fixture(root, run_index, row_count=256)
+                    for run_index in range(run_count)
+                ]
+                gc.collect()
+                tracemalloc.start()
+                try:
+                    payload = build_paper_payload(
+                        runs_root=root / "mm_runs",
+                        snapshots_root=root / "snapshots",
+                        backtest_root=root / "backtest",
+                        run_folders=run_folders,
+                        casebook_path=root / "backtest" / "casebook.json",
+                        clob_recon_path=root / "backtest" / "clob_recon.json",
+                        known_edge_coverage_map=root / "backtest" / "known_edge.json",
+                        exchange_economics_snapshot_path=(
+                            root / "backtest" / "exchange_economics.json"
+                        ),
+                        exchange_economics_required=False,
+                        now="2026-06-30T17:00:00+00:00",
+                        stream_run_inputs=True,
+                        materialize_output_rows=False,
+                    )
+                    json_out = root / "backtest" / "mm_paper.json"
+                    write_outputs(
+                        payload,
+                        json_out=json_out,
+                        report_out=root / "backtest" / "mm_paper.md",
+                        fills_out=root / "backtest" / "mm_paper_fills.csv",
+                        known_edge_out=root / "backtest" / "known_edge.json",
+                        known_edge_report_out=root / "backtest" / "known_edge.md",
+                        promotion_refresh=root / "backtest" / "promotion.json",
+                    )
+                    counts = {
+                        "runs": payload["summary"]["run_folders"],
+                        "quote_rows": payload["summary"]["quote_rows"],
+                        "quote_legs": payload["summary"]["quote_legs"],
+                        "model_variant_quote_rows": payload["summary"][
+                            "model_variant_quote_rows"
+                        ],
+                        "model_variant_quote_legs": payload["summary"][
+                            "model_variant_quote_legs"
+                        ],
+                    }
+                    payload.close()
+                    _current, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+                artifact = json.loads(json_out.read_text(encoding="utf-8"))
+                counts["queue_rows"] = len(artifact["queue_companion"])
+                counts["model_variant_queue_rows"] = len(
+                    artifact["model_variant_queue_companion"]
+                )
+            return peak, counts
+
+        small_peak, small_counts = measured_peak(5)
+        large_peak, large_counts = measured_peak(50)
+
+        self.assertEqual(
+            small_counts,
+            {
+                "runs": 5,
+                "quote_rows": 5 * 256,
+                "quote_legs": 5 * 32 * 2,
+                "model_variant_quote_rows": 5 * 256,
+                "model_variant_quote_legs": 5 * 32 * 2,
+                "queue_rows": 5 * 32 * 2,
+                "model_variant_queue_rows": 5 * 32 * 2,
+            },
+        )
+        self.assertEqual(
+            large_counts,
+            {
+                "runs": 50,
+                "quote_rows": 50 * 256,
+                "quote_legs": 50 * 32 * 2,
+                "model_variant_quote_rows": 50 * 256,
+                "model_variant_quote_legs": 50 * 32 * 2,
+                "queue_rows": 50 * 32 * 2,
+                "model_variant_queue_rows": 50 * 32 * 2,
+            },
+        )
+        self.assertLessEqual(large_peak, small_peak + 2 * 1024 * 1024)
+
+    def test_streaming_json_preserves_existing_artifact_on_error(self):
+        class BrokenRows:
+            is_spilled_rows = True
+
+            def __iter__(self):
+                yield {"row": 1}
+                raise RuntimeError("synthetic serialization failure")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "paper.json"
+            output.write_text("existing-artifact\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "synthetic serialization failure"):
+                write_scoring_json(output, {"rows": BrokenRows()})
+
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "existing-artifact\n",
+            )
+            self.assertEqual(list(root.glob(f".{output.name}.*.tmp")), [])
 
     def test_early_hour_guardrail_shadow_compares_loss_reduction(self):
         with tempfile.TemporaryDirectory() as tmp:

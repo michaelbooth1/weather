@@ -408,6 +408,8 @@ def run_maker_paper_score_step(args):
         runs_root=runs_root,
         snapshots_root=getattr(args, "snapshots_root", mm_paper.DEFAULT_SNAPSHOTS_ROOT),
         backtest_root=backtest_root,
+        selected_run_folders=selected,
+        selected_run_folder_selection=selection,
         run_folder_latest_n=latest_runs,
         run_folder_evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
         casebook_path=backtest_path(args, "disagreement_casebook.json"),
@@ -425,6 +427,8 @@ def run_maker_paper_score_step(args):
             exchange_economics.DEFAULT_PLATFORM,
         ),
         exchange_economics_required=True,
+        stream_run_inputs=True,
+        materialize_output_rows=False,
     )
     payload["input_preflight"] = input_preflight
     payload.setdefault("summary", {})["input_preflight"] = {
@@ -451,7 +455,10 @@ def run_maker_paper_score_step(args):
     summary = payload.get("summary") or {}
     freshness = summary.get("paper_score_freshness") or {}
     pnl = summary.get("pnl") or {}
-    return {
+    close_payload = getattr(payload, "close", None)
+    if close_payload:
+        close_payload()
+    result = {
         "status": "BLOCK" if freshness.get("status") == "STALE" or summary.get("exchange_economics_gate_status") == "BLOCK" else "PASS",
         "json_out": as_path(backtest_path(args, "mm_paper_report.json")),
         "report_out": as_path(backtest_path(args, "mm_paper_report.md")),
@@ -476,6 +483,7 @@ def run_maker_paper_score_step(args):
         "exchange_economics_hash": summary.get("exchange_economics_hash"),
         "blocks_maker_evidence_countability": freshness.get("blocks_maker_evidence_countability"),
     }
+    return result
 
 
 def _provisional_target_blocker_slugs(payload, gate, target):
