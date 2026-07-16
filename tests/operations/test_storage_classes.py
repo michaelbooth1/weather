@@ -48,6 +48,7 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/backtest/data_retention_inventory_report.md": OPERATOR_CACHE,
             "data/backtest/fleet_observability.json": OPERATOR_CACHE,
             "data/logs/daily_refresh.log": OPERATOR_CACHE,
+            "data/snapshots/observation_source_cache/toronto.json": OPERATOR_CACHE,
         }
 
         for path, expected in examples.items():

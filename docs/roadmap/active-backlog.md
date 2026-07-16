@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-16T03:22:33.504642+00:00
+Generated: 2026-07-16T13:02:24.002248+00:00
 Status: `OK`
 
 ## Summary
@@ -51,7 +51,7 @@ Status: `OK`
 | 229 | OPEN | 2026-06-25 | CLEAN ACTIVE DAY EVIDENCE REQUIRED | [Early-Hour Live-Forward Clean-Day Proof](items/item-229-early-hour-live-forward-clean-day-proof.md) |
 | 230 | PARTIAL | 2026-06-22 | GATE REFRESHED, DISTANCE-0 AND ONE-ABOVE BLOCKED | [Exact-Band And Settlement-Distance-0 Early-Hour Calibration](items/item-230-exact-band-and-settlement-distance-zero-early-hour-calibration.md) |
 | 233 | PARTIAL | 2026-06-22 | CONTRACT REFRESHED, HEAD TRAINING BLOCKED | [Validate-What-You-Serve Early-Hour Calibration Head](items/item-233-validate-what-you-serve-early-hour-calibration-head.md) |
-| 307 | PARTIAL | 2026-06-25 | FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | PARTIAL | 2026-07-16 | OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 321 | OPEN | 2026-07-11 | SHADOW/PAPER/CAPITAL GATES NOT YET CLEARED | [Model Production Readiness, Evidence Integrity, And Staged Release Program](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | PARTIAL | 2026-07-14 | 488-TICK SOAK COLLECTED; ACCEPTANCE REVIEW PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |

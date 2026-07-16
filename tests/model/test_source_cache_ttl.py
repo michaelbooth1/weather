@@ -10,7 +10,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -142,6 +142,172 @@ class TestSourceCacheTtl(unittest.TestCase):
             saved = json.loads(cache_path.read_text(encoding="utf-8"))
         self.assertEqual(saved["global_ensemble"]["data"], {"marker": "global"})
         self.assertEqual(saved["wu_current"]["data"], {"marker": "observation"})
+
+    def test_scoped_cache_does_not_migrate_or_read_large_legacy_forecast_payload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            legacy_path = root / "legacy" / "last_good_sources.json"
+            dedicated_path = root / "observation" / "market-a.json"
+            legacy_path.parent.mkdir(parents=True)
+            large_nbm_text = "N" * (4 * 1024 * 1024)
+            legacy_path.write_text(json.dumps({
+                "metar": {
+                    "target_date": "2026-05-28",
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "data": {"marker": "must_not_migrate"},
+                },
+                "nbm_probabilistic_tmax": {
+                    "target_date": "2026-05-28",
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "data": {"raw_payload": {"text": large_nbm_text}},
+                },
+            }), encoding="utf-8")
+            del large_nbm_text
+
+            model = TorontoHighTempModel(
+                target_date="2026-05-28",
+                source_cache_path=dedicated_path,
+                source_cache_names=("wu_history", "wu_current", "metar", "eccc_swob"),
+                source_cache_max_bytes=1024 * 1024,
+            )
+            model.spec = SimpleNamespace(data_root=legacy_path.parent, tz=ZoneInfo("UTC"))
+            now = datetime.now(timezone.utc)
+            original_open = Path.open
+
+            def guarded_open(path, *args, **kwargs):
+                if Path(path) == legacy_path:
+                    raise AssertionError("scoped observation cache must not read the legacy cache")
+                return original_open(path, *args, **kwargs)
+
+            failed_fetch = {
+                "metar": {
+                    "ok": False,
+                    "error": "provider unavailable",
+                    "fetched_at": now.isoformat(),
+                }
+            }
+            with patch.object(Path, "open", guarded_open):
+                first = model.blend_with_last_good(failed_fetch)
+                live = model.blend_with_last_good({
+                    "metar": {
+                        "ok": True,
+                        "data": {"marker": "dedicated"},
+                        "fetched_at": now.isoformat(),
+                    }
+                })
+                fallback = model.blend_with_last_good(failed_fetch)
+
+            dedicated = json.loads(dedicated_path.read_text(encoding="utf-8"))
+
+        self.assertFalse(first["metar"]["ok"])
+        self.assertEqual(first["metar"]["data"], {})
+        self.assertEqual(live["metar"]["data"], {"marker": "dedicated"})
+        self.assertTrue(fallback["metar"]["ok"])
+        self.assertTrue(fallback["metar"]["stale"])
+        self.assertEqual(fallback["metar"]["data"], {"marker": "dedicated"})
+        self.assertEqual(set(dedicated), {"metar"})
+        self.assertLess(len(json.dumps(dedicated).encode("utf-8")), 2048)
+
+    def test_scoped_source_caches_do_not_cross_contaminate_markets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime.now(timezone.utc)
+            models = []
+            for market_id in ("market-a", "market-b"):
+                model = TorontoHighTempModel(
+                    target_date="2026-05-28",
+                    source_cache_path=root / f"{market_id}.json",
+                    source_cache_names=("metar",),
+                    source_cache_max_bytes=1024 * 1024,
+                )
+                model.spec = SimpleNamespace(data_root=root / "legacy", tz=ZoneInfo("UTC"))
+                model.save_last_good_sources({
+                    "metar": {
+                        "target_date": "2026-05-28",
+                        "fetched_at": now.isoformat(),
+                        "data": {"market": market_id},
+                    }
+                })
+                models.append(model)
+
+            outputs = [
+                model.blend_with_last_good({
+                    "metar": {
+                        "ok": False,
+                        "error": "provider unavailable",
+                        "fetched_at": now.isoformat(),
+                    }
+                })
+                for model in models
+            ]
+
+        self.assertEqual(outputs[0]["metar"]["data"], {"market": "market-a"})
+        self.assertEqual(outputs[1]["metar"]["data"], {"market": "market-b"})
+
+    def test_scoped_cache_quarantines_out_of_scope_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "market-a.json"
+            cache_path.write_text(json.dumps({
+                "nbm_probabilistic_tmax": {"data": {"marker": "forecast"}}
+            }), encoding="utf-8")
+            model = TorontoHighTempModel(
+                target_date="2026-05-28",
+                source_cache_path=cache_path,
+                source_cache_names=("metar",),
+                source_cache_max_bytes=1024 * 1024,
+            )
+
+            payload = model.load_last_good_sources()
+            quarantined = list(cache_path.parent.glob("market-a.corrupt.*.json"))
+
+        self.assertEqual(payload, {})
+        self.assertFalse(cache_path.exists())
+        self.assertEqual(len(quarantined), 1)
+
+    def test_scoped_cache_rejects_oversize_payload_before_json_materialization(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "market-a.json"
+            cache_path.write_bytes(b"{" + b"N" * 4096 + b"}")
+            model = TorontoHighTempModel(
+                target_date="2026-05-28",
+                source_cache_path=cache_path,
+                source_cache_names=("metar",),
+                source_cache_max_bytes=1024,
+            )
+
+            with patch("weather.model.model_sources.json.load") as json_load:
+                payload = model.load_last_good_sources()
+
+            quarantined = list(cache_path.parent.glob("market-a.corrupt.*.json"))
+
+        json_load.assert_not_called()
+        self.assertEqual(payload, {})
+        self.assertFalse(cache_path.exists())
+        self.assertEqual(len(quarantined), 1)
+
+    def test_scoped_cache_rejects_oversize_write_before_atomic_whole_document_copy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "market-a.json"
+            model = TorontoHighTempModel(
+                target_date="2026-05-28",
+                source_cache_path=cache_path,
+                source_cache_names=("metar",),
+                source_cache_max_bytes=1024,
+            )
+            payload = {
+                "metar": {
+                    "target_date": "2026-05-28",
+                    "data": {"raw_payload": "M" * 4096},
+                }
+            }
+
+            with patch("weather.model.model_sources.write_json_atomic") as atomic_write, \
+                    self.assertLogs("weather.model.model_sources", level="WARNING") as logs:
+                model.save_last_good_sources(payload)
+
+        atomic_write.assert_not_called()
+        self.assertFalse(cache_path.exists())
+        self.assertIn("exceeds 1024 byte scope limit", "\n".join(logs.output))
 
     def test_last_good_source_cache_write_skips_when_writer_lock_is_busy(self):
         with tempfile.TemporaryDirectory() as tmpdir:

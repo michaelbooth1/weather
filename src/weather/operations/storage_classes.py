@@ -473,6 +473,7 @@ ARTIFACT_FAMILIES = (
             "open_meteo/**",
             "weather_com/**",
             "source_cache/**",
+            "snapshots/observation_source_cache/**",
             "reanalysis/**",
         ),
         "ttl_or_manifest_backed_source_cache",

@@ -98,7 +98,18 @@ new handle.
 - `data/snapshots/observation_trigger_diagnostics.jsonl`
 - `data/snapshots/observation_trigger_console.log`
 - `data/snapshots/observation_triggers.jsonl`
+- `data/snapshots/observation_source_cache/<market>.json`
 - forced snapshot rows tagged with trigger context
+
+The watcher uses one observation-only last-good cache per market. It does not
+read or migrate the full model cache under `data/wunderground/`; a missing
+dedicated cache remains fail closed until a live observation bootstraps it.
+Only `wu_history`, `wu_current`, `metar`, and `eccc_swob` entries are accepted,
+and each file has an 8 MiB read/write ceiling. An oversized or out-of-scope
+cache is quarantined before JSON materialization. Cache scope, readiness, and
+the live-bootstrap transition are recorded with each market's latest
+observation state. These files are bounded operator caches, not canonical
+evidence.
 
 These files are runtime state under ignored `data/`, but many of the tapes are
 canonical evidence. Follow the

@@ -84,6 +84,8 @@ DEFAULT_FAST_STALE_SECONDS = 180.0
 DEFAULT_SUPPORT_MARGIN = 0.5
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_BACKTEST_ROOT = data_path() / "backtest"
+DEFAULT_OBSERVATION_SOURCE_CACHE_ROOT = DEFAULT_SNAPSHOTS_ROOT / "observation_source_cache"
+DEFAULT_OBSERVATION_SOURCE_CACHE_MAX_BYTES = 8 * 1024 * 1024
 STATUS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_status.json"
 EVENTS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_triggers.jsonl"
 DIAGNOSTICS_PATH = DEFAULT_SNAPSHOTS_ROOT / "observation_trigger_diagnostics.jsonl"
@@ -124,6 +126,10 @@ OBSERVATION_SUPERVISOR = SupervisorSpec(
 )
 
 OBSERVATION_SOURCES = ("wu_history", "wu_current", "metar", "eccc_swob")
+
+
+def observation_source_cache_path(market_id):
+    return DEFAULT_OBSERVATION_SOURCE_CACHE_ROOT / f"{market_id}.json"
 
 
 def runtime_observation_supervisor_spec():
@@ -297,14 +303,41 @@ def fetch_market_observation_state(market_id, now=None):
     spec = spec_for_id(market_id)
     local_now = (now or datetime.now(spec.tz)).astimezone(spec.tz)
     config = config_for_date(local_now.date(), market_id)
-    model_client = TorontoHighTempModel(target_date=config.target_date, market_id=market_id)
+    cache_path = observation_source_cache_path(market_id)
+    model_client = TorontoHighTempModel(
+        target_date=config.target_date,
+        market_id=market_id,
+        source_cache_path=cache_path,
+        source_cache_names=OBSERVATION_SOURCES,
+        source_cache_max_bytes=DEFAULT_OBSERVATION_SOURCE_CACHE_MAX_BYTES,
+    )
+    cache_keys_before = sorted(model_client.load_last_good_sources())
     sources = fetch_observation_sources(model_client)
-    return observation_state_from_sources(
+    cache_entries = model_client.load_last_good_sources()
+    cache_keys = sorted(cache_entries)
+    cache_ready = bool(cache_keys)
+    if not cache_keys_before and cache_ready:
+        cache_transition = "bootstrapped_from_live"
+    elif cache_ready:
+        cache_transition = "ready"
+    else:
+        cache_transition = "awaiting_live_bootstrap"
+    state = observation_state_from_sources(
         model_client,
         sources,
         captured_at=local_now,
         event_slug=config.event_slug,
     )
+    state["observation_source_cache"] = {
+        "scope": "observation_only",
+        "path": str(cache_path),
+        "max_bytes": DEFAULT_OBSERVATION_SOURCE_CACHE_MAX_BYTES,
+        "state": cache_transition,
+        "ready": cache_ready,
+        "source_keys": cache_keys,
+        "legacy_cache_migration": "disabled_fail_closed_live_bootstrap",
+    }
+    return state
 
 
 def fresh_source_status(state, source):
