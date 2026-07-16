@@ -1926,7 +1926,10 @@ def main():
         "--capture-workers",
         type=int,
         default=DEFAULT_CAPTURE_WORKERS,
-        help="Maximum concurrent isolated market captures in the managed loop.",
+        help=(
+            "Maximum concurrent isolated market captures in the managed loop "
+            f"(default: {DEFAULT_CAPTURE_WORKERS})."
+        ),
     )
     parser.add_argument(
         "--capture-fleet-budget-seconds",
@@ -1944,7 +1947,11 @@ def main():
         "--capture-child-working-set-max-mb",
         type=int,
         default=DEFAULT_CHILD_WORKING_SET_MAX_MB,
-        help="Per-child process-tree memory ceiling for an isolated market capture.",
+        help=(
+            "Per-child process-tree working-set and private-commit ceiling for "
+            "an isolated market capture "
+            f"(default: {DEFAULT_CHILD_WORKING_SET_MAX_MB} MiB)."
+        ),
     )
     parser.add_argument("--result-json", default="", help=argparse.SUPPRESS)
     parser.add_argument(

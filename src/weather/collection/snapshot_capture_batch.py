@@ -26,10 +26,16 @@ from weather.collection.forecast_payload_fetch_fanout import (
 )
 
 
-DEFAULT_CAPTURE_WORKERS = 3
+# Two workers keep the worst-case aggregate child commit below the previous
+# three-worker envelope while still fitting six waves inside the fleet budget.
+DEFAULT_CAPTURE_WORKERS = 2
 DEFAULT_FLEET_BUDGET_SECONDS = 540.0
 DEFAULT_MARKET_TIMEOUT_SECONDS = 120.0
-DEFAULT_CHILD_WORKING_SET_MAX_MB = 1536
+# ``run_isolated_subprocess`` preserves this legacy argument as both a real
+# working-set ceiling and a Windows Job Object private-commit ceiling.  Normal
+# production captures can approach 1.51 GiB of private commit, so 1.5 GiB left
+# no allocation headroom and caused intermittent kernel-enforced exit 137s.
+DEFAULT_CHILD_WORKING_SET_MAX_MB = 1792
 DEFAULT_HEARTBEAT_SECONDS = 5.0
 
 
@@ -151,6 +157,15 @@ def run_isolated_capture(
                 "capture_runner_error",
                 execution["runner_error"],
             )
+        elif execution.get("resource_limit_exceeded"):
+            resource_limit = execution["resource_limit_exceeded"]
+            resource = str(resource_limit.get("resource") or "unknown")
+            observed = resource_limit.get("observed_bytes")
+            limit = resource_limit.get("limit_bytes")
+            detail = f"{resource} exceeded"
+            if observed is not None and limit is not None:
+                detail = f"{detail}: observed_bytes={observed}, limit_bytes={limit}"
+            result = _error_result("capture_resource_budget", detail)
         elif execution.get("returncode") not in (0, None):
             stderr = str(execution.get("stderr") or "").strip()
             result = _error_result(
@@ -186,8 +201,12 @@ def run_isolated_capture(
             "timed_out": bool(execution.get("timed_out")),
             "returncode": execution.get("returncode"),
             "working_set_limit": execution.get("working_set_limit"),
+            "resource_peaks": execution.get("resource_peaks"),
+            "resource_io": execution.get("resource_io"),
+            "resource_limit_exceeded": execution.get("resource_limit_exceeded"),
             "containment": execution.get("containment"),
             "termination": execution.get("termination"),
+            "runner_error": execution.get("runner_error"),
         },
     }
 
