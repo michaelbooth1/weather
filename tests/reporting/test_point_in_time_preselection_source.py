@@ -13,6 +13,12 @@ import weather.calibration.pooled_candidate_replay as pooled_replay
 from weather.calibration.pooled_candidate_replay import (
     BoundedCandidateReplayError,
     iter_bounded_preselection_source_market_days,
+    load_bounded_preselection_folder_inputs,
+)
+from weather.reporting.data_quality.feature_quality_quarantine import (
+    audit_folder_feature_quality,
+    audit_folder_feature_quality_from_rows,
+    read_csv_rows,
 )
 from weather.reporting.promotion.promotion_corpus import (
     PROMOTION_CORPUS_SCHEMA_VERSION,
@@ -33,6 +39,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
     selection_universe_contract,
     sha256_text,
     validate_production_preselection_source_row,
+    verify_production_preselection_source_manifest,
 )
 
 
@@ -247,6 +254,76 @@ def _write_minimal_tape(path, *, row_count=1, range_label="80-81"):
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _materialize_valid_staged_source(tmp_path):
+    entry = _entry("2026-06-01")
+    replay = tmp_path / "replay.json"
+    _write_replay_manifest(replay, [entry], snapshots_root=tmp_path / "snapshots")
+    corpus = tmp_path / "source.parquet"
+    source_manifest = tmp_path / "source-manifest.json"
+    with patch(
+        "weather.reporting.validation.point_in_time_evaluation."
+        "iter_bounded_preselection_source_market_days",
+        return_value=iter([_source_day(entry)]),
+    ):
+        materialize_production_preselection_source(
+            replay_manifest=replay,
+            parquet_out=corpus,
+            manifest_out=source_manifest,
+            snapshots_root=tmp_path / "snapshots",
+        )
+    return corpus, source_manifest, replay
+
+
+def _write_self_hashed_manifest(path, payload):
+    payload.pop("manifest_hash", None)
+    payload["manifest_hash"] = sha256_text(canonical_json(payload))
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _refresh_staged_corpus_binding(corpus, source_manifest):
+    payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    payload["derived_artifact"]["sha256"] = hashlib.sha256(
+        corpus.read_bytes()
+    ).hexdigest()
+    payload["derived_artifact"]["bytes"] = corpus.stat().st_size
+    _write_self_hashed_manifest(source_manifest, payload)
+
+
+def _rewrite_staged_rows(corpus, source_manifest, mutate):
+    rows = pq.read_table(corpus).to_pylist()
+    for row in rows:
+        mutate(row)
+    pq.write_table(
+        pa.Table.from_pylist(
+            rows,
+            schema=PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
+        ),
+        corpus,
+        compression="zstd",
+    )
+    _refresh_staged_corpus_binding(corpus, source_manifest)
+
+
+def _rewrite_replay_and_rebind(replay, source_manifest, mutate):
+    replay_payload = json.loads(replay.read_text(encoding="utf-8"))
+    mutate(replay_payload)
+    replay.write_text(
+        json.dumps(replay_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    source_payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    source_payload["source_replay_manifest"]["sha256"] = hashlib.sha256(
+        replay.read_bytes()
+    ).hexdigest()
+    source_payload["source_replay_manifest"]["corpus_hash"] = replay_payload[
+        "corpus_hash"
+    ]
+    _write_self_hashed_manifest(source_manifest, source_payload)
 
 
 def _source_day(entry, *, market_id=None, time="16:00:00+00:00"):
@@ -621,6 +698,166 @@ def test_direct_replay_reader_enforces_the_raw_record_bound(tmp_path):
             pinned_snapshot_ids={"snapshot-1"},
             max_records=1,
         )
+
+
+def test_staged_source_rejects_same_row_count_snapshot_substitution(tmp_path):
+    corpus, source_manifest, replay = _materialize_valid_staged_source(tmp_path)
+    _rewrite_staged_rows(
+        corpus,
+        source_manifest,
+        lambda row: row.update({"cutoff_or_snapshot": "substituted-snapshot"}),
+    )
+
+    with pytest.raises(ContractViolation) as caught:
+        verify_production_preselection_source_manifest(
+            corpus,
+            source_manifest,
+            replay_manifest=replay,
+        )
+
+    assert caught.value.code == "preselection_source_replay_mismatch"
+
+
+@pytest.mark.parametrize("winner_mode", ("wrong-band", "zero-winner"))
+def test_staged_source_rejects_wrong_or_missing_winner(tmp_path, winner_mode):
+    corpus, source_manifest, replay = _materialize_valid_staged_source(tmp_path)
+
+    def mutate(row):
+        row["label"] = (
+            1.0
+            if winner_mode == "wrong-band" and row["band"] == "82-83"
+            else 0.0
+        )
+
+    _rewrite_staged_rows(corpus, source_manifest, mutate)
+
+    with pytest.raises(ContractViolation) as caught:
+        verify_production_preselection_source_manifest(
+            corpus,
+            source_manifest,
+            replay_manifest=replay,
+        )
+
+    assert caught.value.code == "preselection_source_replay_mismatch"
+
+
+@pytest.mark.parametrize(
+    "missing_flag",
+    ("include_reconstructed", "allow_unsettled", "admit_promotion_countable"),
+)
+def test_staged_source_requires_explicit_false_replay_flags(tmp_path, missing_flag):
+    corpus, source_manifest, replay = _materialize_valid_staged_source(tmp_path)
+    _rewrite_replay_and_rebind(
+        replay,
+        source_manifest,
+        lambda payload: payload.pop(missing_flag),
+    )
+
+    with pytest.raises(ContractViolation) as caught:
+        verify_production_preselection_source_manifest(
+            corpus,
+            source_manifest,
+            replay_manifest=replay,
+        )
+
+    assert caught.value.code == "preselection_source_replay_mismatch"
+
+
+def test_staged_source_rejects_target_on_replay_as_of_date(tmp_path):
+    corpus, source_manifest, replay = _materialize_valid_staged_source(tmp_path)
+    _rewrite_replay_and_rebind(
+        replay,
+        source_manifest,
+        lambda payload: payload.update({"as_of": "2026-06-01"}),
+    )
+
+    with pytest.raises(ContractViolation) as caught:
+        verify_production_preselection_source_manifest(
+            corpus,
+            source_manifest,
+            replay_manifest=replay,
+        )
+
+    assert caught.value.code == "preselection_source_replay_mismatch"
+
+
+def test_bounded_folder_loader_rejects_an_input_file_symlink_escape(tmp_path):
+    snapshots_root, _replay, _manifest = _write_proof_grade_replay(
+        tmp_path,
+        bands=(("80-81", "eq", 80), ("82-83", "eq", 82)),
+    )
+    folder = snapshots_root / _event_slug("2026-06-01")
+    tape = folder / "snapshots_long.csv"
+    outside = tmp_path / "outside-snapshots-long.csv"
+    outside.write_bytes(tape.read_bytes())
+    tape.unlink()
+    try:
+        tape.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"file symlinks are unavailable on this host: {exc}")
+
+    with pytest.raises(BoundedCandidateReplayError, match="symlink|escaped"):
+        load_bounded_preselection_folder_inputs(
+            folder,
+            snapshots_root=snapshots_root,
+            max_rows_per_market_day=100,
+        )
+
+
+def test_bounded_feature_quality_audit_matches_legacy_fixture(tmp_path):
+    snapshots_root, _replay, _manifest = _write_proof_grade_replay(
+        tmp_path,
+        bands=(("80-81", "eq", 80), ("82-83", "eq", 82)),
+    )
+    folder = snapshots_root / _event_slug("2026-06-01")
+    feature = {
+        "snapshot_id": "snapshot-2026-06-01",
+        "captured_at_local": "2026-06-01T16:00:00+00:00",
+        "event_slug": folder.name,
+        "target_date": "2026-06-01",
+        "high_so_far": "80",
+        "current_temp": "80",
+        "trusted_current_max": "110",
+    }
+    with (folder / "features_long.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(feature))
+        writer.writeheader()
+        writer.writerow(feature)
+    (folder / "observation_payloads_long.csv").write_text(
+        "snapshot_id,source,status\n"
+        "snapshot-2026-06-01,wu_current,fresh\n",
+        encoding="utf-8",
+    )
+    replay_records = {
+        record["snapshot_id"]: record
+        for record in (
+            json.loads(line)
+            for line in (folder / "replay_inputs.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        )
+    }
+    pure = audit_folder_feature_quality_from_rows(
+        folder,
+        feature_rows=read_csv_rows(folder / "features_long.csv"),
+        snapshot_rows=read_csv_rows(folder / "snapshots_long.csv"),
+        replay_records=replay_records,
+        settlement_unit="F",
+    )
+    legacy = audit_folder_feature_quality(folder)
+    bounded = load_bounded_preselection_folder_inputs(
+        folder,
+        snapshots_root=snapshots_root,
+        max_rows_per_market_day=100,
+    )["feature_quality"]
+
+    assert pure == legacy
+    assert bounded == legacy
+    assert legacy["summary"]["quarantine_row_count"] == 1
+    assert legacy["summary"]["recovered_row_count"] == 1
 
 
 def test_source_mutation_publishes_neither_half_of_the_artifact_pair(tmp_path):
