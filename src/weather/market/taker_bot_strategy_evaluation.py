@@ -22,9 +22,12 @@ def preflight_summary_for_market(
     clob_feature_rows,
     event_metadata_gate=None,
     current_high_assessment=None,
+    token_rows=None,
+    input_read_diagnostics=None,
 ):
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
-    token_rows = read_csv_rows(Path(folder) / "clob_tokens.csv", attach_diagnostics=True)
+    if token_rows is None:
+        token_rows = read_csv_rows(Path(folder) / "clob_tokens.csv", attach_diagnostics=True)
     token_discovery = clob_token_discovery_health(token_rows)
     status = "PASS"
     reasons = []
@@ -35,6 +38,20 @@ def preflight_summary_for_market(
         return bool(ok)
 
     event_metadata_gate = event_metadata_gate or {"required": False, "ok": True}
+    bounded_input_gate = (input_read_diagnostics or {}).get("projection") or {
+        "ok": True,
+        "status": "PASS",
+        "detail": "bounded latest-input projection not requested",
+    }
+    if not bounded_input_gate.get("ok"):
+        status = "BLOCK"
+        reasons.append(bounded_input_gate.get("detail") or "bounded latest-input projection failed")
+    add_gate(
+        "bounded_latest_inputs",
+        bounded_input_gate.get("ok"),
+        "missing",
+        bounded_input_gate.get("detail") or "bounded latest-input projection",
+    )
     if event_metadata_gate.get("required"):
         if not event_metadata_gate.get("ok"):
             status = "BLOCK"
@@ -91,6 +108,7 @@ def preflight_summary_for_market(
         "book_rows": len(book_rows),
         "clob_feature_rows": len(clob_feature_rows),
         "current_high_assessment": current_high_assessment or {},
+        "latest_input_diagnostics": input_read_diagnostics or {},
     }
 
 

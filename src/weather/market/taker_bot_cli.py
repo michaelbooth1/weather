@@ -30,6 +30,7 @@ from weather.market.worker_release_binding import (
     verify_worker_tape_lineage,
 )
 from weather.runtime_identity import get_runtime_identity
+from weather.market.market_latest_inputs import load_latest_market_inputs
 from weather.market.taker_bot_incremental import (
     BENCHMARK_REFRESH_GROUP_LIMIT,
     DEFAULT_RESOURCE_BUDGETS,
@@ -151,7 +152,12 @@ def discover_inputs(
     for spec in selected_specs(markets):
         market_config = config_for_date(target_date, spec.id)
         folder = Path(snapshots_root) / market_config.event_slug
-        snapshot_rows = load_latest_snapshot_rows(folder)
+        latest_inputs = load_latest_market_inputs(
+            folder,
+            market_id=spec.id,
+            max_age_seconds=float(config["max_book_age_seconds"]),
+        )
+        snapshot_rows = latest_inputs["snapshot_rows"]
         if release_binding is not None:
             # Authenticate the immutable snapshot projection before CLOB/book
             # enrichment overwrites fields such as captured_at_utc with the
@@ -167,16 +173,9 @@ def discover_inputs(
             snapshot_rows,
             normalized_high_for_market(observation_status, spec.id),
         )
-        snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
-        source_rows = source_status_for_snapshot(folder, snapshot_id)
-        book_rows = latest_book_rows(folder, outcomes={"", "yes", "no"})
-        clob_feature_rows = latest_clob_feature_rows(
-            folder,
-            snapshot_id,
-            build_if_missing=True,
-            max_age_seconds=float(config["max_book_age_seconds"]),
-            market_id=spec.id,
-        )
+        source_rows = latest_inputs["source_rows"]
+        book_rows = latest_inputs["book_rows"]
+        clob_feature_rows = latest_inputs["clob_feature_rows"]
         metadata_gate = _event_metadata_gate(event_metadata_state, spec.id)
         market_summaries.append(
             preflight_summary_for_market(
@@ -189,10 +188,13 @@ def discover_inputs(
                 clob_feature_rows,
                 event_metadata_gate=metadata_gate,
                 current_high_assessment=current_high_assessment,
+                token_rows=latest_inputs["token_rows"],
+                input_read_diagnostics=latest_inputs["diagnostics"],
             )
         )
         market_summaries[-1]["current_high_assessment"] = current_high_assessment
-        if snapshot_rows and metadata_gate.get("ok", True):
+        bounded_projection_ok = bool(latest_inputs["diagnostics"]["projection"].get("ok"))
+        if snapshot_rows and metadata_gate.get("ok", True) and bounded_projection_ok:
             rows.extend(
                 assemble_taker_inputs_for_market(
                     spec.id,
