@@ -392,7 +392,7 @@ infrastructure work remains.
 | 205 | [Daily Refresh Orchestration Facade Split [COMPLETE 2026-06-21 - DAILY REFRESH FACADE BELOW THRESHOLD]](items/item-205-daily-refresh-orchestration-facade-split.md) |
 | 206 | [Compatibility Shim Expiration Removal Execution [OPEN 2026-07-12 - OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18]](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 306 | [Daily-Roll Log Hygiene And Historical Error Separation [COMPLETE 2026-06-24 - CURRENT-WINDOW HEALTH SEPARATED FROM HISTORICAL INCIDENTS]](items/item-306-daily-roll-log-hygiene-and-historical-error-separation.md) |
-| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
+| 307 | [Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]](items/item-307-snapshot-loop-restart-runaway-root-cause-remediation.md) |
 | 313 | [Python Runtime Audit Regression Gate [COMPLETE 2026-06-25 - STRICT RUNTIME AUDIT GATE LIVE]](items/item-313-python-runtime-audit-regression-gate.md) |
 | 314 | [Artifact And Training-Data Schema Forward-Migration To Retire Historical-Only Quarantines [COMPLETE 2026-06-25 - FORWARD MIGRATION AND ROW RECOVERY LIVE]](items/item-314-artifact-schema-forward-migration-retire-historical-only-quarantine.md) |
 | 315 | [First-Class Repair Integration Into The Active Artifact And Replay Contract (Retire The Row-Export Surrogate) [COMPLETE 2026-06-25 - ACTIVE REPAIR INTEGRATION CONTRACT ADDED]](items/item-315-first-class-repair-integration-retire-row-export-surrogate.md) |

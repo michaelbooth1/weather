@@ -1,4 +1,4 @@
-﻿# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-06-25 - FAST PROOF RESTORED, JUNE 25 CLEAN SOAK BLOCKED]
+﻿# 307. Snapshot And Collection Loop Restart-Runaway Root-Cause Remediation [PARTIAL 2026-07-16 - OBSERVATION CACHE ISOLATED, DEPLOYMENT/CLEAN SOAK PENDING]
 
 Goal: eliminate the active supervisor restart-runaway in the snapshot, CLOB, and
 observation-trigger loops so collection holds cadence across an active day and
@@ -306,3 +306,30 @@ re-adoptions still consumed its budget and tripped the breaker
 recovery count dropped from `12` to `0`, the breaker closed, and the loop
 relaunched on current code with a scoped `35`-file identity. Regression test
 `test_stale_code_restarts_do_not_consume_crash_budget` now covers both labels.
+
+## 2026-07-16 Observation watcher cache isolation
+
+A live-host memory audit found that the observation watcher was using the full
+serving-model last-good cache even though it polls only settlement-relevant
+observations. Eleven US market caches were about 34.5 MiB each, dominated by a
+duplicated NBM national bulletin body. Each one-minute watcher pass therefore
+read the shared cache twice and rewrote it once for every market. The live
+process accumulated a roughly 1.5 GiB private allocator high-water mark and
+hundreds of GiB of lifetime cache I/O while its compact status artifact remained
+healthy.
+
+The watcher now routes each market to
+`data/snapshots/observation_source_cache/<market>.json`. The dedicated cache
+reuses the existing per-source TTL, fallback, atomic-write, and writer-lock
+implementation, but accepts only the four observation sources and enforces an
+8 MiB read/write ceiling. It intentionally does not read or migrate the legacy
+full cache: a first provider failure stays fail closed, a successful live fetch
+bootstraps the dedicated cache, and the transition is explicit in watcher
+status. Oversized or cross-scope cache files are quarantined before full JSON
+materialization.
+
+Focused validation covers the no-migration deployment transition with a large
+legacy NBM payload, exact stale-cache fallback after live bootstrap, per-market
+non-contamination, out-of-scope and oversized quarantine, pre-write encoded-size
+enforcement, watcher status metadata, and storage classification. Production
+adoption and a current-code soak are still required before this item can close.
