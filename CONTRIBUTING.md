@@ -6,6 +6,10 @@ you plan to change.
 
 ## Change workflow
 
+Use the [Git workflow SOP](docs/git-workflow.md) for topic branches, linked
+worktrees, intentional staging, commits, pull requests, integration, and safe
+cleanup.
+
 1. Inspect the worktree and preserve unrelated user changes.
 2. Identify the owning package and its canonical documentation.
 3. Make the smallest coherent change through canonical `weather.*` modules.
@@ -22,6 +26,7 @@ triggers are in
 
 ## Pull requests
 
-Use the repository pull-request template. If a documentation category is not
-affected, mark it not applicable instead of creating speculative documentation.
-Never include credentials, raw secrets, or local machine paths in a change.
+Open a draft pull request from the topic branch and use the repository template.
+If a documentation category is not affected, mark it not applicable instead of
+creating speculative documentation. Never include credentials, raw secrets, or
+local machine paths in a change.

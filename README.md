@@ -440,6 +440,8 @@ and new docs should use `python -m weather...`.
 - [Documentation map](docs/README.md) - canonical router and classification.
 - [Architecture](docs/architecture.md) - owner boundaries and end-to-end flow.
 - [Development and verification](docs/development.md) - change workflow and test matrix.
+- [Git workflow SOP](docs/git-workflow.md) - branch, worktree, commit, and pull-request flow.
+- [Project operating SOP](docs/operations/PROJECT_OPERATING_SOP.md) - shift-to-release decision flow.
 - [Operations index](docs/operations/README.md) - topology, policies, and runbooks.
 - [Active backlog](docs/roadmap/active-backlog.md) - generated current-work view.
 - [Roadmap index](docs/roadmap/ROADMAP.md) - complete taxonomy and item links.

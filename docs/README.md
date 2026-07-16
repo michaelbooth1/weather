@@ -13,7 +13,9 @@ record that is valuable evidence but not current instruction.
 | Durable domain constraints | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | System boundaries and data flow | [Architecture](architecture.md) | Canonical guide |
 | Development and verification | [Development](development.md) | Canonical guide |
+| Git branches, worktrees, commits, and pull requests | [Git workflow SOP](git-workflow.md) | Canonical runbook |
 | Documentation ownership and drift prevention | [Documentation maintenance](documentation-maintenance.md) | Canonical guide |
+| End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |

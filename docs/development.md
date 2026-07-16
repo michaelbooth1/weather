@@ -2,7 +2,8 @@
 
 Status: canonical development guide. The root [README](../README.md) owns setup
 and the full operator command catalog; this document owns change workflow and
-verification expectations.
+verification expectations. The [Git workflow SOP](git-workflow.md) owns branch,
+worktree, staging, commit, pull-request, integration, and cleanup procedure.
 
 ## Before editing
 
