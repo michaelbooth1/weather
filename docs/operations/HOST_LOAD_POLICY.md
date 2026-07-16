@@ -46,6 +46,14 @@ already-running parent can retain its pre-fix allocator high-water mark until
 a supported, separately authorized code-adoption restart; that retained value
 is not authority to stop or replace the worker ad hoc.
 
+Worker launch is additionally admitted against current available physical
+memory. Every admitted slot reserves its complete 1,792 MiB ceiling and must
+leave 1,536 MiB available for the parent and other capture loops. The loop
+therefore runs one worker when only one full slot is safe, uses two only above
+the complete 5,120 MiB requirement, and records an explicit retryable host-
+memory admission failure when even one slot cannot be proven safe. Missing
+physical-memory measurement fails closed.
+
 The WU settlement restore fetches a target day but rebuilds each market's full
 retained normalized history, so it is not a light one-day operation. It runs in
 an isolated child with a 60-minute timeout, 4,096 MiB private-memory ceiling,

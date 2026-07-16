@@ -462,6 +462,12 @@ existing 540-second fleet budget because per-market timeouts tighten
 automatically. The cap remains both a sampled process-tree working-set ceiling
 and a Windows Job Object private-commit ceiling.
 
+The configured count is not admitted blindly. At each pass the parent measures
+available physical memory and reserves the full child ceiling per slot plus a
+1,536 MiB host/capture reserve. Two workers therefore require 5,120 MiB, one
+requires 3,328 MiB, and an unavailable or insufficient measurement produces a
+retryable `capture_host_memory_admission` result without spawning a child.
+
 Capture receipts now persist the runner's resource peaks, lifetime I/O,
 specific breached metric, runner error, containment, and termination evidence.
 A resource kill is classified as `capture_resource_budget` with observed and
