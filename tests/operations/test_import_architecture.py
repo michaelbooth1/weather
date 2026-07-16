@@ -49,6 +49,7 @@ TARGET_MODULES = [
     Path("src/weather/market/mm_exchange.py"),
     Path("src/weather/market/mm_exchange_reports.py"),
     Path("src/weather/market/mm_paper.py"),
+    Path("src/weather/market/mm_paper_aggregation.py"),
     Path("src/weather/market/mm_paper_evidence.py"),
     Path("src/weather/market/mm_paper_reports.py"),
     Path("src/weather/market/mm_paper_scoring.py"),
@@ -370,7 +371,7 @@ LEGACY_IMPORT_RE = re.compile(
     r"market_config|market_making_run_constants|market_making_run_support|market_registry|"
     r"market_microstructure|market_microstructure_constants|"
     r"market_microstructure_features|mm_exchange|mm_exchange_reports|"
-    r"mm_paper_constants|mm_paper_evidence|mm_paper_reports|mm_paper_scoring|"
+    r"mm_paper_aggregation|mm_paper_constants|mm_paper_evidence|mm_paper_reports|mm_paper_scoring|"
     r"mm_policy|model_constants|model_identity|model_presentation|model_sources|"
     r"noaa_ghcnh_history|observation_trigger|polymarket_client|pooled_candidate_replay|"
     r"pooled_feature_model|probability_calibration|promotion_corpus|"
@@ -443,6 +444,11 @@ EXTRACTED_MODULE_IMPORT_RULES = {
         re.MULTILINE,
     ),
     Path("src/weather/market/mm_paper_scoring.py"): re.compile(
+        r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
+        r"import\s+weather\.market\.mm_paper\b)",
+        re.MULTILINE,
+    ),
+    Path("src/weather/market/mm_paper_aggregation.py"): re.compile(
         r"^\s*(?:from\s+(?:weather\.market\.mm_paper|\.mm_paper)\s+import\b|"
         r"import\s+weather\.market\.mm_paper\b)",
         re.MULTILINE,

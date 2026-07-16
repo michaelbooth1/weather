@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import bisect
 import csv
+import gc
 import hashlib
 import json
 import math
 import statistics
+import tempfile
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
-from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
+from weather.io import (
+    iter_csv_rows as io_iter_csv_rows,
+    normalize_csv_row,
+    read_csv_rows as io_read_csv_rows,
+)
 from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
 from weather.market.mm_paper_constants import (
     DEFAULT_CONFIG,
@@ -41,6 +47,10 @@ def read_csv_rows(path):
     return io_read_csv_rows(path, attach_diagnostics=True)
 
 
+def iter_csv_rows(path):
+    return io_iter_csv_rows(path, attach_diagnostics=True)
+
+
 def write_csv(path, fieldnames, rows):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,25 +74,104 @@ def read_json(path, default=None):
 def write_json(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            _write_json_value(handle, payload, level=0)
+            handle.write("\n")
+        temp_path.replace(path)
+    except BaseException:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
     return str(path)
 
 
-def read_jsonl(path):
+def _json_key_text(key):
+    if isinstance(key, str):
+        return key
+    if key is None:
+        return "null"
+    if key is True:
+        return "true"
+    if key is False:
+        return "false"
+    if isinstance(key, (int, float)):
+        return str(key)
+    raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
+
+
+def _write_json_value(handle, value, *, level):
+    """Write JSON incrementally, including disk-backed detail-row arrays."""
+
+    indent = "  " * level
+    child_indent = "  " * (level + 1)
+    if isinstance(value, dict):
+        if not value:
+            handle.write("{}")
+            return
+        handle.write("{\n")
+        keys = sorted(value)
+        for index, key in enumerate(keys):
+            if index:
+                handle.write(",\n")
+            handle.write(child_indent)
+            handle.write(json.dumps(_json_key_text(key)))
+            handle.write(": ")
+            _write_json_value(handle, value[key], level=level + 1)
+        handle.write(f"\n{indent}}}")
+        return
+    is_spilled_array = bool(
+        getattr(value, "is_spilled_rows", False)
+        or getattr(value, "is_spilled_queue_rows", False)
+    )
+    if isinstance(value, (list, tuple)) or is_spilled_array:
+        iterator = iter(value)
+        try:
+            first = next(iterator)
+        except StopIteration:
+            handle.write("[]")
+            return
+        handle.write("[\n")
+        handle.write(child_indent)
+        _write_json_value(handle, first, level=level + 1)
+        for item in iterator:
+            handle.write(",\n")
+            handle.write(child_indent)
+            _write_json_value(handle, item, level=level + 1)
+        handle.write(f"\n{indent}]")
+        return
+    encoder = json.JSONEncoder(default=str)
+    for chunk in encoder.iterencode(value):
+        handle.write(chunk)
+
+
+def iter_jsonl(path):
     path = Path(path)
     if not path.exists():
-        return []
-    rows = []
+        return
     with path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             line = line.strip()
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                yield json.loads(line)
             except json.JSONDecodeError:
                 continue
-    return rows
+
+
+def read_jsonl(path):
+    return list(iter_jsonl(path) or [])
 
 
 def finite_float(value, default=None):
@@ -332,7 +421,7 @@ def load_quote_rows(run_folders, eligibility_by_folder=None, quote_filename="quo
         run_config = read_json(folder / "run_config.json", {}) or {}
         run_configs[str(folder)] = run_config
         eligibility = eligibility_by_folder.get(str(folder)) or run_folder_eligibility(folder)
-        for index, row in enumerate(read_csv_rows(folder / quote_filename)):
+        for index, row in enumerate(iter_csv_rows(folder / quote_filename)):
             row = dict(row)
             row["_run_folder"] = str(folder)
             row["_quote_row_index"] = index
@@ -620,15 +709,14 @@ def load_trade_rows(folder):
             "size": float(size) if size is not None else None,
             "side": raw.get("side") or raw.get("taker_side") or "",
             "source": source,
-            "raw": raw,
         })
 
     for filename in ("trades_long.csv", "market_trades.csv", "market_ws_events.csv"):
-        for index, row in enumerate(read_csv_rows(folder / filename)):
+        for index, row in enumerate(iter_csv_rows(folder / filename)):
             add_trade(row, filename, index)
 
     jsonl_index = 0
-    for raw in read_jsonl(folder / "market_ws.jsonl"):
+    for raw in iter_jsonl(folder / "market_ws.jsonl") or []:
         candidates = [raw]
         payload = raw.get("payload") if isinstance(raw, dict) else None
         if isinstance(payload, dict):
@@ -661,7 +749,7 @@ def strict_trade_through(side, trade_price, quote_price):
 
 def load_book_rows(folder):
     rows = []
-    for row in read_csv_rows(Path(folder) / "order_books_summary.csv"):
+    for row in iter_csv_rows(Path(folder) / "order_books_summary.csv"):
         token = row.get("clob_token_id") or row.get("asset_id") or ""
         ts = parse_time(row.get("captured_at_utc") or row.get("book_time_utc") or row.get("captured_at_local"))
         if not token or ts is None:
@@ -689,7 +777,6 @@ def load_book_rows(folder):
             "bid_depth_1pct": finite_float(row.get("bid_depth_1pct"), 0.0) or 0.0,
             "ask_depth_1pct": finite_float(row.get("ask_depth_1pct"), 0.0) or 0.0,
             "tick_size": finite_float(row.get("tick_size"), 0.001) or 0.001,
-            "raw": row,
         })
     rows.sort(key=lambda row: (row["clob_token_id"], row["time"]))
     return rows
@@ -857,11 +944,11 @@ def load_mark_rows(folder):
                 "source": source,
             })
 
-    for row in read_csv_rows(folder / "price_history.csv"):
+    for row in iter_csv_rows(folder / "price_history.csv"):
         add_mark(row, "price_history.csv", time_keys=("point_time_utc", "timestamp_utc", "captured_at_utc"))
-    for row in read_csv_rows(folder / "order_books_summary.csv"):
+    for row in iter_csv_rows(folder / "order_books_summary.csv"):
         add_mark(row, "order_books_summary.csv", time_keys=("captured_at_utc", "book_time_utc", "captured_at_local"))
-    for row in read_csv_rows(folder / "market_ws_events.csv"):
+    for row in iter_csv_rows(folder / "market_ws_events.csv"):
         add_mark(row, "market_ws_events.csv", time_keys=("received_at_utc", "timestamp_utc", "captured_at_utc"))
     marks.sort(key=lambda row: (row["clob_token_id"], row["time"]))
     return marks
@@ -1055,7 +1142,259 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
     }
 
 
+def conservative_fill_row(
+    leg,
+    trade,
+    fill_size,
+    cumulative_leg_fill_size,
+    bundle,
+    casebook_index,
+    queue,
+    config,
+):
+    """Build one conservative fill row without retaining its source leg."""
+
+    fill = {
+        "fill_time": trade["time"],
+        "fill_price": leg["quote_price"],
+        "fill_size": fill_size,
+        "through_trade_price": trade["price"],
+        "through_trade_size": trade["size"],
+        "trade_source": trade["source"],
+    }
+    financials = compute_fill_financials(
+        leg,
+        fill,
+        bundle.get("marks_by_token") or {},
+        bundle.get("settlement"),
+        config,
+    )
+    case = casebook_for_fill(leg, trade["time"], casebook_index)
+    fill_id = (
+        "fill_"
+        + hashlib.sha1(
+            (
+                leg["leg_id"]
+                + trade["trade_id"]
+                + str(cumulative_leg_fill_size)
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+    )
+    row = {
+        "paper_schema_version": SCHEMA_VERSION,
+        "run_id": leg["run_id"],
+        "run_folder": leg["run_folder"],
+        "run_mode": leg["run_mode"],
+        "policy_hash": leg["policy_hash"],
+        "model_variant_id": leg.get("model_variant_id") or "served_current",
+        "model_variant_family": leg.get("model_variant_family") or "served_current",
+        "model_variant_role": leg.get("model_variant_role") or "served",
+        "model_variant_basket_id": leg.get("model_variant_basket_id") or "",
+        "model_variant_probability_source": leg.get("model_variant_probability_source") or "",
+        "model_variant_counterfactual": bool(leg.get("model_variant_counterfactual")),
+        "served_model_version": leg.get("served_model_version") or "",
+        "quote_id": leg["quote_id"],
+        "leg_id": leg["leg_id"],
+        "fill_id": fill_id,
+        "fill_time_utc": trade["time"].isoformat(),
+        "event_slug": leg["event_slug"],
+        "market_id": leg["market_id"],
+        "target_date": leg["target_date"],
+        "range_label": leg["range_label"],
+        "bin_kind": leg["bin_kind"],
+        "bin_value": leg["bin_value"],
+        "bin_value_hi": leg["bin_value_hi"],
+        "clob_token_id": leg["clob_token_id"],
+        "side": leg["side"],
+        "quote_time_utc": leg["quote_time"].isoformat(),
+        "quote_expires_at_utc": leg["quote_expires_at"].isoformat(),
+        "quote_age_seconds": compact_float(leg.get("quote_age_seconds")),
+        "quote_price": compact_float(leg["quote_price"]),
+        "quote_size": compact_float(leg["quote_size"]),
+        "fill_price": compact_float(fill["fill_price"]),
+        "fill_size": compact_float(fill_size),
+        "through_trade_price": compact_float(trade["price"]),
+        "through_trade_size": compact_float(trade.get("size")),
+        "trade_source": trade["source"],
+        "conservative_fill_rule": "strict_trade_through_price_and_recorded_size",
+        "queue_status": queue.get("status"),
+        "queue_fill_size": compact_float(queue.get("estimated_fill_size")),
+        "queue_initial_ahead": compact_float(queue.get("initial_queue_ahead")),
+        "queue_depleted_ahead": compact_float(queue.get("depleted_ahead")),
+        "queue_reason": queue.get("reason"),
+        "market_mid": compact_float(leg.get("market_mid")),
+        "fair_probability": compact_float(leg.get("fair_probability")),
+        "edge": compact_float(leg.get("edge")),
+        "capture_hour_utc": leg.get("capture_hour_utc"),
+        "capture_hour_local": leg.get("capture_hour_local"),
+        "capture_timezone": leg.get("capture_timezone") or "",
+        "hourly_trust_band": leg.get("hourly_trust_band") or "",
+        "hourly_trust_multiplier": compact_float(leg.get("hourly_trust_multiplier")),
+        "early_hour_guardrail_status": leg.get("early_hour_guardrail_status") or "",
+        "early_hour_guardrail_reason": leg.get("early_hour_guardrail_reason") or "",
+        "early_hour_guardrail_min_edge": compact_float(leg.get("early_hour_guardrail_min_edge")),
+        "early_hour_guardrail_size_multiplier": compact_float(
+            leg.get("early_hour_guardrail_size_multiplier")
+        ),
+        "early_hour_guardrail_quote_widen_buffer": compact_float(
+            leg.get("early_hour_guardrail_quote_widen_buffer")
+        ),
+        "early_hour_guardrail_override_allowed": bool(
+            leg.get("early_hour_guardrail_override_allowed")
+        ),
+        "early_hour_guardrail_market_weight": compact_float(
+            leg.get("early_hour_guardrail_market_weight")
+        ),
+        "market_aware_overlay_probability": compact_float(
+            leg.get("market_aware_overlay_probability")
+        ),
+        "market_aware_overlay_edge": compact_float(leg.get("market_aware_overlay_edge")),
+        "market_aware_overlay_used_for_risk_only": bool(
+            leg.get("market_aware_overlay_used_for_risk_only")
+        ),
+        "spread_capture_usdc": compact_float(financials["spread_capture"]),
+        "adverse_selection_30m_usdc": compact_float(financials["adverse_30m"]),
+        "settlement_pnl_usdc": compact_float(financials["settlement_pnl"]),
+        "maker_fee_equivalent_usdc": compact_float(financials["maker_fee_equiv"]),
+        "maker_rebate_estimate_usdc": compact_float(financials["maker_rebate"]),
+        "liquidity_reward_estimate_usdc": compact_float(financials["reward"]),
+        "flattening_fee_estimate_usdc": compact_float(financials["flatten_fee"]),
+        "net_pnl_after_fees_incentives_usdc": compact_float(financials["net"]),
+        "settlement_markout_per_share": compact_float(financials["settlement_markout"]),
+        "settlement_outcome": compact_float(financials["settlement_outcome"]),
+        "regime": leg["regime"],
+        "source_fresh": leg["source_fresh"],
+        "source_freshness_state": leg.get("source_freshness_state") or "",
+        "event_gate_status": leg.get("event_gate_status") or "",
+        "event_gate_action": leg.get("event_gate_action") or "",
+        "event_gate_reason_code": leg.get("event_gate_reason_code") or "",
+        "event_gate_event_class": leg.get("event_gate_event_class") or "",
+        "event_gate_event_id": leg.get("event_gate_event_id") or "",
+        "event_gate_exception_id": leg.get("event_gate_exception_id") or "",
+        "book_imbalance_bucket": leg["book_imbalance_bucket"],
+        "band_distance_bucket": leg["band_distance_bucket"],
+        "casebook_taxonomy": case.get("taxonomy") or "",
+        "casebook_case_id": case.get("case_id") or "",
+    }
+    for horizon, _seconds in MARKOUT_HORIZONS:
+        row[f"markout_{horizon}_per_share"] = compact_float(
+            financials["markouts"].get(horizon)
+        )
+    return row
+
+
+def _simulate_spilled_conservative_fills(
+    legs,
+    snapshots_root,
+    casebook_index,
+    config,
+    ledger_root=None,
+):
+    """Preserve corpus-wide fill ordering while keeping legs and outputs on disk."""
+
+    tape_index = legs.new_tape_index("tapes")
+    diagnostics = defaultdict(
+        lambda: {
+            "trade_rows": 0,
+            "missing_size_trade_rows": 0,
+            "book_rows": 0,
+            "mark_rows": 0,
+            "settlement_available": False,
+        }
+    )
+    for event_slug in legs.event_slugs():
+        folder = Path(snapshots_root) / event_slug
+        trades, trade_diag = load_trade_rows(folder)
+        books = load_book_rows(folder)
+        marks = load_mark_rows(folder)
+        settlement = settlement_for_folder(
+            folder,
+            event_slug,
+            ledger_root=ledger_root,
+        )
+        tape_index.add_event(event_slug, trades, books, marks, settlement)
+        diagnostics[event_slug].update(trade_diag)
+        diagnostics[event_slug]["book_rows"] = len(books)
+        diagnostics[event_slug]["mark_rows"] = len(marks)
+        diagnostics[event_slug]["settlement_available"] = bool(settlement)
+        del trades, books, marks, settlement
+        gc.collect()
+
+    queue_rows = legs.new_queue_store("queues")
+    for source_order, leg in legs.iter_with_sequence():
+        books, trades = tape_index.queue_rows(leg)
+        token_id = leg["clob_token_id"]
+        queue_rows.upsert(
+            queue_simulate_leg(
+                leg,
+                {token_id: books},
+                {token_id: trades},
+            ),
+            source_order=source_order,
+            context=leg,
+        )
+
+    fill_rows = legs.new_row_store("fills", iteration_order="sorted")
+    for leg in legs.iter_sorted():
+        trade_rows = tape_index.trade_rows(leg)
+        remaining_leg = float(leg["quote_size"])
+        for trade in trade_rows:
+            if remaining_leg <= 1e-9:
+                break
+            if not strict_trade_through(leg["side"], trade["price"], leg["quote_price"]):
+                continue
+            if trade.get("size") is None:
+                continue
+            remaining_trade = tape_index.remaining(trade["trade_id"])
+            if remaining_trade <= 1e-9:
+                continue
+            fill_size = min(remaining_leg, remaining_trade)
+            if fill_size <= 1e-9:
+                continue
+            tape_index.set_remaining(trade["trade_id"], remaining_trade - fill_size)
+            remaining_leg -= fill_size
+            cumulative_fill_size = tape_index.add_leg_fill(leg["leg_id"], fill_size)
+            mark_targets = [
+                trade["time"] + timedelta(seconds=seconds)
+                for _label, seconds in MARKOUT_HORIZONS
+            ]
+            marks = tape_index.mark_rows(
+                leg["event_slug"],
+                leg["clob_token_id"],
+                mark_targets,
+            )
+            bundle = {
+                "marks_by_token": {leg["clob_token_id"]: marks},
+                "settlement": tape_index.settlement(leg["event_slug"]),
+            }
+            row = conservative_fill_row(
+                leg,
+                trade,
+                fill_size,
+                cumulative_fill_size,
+                bundle,
+                casebook_index,
+                queue_rows.get(leg["leg_id"]),
+                config,
+            )
+            fill_rows.append(
+                row,
+                sort_time=leg["quote_time"],
+                sort_id=leg["leg_id"],
+            )
+    legs.connection.commit()
+    return fill_rows, queue_rows, dict(diagnostics), {}
+
+
 def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, ledger_root=None):
+    if getattr(legs, "is_spilled_rows", False):
+        return _simulate_spilled_conservative_fills(
+            legs,
+            snapshots_root,
+            casebook_index,
+            config,
+            ledger_root=ledger_root,
+        )
     folders = {}
     diagnostics = defaultdict(lambda: {
         "trade_rows": 0,
@@ -1129,111 +1468,19 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
             trade_remaining[trade["trade_id"]] = remaining_trade - fill_size
             remaining_leg -= fill_size
             leg_fill_sizes[leg["leg_id"]] += fill_size
-            fill = {
-                "fill_time": trade["time"],
-                "fill_price": leg["quote_price"],
-                "fill_size": fill_size,
-                "through_trade_price": trade["price"],
-                "through_trade_size": trade["size"],
-                "trade_source": trade["source"],
-            }
-            financials = compute_fill_financials(
-                leg,
-                fill,
-                bundle.get("marks_by_token") or {},
-                bundle.get("settlement"),
-                config,
-            )
-            case = casebook_for_fill(leg, trade["time"], casebook_index)
             queue = queue_by_leg.get(leg["leg_id"], {})
-            fill_id = f"fill_{hashlib.sha1((leg['leg_id'] + trade['trade_id'] + str(leg_fill_sizes[leg['leg_id']])).encode('utf-8')).hexdigest()[:12]}"
-            row = {
-                "paper_schema_version": SCHEMA_VERSION,
-                "run_id": leg["run_id"],
-                "run_folder": leg["run_folder"],
-                "run_mode": leg["run_mode"],
-                "policy_hash": leg["policy_hash"],
-                "model_variant_id": leg.get("model_variant_id") or "served_current",
-                "model_variant_family": leg.get("model_variant_family") or "served_current",
-                "model_variant_role": leg.get("model_variant_role") or "served",
-                "model_variant_basket_id": leg.get("model_variant_basket_id") or "",
-                "model_variant_probability_source": leg.get("model_variant_probability_source") or "",
-                "model_variant_counterfactual": bool(leg.get("model_variant_counterfactual")),
-                "served_model_version": leg.get("served_model_version") or "",
-                "quote_id": leg["quote_id"],
-                "leg_id": leg["leg_id"],
-                "fill_id": fill_id,
-                "fill_time_utc": trade["time"].isoformat(),
-                "event_slug": leg["event_slug"],
-                "market_id": leg["market_id"],
-                "target_date": leg["target_date"],
-                "range_label": leg["range_label"],
-                "bin_kind": leg["bin_kind"],
-                "bin_value": leg["bin_value"],
-                "bin_value_hi": leg["bin_value_hi"],
-                "clob_token_id": leg["clob_token_id"],
-                "side": leg["side"],
-                "quote_time_utc": leg["quote_time"].isoformat(),
-                "quote_expires_at_utc": leg["quote_expires_at"].isoformat(),
-                "quote_age_seconds": compact_float(leg.get("quote_age_seconds")),
-                "quote_price": compact_float(leg["quote_price"]),
-                "quote_size": compact_float(leg["quote_size"]),
-                "fill_price": compact_float(fill["fill_price"]),
-                "fill_size": compact_float(fill_size),
-                "through_trade_price": compact_float(trade["price"]),
-                "through_trade_size": compact_float(trade.get("size")),
-                "trade_source": trade["source"],
-                "conservative_fill_rule": "strict_trade_through_price_and_recorded_size",
-                "queue_status": queue.get("status"),
-                "queue_fill_size": compact_float(queue.get("estimated_fill_size")),
-                "queue_initial_ahead": compact_float(queue.get("initial_queue_ahead")),
-                "queue_depleted_ahead": compact_float(queue.get("depleted_ahead")),
-                "queue_reason": queue.get("reason"),
-                "market_mid": compact_float(leg.get("market_mid")),
-                "fair_probability": compact_float(leg.get("fair_probability")),
-                "edge": compact_float(leg.get("edge")),
-                "capture_hour_utc": leg.get("capture_hour_utc"),
-                "capture_hour_local": leg.get("capture_hour_local"),
-                "capture_timezone": leg.get("capture_timezone") or "",
-                "hourly_trust_band": leg.get("hourly_trust_band") or "",
-                "hourly_trust_multiplier": compact_float(leg.get("hourly_trust_multiplier")),
-                "early_hour_guardrail_status": leg.get("early_hour_guardrail_status") or "",
-                "early_hour_guardrail_reason": leg.get("early_hour_guardrail_reason") or "",
-                "early_hour_guardrail_min_edge": compact_float(leg.get("early_hour_guardrail_min_edge")),
-                "early_hour_guardrail_size_multiplier": compact_float(leg.get("early_hour_guardrail_size_multiplier")),
-                "early_hour_guardrail_quote_widen_buffer": compact_float(leg.get("early_hour_guardrail_quote_widen_buffer")),
-                "early_hour_guardrail_override_allowed": bool(leg.get("early_hour_guardrail_override_allowed")),
-                "early_hour_guardrail_market_weight": compact_float(leg.get("early_hour_guardrail_market_weight")),
-                "market_aware_overlay_probability": compact_float(leg.get("market_aware_overlay_probability")),
-                "market_aware_overlay_edge": compact_float(leg.get("market_aware_overlay_edge")),
-                "market_aware_overlay_used_for_risk_only": bool(leg.get("market_aware_overlay_used_for_risk_only")),
-                "spread_capture_usdc": compact_float(financials["spread_capture"]),
-                "adverse_selection_30m_usdc": compact_float(financials["adverse_30m"]),
-                "settlement_pnl_usdc": compact_float(financials["settlement_pnl"]),
-                "maker_fee_equivalent_usdc": compact_float(financials["maker_fee_equiv"]),
-                "maker_rebate_estimate_usdc": compact_float(financials["maker_rebate"]),
-                "liquidity_reward_estimate_usdc": compact_float(financials["reward"]),
-                "flattening_fee_estimate_usdc": compact_float(financials["flatten_fee"]),
-                "net_pnl_after_fees_incentives_usdc": compact_float(financials["net"]),
-                "settlement_markout_per_share": compact_float(financials["settlement_markout"]),
-                "settlement_outcome": compact_float(financials["settlement_outcome"]),
-                "regime": leg["regime"],
-                "source_fresh": leg["source_fresh"],
-                "source_freshness_state": leg.get("source_freshness_state") or "",
-                "event_gate_status": leg.get("event_gate_status") or "",
-                "event_gate_action": leg.get("event_gate_action") or "",
-                "event_gate_reason_code": leg.get("event_gate_reason_code") or "",
-                "event_gate_event_class": leg.get("event_gate_event_class") or "",
-                "event_gate_event_id": leg.get("event_gate_event_id") or "",
-                "event_gate_exception_id": leg.get("event_gate_exception_id") or "",
-                "book_imbalance_bucket": leg["book_imbalance_bucket"],
-                "band_distance_bucket": leg["band_distance_bucket"],
-                "casebook_taxonomy": case.get("taxonomy") or "",
-                "casebook_case_id": case.get("case_id") or "",
-            }
-            for horizon, _seconds in MARKOUT_HORIZONS:
-                row[f"markout_{horizon}_per_share"] = compact_float(financials["markouts"].get(horizon))
-            fill_rows.append(row)
+            fill_rows.append(
+                conservative_fill_row(
+                    leg,
+                    trade,
+                    fill_size,
+                    leg_fill_sizes[leg["leg_id"]],
+                    bundle,
+                    casebook_index,
+                    queue,
+                    config,
+                )
+            )
     queue_rows = list(queue_by_leg.values())
     return fill_rows, queue_rows, dict(diagnostics), leg_fill_sizes
 
