@@ -48,7 +48,7 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    assert payload["warning_count"] == 17
+    assert payload["warning_count"] == 18
     assert len(warnings) == payload["warning_count"]
     assert all(row["owner"] and row["boundary"] and row["next_split"] for row in warnings)
     assert payload["governance_status"] == "PASS"

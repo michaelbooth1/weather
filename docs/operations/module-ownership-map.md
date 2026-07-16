@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 17 modules.
+- Current warning count: 18 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -19,7 +19,8 @@ Current module-size audit status:
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
-  `weather.market.taker_bot_cli`, and `weather.market.taker_bot_finalization`.
+  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`, and
+  `weather.collection.snapshot_tracker`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
@@ -55,6 +56,7 @@ Current module-size audit status:
 | `weather.operations.nightly_retrain` | Operations | Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI. | WARN in the 2026-07-15 audit. Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module. |
 | `weather.operations.experiment_executor` | Operations | Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication. | WARN in the 2026-07-15 audit. Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed. |
 | `weather.operations.event_day_manifest` | Operations | Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI. | WARN in the 2026-07-12 audit. Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged. |
+| `weather.collection.snapshot_tracker` | Collection | Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch. | WARN in the 2026-07-15 audit. Extract managed-loop status rendering and fleet-health aggregation behind the stable CLI while preserving worker isolation, writer-lock, and supervisor contracts. |
 | `weather.reporting.daily.daily_learning` | Reporting | Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers. Input readers, input gates, experiment queue builders, and scorecard assembly live in `weather.reporting.daily.daily_learning_scorecard`; report rendering lives in `weather.reporting.daily.daily_learning_render`. | Below the 2,000-line warning threshold in the 2026-07-12 audit; retain the documented next split if growth resumes. |
 | `weather.reporting.daily.daily_learning_scorecard` | Reporting | Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly. | Owner module for item 318; must not import the `daily_learning` facade. |
 | `weather.market.mm_paper` | Market | Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers. Tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in `weather.market.mm_paper_scoring`. | WARN in the 2026-07-03 audit. Next split should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade. |

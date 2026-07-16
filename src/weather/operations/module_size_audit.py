@@ -173,6 +173,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Snapshot schema constants, readers, writers, and compatibility exports for backfill utilities.",
         "next_split": "WARN in the 2026-07-03 audit; backfill helpers and utility CLI wiring already live in snapshot_store_backfill, so the next slice should extract payload persistence, explanation sidecar, or replay-input helpers while preserving SnapshotStore's public surface.",
     },
+    "src/weather/collection/snapshot_tracker.py": {
+        "owner": "collection",
+        "boundary": "Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch.",
+        "next_split": "Extract managed-loop status rendering and fleet-health aggregation behind the stable snapshot_tracker CLI while preserving worker isolation, writer-lock, and supervisor contracts.",
+    },
     "src/weather/model/model_sources.py": {
         "owner": "model",
         "boundary": "Serving-time source fetch orchestration, retry/backoff policy, source-group integration, and live/local source parsing for model assembly.",
