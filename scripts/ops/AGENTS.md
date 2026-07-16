@@ -36,6 +36,18 @@ Do not leave both topologies enabled for the same workload. Preserve the
 training window's `finally` restoration and independent restore task when
 modifying it.
 
+Producer provenance follows the chosen topology. Direct daily/nightly actions
+pass `scheduler-invocation-topology=direct`. The training window is a scheduled
+PowerShell wrapper whose Python nightly process is a `delegated_child`; both
+registration and the wrapper must build the parent action tokens through
+`training_window_contract.ps1`. Missing or mismatched action tokens, task
+identity, child executable, working directory, running state, or run-time
+correlation must remain non-countable. Direct and delegated provenance both
+observe the current PID, OS image, complete command line, current working
+directory, creation time, optional exact venv redirector, and current scheduler
+engine PID/instance. Delegated lineage continues to the registered wrapper
+within the two-ancestor bound. Child-supplied flags alone are not evidence.
+
 Validate PowerShell syntax without executing scripts, run the focused Python
 tests for the affected operation, and update the operations design or owning
 runbook whenever a task name, cadence, parameter, status path, or supervision

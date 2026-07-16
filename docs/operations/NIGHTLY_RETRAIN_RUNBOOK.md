@@ -19,6 +19,27 @@ requires explicit served/replay captured-input parity files, served artifact
 bindings, and the served route. Read its `param(...)` block and provide reviewed
 current paths; there is intentionally no argument-free production example.
 
+Both patterns are scheduler-attested, but their process topology is different.
+The direct task records `scheduler-invocation-topology=direct` and requires its
+registered Python executable, complete argument vector, working directory,
+running state, and task-run time to match the producer exactly. Its OS-observed
+process chain must bind the current PID, base-Python image and complete command,
+current working directory, and expected venv redirector to the current Task
+Scheduler engine PID and instance identity. The single-host window is a
+scheduled PowerShell wrapper. Its registration and runtime share
+`scripts/ops/training_window_contract.ps1`; the nightly Python child records
+`delegated_child`, the exact registered wrapper action tokens, its own Python
+executable and arguments, the repository working directory, and a correlation
+allowance that covers the bounded capture-stop phase. The same bounded Windows
+lineage then continues through at most the expected venv redirector to the
+exact PowerShell engine PID, image, complete command line, and start time for
+the current task instance. Child, redirector, wrapper, and scheduler-run start
+times must be present and ordered within their declared bounds. A missing,
+disabled, stale, unrelated, over-deep, or mismatched parent/child contract
+remains `manual_or_unverified` and is not countable production evidence.
+Re-register the window after any task name, PowerShell executable, repository
+path, or wrapper action change.
+
 The direct task calls:
 
 ```powershell
@@ -119,6 +140,9 @@ short-circuit path without training, run:
 python -m weather.operations.nightly_retrain run --step-timeout-seconds 300
 python -m weather.operations.nightly_retrain status
 ```
+
+Manual and dry-run commands intentionally cannot claim scheduled provenance;
+use their outputs for smoke diagnostics, not scheduled-run acceptance.
 
 Expected outputs:
 
