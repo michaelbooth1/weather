@@ -1,13 +1,14 @@
 {
-  "artifact_count": 102,
+  "artifact_count": 103,
   "artifact_root": "artifacts",
   "checks": [],
-  "generated_at_utc": "2026-06-20T19:26:00.383084+00:00",
+  "generated_at_utc": "2026-07-16T03:21:05.942377+00:00",
   "kind_counts": {
     "calibration": 51,
     "coefs_model": 24,
     "hgb_model": 26,
-    "manifest": 1
+    "manifest": 1,
+    "misc": 1
   },
   "largest_artifacts": [
     {
@@ -17,7 +18,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 103734643,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-11T15:29:07.413533+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.439606+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -37,7 +38,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 29230281,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-14T01:16:49.843347+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.037546+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -57,7 +58,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 22704111,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-10T21:18:59.239360+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.212409+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_denver.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -77,7 +78,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 20742776,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-14T03:43:31.628893+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.644002+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_miami.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -97,7 +98,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 19800416,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-12T12:11:01.754273+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.771083+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_seattle.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -117,7 +118,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 19713433,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-12T12:11:01.533860+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.129746+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_chicago.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -137,7 +138,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 18735619,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-10T19:32:38.863791+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.689210+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_nyc.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -157,7 +158,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 18096992,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-10T22:18:55.549559+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.731528+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_san-francisco.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -177,7 +178,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 15149102,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-10T19:53:16.185017+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.061193+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_atlanta.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -197,7 +198,7 @@
       "kind": "hgb_model",
       "managed_external_bytes": 14798766,
       "model_schema_version": null,
-      "modified_at_utc": "2026-06-10T20:54:56.494729+00:00",
+      "modified_at_utc": "2026-07-16T02:56:19.160777+00:00",
       "path": "artifacts/models/hgb/feature_model_hgb_dallas.pkl",
       "registry_use": "unregistered_runtime_artifact",
       "reproducibility_requirement": "runtime_restore_required",
@@ -211,17 +212,19 @@
       "variant_refs": []
     }
   ],
-  "managed_external_bytes": 379425446,
+  "managed_external_bytes": 380413985,
   "registry_use_counts": {
-    "active_promoted": 6,
+    "active_promoted": 1,
+    "active_shadow": 4,
+    "shadow_only": 1,
     "smoke_only": 2,
-    "unreferenced": 1,
+    "unreferenced": 2,
     "unregistered_runtime_artifact": 93
   },
   "schema_version": "model_artifact_size_audit_v0.1",
   "status": "PASS",
   "storage_backend_counts": {
-    "git": 76,
+    "git": 77,
     "git_lfs": 26
   },
   "thresholds": {
@@ -231,7 +234,7 @@
     "total_failure_bytes": 524288000,
     "total_warning_bytes": 367001600
   },
-  "total_bytes": 385304691,
-  "unmanaged_git_bytes": 5879245,
-  "working_tree_bytes": 385304691
+  "total_bytes": 387825854,
+  "unmanaged_git_bytes": 7411869,
+  "working_tree_bytes": 387825854
 }

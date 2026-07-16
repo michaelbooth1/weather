@@ -912,6 +912,127 @@ def _preflight_check(severity, category, detail, *, artifact_id=None, path=None,
     return row
 
 
+def _artifact_registry_identity(payload: dict) -> dict:
+    """Project a registry to checkout-stable artifact identity fields."""
+
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in {"generated_at_utc", "artifacts"}
+    } | {
+        "artifacts": [
+            {
+                key: value
+                for key, value in row.items()
+                if key != "modified_at_utc"
+            }
+            for row in (payload.get("artifacts") or [])
+        ]
+    }
+
+
+def _artifact_externalization_identity(payload: dict) -> dict:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key != "generated_at_utc"
+    }
+
+
+def _identity_sha256(payload: dict) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_tracked_artifact_manifest(path: Path, *, label: str) -> dict:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return payload
+
+
+def tracked_artifact_manifest_checks(
+    *,
+    root: str | Path = ARTIFACTS_ROOT,
+    variant_registry_path: str | Path | None = DEFAULT_VARIANT_REGISTRY_PATH,
+    registry_manifest_path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH,
+    externalization_manifest_path: str | Path = DEFAULT_ARTIFACT_EXTERNALIZATION_PATH,
+) -> list[dict]:
+    """Compare tracked manifest identity with the current artifact tree.
+
+    Generation timestamps and checkout-dependent mtimes are diagnostic and are
+    deliberately excluded. Artifact bytes, hashes, classification, restore
+    policy, variant bindings, counts, and storage totals must match exactly.
+    """
+
+    current_registry = build_artifact_registry(
+        root=root,
+        generated_at="1970-01-01T00:00:00+00:00",
+        variant_registry_path=variant_registry_path,
+    )
+    current_externalization = build_artifact_externalization_manifest(
+        root=root,
+        generated_at="1970-01-01T00:00:00+00:00",
+        variant_registry_path=variant_registry_path,
+    )
+    specs = (
+        (
+            "artifact_registry_identity_mismatch",
+            Path(registry_manifest_path),
+            "artifact registry",
+            _artifact_registry_identity,
+            current_registry,
+        ),
+        (
+            "artifact_externalization_identity_mismatch",
+            Path(externalization_manifest_path),
+            "artifact externalization manifest",
+            _artifact_externalization_identity,
+            current_externalization,
+        ),
+    )
+    checks = []
+    for category, path, label, projector, current in specs:
+        try:
+            tracked = _load_tracked_artifact_manifest(path, label=label)
+            tracked_identity = projector(tracked)
+            current_identity = projector(current)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            checks.append(
+                _preflight_check(
+                    "error",
+                    category,
+                    f"{label} is missing or unreadable: {exc}",
+                    path=path,
+                )
+            )
+            continue
+        tracked_sha = _identity_sha256(tracked_identity)
+        current_sha = _identity_sha256(current_identity)
+        if tracked_sha != current_sha:
+            checks.append(
+                _preflight_check(
+                    "error",
+                    category,
+                    (
+                        f"{label} does not match current artifact identity; "
+                        f"tracked={tracked_sha}, current={current_sha}; regenerate "
+                        "all artifact manifests with their canonical producers"
+                    ),
+                    path=path,
+                )
+            )
+    return checks
+
+
 def _variant_local_path_checks(registry_path: str | Path | None) -> list[dict]:
     if registry_path in (None, ""):
         return []
@@ -967,6 +1088,9 @@ def build_artifact_promotion_preflight(
     individual_failure_bytes=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES,
     total_warning_bytes=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES,
     total_failure_bytes=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES,
+    verify_tracked_manifests: bool = False,
+    registry_manifest_path: str | Path = DEFAULT_ARTIFACT_REGISTRY_PATH,
+    externalization_manifest_path: str | Path = DEFAULT_ARTIFACT_EXTERNALIZATION_PATH,
 ) -> dict:
     generated_at = generated_at or datetime.now(timezone.utc).isoformat()
     size_audit = build_artifact_size_audit(
@@ -980,6 +1104,15 @@ def build_artifact_promotion_preflight(
     )
     checks = list(size_audit.get("checks") or [])
     checks.extend(_variant_local_path_checks(variant_registry_path))
+    if verify_tracked_manifests:
+        checks.extend(
+            tracked_artifact_manifest_checks(
+                root=root,
+                variant_registry_path=variant_registry_path,
+                registry_manifest_path=registry_manifest_path,
+                externalization_manifest_path=externalization_manifest_path,
+            )
+        )
     error_count = sum(1 for row in checks if row.get("severity") == "error" or row.get("status") == "FAIL")
     warning_count = sum(1 for row in checks if row.get("severity") == "warning" or row.get("status") == "WARN")
     status = "FAIL" if error_count else ("WARN" if warning_count else "PASS")
@@ -988,7 +1121,12 @@ def build_artifact_promotion_preflight(
         "generated_at_utc": generated_at,
         "status": status,
         "artifact_root": size_audit.get("artifact_root"),
-        "variant_registry_path": str(variant_registry_path) if variant_registry_path else None,
+        "variant_registry_path": (
+            _repo_relative_value(variant_registry_path)
+            or str(variant_registry_path)
+            if variant_registry_path
+            else None
+        ),
         "summary": {
             "artifact_count": size_audit.get("artifact_count"),
             "working_tree_bytes": size_audit.get("working_tree_bytes"),
@@ -999,6 +1137,30 @@ def build_artifact_promotion_preflight(
         },
         "size_audit": size_audit,
         "checks": checks,
+        "tracked_manifest_verification": {
+            "required": bool(verify_tracked_manifests),
+            "status": (
+                "PASS"
+                if verify_tracked_manifests
+                and not any(
+                    row.get("category")
+                    in {
+                        "artifact_registry_identity_mismatch",
+                        "artifact_externalization_identity_mismatch",
+                    }
+                    for row in checks
+                )
+                else "BLOCK"
+                if verify_tracked_manifests
+                else "NOT_RUN"
+            ),
+            "registry_manifest_path": _repo_relative_value(registry_manifest_path)
+            or str(registry_manifest_path),
+            "externalization_manifest_path": _repo_relative_value(
+                externalization_manifest_path
+            )
+            or str(externalization_manifest_path),
+        },
     }
 
 
@@ -1080,6 +1242,9 @@ def cmd_promotion_preflight(args):
         individual_failure_bytes=args.individual_failure_bytes,
         total_warning_bytes=args.total_warning_bytes,
         total_failure_bytes=args.total_failure_bytes,
+        verify_tracked_manifests=not args.skip_tracked_manifest_verification,
+        registry_manifest_path=args.registry_manifest,
+        externalization_manifest_path=args.externalization_manifest,
     )
     payload = json.loads(Path(out).read_text(encoding="utf-8"))
     summary = payload.get("summary") or {}
@@ -1128,6 +1293,13 @@ def build_parser():
     preflight.add_argument("--individual-failure-bytes", type=int, default=DEFAULT_INDIVIDUAL_ARTIFACT_FAILURE_BYTES)
     preflight.add_argument("--total-warning-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_WARNING_BYTES)
     preflight.add_argument("--total-failure-bytes", type=int, default=DEFAULT_TOTAL_ARTIFACT_FAILURE_BYTES)
+    preflight.add_argument("--registry-manifest", default=str(DEFAULT_ARTIFACT_REGISTRY_PATH))
+    preflight.add_argument("--externalization-manifest", default=str(DEFAULT_ARTIFACT_EXTERNALIZATION_PATH))
+    preflight.add_argument(
+        "--skip-tracked-manifest-verification",
+        action="store_true",
+        help="Custom-root diagnostics only: do not compare tracked manifest identity.",
+    )
     preflight.add_argument("--fail-on-warn", action="store_true")
     preflight.set_defaults(func=cmd_promotion_preflight)
     return parser

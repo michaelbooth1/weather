@@ -99,13 +99,13 @@
     },
     {
       "artifact_id": "models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
-      "bytes": 193373,
+      "bytes": 211935,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl",
       "registry_use": "active_promoted",
       "reproducibility_requirement": "promotion_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl\"",
-      "sha256": "e0842a154259d2f31271a9a49944a35427dec29110788e399c79e807a52a82a8",
+      "sha256": "c4eaa40df23a43702cbf3fdecd5be0d190235b0e832653e690b3e8196aabe3bc",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
@@ -158,14 +158,14 @@
       "bytes": 5460537,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
-      "registry_use": "active_promoted",
-      "reproducibility_requirement": "promotion_restore_required",
+      "registry_use": "active_shadow",
+      "reproducibility_requirement": "shadow_replay_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl\"",
       "sha256": "ee7b65d078961bf21c3f89ff6e359d0acca5f3fedc90e456bf0192e4656867e9",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
-          "active_for_headline": true,
+          "active_for_headline": false,
           "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_dynamic_source_v0_1.pkl",
           "artifact_required": true,
           "export_family": "dynamic_source_state",
@@ -175,7 +175,8 @@
             "candidate",
             "no-market",
             "source-state",
-            "active-bakeoff"
+            "active-bakeoff",
+            "legacy-validation-quarantined"
           ],
           "shadow_only": false,
           "variant_family": "dynamic_source_state",
@@ -200,14 +201,14 @@
       "bytes": 5432706,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
-      "registry_use": "active_promoted",
-      "reproducibility_requirement": "promotion_restore_required",
+      "registry_use": "active_shadow",
+      "reproducibility_requirement": "shadow_replay_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl\"",
       "sha256": "cf1a385b2f92810ba31c7974ce0511cb42653dbab4325599bb29e199a17e7d4d",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
-          "active_for_headline": true,
+          "active_for_headline": false,
           "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_exact_winner_v0_1.pkl",
           "artifact_required": true,
           "export_family": "exact_winner_catchup",
@@ -216,7 +217,8 @@
           "roles": [
             "candidate",
             "no-market",
-            "active-bakeoff"
+            "active-bakeoff",
+            "legacy-validation-quarantined"
           ],
           "shadow_only": false,
           "variant_family": "exact_winner_catchup",
@@ -274,17 +276,17 @@
     },
     {
       "artifact_id": "models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
-      "bytes": 5340804,
+      "bytes": 6310781,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
-      "registry_use": "active_promoted",
-      "reproducibility_requirement": "promotion_restore_required",
+      "registry_use": "active_shadow",
+      "reproducibility_requirement": "shadow_replay_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl\"",
-      "sha256": "dfcd732f9382404713600b2a122e886b0b6f9df6ccaa7cc332686b15ecc77e53",
+      "sha256": "3b472bd32667256c6605a6f48c2c9c4ba7e58f140a89c504c4b4fbfcac6a497c",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
-          "active_for_headline": true,
+          "active_for_headline": false,
           "artifact_path": "artifacts/models/hgb/feature_model_hgb_f_pooled_v0_3.pkl",
           "artifact_required": true,
           "export_family": "pooled_f_candidate",
@@ -294,7 +296,8 @@
             "candidate",
             "no-market",
             "fallback",
-            "active-bakeoff"
+            "active-bakeoff",
+            "legacy-validation-quarantined"
           ],
           "shadow_only": false,
           "variant_family": "pooled_f_candidate",
@@ -379,25 +382,26 @@
       "bytes": 7594227,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/item35_density_full_candidate.pkl",
-      "registry_use": "active_promoted",
-      "reproducibility_requirement": "promotion_restore_required",
+      "registry_use": "shadow_only",
+      "reproducibility_requirement": "shadow_only_rebuildable",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/item35_density_full_candidate.pkl\"",
       "sha256": "56b03f8d5769d76d28aaad78752d78869c0dc816f906e091f10e2ca98c6c88ab",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
-          "active_for_headline": true,
+          "active_for_headline": false,
           "artifact_path": "artifacts/models/hgb/item35_density_full_candidate.pkl",
           "artifact_required": true,
           "export_family": "pooled_continuous_density",
-          "lifecycle": "active",
+          "lifecycle": "shadow",
           "prediction_mode": "continuous_density_f",
           "roles": [
             "candidate",
             "density",
-            "expanded-evidence"
+            "diagnostic-only",
+            "live-replay-divergence-quarantined"
           ],
-          "shadow_only": false,
+          "shadow_only": true,
           "variant_family": "pooled_continuous_density",
           "variant_id": "pooled_continuous_density_hgb_v0_1"
         }
@@ -408,14 +412,14 @@
       "bytes": 5978191,
       "kind": "hgb_model",
       "path": "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
-      "registry_use": "active_promoted",
-      "reproducibility_requirement": "promotion_restore_required",
+      "registry_use": "active_shadow",
+      "reproducibility_requirement": "shadow_replay_restore_required",
       "restore_instruction": "git lfs pull --include=\"artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl\"",
       "sha256": "befe90ef947396b26c24a5f30bc8886624b4bbef23af7270fd84a43a6649f4f5",
       "storage_backend": "git_lfs",
       "variant_refs": [
         {
-          "active_for_headline": true,
+          "active_for_headline": false,
           "artifact_path": "artifacts/models/hgb/item50_feature_model_hgb_f_pooled_v0_3_candidate.pkl",
           "artifact_required": true,
           "export_family": "pooled_f_candidate",
@@ -424,7 +428,8 @@
           "roles": [
             "candidate",
             "no-market",
-            "active-bakeoff"
+            "active-bakeoff",
+            "legacy-validation-quarantined"
           ],
           "shadow_only": false,
           "variant_family": "pooled_f_candidate",
@@ -433,9 +438,9 @@
       ]
     }
   ],
-  "generated_at_utc": "2026-06-20T19:25:59.790115+00:00",
+  "generated_at_utc": "2026-07-16T03:21:05.331172+00:00",
   "managed_artifact_count": 26,
-  "managed_external_bytes": 379425446,
+  "managed_external_bytes": 380413985,
   "restore_instructions": {
     "external_artifact_store": "Fetch each artifact from the URI named by its manifest entry and verify SHA-256 before promotion.",
     "git_lfs": "Install Git LFS, then run `git lfs pull --include=\"artifacts/models/hgb/*.pkl\"` from the repository root after checkout."

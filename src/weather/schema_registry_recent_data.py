@@ -511,6 +511,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Immutable model release artifact, runtime, routing, configuration, and lineage inventory.",
     ),
     SchemaSpec(
+        "first_inactive_release_bootstrap",
+        "first_inactive_release_bootstrap_v0.1",
+        "weather.operations.release_bootstrap",
+        "active",
+        "Self-hashed fail-closed authorization and qualification receipt for constructing the first inactive production release without pre-existing release-bound parity.",
+    ),
+    SchemaSpec(
         "active_release_pointer",
         "active_release_pointer_v0.1",
         "weather.operations.release_promotion",

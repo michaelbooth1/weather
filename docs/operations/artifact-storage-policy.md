@@ -67,6 +67,14 @@ artifact policy reaches `WARN` or `FAIL`:
 python -m weather.artifacts promotion-preflight --fail-on-warn
 ```
 
+Promotion preflight also compares the tracked registry and externalization
+manifest identities with the current artifact tree. It ignores generation time
+and checkout-dependent mtimes, but bytes, SHA-256, storage classification,
+restore policy, variant bindings, counts, and totals must match exactly. The
+default command therefore fails when an artifact changed without regenerating
+both manifests. `--skip-tracked-manifest-verification` is limited to deliberate
+custom-root diagnostics and is not valid promotion evidence.
+
 Nightly retrain should publish both
 `artifacts/manifests/model_artifact_registry.json` and
 `artifacts/manifests/model_artifact_size_audit.json`, plus
