@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.io import read_csv_rows
+from weather.io import iter_csv_rows
 from weather.market.market_registry import spec_for_id
 from weather.paths import data_path
 from weather.schema_registry import schema_version
@@ -631,15 +631,17 @@ def write_taker_edge_permission_map(out_json, rows=None, **kwargs):
 
 
 def rows_from_order_tapes(paths):
-    """Yield settled order rows one tape at a time.
+    """Yield settled order rows one ROW at a time with bounded memory.
 
-    ``read_csv_rows`` currently materializes one CSV for encoding diagnostics,
-    but yielding that batch before opening the next tape bounds retained input
-    to one daily tape instead of the complete multi-day corpus.
+    The previous per-tape batching still materialized one complete CSV as a
+    list of dicts; a 160 MB tape inflated past the 2 GiB isolated-child
+    private-memory cap on 2026-07-16. ``iter_csv_rows`` streams utf-8 tapes
+    row by row and falls back to the materializing legacy-encoding reader
+    only for historical non-utf-8 files.
     """
 
     for path in paths or []:
-        yield from read_csv_rows(path, attach_diagnostics=True)
+        yield from iter_csv_rows(path, attach_diagnostics=True)
 
 
 def build_taker_edge_permission_map_from_tapes(paths, **kwargs):

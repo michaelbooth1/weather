@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import csv
 import hashlib
 import json
@@ -346,6 +347,57 @@ def read_csv_rows_with_diagnostics(
 def read_csv_rows(path: str | Path, *, attach_diagnostics: bool = False) -> list[dict]:
     rows, _diagnostics = read_csv_rows_with_diagnostics(path, attach_diagnostics=attach_diagnostics)
     return rows
+
+
+def _validate_utf8_sig_streaming(path: Path, chunk_bytes: int = 1 << 20) -> None:
+    """Raise UnicodeDecodeError if the file is not utf-8-sig, retaining nothing."""
+
+    decoder = codecs.getincrementaldecoder("utf-8-sig")()
+    with path.open("rb") as raw:
+        while True:
+            chunk = raw.read(chunk_bytes)
+            if not chunk:
+                decoder.decode(b"", final=True)
+                return
+            decoder.decode(chunk)
+
+
+def iter_csv_rows(
+    path: str | Path,
+    *,
+    fallback_encodings: Iterable[str] = LEGACY_CSV_ENCODINGS,
+    attach_diagnostics: bool = False,
+) -> Iterable[dict]:
+    """Stream CSV rows one dict at a time with bounded memory.
+
+    ``read_csv_rows`` materializes the whole file as a list of dicts, which
+    inflates large tapes by an order of magnitude (a 160 MB order tape
+    exceeded a 2 GiB private-memory cap on 2026-07-16). This variant first
+    validates utf-8-sig decodability in a retention-free pre-pass, then
+    yields rows lazily. Files that fail utf-8 decoding fall back to the
+    materializing legacy-encoding reader so quarantine/provenance semantics
+    stay identical to ``read_csv_rows`` (legacy files are historical and
+    small). A malformed row mid-stream raises csv.Error instead of silently
+    dropping the tape: partially consumed streams must fail visibly because
+    the caller may have already aggregated earlier rows.
+    """
+
+    path = Path(path)
+    if not path.exists():
+        return
+    try:
+        _validate_utf8_sig_streaming(path)
+    except UnicodeDecodeError:
+        rows, _diagnostics = read_csv_rows_with_diagnostics(
+            path,
+            fallback_encodings=fallback_encodings,
+            attach_diagnostics=attach_diagnostics,
+        )
+        yield from rows
+        return
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            yield dict(row)
 
 
 def _bounded_tail_diagnostics(path: Path, max_bytes: int) -> dict[str, Any]:
