@@ -40,6 +40,11 @@ from weather.operations.release_candidate_build import (
     prepare_candidate_outputs,
     run_candidate_release_step,
 )
+from weather.operations.release_bootstrap import (
+    assert_bootstrap_release_remains_inactive,
+    evaluate_first_inactive_release_bootstrap,
+    verify_first_inactive_release,
+)
 from weather.operations.release_manifest import (
     DEFAULT_RELEASES_ROOT,
     capture_code_identity,
@@ -1468,6 +1473,10 @@ def render_report(payload):
     admission = payload.get("capture_resource_admission") or {}
     parity = payload.get("captured_input_replay_parity") or {}
     readiness = payload.get("production_readiness") or {}
+    bootstrap = payload.get("first_inactive_release_bootstrap") or {}
+    bootstrap_qualification = candidate_release.get(
+        "first_inactive_release_qualification"
+    ) or {}
     lines = [
         "# Nightly Retrain Validate Candidate Release",
         "",
@@ -1480,6 +1489,7 @@ def render_report(payload):
         f"Capture-resource decision: `{admission.get('decision') or '-'}`",
         f"Capture-resource workload: `{admission.get('workload') or '-'}`",
         f"Captured-input replay parity: `{parity.get('status') or '-'}`",
+        f"First inactive release bootstrap: `{bootstrap.get('status') or '-'}`",
         f"Production readiness: `{readiness.get('status') or '-'}`",
         "",
         "## Steps",
@@ -1512,6 +1522,11 @@ def render_report(payload):
         f"- Manifest: {candidate_release.get('manifest_path') or '-'}",
         f"- Activation: {candidate_release.get('activation') or 'NONE'}",
         f"- Active pointer unchanged: {candidate_release.get('active_pointer_unchanged') if candidate_release.get('active_pointer_unchanged') is not None else '-'}",
+        f"- Bootstrap scope: {candidate_release.get('bootstrap_scope') or '-'}",
+        f"- Bootstrap contract: {bootstrap.get('contract_sha256') or '-'}",
+        f"- Inactive qualification: {bootstrap_qualification.get('status') or '-'}",
+        f"- Promotion authorized by bootstrap: {bootstrap_qualification.get('promotion_authorized') if bootstrap_qualification else False}",
+        f"- Serving authorized by bootstrap: {bootstrap_qualification.get('serving_authorized') if bootstrap_qualification else False}",
         f"- Legacy compatibility enabled: {candidate_guard.get('compatibility_flag_enabled', False)}",
         "",
         "## Settled-Day Freshness",
@@ -1720,6 +1735,20 @@ def _run_nightly_retrain_guarded(
         invocation_started_at_utc=started_at,
     )
     release_identity = producer_release_proof(args)
+    first_inactive_release_bootstrap = evaluate_first_inactive_release_bootstrap(
+        args,
+        release_identity=release_identity,
+    )
+    bootstrap_requested = bool(first_inactive_release_bootstrap.get("requested"))
+    bootstrap_eligible = bool(
+        bootstrap_requested
+        and first_inactive_release_bootstrap.get("status") == "PASS"
+    )
+    bootstrap_denied = bool(bootstrap_requested and not bootstrap_eligible)
+    if bootstrap_eligible:
+        args._first_inactive_release_bootstrap_contract = (
+            first_inactive_release_bootstrap
+        )
     lock_proof = build_lock_proof(
         (long_job_guard_info or {}).get("lock_acquisition"),
         prior_repair=getattr(args, "_prior_lock_repair_outcomes", None),
@@ -1739,6 +1768,7 @@ def _run_nightly_retrain_guarded(
     if (
         not args.dry_run
         and not resource_denied
+        and not bootstrap_requested
         and not getattr(args, "skip_captured_input_replay_parity", False)
     ):
         captured_input_parity, _parity_path, _parity_report = (
@@ -1748,7 +1778,7 @@ def _run_nightly_retrain_guarded(
         captured_input_parity
         and captured_input_parity.get("status") != "PASS"
     )
-    if resource_denied or parity_denied:
+    if resource_denied or parity_denied or bootstrap_denied:
         candidate_guard = {
             "status": "DEFERRED",
             "candidate_id": args.candidate_id,
@@ -1786,6 +1816,7 @@ def _run_nightly_retrain_guarded(
             "duration_seconds": None,
         },
         "release_identity": release_identity,
+        "first_inactive_release_bootstrap": first_inactive_release_bootstrap,
         "release_id": release_identity.get("release_id") if release_identity.get("status") == "PASS" else "",
         "release_manifest_sha256": (
             release_identity.get("release_manifest_sha256")
@@ -1826,6 +1857,7 @@ def _run_nightly_retrain_guarded(
                 args, "point_in_time_private_memory_budget_bytes", None
             ),
             "build_candidate_release": args.build_candidate_release,
+            "bootstrap_first_inactive_release": bootstrap_requested,
             "release_pointer": args.release_pointer,
             "long_job_guard": long_job_guard_info or {},
             "capture_resource_mode": getattr(
@@ -1837,8 +1869,16 @@ def _run_nightly_retrain_guarded(
                 getattr(args, "capture_resource_out", "")
                 or Path(args.backtest_root) / "capture_resource_gate.json"
             ),
-            "captured_input_replay_parity_required": not bool(
-                getattr(args, "skip_captured_input_replay_parity", False)
+            "captured_input_replay_parity_required": (
+                not bootstrap_eligible
+                and not bool(
+                    getattr(args, "skip_captured_input_replay_parity", False)
+                )
+            ),
+            "captured_input_replay_parity_pre_release_disposition": (
+                (first_inactive_release_bootstrap.get("pre_release_parity") or {}).get(
+                    "disposition"
+                )
             ),
             "captured_input_replay_parity_out": str(
                 getattr(args, "captured_input_parity_out", "")
@@ -1888,6 +1928,32 @@ def _run_nightly_retrain_guarded(
         payload["candidate_release"] = {
             "status": "BLOCK",
             "reason": "capture_resource_admission_deferred",
+            "activation": "NONE",
+        }
+        payload["status"] = "blocked"
+    elif bootstrap_denied:
+        blockers = first_inactive_release_bootstrap.get("blockers") or []
+        steps.append(
+            {
+                "name": "first_inactive_release_bootstrap",
+                "command": ["internal", "first_inactive_release_bootstrap"],
+                "status": "blocked",
+                "returncode": None,
+                "duration_seconds": 0.0,
+                "reason": "first_inactive_release_bootstrap_contract_blocked",
+                "blocker_codes": [row.get("code") for row in blockers],
+                "contract_sha256": first_inactive_release_bootstrap.get(
+                    "contract_sha256"
+                ),
+            }
+        )
+        payload["promotion"] = promotion_not_run_summary(
+            args.promotion_out,
+            "first_inactive_release_bootstrap_contract_blocked",
+        )
+        payload["candidate_release"] = {
+            "status": "BLOCK",
+            "reason": "first_inactive_release_bootstrap_contract_blocked",
             "activation": "NONE",
         }
         payload["status"] = "blocked"
@@ -1967,7 +2033,13 @@ def _run_nightly_retrain_guarded(
             )
         payload["candidate_release"] = {
             "status": "PLANNED" if args.build_candidate_release else "DISABLED",
-            "activation": "MANUAL_POINTER_ONLY" if args.build_candidate_release else "NONE",
+            "activation": (
+                "NONE"
+                if bootstrap_eligible
+                else "MANUAL_POINTER_ONLY"
+                if args.build_candidate_release
+                else "NONE"
+            ),
         }
         payload["status"] = "dry_run"
     else:
@@ -2125,6 +2197,41 @@ def _run_nightly_retrain_guarded(
                 release_builder=release_builder,
                 code_identity_provider=code_identity_provider,
             )
+            if bootstrap_eligible and release_step["status"] == "ok":
+                try:
+                    qualification = verify_first_inactive_release(
+                        first_inactive_release_bootstrap,
+                        args=args,
+                        release_result=release_result,
+                    )
+                    release_result["first_inactive_release_qualification"] = (
+                        qualification
+                    )
+                    release_result["activation"] = "NONE"
+                    release_result["promotion_eligibility"] = (
+                        "BLOCKED_PENDING_POST_FREEZE_EVIDENCE"
+                    )
+                    release_step["first_inactive_release_qualification"] = (
+                        qualification
+                    )
+                    release_step["stdout"] = (
+                        "immutable inactive release created and independently "
+                        "verified; active pointer remains absent"
+                    )
+                except Exception as exc:  # noqa: BLE001 - freeze must fail closed
+                    release_step["status"] = "error"
+                    release_step["returncode"] = -1
+                    release_step["stderr"] = (
+                        "first inactive release verification failed: " + str(exc)
+                    )
+                    release_step["traceback"] = traceback.format_exc()
+                    release_result = {
+                        **release_result,
+                        "status": "BLOCK",
+                        "error": str(exc),
+                        "activation": "NONE",
+                        "promotion_eligibility": "BLOCKED_UNVERIFIED_RELEASE",
+                    }
             steps.append(release_step)
             payload["candidate_release"] = release_result
             if release_step["status"] != "ok":
@@ -2185,6 +2292,38 @@ def _run_nightly_retrain_guarded(
             and payload.get("status") != "error"
         ):
             payload["status"] = "blocked"
+    if bootstrap_eligible:
+        try:
+            assert_bootstrap_release_remains_inactive(
+                first_inactive_release_bootstrap,
+                args=args,
+            )
+            payload["first_inactive_release_bootstrap_finalization"] = {
+                "status": "PASS",
+                "active_pointer_state_after": "ABSENT",
+                "active_pointer_unchanged": True,
+            }
+        except Exception as exc:  # noqa: BLE001 - activation race fails closed
+            payload["first_inactive_release_bootstrap_finalization"] = {
+                "status": "BLOCK",
+                "active_pointer_state_after": "PRESENT_OR_INVALID",
+                "active_pointer_unchanged": False,
+                "error": str(exc),
+            }
+            steps.append(
+                {
+                    "name": "first_inactive_release_inactivity_guard",
+                    "command": [
+                        "internal",
+                        "assert_first_inactive_release_remains_inactive",
+                    ],
+                    "status": "error",
+                    "returncode": -1,
+                    "duration_seconds": 0.0,
+                    "stderr": str(exc),
+                }
+            )
+            payload["status"] = "error"
     payload["finished_at_utc"] = utc_iso()
     payload["generated_at_utc"] = payload["finished_at_utc"]
     payload["duration_seconds"] = round(time.time() - started, 3)
@@ -2284,6 +2423,16 @@ def build_run_parser(parser):
         "--skip-candidate-release-build",
         dest="build_candidate_release",
         action="store_false",
+    )
+    parser.add_argument(
+        "--bootstrap-first-inactive-release",
+        action="store_true",
+        help=(
+            "Explicitly waive only pre-release parity when no pointer or release "
+            "exists, then build and independently verify one inactive production "
+            "release. This never activates, promotes, serves, or supplies a live "
+            "fallback."
+        ),
     )
     parser.add_argument(
         "--allow-legacy-serving-output",

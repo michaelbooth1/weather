@@ -255,10 +255,20 @@ plus `data/backtest/nightly_retrain_report.md`. Candidate mode defaults to
 it can build only an inactive release and never changes the active pointer. See
 the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
 
-There is one narrow first-serving-identity exception to the ordinary rule that
-a `research_only` release cannot be activated. When no active pointer exists, a
-reviewed operator may use `release_lifecycle promote --bootstrap-first-release`
-with a promotion decision whose `release_kind` is exactly
+When no release or pointer exists, production mode has one explicit deadlock-
+free path: `--bootstrap-first-inactive-release` waives only the impossible
+pre-release parity check. It requires an empty release store and exact offline
+production qualification, binds a self-hashed receipt into the immutable
+manifest, re-verifies every frozen artifact, and leaves the active pointer
+absent. It does not authorize promotion, serving, shadow adoption, worker
+restart, or live fallback. See the
+[first inactive release procedure](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md#first-inactive-production-release).
+
+Separately, there is one narrow first-serving-identity exception to the
+ordinary rule that a `research_only` release cannot be activated. When no
+active pointer exists, a reviewed operator may use
+`release_lifecycle promote --bootstrap-first-release` with a promotion decision
+whose `release_kind` is exactly
 `serving_identity_bootstrap`. The pointer records the decision, boundary, and
 reviewer as immutable bootstrap-origin provenance. The resulting release can
 bind research, shadow, and paper runtimes, but remains non-production and
@@ -269,7 +279,7 @@ rollback target, so reviewed rollback restores the same non-capital identity
 rather than silently upgrading it. Promotion still requires a coordinated
 worker restart; changes to this loop-loaded serving contract also use the
 repository's normal fleet-roll budget. See the
-[nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md#first-serving-identity-bootstrap).
+[nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md#separate-serving-identity-bootstrap).
 
 Release rollback is a reviewed, market-day-boundary operation. The command
 hash-verifies the prior immutable release, atomically switches the active

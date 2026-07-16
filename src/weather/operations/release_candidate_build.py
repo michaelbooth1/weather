@@ -19,6 +19,7 @@ from weather.operations.release_manifest import (
 from weather.operations.release_candidate_contract import (
     freeze_candidate_semantic_contract,
 )
+from weather.operations.release_bootstrap import bootstrap_release_lineage
 from weather.operations.release_promotion import (
     DEFAULT_ACTIVE_POINTER,
     DEFAULT_CANDIDATES_ROOT,
@@ -271,6 +272,17 @@ def build_candidate_release(
             "rejection_count": semantic["audit"]["rejection_count"],
         },
     }
+    bootstrap_contract = getattr(
+        args,
+        "_first_inactive_release_bootstrap_contract",
+        None,
+    )
+    if bootstrap_contract is not None:
+        lineage["first_inactive_release_bootstrap"] = bootstrap_release_lineage(
+            bootstrap_contract,
+            args=args,
+            parent_release=parent_release,
+        )
     pointer_path = Path(args.release_pointer)
     pointer_before = sha256_file(pointer_path) if pointer_path.exists() else None
     result = release_builder(
@@ -289,13 +301,19 @@ def build_candidate_release(
     pointer_after = sha256_file(pointer_path) if pointer_path.exists() else None
     if pointer_after != pointer_before:
         raise ReleaseLifecycleError("candidate release build unexpectedly changed the active pointer")
+    first_inactive_bootstrap = bootstrap_contract is not None
     return {
         **result,
-        "activation": "MANUAL_POINTER_ONLY",
+        "activation": "NONE" if first_inactive_bootstrap else "MANUAL_POINTER_ONLY",
         "promotion_eligibility": (
-            "ELIGIBLE_FOR_GATED_PROMOTION"
+            "BLOCKED_PENDING_POST_FREEZE_EVIDENCE"
+            if first_inactive_bootstrap
+            else "ELIGIBLE_FOR_GATED_PROMOTION"
             if candidate_mode == PRODUCTION_CANDIDATE_MODE
             else "BLOCKED_RESEARCH_ONLY"
+        ),
+        "bootstrap_scope": (
+            "INACTIVE_IDENTITY_ONLY" if first_inactive_bootstrap else None
         ),
         "candidate_mode": candidate_mode,
         "production_capable": semantic["production_capable"],

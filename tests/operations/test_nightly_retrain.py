@@ -431,6 +431,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(args.capture_resource_mode, "live")
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
+        self.assertFalse(args.bootstrap_first_inactive_release)
 
     def test_folder_backed_qualification_uses_prelock_materialized_source(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -655,6 +656,32 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertTrue(gate_report_exists)
         self.assertFalse(pointer_exists)
 
+    def test_invalid_first_inactive_bootstrap_blocks_before_parity_or_candidate_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            args.bootstrap_first_inactive_release = True
+            args.skip_captured_input_replay_parity = False
+            with patch(
+                "weather.operations.nightly_retrain.prepare_candidate_outputs",
+                side_effect=AssertionError("candidate preparation started"),
+            ):
+                payload, _status, _report = run_nightly_retrain(
+                    args,
+                    runner=lambda *_args, **_kwargs: self.fail("child started"),
+                )
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(
+            payload["steps"][0]["name"],
+            "first_inactive_release_bootstrap",
+        )
+        self.assertIn(
+            "production_candidate_mode_required",
+            payload["steps"][0]["blocker_codes"],
+        )
+        self.assertIsNone(payload["captured_input_replay_parity"])
+        self.assertEqual(payload["candidate_release"]["activation"], "NONE")
+
     def test_parity_exception_persists_block_and_final_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -797,6 +824,8 @@ class TestNightlyRetrain(unittest.TestCase):
                 "--point-in-time-bootstrap-iterations",
                 "10",
             )
+            args.bootstrap_first_inactive_release = True
+            args.skip_captured_input_replay_parity = False
 
             def production_runner(command, **kwargs):
                 if (
@@ -1050,8 +1079,44 @@ class TestNightlyRetrain(unittest.TestCase):
                     / "streaming_evaluation.json"
                 ).read_text(encoding="utf-8")
             )
+            release_manifest = json.loads(
+                (
+                    root
+                    / "artifacts"
+                    / "releases"
+                    / "test-nightly"
+                    / "release_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            pointer_exists = (
+                root / "artifacts" / "releases" / "current_release.json"
+            ).exists()
 
         self.assertEqual(payload["candidate_release"]["candidate_mode"], "production")
+        self.assertEqual(
+            payload["first_inactive_release_bootstrap"]["status"],
+            "PASS",
+        )
+        self.assertEqual(payload["candidate_release"]["activation"], "NONE")
+        self.assertEqual(
+            payload["candidate_release"]["promotion_eligibility"],
+            "BLOCKED_PENDING_POST_FREEZE_EVIDENCE",
+        )
+        qualification = payload["candidate_release"][
+            "first_inactive_release_qualification"
+        ]
+        self.assertEqual(qualification["status"], "PASS")
+        self.assertTrue(qualification["immutable_integrity_verified"])
+        self.assertFalse(qualification["promotion_authorized"])
+        self.assertFalse(qualification["serving_authorized"])
+        self.assertFalse(qualification["live_fallback_authorized"])
+        self.assertFalse(pointer_exists)
+        self.assertEqual(
+            release_manifest["lineage"]["first_inactive_release_bootstrap"][
+                "contract_sha256"
+            ],
+            payload["first_inactive_release_bootstrap"]["contract_sha256"],
+        )
         self.assertTrue(verified["production_capable"])
         self.assertEqual(verified["point_in_time_qualification"]["locked_window_days"], 14)
         self.assertEqual(

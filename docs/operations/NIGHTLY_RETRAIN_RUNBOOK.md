@@ -102,6 +102,51 @@ limits.
 Production mode remains candidate-only. It does not promote, replace the
 active pointer, restart workers, or grant trading permission.
 
+### First inactive production release
+
+Captured-input parity is ordinarily checked before candidate work and must bind
+the currently active release. On a new release store, that ordering cannot be
+satisfied because no immutable release identity exists yet. Do not use the
+generic `--skip-captured-input-replay-parity` switch to hide that condition.
+
+The one fail-closed bootstrap is explicit:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --release-candidate-mode production `
+  --bootstrap-first-inactive-release `
+  --point-in-time-source-corpus <bounded-corpus.parquet> `
+  --point-in-time-source-manifest <materialization-manifest.json> `
+  --point-in-time-source-replay-manifest <promotion-corpus.json>
+```
+
+The contract passes only when all of these conditions hold:
+
+- `artifacts/releases/current_release.json` is absent and the releases root is
+  absent or completely empty. Existing releases, files, symlinks, locks, or an
+  injected serving identity block before candidate preparation.
+- Candidate mode is `production`, immutable release construction is enabled,
+  and no release parent is supplied.
+- Neither the generic parity-skip flag nor served/replay parity inputs are
+  supplied. If parity evidence exists, verify it through the ordinary path.
+- Every ordinary offline training, leakage, point-in-time, promotion-refresh,
+  clean-source, and semantic-contract gate still passes.
+
+The preflight writes a self-hashed contract into
+`nightly_retrain_status.json`. The immutable manifest binds the contract hash
+in `lineage.first_inactive_release_bootstrap`. After copying, the nightly job
+independently verifies every release file and manifest hash, the exact
+production semantic contract, null parent and rollback target, and the release
+store's one-directory inventory. It then checks again at whole-run finalization
+that the active pointer is still absent.
+
+Success creates only `IMMUTABLE_CANDIDATE` state. Its reported activation is
+`NONE`; promotion, serving, and live fallback are explicitly unauthorized and
+remain blocked pending exact release-bound captured-input parity, forward
+shadow qualification, and a separate reviewed promotion decision. The
+bootstrap flag itself does not configure shadow capture, start or restart a
+worker, or authorize the separate serving-identity exception below.
+
 ## Smoke Test
 
 Before or after registration, use the non-activating dry-run and read-only
@@ -136,7 +181,12 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
-## First Serving-Identity Bootstrap
+## Separate Serving-Identity Bootstrap
+
+This manual research-serving exception is not part of the first inactive
+production-release workflow above and does not satisfy production
+qualification. Prefer the inactive production bootstrap when the objective is
+a production release.
 
 Ordinary `research_only` releases still fail closed at promotion and serving.
 There is one explicit exception for establishing the first verified serving
