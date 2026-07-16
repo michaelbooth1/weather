@@ -81,15 +81,18 @@ def build_remediation_registry(
     by_hour,
     checkpoint_rows=None,
     *,
+    early_hour_market_delta_rows=None,
     early_brier_regression_tolerance=DEFAULT_EARLY_BRIER_REGRESSION_TOLERANCE,
     early_logloss_regression_tolerance=DEFAULT_EARLY_LOGLOSS_REGRESSION_TOLERANCE,
 ):
     hour_summary = {int(row["hour"]): row for row in by_hour if row.get("hour") is not None}
-    per_market = early_hour_market_deltas(
-        checkpoint_rows or [],
-        early_brier_regression_tolerance=early_brier_regression_tolerance,
-        early_logloss_regression_tolerance=early_logloss_regression_tolerance,
-    )
+    per_market = early_hour_market_delta_rows
+    if per_market is None:
+        per_market = early_hour_market_deltas(
+            checkpoint_rows or [],
+            early_brier_regression_tolerance=early_brier_regression_tolerance,
+            early_logloss_regression_tolerance=early_logloss_regression_tolerance,
+        )
     rows = []
     for probe_name, probe in sorted((remediation or {}).items()):
         uses_market_prices = bool(probe.get("uses_market_prices"))

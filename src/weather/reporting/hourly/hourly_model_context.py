@@ -1,5 +1,8 @@
 """Implementation slice extracted from src/weather/reporting/hourly_model_performance.py."""
 
+import tempfile
+
+from weather.reporting.hourly.hourly_model_aggregation import HourlyMarketDayAggregation
 from weather.reporting.hourly.hourly_model_gate import *  # noqa: F403
 from weather.reporting.serving_gates.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 
@@ -208,31 +211,39 @@ def build_hourly_performance(
         start_date=start_date,
         end_date=end_date,
     )
-    all_rows = []
     days = []
     score_errors = []
-    for item in labels:
-        try:
-            rows, day = score_folder(item["folder"], item["label"])
-        except Exception as exc:  # pragma: no cover - defensive report surface
-            score_errors.append({"folder": str(item["folder"]), "error": str(exc)})
-            continue
-        all_rows.extend(rows)
-        days.append(day)
+    with tempfile.TemporaryDirectory(prefix="weather-hourly-score-") as scratch_root:
+        with HourlyMarketDayAggregation(scratch_root) as aggregation:
+            for item in labels:
+                try:
+                    rows, day = score_folder(item["folder"], item["label"])
+                except Exception as exc:  # pragma: no cover - defensive report surface
+                    score_errors.append({"folder": str(item["folder"]), "error": str(exc)})
+                    continue
+                aggregation.add_market_day_rows(rows)
+                days.append(day)
+                del rows
 
-    checkpoint_rows = hourly_checkpoint_rows(all_rows)
-    by_hour = summarize_by_hour(checkpoint_rows)
-    by_hour_regime = summarize_by_hour_regime(checkpoint_rows)
-    all_snapshot_by_hour = summarize_by_hour(all_rows)
-    overall_checkpoint = summarize_rows(checkpoint_rows) or {}
-    overall_all_snapshots = summarize_rows(all_rows) or {}
+            by_hour = aggregation.by_hour()
+            by_hour_regime = aggregation.by_hour_regime()
+            all_snapshot_by_hour = aggregation.all_snapshot_by_hour()
+            overall_checkpoint = aggregation.overall_checkpoint() or {}
+            overall_all_snapshots = aggregation.overall_all_snapshots() or {}
+            remediation = aggregation.remediation_candidates()
+            early_hour_market_delta_rows = aggregation.early_hour_market_deltas(
+                early_brier_regression_tolerance=early_brier_regression_tolerance,
+                early_logloss_regression_tolerance=early_logloss_regression_tolerance,
+            )
+            all_snapshot_row_count = aggregation.all_snapshot_row_count
+            checkpoint_row_count = aggregation.checkpoint_row_count
+
     best_hours, worst_hours = rank_hours(by_hour, min_rows=min_rows, top_hours=top_hours)
     notes = driver_notes(best_hours, worst_hours, overall_checkpoint) if overall_checkpoint else {"best": [], "worst": []}
-    remediation = remediation_candidates(checkpoint_rows)
     remediation_registry = build_remediation_registry(
         remediation,
         by_hour,
-        checkpoint_rows,
+        early_hour_market_delta_rows=early_hour_market_delta_rows,
         early_brier_regression_tolerance=early_brier_regression_tolerance,
         early_logloss_regression_tolerance=early_logloss_regression_tolerance,
     )
@@ -274,8 +285,8 @@ def build_hourly_performance(
             "markets": sorted({day.get("market_id") for day in days if day.get("market_id")}),
             "date_min": min((day.get("target_date") for day in days if day.get("target_date")), default=None),
             "date_max": max((day.get("target_date") for day in days if day.get("target_date")), default=None),
-            "all_snapshot_rows": len(all_rows),
-            "hourly_checkpoint_rows": len(checkpoint_rows),
+            "all_snapshot_rows": all_snapshot_row_count,
+            "hourly_checkpoint_rows": checkpoint_row_count,
             "skipped_labels": skipped,
             "score_errors": score_errors,
         },

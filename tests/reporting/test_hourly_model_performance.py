@@ -1,13 +1,22 @@
 import csv
 import tempfile
+import tracemalloc
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.hourly.hourly_model_performance import (
+    build_remediation_registry,
     build_hourly_performance,
     early_hour_market_deltas,
     forecast_anchor_probability,
     forecast_centering_rows,
+    hourly_checkpoint_rows,
+    remediation_candidates,
+    summarize_by_hour,
+    summarize_by_hour_regime,
+    summarize_rows,
     write_outputs,
 )
 
@@ -168,6 +177,119 @@ def write_stale_labels_csv(root, folder):
     return path
 
 
+def synthetic_target_date(day_index):
+    return (date(2026, 1, 1) + timedelta(days=day_index)).isoformat()
+
+
+def synthetic_scored_market_day(day_index, *, hours=(3, 10, 16, 21)):
+    rows = []
+    target_date = synthetic_target_date(day_index)
+    for hour in hours:
+        # Insert the later capture first so checkpoint selection must compare
+        # timestamps rather than relying on input order.
+        for capture_index, minute in enumerate((45, 5)):
+            loser_probability = 0.36 if minute == 45 else 0.20 + (hour % 4) * 0.02
+            market_loser = 0.38 if minute == 45 else 0.28 + (hour % 3) * 0.02
+            snapshot_id = f"day-{day_index:04d}-hour-{hour:02d}-minute-{minute:02d}"
+            for band_index, (band, outcome, bin_value, model_probability, market_yes) in enumerate(
+                (
+                    ("loser", 0, 9.0, loser_probability, market_loser),
+                    ("winner", 1, 10.0, 1.0 - loser_probability, 1.0 - market_loser),
+                )
+            ):
+                rows.append(
+                    {
+                        "market_id": "toronto",
+                        "target_date": target_date,
+                        "snapshot_id": snapshot_id,
+                        "captured_at_local": (
+                            f"{target_date}T{hour:02d}:{minute:02d}:00-05:00"
+                        ),
+                        "capture_minute": hour * 60 + minute,
+                        "cutoff_hour": hour,
+                        "row_order": hour * 4 + capture_index * 2 + band_index,
+                        "band": band,
+                        "bin_type": "eq",
+                        "bin_value_c": bin_value,
+                        "bin_value_hi": bin_value,
+                        "feature_high_so_far": 8.0 + hour / 24.0,
+                        "feature_current_temp": 7.5 + hour / 24.0,
+                        "feature_forecast_high": 10.0,
+                        "feature_forecast_gap": 2.0 - hour / 24.0,
+                        "model_probability": model_probability,
+                        "market_yes": market_yes,
+                        "model_edge": model_probability - market_yes,
+                        "outcome": outcome,
+                    }
+                )
+    return rows
+
+
+def synthetic_label_items(day_count):
+    return [
+        {
+            "folder": Path(f"synthetic-day-{day_index:04d}"),
+            "label": {
+                "_day_index": day_index,
+                "event_slug": f"synthetic-day-{day_index:04d}",
+                "market_id": "toronto",
+                "city": "Toronto",
+                "target_date": synthetic_target_date(day_index),
+                "settlement_bucket": "10",
+                "settlement_unit": "C",
+                "settlement_source": "test",
+                "quality_grade": "complete",
+            },
+        }
+        for day_index in range(day_count)
+    ]
+
+
+def synthetic_day_summary(folder, label, rows):
+    return {
+        "folder": str(folder),
+        "event_slug": label["event_slug"],
+        "market_id": label["market_id"],
+        "target_date": label["target_date"],
+        "quality_grade": label["quality_grade"],
+        "material_coverage_grade": None,
+        "material_coverage_reason": None,
+        "promotion_countable": False,
+        "promotion_countable_reason": None,
+        "settlement_bucket": 10,
+        "settlement_unit": "C",
+        "snapshot_count": len({row["snapshot_id"] for row in rows}),
+        "band_count": len({row["band"] for row in rows}),
+        "rows": len(rows),
+    }
+
+
+def hourly_checkpoint_sort_key(row):
+    return (
+        str(row.get("market_id")),
+        str(row.get("target_date")),
+        str(row.get("band")),
+        int(row.get("cutoff_hour")),
+    )
+
+
+def assert_nested_almost_equal(testcase, actual, expected):
+    if isinstance(expected, dict):
+        testcase.assertEqual(set(actual), set(expected))
+        for key in expected:
+            assert_nested_almost_equal(testcase, actual[key], expected[key])
+        return
+    if isinstance(expected, list):
+        testcase.assertEqual(len(actual), len(expected))
+        for actual_item, expected_item in zip(actual, expected):
+            assert_nested_almost_equal(testcase, actual_item, expected_item)
+        return
+    if isinstance(expected, float):
+        testcase.assertAlmostEqual(actual, expected, places=12)
+        return
+    testcase.assertEqual(actual, expected)
+
+
 class TestHourlyModelPerformance(unittest.TestCase):
     def test_build_hourly_performance_scores_and_ranks_hours(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,6 +365,170 @@ class TestHourlyModelPerformance(unittest.TestCase):
         self.assertIn("Spread And Winner Recognition", report)
         self.assertIn("Remediation Probes", report)
         self.assertTrue(csv_exists)
+
+    def test_market_day_streaming_matches_materialized_hourly_outputs(self):
+        hours = (3, 10, 16, 21)
+        market_days = [
+            synthetic_scored_market_day(day_index, hours=hours)
+            for day_index in range(3)
+        ]
+        all_rows = [row for day_rows in market_days for row in day_rows]
+        materialized_checkpoints = hourly_checkpoint_rows(all_rows)
+        market_day_checkpoints = sorted(
+            [
+                row
+                for day_rows in market_days
+                for row in hourly_checkpoint_rows(day_rows)
+            ],
+            key=hourly_checkpoint_sort_key,
+        )
+
+        self.assertEqual(market_day_checkpoints, materialized_checkpoints)
+        self.assertEqual(len(materialized_checkpoints), 3 * len(hours) * 2)
+        self.assertTrue(
+            all(
+                row["snapshot_id"].endswith("minute-05")
+                for row in materialized_checkpoints
+            )
+        )
+
+        expected_by_hour = summarize_by_hour(materialized_checkpoints)
+        expected_by_hour_regime = summarize_by_hour_regime(materialized_checkpoints)
+        expected_all_snapshot_by_hour = summarize_by_hour(all_rows)
+        expected_overall = {
+            "hourly_checkpoint": summarize_rows(materialized_checkpoints) or {},
+            "all_snapshots": summarize_rows(all_rows) or {},
+        }
+        expected_remediation = remediation_candidates(materialized_checkpoints)
+        expected_registry = build_remediation_registry(
+            expected_remediation,
+            expected_by_hour,
+            materialized_checkpoints,
+        )
+        label_items = synthetic_label_items(len(market_days))
+
+        def fake_discover_labeled_folders(**_kwargs):
+            return label_items, {}
+
+        def fake_score_folder(folder, label):
+            rows = list(market_days[int(label["_day_index"])])
+            return rows, synthetic_day_summary(folder, label, rows)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch(
+                "weather.reporting.hourly.hourly_model_context.discover_labeled_folders",
+                new=fake_discover_labeled_folders,
+            ), patch(
+                "weather.reporting.hourly.hourly_model_context.score_folder",
+                new=fake_score_folder,
+            ):
+                payload = build_hourly_performance(
+                    labels_csv=Path(tmp) / "labels.csv",
+                    snapshots_root=Path(tmp) / "snapshots",
+                    context_root=Path(tmp),
+                    quality_grades=("complete",),
+                    min_rows=1,
+                    top_hours=len(hours),
+                    min_regime_market_days=1,
+                )
+
+        self.assertEqual(payload["schema_version"], "hourly_model_performance_v0.3")
+        self.assertEqual(payload["corpus"]["scored_market_days"], len(market_days))
+        self.assertEqual(payload["corpus"]["all_snapshot_rows"], len(all_rows))
+        self.assertEqual(
+            payload["corpus"]["hourly_checkpoint_rows"],
+            len(materialized_checkpoints),
+        )
+        self.assertEqual(
+            [day["target_date"] for day in payload["days"]],
+            [synthetic_target_date(day_index) for day_index in range(3)],
+        )
+        assert_nested_almost_equal(self, payload["by_hour"], expected_by_hour)
+        assert_nested_almost_equal(
+            self,
+            payload["by_hour_regime"],
+            expected_by_hour_regime,
+        )
+        assert_nested_almost_equal(
+            self,
+            payload["all_snapshot_by_hour"],
+            expected_all_snapshot_by_hour,
+        )
+        assert_nested_almost_equal(self, payload["overall"], expected_overall)
+        assert_nested_almost_equal(
+            self,
+            payload["remediation_candidates"],
+            expected_remediation,
+        )
+        assert_nested_almost_equal(
+            self,
+            payload["remediation_registry"],
+            expected_registry,
+        )
+
+    def test_build_hourly_performance_peak_memory_stays_roughly_flat_as_days_grow(self):
+        def measured_peak(day_count):
+            label_items = synthetic_label_items(day_count)
+
+            def fake_discover_labeled_folders(**_kwargs):
+                return label_items, {}
+
+            def fake_score_folder(folder, label):
+                rows = synthetic_scored_market_day(
+                    int(label["_day_index"]),
+                    hours=range(24),
+                )
+                return rows, synthetic_day_summary(folder, label, rows)
+
+            with tempfile.TemporaryDirectory() as tmp:
+                with patch(
+                    "weather.reporting.hourly.hourly_model_context.discover_labeled_folders",
+                    new=fake_discover_labeled_folders,
+                ), patch(
+                    "weather.reporting.hourly.hourly_model_context.score_folder",
+                    new=fake_score_folder,
+                ):
+                    tracemalloc.start()
+                    try:
+                        payload = build_hourly_performance(
+                            labels_csv=Path(tmp) / "labels.csv",
+                            snapshots_root=Path(tmp) / "snapshots",
+                            context_root=Path(tmp),
+                            quality_grades=("complete",),
+                            min_rows=1,
+                            top_hours=1,
+                            min_regime_market_days=1,
+                        )
+                        _current, peak = tracemalloc.get_traced_memory()
+                        counts = {
+                            "scored_market_days": payload["corpus"]["scored_market_days"],
+                            "all_snapshot_rows": payload["corpus"]["all_snapshot_rows"],
+                            "hourly_checkpoint_rows": payload["corpus"]["hourly_checkpoint_rows"],
+                        }
+                    finally:
+                        tracemalloc.stop()
+            return peak, counts
+
+        small_peak, small_counts = measured_peak(5)
+        large_peak, large_counts = measured_peak(50)
+
+        self.assertEqual(
+            small_counts,
+            {
+                "scored_market_days": 5,
+                "all_snapshot_rows": 5 * 24 * 2 * 2,
+                "hourly_checkpoint_rows": 5 * 24 * 2,
+            },
+        )
+        self.assertEqual(
+            large_counts,
+            {
+                "scored_market_days": 50,
+                "all_snapshot_rows": 50 * 24 * 2 * 2,
+                "hourly_checkpoint_rows": 50 * 24 * 2,
+            },
+        )
+        self.assertLessEqual(large_peak, small_peak + 1024 * 1024)
 
     def test_scoring_liveness_blocks_when_latest_settled_label_is_unscored(self):
         with tempfile.TemporaryDirectory() as tmp:
