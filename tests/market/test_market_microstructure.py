@@ -41,6 +41,12 @@ from weather.io import writer_lock_path  # noqa: E402
 from weather.operations.supervisor import acquire_writer_lock, release_writer_lock  # noqa: E402
 
 
+def observed_runtime_command(command):
+    if os.name == "nt" and sys.prefix != sys.base_prefix:
+        return [str(Path(sys.base_prefix) / Path(command[0]).name), *command[1:]]
+    return list(command)
+
+
 def sample_event():
     return {
         "slug": "highest-temperature-in-toronto-on-june-12-2026",
@@ -1354,7 +1360,7 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(supplied_provenance["matched_process_count"], 2)
         self.assertEqual(supplied_provenance["kept_pids"], [101])
 
-    def test_stop_clob_loop_confirms_exact_instance_before_lock_cleanup(self):
+    def test_stop_clob_loop_accepts_venv_resolution_before_lock_cleanup(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
         status_payload = {
             "pid": 4321,
@@ -1385,7 +1391,7 @@ class TestMarketMicrostructure(unittest.TestCase):
                     patch("weather.operations.supervisor.observe_process", return_value={
                         "state": "running",
                         "pid": 4321,
-                        "argv": command,
+                        "argv": observed_runtime_command(command),
                         "command_line": "managed CLOB command",
                         "creation_time_token": "win32-filetime:100",
                         "inspectable": True,
@@ -1421,11 +1427,11 @@ class TestMarketMicrostructure(unittest.TestCase):
         cases = (
             (
                 "reused_pid_process_instance_mismatch",
-                {"state": "running", "pid": 4321, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+                {"state": "running", "pid": 4321, "argv": observed_runtime_command(command), "creation_time_token": "win32-filetime:200", "inspectable": True},
             ),
             (
                 "managed_process_command_mismatch",
-                {"state": "running", "pid": 4321, "argv": [*command[:-1], "21.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+                {"state": "running", "pid": 4321, "argv": [*observed_runtime_command(command)[:-1], "21.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
             ),
             (
                 "live_process_identity_uninspectable",

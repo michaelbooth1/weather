@@ -13,6 +13,12 @@ from weather.collection.snapshot_tracker import TORONTO_TZ, ensure_decision, loo
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=TORONTO_TZ)
 
 
+def observed_runtime_command(command):
+    if os.name == "nt" and sys.prefix != sys.base_prefix:
+        return [str(Path(sys.base_prefix) / Path(command[0]).name), *command[1:]]
+    return list(command)
+
+
 class FakeProcess:
     pid = 4321
 
@@ -390,7 +396,7 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(result["reason"], "writer_lock_process_instance_mismatch")
         self.assertTrue(lock_still_exists)
 
-    def test_stop_loop_removes_stopped_writer_lock(self):
+    def test_stop_loop_accepts_venv_resolution_and_removes_stopped_writer_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             status_path = root / "loop_status.json"
@@ -415,7 +421,7 @@ class TestEnsureDecision(unittest.TestCase):
                     patch("weather.operations.supervisor.observe_process", return_value={
                         "state": "running",
                         "pid": 1234,
-                        "argv": command,
+                        "argv": observed_runtime_command(command),
                         "command_line": "managed snapshot command",
                         "creation_time_token": "win32-filetime:100",
                         "inspectable": True,
@@ -443,11 +449,11 @@ class TestEnsureDecision(unittest.TestCase):
         cases = (
             (
                 "reused_pid_process_instance_mismatch",
-                {"state": "running", "pid": 1234, "argv": command, "creation_time_token": "win32-filetime:200", "inspectable": True},
+                {"state": "running", "pid": 1234, "argv": observed_runtime_command(command), "creation_time_token": "win32-filetime:200", "inspectable": True},
             ),
             (
                 "managed_process_command_mismatch",
-                {"state": "running", "pid": 1234, "argv": [*command[:-1], "99.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
+                {"state": "running", "pid": 1234, "argv": [*observed_runtime_command(command)[:-1], "99.0"], "creation_time_token": "win32-filetime:100", "inspectable": True},
             ),
             (
                 "live_process_identity_uninspectable",

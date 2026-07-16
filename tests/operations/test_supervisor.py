@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -742,6 +743,96 @@ class TestSupervisorPrimitives(unittest.TestCase):
             )
         )
 
+    @unittest.skipUnless(
+        os.name == "nt" and sys.prefix != sys.base_prefix,
+        "Windows venv redirector semantics",
+    )
+    def test_managed_command_accepts_only_current_windows_venv_base_resolution(self):
+        for executable_name in ("python.exe", "pythonw.exe"):
+            with self.subTest(executable_name=executable_name):
+                expected = [
+                    str(Path(sys.prefix) / "Scripts" / executable_name),
+                    "-m",
+                    "weather.example",
+                    "loop",
+                    "--interval",
+                    "10",
+                ]
+                observed = [
+                    str(Path(sys.base_prefix) / executable_name),
+                    *expected[1:],
+                ]
+                other_executable_name = (
+                    "pythonw.exe" if executable_name == "python.exe" else "python.exe"
+                )
+
+                self.assertTrue(supervisor.commands_match_exact(observed, expected))
+                self.assertFalse(
+                    supervisor.commands_match_exact(
+                        [
+                            str(Path(sys.base_prefix) / other_executable_name),
+                            *expected[1:],
+                        ],
+                        expected,
+                    )
+                )
+                self.assertFalse(
+                    supervisor.commands_match_exact(
+                        [
+                            str(Path(sys.base_prefix).parent / "UnrelatedPython" / executable_name),
+                            *expected[1:],
+                        ],
+                        expected,
+                    )
+                )
+                self.assertFalse(
+                    supervisor.commands_match_exact(
+                        observed,
+                        [
+                            str(Path(sys.prefix).parent / "other-venv" / "Scripts" / executable_name),
+                            *expected[1:],
+                        ],
+                    )
+                )
+                self.assertFalse(
+                    supervisor.commands_match_exact(
+                        [*observed[:-1], "11"],
+                        expected,
+                    )
+                )
+
+    @unittest.skipUnless(
+        os.name == "nt" and sys.prefix != sys.base_prefix,
+        "Windows venv redirector semantics",
+    )
+    def test_capture_identity_records_verified_windows_venv_resolution(self):
+        expected = [
+            str(Path(sys.prefix) / "Scripts" / "python.exe"),
+            "-m",
+            "weather.example",
+            "loop",
+        ]
+        observed_executable = str(Path(sys.base_prefix) / "python.exe")
+
+        identity = supervisor.capture_managed_process_identity(
+            123,
+            expected,
+            observe_fn=lambda _pid: {
+                "state": "running",
+                "pid": 123,
+                "argv": [observed_executable, *expected[1:]],
+                "command_line": "managed command",
+                "image_path": observed_executable,
+                "creation_time_token": "win32-filetime:100",
+                "inspectable": True,
+            },
+        )
+
+        self.assertTrue(identity["verified_at_capture"])
+        self.assertEqual(identity["expected_command"], expected)
+        self.assertEqual(identity["observed_executable"], observed_executable)
+        self.assertEqual(identity["observed_image_path"], observed_executable)
+
     def test_managed_process_authorization_rejects_reused_pid_and_command_mismatch(self):
         command = ["C:/Python/python.exe", "-m", "weather.example", "loop"]
         identity = {
@@ -884,6 +975,50 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(captured["expected_creation_time_token"], "win32-filetime:100")
         self.assertTrue(captured["command_line_check"]('"C:/Python/python.exe" -m weather.example loop'))
         self.assertFalse(captured["command_line_check"]('"C:/Python/python.exe" -m weather.other loop'))
+
+    @unittest.skipUnless(
+        os.name == "nt" and sys.prefix != sys.base_prefix,
+        "Windows venv redirector semantics",
+    )
+    def test_handle_scoped_command_check_accepts_only_current_venv_resolution(self):
+        command = [
+            str(Path(sys.prefix) / "Scripts" / "python.exe"),
+            "-m",
+            "weather.example",
+            "loop",
+        ]
+        identity = {
+            "pid": 123,
+            "expected_command": command,
+            "creation_time_token": "win32-filetime:100",
+        }
+        captured = {}
+
+        def fake_terminate(pid, **kwargs):
+            captured.update({"pid": pid, **kwargs})
+            return {"pid": pid, "stopped": True, "reason": "verified_process_exited"}
+
+        result = supervisor.terminate_managed_process(
+            identity,
+            command,
+            windows_terminate_fn=fake_terminate,
+        )
+        command_check = captured["command_line_check"]
+        base_executable = Path(sys.base_prefix) / "python.exe"
+
+        self.assertTrue(result["stopped"])
+        self.assertTrue(
+            command_check(f'"{base_executable}" -m weather.example loop')
+        )
+        self.assertFalse(
+            command_check(
+                f'"{Path(sys.base_prefix).parent / "UnrelatedPython" / "python.exe"}" '
+                "-m weather.example loop"
+            )
+        )
+        self.assertFalse(
+            command_check(f'"{base_executable}" -m weather.other loop')
+        )
 
     @unittest.skipUnless(os.name == "nt", "Windows handle-scoped termination")
     def test_windows_handle_backend_rejects_instance_change_before_terminate(self):
