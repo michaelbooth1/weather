@@ -693,6 +693,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Self-hashed candidate-independent selection universe and evaluation-window lock created before production fitting.",
     ),
     SchemaSpec(
+        "production_point_in_time_preselection_source",
+        "production_point_in_time_preselection_source_v1",
+        "weather.reporting.validation.point_in_time_evaluation",
+        "active",
+        "Narrow manifest-pinned population source created before any candidate model or release identity exists.",
+    ),
+    SchemaSpec(
         "point_in_time_candidate_training_graph",
         "point_in_time_candidate_training_graph_v1",
         "weather.reporting.validation.point_in_time_evaluation",

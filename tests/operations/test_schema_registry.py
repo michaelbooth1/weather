@@ -105,6 +105,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "production_point_in_time_preselection_v1",
         )
         self.assertEqual(
+            schema_version("production_point_in_time_preselection_source"),
+            "production_point_in_time_preselection_source_v1",
+        )
+        self.assertEqual(
             schema_version("point_in_time_candidate_training_graph"),
             "point_in_time_candidate_training_graph_v1",
         )

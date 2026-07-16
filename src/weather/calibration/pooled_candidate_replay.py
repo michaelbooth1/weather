@@ -8,10 +8,12 @@ not changed by this module.
 import argparse
 import csv
 import hashlib
+import io
 import json
 import math
 import os
 import pickle
+import stat
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -60,7 +62,7 @@ from weather.market.market_microstructure_features import (
     feature_index_for_folder,
     snapshot_band_key,
 )
-from weather.market.market_registry import REGISTRY
+from weather.market.market_registry import REGISTRY, spec_for_slug
 from weather.model.continuous_density import (
     band_probability_from_distribution as density_band_probability_from_distribution,
 )
@@ -101,7 +103,17 @@ from weather.reporting.promotion.promotion_corpus import (
     folders_from_manifest,
     load_manifest,
     summarize_entries,
+    verify_entry_inputs,
 )
+from weather.reporting.data_quality.feature_quality_quarantine import (
+    audit_folder_feature_quality_from_rows,
+)
+from weather.backtesting.settlement_io import (
+    band_value_hi,
+    ledger_label_matches_folder,
+    resolve_outcome,
+)
+from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.backtesting.replay import (
     index_records_by_snapshot,
     is_reconstructed,
@@ -2056,6 +2068,431 @@ def _bounded_optional_float(value, field):
     return number
 
 
+_PRESELECTION_MAX_MARKET_DAYS = 60
+_PRESELECTION_MAX_ROWS_PER_MARKET_DAY = 250_000
+_PRESELECTION_MAX_TAPE_BYTES = 128 * 1024 * 1024
+_PRESELECTION_MAX_TAPE_FIELD_BYTES = 1024 * 1024
+_PRESELECTION_MAX_REPLAY_BYTES = 64 * 1024 * 1024
+_PRESELECTION_MAX_REPLAY_LINE_BYTES = 8 * 1024 * 1024
+_PRESELECTION_MAX_REPLAY_MANIFEST_BYTES = 16 * 1024 * 1024
+_PRESELECTION_MAX_SETTLEMENT_BYTES = 1024 * 1024
+
+
+def _bounded_preselection_file_bytes(path, *, max_bytes, description):
+    source_path = Path(path)
+    if source_path.is_symlink():
+        raise BoundedCandidateReplayError(
+            f"{description} cannot be a symlink: {source_path}"
+        )
+    path = source_path.resolve(strict=True)
+    try:
+        with path.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size <= 0
+                or before.st_size > max_bytes
+            ):
+                raise BoundedCandidateReplayError(
+                    f"{description} byte bound exceeded: {before.st_size}"
+                )
+            raw = handle.read(max_bytes + 1)
+            after = os.fstat(handle.fileno())
+    except OSError as exc:
+        raise BoundedCandidateReplayError(
+            f"{description} cannot be read within bounds: {exc}"
+        ) from exc
+    if (
+        len(raw) != before.st_size
+        or len(raw) > max_bytes
+        or before.st_dev != after.st_dev
+        or before.st_ino != after.st_ino
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+    ):
+        raise BoundedCandidateReplayError(
+            f"{description} changed or exceeded its byte bound during read"
+        )
+    return path, raw, hashlib.sha256(raw).hexdigest()
+
+
+def _bounded_preselection_file_unchanged(
+    path,
+    *,
+    expected_sha256,
+    max_bytes,
+    description,
+):
+    _path, _raw, observed = _bounded_preselection_file_bytes(
+        path,
+        max_bytes=max_bytes,
+        description=description,
+    )
+    return observed == expected_sha256
+
+
+def _bounded_preselection_tape(path, *, max_rows):
+    path, raw, raw_sha256 = _bounded_preselection_file_bytes(
+        path,
+        max_bytes=_PRESELECTION_MAX_TAPE_BYTES,
+        description="preselection tape",
+    )
+    prior_limit = csv.field_size_limit()
+    row_count = 0
+    try:
+        csv.field_size_limit(_PRESELECTION_MAX_TAPE_FIELD_BYTES)
+        text = raw.decode("utf-8-sig")
+        with io.StringIO(text, newline="") as handle:
+            reader = csv.reader(handle)
+            try:
+                header = next(reader)
+            except StopIteration as exc:
+                raise BoundedCandidateReplayError(
+                    "preselection tape is empty"
+                ) from exc
+            required = {
+                "snapshot_id",
+                "captured_at_local",
+                "range_label",
+                "bin_kind",
+                "bin_value_c",
+            }
+            if not required <= set(header):
+                raise BoundedCandidateReplayError(
+                    "preselection tape is missing required columns"
+                )
+            for row_count, _row in enumerate(reader, start=1):
+                if row_count > max_rows:
+                    raise BoundedCandidateReplayError(
+                        f"raw tape row bound exceeded: > {max_rows}"
+                    )
+    except (csv.Error, UnicodeError, OSError) as exc:
+        raise BoundedCandidateReplayError(
+            f"preselection tape cannot be read within bounds: {exc}"
+        ) from exc
+    finally:
+        csv.field_size_limit(prior_limit)
+    if row_count <= 0:
+        raise BoundedCandidateReplayError("preselection tape has no data rows")
+    frame = pd.read_csv(io.BytesIO(raw), low_memory=False)
+    return path, raw_sha256, row_count, frame
+
+
+def _bounded_preselection_replay_records(
+    path,
+    *,
+    pinned_snapshot_ids,
+    max_records,
+    require_all_pinned=True,
+):
+    path, raw, raw_sha256 = _bounded_preselection_file_bytes(
+        path,
+        max_bytes=_PRESELECTION_MAX_REPLAY_BYTES,
+        description="preselection replay",
+    )
+    records = {}
+    record_count = 0
+    try:
+        with io.BytesIO(raw) as handle:
+            for line_no, raw_line in enumerate(handle, start=1):
+                if len(raw_line) > _PRESELECTION_MAX_REPLAY_LINE_BYTES:
+                    raise BoundedCandidateReplayError(
+                        f"preselection replay line {line_no} exceeds the byte bound"
+                    )
+                if not raw_line.strip():
+                    continue
+                record_count += 1
+                if record_count > max_records:
+                    raise BoundedCandidateReplayError(
+                        f"preselection replay record bound exceeded: > {max_records}"
+                    )
+                record = _bounded_json_object(
+                    raw_line,
+                    description=f"preselection replay line {line_no}",
+                )
+                if not isinstance(record, dict):
+                    raise BoundedCandidateReplayError(
+                        f"preselection replay line {line_no} is not an object"
+                    )
+                snapshot_id = str(record.get("snapshot_id") or "").strip()
+                if not snapshot_id:
+                    raise BoundedCandidateReplayError(
+                        f"preselection replay line {line_no} has no snapshot_id"
+                    )
+                if snapshot_id in pinned_snapshot_ids:
+                    if snapshot_id in records:
+                        raise BoundedCandidateReplayError(
+                            f"duplicate pinned replay record: {snapshot_id}"
+                        )
+                    records[snapshot_id] = record
+    except OSError as exc:
+        raise BoundedCandidateReplayError(
+            f"preselection replay cannot be read within bounds: {exc}"
+        ) from exc
+    missing = sorted(set(pinned_snapshot_ids) - set(records))
+    if require_all_pinned and missing:
+        raise BoundedCandidateReplayError(
+            f"preselection replay is missing {len(missing)} pinned record(s)"
+        )
+    return path, raw_sha256, records
+
+
+def _bounded_preselection_auxiliary_csv(path, *, max_rows):
+    """Preflight a CSV consumed by the legacy feature-quality audit."""
+
+    path = Path(path).resolve()
+    if not path.exists():
+        return None
+    path, raw, raw_sha256 = _bounded_preselection_file_bytes(
+        path,
+        max_bytes=_PRESELECTION_MAX_TAPE_BYTES,
+        description="preselection auxiliary CSV",
+    )
+    prior_limit = csv.field_size_limit()
+    rows = []
+    try:
+        csv.field_size_limit(_PRESELECTION_MAX_TAPE_FIELD_BYTES)
+        with io.StringIO(raw.decode("utf-8-sig"), newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames:
+                raise BoundedCandidateReplayError(
+                    f"preselection auxiliary CSV is empty: {path}"
+                )
+            for row in reader:
+                rows.append(dict(row))
+                if len(rows) > max_rows:
+                    raise BoundedCandidateReplayError(
+                        f"preselection auxiliary CSV row bound exceeded: {path}"
+                    )
+    except (csv.Error, UnicodeError, OSError) as exc:
+        raise BoundedCandidateReplayError(
+            f"preselection auxiliary CSV cannot be read within bounds: {path}: {exc}"
+        ) from exc
+    finally:
+        csv.field_size_limit(prior_limit)
+    return path, raw_sha256, rows
+
+
+def _bounded_preselection_optional_file(path, *, max_bytes):
+    path = Path(path).resolve()
+    if not path.exists():
+        return None
+    path, raw, raw_sha256 = _bounded_preselection_file_bytes(
+        path,
+        max_bytes=max_bytes,
+        description="preselection auxiliary file",
+    )
+    return path, raw_sha256, raw
+
+
+def _bounded_json_pairs(pairs):
+    payload = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        payload[key] = value
+    return payload
+
+
+def _reject_bounded_json_constant(value):
+    raise ValueError(f"non-finite JSON value {value}")
+
+
+def _bounded_json_object(raw, *, description):
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=_reject_bounded_json_constant,
+            object_pairs_hook=_bounded_json_pairs,
+        )
+    except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise BoundedCandidateReplayError(
+            f"{description} is not strict UTF-8 JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise BoundedCandidateReplayError(f"{description} must be a JSON object")
+    return payload
+
+
+def _require_preselection_folder_file(path, *, folder):
+    path = Path(path).resolve(strict=True)
+    if path.parent != Path(folder).resolve(strict=True):
+        raise BoundedCandidateReplayError(
+            f"preselection source file escaped its market-day folder: {path}"
+        )
+    return path
+
+
+def load_bounded_preselection_folder_inputs(
+    folder,
+    *,
+    snapshots_root,
+    max_rows_per_market_day,
+):
+    """Load one folder for grade-only manifest construction within hard bounds.
+
+    The ordinary promotion-corpus builder predates production resource limits.
+    This adapter supplies its already-validated inputs so it never executes its
+    unbounded CSV, replay, settlement, or feature-audit input reads.
+    """
+
+    max_rows_per_market_day = _bounded_positive_int(
+        max_rows_per_market_day, "max_rows_per_market_day"
+    )
+    if max_rows_per_market_day > _PRESELECTION_MAX_ROWS_PER_MARKET_DAY:
+        raise BoundedCandidateReplayError(
+            "production preselection row bound exceeds the reviewed maximum"
+        )
+    root = Path(snapshots_root).resolve(strict=True)
+    folder = Path(folder).resolve(strict=True)
+    try:
+        folder.relative_to(root)
+    except ValueError as exc:
+        raise BoundedCandidateReplayError(
+            f"preselection folder is outside the snapshots root: {folder}"
+        ) from exc
+
+    tape_path, tape_sha256, _tape_rows, frame = _bounded_preselection_tape(
+        folder / "snapshots_long.csv",
+        max_rows=max_rows_per_market_day,
+    )
+    _require_preselection_folder_file(tape_path, folder=folder)
+    if "snapshot_id" not in frame:
+        raise BoundedCandidateReplayError(
+            f"snapshot_id is missing from {folder.name} tape"
+        )
+    tape_snapshot_ids = frozenset(
+        value
+        for value in frame["snapshot_id"].dropna().astype(str)
+        if value and value != "nan"
+    )
+    if not tape_snapshot_ids:
+        raise BoundedCandidateReplayError(
+            f"preselection tape has no snapshot identities: {folder}"
+        )
+    replay_path, replay_sha256, records = _bounded_preselection_replay_records(
+        folder / "replay_inputs.jsonl",
+        pinned_snapshot_ids=tape_snapshot_ids,
+        max_records=max_rows_per_market_day,
+        require_all_pinned=False,
+    )
+    _require_preselection_folder_file(replay_path, folder=folder)
+    if any(is_reconstructed(record) for record in records.values()):
+        raise BoundedCandidateReplayError(
+            "production preselection captured replay file contains reconstructed inputs"
+        )
+
+    features_binding = _bounded_preselection_auxiliary_csv(
+        folder / "features_long.csv",
+        max_rows=max_rows_per_market_day,
+    )
+    settlement_binding = _bounded_preselection_optional_file(
+        folder / "settlement.json",
+        max_bytes=_PRESELECTION_MAX_SETTLEMENT_BYTES,
+    )
+    if features_binding is not None:
+        _require_preselection_folder_file(features_binding[0], folder=folder)
+    if settlement_binding is not None:
+        _require_preselection_folder_file(settlement_binding[0], folder=folder)
+    label = ledger_label_for_slug(folder.name)
+    if not (isinstance(label, dict) and ledger_label_matches_folder(label, folder)):
+        label = (
+            _bounded_json_object(
+                settlement_binding[2],
+                description=f"settlement label for {folder.name}",
+            )
+            if settlement_binding is not None
+            else None
+        )
+    if not isinstance(label, dict):
+        raise BoundedCandidateReplayError(
+            f"preselection folder has no readable settlement label: {folder}"
+        )
+    spec = spec_for_slug(folder.name)
+    settlement_unit = str(
+        label.get("settlement_unit")
+        or getattr(spec, "display_unit", None)
+        or ""
+    ).strip()
+    if not settlement_unit:
+        raise BoundedCandidateReplayError(
+            f"preselection settlement unit is missing: {folder}"
+        )
+    feature_quality = audit_folder_feature_quality_from_rows(
+        folder,
+        feature_rows=(features_binding[2] if features_binding is not None else ()),
+        snapshot_rows=frame.to_dict(orient="records"),
+        replay_records=records,
+        settlement_unit=settlement_unit,
+    )
+
+    changed = (
+        not _bounded_preselection_file_unchanged(
+            tape_path,
+            expected_sha256=tape_sha256,
+            max_bytes=_PRESELECTION_MAX_TAPE_BYTES,
+            description="preselection tape",
+        )
+        or not _bounded_preselection_file_unchanged(
+            replay_path,
+            expected_sha256=replay_sha256,
+            max_bytes=_PRESELECTION_MAX_REPLAY_BYTES,
+            description="preselection replay",
+        )
+        or (
+            features_binding is not None
+            and not _bounded_preselection_file_unchanged(
+                features_binding[0],
+                expected_sha256=features_binding[1],
+                max_bytes=_PRESELECTION_MAX_TAPE_BYTES,
+                description="preselection auxiliary CSV",
+            )
+        )
+        or (
+            settlement_binding is not None
+            and not _bounded_preselection_file_unchanged(
+                settlement_binding[0],
+                expected_sha256=settlement_binding[1],
+                max_bytes=_PRESELECTION_MAX_SETTLEMENT_BYTES,
+                description="preselection auxiliary file",
+            )
+        )
+    )
+    if changed:
+        raise BoundedCandidateReplayError(
+            f"preselection folder changed during manifest construction: {folder}"
+        )
+    return {
+        "label": label,
+        "frame": frame,
+        "records": records,
+        "feature_quality": feature_quality,
+    }
+
+
+def _bounded_preselection_label_hash(entry):
+    basis = {
+        key: entry.get(key)
+        for key in (
+            "event_slug",
+            "market_id",
+            "target_date",
+            "settlement_bucket",
+            "settlement_unit",
+            "settlement_source",
+            "quality_grade",
+            "winning_band",
+        )
+    }
+    encoded = json.dumps(
+        basis,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _bounded_captured_times(row):
     captured_local = str(
         (row or {}).get("captured_at_local")
@@ -2078,6 +2515,334 @@ def _bounded_captured_times(row):
             "candidate replay captured timestamp must include a timezone"
         )
     return captured_local, parsed.astimezone(timezone.utc).isoformat()
+
+
+def _bounded_preselection_source_row(
+    row,
+    *,
+    entry,
+    pinned_snapshot_ids,
+):
+    """Project one manifest-pinned replay row without candidate output.
+
+    This is the population source used before a production candidate exists.
+    It intentionally contains no model, variant, release, probability, or
+    runtime identity.  The later candidate replay must reproduce the same
+    coordinate, prediction boundary, and settlement label.
+    """
+
+    target_date = _bounded_locked_date(row.get("target_date"))
+    market_id = _bounded_required_identity(row.get("market_id"), "row market_id")
+    if (
+        target_date != str(entry.get("target_date"))
+        or market_id != str(entry.get("market_id"))
+    ):
+        raise BoundedCandidateReplayError(
+            "preselection replay row escaped its manifest-pinned market-day"
+        )
+    snapshot_id = _bounded_required_identity(
+        row.get("snapshot_id"), "row snapshot_id"
+    )
+    if snapshot_id not in pinned_snapshot_ids:
+        raise BoundedCandidateReplayError(
+            f"preselection replay snapshot {snapshot_id!r} is not manifest-pinned"
+        )
+    band = _bounded_required_identity(row.get("band"), "row band")
+    label = _bounded_optional_float(row.get("outcome"), "outcome")
+    if label not in {0.0, 1.0}:
+        raise BoundedCandidateReplayError(
+            "preselection replay requires a binary settled outcome"
+        )
+    row_settlement = _bounded_optional_float(
+        row.get("settlement_bucket"), "row settlement_bucket"
+    )
+    entry_settlement = _bounded_optional_float(
+        entry.get("settlement_bucket"), "manifest settlement_bucket"
+    )
+    if row_settlement != entry_settlement:
+        raise BoundedCandidateReplayError(
+            "preselection replay settlement does not match the pinned manifest label"
+        )
+    _captured_local, captured_utc = _bounded_captured_times(row)
+    if abs(
+        (
+            datetime.fromisoformat(captured_utc).date()
+            - date.fromisoformat(target_date)
+        ).days
+    ) > 1:
+        raise BoundedCandidateReplayError(
+            "preselection capture timestamp is implausible for its target date"
+        )
+    _bounded_manifest_snapshot_hash(entry, "replay_record_hashes", snapshot_id)
+    _bounded_manifest_snapshot_hash(entry, "tape_row_hashes", snapshot_id)
+    _bounded_expected_sha256(entry.get("label_hash"), "manifest label_hash")
+    label_quality = str(entry.get("quality_grade") or "").strip().lower()
+    if (
+        label_quality not in {"complete", "manual_override"}
+        or entry.get("admitted_by") != "quality_grade"
+    ):
+        raise BoundedCandidateReplayError(
+            "production preselection requires a complete or manual_override "
+            "manifest label admitted by quality grade"
+        )
+    return {
+        "target_date": target_date,
+        "market_id": market_id,
+        "cutoff_or_snapshot": snapshot_id,
+        "band": band,
+        "feature_available_at_utc": captured_utc,
+        "prediction_boundary_at_utc": captured_utc,
+        "label_quality": label_quality,
+        "countable": True,
+        "claim_lane": "weather_only",
+        "source_quality": "healthy",
+        "label": label,
+    }
+
+
+def iter_bounded_preselection_source_market_days(
+    *,
+    corpus_manifest_path,
+    expected_manifest_sha256,
+    snapshots_root,
+    max_market_days,
+    max_rows_per_market_day,
+):
+    """Yield candidate-independent, manifest-pinned rows one market-day at a time."""
+
+    expected_manifest_sha256 = _bounded_expected_sha256(
+        expected_manifest_sha256, "expected_manifest_sha256"
+    )
+    max_market_days = _bounded_positive_int(max_market_days, "max_market_days")
+    max_rows_per_market_day = _bounded_positive_int(
+        max_rows_per_market_day, "max_rows_per_market_day"
+    )
+    if (
+        max_market_days > _PRESELECTION_MAX_MARKET_DAYS
+        or max_rows_per_market_day > _PRESELECTION_MAX_ROWS_PER_MARKET_DAY
+    ):
+        raise BoundedCandidateReplayError(
+            "production preselection bounds exceed the reviewed maximum"
+        )
+    snapshots_root = Path(snapshots_root).resolve(strict=True)
+    manifest_path, _manifest_raw, manifest_sha256 = _bounded_preselection_file_bytes(
+        corpus_manifest_path,
+        max_bytes=_PRESELECTION_MAX_REPLAY_MANIFEST_BYTES,
+        description="promotion corpus manifest",
+    )
+    if manifest_sha256 != expected_manifest_sha256:
+        raise BoundedCandidateReplayError(
+            "promotion corpus manifest SHA-256 does not match the explicit lock"
+        )
+    manifest = load_manifest(
+        manifest_path,
+        max_bytes=_PRESELECTION_MAX_REPLAY_MANIFEST_BYTES,
+    )
+    if not _bounded_preselection_file_unchanged(
+        manifest_path,
+        expected_sha256=manifest_sha256,
+        max_bytes=_PRESELECTION_MAX_REPLAY_MANIFEST_BYTES,
+        description="promotion corpus manifest",
+    ):
+        raise BoundedCandidateReplayError(
+            "promotion corpus manifest changed during bounded validation"
+        )
+    if manifest.get("include_reconstructed") is not False:
+        raise BoundedCandidateReplayError(
+            "production preselection requires include_reconstructed=false; "
+            "reconstructed replay inputs are not allowed"
+        )
+    if manifest.get("allow_unsettled") is not False:
+        raise BoundedCandidateReplayError(
+            "production preselection requires allow_unsettled=false; "
+            "unsettled replay inputs are not allowed"
+        )
+    if manifest.get("admit_promotion_countable") is not False:
+        raise BoundedCandidateReplayError(
+            "production preselection requires admit_promotion_countable=false "
+            "and quality-grade admission"
+        )
+    try:
+        as_of = date.fromisoformat(str(manifest.get("as_of") or ""))
+    except ValueError as exc:
+        raise BoundedCandidateReplayError(
+            "production preselection replay manifest has no valid as_of date"
+        ) from exc
+    fleet_dates = sorted(
+        {
+            _bounded_locked_date(entry.get("target_date"))
+            for entry in manifest.get("entries") or ()
+        }
+    )
+    selected = _bounded_locked_manifest_entries(
+        manifest,
+        snapshots_root=snapshots_root,
+        locked_dates=fleet_dates,
+        locked_folders=(),
+        max_market_days=max_market_days,
+        max_rows_per_market_day=max_rows_per_market_day,
+    )
+    for entry, folder in selected:
+        folder = Path(folder).resolve(strict=True)
+        try:
+            folder.relative_to(snapshots_root)
+        except ValueError as exc:
+            raise BoundedCandidateReplayError(
+                f"manifest-pinned folder is outside the snapshots root: {folder}"
+            ) from exc
+        if date.fromisoformat(str(entry.get("target_date") or "")) >= as_of:
+            raise BoundedCandidateReplayError(
+                f"manifest contains an unsettled market-day: {entry['event_slug']}"
+            )
+        if _bounded_preselection_label_hash(entry) != str(
+            entry.get("label_hash") or ""
+        ):
+            raise BoundedCandidateReplayError(
+                f"manifest label hash is invalid for {entry['event_slug']}"
+            )
+        tape_path = folder / "snapshots_long.csv"
+        replay_path = folder / "replay_inputs.jsonl"
+        if not tape_path.is_file() or not replay_path.is_file():
+            raise BoundedCandidateReplayError(
+                f"preselection source files are missing for {entry['event_slug']}"
+            )
+        pinned_snapshot_ids = frozenset(
+            str(item) for item in entry.get("snapshot_ids") or ()
+        )
+        tape_path, tape_sha256, _tape_rows, frame = _bounded_preselection_tape(
+            tape_path,
+            max_rows=max_rows_per_market_day,
+        )
+        _require_preselection_folder_file(tape_path, folder=folder)
+        replay_path, replay_sha256, records = _bounded_preselection_replay_records(
+            replay_path,
+            pinned_snapshot_ids=pinned_snapshot_ids,
+            max_records=max_rows_per_market_day,
+        )
+        _require_preselection_folder_file(replay_path, folder=folder)
+        warnings = verify_entry_inputs(entry, folder, frame, records)
+        if warnings:
+            raise BoundedCandidateReplayError(
+                "manifest-pinned captured inputs changed: "
+                + "; ".join(map(str, warnings))
+            )
+        if any(
+            is_reconstructed(records.get(snapshot_id) or {})
+            for snapshot_id in pinned_snapshot_ids
+        ):
+            raise BoundedCandidateReplayError(
+                "production preselection cannot use reconstructed replay inputs"
+            )
+        if "snapshot_id" not in frame:
+            raise BoundedCandidateReplayError(
+                f"snapshot_id is missing from {entry['event_slug']} tape"
+            )
+        pinned_frame = frame[
+            frame["snapshot_id"].astype(str).isin(pinned_snapshot_ids)
+        ]
+        expected_rows = _bounded_positive_int(
+            entry.get("row_count"), f"manifest row_count for {entry['event_slug']}"
+        )
+        if pinned_frame.empty or len(pinned_frame) != expected_rows:
+            raise BoundedCandidateReplayError(
+                f"preselection tape row count changed for {entry['event_slug']}: "
+                f"{len(pinned_frame)} != {expected_rows}"
+            )
+        rows = []
+        for band_series in pinned_frame.itertuples(index=False):
+            band = band_series._asdict()
+            explicit_value_hi = band.get("bin_value_hi_c")
+            if explicit_value_hi in (None, "") or pd.isna(explicit_value_hi):
+                explicit_value_hi = band.get("bin_value_hi")
+            value_hi = band_value_hi(
+                band.get("range_label"),
+                band.get("bin_value_c"),
+                explicit=explicit_value_hi,
+            )
+            outcome = resolve_outcome(
+                band.get("bin_kind"),
+                band.get("bin_value_c"),
+                entry.get("settlement_bucket"),
+                value_hi=value_hi,
+            )
+            if outcome not in {0, 1}:
+                raise BoundedCandidateReplayError(
+                    f"preselection band cannot be settled for {entry['event_slug']}"
+                )
+            rows.append(
+                {
+                    "target_date": entry.get("target_date"),
+                    "market_id": entry.get("market_id"),
+                    "snapshot_id": band.get("snapshot_id"),
+                    "band": band.get("range_label"),
+                    "captured_at_local": band.get("captured_at_local"),
+                    "outcome": outcome,
+                    "settlement_bucket": entry.get("settlement_bucket"),
+                }
+            )
+        rows.sort(key=_candidate_replay_row_identity)
+        seen_coordinates = set()
+        winner_counts = Counter()
+        for index, row in enumerate(rows):
+            canonical = _bounded_preselection_source_row(
+                row,
+                entry=entry,
+                pinned_snapshot_ids=pinned_snapshot_ids,
+            )
+            coordinate = (
+                canonical["target_date"],
+                canonical["market_id"],
+                canonical["cutoff_or_snapshot"],
+                canonical["band"],
+            )
+            if coordinate in seen_coordinates:
+                raise BoundedCandidateReplayError(
+                    f"duplicate preselection coordinate for {entry['event_slug']}: "
+                    f"{coordinate}"
+                )
+            seen_coordinates.add(coordinate)
+            winner_counts[canonical["cutoff_or_snapshot"]] += int(
+                canonical["label"]
+            )
+            rows[index] = canonical
+        if set(winner_counts) != set(pinned_snapshot_ids) or any(
+            count != 1 for count in winner_counts.values()
+        ):
+            raise BoundedCandidateReplayError(
+                f"preselection bands do not have exactly one winner per snapshot "
+                f"for {entry['event_slug']}"
+            )
+        if (
+            not _bounded_preselection_file_unchanged(
+                tape_path,
+                expected_sha256=tape_sha256,
+                max_bytes=_PRESELECTION_MAX_TAPE_BYTES,
+                description="preselection tape",
+            )
+            or not _bounded_preselection_file_unchanged(
+                replay_path,
+                expected_sha256=replay_sha256,
+                max_bytes=_PRESELECTION_MAX_REPLAY_BYTES,
+                description="preselection replay",
+            )
+        ):
+            raise BoundedCandidateReplayError(
+                f"preselection source changed during read for {entry['event_slug']}"
+            )
+        del frame, pinned_frame, records, warnings, seen_coordinates, winner_counts
+        row = None
+        yield rows
+        rows = None
+
+    if not _bounded_preselection_file_unchanged(
+        manifest_path,
+        expected_sha256=expected_manifest_sha256,
+        max_bytes=_PRESELECTION_MAX_REPLAY_MANIFEST_BYTES,
+        description="promotion corpus manifest",
+    ):
+        raise BoundedCandidateReplayError(
+            "promotion corpus manifest changed while preselection replay was running"
+        )
 
 
 def _bounded_canonical_candidate_row(
