@@ -443,13 +443,29 @@ def enrich_with_ws_events(values, token_id, ws_events, snapshot_time):
     return values
 
 
-def clob_feature_rows_for_folder(folder, max_age_seconds=180, market_id=None):
-    folder = Path(folder)
-    snapshots = read_csv_rows(folder / "snapshots_long.csv")
-    books = sort_book_points(read_csv_rows(folder / "order_books_summary.csv"))
-    price_history = sort_price_history_points(read_csv_rows(folder / "price_history.csv"))
-    ws_event_rows = read_csv_rows(folder / "market_ws_events.csv")
-    ws_event_rows.extend(ws_rows_from_jsonl(read_jsonl_records(folder / "market_ws.jsonl")))
+def clob_feature_rows_from_rows(
+    snapshots,
+    book_rows,
+    *,
+    price_history_rows=None,
+    ws_event_rows=None,
+    ws_jsonl_records=None,
+    event_slug=None,
+    max_age_seconds=180,
+    market_id=None,
+):
+    """Build CLOB features from an explicit evidence projection.
+
+    Supplying rows makes the transformation reusable by bounded active-day
+    readers while the historical folder entrypoint below retains full-tape
+    research behavior.
+    """
+
+    snapshots = list(snapshots or [])
+    books = sort_book_points(book_rows or [])
+    price_history = sort_price_history_points(price_history_rows or [])
+    ws_event_rows = list(ws_event_rows or [])
+    ws_event_rows.extend(ws_rows_from_jsonl(ws_jsonl_records or []))
     ws_events = sort_ws_event_points(ws_event_rows)
     rows = []
     for snapshot in snapshots:
@@ -458,7 +474,7 @@ def clob_feature_rows_for_folder(folder, max_age_seconds=180, market_id=None):
         base = {
             "snapshot_id": snapshot.get("snapshot_id"),
             "captured_at_utc": snapshot.get("captured_at_utc"),
-            "event_slug": snapshot.get("event_slug") or folder.name,
+            "event_slug": snapshot.get("event_slug") or event_slug,
             "market_id": snapshot.get("market_id") or market_id,
             "range_label": snapshot.get("range_label"),
             "bin_kind": key[0],
@@ -501,6 +517,20 @@ def clob_feature_rows_for_folder(folder, max_age_seconds=180, market_id=None):
             **features,
         })
     return rows
+
+
+def clob_feature_rows_for_folder(folder, max_age_seconds=180, market_id=None):
+    folder = Path(folder)
+    return clob_feature_rows_from_rows(
+        read_csv_rows(folder / "snapshots_long.csv"),
+        read_csv_rows(folder / "order_books_summary.csv"),
+        price_history_rows=read_csv_rows(folder / "price_history.csv"),
+        ws_event_rows=read_csv_rows(folder / "market_ws_events.csv"),
+        ws_jsonl_records=read_jsonl_records(folder / "market_ws.jsonl"),
+        event_slug=folder.name,
+        max_age_seconds=max_age_seconds,
+        market_id=market_id,
+    )
 
 
 def feature_index_for_folder(folder, max_age_seconds=180, market_id=None):

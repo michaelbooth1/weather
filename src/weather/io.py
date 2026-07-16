@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -345,6 +346,211 @@ def read_csv_rows_with_diagnostics(
 def read_csv_rows(path: str | Path, *, attach_diagnostics: bool = False) -> list[dict]:
     rows, _diagnostics = read_csv_rows_with_diagnostics(path, attach_diagnostics=attach_diagnostics)
     return rows
+
+
+def _bounded_tail_diagnostics(path: Path, max_bytes: int) -> dict[str, Any]:
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "status": "missing",
+        "bounded": True,
+        "file_size_bytes": 0,
+        "captured_mtime_ns": None,
+        "max_scan_bytes": max(1, int(max_bytes)),
+        "scanned_bytes": 0,
+        "read_bytes": 0,
+        "header_bytes": 0,
+        "boundary_discarded_bytes": 0,
+        "stable_during_read": None,
+        "reached_start": False,
+        "row_count": 0,
+        "fieldnames": [],
+        "error": None,
+    }
+
+
+def read_csv_tail_rows_with_diagnostics(
+    path: str | Path,
+    *,
+    max_bytes: int,
+    max_header_bytes: int = 64 * 1024,
+) -> tuple[list[dict], dict[str, Any]]:
+    """Read a stable, complete UTF-8 CSV suffix without scaling with file size.
+
+    The first line is read separately as the schema header. When the byte
+    window starts inside a record, that record is discarded. Callers must use
+    ``reached_start`` plus their batch-boundary contract to decide whether the
+    suffix is sufficient; this helper never silently claims a partial suffix
+    is the complete tape.
+    """
+
+    path = Path(path)
+    diagnostics = _bounded_tail_diagnostics(path, max_bytes)
+    if not path.exists():
+        return [], diagnostics
+    try:
+        with path.open("rb") as handle:
+            initial_stat = os.fstat(handle.fileno())
+            file_size = initial_stat.st_size
+            diagnostics.update({
+                "file_size_bytes": file_size,
+                "captured_mtime_ns": initial_stat.st_mtime_ns,
+            })
+            if file_size <= 0:
+                diagnostics.update({"status": "empty", "reached_start": True})
+                return [], diagnostics
+            header = handle.readline(max(2, int(max_header_bytes)) + 1)
+            diagnostics["header_bytes"] = len(header)
+            diagnostics["read_bytes"] += len(header)
+            if not header.endswith((b"\n", b"\r")):
+                diagnostics.update({
+                    "status": "invalid_header",
+                    "error": "CSV header is missing, incomplete, or exceeds max_header_bytes",
+                })
+                return [], diagnostics
+            header_end = handle.tell()
+            if file_size <= header_end:
+                diagnostics.update({"status": "empty", "reached_start": True})
+                return [], diagnostics
+            handle.seek(file_size - 1)
+            final_byte = handle.read(1)
+            diagnostics["read_bytes"] += len(final_byte)
+            if final_byte not in {b"\n", b"\r"}:
+                diagnostics.update({
+                    "status": "incomplete_tail",
+                    "error": "CSV tape does not end at a complete record boundary",
+                })
+                return [], diagnostics
+            window_start = max(header_end, file_size - diagnostics["max_scan_bytes"])
+            handle.seek(window_start)
+            if window_start > header_end:
+                discarded = handle.readline()
+                diagnostics["boundary_discarded_bytes"] = len(discarded)
+                diagnostics["read_bytes"] += len(discarded)
+            data_start = handle.tell()
+            payload = handle.read(max(0, file_size - data_start))
+            diagnostics.update({
+                "scanned_bytes": len(payload),
+                "read_bytes": diagnostics["read_bytes"] + len(payload),
+                "reached_start": data_start == header_end,
+            })
+            final_stat = os.fstat(handle.fileno())
+            if (
+                final_stat.st_size != initial_stat.st_size
+                or final_stat.st_mtime_ns != initial_stat.st_mtime_ns
+            ):
+                diagnostics.update({
+                    "status": "concurrent_modification",
+                    "stable_during_read": False,
+                    "error": "CSV tape changed during the bounded read",
+                })
+                return [], diagnostics
+            diagnostics["stable_during_read"] = True
+    except OSError as exc:
+        diagnostics.update({"status": "read_error", "error": f"{type(exc).__name__}: {exc}"})
+        return [], diagnostics
+
+    try:
+        header_text = header.decode("utf-8-sig")
+        payload_text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        diagnostics.update({"status": "decode_error", "error": _decode_error_payload(exc)})
+        return [], diagnostics
+
+    try:
+        header_fields = next(csv.reader([header_text], strict=True), [])
+        if not header_fields or any(not str(field).strip() for field in header_fields):
+            raise csv.Error("CSV header contains an empty field name")
+        if len(set(header_fields)) != len(header_fields):
+            raise csv.Error("CSV header contains duplicate field names")
+        reader = csv.DictReader(StringIO(payload_text, newline=""), fieldnames=header_fields, strict=True)
+        rows = [dict(row) for row in reader]
+        malformed = [
+            row for row in rows
+            if None in row or any(value is None for value in row.values())
+        ]
+        if malformed:
+            raise csv.Error("CSV suffix contains a row that does not match the header")
+    except csv.Error as exc:
+        diagnostics.update({"status": "malformed_csv", "error": f"csv.Error: {exc}"})
+        return [], diagnostics
+
+    diagnostics.update({
+        "status": "ok",
+        "row_count": len(rows),
+        "fieldnames": list(header_fields),
+    })
+    return rows, diagnostics
+
+
+def read_jsonl_tail_with_diagnostics(
+    path: str | Path,
+    *,
+    max_bytes: int,
+) -> tuple[list[Any], dict[str, Any]]:
+    """Read a complete bounded JSONL suffix and reject malformed evidence."""
+
+    path = Path(path)
+    diagnostics = _bounded_tail_diagnostics(path, max_bytes)
+    if not path.exists():
+        return [], diagnostics
+    try:
+        with path.open("rb") as handle:
+            initial_stat = os.fstat(handle.fileno())
+            file_size = initial_stat.st_size
+            diagnostics.update({
+                "file_size_bytes": file_size,
+                "captured_mtime_ns": initial_stat.st_mtime_ns,
+            })
+            if file_size <= 0:
+                diagnostics.update({"status": "empty", "reached_start": True})
+                return [], diagnostics
+            handle.seek(file_size - 1)
+            final_byte = handle.read(1)
+            diagnostics["read_bytes"] += len(final_byte)
+            if final_byte not in {b"\n", b"\r"}:
+                diagnostics.update({
+                    "status": "incomplete_tail",
+                    "error": "JSONL tape does not end at a complete record boundary",
+                })
+                return [], diagnostics
+            window_start = max(0, file_size - diagnostics["max_scan_bytes"])
+            handle.seek(window_start)
+            if window_start > 0:
+                discarded = handle.readline()
+                diagnostics["boundary_discarded_bytes"] = len(discarded)
+                diagnostics["read_bytes"] += len(discarded)
+            data_start = handle.tell()
+            payload = handle.read(max(0, file_size - data_start))
+            diagnostics.update({
+                "scanned_bytes": len(payload),
+                "read_bytes": diagnostics["read_bytes"] + len(payload),
+                "reached_start": data_start == 0,
+            })
+            final_stat = os.fstat(handle.fileno())
+            if (
+                final_stat.st_size != initial_stat.st_size
+                or final_stat.st_mtime_ns != initial_stat.st_mtime_ns
+            ):
+                diagnostics.update({
+                    "status": "concurrent_modification",
+                    "stable_during_read": False,
+                    "error": "JSONL tape changed during the bounded read",
+                })
+                return [], diagnostics
+            diagnostics["stable_during_read"] = True
+    except OSError as exc:
+        diagnostics.update({"status": "read_error", "error": f"{type(exc).__name__}: {exc}"})
+        return [], diagnostics
+
+    try:
+        text = payload.decode("utf-8-sig" if diagnostics["reached_start"] else "utf-8")
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        diagnostics.update({"status": "malformed_jsonl", "error": f"{type(exc).__name__}: {exc}"})
+        return [], diagnostics
+    diagnostics.update({"status": "ok", "row_count": len(rows)})
+    return rows, diagnostics
 
 
 def csv_encoding_issue(diagnostics: dict[str, Any]) -> bool:
