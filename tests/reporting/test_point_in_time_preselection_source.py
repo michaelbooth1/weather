@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 from datetime import date
@@ -8,12 +9,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import weather.calibration.pooled_candidate_replay as pooled_replay
 from weather.calibration.pooled_candidate_replay import (
     BoundedCandidateReplayError,
     iter_bounded_preselection_source_market_days,
 )
 from weather.reporting.promotion.promotion_corpus import (
     PROMOTION_CORPUS_SCHEMA_VERSION,
+    build_promotion_corpus,
     corpus_hash,
 )
 from weather.reporting.validation.point_in_time_evaluation import (
@@ -141,6 +144,109 @@ def _write_replay_manifest(path, entries, *, snapshots_root, **overrides):
     payload["corpus_hash"] = corpus_hash(payload["entries"])
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return payload
+
+
+def _write_proof_grade_replay(tmp_path, *, bands):
+    snapshots_root = tmp_path / "snapshots"
+    slug = _event_slug("2026-06-01")
+    folder = snapshots_root / slug
+    folder.mkdir(parents=True)
+    snapshot_id = "snapshot-2026-06-01"
+    captured_at = "2026-06-01T16:00:00+00:00"
+    tape_rows = [
+        {
+            "snapshot_id": snapshot_id,
+            "captured_at_local": captured_at,
+            "event_slug": slug,
+            "range_label": range_label,
+            "bin_kind": bin_kind,
+            "bin_value_c": bin_value,
+        }
+        for range_label, bin_kind, bin_value in bands
+    ]
+    with (folder / "snapshots_long.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(tape_rows[0]))
+        writer.writeheader()
+        writer.writerows(tape_rows)
+    replay_record = {
+        "schema_version": "captured_replay_inputs_v1",
+        "snapshot_id": snapshot_id,
+        "captured_at_local": captured_at,
+        "event_slug": slug,
+        "target_date": "2026-06-01",
+        "source": "captured",
+    }
+    (folder / "replay_inputs.jsonl").write_text(
+        json.dumps(replay_record, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    settlement = {
+        "schema_version": "settlement_ledger_v1",
+        "event_slug": slug,
+        "market_id": "nyc",
+        "city": "New York City",
+        "target_date": "2026-06-01",
+        "settlement_high": 80,
+        "settlement_bucket": 80,
+        "settlement_unit": "F",
+        "winning_band": "80-81",
+        "winning_band_kind": "range",
+        "winning_band_value": 80,
+        "winning_band_value_hi": 81,
+        "settlement_source": "weather_underground_history",
+        "quality_grade": "complete",
+        "quality_reason": "verified test settlement",
+    }
+    (folder / "settlement.json").write_text(
+        json.dumps(settlement, sort_keys=True),
+        encoding="utf-8",
+    )
+    manifest = build_promotion_corpus(
+        [folder],
+        snapshots_root=snapshots_root,
+        as_of="2026-07-03",
+        admit_promotion_countable=False,
+    )
+    assert manifest["summary"]["market_day_count"] == 1
+    manifest_path = tmp_path / "replay.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    return snapshots_root, manifest_path, manifest
+
+
+def _consume_preselection_replay(manifest_path, snapshots_root, *, max_rows=250_000):
+    return list(
+        iter_bounded_preselection_source_market_days(
+            corpus_manifest_path=manifest_path,
+            expected_manifest_sha256=hashlib.sha256(
+                manifest_path.read_bytes()
+            ).hexdigest(),
+            snapshots_root=snapshots_root,
+            max_market_days=60,
+            max_rows_per_market_day=max_rows,
+        )
+    )
+
+
+def _write_minimal_tape(path, *, row_count=1, range_label="80-81"):
+    rows = [
+        {
+            "snapshot_id": f"snapshot-{index}",
+            "captured_at_local": "2026-06-01T16:00:00+00:00",
+            "range_label": range_label,
+            "bin_kind": "eq",
+            "bin_value_c": 80,
+        }
+        for index in range(row_count)
+    ]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def _source_day(entry, *, market_id=None, time="16:00:00+00:00"):
@@ -375,6 +481,146 @@ def test_iterator_rejects_non_proof_grade_manifest_modes(tmp_path, flag, match):
     )
     with pytest.raises(BoundedCandidateReplayError, match=match):
         next(iterator)
+
+
+@pytest.mark.parametrize(
+    "missing_flag",
+    ("include_reconstructed", "allow_unsettled", "admit_promotion_countable"),
+)
+def test_iterator_requires_explicit_false_production_manifest_flags(
+    tmp_path, missing_flag
+):
+    snapshots_root, replay, manifest = _write_proof_grade_replay(
+        tmp_path,
+        bands=(("80-81", "eq", 80), ("82-83", "eq", 82)),
+    )
+    del manifest[missing_flag]
+    replay.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BoundedCandidateReplayError, match=missing_flag):
+        _consume_preselection_replay(replay, snapshots_root)
+
+
+def test_iterator_recomputes_and_rejects_a_stale_label_hash(tmp_path):
+    snapshots_root, replay, manifest = _write_proof_grade_replay(
+        tmp_path,
+        bands=(("80-81", "eq", 80), ("82-83", "eq", 82)),
+    )
+    manifest["entries"][0]["settlement_source"] = "tampered_source"
+    manifest["corpus_hash"] = corpus_hash(manifest["entries"])
+    replay.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BoundedCandidateReplayError, match="label hash is invalid"):
+        _consume_preselection_replay(replay, snapshots_root)
+
+
+@pytest.mark.parametrize(
+    "bands",
+    (
+        (("78-79", "eq", 78), ("82-83", "eq", 82)),
+        (
+            ("80 or below", "lte", 80),
+            ("80-81", "eq", 80),
+            ("82-83", "eq", 82),
+        ),
+    ),
+    ids=("zero-winners", "two-winners"),
+)
+def test_iterator_requires_exactly_one_winner_per_snapshot(tmp_path, bands):
+    snapshots_root, replay, _manifest = _write_proof_grade_replay(
+        tmp_path,
+        bands=bands,
+    )
+
+    with pytest.raises(BoundedCandidateReplayError, match="exactly one winner"):
+        _consume_preselection_replay(replay, snapshots_root)
+
+
+def test_direct_tape_reader_enforces_the_byte_bound_before_parsing(tmp_path):
+    tape = tmp_path / "snapshots_long.csv"
+    tape.write_bytes(b"x" * 32)
+
+    with patch.object(pooled_replay, "_PRESELECTION_MAX_TAPE_BYTES", 31):
+        with pytest.raises(BoundedCandidateReplayError, match="tape byte bound"):
+            pooled_replay._bounded_preselection_tape(tape, max_rows=10)
+
+
+def test_direct_tape_reader_enforces_the_field_bound(tmp_path):
+    tape = tmp_path / "snapshots_long.csv"
+    _write_minimal_tape(tape, range_label="x" * 128)
+
+    with patch.object(pooled_replay, "_PRESELECTION_MAX_TAPE_FIELD_BYTES", 32):
+        with pytest.raises(BoundedCandidateReplayError, match="within bounds"):
+            pooled_replay._bounded_preselection_tape(tape, max_rows=10)
+
+
+def test_direct_tape_reader_enforces_the_raw_row_bound(tmp_path):
+    tape = tmp_path / "snapshots_long.csv"
+    _write_minimal_tape(tape, row_count=2)
+
+    with pytest.raises(BoundedCandidateReplayError, match="raw tape row bound"):
+        pooled_replay._bounded_preselection_tape(tape, max_rows=1)
+
+
+def test_direct_replay_reader_enforces_the_byte_bound_before_parsing(tmp_path):
+    replay = tmp_path / "replay_inputs.jsonl"
+    replay.write_text(
+        json.dumps({"snapshot_id": "snapshot-1"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(
+        pooled_replay,
+        "_PRESELECTION_MAX_REPLAY_BYTES",
+        replay.stat().st_size - 1,
+    ):
+        with pytest.raises(BoundedCandidateReplayError, match="replay byte bound"):
+            pooled_replay._bounded_preselection_replay_records(
+                replay,
+                pinned_snapshot_ids={"snapshot-1"},
+                max_records=10,
+            )
+
+
+def test_direct_replay_reader_enforces_the_line_bound(tmp_path):
+    replay = tmp_path / "replay_inputs.jsonl"
+    replay.write_text(
+        json.dumps({"snapshot_id": "snapshot-1", "padding": "x" * 64}) + "\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(pooled_replay, "_PRESELECTION_MAX_REPLAY_LINE_BYTES", 32):
+        with pytest.raises(BoundedCandidateReplayError, match="line 1.*byte bound"):
+            pooled_replay._bounded_preselection_replay_records(
+                replay,
+                pinned_snapshot_ids={"snapshot-1"},
+                max_records=10,
+            )
+
+
+def test_direct_replay_reader_enforces_the_raw_record_bound(tmp_path):
+    replay = tmp_path / "replay_inputs.jsonl"
+    replay.write_text(
+        "\n".join(
+            json.dumps({"snapshot_id": snapshot_id})
+            for snapshot_id in ("snapshot-1", "snapshot-2")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BoundedCandidateReplayError, match="record bound"):
+        pooled_replay._bounded_preselection_replay_records(
+            replay,
+            pinned_snapshot_ids={"snapshot-1"},
+            max_records=1,
+        )
 
 
 def test_source_mutation_publishes_neither_half_of_the_artifact_pair(tmp_path):
