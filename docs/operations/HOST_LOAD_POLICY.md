@@ -32,10 +32,14 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
-Snapshot fleet children retain their 1,536 MiB process-tree cap. Canonical
-source hashing and market-local raw-evidence persistence must stream JSON into
-the digest/file sink and publish a complete fsynced CAS blob atomically; do not
-raise the child cap to accommodate a whole-document `json.dumps` copy. The
+Snapshot fleet capture admits at most two isolated children by default, with a
+1,792 MiB process-tree working-set and private-commit cap per child. The 3,584
+MiB aggregate ceiling is below the prior three-by-1,536 MiB envelope while
+leaving allocation headroom above the 1,598,382,080-byte peak measured in a
+successful production child on 2026-07-16. Canonical source hashing and
+market-local raw-evidence persistence must stream JSON into the digest/file
+sink and publish a complete fsynced CAS blob atomically; the higher per-child
+cap is not authority to restore a whole-document `json.dumps` copy. The
 long-lived snapshot parent must likewise stream fleet-health tape scans and
 retain only per-snapshot summaries or the latest snapshot rows. An older
 already-running parent can retain its pre-fix allocator high-water mark until

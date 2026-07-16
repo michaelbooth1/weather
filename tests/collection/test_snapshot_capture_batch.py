@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import weather.collection.snapshot_tracker as tracker
 from weather.collection.snapshot_capture_batch import (
+    DEFAULT_CAPTURE_WORKERS,
+    DEFAULT_CHILD_WORKING_SET_MAX_MB,
     capture_command,
     console_python_executable,
     run_bounded_capture_batch,
@@ -161,6 +163,12 @@ def test_isolated_capture_uses_atomic_child_result_and_process_tree_limits():
             "timed_out": False,
             "duration_seconds": 0.25,
             "working_set_limit": {"applied": True},
+            "resource_peaks": {
+                "working_set_peak_bytes": 128 * 1024 * 1024,
+                "private_memory_peak_bytes": 384 * 1024 * 1024,
+            },
+            "resource_io": {"read_bytes": 1024, "write_bytes": 512},
+            "resource_limit_exceeded": None,
             "containment": {"status": "PASS", "process_tree_contained": True},
             "termination": {"triggered": False},
             "stderr": "",
@@ -189,6 +197,69 @@ def test_isolated_capture_uses_atomic_child_result_and_process_tree_limits():
     assert observed["kwargs"]["env"]["WEATHER_FORECAST_FANOUT_SCOPE"] == "fleet-pass-1"
     assert "--expected-runtime-fingerprint" in observed["command"]
     assert result["execution"]["containment"]["process_tree_contained"] is True
+    assert result["execution"]["resource_peaks"]["private_memory_peak_bytes"] == (
+        384 * 1024 * 1024
+    )
+    assert result["execution"]["resource_io"]["read_bytes"] == 1024
+    assert result["execution"]["resource_limit_exceeded"] is None
+
+
+def test_production_defaults_bound_aggregate_commit_with_headroom():
+    assert DEFAULT_CAPTURE_WORKERS == 2
+    assert DEFAULT_CHILD_WORKING_SET_MAX_MB == 1792
+    assert DEFAULT_CAPTURE_WORKERS * DEFAULT_CHILD_WORKING_SET_MAX_MB < 3 * 1536
+
+
+def test_isolated_capture_classifies_and_persists_resource_limit_evidence():
+    limit = 1792 * 1024 * 1024
+    observed = limit + 4096
+
+    def subprocess_runner(_command, **_kwargs):
+        return {
+            "returncode": 137,
+            "timed_out": False,
+            "duration_seconds": 2.5,
+            "working_set_limit": {
+                "applied": True,
+                "private_memory_max_bytes": limit,
+            },
+            "resource_peaks": {
+                "working_set_peak_bytes": 320 * 1024 * 1024,
+                "private_memory_peak_bytes": observed,
+            },
+            "resource_io": {"read_bytes": 42, "write_bytes": 7},
+            "resource_limit_exceeded": {
+                "resource": "private_memory_bytes",
+                "observed_bytes": observed,
+                "limit_bytes": limit,
+            },
+            "containment": {"status": "PASS", "process_tree_contained": True},
+            "termination": {
+                "triggered": True,
+                "reason": "resource_budget_exceeded",
+            },
+            "stderr": "",
+            "runner_error": None,
+        }
+
+    record = run_isolated_capture(
+        request("atlanta"),
+        12,
+        python_executable="python.exe",
+        cwd="repo",
+        working_set_max_mb=1792,
+        subprocess_runner=subprocess_runner,
+        now_fn=lambda: NOW,
+    )
+
+    assert record["result"]["capture_status"] == "capture_resource_budget"
+    assert "observed_bytes=" in record["result"]["error"]
+    assert record["execution"]["resource_limit_exceeded"] == {
+        "resource": "private_memory_bytes",
+        "observed_bytes": observed,
+        "limit_bytes": limit,
+    }
+    assert record["execution"]["resource_peaks"]["private_memory_peak_bytes"] == observed
 
 
 def test_command_preserves_force_date_market_and_parent_runtime_identity(tmp_path):
