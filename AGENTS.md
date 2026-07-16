@@ -69,7 +69,9 @@ Start with focused tests for the owner package, then expand verification in
 proportion to risk. Network collectors, scheduled-task registration, artifact
 manifest generation, promotion, and cleanup are stateful; inspect help and the
 relevant runbook before running them. See [development.md](docs/development.md)
-for the test matrix and definition of done.
+for the test matrix and definition of done. Follow the
+[Git workflow SOP](docs/git-workflow.md) for branch/worktree isolation,
+staging, commits, pull requests, integration, and cleanup.
 
 ## Knowledge ownership
 
@@ -78,6 +80,8 @@ for the test matrix and definition of done.
 - Domain invariants: `docs/operations/AGENT_CONTEXT.md`.
 - Architecture and data flow: `docs/architecture.md`.
 - Package/import ownership: `docs/operations/package-boundaries.md`.
+- Git branches, worktrees, staging, commits, and pull requests:
+  `docs/git-workflow.md`.
 - Current work: generated `docs/roadmap/active-backlog.md`; numbered roadmap
   item files own item status, scope, and evidence.
 - Dynamic truth: code, checked-in config, manifests, and generated reports—not

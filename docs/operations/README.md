@@ -6,6 +6,8 @@ commands or policies into another guide.
 
 ## Start Here
 
+- [Project Operating SOP](PROJECT_OPERATING_SOP.md) is the end-to-end
+  shift-to-release decision flow and routes each action to its owning runbook.
 - [Operations Design](OPERATIONS_DESIGN.md) describes the three capture loops,
   their Windows supervisors, runtime identity, and deployment routine.
 - [Repository Path Policy](path-policy.md) defines canonical package execution,
