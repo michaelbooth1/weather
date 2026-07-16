@@ -402,3 +402,42 @@ disk was 4.132 GiB/47.12%/291.165 GiB. Item 323 remains partial pending live
 adoption and the clean network-fetch proof; completing or resuming the monthly
 inventory is also still required before its partial figures can be called a
 month total.
+
+## 2026-07-15 snapshot-loop memory stabilization follow-up
+
+The later capture failure was reproduced without network access or tape
+mutation using an 800 MiB logical repeated-scalar payload inside the unchanged
+1,536 MiB Windows child cap. The pre-fix `SnapshotStore.payload_hash` failed at
+`json.dumps` in 2.094 seconds with `MemoryError`; process-tree private memory
+peaked at 1,561,866,240 bytes against the 1,610,612,736-byte cap and the guard
+classified it as `resource_budget_exceeded`. The same harness after the repair
+completed in 3.250 seconds with exit 0, no resource-limit event, 104,562,688
+bytes peak working set, and 717,688,832 bytes peak private memory.
+
+Status hashing, canonical raw-payload hashing, JSONL appends, and market-local
+forecast/observation CAS writes now consume incremental encoder chunks instead
+of joining a whole document and then making a second UTF-8 copy. CAS writes
+stage and fsync the complete canonical bytes plus the existing durability
+newline, then publish the immutable digest path with an atomic same-volume hard
+link. Existing digest algorithms, separators, Unicode handling, byte counts,
+newline convention, and manifest fields are unchanged. Stress parity tests
+compare the streamed hashes and stored bytes with the prior serializer while
+forbidding `json.dumps`; injected circular-serialization and link failures
+leave no partial evidence file.
+
+The long-lived parent had a second high-water source: fleet health materialized
+complete 20-24 MiB active-day variant CSVs only to select the latest snapshot.
+A read-only 12-market scan peaked at 200,220,672 working-set bytes and
+815,984,640 private bytes before the streaming repair. It now retains only
+per-snapshot integrity aggregates and matching latest rows; the same scan
+peaked at 99,344,384 working-set bytes and 712,388,608 private bytes. A clean
+`snapshot_tracker` import measured 718,934,016 private bytes, so the repaired
+scan no longer adds a lasting private-memory high-water allocation. The live
+pre-fix parent was not restarted or signalled and may retain its old allocator
+high-water mark until owner adoption.
+
+This follow-up is isolated on `codex/snapshot-memory-stabilization`, stacked on
+`codex/item323-hardening`; the dependency is required because both changes
+touch snapshot persistence and the managed fleet path. It has not been merged
+or live-adopted. Item 323 remains partial for the same adoption, clean network-
+fetch proof, and bounded inventory completion gates stated above.

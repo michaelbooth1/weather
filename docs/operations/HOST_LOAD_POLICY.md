@@ -32,6 +32,16 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
+Snapshot fleet children retain their 1,536 MiB process-tree cap. Canonical
+source hashing and market-local raw-evidence persistence must stream JSON into
+the digest/file sink and publish a complete fsynced CAS blob atomically; do not
+raise the child cap to accommodate a whole-document `json.dumps` copy. The
+long-lived snapshot parent must likewise stream fleet-health tape scans and
+retain only per-snapshot summaries or the latest snapshot rows. An older
+already-running parent can retain its pre-fix allocator high-water mark until
+a supported, separately authorized code-adoption restart; that retained value
+is not authority to stop or replace the worker ad hoc.
+
 The WU settlement restore fetches a target day but rebuilds each market's full
 retained normalized history, so it is not a light one-day operation. It runs in
 an isolated child with a 60-minute timeout, 4,096 MiB private-memory ceiling,
