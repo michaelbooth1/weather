@@ -323,13 +323,16 @@ def run_taker_tail_casebook_step(args):
         labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
         generated_at_utc=utc_iso(),
     )
-    json_out = backtest_path(args, "taker_tail_casebook.json")
-    report_out = backtest_path(args, "taker_tail_casebook_report.md")
-    taker_tail_casebook.write_outputs(payload, json_out=json_out, report_out=report_out)
-    detail_json_out = backtest_path(args, f"taker_tail_casebook_{target_date}.json")
-    detail_report_out = backtest_path(args, f"taker_tail_casebook_report_{target_date}.md")
-    taker_tail_casebook.write_outputs(payload, json_out=detail_json_out, report_out=detail_report_out)
-    summary = payload.get("summary") or {}
+    try:
+        json_out = backtest_path(args, "taker_tail_casebook.json")
+        report_out = backtest_path(args, "taker_tail_casebook_report.md")
+        taker_tail_casebook.write_outputs(payload, json_out=json_out, report_out=report_out)
+        detail_json_out = backtest_path(args, f"taker_tail_casebook_{target_date}.json")
+        detail_report_out = backtest_path(args, f"taker_tail_casebook_report_{target_date}.md")
+        taker_tail_casebook.write_outputs(payload, json_out=detail_json_out, report_out=detail_report_out)
+        summary = dict(payload.get("summary") or {})
+    finally:
+        payload.close()
     return {
         "status": summary.get("status"),
         "target_date": target_date,

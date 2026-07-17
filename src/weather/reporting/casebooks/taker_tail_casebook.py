@@ -3,24 +3,28 @@
 from __future__ import annotations
 
 import argparse
-import json
+import pickle
+import sqlite3
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 
+from weather.io import iter_csv_rows, write_json_streaming_atomic
 from weather.market.taker_bot import (
     DEFAULT_LABELS_CSV,
     bool_value,
     compact_float,
     current_high_band_distance,
+    first_present,
     load_settlement_labels,
     market_local_time,
     market_modal_contexts,
     maybe_float,
     modal_context_for_row,
-    read_order_rows,
+    normalize_order_strategy_fields,
     score_orders_against_labels,
-    sum_field,
 )
 from weather.paths import data_path
 
@@ -35,6 +39,7 @@ DEFAULT_RUN_FOLDERS = [
     DEFAULT_TAKER_RUNS_ROOT / "2026-06-20" / "taker-20260620-3d3450f0",
     DEFAULT_TAKER_RUNS_ROOT / "2026-06-21" / "taker-20260621-bbe63642",
 ]
+SQLITE_PAGE_CACHE_KIB = 2048
 
 
 def utc_iso():
@@ -46,16 +51,171 @@ def _orders_path(path):
     return path / "orders_long.csv" if path.is_dir() else path
 
 
-def _read_order_sources(paths):
-    rows = []
+def _iter_order_sources(paths):
+    """Yield normalized order rows in the legacy source order."""
+
     for raw_path in paths or []:
         order_path = _orders_path(raw_path)
-        for row in read_order_rows(order_path):
-            out = dict(row)
+        for row in iter_csv_rows(order_path, attach_diagnostics=True):
+            out = normalize_order_strategy_fields(row)
             out["_source_orders_path"] = str(order_path)
             out["_source_run"] = str(order_path.parent)
-            rows.append(out)
-    return rows
+            yield out
+
+
+def _configure_scratch_connection(connection):
+    connection.execute("PRAGMA journal_mode=OFF")
+    connection.execute("PRAGMA synchronous=OFF")
+    connection.execute("PRAGMA temp_store=FILE")
+    connection.execute(f"PRAGMA cache_size=-{SQLITE_PAGE_CACHE_KIB}")
+
+
+class _SpilledCaseRows:
+    """Re-iterable source-ordered case rows backed by disposable SQLite."""
+
+    is_spilled_rows = True
+
+    def __init__(self, connection):
+        self.connection = connection
+        self._count = 0
+        self.connection.execute(
+            "CREATE TABLE cases ("
+            "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "payload BLOB NOT NULL)"
+        )
+
+    def __len__(self):
+        return self._count
+
+    def __bool__(self):
+        return self._count > 0
+
+    def __iter__(self):
+        cursor = self.connection.execute(
+            "SELECT payload FROM cases ORDER BY sequence"
+        )
+        for (payload,) in cursor:
+            yield pickle.loads(payload)
+
+    def append(self, row):
+        self.connection.execute(
+            "INSERT INTO cases (payload) VALUES (?)",
+            (sqlite3.Binary(pickle.dumps(dict(row), protocol=pickle.HIGHEST_PROTOCOL)),),
+        )
+        self._count += 1
+
+
+class _SpilledModalContexts:
+    """Exact global modal contexts without retaining snapshot keys in RAM."""
+
+    def __init__(self, connection):
+        self.connection = connection
+        self.connection.execute(
+            "CREATE TABLE modal_contexts ("
+            "market_id TEXT NOT NULL, "
+            "event_slug TEXT NOT NULL, "
+            "snapshot_id TEXT NOT NULL, "
+            "probability REAL NOT NULL, "
+            "payload BLOB NOT NULL, "
+            "PRIMARY KEY (market_id, event_slug, snapshot_id)"
+            ") WITHOUT ROWID"
+        )
+
+    def add(self, row):
+        candidate_probability = maybe_float(
+            first_present(row, "market_mid", "market_yes", "clob_midpoint")
+        )
+        if candidate_probability is None:
+            return
+        contexts = market_modal_contexts((row,))
+        if not contexts:
+            return
+        key, context = next(iter(contexts.items()))
+        stored_probability = maybe_float(context.get("market_modal_probability"))
+        if stored_probability is None:
+            return
+        found = self.connection.execute(
+            "SELECT probability FROM modal_contexts "
+            "WHERE market_id = ? AND event_slug = ? AND snapshot_id = ?",
+            tuple(str(item) for item in key),
+        ).fetchone()
+        if found is not None and not (
+            candidate_probability > float(found[0] or -1.0)
+        ):
+            return
+        self.connection.execute(
+            "INSERT OR REPLACE INTO modal_contexts ("
+            "market_id, event_slug, snapshot_id, probability, payload"
+            ") VALUES (?, ?, ?, ?, ?)",
+            (
+                str(key[0]),
+                str(key[1]),
+                str(key[2]),
+                float(stored_probability),
+                sqlite3.Binary(
+                    pickle.dumps(dict(context), protocol=pickle.HIGHEST_PROTOCOL)
+                ),
+            ),
+        )
+
+    def get(self, key, default=None):
+        found = self.connection.execute(
+            "SELECT payload FROM modal_contexts "
+            "WHERE market_id = ? AND event_slug = ? AND snapshot_id = ?",
+            tuple(str(item or "") for item in key),
+        ).fetchone()
+        return pickle.loads(found[0]) if found else default
+
+
+class _TailCasebookScratch:
+    """Own disposable modal and case stores for one casebook build."""
+
+    def __init__(self):
+        self._temporary_directory = tempfile.TemporaryDirectory(
+            prefix="weather-taker-tail-casebook-"
+        )
+        database = Path(self._temporary_directory.name) / "casebook.sqlite3"
+        self.connection = sqlite3.connect(str(database))
+        _configure_scratch_connection(self.connection)
+        self.modal_contexts = _SpilledModalContexts(self.connection)
+        self.cases = _SpilledCaseRows(self.connection)
+        self._closed = False
+
+    def commit(self):
+        self.connection.commit()
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.connection.close()
+        self._temporary_directory.cleanup()
+
+
+class TailCasebookPayload(dict):
+    """Casebook payload whose row arrays remain valid until close."""
+
+    def __init__(self, payload, scratch):
+        super().__init__(payload)
+        self._scratch = scratch
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+
+    def close(self):
+        scratch = self._scratch
+        if scratch is not None:
+            self._scratch = None
+            scratch.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def discover_run_sources(runs_root=DEFAULT_TAKER_RUNS_ROOT, *, target_date=None, max_runs=None):
@@ -79,12 +239,52 @@ def build_tail_casebook_from_paths(
 ):
     runs = [Path(item) for item in run_paths or []]
     labels = load_settlement_labels(labels_csv)
-    return build_tail_casebook(
-        _read_order_sources(runs),
-        labels=labels,
-        source_runs=runs,
-        generated_at_utc=generated_at_utc or utc_iso(),
-    )
+    scratch = _TailCasebookScratch()
+    try:
+        for run in runs:
+            for row in _iter_order_sources((run,)):
+                scratch.modal_contexts.add(row)
+            scratch.commit()
+
+        matched = 0
+        unmatched = 0
+        order_row_count = 0
+        scored_order_row_count = 0
+        for run in runs:
+            for row in _iter_order_sources((run,)):
+                order_row_count += 1
+                scored_rows, score_summary = score_orders_against_labels((row,), labels)
+                scored_order_row_count += len(scored_rows)
+                matched += int(score_summary.get("matched_filled_orders") or 0)
+                unmatched += int(score_summary.get("unmatched_filled_orders") or 0)
+                annotated = _annotate_legacy_tail_fields(
+                    scored_rows,
+                    contexts=scratch.modal_contexts,
+                )
+                scored = annotated[0]
+                if (
+                    str(scored.get("order_status") or "").upper() == "FILLED"
+                    and _tail_types(scored)
+                ):
+                    scratch.cases.append(_case_row(scored))
+            scratch.commit()
+
+        payload = _build_tail_casebook_payload(
+            scratch.cases,
+            score_summary={
+                "matched_filled_orders": matched,
+                "unmatched_filled_orders": unmatched,
+                "label_count": len(labels.get("by_event_slug", {})),
+            },
+            order_row_count=order_row_count,
+            scored_order_row_count=scored_order_row_count,
+            source_runs=runs,
+            generated_at_utc=generated_at_utc or utc_iso(),
+        )
+        return TailCasebookPayload(payload, scratch)
+    except BaseException:
+        scratch.close()
+        raise
 
 
 def _tail_types(row):
@@ -96,8 +296,13 @@ def _tail_types(row):
     return types
 
 
-def _annotate_legacy_tail_fields(rows, *, tail_price_threshold=0.05):
-    contexts = market_modal_contexts(rows)
+def _annotate_legacy_tail_fields(
+    rows,
+    *,
+    tail_price_threshold=0.05,
+    contexts=None,
+):
+    contexts = market_modal_contexts(rows) if contexts is None else contexts
     annotated = []
     for row in rows or []:
         out = dict(row)
@@ -242,17 +447,48 @@ def _aggregate_cases(cases, key_name):
     return sorted(rows, key=lambda item: (-item["loss_count"], item[key_name]))
 
 
-def build_tail_casebook(order_rows, labels=None, *, source_runs=None, generated_at_utc=None):
-    labels = labels or {"by_event_slug": {}, "by_market_date": {}}
-    scored_rows, score_summary = score_orders_against_labels(order_rows, labels)
-    scored_rows = _annotate_legacy_tail_fields(scored_rows)
-    filled_tail_rows = [
-        row for row in scored_rows
-        if str(row.get("order_status") or "").upper() == "FILLED"
-        and _tail_types(row)
-    ]
-    cases = [_case_row(row) for row in filled_tail_rows]
-    losing_cases = [case for case in cases if case.get("settlement_result") == "loss"]
+def _case_summary(cases):
+    summary = {
+        "tail_fill_count": 0,
+        "losing_tail_fill_count": 0,
+        "low_price_tail_fill_count": 0,
+        "warm_tail_fill_count": 0,
+        "tail_spent_usdc": 0.0,
+        "tail_settlement_pnl_usdc": 0.0,
+    }
+    for case in cases:
+        summary["tail_fill_count"] += 1
+        summary["losing_tail_fill_count"] += int(
+            case.get("settlement_result") == "loss"
+        )
+        summary["low_price_tail_fill_count"] += int(bool(case["low_price_tail"]))
+        summary["warm_tail_fill_count"] += int(
+            bool(case["market_centered_warm_tail"])
+        )
+        summary["tail_spent_usdc"] += (
+            maybe_float(case.get("fill_notional_usdc")) or 0.0
+        )
+        summary["tail_settlement_pnl_usdc"] += (
+            maybe_float(case.get("settlement_pnl_usdc")) or 0.0
+        )
+    summary["tail_spent_usdc"] = round(summary["tail_spent_usdc"], 6)
+    summary["tail_settlement_pnl_usdc"] = round(
+        summary["tail_settlement_pnl_usdc"],
+        6,
+    )
+    return summary
+
+
+def _build_tail_casebook_payload(
+    cases,
+    *,
+    score_summary,
+    order_row_count,
+    scored_order_row_count,
+    source_runs,
+    generated_at_utc,
+):
+    case_summary = _case_summary(cases)
     by_tail_type = _aggregate_cases(cases, "tail_type")
     by_slice = _aggregate_cases(cases, "slice_key")
     no_go_candidates = [
@@ -266,14 +502,9 @@ def build_tail_casebook(order_rows, labels=None, *, source_runs=None, generated_
     summary = {
         "status": "BLOCK_BAD_TAIL_SLICES" if no_go_candidates else "PASS",
         "source_runs": [str(item) for item in (source_runs or [])],
-        "order_row_count": len(order_rows or []),
-        "scored_order_row_count": len(scored_rows),
-        "tail_fill_count": len(cases),
-        "losing_tail_fill_count": len(losing_cases),
-        "low_price_tail_fill_count": sum(1 for case in cases if case["low_price_tail"]),
-        "warm_tail_fill_count": sum(1 for case in cases if case["market_centered_warm_tail"]),
-        "tail_spent_usdc": sum_field(cases, "fill_notional_usdc"),
-        "tail_settlement_pnl_usdc": sum_field(cases, "settlement_pnl_usdc"),
+        "order_row_count": int(order_row_count),
+        "scored_order_row_count": int(scored_order_row_count),
+        **case_summary,
         "no_go_candidate_count": len(no_go_candidates),
     }
     return {
@@ -286,6 +517,26 @@ def build_tail_casebook(order_rows, labels=None, *, source_runs=None, generated_
         "no_go_candidates": no_go_candidates,
         "cases": cases,
     }
+
+
+def build_tail_casebook(order_rows, labels=None, *, source_runs=None, generated_at_utc=None):
+    labels = labels or {"by_event_slug": {}, "by_market_date": {}}
+    scored_rows, score_summary = score_orders_against_labels(order_rows, labels)
+    scored_rows = _annotate_legacy_tail_fields(scored_rows)
+    filled_tail_rows = [
+        row for row in scored_rows
+        if str(row.get("order_status") or "").upper() == "FILLED"
+        and _tail_types(row)
+    ]
+    cases = [_case_row(row) for row in filled_tail_rows]
+    return _build_tail_casebook_payload(
+        cases,
+        score_summary=score_summary,
+        order_row_count=len(order_rows or []),
+        scored_order_row_count=len(scored_rows),
+        source_runs=source_runs,
+        generated_at_utc=generated_at_utc,
+    )
 
 
 def _fmt(value):
@@ -336,7 +587,14 @@ def render_report(payload):
         "",
         _table(
             ["target_date", "market_id", "local_hour", "range_label", "tail_type", "current_high_band_distance", "model_probability", "market_price", "market_modal_band_distance", "source_freshness_state", "settlement_pnl_usdc", "slice_key"],
-            [case for case in payload.get("cases") or [] if case.get("settlement_result") == "loss"][:50],
+            islice(
+                (
+                    case
+                    for case in payload.get("cases") or []
+                    if case.get("settlement_result") == "loss"
+                ),
+                50,
+            ),
         ),
         "",
     ]
@@ -345,9 +603,7 @@ def render_report(payload):
 
 def write_outputs(payload, json_out=None, report_out=None):
     if json_out:
-        path = Path(json_out)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_json_streaming_atomic(json_out, payload, trailing_newline=True)
     if report_out:
         path = Path(report_out)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -381,12 +637,16 @@ def main(argv=None):
         labels_csv=args.labels,
         generated_at_utc=utc_iso(),
     )
-    write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
+    try:
+        write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
+        summary = dict(payload["summary"])
+    finally:
+        payload.close()
     print(
-        f"Taker tail casebook: {payload['summary']['status']} "
-        f"tail_fills={payload['summary']['tail_fill_count']} "
-        f"losing={payload['summary']['losing_tail_fill_count']} "
-        f"no_go_candidates={payload['summary']['no_go_candidate_count']}"
+        f"Taker tail casebook: {summary['status']} "
+        f"tail_fills={summary['tail_fill_count']} "
+        f"losing={summary['losing_tail_fill_count']} "
+        f"no_go_candidates={summary['no_go_candidate_count']}"
     )
     return 0
 
