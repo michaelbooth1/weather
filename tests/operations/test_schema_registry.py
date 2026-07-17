@@ -331,6 +331,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("taker_bot_run"), "taker_bot_run_v0.1")
         self.assertEqual(schema_version("taker_settlement_finalization"), "taker_settlement_finalization_v0.1")
         self.assertEqual(
+            schema_version("taker_settled_finalization_projection"),
+            "taker_settled_finalization_projection_v0.1",
+        )
+        self.assertEqual(
             schema_version("taker_settlement_finalization_watchdog"),
             "taker_settlement_finalization_watchdog_v0.1",
         )
@@ -340,6 +344,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("taker_strategy_registry"), "taker_strategy_registry_v0.1")
         self.assertEqual(schema_version("taker_strategy_report"), "taker_strategy_report_v0.1")
         self.assertEqual(schema_version("taker_strategy_bakeoff"), "taker_strategy_bakeoff_v0.1")
+        self.assertEqual(
+            schema_version("taker_strategy_bakeoff_ledger_projection"),
+            "taker_strategy_bakeoff_ledger_projection_v0.1",
+        )
         self.assertEqual(
             schema_version("taker_profitability_artifact_verification"),
             "taker_profitability_artifact_verification_v0.1",

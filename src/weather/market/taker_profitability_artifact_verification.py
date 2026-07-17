@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from weather.io import read_csv_rows, read_json
+from weather.io import (
+    iter_csv_rows,
+    read_json,
+    read_pretty_json_top_level_values,
+)
+from weather.market.taker_bot_artifact_projection import (
+    DEFAULT_PROJECTION_MAX_BYTES,
+    load_settled_finalization_projection,
+)
 from weather.schema_registry import schema_version
 
 
@@ -46,6 +54,54 @@ EXCHANGE_ECONOMICS_FIELDS = (
 )
 
 
+def _read_small_json(path):
+    path = Path(path)
+    try:
+        if path.stat().st_size > DEFAULT_PROJECTION_MAX_BYTES:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
+
+
+def _small_enough_to_materialize(path):
+    try:
+        return Path(path).stat().st_size <= DEFAULT_PROJECTION_MAX_BYTES
+    except OSError:
+        return False
+
+
+def _current_strategy_summary_for_large_daily(
+    strategy_summary_path,
+    daily_pnl_path,
+):
+    """Return a compact summary only when it is newer and identity-aligned."""
+
+    if not _small_enough_to_materialize(strategy_summary_path):
+        return {}
+    summary = _read_small_json(strategy_summary_path)
+    try:
+        summary_stat = Path(strategy_summary_path).stat()
+        daily_stat = Path(daily_pnl_path).stat()
+    except OSError:
+        return {}
+    if summary_stat.st_mtime_ns < daily_stat.st_mtime_ns:
+        return {}
+    daily_identity = read_pretty_json_top_level_values(
+        daily_pnl_path,
+        ("run_id", "target_date"),
+    )
+    if not all(
+        summary.get(field) not in (None, "")
+        and str(summary.get(field)) == str(daily_identity.get(field))
+        for field in ("run_id", "target_date")
+    ):
+        return {}
+    if summary.get("schema_version") != schema_version("taker_strategy_report"):
+        return {}
+    return summary
+
+
 def _present(value) -> bool:
     return value is not None and str(value).strip() != ""
 
@@ -56,14 +112,30 @@ def _check(code, status, detail, **extra):
     return row
 
 
-def _field_checks(rows, fields, *, scope):
-    rows = list(rows or [])
-    if not rows:
+class _FieldPresence:
+    """Fixed field-presence state for a streamed row population."""
+
+    def __init__(self, fields):
+        self.fields = tuple(fields)
+        self.row_count = 0
+        self.key_seen = {field: False for field in self.fields}
+        self.value_seen = {field: False for field in self.fields}
+
+    def add(self, row):
+        self.row_count += 1
+        for field in self.fields:
+            if field in row:
+                self.key_seen[field] = True
+                if _present(row.get(field)):
+                    self.value_seen[field] = True
+
+
+def _field_checks_from_presence(presence, *, scope):
+    if not presence.row_count:
         return [_check(f"{scope}_rows_missing", "FAIL", f"No rows available for {scope}.")]
-    keys = set().union(*(row.keys() for row in rows))
     checks = []
-    for field in fields:
-        if field not in keys:
+    for field in presence.fields:
+        if not presence.key_seen[field]:
             checks.append(_check(
                 f"{scope}_{field}_missing",
                 "FAIL",
@@ -71,7 +143,7 @@ def _field_checks(rows, fields, *, scope):
                 field=field,
             ))
             continue
-        if not any(_present(row.get(field)) for row in rows):
+        if not presence.value_seen[field]:
             checks.append(_check(
                 f"{scope}_{field}_null_only",
                 "FAIL",
@@ -79,6 +151,35 @@ def _field_checks(rows, fields, *, scope):
                 field=field,
             ))
     return checks
+
+
+def _field_checks(rows, fields, *, scope):
+    presence = _FieldPresence(fields)
+    for row in rows or []:
+        presence.add(row)
+    return _field_checks_from_presence(presence, scope=scope)
+
+
+def _streamed_order_presence(path):
+    fields = tuple(dict.fromkeys(
+        ORDER_OPPORTUNITY_FIELDS + FILLED_ORDER_FIELDS + EXCHANGE_ECONOMICS_FIELDS
+    ))
+    all_orders = _FieldPresence(fields)
+    filled_orders = _FieldPresence(fields)
+    for row in iter_csv_rows(path):
+        all_orders.add(row)
+        if str(row.get("order_status") or "").upper() == "FILLED":
+            filled_orders.add(row)
+    return all_orders, filled_orders
+
+
+def _presence_subset(presence, fields):
+    subset = _FieldPresence(fields)
+    subset.row_count = presence.row_count
+    for field in subset.fields:
+        subset.key_seen[field] = presence.key_seen.get(field, False)
+        subset.value_seen[field] = presence.value_seen.get(field, False)
+    return subset
 
 
 def _bool_value(value) -> bool:
@@ -121,12 +222,62 @@ def _basis_is_after_fee(value):
 def _strategy_rows(payload):
     if not payload:
         return []
-    return list(payload.get("by_strategy") or (payload.get("pnl") or {}).get("by_strategy") or [])
+    return list(
+        payload.get("by_strategy")
+        or (payload.get("pnl") or {}).get("by_strategy")
+        or payload.get("strategies")
+        or []
+    )
 
 
 def _strategy_comparison(payload):
     payload = payload or {}
-    return payload.get("strategy_comparison") or (payload.get("pnl") or {}).get("strategy_comparison") or {}
+    return (
+        payload.get("strategy_comparison")
+        or (payload.get("pnl") or {}).get("strategy_comparison")
+        or payload.get("comparison")
+        or {}
+    )
+
+
+def _settled_summary_from_strategy_payload(payload):
+    """Recover finalization-wide checks from the compact settled strategy artifact."""
+
+    payload = payload or {}
+    summary = dict(payload.get("summary") or {})
+    strategy_rows = _strategy_rows(payload)
+    filled_rows = [
+        row for row in strategy_rows
+        if _int_value(row.get("filled_order_count")) > 0
+    ]
+    after_fee = bool(filled_rows) and _bool_field_passes(
+        filled_rows,
+        "after_fee_pnl_scored",
+    )
+    after_slippage = bool(filled_rows) and _bool_field_passes(
+        filled_rows,
+        "after_slippage_pnl_scored",
+    )
+    summary.setdefault("filled_order_count", sum(
+        _int_value(row.get("filled_order_count")) for row in strategy_rows
+    ))
+    summary.setdefault("after_fee_pnl_scored", after_fee)
+    summary.setdefault("after_slippage_pnl_scored", after_slippage)
+    summary.setdefault(
+        "live_profitability_evidence_basis",
+        "executable_after_fee_after_slippage" if after_fee else "paper_no_fee",
+    )
+    gate = payload.get("exchange_economics_gate") or {}
+    exchange_values = {
+        "exchange_economics_snapshot_id": gate.get("snapshot_id"),
+        "exchange_economics_hash": (
+            gate.get("snapshot_hash") or gate.get("exchange_economics_hash")
+        ),
+        "exchange_economics_evidence_basis": gate.get("evidence_basis"),
+    }
+    for field in EXCHANGE_ECONOMICS_FIELDS:
+        summary.setdefault(field, payload.get(field) or exchange_values.get(field))
+    return summary
 
 
 def _exchange_gate_from_payloads(*payloads):
@@ -166,7 +317,12 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
     daily_pnl_path = run_folder / "daily_pnl.json"
     strategy_summary_path = run_folder / "strategy_summary.json"
     settled_pnl_path = run_folder / "settled_pnl.json"
-    if not any(path.exists() for path in (orders_path, daily_pnl_path, strategy_summary_path, settled_pnl_path)):
+    if not any(path.exists() for path in (
+        orders_path,
+        daily_pnl_path,
+        strategy_summary_path,
+        settled_pnl_path,
+    )):
         return {
             "schema_version": SCHEMA_VERSION,
             "run_folder": str(run_folder),
@@ -181,23 +337,47 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
                 )
             ],
         }
-    orders = read_csv_rows(orders_path)
-    filled_orders = [row for row in orders if str(row.get("order_status") or "").upper() == "FILLED"]
-    order_scope = filled_orders or orders
-    run_config = read_json(run_config_path, {}) or {}
-    daily_pnl = read_json(daily_pnl_path, {}) or {}
-    strategy_summary = read_json(strategy_summary_path, {}) or {}
-    settled_pnl = read_json(settled_pnl_path, {}) or {}
-    strategy_rows = _strategy_rows(daily_pnl) or _strategy_rows(strategy_summary)
-    comparison = _strategy_comparison(daily_pnl) or _strategy_comparison(strategy_summary)
+    run_config = _read_small_json(run_config_path)
+    daily_payload = {}
+    strategy_summary_payload = {}
+    if daily_pnl_path.exists() and _small_enough_to_materialize(daily_pnl_path):
+        daily_payload = _read_small_json(daily_pnl_path)
+        strategy_summary_payload = _read_small_json(strategy_summary_path)
+    elif daily_pnl_path.exists():
+        strategy_summary_payload = _current_strategy_summary_for_large_daily(
+            strategy_summary_path,
+            daily_pnl_path,
+        )
+    else:
+        strategy_summary_payload = _read_small_json(strategy_summary_path)
+    settled_payload = (
+        load_settled_finalization_projection(settled_pnl_path)
+        if settled_pnl_path.exists()
+        else None
+    )
+    if settled_payload is not None:
+        settled_summary = _settled_summary_from_strategy_payload(settled_payload)
+    else:
+        settled_payload = _read_small_json(settled_pnl_path)
+        settled_summary = (
+            (settled_payload.get("pnl") or {}).get("summary")
+            or settled_payload.get("summary")
+            or {}
+        )
+    strategy_rows = _strategy_rows(daily_payload) or _strategy_rows(
+        strategy_summary_payload
+    )
+    comparison = _strategy_comparison(daily_payload) or _strategy_comparison(
+        strategy_summary_payload
+    )
     benchmark_summary = comparison.get("market_benchmark_summary") or {}
 
     checks = []
     exchange_gate = exchange_economics_gate or _exchange_gate_from_payloads(
         run_config,
-        daily_pnl,
-        strategy_summary,
-        settled_pnl,
+        daily_payload,
+        strategy_summary_payload,
+        settled_payload,
     )
     gate_status = str(exchange_gate.get("status") or "").upper()
     exchange_required = exchange_gate.get("required") is not False
@@ -230,11 +410,22 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
     if not orders_path.exists():
         checks.append(_check("orders_tape_missing", "FAIL", f"Missing orders tape: {orders_path}"))
     else:
-        checks.extend(_field_checks(order_scope, ORDER_OPPORTUNITY_FIELDS, scope="orders"))
+        all_orders, filled_orders = _streamed_order_presence(orders_path)
+        order_scope = filled_orders if filled_orders.row_count else all_orders
+        checks.extend(_field_checks_from_presence(
+            _presence_subset(order_scope, ORDER_OPPORTUNITY_FIELDS),
+            scope="orders",
+        ))
         if exchange_required:
-            checks.extend(_field_checks(order_scope, EXCHANGE_ECONOMICS_FIELDS, scope="orders_exchange_economics"))
-        if filled_orders:
-            checks.extend(_field_checks(filled_orders, FILLED_ORDER_FIELDS, scope="orders"))
+            checks.extend(_field_checks_from_presence(
+                _presence_subset(order_scope, EXCHANGE_ECONOMICS_FIELDS),
+                scope="orders_exchange_economics",
+            ))
+        if filled_orders.row_count:
+            checks.extend(_field_checks_from_presence(
+                _presence_subset(filled_orders, FILLED_ORDER_FIELDS),
+                scope="orders",
+            ))
         else:
             checks.append(_check(
                 "orders_realized_profitability_fields_skipped_no_fills",
@@ -254,8 +445,7 @@ def verify_taker_profitability_artifacts(run_folder, exchange_economics_gate=Non
         checks.extend(_field_checks([benchmark_summary], BENCHMARK_FIELDS, scope="market_benchmark"))
 
     if settled_pnl_path.exists():
-        settled_summary = (settled_pnl.get("pnl") or {}).get("summary") or settled_pnl.get("summary") or {}
-        settled_strategy_rows = _strategy_rows(settled_pnl)
+        settled_strategy_rows = _strategy_rows(settled_payload)
         checks.extend(_field_checks([settled_summary], ("live_profitability_evidence_basis",), scope="finalization"))
         if exchange_required:
             checks.extend(_field_checks([settled_summary], EXCHANGE_ECONOMICS_FIELDS, scope="finalization_exchange_economics"))

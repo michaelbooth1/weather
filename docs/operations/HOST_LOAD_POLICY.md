@@ -62,12 +62,17 @@ available including the 1,536 MiB capture reserve. Raw payload, daily-summary,
 and manifest publication is atomic, and an existing raw payload must parse as
 valid JSON before skip-existing logic may reuse it.
 
-The target-day taker finalization watchdog can materialize complete order and
-counterfactual tapes repeatedly and expand a seven-strategy bakeoff. It runs in
-an isolated child with a 60-minute timeout, 5,120 MiB private-memory ceiling,
-and 2,048 MiB working-set ceiling; admission requires 3,584 MiB physically
-available including the capture reserve. Taker-derived JSON publication is
-atomic, and bakeoff freshness requires valid JSON with the expected schema.
+The target-day taker finalization watchdog folds one run at a time through a
+rebuildable SQLite row store with a 2 MiB page cache. Order and counterfactual
+CSV inputs stream row by row; the seven-strategy bakeoff, settlement outputs,
+and benchmark arrays publish atomically from disk-backed views before that
+run's scratch state is released. Compact source-bound projections let
+freshness, next-run policy, profitability, and champion/challenger readers
+avoid decoding large canonical JSON artifacts. The watchdog still runs in an
+isolated child with a 60-minute timeout, 5,120 MiB private-memory ceiling, and
+2,048 MiB working-set ceiling; admission still requires 3,584 MiB physically
+available including the capture reserve. Do not raise these ceilings for a
+historical corpus.
 
 Stage-A high-risk steps are now isolated one child at a time. The orchestrator
 persists an interruption-safe resume receipt before resuming child code and

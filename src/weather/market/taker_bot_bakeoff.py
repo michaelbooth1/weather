@@ -20,8 +20,23 @@ from weather.market.taker_bot_bakeoff_scoring import (
     taker_model_variant_ids,
     taker_model_variant_specs,
 )
+from weather.market.taker_bot_aggregation import (
+    DeferredTakerPayload,
+    TakerRunAggregation,
+)
+from weather.market.taker_bot_artifact_projection import (
+    DEFAULT_PROJECTION_MAX_BYTES,
+    load_bakeoff_ledger_projection,
+    read_pretty_json_top_level_schema_version,
+    write_bakeoff_ledger_projection,
+)
 from weather.market.taker_profitability_artifact_verification import verify_taker_profitability_artifacts
 from weather.market.taker_bot_reporting import *  # noqa: F403
+from weather.io import (
+    iter_csv_rows,
+    read_pretty_json_top_level_values,
+    write_text_atomic,
+)
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
 # The extracted functions below intentionally resolve globals from the
@@ -33,6 +48,19 @@ DEFAULT_CHAMPION_MIN_SETTLED_ORDERS = 5
 TAKER_COMPLETE_QUALITY_GRADES = {"complete", "manual_override"}
 TAKER_DAILY_SETTLEMENT_SOURCES = {"daily_summary", "override"}
 TAKER_BLOCKING_RECONCILIATION_STATUSES = {"mismatch", "not_closed", "unavailable", "fetch_error"}
+
+
+def _read_bakeoff_source_summary(path):
+    path = Path(path)
+    try:
+        if path.stat().st_size <= DEFAULT_PROJECTION_MAX_BYTES:
+            return read_json(path, {}) or {}
+    except OSError:
+        return {}
+    return read_pretty_json_top_level_values(
+        path,
+        ("run_id", "target_date", "summary"),
+    )
 
 def counterfactual_strategy_arg(config=None, strategies=None):
     if strategies not in (None, ""):
@@ -159,25 +187,37 @@ def build_counterfactual_taker_rows(
 
 
 def counterfactual_learning_summary(rows, pnl_payload=None):
-    rows = list(rows or [])
-    would_buy = [row for row in rows if str(row.get("order_status") or "").upper() == "FILLED"]
-    settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
-    real_filled = [
-        row for row in rows
-        if str(row.get("real_order_status") or "").upper() == "FILLED"
-    ]
+    row_count = 0
+    would_buy_count = 0
+    settled_would_buy_count = 0
+    real_filled_match_count = 0
+    strategy_ids = set()
+    reason_counts = Counter()
+    for row in rows or []:
+        row_count += 1
+        strategy_ids.add(strategy_id_for_row(row))
+        reason_counts[row.get("reason_code") or "unknown"] += 1
+        if str(row.get("real_order_status") or "").upper() == "FILLED":
+            real_filled_match_count += 1
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            continue
+        would_buy_count += 1
+        if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES:
+            settled_would_buy_count += 1
     by_strategy = (pnl_payload or {}).get("by_strategy") or []
     best = max(by_strategy, key=lambda row: maybe_float(row.get("net_pnl_usdc")) or 0.0, default={})
     return {
-        "row_count": len(rows),
-        "would_buy_count": len(would_buy),
-        "settled_would_buy_count": len(settled),
-        "real_filled_match_count": len(real_filled),
-        "zero_real_fill_learning": bool(len(real_filled) == 0 and len(settled) > 0),
-        "strategy_count": len({strategy_id_for_row(row) for row in rows}),
+        "row_count": row_count,
+        "would_buy_count": would_buy_count,
+        "settled_would_buy_count": settled_would_buy_count,
+        "real_filled_match_count": real_filled_match_count,
+        "zero_real_fill_learning": bool(
+            real_filled_match_count == 0 and settled_would_buy_count > 0
+        ),
+        "strategy_count": len(strategy_ids),
         "best_counterfactual_strategy_id": best.get("strategy_id"),
         "best_counterfactual_net_pnl_usdc": best.get("net_pnl_usdc"),
-        "reason_counts": dict(sorted(Counter(row.get("reason_code") or "unknown" for row in rows).items())),
+        "reason_counts": dict(sorted(reason_counts.items())),
     }
 
 
@@ -250,7 +290,6 @@ def _current_high_bucket(row):
 
 
 def counterfactual_slice_summaries(rows):
-    rows = list(rows or [])
     dimensions = {
         "by_market": lambda row: row.get("market_id") or "unknown",
         "by_hour": _capture_hour_bucket,
@@ -258,16 +297,47 @@ def counterfactual_slice_summaries(rows):
         "by_current_high": _current_high_bucket,
         "by_source_state": lambda row: row.get("source_freshness_state") or "unknown",
     }
-    summaries = {}
-    for name, key_func in dimensions.items():
-        groups = defaultdict(list)
-        for row in rows:
-            groups[key_func(row)].append(row)
-        summaries[name] = [
-            _counterfactual_slice_row(name, key, group_rows)
-            for key, group_rows in sorted(groups.items(), key=lambda item: str(item[0]))
+    groups = {name: defaultdict(lambda: {
+        "row_count": 0,
+        "would_buy_count": 0,
+        "settled_would_buy_count": 0,
+        "win_count": 0,
+        "loss_count": 0,
+        "spent_usdc": 0.0,
+        "net_pnl_usdc": 0.0,
+    }) for name in dimensions}
+    for row in rows or []:
+        filled = str(row.get("order_status") or "").upper() == "FILLED"
+        settled = filled and row.get("pnl_source") in SETTLEMENT_PNL_SOURCES
+        outcome = maybe_float(row.get("settlement_outcome")) if settled else None
+        spent = maybe_float(row.get("total_spent_usdc")) or 0.0
+        net = maybe_float(row.get("net_pnl_usdc"))
+        for name, key_func in dimensions.items():
+            bucket = groups[name][key_func(row)]
+            bucket["row_count"] += 1
+            if not filled:
+                continue
+            bucket["would_buy_count"] += 1
+            bucket["spent_usdc"] += spent
+            if net is not None:
+                bucket["net_pnl_usdc"] += net
+            if settled:
+                bucket["settled_would_buy_count"] += 1
+                bucket["win_count"] += int(outcome == 1.0)
+                bucket["loss_count"] += int(outcome == 0.0)
+    return {
+        name: [
+            {
+                "dimension": name,
+                "value": key if key not in (None, "") else "unknown",
+                **{field: value for field, value in bucket.items() if field not in {"spent_usdc", "net_pnl_usdc"}},
+                "spent_usdc": round(bucket["spent_usdc"], 6),
+                "net_pnl_usdc": round(bucket["net_pnl_usdc"], 6),
+            }
+            for key, bucket in sorted(name_groups.items(), key=lambda item: str(item[0]))
         ]
-    return summaries
+        for name, name_groups in groups.items()
+    }
 
 
 def _no_side_campaign_status(no_rows, real_book_rows, real_eligible_rows, would_buy, real_eligible_would_buy, settled_real_eligible):
@@ -373,73 +443,175 @@ def _no_side_campaign_slice_row(dimension, value, rows):
     }
 
 
+def _new_no_side_stats():
+    return {
+        "no_side_row_count": 0,
+        "real_no_book_row_count": 0,
+        "real_no_book_depth_eligible_row_count": 0,
+        "synthetic_no_book_row_count": 0,
+        "stale_no_book_row_count": 0,
+        "missing_depth_no_book_row_count": 0,
+        "no_side_would_buy_count": 0,
+        "countable_no_side_would_buy_count": 0,
+        "synthetic_no_book_would_buy_count": 0,
+        "stale_no_book_would_buy_count": 0,
+        "settled_no_side_would_buy_count": 0,
+        "settled_countable_no_side_would_buy_count": 0,
+        "no_side_win_count": 0,
+        "no_side_loss_count": 0,
+        "no_side_spent_usdc": 0.0,
+        "no_side_net_pnl_usdc": 0.0,
+        "countable_no_side_net_pnl_usdc": 0.0,
+        "reason_counts": Counter(),
+        "strategy_family": "unknown",
+    }
+
+
+def _update_no_side_stats(stats, row):
+    stats["no_side_row_count"] += 1
+    if stats["strategy_family"] == "unknown":
+        stats["strategy_family"] = row.get("strategy_family") or "unknown"
+    stats["reason_counts"][row.get("reason_code") or "unknown"] += 1
+    source = str(row.get("no_book_source") or "")
+    real_book = source == "no_token_book"
+    synthetic = source.startswith("synthetic")
+    fresh = bool_value(row.get("no_book_fresh"), False)
+    real_eligible = real_book and bool_value(
+        row.get("real_no_book_depth_eligible"),
+        False,
+    )
+    if real_book:
+        stats["real_no_book_row_count"] += 1
+        stats["stale_no_book_row_count"] += int(not fresh)
+        stats["missing_depth_no_book_row_count"] += int(fresh and not real_eligible)
+    if real_eligible:
+        stats["real_no_book_depth_eligible_row_count"] += 1
+    if synthetic:
+        stats["synthetic_no_book_row_count"] += 1
+    if str(row.get("order_status") or "").upper() != "FILLED":
+        return
+    stats["no_side_would_buy_count"] += 1
+    stats["no_side_spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
+    net = maybe_float(row.get("net_pnl_usdc"))
+    if net is not None:
+        stats["no_side_net_pnl_usdc"] += net
+    if real_eligible:
+        stats["countable_no_side_would_buy_count"] += 1
+        if net is not None:
+            stats["countable_no_side_net_pnl_usdc"] += net
+    if synthetic:
+        stats["synthetic_no_book_would_buy_count"] += 1
+    if real_book and not fresh:
+        stats["stale_no_book_would_buy_count"] += 1
+    settled = row.get("pnl_source") in SETTLEMENT_PNL_SOURCES
+    if settled:
+        stats["settled_no_side_would_buy_count"] += 1
+        outcome = maybe_float(row.get("settlement_outcome"))
+        stats["no_side_win_count"] += int(outcome == 1.0)
+        stats["no_side_loss_count"] += int(outcome == 0.0)
+        if real_eligible:
+            stats["settled_countable_no_side_would_buy_count"] += 1
+
+
+def _no_side_slice_from_stats(dimension, value, stats):
+    return {
+        "dimension": dimension,
+        "value": value if value not in (None, "") else "unknown",
+        "no_side_row_count": stats["no_side_row_count"],
+        "real_no_book_row_count": stats["real_no_book_row_count"],
+        "real_no_book_depth_eligible_row_count": stats[
+            "real_no_book_depth_eligible_row_count"
+        ],
+        "synthetic_no_book_row_count": stats["synthetic_no_book_row_count"],
+        "stale_no_book_row_count": stats["stale_no_book_row_count"],
+        "no_side_would_buy_count": stats["no_side_would_buy_count"],
+        "countable_no_side_would_buy_count": stats[
+            "countable_no_side_would_buy_count"
+        ],
+        "settled_no_side_would_buy_count": stats[
+            "settled_no_side_would_buy_count"
+        ],
+        "settled_countable_no_side_would_buy_count": stats[
+            "settled_countable_no_side_would_buy_count"
+        ],
+        "win_count": stats["no_side_win_count"],
+        "loss_count": stats["no_side_loss_count"],
+        "spent_usdc": round(stats["no_side_spent_usdc"], 6),
+        "net_pnl_usdc": round(stats["no_side_net_pnl_usdc"], 6),
+        "countable_net_pnl_usdc": round(
+            stats["countable_no_side_net_pnl_usdc"],
+            6,
+        ),
+        "delta_vs_no_trade_net_pnl_usdc": round(
+            stats["countable_no_side_net_pnl_usdc"],
+            6,
+        ),
+    }
+
+
 def no_side_campaign_summary(rows, pnl_payload=None, *, include_slices=True):
-    core = _no_side_campaign_core(rows)
-    no_rows = core["no_rows"]
-    would_buy = core["would_buy"]
-    settled = core["settled"]
-    real_book_rows = core["real_book_rows"]
-    real_eligible_rows = core["real_eligible_rows"]
-    real_eligible_would_buy = core["real_eligible_would_buy"]
-    settled_real_eligible = core["settled_real_eligible"]
+    overall = _new_no_side_stats()
+    strategy_groups = defaultdict(_new_no_side_stats)
+    market_groups = defaultdict(_new_no_side_stats)
+    hour_groups = defaultdict(_new_no_side_stats)
+    for row in rows or []:
+        if order_side(row) != NO_SIDE:
+            continue
+        _update_no_side_stats(overall, row)
+        _update_no_side_stats(strategy_groups[strategy_id_for_row(row)], row)
+        if include_slices:
+            _update_no_side_stats(market_groups[row.get("market_id") or "unknown"], row)
+            _update_no_side_stats(hour_groups[_capture_hour_bucket(row)], row)
     by_strategy_payload = {
         row.get("strategy_id"): row
         for row in (pnl_payload or {}).get("by_strategy") or []
         if row.get("strategy_id")
     }
+    present = lambda count: (None,) if count else ()
     out = {
         "status": _no_side_campaign_status(
-            no_rows,
-            real_book_rows,
-            real_eligible_rows,
-            would_buy,
-            real_eligible_would_buy,
-            settled_real_eligible,
+            present(overall["no_side_row_count"]),
+            present(overall["real_no_book_row_count"]),
+            present(overall["real_no_book_depth_eligible_row_count"]),
+            present(overall["no_side_would_buy_count"]),
+            present(overall["countable_no_side_would_buy_count"]),
+            present(overall["settled_countable_no_side_would_buy_count"]),
         ),
         "candidate_basis": "NO-side rows generated by two_sided/fade arm",
         "countable_evidence_basis": "real no-token book depth only",
         "synthetic_only_countable": False,
-        "no_side_row_count": len(no_rows),
-        "real_no_book_row_count": len(real_book_rows),
-        "real_no_book_depth_eligible_row_count": len(real_eligible_rows),
-        "synthetic_no_book_row_count": len(core["synthetic_rows"]),
-        "stale_no_book_row_count": len(core["stale_rows"]),
-        "missing_depth_no_book_row_count": len(core["missing_depth_rows"]),
-        "no_side_would_buy_count": len(would_buy),
-        "countable_no_side_would_buy_count": len(real_eligible_would_buy),
-        "synthetic_no_book_would_buy_count": len(core["synthetic_would_buy"]),
-        "stale_no_book_would_buy_count": len(core["stale_would_buy"]),
-        "settled_no_side_would_buy_count": len(settled),
-        "settled_countable_no_side_would_buy_count": len(settled_real_eligible),
-        "no_side_win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
-        "no_side_loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
-        "no_side_spent_usdc": sum_field(would_buy, "total_spent_usdc"),
-        "no_side_net_pnl_usdc": sum_field([
-            row for row in would_buy
-            if row.get("net_pnl_usdc") not in (None, "")
-        ], "net_pnl_usdc"),
-        "countable_no_side_net_pnl_usdc": sum_field([
-            row for row in real_eligible_would_buy
-            if row.get("net_pnl_usdc") not in (None, "")
-        ], "net_pnl_usdc"),
-        "delta_vs_no_trade_net_pnl_usdc": sum_field([
-            row for row in real_eligible_would_buy
-            if row.get("net_pnl_usdc") not in (None, "")
-        ], "net_pnl_usdc"),
-        "reason_counts": dict(sorted(Counter(row.get("reason_code") or "unknown" for row in no_rows).items())),
+        **{
+            key: value
+            for key, value in overall.items()
+            if key not in {
+                "reason_counts",
+                "strategy_family",
+                "no_side_spent_usdc",
+                "no_side_net_pnl_usdc",
+                "countable_no_side_net_pnl_usdc",
+            }
+        },
+        "no_side_spent_usdc": round(overall["no_side_spent_usdc"], 6),
+        "no_side_net_pnl_usdc": round(overall["no_side_net_pnl_usdc"], 6),
+        "countable_no_side_net_pnl_usdc": round(
+            overall["countable_no_side_net_pnl_usdc"],
+            6,
+        ),
+        "delta_vs_no_trade_net_pnl_usdc": round(
+            overall["countable_no_side_net_pnl_usdc"],
+            6,
+        ),
+        "reason_counts": dict(sorted(overall["reason_counts"].items())),
     }
-    strategy_groups = defaultdict(list)
-    for row in no_rows:
-        strategy_groups[strategy_id_for_row(row)].append(row)
     out["by_strategy"] = []
-    for strategy_id, group_rows in sorted(strategy_groups.items()):
-        strategy_row = _no_side_campaign_slice_row("by_strategy", strategy_id, group_rows)
+    for strategy_id, stats in sorted(strategy_groups.items()):
+        strategy_row = _no_side_slice_from_stats("by_strategy", strategy_id, stats)
         pnl_row = by_strategy_payload.get(strategy_id) or {}
         market_top = maybe_float(pnl_row.get("market_benchmark_market_top_net_pnl_usdc"))
         strategy_net = maybe_float(pnl_row.get("net_pnl_usdc"))
         strategy_row.update({
             "strategy_id": strategy_id,
-            "strategy_family": (group_rows[0] if group_rows else {}).get("strategy_family") or "unknown",
+            "strategy_family": stats["strategy_family"],
             "strategy_market_top_net_pnl_usdc": compact_float(market_top),
             "strategy_delta_vs_market_top_net_pnl_usdc": compact_float(
                 strategy_net - market_top
@@ -450,17 +622,10 @@ def no_side_campaign_summary(rows, pnl_payload=None, *, include_slices=True):
         })
         out["by_strategy"].append(strategy_row)
     if include_slices:
-        dimensions = {
-            "by_market": lambda row: row.get("market_id") or "unknown",
-            "by_hour": _capture_hour_bucket,
-        }
-        for name, key_func in dimensions.items():
-            groups = defaultdict(list)
-            for row in no_rows:
-                groups[key_func(row)].append(row)
+        for name, groups in (("by_market", market_groups), ("by_hour", hour_groups)):
             out[name] = [
-                _no_side_campaign_slice_row(name, key, group_rows)
-                for key, group_rows in sorted(groups.items(), key=lambda item: str(item[0]))
+                _no_side_slice_from_stats(name, key, stats)
+                for key, stats in sorted(groups.items(), key=lambda item: str(item[0]))
             ]
     return out
 
@@ -470,41 +635,68 @@ def model_variant_id_for_row(row):
 
 
 def model_variant_strategy_bakeoff(rows, *, alpha=0.05, min_settled_would_buy=5):
-    rows = list(rows or [])
-    groups = defaultdict(list)
-    for row in rows:
-        groups[(model_variant_id_for_row(row), strategy_id_for_row(row))].append(row)
+    groups = defaultdict(lambda: {
+        "model_variant_family": "unknown",
+        "model_variant_role": "shadow",
+        "strategy_family": "unknown",
+        "row_count": 0,
+        "would_buy_count": 0,
+        "settled_would_buy_count": 0,
+        "win_count": 0,
+        "loss_count": 0,
+        "spent_usdc": 0.0,
+        "net_pnl_usdc": 0.0,
+        "after_fee_count": 0,
+        "after_slippage_count": 0,
+    })
+    for row in rows or []:
+        bucket = groups[(model_variant_id_for_row(row), strategy_id_for_row(row))]
+        if bucket["row_count"] == 0:
+            bucket["model_variant_family"] = row.get("model_variant_family") or "unknown"
+            bucket["model_variant_role"] = row.get("model_variant_role") or "shadow"
+            bucket["strategy_family"] = row.get("strategy_family") or "unknown"
+        bucket["row_count"] += 1
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            continue
+        bucket["would_buy_count"] += 1
+        bucket["spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
+        net = maybe_float(row.get("net_pnl_usdc"))
+        if net is not None:
+            bucket["net_pnl_usdc"] += net
+        bucket["after_fee_count"] += int(
+            bool_value(row.get("after_fee_pnl_scored"), False)
+            or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+        )
+        bucket["after_slippage_count"] += int(
+            bool_value(row.get("after_slippage_pnl_scored"), False)
+            or row.get("executable_depth_model_version") not in (None, "")
+        )
+        if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES:
+            bucket["settled_would_buy_count"] += 1
+            outcome = maybe_float(row.get("settlement_outcome"))
+            bucket["win_count"] += int(outcome == 1.0)
+            bucket["loss_count"] += int(outcome == 0.0)
     pair_rows = []
     served_by_strategy = {}
-    for (variant_id, strategy_id), group_rows in sorted(groups.items()):
-        would_buy = [row for row in group_rows if str(row.get("order_status") or "").upper() == "FILLED"]
-        settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
-        net = sum_field([row for row in would_buy if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc")
-        spent = sum_field(would_buy, "total_spent_usdc")
+    for (variant_id, strategy_id), bucket in sorted(groups.items()):
+        net = round(bucket["net_pnl_usdc"], 6)
+        spent = round(bucket["spent_usdc"], 6)
         row = {
             "model_variant_id": variant_id,
-            "model_variant_family": (group_rows[0] if group_rows else {}).get("model_variant_family") or "unknown",
-            "model_variant_role": (group_rows[0] if group_rows else {}).get("model_variant_role") or "shadow",
+            "model_variant_family": bucket["model_variant_family"],
+            "model_variant_role": bucket["model_variant_role"],
             "strategy_id": strategy_id,
-            "strategy_family": (group_rows[0] if group_rows else {}).get("strategy_family") or "unknown",
-            "row_count": len(group_rows),
-            "would_buy_count": len(would_buy),
-            "settled_would_buy_count": len(settled),
-            "win_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 1.0),
-            "loss_count": sum(1 for row in settled if maybe_float(row.get("settlement_outcome")) == 0.0),
+            "strategy_family": bucket["strategy_family"],
+            "row_count": bucket["row_count"],
+            "would_buy_count": bucket["would_buy_count"],
+            "settled_would_buy_count": bucket["settled_would_buy_count"],
+            "win_count": bucket["win_count"],
+            "loss_count": bucket["loss_count"],
             "spent_usdc": spent,
             "net_pnl_usdc": net,
             "roi": compact_float(net / spent if spent > 0 else None),
-            "after_fee_count": sum(
-                1 for row in would_buy
-                if bool_value(row.get("after_fee_pnl_scored"), False)
-                or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
-            ),
-            "after_slippage_count": sum(
-                1 for row in would_buy
-                if bool_value(row.get("after_slippage_pnl_scored"), False)
-                or row.get("executable_depth_model_version") not in (None, "")
-            ),
+            "after_fee_count": bucket["after_fee_count"],
+            "after_slippage_count": bucket["after_slippage_count"],
         }
         if variant_id == "served_current":
             served_by_strategy[strategy_id] = row
@@ -582,28 +774,56 @@ def clustered_taker_promotion_statistics(
     min_independent_target_days=3,
     min_independent_markets=2,
 ):
-    rows = list(rows or [])
-    groups = defaultdict(list)
-    for row in rows:
-        groups[(model_variant_id_for_row(row), strategy_id_for_row(row))].append(row)
+    groups = defaultdict(lambda: {
+        "would_buy_count": 0,
+        "settled_would_buy_count": 0,
+        "unresolved_would_buy_count": 0,
+        "after_fee_count": 0,
+        "after_slippage_count": 0,
+        "clusters": defaultdict(lambda: {
+            "settled_would_buy_count": 0,
+            "spent_usdc": 0.0,
+            "net_pnl_usdc": 0.0,
+        }),
+    })
+    for row in rows or []:
+        bucket = groups[(model_variant_id_for_row(row), strategy_id_for_row(row))]
+        if str(row.get("order_status") or "").upper() != "FILLED":
+            continue
+        bucket["would_buy_count"] += 1
+        bucket["after_fee_count"] += int(
+            bool_value(row.get("after_fee_pnl_scored"), False)
+            or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
+        )
+        bucket["after_slippage_count"] += int(
+            bool_value(row.get("after_slippage_pnl_scored"), False)
+            or row.get("executable_depth_model_version") not in (None, "")
+        )
+        if row.get("pnl_source") not in SETTLEMENT_PNL_SOURCES:
+            bucket["unresolved_would_buy_count"] += 1
+            continue
+        bucket["settled_would_buy_count"] += 1
+        cluster = bucket["clusters"][(
+            row.get("target_date") or "",
+            row.get("market_id") or "",
+        )]
+        cluster["settled_would_buy_count"] += 1
+        cluster["spent_usdc"] += maybe_float(row.get("total_spent_usdc")) or 0.0
+        net = maybe_float(row.get("net_pnl_usdc"))
+        if net is not None:
+            cluster["net_pnl_usdc"] += net
     comparison_count = sum(1 for key in groups if key[0] != "served_current") or max(1, len(groups))
     adjusted_alpha = float(alpha) / comparison_count if comparison_count else float(alpha)
     result_rows = []
-    for (variant_id, strategy_id), group_rows in sorted(groups.items()):
-        would_buy = [row for row in group_rows if str(row.get("order_status") or "").upper() == "FILLED"]
-        settled = [row for row in would_buy if row.get("pnl_source") in SETTLEMENT_PNL_SOURCES]
-        unresolved = [row for row in would_buy if row.get("pnl_source") not in SETTLEMENT_PNL_SOURCES]
-        cluster_buckets = defaultdict(list)
-        for row in settled:
-            cluster_buckets[(row.get("target_date") or "", row.get("market_id") or "")].append(row)
+    for (variant_id, strategy_id), bucket in sorted(groups.items()):
         cluster_rows = []
-        for (target_date, market_id), bucket in sorted(cluster_buckets.items()):
-            spent = sum_field(bucket, "total_spent_usdc")
-            net = sum_field([row for row in bucket if row.get("net_pnl_usdc") not in (None, "")], "net_pnl_usdc")
+        for (target_date, market_id), cluster in sorted(bucket["clusters"].items()):
+            spent = round(cluster["spent_usdc"], 6)
+            net = round(cluster["net_pnl_usdc"], 6)
             cluster_rows.append({
                 "target_date": target_date,
                 "market_id": market_id,
-                "settled_would_buy_count": len(bucket),
+                "settled_would_buy_count": cluster["settled_would_buy_count"],
                 "spent_usdc": spent,
                 "net_pnl_usdc": net,
                 "roi": compact_float(net / spent if spent > 0 else None),
@@ -613,26 +833,18 @@ def clustered_taker_promotion_statistics(
         net_stats = _cluster_stats([row["net_pnl_usdc"] for row in cluster_rows], alpha=adjusted_alpha)
         spent_total = sum(row["spent_usdc"] for row in cluster_rows)
         net_total = sum(row["net_pnl_usdc"] for row in cluster_rows)
-        after_fee_count = sum(
-            1 for row in would_buy
-            if bool_value(row.get("after_fee_pnl_scored"), False)
-            or row.get("pnl_fee_basis") in {"after_fee", "fees_included", "net_after_fee"}
-        )
-        after_slippage_count = sum(
-            1 for row in would_buy
-            if bool_value(row.get("after_slippage_pnl_scored"), False)
-            or row.get("executable_depth_model_version") not in (None, "")
-        )
+        after_fee_count = bucket["after_fee_count"]
+        after_slippage_count = bucket["after_slippage_count"]
         failed = []
         if len(target_days) < int(min_independent_target_days):
             failed.append("min_independent_target_days")
         if len(markets) < int(min_independent_markets):
             failed.append("min_independent_markets")
-        if unresolved:
+        if bucket["unresolved_would_buy_count"]:
             failed.append("complete_settlement_required")
-        if would_buy and after_fee_count < len(would_buy):
+        if bucket["would_buy_count"] and after_fee_count < bucket["would_buy_count"]:
             failed.append("after_fee_pnl_scored")
-        if would_buy and after_slippage_count < len(would_buy):
+        if bucket["would_buy_count"] and after_slippage_count < bucket["would_buy_count"]:
             failed.append("after_slippage_pnl_scored")
         if (maybe_float(net_stats.get("mean_lower")) or 0.0) <= 0:
             failed.append("positive_cluster_mean_pnl_lower_bound")
@@ -645,15 +857,21 @@ def clustered_taker_promotion_statistics(
             "cluster_count": len(cluster_rows),
             "independent_target_day_count": len(target_days),
             "independent_market_count": len(markets),
-            "would_buy_count": len(would_buy),
-            "settled_would_buy_count": len(settled),
-            "unresolved_would_buy_count": len(unresolved),
+            "would_buy_count": bucket["would_buy_count"],
+            "settled_would_buy_count": bucket["settled_would_buy_count"],
+            "unresolved_would_buy_count": bucket["unresolved_would_buy_count"],
             "spent_usdc": compact_float(spent_total),
             "net_pnl_usdc": compact_float(net_total),
             "roi": compact_float(net_total / spent_total if spent_total > 0 else None),
             "cluster_net_pnl": net_stats,
-            "after_fee_pnl_scored": bool(would_buy and after_fee_count == len(would_buy)),
-            "after_slippage_pnl_scored": bool(would_buy and after_slippage_count == len(would_buy)),
+            "after_fee_pnl_scored": bool(
+                bucket["would_buy_count"]
+                and after_fee_count == bucket["would_buy_count"]
+            ),
+            "after_slippage_pnl_scored": bool(
+                bucket["would_buy_count"]
+                and after_slippage_count == bucket["would_buy_count"]
+            ),
             "clusters": cluster_rows,
         })
     pass_rows = [row for row in result_rows if row.get("status") == "PASS"]
@@ -702,7 +920,7 @@ def cumulative_drawdown_usdc(rows):
     return round(drawdown, 6)
 
 
-def source_mark_sign_flip_count(source_rows, scored_rows, strategy_id):
+def source_mark_index(source_rows):
     source_marks = {}
     for row in source_rows or []:
         if str(row.get("order_status") or "").upper() != "FILLED":
@@ -712,8 +930,28 @@ def source_mark_sign_flip_count(source_rows, scored_rows, strategy_id):
             mark = maybe_float(row.get("net_pnl_usdc"))
         if mark is not None:
             source_marks[replay_input_key(row)] = mark
+    return source_marks
+
+
+def source_mark_sign_flip_count(
+    source_rows,
+    scored_rows,
+    strategy_id,
+    *,
+    source_marks=None,
+    filled_rows=None,
+):
+    source_marks = (
+        source_mark_index(source_rows)
+        if source_marks is None
+        else source_marks
+    )
     count = 0
-    for row in strategy_filled_rows(scored_rows, strategy_id):
+    for row in (
+        strategy_filled_rows(scored_rows, strategy_id)
+        if filled_rows is None
+        else filled_rows
+    ):
         mark = source_marks.get(replay_input_key(row))
         settled = maybe_float(first_present(row, "settlement_pnl_usdc", "net_pnl_usdc"))
         if mark is not None and settled is not None and mark * settled < 0:
@@ -721,8 +959,12 @@ def source_mark_sign_flip_count(source_rows, scored_rows, strategy_id):
     return count
 
 
-def strategy_concentration_summary(rows, strategy_id):
-    filled = strategy_filled_rows(rows, strategy_id)
+def strategy_concentration_summary(rows, strategy_id, *, filled_rows=None):
+    filled = (
+        strategy_filled_rows(rows, strategy_id)
+        if filled_rows is None
+        else filled_rows
+    )
     by_market = defaultdict(float)
     by_token = defaultdict(float)
     by_cluster = defaultdict(float)
@@ -774,15 +1016,18 @@ def taker_settlement_label_complete(row):
 
 def label_summary_for_target(labels_csv, target_date):
     target = ensure_date(target_date).isoformat()
-    rows = [
-        row for row in read_csv_rows(labels_csv, attach_diagnostics=True)
-        if row.get("target_date") == target
-    ]
-    quality_counts = Counter(row.get("quality_grade") or "unknown" for row in rows)
-    settlement_complete_rows = sum(1 for row in rows if taker_settlement_label_complete(row))
+    label_rows = 0
+    settlement_complete_rows = 0
+    quality_counts = Counter()
+    for row in iter_csv_rows(labels_csv, attach_diagnostics=True):
+        if row.get("target_date") != target:
+            continue
+        label_rows += 1
+        quality_counts[row.get("quality_grade") or "unknown"] += 1
+        settlement_complete_rows += int(taker_settlement_label_complete(row))
     return {
         "target_date": target,
-        "label_rows": len(rows),
+        "label_rows": label_rows,
         "complete_rows": settlement_complete_rows,
         "settlement_complete_rows": settlement_complete_rows,
         "snapshot_quality_complete_rows": quality_counts.get("complete", 0),
@@ -803,9 +1048,15 @@ def strategy_gate_for_bakeoff(
     max_repeated_opinion_count=0,
     max_tail_fill_fraction=DEFAULT_PROMOTION_MAX_TAIL_FILL_FRACTION,
     require_real_no_book_for_two_sided=True,
+    source_marks=None,
+    strategy_fills=None,
 ):
     strategy_id = strategy_row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID
-    filled = strategy_filled_rows(scored_rows, strategy_id)
+    filled = (
+        strategy_filled_rows(scored_rows, strategy_id)
+        if strategy_fills is None
+        else strategy_fills
+    )
     settled = int(strategy_row.get("settled_order_count") or 0)
     settled_markets = int(strategy_row.get("settled_market_count") or 0)
     unsettled = int(strategy_row.get("unsettled_order_count") or 0)
@@ -818,8 +1069,18 @@ def strategy_gate_for_bakeoff(
     after_fee_scored = bool_value(strategy_row.get("after_fee_pnl_scored"), False)
     after_slippage_scored = bool_value(strategy_row.get("after_slippage_pnl_scored"), False)
     drawdown = cumulative_drawdown_usdc(filled)
-    sign_flips = source_mark_sign_flip_count(source_rows, scored_rows, strategy_id)
-    concentration = strategy_concentration_summary(scored_rows, strategy_id)
+    sign_flips = source_mark_sign_flip_count(
+        source_rows,
+        scored_rows,
+        strategy_id,
+        source_marks=source_marks,
+        filled_rows=filled,
+    )
+    concentration = strategy_concentration_summary(
+        scored_rows,
+        strategy_id,
+        filled_rows=filled,
+    )
     top_market_share = maybe_float(concentration.get("top_market_spend_share")) or 0.0
     repeated_opinions = int(concentration.get("repeated_opinion_count") or 0)
     settlement_expected = maybe_float(strategy_row.get("settlement_scored_expected_pnl_usdc")) or 0.0
@@ -1135,7 +1396,7 @@ def render_bakeoff_report(payload):
     return "\n".join(lines)
 
 
-def run_taker_strategy_bakeoff(
+def _run_taker_strategy_bakeoff_impl(
     run_folder,
     labels_csv=DEFAULT_LABELS_CSV,
     strategies=DEFAULT_BAKEOFF_STRATEGIES,
@@ -1152,25 +1413,34 @@ def run_taker_strategy_bakeoff(
     exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    stream_tapes=True,
+    aggregation=None,
 ):
     now = utc_now(now)
     run_folder = Path(run_folder)
     labels_csv = Path(labels_csv)
     input_orders_path = run_folder / "orders_long.csv"
-    source_rows = read_order_rows(input_orders_path)
-    replay_inputs = replay_input_rows_from_orders(source_rows)
+    if aggregation is not None:
+        aggregation.ingest_order_tape(input_orders_path)
+        source_rows = aggregation.order_rows
+        replay_inputs = aggregation.replay_inputs
+        first_source_row = source_rows.first() or {}
+    else:
+        source_rows = read_order_rows(input_orders_path)
+        replay_inputs = replay_input_rows_from_orders(source_rows)
+        first_source_row = source_rows[0] if source_rows else {}
     run_config = read_json(run_folder / "run_config.json", {}) or {}
-    source_summary = read_json(run_folder / "run_summary.json", {}) or {}
+    source_summary = _read_bakeoff_source_summary(run_folder / "run_summary.json")
     target = ensure_date(
         run_config.get("target_date")
         or source_summary.get("target_date")
-        or (source_rows[0].get("target_date") if source_rows else None)
+        or first_source_row.get("target_date")
         or run_folder.parent.name
     )
     source_run_id = (
         run_config.get("run_id")
         or source_summary.get("run_id")
-        or (source_rows[0].get("run_id") if source_rows else None)
+        or first_source_row.get("run_id")
         or run_folder.name
     )
     base_config = {
@@ -1210,37 +1480,96 @@ def run_taker_strategy_bakeoff(
     strategy_ids = [row["strategy_id"] for row in strategy_specs]
     experiment_id = experiment_id or default_experiment_id(target, strategy_ids)
     bakeoff_run_id = f"{source_run_id}-bakeoff"
-    replay_ticks = replay_input_ticks(replay_inputs)
-    generated_rows = []
-    budget_ledger = []
-    for strategy in strategy_specs:
-        strategy_existing_fills = []
-        for tick_rows in replay_ticks:
-            rows, ledger = apply_taker_budget(
-                tick_rows,
-                strategy_existing_fills,
-                strategy.get("budget_usdc") or budget,
-                bakeoff_run_id,
-                target,
-                now,
-                strategy["config"],
-                strategy=strategy,
-                experiment_id=experiment_id,
-            )
-            strategy_existing_fills.extend(
-                row for row in rows
-                if str(row.get("order_status") or "").upper() == "FILLED"
-            )
-            generated_rows.extend(rows)
-            budget_ledger.extend(ledger)
     labels = load_settlement_labels(labels_csv)
-    for row in generated_rows:
-        row.update({
-            "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
-            "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
-            "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
-        })
-    scored_rows, score_summary = score_orders_against_labels(generated_rows, labels)
+    if aggregation is not None:
+        replay_tick_count = sum(1 for _rows in replay_inputs.iter_ticks())
+        scored_rows = aggregation.scored_rows
+        budget_ledger = aggregation.budget_ledger
+        generated_order_row_count = 0
+        matched_filled_orders = 0
+        unmatched_filled_orders = 0
+        for strategy_order, strategy in enumerate(strategy_specs):
+            strategy_existing_fills = []
+            for tick_order, tick_rows in enumerate(replay_inputs.iter_ticks()):
+                rows, ledger = apply_taker_budget(
+                    tick_rows,
+                    strategy_existing_fills,
+                    strategy.get("budget_usdc") or budget,
+                    bakeoff_run_id,
+                    target,
+                    now,
+                    strategy["config"],
+                    strategy=strategy,
+                    experiment_id=experiment_id,
+                )
+                strategy_existing_fills.extend(
+                    row for row in rows
+                    if str(row.get("order_status") or "").upper() == "FILLED"
+                )
+                for row in rows:
+                    row.update({
+                        "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+                        "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
+                        "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
+                    })
+                scored_tick, tick_score_summary = score_orders_against_labels(rows, labels)
+                scored_rows.extend(
+                    scored_tick,
+                    strategy_order=strategy_order,
+                    tick_order=tick_order,
+                )
+                budget_ledger.extend(
+                    ledger,
+                    strategy_order=strategy_order,
+                    tick_order=tick_order,
+                )
+                generated_order_row_count += len(rows)
+                matched_filled_orders += int(
+                    tick_score_summary.get("matched_filled_orders") or 0
+                )
+                unmatched_filled_orders += int(
+                    tick_score_summary.get("unmatched_filled_orders") or 0
+                )
+            del strategy_existing_fills
+        aggregation.commit()
+        score_summary = {
+            "matched_filled_orders": matched_filled_orders,
+            "unmatched_filled_orders": unmatched_filled_orders,
+            "label_count": len(labels.get("by_event_slug", {})),
+        }
+    else:
+        replay_ticks = replay_input_ticks(replay_inputs)
+        replay_tick_count = len(replay_ticks)
+        generated_rows = []
+        budget_ledger = []
+        for strategy in strategy_specs:
+            strategy_existing_fills = []
+            for tick_rows in replay_ticks:
+                rows, ledger = apply_taker_budget(
+                    tick_rows,
+                    strategy_existing_fills,
+                    strategy.get("budget_usdc") or budget,
+                    bakeoff_run_id,
+                    target,
+                    now,
+                    strategy["config"],
+                    strategy=strategy,
+                    experiment_id=experiment_id,
+                )
+                strategy_existing_fills.extend(
+                    row for row in rows
+                    if str(row.get("order_status") or "").upper() == "FILLED"
+                )
+                generated_rows.extend(rows)
+                budget_ledger.extend(ledger)
+        for row in generated_rows:
+            row.update({
+                "exchange_economics_snapshot_id": exchange_fields.get("exchange_economics_snapshot_id"),
+                "exchange_economics_hash": exchange_fields.get("exchange_economics_hash"),
+                "exchange_economics_evidence_basis": exchange_fields.get("exchange_economics_evidence_basis"),
+            })
+        scored_rows, score_summary = score_orders_against_labels(generated_rows, labels)
+        generated_order_row_count = len(generated_rows)
     total_budget_usdc = sum(float(item.get("budget_usdc") or budget) for item in strategy_specs)
     pnl_payload = build_pnl_payload(
         scored_rows,
@@ -1265,6 +1594,11 @@ def run_taker_strategy_bakeoff(
             **exchange_fields,
         })
     label_summary = label_summary_for_target(labels_csv, target)
+    source_marks = source_mark_index(source_rows)
+    filled_by_strategy = defaultdict(list)
+    for scored_row in scored_rows:
+        if str(scored_row.get("order_status") or "").upper() == "FILLED":
+            filled_by_strategy[strategy_id_for_row(scored_row)].append(scored_row)
     promotion_gates = [
         strategy_gate_for_bakeoff(
             row,
@@ -1290,6 +1624,8 @@ def run_taker_strategy_bakeoff(
                 "two_sided_real_no_book_required_for_promotion",
                 True,
             ),
+            source_marks=source_marks,
+            strategy_fills=filled_by_strategy.get(strategy_id_for_row(row), []),
         )
         for row in pnl_payload.get("by_strategy") or []
     ]
@@ -1458,8 +1794,8 @@ def run_taker_strategy_bakeoff(
             "strategy_count": len(strategy_specs),
             "source_order_rows": len(source_rows),
             "replay_input_rows": len(replay_inputs),
-            "replay_tick_count": len(replay_ticks),
-            "generated_order_rows": len(generated_rows),
+            "replay_tick_count": replay_tick_count,
+            "generated_order_rows": generated_order_row_count,
             "scored_order_rows": len(scored_rows),
             "exchange_economics_gate_status": exchange_gate.get("status"),
             **exchange_fields,
@@ -1476,10 +1812,68 @@ def run_taker_strategy_bakeoff(
         "disk_capacity_preflight": disk_preflight,
         "blockers": blockers,
     }
+    write_text_atomic(out_report, render_bakeoff_report(payload))
     write_json(out_json, payload)
-    out_report.parent.mkdir(parents=True, exist_ok=True)
-    out_report.write_text(render_bakeoff_report(payload), encoding="utf-8")
+    write_bakeoff_ledger_projection(out_json, payload)
     return payload
+
+
+def run_taker_strategy_bakeoff(
+    run_folder,
+    labels_csv=DEFAULT_LABELS_CSV,
+    strategies=DEFAULT_BAKEOFF_STRATEGIES,
+    budget_usdc=None,
+    out_json=None,
+    out_report=None,
+    now=None,
+    experiment_id=None,
+    config=None,
+    min_settled_orders=DEFAULT_BAKEOFF_MIN_SETTLED_ORDERS,
+    max_drawdown_usdc=DEFAULT_BAKEOFF_MAX_DRAWDOWN_USDC,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
+    stream_tapes=True,
+    materialize_output_rows=True,
+):
+    """Run one bakeoff while owning and deterministically releasing scratch."""
+
+    aggregation = TakerRunAggregation() if stream_tapes else None
+    try:
+        payload = _run_taker_strategy_bakeoff_impl(
+            run_folder,
+            labels_csv=labels_csv,
+            strategies=strategies,
+            budget_usdc=budget_usdc,
+            out_json=out_json,
+            out_report=out_report,
+            now=now,
+            experiment_id=experiment_id,
+            config=config,
+            min_settled_orders=min_settled_orders,
+            max_drawdown_usdc=max_drawdown_usdc,
+            min_free_bytes=min_free_bytes,
+            disk_usage_fn=disk_usage_fn,
+            exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+            exchange_economics_platform=exchange_economics_platform,
+            exchange_economics_required=exchange_economics_required,
+            stream_tapes=stream_tapes,
+            aggregation=aggregation,
+        )
+        if aggregation is None:
+            return payload
+        if materialize_output_rows:
+            return aggregation.materialize(payload)
+        return DeferredTakerPayload(payload, aggregation)
+    except BaseException:
+        if aggregation is not None:
+            aggregation.close()
+        raise
+    finally:
+        if aggregation is not None and materialize_output_rows:
+            aggregation.close()
 
 
 def _bakeoff_mtime_utc(path):
@@ -1494,12 +1888,25 @@ def bakeoff_needs_refresh(run_folder, labels_csv=DEFAULT_LABELS_CSV, out_json=No
     out_json = Path(out_json) if out_json else run_folder / "strategy_bakeoff.json"
     if not out_json.exists():
         return True
-    payload = read_json(out_json, {}) or {}
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != STRATEGY_BAKEOFF_SCHEMA_VERSION
-    ):
-        return True
+    projection = load_bakeoff_ledger_projection(
+        out_json,
+        expected_bakeoff_schema_version=STRATEGY_BAKEOFF_SCHEMA_VERSION,
+    )
+    if projection is None:
+        try:
+            legacy_size = out_json.stat().st_size
+        except OSError:
+            return True
+        # Small pre-projection artifacts remain compatible. Large historical
+        # artifacts must be rebuilt once so all watchdog consumers stay
+        # bounded instead of decoding the canonical JSON into Python objects.
+        if legacy_size > DEFAULT_PROJECTION_MAX_BYTES:
+            return True
+        if (
+            read_pretty_json_top_level_schema_version(out_json)
+            != STRATEGY_BAKEOFF_SCHEMA_VERSION
+        ):
+            return True
     bakeoff_mtime = _bakeoff_mtime_utc(out_json)
     cutoff = max(
         (
@@ -1525,6 +1932,9 @@ def ensure_taker_strategy_bakeoff(
     exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    stream_tapes=True,
+    materialize_output_rows=True,
+    include_payload=True,
 ):
     run_folder = Path(run_folder)
     out_json = run_folder / "strategy_bakeoff.json"
@@ -1533,7 +1943,7 @@ def ensure_taker_strategy_bakeoff(
             "action": "fresh",
             "strategy_bakeoff_path": str(out_json),
             "strategy_bakeoff_report_path": str(run_folder / "strategy_bakeoff.md"),
-            "payload": read_json(out_json, {}) or {},
+            "payload": (read_json(out_json, {}) or {}) if include_payload else None,
         }
     payload = run_taker_strategy_bakeoff(
         run_folder,
@@ -1547,7 +1957,14 @@ def ensure_taker_strategy_bakeoff(
         exchange_economics_snapshot_path=exchange_economics_snapshot_path,
         exchange_economics_platform=exchange_economics_platform,
         exchange_economics_required=exchange_economics_required,
+        stream_tapes=stream_tapes,
+        materialize_output_rows=materialize_output_rows,
     )
+    if not include_payload:
+        close_payload = getattr(payload, "close", None)
+        if close_payload:
+            close_payload()
+        payload = None
     return {
         "action": "created",
         "strategy_bakeoff_path": str(out_json),
@@ -1587,6 +2004,24 @@ def _strategy_gate_map(payload):
     }
 
 
+def _load_bakeoff_ledger_payload(path):
+    """Load only the compact ledger projection for large bakeoff artifacts."""
+
+    path = Path(path)
+    projection = load_bakeoff_ledger_projection(
+        path,
+        expected_bakeoff_schema_version=STRATEGY_BAKEOFF_SCHEMA_VERSION,
+    )
+    if projection is not None:
+        return projection
+    try:
+        if path.stat().st_size > DEFAULT_PROJECTION_MAX_BYTES:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
+
+
 def build_champion_challenger_ledger(
     *,
     runs_root=DEFAULT_RUNS_ROOT,
@@ -1602,7 +2037,7 @@ def build_champion_challenger_ledger(
     rows_by_strategy = {}
     runs = []
     for path in paths:
-        payload = read_json(path, {}) or {}
+        payload = _load_bakeoff_ledger_payload(path)
         if not payload:
             continue
         complete_day = _bakeoff_complete_label_day(payload)

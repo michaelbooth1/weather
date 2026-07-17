@@ -429,8 +429,7 @@ def worker_tape_columns_from_rows(
     fails closed through ``worker_tape_summary_fields``.
     """
 
-    materialized = rows if isinstance(rows, list) else list(rows)
-    lineage = worker_tape_summary_fields(materialized)
+    lineage = worker_tape_summary_fields(rows)
     columns = list(base_columns)
     if lineage.get("release_id"):
         columns.extend(field for field in LINEAGE_FIELDS if field not in columns)
@@ -537,27 +536,44 @@ def worker_tape_summary_fields(
 ) -> dict[str, Any]:
     """Recover one singular lineage from a persisted worker tape."""
 
-    rows = list(rows)
     required_fields = set(LINEAGE_FIELDS)
-    presence = [_present_lineage_fields(row) for row in rows]
-    partial = [
-        index
-        for index, fields in enumerate(presence, start=1)
-        if fields and fields != required_fields
-    ]
+    partial: list[int] = []
+    saw_row = False
+    saw_complete_lineage = False
+    saw_legacy_row = False
+    identity: tuple[str, ...] | None = None
+    mixed_identities = False
+    for index, row in enumerate(rows, start=1):
+        saw_row = True
+        fields = _present_lineage_fields(row)
+        if fields and fields != required_fields:
+            if len(partial) < 10:
+                partial.append(index)
+            continue
+        if not fields:
+            saw_legacy_row = True
+            continue
+        saw_complete_lineage = True
+        row_identity = tuple(
+            _lineage_identity_value(field, row.get(field))
+            for field in LINEAGE_FIELDS
+        )
+        if identity is None:
+            identity = row_identity
+        elif row_identity != identity:
+            mixed_identities = True
+
     if partial:
         raise WorkerReleaseBindingError(
             "worker tape contains incomplete release lineage at rows "
-            f"{partial[:10]}; refusing summary recovery"
+            f"{partial}; refusing summary recovery"
         )
-    if any(fields == required_fields for fields in presence) and any(
-        not fields for fields in presence
-    ):
+    if saw_complete_lineage and saw_legacy_row:
         raise WorkerReleaseBindingError(
             "worker tape mixes legacy no-lineage rows with stamped release lineage; "
             "refusing summary recovery"
         )
-    if not rows or all(not fields for fields in presence):
+    if not saw_row or saw_legacy_row:
         lineage = {
             field: "" if field != "release_sequence" else None
             for field in LINEAGE_FIELDS
@@ -570,19 +586,12 @@ def worker_tape_summary_fields(
         )
         return {**lineage, "release_identity": dict(lineage)}
 
-    identities = {
-        tuple(
-            _lineage_identity_value(field, row.get(field))
-            for field in LINEAGE_FIELDS
-        )
-        for row in rows
-    }
-    if len(identities) > 1:
+    if mixed_identities:
         raise WorkerReleaseBindingError(
             "worker tape contains mixed release identities; refusing summary recovery"
         )
-    values = next(iter(identities))
-    lineage = dict(zip(LINEAGE_FIELDS, values))
+    assert identity is not None
+    lineage = dict(zip(LINEAGE_FIELDS, identity))
     bound_value = _lineage_bool(lineage["base_model_release_bound"])
     if bound_value is None:
         raise WorkerReleaseBindingError(

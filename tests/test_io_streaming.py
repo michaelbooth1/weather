@@ -9,7 +9,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from weather.io import iter_csv_rows, read_csv_rows
+from weather.io import (
+    iter_csv_rows,
+    read_csv_rows,
+    read_pretty_json_top_level_values,
+)
 
 
 def _write_csv(path: Path, row_count: int, *, encoding: str = "utf-8") -> None:
@@ -67,6 +71,59 @@ class TestIterCsvRows(unittest.TestCase):
             large_peak = peak_during_full_iteration(large)
             # A materializing reader scales peak ~50x here; streaming must not.
             self.assertLess(large_peak, small_peak * 5)
+
+    def test_pretty_json_top_level_values_skip_large_nested_payload(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "large.json"
+            with path.open("wb") as handle:
+                handle.write(b"{\n")
+                handle.write(b'  "pnl": {\n')
+                handle.write(b'    "huge": "' + (b"x" * (2 * 1024 * 1024)) + b'"\n')
+                handle.write(b"  },\n")
+                handle.write(b'  "run_id": "run-1",\n')
+                handle.write(b'  "summary": {\n')
+                handle.write(b'    "budget_usdc": 100.0,\n')
+                handle.write(b'    "cumulative_filled_orders": 2\n')
+                handle.write(b"  },\n")
+                handle.write(b'  "target_date": "2026-07-14"\n')
+                handle.write(b"}\n")
+
+            tracemalloc.start()
+            values = read_pretty_json_top_level_values(
+                path,
+                ("run_id", "summary", "target_date"),
+                max_line_bytes=64 * 1024,
+            )
+            _current, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+
+            self.assertEqual(values, {
+                "run_id": "run-1",
+                "summary": {
+                    "budget_usdc": 100.0,
+                    "cumulative_filled_orders": 2,
+                },
+                "target_date": "2026-07-14",
+            })
+            self.assertLess(peak, 512 * 1024)
+
+    def test_pretty_json_top_level_values_omit_oversized_selected_scalar(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "selected-too-large.json"
+            path.write_text(
+                '{\n  "run_id": "' + ("x" * 128) + '"\n}\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                read_pretty_json_top_level_values(
+                    path,
+                    ("run_id",),
+                    max_line_bytes=1_024,
+                    max_value_bytes=32,
+                ),
+                {},
+            )
 
 
 if __name__ == "__main__":
