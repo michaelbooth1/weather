@@ -725,6 +725,62 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertTrue(authorized["authorized"])
         self.assertEqual(authorized["reason"], "exact_managed_process_confirmed")
 
+    def test_managed_stop_expected_command_adopts_pythonw_sibling_from_status(self):
+        canonical = ["C:/venv/Scripts/python.exe", "-m", "weather.example", "--loop", "--interval", "10"]
+        recorded = ["C:/venv/Scripts/pythonw.exe", "-m", "weather.example", "--loop", "--interval", "10"]
+        status = {
+            "pid": 123,
+            "managed_process": {"pid": 123, "expected_command": list(recorded)},
+        }
+
+        self.assertEqual(
+            supervisor.managed_stop_expected_command(status, canonical),
+            recorded,
+        )
+        # The adopted expectation authorizes the recorded pythonw worker.
+        identity = {
+            "pid": 123,
+            "expected_command": list(recorded),
+            "creation_time_token": "win32-filetime:100",
+        }
+        authorized = supervisor.authorize_managed_process_termination(
+            {"pid": 123, "managed_process": identity},
+            {"exists": False},
+            supervisor.managed_stop_expected_command(status, canonical),
+            observe_fn=lambda _pid: {
+                "state": "running",
+                "pid": 123,
+                "argv": list(recorded),
+                "command_line": "managed command",
+                "creation_time_token": "win32-filetime:100",
+                "inspectable": True,
+            },
+        )
+        self.assertTrue(authorized["authorized"])
+
+    def test_managed_stop_expected_command_falls_back_to_canonical_on_any_other_difference(self):
+        canonical = ["C:/venv/Scripts/python.exe", "-m", "weather.example", "--loop", "--interval", "10"]
+        cases = {
+            "different_module": ["C:/venv/Scripts/pythonw.exe", "-m", "weather.other", "--loop", "--interval", "10"],
+            "different_args": ["C:/venv/Scripts/pythonw.exe", "-m", "weather.example", "--loop", "--interval", "60"],
+            "different_directory": ["C:/otherenv/Scripts/pythonw.exe", "-m", "weather.example", "--loop", "--interval", "10"],
+            "non_python_executable": ["C:/venv/Scripts/other.exe", "-m", "weather.example", "--loop", "--interval", "10"],
+            "different_length": ["C:/venv/Scripts/pythonw.exe", "-m", "weather.example", "--loop"],
+        }
+        for label, recorded in cases.items():
+            with self.subTest(label):
+                status = {"managed_process": {"expected_command": recorded}}
+                self.assertEqual(
+                    supervisor.managed_stop_expected_command(status, canonical),
+                    canonical,
+                )
+        self.assertEqual(
+            supervisor.managed_stop_expected_command(None, canonical), canonical
+        )
+        self.assertEqual(
+            supervisor.managed_stop_expected_command({}, canonical), canonical
+        )
+
     def test_managed_command_comparison_keeps_non_executable_arguments_case_sensitive(self):
         expected = [
             "C:/Python/python.exe",

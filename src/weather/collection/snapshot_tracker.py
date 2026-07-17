@@ -49,6 +49,7 @@ from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
     authorize_managed_process_termination,
+    managed_stop_expected_command,
     authorize_writer_lock_removal,
     age_minutes,
     append_jsonl,
@@ -742,7 +743,10 @@ def stop_loop(now=None):
     status = read_loop_status()
     pid = (status or {}).get("pid")
     writer_lock = read_writer_lock(LOOP_STATUS_PATH)
-    expected_command = _snapshot_loop_command((status or {}).get("interval_minutes", 10.0))
+    expected_command = managed_stop_expected_command(
+        status,
+        _snapshot_loop_command((status or {}).get("interval_minutes", 10.0)),
+    )
     authorization = authorize_managed_process_termination(
         status,
         writer_lock,

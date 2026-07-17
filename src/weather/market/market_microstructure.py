@@ -30,6 +30,7 @@ from weather.operations.supervisor import (
     acquire_file_lock,
     acquire_writer_lock,
     authorize_managed_process_termination,
+    managed_stop_expected_command,
     authorize_writer_lock_removal,
     age_seconds as supervisor_age_seconds,
     append_jsonl,
@@ -989,7 +990,10 @@ def stop_clob_loop(now=None):
     status = read_clob_loop_status()
     pid = (status or {}).get("pid")
     writer_lock = read_writer_lock(CLOB_LOOP_STATUS_PATH)
-    expected_command = _clob_loop_command_from_status(status)
+    expected_command = managed_stop_expected_command(
+        status,
+        _clob_loop_command_from_status(status),
+    )
     authorization = authorize_managed_process_termination(
         status,
         writer_lock,

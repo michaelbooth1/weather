@@ -1068,6 +1068,44 @@ def capture_managed_process_identity(
     return identity
 
 
+def managed_stop_expected_command(
+    status: object,
+    canonical_command: Sequence[object],
+) -> list[str]:
+    """Expected argv for stop/restart authorization of a managed worker.
+
+    Scheduled supervisors launch workers with the venv ``pythonw.exe``, while
+    operator stop verbs usually run under the console ``python.exe``;
+    ``sys.executable``-built expectations therefore carry an argv[0] the exact
+    matcher rightly refuses (2026-07-17 training window: all three loops
+    survived their stop verbs and retrain never started). Adopt the recorded
+    ``managed_process.expected_command`` only when it differs from the
+    canonical command by a same-directory python/pythonw sibling interpreter
+    and matches every other argument exactly; any other difference falls back
+    to the canonical command, which fails closed downstream.
+    """
+
+    canonical = [str(value) for value in canonical_command]
+    identity = (status or {}).get("managed_process") if isinstance(status, dict) else None
+    recorded = identity.get("expected_command") if isinstance(identity, dict) else None
+    if not recorded:
+        return canonical
+    recorded = [str(value) for value in recorded]
+    if len(recorded) != len(canonical) or recorded[1:] != canonical[1:]:
+        return canonical
+    siblings = {"python.exe", "pythonw.exe"}
+    recorded_path = Path(recorded[0].strip().strip('"'))
+    canonical_path = Path(canonical[0].strip().strip('"'))
+    if (
+        recorded_path.name.lower() in siblings
+        and canonical_path.name.lower() in siblings
+        and _normalized_executable(recorded_path.parent)
+        == _normalized_executable(canonical_path.parent)
+    ):
+        return recorded
+    return canonical
+
+
 def _managed_identity_matches_expected(
     identity: object,
     *,

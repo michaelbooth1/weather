@@ -44,6 +44,7 @@ from weather.operations.supervisor import (
     acquire_file_lock,
     acquire_writer_lock,
     authorize_managed_process_termination,
+    managed_stop_expected_command,
     authorize_writer_lock_removal,
     age_seconds as supervisor_age_seconds,
     append_jsonl as supervisor_append_jsonl,
@@ -838,10 +839,13 @@ def stop_watcher_loop(now=None, status_path=None):
     status = read_status(status_path)
     pid = (status or {}).get("pid")
     writer_lock = read_writer_lock(status_path)
-    expected_command = _watcher_loop_command(
-        (status or {}).get("market", "all"),
-        (status or {}).get("interval_seconds", DEFAULT_INTERVAL_SECONDS),
-        (status or {}).get("stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
+    expected_command = managed_stop_expected_command(
+        status,
+        _watcher_loop_command(
+            (status or {}).get("market", "all"),
+            (status or {}).get("interval_seconds", DEFAULT_INTERVAL_SECONDS),
+            (status or {}).get("stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
+        ),
     )
     authorization = authorize_managed_process_termination(
         status,
