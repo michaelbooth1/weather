@@ -1,13 +1,13 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
 from weather.market.taker_bot_strategy_registry import *  # noqa: F403
-from weather.io import write_json_atomic
+from weather.io import iter_csv_rows, write_json_streaming_atomic
 
 # The extracted functions below intentionally resolve globals from the
 # previous slice to preserve the original module namespace.
 
 def write_json(path, payload):
-    return str(write_json_atomic(path, payload, trailing_newline=True))
+    return str(write_json_streaming_atomic(path, payload, trailing_newline=True))
 
 
 def tape_integrity_summary(path, expected_rows, row_kind):
@@ -28,11 +28,15 @@ def tape_integrity_summary(path, expected_rows, row_kind):
     }
 
 
+def iter_order_rows(path):
+    """Yield normalized taker tape rows without retaining the complete CSV."""
+
+    for row in iter_csv_rows(path, attach_diagnostics=True):
+        yield normalize_order_strategy_fields(row)
+
+
 def read_order_rows(path):
-    return [
-        normalize_order_strategy_fields(row)
-        for row in read_csv_rows(path, attach_diagnostics=True)
-    ]
+    return list(iter_order_rows(path))
 
 
 def order_key(payload):

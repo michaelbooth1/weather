@@ -1,5 +1,6 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
+from weather.io import iter_csv_rows
 from weather.market.taker_bot_sizing import *  # noqa: F403
 from weather.market.taker_bot_two_sided import NO_SIDE, order_side
 
@@ -71,7 +72,7 @@ def load_settlement_labels(labels_csv=DEFAULT_LABELS_CSV):
         "by_event_slug": {},
         "by_market_date": {},
     }
-    for row in read_csv_rows(labels_csv, attach_diagnostics=True):
+    for row in iter_csv_rows(labels_csv, attach_diagnostics=True):
         event_slug = row.get("event_slug") or ""
         market_id = row.get("market_id") or ""
         target_date = row.get("target_date") or ""
@@ -443,7 +444,184 @@ def _benchmark_one_share_net(row, policy_config):
     return outcome - price - taker_fee_per_share(price, config)
 
 
+def _market_benchmark_scoreboard_spilled(order_rows, policy_config=None):
+    """Fold SQLite-backed rows by benchmark slice without retaining groups."""
+
+    strategy = defaultdict(lambda: {
+        "strategy_id": "",
+        "opportunity_count": 0,
+        "settled_opportunity_count": 0,
+        "market_smarter_slice_count": 0,
+        "model_beats_market_count": 0,
+        "model_beats_no_trade_count": 0,
+        "traded_pnl_usdc": 0.0,
+        "model_top_net_pnl_usdc": 0.0,
+        "market_top_net_pnl_usdc": 0.0,
+        "no_trade_net_pnl_usdc": 0.0,
+        "avoided_loss_usdc": 0.0,
+        "missed_gain_usdc": 0.0,
+    })
+    slices = order_rows.new_sibling_store("benchmark_slices")
+    summary = {
+        "opportunity_count": 0,
+        "market_smarter_slice_count": 0,
+        "no_trade_recommendation_count": 0,
+        "traded_pnl_usdc": 0.0,
+        "avoided_loss_usdc": 0.0,
+        "missed_gain_usdc": 0.0,
+    }
+
+    current_key = None
+    current = None
+
+    def finish_group(key, bucket):
+        if key is None or bucket is None:
+            return
+        strategy_id, target_date, market_id, snapshot_id = key
+        model_top = bucket["model_top"]
+        market_top = bucket["market_top"]
+        model_net = _benchmark_one_share_net(model_top, policy_config)
+        market_net = _benchmark_one_share_net(market_top, policy_config)
+        market_smarter = bool(
+            market_net is not None
+            and model_net is not None
+            and market_net > model_net
+        )
+        model_beats_no_trade = bool(model_net is not None and model_net >= 0.0)
+        recommendation = (
+            "no_trade_market_smarter"
+            if market_smarter
+            else "no_trade_model_negative"
+            if not model_beats_no_trade
+            else "allow"
+        )
+        item = {
+            "strategy_id": strategy_id,
+            "target_date": target_date,
+            "market_id": market_id,
+            "snapshot_id": snapshot_id,
+            "model_top_range_label": model_top.get("range_label"),
+            "market_top_range_label": market_top.get("range_label"),
+            "traded_fill_count": bucket["traded_fill_count"],
+            "model_top_net_pnl_usdc": compact_float(model_net),
+            "market_top_net_pnl_usdc": compact_float(market_net),
+            "traded_pnl_usdc": compact_float(bucket["traded_pnl_usdc"]),
+            "no_trade_net_pnl_usdc": 0.0,
+            "avoided_loss_usdc": compact_float(bucket["avoided_loss_usdc"]),
+            "missed_gain_usdc": compact_float(bucket["missed_gain_usdc"]),
+            "market_smarter": market_smarter,
+            "model_beats_no_trade": model_beats_no_trade,
+            "recommendation": recommendation,
+        }
+        slices.append(item)
+        aggregate = strategy[strategy_id]
+        aggregate["strategy_id"] = strategy_id
+        aggregate["opportunity_count"] += 1
+        aggregate["settled_opportunity_count"] += int(bucket["scored"])
+        aggregate["market_smarter_slice_count"] += int(market_smarter)
+        aggregate["model_beats_market_count"] += int(not market_smarter)
+        aggregate["model_beats_no_trade_count"] += int(model_beats_no_trade)
+        aggregate["traded_pnl_usdc"] += bucket["traded_pnl_usdc"]
+        aggregate["model_top_net_pnl_usdc"] += model_net or 0.0
+        aggregate["market_top_net_pnl_usdc"] += market_net or 0.0
+        aggregate["avoided_loss_usdc"] += bucket["avoided_loss_usdc"]
+        aggregate["missed_gain_usdc"] += bucket["missed_gain_usdc"]
+        summary["opportunity_count"] += 1
+        summary["market_smarter_slice_count"] += int(market_smarter)
+        summary["no_trade_recommendation_count"] += int(recommendation != "allow")
+        summary["traded_pnl_usdc"] += maybe_float(item["traded_pnl_usdc"]) or 0.0
+        summary["avoided_loss_usdc"] += maybe_float(item["avoided_loss_usdc"]) or 0.0
+        summary["missed_gain_usdc"] += maybe_float(item["missed_gain_usdc"]) or 0.0
+
+    for key, row in order_rows.iter_benchmark_rows():
+        if current_key != key:
+            finish_group(current_key, current)
+            current_key = key
+            current = {
+                "model_top": None,
+                "model_top_key": None,
+                "market_top": None,
+                "market_top_key": None,
+                "scored": False,
+                "traded_fill_count": 0,
+                "traded_pnl_usdc": 0.0,
+                "avoided_loss_usdc": 0.0,
+                "missed_gain_usdc": 0.0,
+            }
+        model_key = (
+            maybe_float(first_present(row, "fair_probability", "model_probability"))
+            or -1.0
+        )
+        market_key = (
+            maybe_float(first_present(row, "best_ask", "clob_best_ask", "market_mid"))
+            or -1.0
+        )
+        if current["model_top"] is None or model_key > current["model_top_key"]:
+            current["model_top"] = row
+            current["model_top_key"] = model_key
+        if current["market_top"] is None or market_key > current["market_top_key"]:
+            current["market_top"] = row
+            current["market_top_key"] = market_key
+        current["scored"] = current["scored"] or maybe_float(
+            row.get("settlement_outcome")
+        ) is not None
+        if str(row.get("order_status") or "").upper() == "FILLED":
+            current["traded_fill_count"] += 1
+            current["traded_pnl_usdc"] += maybe_float(row.get("net_pnl_usdc")) or 0.0
+            continue
+        hypothetical = _benchmark_one_share_net(row, policy_config)
+        if hypothetical is None:
+            continue
+        if hypothetical < 0:
+            current["avoided_loss_usdc"] += abs(hypothetical)
+        elif hypothetical > 0:
+            current["missed_gain_usdc"] += hypothetical
+    finish_group(current_key, current)
+    slices.connection.commit()
+
+    strategy_rows = []
+    for key, value in sorted(strategy.items()):
+        status = (
+            "BLOCK_MARKET_SMARTER"
+            if value["market_smarter_slice_count"] > 0
+            else "PASS"
+        )
+        strategy_rows.append({
+            **value,
+            "status": status,
+            "traded_pnl_usdc": round(value["traded_pnl_usdc"], 6),
+            "model_top_net_pnl_usdc": round(value["model_top_net_pnl_usdc"], 6),
+            "market_top_net_pnl_usdc": round(value["market_top_net_pnl_usdc"], 6),
+            "no_trade_net_pnl_usdc": 0.0,
+            "avoided_loss_usdc": round(value["avoided_loss_usdc"], 6),
+            "missed_gain_usdc": round(value["missed_gain_usdc"], 6),
+            "recommendations": slices.view(
+                where_sql="strategy_id = ? AND recommendation != ?",
+                parameters=(key, "allow"),
+            ),
+        })
+    return {
+        "schema_version": "taker_market_benchmark_scoreboard_v0.1",
+        "summary": {
+            "strategy_count": len(strategy_rows),
+            "opportunity_count": summary["opportunity_count"],
+            "market_smarter_slice_count": summary["market_smarter_slice_count"],
+            "no_trade_recommendation_count": summary["no_trade_recommendation_count"],
+            "traded_pnl_usdc": round(summary["traded_pnl_usdc"], 6),
+            "avoided_loss_usdc": round(summary["avoided_loss_usdc"], 6),
+            "missed_gain_usdc": round(summary["missed_gain_usdc"], 6),
+        },
+        "by_strategy": strategy_rows,
+        "slices": slices,
+    }
+
+
 def market_benchmark_scoreboard(order_rows, policy_config=None):
+    if hasattr(order_rows, "iter_benchmark_rows"):
+        return _market_benchmark_scoreboard_spilled(
+            order_rows,
+            policy_config=policy_config,
+        )
     groups = defaultdict(list)
     for row in order_rows or []:
         groups[(

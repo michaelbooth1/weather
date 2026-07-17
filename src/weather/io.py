@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -126,6 +127,97 @@ def read_json(path: str | Path, default=None):
         return default
 
 
+_PRETTY_TOP_LEVEL_FIELD = re.compile(
+    rb'^  (?P<key>"(?:\\.|[^"\\])*")\s*:\s*(?P<value>.*?)(?:\r?\n)?$'
+)
+
+
+def read_pretty_json_top_level_values(
+    path: str | Path,
+    fields: Iterable[str],
+    *,
+    max_line_bytes: int = 64 * 1024,
+    max_value_bytes: int = 16 * 1024 * 1024,
+) -> dict[str, Any]:
+    """Read selected root values from canonical pretty JSON with bounded RAM.
+
+    Unselected arrays and objects are scanned a physical line at a time and
+    never decoded. Selected values are capped independently; an oversized or
+    malformed selected value is omitted instead of triggering a whole-file
+    fallback. Repository JSON writers use two-space indentation, which makes
+    root fields distinguishable from nested fields without building a JSON
+    object for the rest of the artifact.
+    """
+
+    wanted = {str(field) for field in fields}
+    if not wanted:
+        return {}
+    if max_line_bytes <= 0 or max_value_bytes <= 0:
+        raise ValueError("pretty JSON read limits must be positive")
+    result: dict[str, Any] = {}
+    capture_key: str | None = None
+    capture = bytearray()
+    capture_valid = True
+
+    def finish_capture() -> None:
+        nonlocal capture_key, capture, capture_valid
+        if capture_key is not None and capture_valid:
+            raw = bytes(capture).strip()
+            if raw.endswith(b","):
+                raw = raw[:-1].rstrip()
+            try:
+                value = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+            else:
+                result[capture_key] = value
+        capture_key = None
+        capture = bytearray()
+        capture_valid = True
+
+    try:
+        with Path(path).open("rb") as handle:
+            while True:
+                line = handle.readline(max_line_bytes + 1)
+                if not line:
+                    finish_capture()
+                    break
+                oversized = len(line) > max_line_bytes
+                if oversized:
+                    fragment = line
+                    while fragment and not fragment.endswith((b"\n", b"\r")):
+                        fragment = handle.readline(max_line_bytes + 1)
+                    if capture_key is not None:
+                        capture_valid = False
+                    continue
+                if line.startswith(b"}"):
+                    finish_capture()
+                    continue
+                match = _PRETTY_TOP_LEVEL_FIELD.fullmatch(line)
+                if match:
+                    finish_capture()
+                    try:
+                        key = json.loads(match.group("key").decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    if key in wanted:
+                        capture_key = key
+                        raw_value = match.group("value")
+                        if len(raw_value) > max_value_bytes:
+                            capture_valid = False
+                        else:
+                            capture.extend(raw_value)
+                    continue
+                if capture_key is not None:
+                    if len(capture) + len(line) > max_value_bytes:
+                        capture_valid = False
+                    elif capture_valid:
+                        capture.extend(line)
+    except OSError:
+        return {}
+    return result
+
+
 def write_json_atomic(
     path: str | Path,
     payload: Any,
@@ -150,6 +242,120 @@ def write_json_atomic(
             if attempt == retries - 1:
                 raise
             sleep_fn(retry_sleep_seconds)
+    return path
+
+
+def _json_key_text(key: Any) -> str:
+    if isinstance(key, str):
+        return key
+    if key is None:
+        return "null"
+    if key is True:
+        return "true"
+    if key is False:
+        return "false"
+    if isinstance(key, (int, float)):
+        return str(key)
+    raise TypeError(
+        "keys must be str, int, float, bool or None, "
+        f"not {type(key).__name__}"
+    )
+
+
+def _write_json_streaming_value(handle, value: Any, *, level: int) -> None:
+    """Serialize JSON without materializing disk-backed row collections."""
+
+    indent = "  " * level
+    child_indent = "  " * (level + 1)
+    if isinstance(value, dict):
+        if not value:
+            handle.write("{}")
+            return
+        handle.write("{\n")
+        for index, key in enumerate(sorted(value)):
+            if index:
+                handle.write(",\n")
+            handle.write(child_indent)
+            handle.write(json.dumps(_json_key_text(key)))
+            handle.write(": ")
+            _write_json_streaming_value(handle, value[key], level=level + 1)
+        handle.write(f"\n{indent}}}")
+        return
+    is_spilled_array = bool(
+        getattr(value, "is_spilled_rows", False)
+        or getattr(value, "is_spilled_queue_rows", False)
+    )
+    if isinstance(value, (list, tuple)) or is_spilled_array:
+        iterator = iter(value)
+        try:
+            first = next(iterator)
+        except StopIteration:
+            handle.write("[]")
+            return
+        handle.write("[\n")
+        handle.write(child_indent)
+        _write_json_streaming_value(handle, first, level=level + 1)
+        for item in iterator:
+            handle.write(",\n")
+            handle.write(child_indent)
+            _write_json_streaming_value(handle, item, level=level + 1)
+        handle.write(f"\n{indent}]")
+        return
+    encoder = json.JSONEncoder(default=str)
+    for chunk in encoder.iterencode(value):
+        handle.write(chunk)
+
+
+def write_json_streaming_atomic(
+    path: str | Path,
+    payload: Any,
+    *,
+    retries: int = 20,
+    retry_sleep_seconds: float = 0.05,
+    sleep_fn: SleepFn = time.sleep,
+    trailing_newline: bool = False,
+) -> Path:
+    """Atomically stream JSON, including SQLite-backed row-array views."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+            _write_json_streaming_value(handle, payload, level=0)
+            if trailing_newline:
+                handle.write("\n")
+        for attempt in range(retries):
+            try:
+                tmp.replace(path)
+                return path
+            except PermissionError:
+                if attempt == retries - 1:
+                    raise
+                sleep_fn(retry_sleep_seconds)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def write_text_atomic(
+    path: str | Path,
+    text: str,
+    *,
+    encoding: str = "utf-8",
+) -> Path:
+    """Write a text artifact through a same-directory atomic replacement."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp.write_text(text, encoding=encoding)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -639,6 +845,30 @@ def write_csv_rows(path: str | Path, columns: Iterable[str], rows: Iterable[dict
         writer.writeheader()
         for row in rows:
             writer.writerow(normalize_csv_row(row))
+    return path
+
+
+def write_csv_rows_atomic(
+    path: str | Path,
+    columns: Iterable[str],
+    rows: Iterable[dict],
+) -> Path:
+    """Stream a CSV to a sibling temp file, then publish it atomically."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = list(columns)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(normalize_csv_row(row))
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 

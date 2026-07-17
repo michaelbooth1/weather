@@ -475,6 +475,20 @@ RECENT_REGISTERED_SCHEMAS = (
         "Taker model-variant shadow bakeoff report.",
     ),
     SchemaSpec(
+        "taker_strategy_bakeoff_ledger_projection",
+        "taker_strategy_bakeoff_ledger_projection_v0.1",
+        "weather.market.taker_bot_artifact_projection",
+        "active",
+        "Compact content-bound bakeoff fields for finalization and champion/challenger readers.",
+    ),
+    SchemaSpec(
+        "taker_settled_finalization_projection",
+        "taker_settled_finalization_projection_v0.1",
+        "weather.market.taker_bot_artifact_projection",
+        "active",
+        "Compact source-bound finalization state for bounded freshness and profitability checks.",
+    ),
+    SchemaSpec(
         "taker_profitability_artifact_verification_v0_2",
         "taker_profitability_artifact_verification_v0.2",
         "weather.market.taker_bot_bakeoff",

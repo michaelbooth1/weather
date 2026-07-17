@@ -1,10 +1,27 @@
 """Implementation slice extracted from src/weather/market/taker_bot.py."""
 
+import gc
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from weather.market.taker_bot_bakeoff import *  # noqa: F403
+from weather.market.taker_bot_aggregation import (
+    DeferredTakerPayload,
+    TakerRunAggregation,
+)
+from weather.market.taker_bot_artifact_projection import (
+    DEFAULT_PROJECTION_MAX_BYTES,
+    load_bakeoff_ledger_projection,
+    load_settled_finalization_projection,
+    write_settled_finalization_projection,
+)
 from weather.market.worker_release_binding import worker_tape_columns_from_rows
+from weather.io import (
+    read_pretty_json_top_level_values,
+    write_csv_rows_atomic,
+    write_text_atomic,
+)
 from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_capacity_preflight
 
 # The extracted functions below intentionally resolve globals from the
@@ -13,14 +30,118 @@ from weather.operations.bot_run_liveness import DEFAULT_MIN_FREE_BYTES, disk_cap
 DEFAULT_FINALIZATION_SLA_HOURS = 4.0
 DEFAULT_FINALIZATION_RETENTION_DAYS = 14
 DEFAULT_RETENTION_CANDIDATE_MIN_BYTES = 100_000_000
+DEFAULT_STREAMING_SCORE_BATCH_ROWS = 512
 
 
 def write_settled_worker_tape(path, base_columns, rows):
     """Write a settled projection without dropping verified worker lineage."""
 
-    rows = rows if isinstance(rows, list) else list(rows)
+    if not isinstance(rows, (list, tuple)) and not getattr(rows, "is_spilled_rows", False):
+        rows = list(rows)
     columns = worker_tape_columns_from_rows(base_columns, rows)
-    return write_csv_rows(path, columns, rows)
+    return write_csv_rows_atomic(path, columns, rows)
+
+
+def _stream_score_order_tape(
+    path,
+    labels,
+    target_rows,
+    exchange_fields,
+    *,
+    counterfactual=False,
+    batch_rows=DEFAULT_STREAMING_SCORE_BATCH_ROWS,
+):
+    """Score a tape in fixed batches and spill rows in original source order."""
+
+    batch_rows = max(1, int(batch_rows))
+    batch = []
+    matched = 0
+    unmatched = 0
+
+    def flush():
+        nonlocal matched, unmatched
+        if not batch:
+            return
+        scored, score_summary = score_orders_against_labels(batch, labels)
+        _annotate_rows_with_exchange_fields(scored, exchange_fields)
+        if counterfactual:
+            for row in scored:
+                row["counterfactual_pnl_source"] = (
+                    row.get("pnl_source")
+                    or row.get("counterfactual_pnl_source")
+                    or ""
+                )
+        target_rows.extend(scored)
+        matched += int(score_summary.get("matched_filled_orders") or 0)
+        unmatched += int(score_summary.get("unmatched_filled_orders") or 0)
+        batch.clear()
+
+    for row in iter_order_rows(path):
+        batch.append(row)
+        if len(batch) >= batch_rows:
+            flush()
+    flush()
+    target_rows.connection.commit()
+    return {
+        "matched_filled_orders": matched,
+        "unmatched_filled_orders": unmatched,
+        "label_count": len(labels.get("by_event_slug", {})),
+    }
+
+
+def _bounded_bakeoff_gate_payload(path):
+    """Load the compact bakeoff projection, with a small-artifact fallback."""
+
+    path = Path(path)
+    projection = load_bakeoff_ledger_projection(
+        path,
+        expected_bakeoff_schema_version=STRATEGY_BAKEOFF_SCHEMA_VERSION,
+    )
+    if projection is not None:
+        return projection
+    try:
+        if path.stat().st_size > DEFAULT_PROJECTION_MAX_BYTES:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
+
+
+def _read_small_artifact_json(path):
+    """Read only JSON artifacts whose encoded size has a fixed upper bound."""
+
+    path = Path(path)
+    try:
+        if path.stat().st_size > DEFAULT_PROJECTION_MAX_BYTES:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
+
+
+def _read_taker_summary_artifact(path):
+    """Read only finalization metadata from a potentially huge run artifact."""
+
+    path = Path(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    if stat.st_size <= DEFAULT_PROJECTION_MAX_BYTES:
+        return read_json(path, {}) or {}
+    return _read_large_taker_summary_artifact(
+        str(path),
+        int(stat.st_size),
+        int(stat.st_mtime_ns),
+    )
+
+
+@lru_cache(maxsize=128)
+def _read_large_taker_summary_artifact(path, _size_bytes, _mtime_ns):
+    return read_pretty_json_top_level_values(
+        Path(path),
+        ("budget_usdc", "run_id", "summary", "target_date"),
+    )
 
 
 def _exchange_fields_from_run_config(run_config):
@@ -999,7 +1120,13 @@ def _finalized_exchange_economics_refresh_state(
             "current_gate": current_identity,
             "reason": current_gate.get("reason"),
         }
-    payload = read_json(settled_pnl_path, {}) if Path(settled_pnl_path).exists() else {}
+    settled_pnl_path = Path(settled_pnl_path)
+    strategy_summary_path = settled_pnl_path.with_name("settled_strategy_summary.json")
+    payload = load_settled_finalization_projection(settled_pnl_path) or {}
+    if not payload and strategy_summary_path.exists():
+        payload = _read_small_artifact_json(strategy_summary_path)
+    if not payload and settled_pnl_path.exists():
+        payload = _read_small_artifact_json(settled_pnl_path)
     if not payload:
         return {
             "status": "MISSING_FINALIZED_PAYLOAD",
@@ -1051,42 +1178,41 @@ def finalization_state_for_run(
     order_path = run_folder / "orders_long.csv"
     settled_pnl_path = run_folder / "settled_pnl.json"
     settled_report_path = run_folder / "settled_report.md"
-    run_summary = read_json(run_folder / "run_summary.json", {}) or {}
-    daily_pnl = read_json(run_folder / "daily_pnl.json", {}) or {}
+    run_summary = _read_taker_summary_artifact(run_folder / "run_summary.json")
+    daily_pnl = _read_taker_summary_artifact(run_folder / "daily_pnl.json")
     target_date = (
         run_summary.get("target_date")
         or daily_pnl.get("target_date")
         or run_folder.parent.name
     )
     run_id = run_summary.get("run_id") or daily_pnl.get("run_id") or run_folder.name
-    raw_orders = read_order_rows(order_path) if order_path.exists() else []
-    filled_orders = [row for row in raw_orders if str(row.get("order_status") or "").upper() == "FILLED"]
     labels = load_settlement_labels(labels_csv)
     target_label_summary = label_summary_for_target(labels_csv, target_date)
     target_labels_complete = bool(
         int(target_label_summary.get("label_rows") or 0) > 0
         and int(target_label_summary.get("complete_rows") or 0) >= int(target_label_summary.get("label_rows") or 0)
     )
+    filled_order_count = 0
     labelable_count = 0
-    for row in filled_orders:
-        label = settlement_label_for_order(row, labels)
-        if settlement_outcome_for_order(row, label) is not None:
-            labelable_count += 1
     settlement_scoreable_order_count = 0
-    for row in raw_orders:
+    for row in (iter_order_rows(order_path) if order_path.exists() else ()):
         label = settlement_label_for_order(row, labels)
-        if settlement_outcome_for_order(row, label) is not None:
+        scoreable = settlement_outcome_for_order(row, label) is not None
+        if scoreable:
             settlement_scoreable_order_count += 1
+        if str(row.get("order_status") or "").upper() == "FILLED":
+            filled_order_count += 1
+            if scoreable:
+                labelable_count += 1
     counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
-    counterfactual_rows = read_order_rows(counterfactual_path) if counterfactual_path.exists() else []
     settlement_scoreable_counterfactual_count = 0
-    for row in counterfactual_rows:
+    for row in (iter_order_rows(counterfactual_path) if counterfactual_path.exists() else ()):
         label = settlement_label_for_order(row, labels)
         if settlement_outcome_for_order(row, label) is not None:
             settlement_scoreable_counterfactual_count += 1
-    unmatched_filled = max(0, len(filled_orders) - labelable_count)
+    unmatched_filled = max(0, filled_order_count - labelable_count)
     zero_fill_labels_available = bool(
-        not filled_orders
+        not filled_order_count
         and target_labels_complete
         and (settlement_scoreable_order_count > 0 or settlement_scoreable_counterfactual_count > 0)
     )
@@ -1117,7 +1243,7 @@ def finalization_state_for_run(
     elif labels_available and finalization_fresh:
         status = "FINALIZED"
         sla_status = "PASS"
-    elif not filled_orders and not labels_available:
+    elif not filled_order_count and not labels_available:
         status = "NO_FILLED_ORDERS"
         sla_status = "NOT_LABELABLE"
     elif not labels_available:
@@ -1146,7 +1272,7 @@ def finalization_state_for_run(
         "target_label_rows": target_label_summary.get("label_rows"),
         "target_complete_label_rows": target_label_summary.get("complete_rows"),
         "target_labels_complete": target_labels_complete,
-        "filled_order_count": len(filled_orders),
+        "filled_order_count": filled_order_count,
         "labelable_filled_order_count": labelable_count,
         "unmatched_filled_order_count": unmatched_filled,
         "settlement_scoreable_order_count": settlement_scoreable_order_count,
@@ -1228,6 +1354,9 @@ def finalization_watchdog(
                     exchange_economics_snapshot_path=exchange_economics_snapshot_path,
                     exchange_economics_platform=exchange_economics_platform,
                     exchange_economics_required=exchange_economics_required,
+                    stream_tapes=True,
+                    materialize_output_rows=False,
+                    include_payload=False,
                 )
                 bakeoff_action = bakeoff_state.get("action")
                 bakeoff_path = bakeoff_state.get("strategy_bakeoff_path")
@@ -1250,17 +1379,25 @@ def finalization_watchdog(
                     exchange_economics_snapshot_path=exchange_economics_snapshot_path,
                     exchange_economics_platform=exchange_economics_platform,
                     exchange_economics_required=exchange_economics_required,
+                    stream_tapes=True,
+                    materialize_output_rows=False,
                 )
-                finalized.append({
-                    "run_id": payload.get("run_id"),
-                    "target_date": payload.get("target_date"),
-                    "run_folder": payload.get("run_folder"),
-                    "settled_pnl_path": payload.get("settled_pnl_path"),
-                    "settled_report_path": payload.get("settled_report_path"),
-                    "settled_order_count": (payload.get("summary") or {}).get("settled_order_count"),
-                    "unsettled_order_count": (payload.get("summary") or {}).get("unsettled_order_count"),
-                    "net_pnl_usdc": (payload.get("summary") or {}).get("net_pnl_usdc"),
-                })
+                try:
+                    finalized.append({
+                        "run_id": payload.get("run_id"),
+                        "target_date": payload.get("target_date"),
+                        "run_folder": payload.get("run_folder"),
+                        "settled_pnl_path": payload.get("settled_pnl_path"),
+                        "settled_report_path": payload.get("settled_report_path"),
+                        "settled_order_count": (payload.get("summary") or {}).get("settled_order_count"),
+                        "unsettled_order_count": (payload.get("summary") or {}).get("unsettled_order_count"),
+                        "net_pnl_usdc": (payload.get("summary") or {}).get("net_pnl_usdc"),
+                    })
+                finally:
+                    close_payload = getattr(payload, "close", None)
+                    if close_payload:
+                        close_payload()
+                    del payload
                 state = finalization_state_for_run(
                     folder,
                     labels_csv=labels_csv,
@@ -1286,6 +1423,8 @@ def finalization_watchdog(
                 "run_folder": state.get("run_folder"),
             })
         rows.append(state)
+        # Break cycles and return transient row batches before the next run.
+        gc.collect()
     retention = taker_artifact_retention_plan(
         runs_root=ledger_runs_root,
         now=now,
@@ -1608,7 +1747,7 @@ def render_counterfactual_settlement_report(payload):
     return "\n".join(lines)
 
 
-def finalize_counterfactual_tape(
+def _finalize_counterfactual_tape_impl(
     run_folder,
     *,
     labels_csv=DEFAULT_LABELS_CSV,
@@ -1620,6 +1759,7 @@ def finalize_counterfactual_tape(
     exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    aggregation=None,
 ):
     run_folder = Path(run_folder)
     counterfactual_path = run_folder / COUNTERFACTUAL_TAPE_FILENAME
@@ -1640,12 +1780,26 @@ def finalize_counterfactual_tape(
         exchange_economics_required=exchange_economics_required,
     )
     scoring_run_config = _run_config_with_exchange_fields(run_config, exchange_gate, exchange_fields)
-    rows = read_order_rows(counterfactual_path)
     labels = load_settlement_labels(labels_csv)
-    scored_rows, label_summary = score_orders_against_labels(rows, labels)
-    _annotate_rows_with_exchange_fields(scored_rows, exchange_fields)
-    for row in scored_rows:
-        row["counterfactual_pnl_source"] = row.get("pnl_source") or row.get("counterfactual_pnl_source") or ""
+    if aggregation is None:
+        rows = read_order_rows(counterfactual_path)
+        scored_rows, label_summary = score_orders_against_labels(rows, labels)
+        _annotate_rows_with_exchange_fields(scored_rows, exchange_fields)
+        for row in scored_rows:
+            row["counterfactual_pnl_source"] = (
+                row.get("pnl_source")
+                or row.get("counterfactual_pnl_source")
+                or ""
+            )
+    else:
+        scored_rows = aggregation.scored_counterfactual_rows
+        label_summary = _stream_score_order_tape(
+            counterfactual_path,
+            labels,
+            scored_rows,
+            exchange_fields,
+            counterfactual=True,
+        )
     strategy_count = len({strategy_id_for_row(row) for row in scored_rows}) or 1
     pnl_payload = build_pnl_payload(
         scored_rows,
@@ -1736,14 +1890,71 @@ def finalize_counterfactual_tape(
         COUNTERFACTUAL_ORDER_COLUMNS,
         scored_rows,
     )
-    write_json(settled_pnl_path, payload)
     write_json(settled_strategy_summary_path, strategy_summary)
-    settled_report_path.write_text(render_counterfactual_settlement_report(payload), encoding="utf-8")
-    settled_strategy_report_path.write_text(render_strategy_report(strategy_summary), encoding="utf-8")
+    write_text_atomic(
+        settled_report_path,
+        render_counterfactual_settlement_report(payload),
+    )
+    write_text_atomic(
+        settled_strategy_report_path,
+        render_strategy_report(strategy_summary),
+    )
+    # The canonical counterfactual payload is the freshness receipt.
+    write_json(settled_pnl_path, payload)
     return payload
 
 
-def finalize_taker_run(
+def finalize_counterfactual_tape(
+    run_folder,
+    *,
+    labels_csv=DEFAULT_LABELS_CSV,
+    now=None,
+    budget_usdc=0.0,
+    run_id=None,
+    target_date=None,
+    run_config=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
+    stream_tapes=True,
+    materialize_output_rows=True,
+    _aggregation=None,
+):
+    """Finalize one counterfactual tape with bounded, disposable row state."""
+
+    aggregation = _aggregation
+    owns_aggregation = bool(stream_tapes and aggregation is None)
+    if owns_aggregation:
+        aggregation = TakerRunAggregation()
+    try:
+        payload = _finalize_counterfactual_tape_impl(
+            run_folder,
+            labels_csv=labels_csv,
+            now=now,
+            budget_usdc=budget_usdc,
+            run_id=run_id,
+            target_date=target_date,
+            run_config=run_config,
+            exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+            exchange_economics_platform=exchange_economics_platform,
+            exchange_economics_required=exchange_economics_required,
+            aggregation=aggregation if stream_tapes else None,
+        )
+        if not owns_aggregation:
+            return payload
+        if materialize_output_rows:
+            return aggregation.materialize(payload)
+        return DeferredTakerPayload(payload, aggregation)
+    except BaseException:
+        if owns_aggregation:
+            aggregation.close()
+        raise
+    finally:
+        if owns_aggregation and materialize_output_rows:
+            aggregation.close()
+
+
+def _finalize_taker_run_impl(
     run_folder,
     labels_csv=DEFAULT_LABELS_CSV,
     now=None,
@@ -1753,14 +1964,15 @@ def finalize_taker_run(
     exchange_economics_snapshot_path=None,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
+    aggregation=None,
 ):
     run_folder = Path(run_folder)
     order_path = run_folder / "orders_long.csv"
     if not order_path.exists():
         raise FileNotFoundError(f"missing taker orders tape: {order_path}")
     now = utc_now(now)
-    run_summary = read_json(run_folder / "run_summary.json", {}) or {}
-    daily_pnl = read_json(run_folder / "daily_pnl.json", {}) or {}
+    run_summary = _read_taker_summary_artifact(run_folder / "run_summary.json")
+    daily_pnl = _read_taker_summary_artifact(run_folder / "daily_pnl.json")
     target_date = (
         run_summary.get("target_date")
         or daily_pnl.get("target_date")
@@ -1776,9 +1988,6 @@ def finalize_taker_run(
         default=0.0,
     )
 
-    labels = load_settlement_labels(labels_csv)
-    raw_orders = read_order_rows(order_path)
-    scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
     run_config = read_json(run_folder / "run_config.json", {}) or {}
     exchange_gate, exchange_fields = _exchange_fields_for_finalization(
         run_config,
@@ -1789,7 +1998,19 @@ def finalize_taker_run(
         exchange_economics_required=exchange_economics_required,
     )
     scoring_run_config = _run_config_with_exchange_fields(run_config, exchange_gate, exchange_fields)
-    _annotate_rows_with_exchange_fields(scored_orders, exchange_fields)
+    labels = load_settlement_labels(labels_csv)
+    if aggregation is None:
+        raw_orders = read_order_rows(order_path)
+        scored_orders, label_summary = score_orders_against_labels(raw_orders, labels)
+        _annotate_rows_with_exchange_fields(scored_orders, exchange_fields)
+    else:
+        scored_orders = aggregation.scored_rows
+        label_summary = _stream_score_order_tape(
+            order_path,
+            labels,
+            scored_orders,
+            exchange_fields,
+        )
     pnl_payload = build_pnl_payload(
         scored_orders,
         budget_usdc,
@@ -1823,7 +2044,7 @@ def finalize_taker_run(
         target_date=target_date,
         now=now,
     )
-    bakeoff = read_json(run_folder / "strategy_bakeoff.json", {}) or {}
+    bakeoff = _bounded_bakeoff_gate_payload(run_folder / "strategy_bakeoff.json")
     counterfactual = finalize_counterfactual_tape(
         run_folder,
         labels_csv=labels_csv,
@@ -1835,6 +2056,9 @@ def finalize_taker_run(
         exchange_economics_snapshot_path=exchange_economics_snapshot_path,
         exchange_economics_platform=exchange_economics_platform,
         exchange_economics_required=exchange_economics_required,
+        stream_tapes=aggregation is not None,
+        materialize_output_rows=False,
+        _aggregation=aggregation,
     )
     next_gate = next_run_policy_gate(strategy_summary, run_config=scoring_run_config, bakeoff=bakeoff)
     final_summary = {
@@ -1935,11 +2159,58 @@ def finalize_taker_run(
         "warnings": reconciliation.get("warnings") or [],
     }
     write_settled_worker_tape(settled_orders_path, ORDER_COLUMNS, scored_orders)
-    write_json(settled_pnl_path, payload)
     write_json(settled_strategy_summary_path, strategy_summary)
-    settled_report_path.write_text(render_settlement_report(payload), encoding="utf-8")
-    settled_strategy_report_path.write_text(render_strategy_report(strategy_summary), encoding="utf-8")
+    write_text_atomic(settled_report_path, render_settlement_report(payload))
+    write_text_atomic(
+        settled_strategy_report_path,
+        render_strategy_report(strategy_summary),
+    )
+    # Publish the canonical payload before its stat-bound compact projection.
+    write_json(settled_pnl_path, payload)
+    write_settled_finalization_projection(settled_pnl_path, payload)
     return payload
+
+
+def finalize_taker_run(
+    run_folder,
+    labels_csv=DEFAULT_LABELS_CSV,
+    now=None,
+    *,
+    min_free_bytes=DEFAULT_MIN_FREE_BYTES,
+    disk_usage_fn=None,
+    exchange_economics_snapshot_path=None,
+    exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
+    exchange_economics_required=None,
+    stream_tapes=True,
+    materialize_output_rows=True,
+):
+    """Finalize one run while retaining at most one fixed scoring batch in RAM."""
+
+    aggregation = TakerRunAggregation() if stream_tapes else None
+    try:
+        payload = _finalize_taker_run_impl(
+            run_folder,
+            labels_csv=labels_csv,
+            now=now,
+            min_free_bytes=min_free_bytes,
+            disk_usage_fn=disk_usage_fn,
+            exchange_economics_snapshot_path=exchange_economics_snapshot_path,
+            exchange_economics_platform=exchange_economics_platform,
+            exchange_economics_required=exchange_economics_required,
+            aggregation=aggregation,
+        )
+        if aggregation is None:
+            return payload
+        if materialize_output_rows:
+            return aggregation.materialize(payload)
+        return DeferredTakerPayload(payload, aggregation)
+    except BaseException:
+        if aggregation is not None:
+            aggregation.close()
+        raise
+    finally:
+        if aggregation is not None and materialize_output_rows:
+            aggregation.close()
 
 
 def taker_run_folders(runs_root=DEFAULT_RUNS_ROOT, target_date=None):
