@@ -6,10 +6,14 @@ These instructions apply to `scripts/ops/`.
   names, default cadences, actions, required arguments, working directories,
   and recovery settings. Read the complete script and its `param(...)` block
   before changing or invoking it.
-- Do not publish an argument-free registration command when the script has
-  mandatory evidence, artifact, route, or production-readiness parameters.
-  `register_daily_refresh.ps1` and `register_nightly_retrain.ps1` currently
-  require such inputs.
+- Do not publish a bare registration command when the script has mandatory
+  evidence, artifact, route, or production-readiness parameters. The default
+  `Full` parameter sets for `register_daily_refresh.ps1` and
+  `register_nightly_retrain.ps1` require such inputs. Daily refresh has one
+  explicit transitional exception: `-ProvenanceOnly` registers both wrapper
+  tasks with scheduler provenance and release arguments while deliberately
+  omitting the production-evidence contract. Never describe that mode as FULL
+  evidence or production readiness.
 - Canonical scripts live here. Files directly under `scripts/` are compatibility
   shims unless another owning document says otherwise.
 - Registration scripts assume the repository root, its `venv`, and Windows
@@ -36,11 +40,14 @@ Do not leave both topologies enabled for the same workload. Preserve the
 training window's `finally` restoration and independent restore task when
 modifying it.
 
-Producer provenance follows the chosen topology. Direct daily/nightly actions
-pass `scheduler-invocation-topology=direct`. The training window is a scheduled
-PowerShell wrapper whose Python nightly process is a `delegated_child`; both
-registration and the wrapper must build the parent action tokens through
-`training_window_contract.ps1`. Missing or mismatched action tokens, task
+Producer provenance follows the chosen topology. The direct nightly action
+passes `scheduler-invocation-topology=direct`. The daily-refresh tasks and
+training window are scheduled PowerShell wrappers whose Python processes are
+`delegated_child`. Daily registration and its wrapper must build the same
+task-specific tokens through `daily_refresh_contract.ps1`; the training-window
+pair uses `training_window_contract.ps1`. Both reuse the shared scheduled-task
+argument string and base64 token-contract converters. Missing or mismatched
+action tokens, task
 identity, child executable, working directory, running state, or run-time
 correlation must remain non-countable. Direct and delegated provenance both
 observe the current PID, OS image, complete command line, current working
