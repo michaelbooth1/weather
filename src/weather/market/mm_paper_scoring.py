@@ -412,16 +412,116 @@ def quote_id(row, index):
     return f"quote_{digest}"
 
 
-def load_quote_rows(run_folders, eligibility_by_folder=None, quote_filename="quote_intents_long.csv"):
+def _capture_explicit_input_binding(path, *, content_hash=False):
+    path = Path(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return {"filename": path.name, "exists": False}
+    binding = {
+        "filename": path.name,
+        "exists": True,
+        "size_bytes": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+    if content_hash:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        after = path.stat()
+        if stat.st_size != after.st_size or stat.st_mtime_ns != after.st_mtime_ns:
+            raise RuntimeError(f"maker scoring input changed while hashing: {path}")
+        binding["sha256"] = digest.hexdigest()
+    return binding
+
+
+def _validated_explicit_input_binding(path, expected_binding=None):
+    path = Path(path)
+    expected = dict(expected_binding or {})
+    content_hash = bool(expected.get("sha256"))
+    actual = _capture_explicit_input_binding(path, content_hash=content_hash)
+    if not expected:
+        if not actual["exists"]:
+            raise FileNotFoundError(path)
+        return actual
+    expected_exists = expected.get("exists")
+    if type(expected_exists) is not bool:
+        raise ValueError(f"invalid maker scoring input binding for {path}")
+    if not expected_exists:
+        if actual["exists"]:
+            raise RuntimeError(f"unexpected maker scoring input appeared: {path}")
+        return actual
+    if not actual["exists"]:
+        raise FileNotFoundError(path)
+    if expected.get("filename") not in (None, path.name):
+        raise RuntimeError(f"maker scoring input filename binding mismatch: {path}")
+    for field in ("size_bytes", "mtime_ns"):
+        if type(expected.get(field)) is not int or expected[field] != actual[field]:
+            raise RuntimeError(
+                f"maker scoring input {field} binding mismatch: {path}"
+            )
+    if content_hash:
+        expected_hash = expected.get("sha256")
+        if (
+            not isinstance(expected_hash, str)
+            or len(expected_hash) != 64
+            or expected_hash != actual.get("sha256")
+        ):
+            raise RuntimeError(f"maker scoring input hash binding mismatch: {path}")
+    return actual
+
+
+def load_quote_rows(
+    run_folders,
+    eligibility_by_folder=None,
+    quote_filename="quote_intents_long.csv",
+    input_paths_by_folder=None,
+    input_bindings_by_folder=None,
+):
     rows = []
     run_configs = {}
     eligibility_by_folder = eligibility_by_folder or {}
+    if input_bindings_by_folder is not None and input_paths_by_folder is None:
+        raise ValueError("maker scoring input bindings require explicit input paths")
+    if input_paths_by_folder is not None:
+        input_paths_by_folder = {
+            str(Path(folder)): Path(path)
+            for folder, path in input_paths_by_folder.items()
+        }
+    if input_bindings_by_folder is not None:
+        input_bindings_by_folder = {
+            str(Path(folder)): dict(binding)
+            for folder, binding in input_bindings_by_folder.items()
+        }
     for folder in run_folders:
         folder = Path(folder)
         run_config = read_json(folder / "run_config.json", {}) or {}
         run_configs[str(folder)] = run_config
         eligibility = eligibility_by_folder.get(str(folder)) or run_folder_eligibility(folder)
-        for index, row in enumerate(iter_csv_rows(folder / quote_filename)):
+        if input_paths_by_folder is None:
+            quote_path = folder / quote_filename
+            expected_binding = None
+            admitted_binding = None
+        else:
+            try:
+                quote_path = input_paths_by_folder[str(folder)]
+            except KeyError as exc:
+                raise ValueError(f"missing explicit maker scoring input path for {folder}") from exc
+            if input_bindings_by_folder is None:
+                expected_binding = None
+            else:
+                try:
+                    expected_binding = input_bindings_by_folder[str(folder)]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"missing explicit maker scoring input binding for {folder}"
+                    ) from exc
+            admitted_binding = _validated_explicit_input_binding(
+                quote_path,
+                expected_binding,
+            )
+        for index, row in enumerate(iter_csv_rows(quote_path)):
             row = dict(row)
             row["_run_folder"] = str(folder)
             row["_quote_row_index"] = index
@@ -430,14 +530,26 @@ def load_quote_rows(run_folders, eligibility_by_folder=None, quote_filename="quo
             row["_run_schema_version"] = eligibility.get("schema_version")
             row["_run_live_forward_gate_counts"] = eligibility.get("live_forward_gate_counts", True)
             rows.append(row)
+        if input_paths_by_folder is not None:
+            _validated_explicit_input_binding(
+                quote_path,
+                expected_binding or admitted_binding,
+            )
     return rows, run_configs
 
 
-def load_model_variant_quote_rows(run_folders, eligibility_by_folder=None):
+def load_model_variant_quote_rows(
+    run_folders,
+    eligibility_by_folder=None,
+    input_paths_by_folder=None,
+    input_bindings_by_folder=None,
+):
     return load_quote_rows(
         run_folders,
         eligibility_by_folder=eligibility_by_folder,
         quote_filename="model_variant_quote_intents_long.csv",
+        input_paths_by_folder=input_paths_by_folder,
+        input_bindings_by_folder=input_bindings_by_folder,
     )
 
 

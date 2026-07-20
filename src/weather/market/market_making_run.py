@@ -114,6 +114,7 @@ from weather.market.market_making_model_variants import (
     build_model_variant_quote_rows,
     render_model_variant_report,
 )
+from weather.market.mm_scoring_projection import write_run_scoring_projections
 from weather.market.live_observation_normalization import (
     current_high_probability_summary,
     normalized_high_for_market,
@@ -1819,6 +1820,27 @@ def build_run_once(
     return payload
 
 
+def finalize_scoring_projection(payload):
+    if not payload:
+        return payload
+    try:
+        receipt = {
+            "status": "PASS",
+            **write_run_scoring_projections(payload["run_folder"]),
+        }
+    except Exception as exc:
+        receipt = {
+            "status": "ERROR",
+            "run_folder": payload.get("run_folder"),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    payload["scoring_projection"] = receipt
+    payload["scoring_projection_manifest_path"] = receipt.get("manifest_path")
+    payload["scoring_projection_paths"] = receipt.get("input_paths") or {}
+    write_json(Path(payload["run_folder"]) / "run_summary.json", payload)
+    return payload
+
+
 def paper_until_utc(target_date, specs):
     target = ensure_date(target_date)
     ends = [
@@ -1866,7 +1888,7 @@ def run_loop(
             if max_ticks is not None and tick >= int(max_ticks):
                 break
             time.sleep(float(interval_seconds))
-    return results[-1] if results else None
+    return finalize_scoring_projection(results[-1]) if results else None
 
 
 def format_run_cli_summary(payload):
@@ -1944,12 +1966,14 @@ def main(argv=None):
             **common,
         )
     else:
-        payload = build_run_once(
-            args.date,
-            args.budget_usdc,
-            mode=mode,
-            now=args.now,
-            **common,
+        payload = finalize_scoring_projection(
+            build_run_once(
+                args.date,
+                args.budget_usdc,
+                mode=mode,
+                now=args.now,
+                **common,
+            )
         )
     if payload is None:
         print("MM run: no ticks executed")

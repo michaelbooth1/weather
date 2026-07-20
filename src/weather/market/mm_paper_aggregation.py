@@ -595,6 +595,8 @@ class MakerPaperRunAggregation:
         config: dict[str, Any],
         include_model_variants: bool,
         include_fill_simulation: bool,
+        scoring_input_paths_by_folder: dict[str, dict[str, str]] | None = None,
+        scoring_input_bindings_by_folder: dict[str, dict[str, dict[str, Any]]] | None = None,
     ) -> None:
         self._scratch = (
             tempfile.TemporaryDirectory(prefix="weather-maker-paper-")
@@ -610,6 +612,28 @@ class MakerPaperRunAggregation:
         self.connection.execute("PRAGMA cache_size=-2048")
         self.config = dict(config)
         self.include_model_variants = bool(include_model_variants and include_fill_simulation)
+        self.scoring_input_paths_by_folder = (
+            None
+            if scoring_input_paths_by_folder is None
+            else {
+                str(Path(folder)): {
+                    str(kind): Path(path)
+                    for kind, path in paths.items()
+                }
+                for folder, paths in scoring_input_paths_by_folder.items()
+            }
+        )
+        self.scoring_input_bindings_by_folder = (
+            None
+            if scoring_input_bindings_by_folder is None
+            else {
+                str(Path(folder)): {
+                    str(kind): dict(binding)
+                    for kind, binding in bindings.items()
+                }
+                for folder, bindings in scoring_input_bindings_by_folder.items()
+            }
+        )
         self.quote_rows = SpilledRows(self.connection, "base_quotes")
         self.legs = SpilledRows(self.connection, "base_legs")
         self.model_variant_quote_rows = SpilledRows(self.connection, "variant_quotes")
@@ -634,6 +658,30 @@ class MakerPaperRunAggregation:
     def quoted_model_variant_rows(self) -> QuotedRowsView:
         return QuotedRowsView(self.model_variant_quote_rows, self.model_variant_legs)
 
+    def _input_path_for_kind(self, folder: str | Path, kind: str):
+        if self.scoring_input_paths_by_folder is None:
+            return None
+        folder_key = str(Path(folder))
+        try:
+            path = self.scoring_input_paths_by_folder[folder_key][kind]
+        except KeyError as exc:
+            raise ValueError(
+                f"missing explicit {kind} maker scoring input path for {folder_key}"
+            ) from exc
+        return {folder_key: path}
+
+    def _input_binding_for_kind(self, folder: str | Path, kind: str):
+        if self.scoring_input_bindings_by_folder is None:
+            return None
+        folder_key = str(Path(folder))
+        try:
+            binding = self.scoring_input_bindings_by_folder[folder_key][kind]
+        except KeyError as exc:
+            raise ValueError(
+                f"missing explicit {kind} maker scoring input binding for {folder_key}"
+            ) from exc
+        return {folder_key: binding}
+
     def add_run_folder(
         self,
         folder: str | Path,
@@ -645,6 +693,8 @@ class MakerPaperRunAggregation:
         quote_rows, run_configs = load_quote_rows(
             [folder],
             eligibility_by_folder=eligibility_by_folder,
+            input_paths_by_folder=self._input_path_for_kind(folder, "base"),
+            input_bindings_by_folder=self._input_binding_for_kind(folder, "base"),
         )
         legs = quote_legs(quote_rows, self.config)
         base_run_ids = {str(leg.get("run_id") or "") for leg in legs}
@@ -664,6 +714,11 @@ class MakerPaperRunAggregation:
             variant_rows, _variant_configs = load_model_variant_quote_rows(
                 [folder],
                 eligibility_by_folder=eligibility_by_folder,
+                input_paths_by_folder=self._input_path_for_kind(folder, "model_variant"),
+                input_bindings_by_folder=self._input_binding_for_kind(
+                    folder,
+                    "model_variant",
+                ),
             )
             variant_legs = quote_legs(variant_rows, self.config)
             variant_run_ids = {str(leg.get("run_id") or "") for leg in variant_legs}

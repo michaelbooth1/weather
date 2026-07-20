@@ -9,9 +9,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
-from weather.market import exchange_economics
+from weather.market import exchange_economics, mm_paper
 from weather.market.taker_bot import ORDER_COLUMNS
 from weather.market.market_config import event_slug_for_date
+from weather.market.mm_scoring_projection import (
+    BASE_PROJECTION_FILENAME,
+    MODEL_VARIANT_PROJECTION_FILENAME,
+    SCORING_COLUMNS,
+    write_run_scoring_projections,
+)
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
     _captured_input_parity_preflight,
@@ -3689,6 +3695,138 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["summary"]["run_folders"], 1)
         self.assertEqual(list(payload["run_configs"]), [str(latest)])
         self.assertEqual(payload["summary"]["quote_rows"], 1)
+
+    def test_maker_paper_score_step_uses_mixed_scoring_inputs_and_byte_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fallback = _write_active_mm_run(
+                tmp,
+                target_date="2026-06-18",
+                run_id="mm-canonical-fallback",
+            )
+            projected = _write_active_mm_run(
+                tmp,
+                target_date="2026-06-19",
+                run_id="mm-projected",
+            )
+            for run_folder in (fallback, projected):
+                canonical_projection_source = run_folder / "quote_intents_long.csv"
+                with canonical_projection_source.open(
+                    "r", encoding="utf-8", newline=""
+                ) as handle:
+                    source_row = next(csv.DictReader(handle))
+                with canonical_projection_source.open(
+                    "w", encoding="utf-8", newline=""
+                ) as handle:
+                    writer = csv.DictWriter(handle, fieldnames=SCORING_COLUMNS)
+                    writer.writeheader()
+                    writer.writerow({
+                        column: source_row.get(column, "")
+                        for column in SCORING_COLUMNS
+                    })
+            fallback_variant_source = fallback / "model_variant_quote_intents_long.csv"
+            fallback_variant_source.write_bytes(
+                (fallback / "quote_intents_long.csv").read_bytes()
+            )
+            write_run_scoring_projections(fallback)
+            (fallback / MODEL_VARIANT_PROJECTION_FILENAME).write_text(
+                "corrupt_header\ncorrupt_value\n",
+                encoding="utf-8",
+            )
+            write_run_scoring_projections(projected)
+            expected_paths = {
+                str(fallback): {
+                    "base": str(fallback / "quote_intents_long.csv"),
+                    "model_variant": str(
+                        fallback / "model_variant_quote_intents_long.csv"
+                    ),
+                },
+                str(projected): {
+                    "base": str(projected / BASE_PROJECTION_FILENAME),
+                    "model_variant": str(
+                        projected / MODEL_VARIANT_PROJECTION_FILENAME
+                    ),
+                },
+            }
+            fallback_input_bytes = sum(
+                path.stat().st_size
+                for path in (
+                    fallback / "quote_intents_long.csv",
+                    fallback_variant_source,
+                )
+            )
+            projected_input_bytes = sum(
+                path.stat().st_size
+                for path in (
+                    projected / BASE_PROJECTION_FILENAME,
+                    projected / MODEL_VARIANT_PROJECTION_FILENAME,
+                )
+            )
+            expected_input_bytes = fallback_input_bytes + projected_input_bytes
+            projected_canonical_bytes = (
+                projected / "quote_intents_long.csv"
+            ).stat().st_size
+            expected_canonical_bytes = (
+                fallback_input_bytes + projected_canonical_bytes
+            )
+
+            args = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
+            _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.mm_paper.build_paper_payload",
+                wraps=mm_paper.build_paper_payload,
+            ) as build_payload:
+                result = run_maker_paper_score_step(args)
+                passed_paths = build_payload.call_args.kwargs[
+                    "scoring_input_paths_by_folder"
+                ]
+                passed_bindings = build_payload.call_args.kwargs[
+                    "scoring_input_bindings_by_folder"
+                ]
+            payload = json.loads(
+                Path(result["json_out"]).read_text(encoding="utf-8")
+            )
+        preflight = payload["input_preflight"]
+        selected_inputs = {
+            receipt["run_folder"]: receipt
+            for receipt in preflight["selected_inputs"]
+        }
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(passed_paths, expected_paths)
+        self.assertEqual(
+            {folder: receipt["input_paths"] for folder, receipt in selected_inputs.items()},
+            expected_paths,
+        )
+        self.assertEqual(
+            passed_bindings,
+            {folder: receipt["input_bindings"] for folder, receipt in selected_inputs.items()},
+        )
+        fallback_receipt = selected_inputs[str(fallback)]
+        projected_receipt = selected_inputs[str(projected)]
+        self.assertEqual(fallback_receipt["input_mode"], "canonical_fallback")
+        self.assertEqual(
+            fallback_receipt["projection_reason"],
+            "model_variant_projection_binding_mismatch",
+        )
+        self.assertEqual(fallback_receipt["input_bytes"], fallback_input_bytes)
+        self.assertEqual(fallback_receipt["canonical_bytes"], fallback_input_bytes)
+        self.assertEqual(projected_receipt["input_mode"], "projection")
+        self.assertEqual(projected_receipt["input_bytes"], projected_input_bytes)
+        self.assertEqual(
+            projected_receipt["canonical_bytes"], projected_canonical_bytes
+        )
+        self.assertEqual(preflight["projection_run_count"], 1)
+        self.assertEqual(preflight["canonical_fallback_run_count"], 1)
+        self.assertEqual(preflight["input_file_count"], 4)
+        self.assertEqual(preflight["input_bytes"], expected_input_bytes)
+        self.assertEqual(preflight["canonical_input_bytes"], expected_canonical_bytes)
+        self.assertEqual(
+            preflight["projected_vs_canonical_byte_ratio"],
+            expected_input_bytes / expected_canonical_bytes,
+        )
+        self.assertEqual(result["input_bytes"], expected_input_bytes)
+        self.assertEqual(result["canonical_input_bytes"], expected_canonical_bytes)
+        self.assertEqual(result["projection_run_count"], 1)
+        self.assertEqual(result["canonical_fallback_run_count"], 1)
 
     def test_active_variant_shadow_step_writes_canonical_outputs_and_missing_ids(self):
         header = (

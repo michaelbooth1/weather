@@ -48,6 +48,10 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("executable_experiment_result"),
             "executable_experiment_result_v0.1",
         )
+        self.assertEqual(
+            schema_version("mm_scoring_projection"),
+            "mm_scoring_projection_v0.1",
+        )
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.2")
         self.assertEqual(schema_version("replay_inputs"), "toronto_replay_inputs_v0.2")

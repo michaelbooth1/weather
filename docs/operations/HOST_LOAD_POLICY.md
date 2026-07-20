@@ -32,6 +32,17 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
+For each run, a complete validated `mm_scoring_projection_v0.1` base/variant
+pair is measured and passed to the streaming scorer; any missing, stale,
+malformed, or incompatible member makes that run use both canonical tapes.
+The receipt records projected versus canonical bytes and exact input bindings.
+The scorer revalidates admitted size/mtime bindings (and projection hashes)
+before ingestion and checks that inputs stay stable through streaming. Daily
+roll projection finalization starts only after the superseded target-matched
+writer's exit is confirmed; otherwise canonical fallback remains in force.
+Projection compaction does not change the 512 MiB input cap, the 4 GiB
+isolated-child private cap, or the 3 GiB working-set cap.
+
 Snapshot fleet capture admits at most two isolated children by default, with a
 1,792 MiB process-tree working-set and private-commit cap per child. The 3,584
 MiB aggregate ceiling is below the prior three-by-1,536 MiB envelope while
