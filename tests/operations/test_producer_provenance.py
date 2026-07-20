@@ -1,4 +1,5 @@
 import base64
+import inspect
 import json
 import os
 import subprocess
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from weather.operations import producer_provenance as producer_provenance_module
 from weather.operations.daily_refresh_locks import acquire_lock, release_lock
 from weather.operations.long_job_guard import acquire_long_job_lock, release_long_job_lock
 from weather.operations.producer_provenance import (
@@ -27,6 +29,17 @@ from weather.release_contract import (
 
 
 NOW = datetime(2026, 7, 12, 6, 30, tzinfo=timezone.utc)
+
+
+def test_query_windows_task_enumerates_hidden_instances():
+    """The daily-refresh tasks are registered Hidden=True; GetInstances(0)
+    excludes hidden instances, so the running-instance enumeration must pass the
+    TASK_ENUM_HIDDEN flag. Guards against silently reverting to GetInstances(0),
+    which returns zero instances at live-fire and fails scheduler attestation."""
+
+    source = inspect.getsource(producer_provenance_module.query_windows_task)
+    assert "$registeredTask.GetInstances(1)" in source
+    assert "$registeredTask.GetInstances(0)" not in source
 
 
 def encoded_arguments(arguments):

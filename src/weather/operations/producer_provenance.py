@@ -143,7 +143,10 @@ $scheduler.Connect()
 $folderPath = [string]$task.TaskPath
 if ($folderPath.Length -gt 1) { $folderPath = $folderPath.TrimEnd('\') }
 $registeredTask = $scheduler.GetFolder($folderPath).GetTask([string]$task.TaskName)
-$runningInstances = @($registeredTask.GetInstances(0) | ForEach-Object {
+# TASK_ENUM_HIDDEN (1): the daily-refresh tasks are registered Hidden=True, and
+# IRegisteredTask::GetInstances(0) excludes instances of hidden tasks, so a live
+# run enumerates as zero instances. Pass the hidden flag to see our own instance.
+$runningInstances = @($registeredTask.GetInstances(1) | ForEach-Object {
   [pscustomobject]@{
     engine_process_id = [int64]$_.EnginePID
     instance_guid = [string]$_.InstanceGuid
