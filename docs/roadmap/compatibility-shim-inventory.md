@@ -1,8 +1,13 @@
 ﻿# Compatibility Shim Inventory
 
-Generated for roadmap item 87. These wrappers are retained only for external or local legacy commands during the migration from the flat `src.*` interface to canonical `weather.*` package modules.
+Generated for roadmap item 87 and retired by roadmap item 206. The historical
+registry below records the migration from the flat `src.*` interface to
+canonical `weather.*` package modules.
 
-Policy: first-party app code, tests, README commands, scheduled tasks, GitHub Actions, and reusable tools should call the target `weather.*` module directly. The owner of each wrapper is the target module. Removal is allowed after one clean migration window with no first-party callers and no known external automation depending on the wrapper.
+Policy: first-party app code, tests, README commands, scheduled tasks, GitHub
+Actions, and reusable tools use canonical `weather.*`, `app/streamlit_app.py`,
+`scripts/ops/*`, `scripts/launch/*`, or `tools/*` surfaces. Retired shim paths
+must not be reintroduced.
 
 ## Expiration Policy
 
@@ -12,13 +17,11 @@ Minimum migration window: 30 days.
 
 Default expiration date: 2026-07-18.
 
-Current removal status: retain compatibility shims until 2026-07-18 as
-external/local operator fallback only. After that date, any shim group whose
-first-party caller scan is clean and has no known external automation
-dependency is eligible for removal. Expired shims should be deleted in batches
-instead of kept as permanent aliases.
+Current removal status: **complete 2026-07-20**. The caller, scheduler,
+desktop-launcher, CI, runbook, script, test, and reusable-tool scans found no
+external dependency requiring retention. All 103 expired shims were removed.
 
-The supported first-party surfaces during the migration window are:
+The supported first-party surfaces are:
 
 - `python -m weather...` module commands.
 - `app/streamlit_app.py` for direct Streamlit execution.
@@ -26,60 +29,76 @@ The supported first-party surfaces during the migration window are:
 - `scripts/launch/*` for dashboard launchers.
 - `tools/*` for reusable helper scripts.
 
-The temporary operator fallback is the existing root-level shim surface:
-`python -m src.<module>`, `app.py`, `backfill_all.py`, `scratch.py`,
-`train_all_markets.ps1`, and root `scripts/*.ps1` or
-`scripts/start_weather_dashboard.*` launchers. These fallback paths are
-external/local legacy entrypoints only and should not be added to new runbooks,
-tests, scheduled tasks, CI, or reusable tools.
+The former fallback paths (`python -m src.<module>`, root `app.py`, root helper
+copies, and files directly under `scripts/`) are unsupported and absent.
 
 ## Shim Classes
 
-| Class | Count | Owner | Allowed caller | Expiration | Removal status |
-| --- | ---: | --- | --- | --- | --- |
-| Flat Python module wrappers under `src/*.py` | 85 | Target `weather.*` module | External/local legacy commands only | 2026-07-18 | Retain until expiration, then remove wrappers whose caller scan stays clean. `src/__init__.py` is a namespace file, not a wrapper. |
-| Root Streamlit wrapper `app.py` | 1 | `app/streamlit_app.py` | External/local legacy dashboard launches only | 2026-07-18 | Retain until expiration; first-party launchers use `app/streamlit_app.py`. |
-| Root helper wrappers `backfill_all.py`, `scratch.py`, `train_all_markets.ps1` | 3 | Matching `tools/*` helper | External/local legacy helper invocations only | 2026-07-18 | Retain until expiration; first-party docs use `tools/*`. |
-| Root scheduled-task and dashboard scripts under `scripts/*` | 14 | Matching `scripts/ops/*` or `scripts/launch/*` script | External/local legacy operator invocations only | 2026-07-18 | Retain until expiration; first-party docs use `scripts/ops/*` and `scripts/launch/*`. |
+| Historical class | Pre-removal count | Current count | Disposition |
+| --- | ---: | ---: | --- |
+| Flat Python module wrappers under `src/*.py` | 85 | 0 | Removed 2026-07-20. `src/__init__.py` remains as the intentional namespace/bootstrap file, not a wrapper. |
+| Root Streamlit wrapper `app.py` | 1 | 0 | Removed 2026-07-20; use `app/streamlit_app.py`. |
+| Root helper wrappers `backfill_all.py`, `scratch.py`, `train_all_markets.ps1` | 3 | 0 | Removed 2026-07-20; use the matching `tools/*` helper. |
+| Root scheduled-task and dashboard scripts under `scripts/*` | 14 | 0 | Removed 2026-07-20; use matching `scripts/ops/*` or `scripts/launch/*` scripts. |
 
-Current total: 103 compatibility shims (85 flat Python wrappers, one Streamlit
-wrapper, three root helpers, and 14 root scripts).
+Current total: **0 compatibility shims**. Historical removal total: 103.
+Retained shims: **none**.
 
-The caller ratchet lives in
-`tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`.
-It scans README, CI, app, tests, tools, scripts, and active operations docs for
-`python -m src.*`, direct `app.py` Streamlit/Test usage, and root script shim
-paths.
+The retirement ratchets live in:
 
-## 2026-07-18 Review Checklist
+- `tests/operations/test_import_architecture.py::test_compatibility_shim_surfaces_remain_retired`,
+  which forbids all four retired filesystem classes.
+- `tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`,
+  which scans README, CI, app, canonical source, tests, tools, scripts, and
+  active operations docs for retired command paths.
+- `tests/operations/test_structure_inventory.py::test_repository_compatibility_shim_surfaces_are_retired`,
+  which requires every inventory class and the exact path list to remain empty.
 
-Owner: roadmap item 206.
+## 2026-07-20 Execution Record
 
-Before the removal window opens:
+- Fresh caller gate: `1 passed` before removal.
+- Fresh structure inventory: `tracked=1457 source_py=405 shims=103`; schema
+  `structure_inventory_v0.2` recorded 103 unique shim paths. The tracked count
+  is one above the work-order pre-scan because the work-order file itself was
+  added in the base commit.
+- Task Scheduler: 215 actions checked across all tasks, including 17
+  `Weather*` tasks; zero exact shim-path or `-m src.*` hits.
+- Desktop: 11 top-level shortcuts checked; no weather launcher or shim target.
+- Repository scan: no active README, operations-doc, CI, app, test, tool,
+  script, or reusable-runbook dependency. One stale canonical reporting
+  recommendation was migrated from `scripts/register_clob_supervisor.ps1` to
+  `scripts/ops/register_clob_supervisor.ps1` before removal.
+- Removed batches: 85 flat Python wrappers, one root Streamlit wrapper, three
+  root helper wrappers, and 14 root scripts. No shim was retained.
+- Post-removal structure inventory: `shims=0 paths=0`.
 
-- [ ] Keep first-party docs, tests, CI, scheduled-task setup, and reusable tools
-  on canonical `weather.*`, `app/streamlit_app.py`, `scripts/ops/*`,
-  `scripts/launch/*`, and `tools/*` paths.
-- [ ] Keep
-  `tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims`
-  green.
+## Historical Non-Flat Shim Registry
 
-On or after 2026-07-18:
+The 18 removed non-flat paths were:
 
-- [ ] Run the first-party caller scan:
-  `python -m pytest tests/operations/test_import_architecture.py::test_first_party_surfaces_do_not_call_compatibility_shims -q`.
-- [ ] Run the structure inventory and save a local ignored report:
-  `python -m weather.operations.structure_inventory --report data\backtest\structure_inventory_report.md`.
-- [ ] Check local scheduled tasks, operator shortcuts, and desktop launch paths
-  for direct shim usage outside Git.
-- [ ] Remove shim batches whose first-party scan is clean and whose external
-  dependency check has no known blocker.
-- [ ] For every retained shim batch, update this inventory with owner,
-  concrete dependency, next review date, and reason it could not be removed.
+- `app.py`, `backfill_all.py`, `scratch.py`, and `train_all_markets.ps1`.
+- `scripts/register_clob_supervisor.ps1`
+- `scripts/register_daily_refresh.ps1`
+- `scripts/register_exchange_economics_refresh.ps1`
+- `scripts/register_market_making_daily_roll.ps1`
+- `scripts/register_market_making_daily_roll_supervisor.ps1`
+- `scripts/register_model_market_disagreement_analysis.ps1`
+- `scripts/register_nightly_retrain.ps1`
+- `scripts/register_observation_trigger_supervisor.ps1`
+- `scripts/register_snapshot_supervisor.ps1`
+- `scripts/register_taker_bot_daily_roll.ps1`
+- `scripts/register_taker_bot_daily_roll_supervisor.ps1`
+- `scripts/start_weather_dashboard.cmd`
+- `scripts/start_weather_dashboard.ps1`
+- `scripts/start_weather_dashboard_silent.vbs`
 
-## Flat Python Wrappers
+## Historical Flat Python Wrapper Registry
 
-| Wrapper | Target / Owner | Current Allowed Caller | Removal Condition |
+The table below preserves the pre-removal target mapping. Its allowed-caller
+and removal-condition columns describe the completed migration window; every
+listed wrapper was removed on 2026-07-20.
+
+| Wrapper | Target / Owner | Former Allowed Caller | Satisfied Removal Condition |
 | --- | --- | --- | --- |
 | `src/artifacts.py` | `weather.artifacts` | External/local legacy commands only | No first-party callers for one migration window |
 | `src/backtest.py` | `weather.backtesting.backtest` | External/local legacy commands only | No first-party callers for one migration window |

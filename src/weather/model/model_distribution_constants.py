@@ -33,7 +33,8 @@ FALSIFICATION_MARGIN = 1.0         # C above the standing high a claim must exce
 # --- Forecast pull (upper-tail mirror of the forecast floor) ----------------
 # The floor lifts the BOTTOM; the pull lifts the TOP. The HGB feature model
 # saturates ~1 C below agreeing hot morning forecasts (it under-calls the high),
-# yet the forecast-vs-realized tracker (src/forecast_tracker.py) measured the
+# yet the forecast-vs-realized tracker
+# (`weather.collection.forecast_tracker`) measured the
 # morning consensus actually being reached ~70% of the time while the model gave
 # it only ~45%. So early in the day, blend the distribution toward a SMOOTH
 # forecast density: a Gaussian of width ~RMSE around each source's CONTINUOUS
@@ -170,5 +171,4 @@ STANDING_HIGH_PARTIAL_TWO_UP_RETAINED = 0.30
 STANDING_HIGH_PARTIAL_BASE = 0.18
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
-
 

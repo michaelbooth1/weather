@@ -21,7 +21,8 @@ Follow the allowed and transitional edges in
 ## Package Rules
 
 - Use canonical `weather.*` imports and `python -m weather...` entrypoints. Flat
-  `src/*.py` modules are compatibility wrappers, not implementation owners.
+  `src/*.py` modules other than `src/__init__.py` are retired compatibility
+  surfaces and must not be reintroduced.
 - Use `weather.paths` for repo-owned defaults. Do not derive the repository from
   the current working directory or mutate `sys.path` in package code.
 - Preserve stable public modules and CLIs when extracting implementation. Put

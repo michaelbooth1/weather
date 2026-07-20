@@ -153,6 +153,10 @@ class TestDataLayerAudit(unittest.TestCase):
         dead_titles = [item["title"] for item in dead]
         self.assertNotIn("Split weather/model cadence from market-book cadence", running_titles)
         self.assertIn("Start and supervise the CLOB book loop", dead_titles)
+        dead_recommendation = next(
+            item for item in dead if item["title"] == "Start and supervise the CLOB book loop"
+        )
+        self.assertIn("scripts/ops/register_clob_supervisor.ps1", dead_recommendation["action"])
 
     def test_recommendations_call_out_missing_observation_payloads(self):
         recs = build_recommendations(

@@ -98,7 +98,8 @@ MODEL_VERSION = MODEL_VERSION_HGB
 # Replay corpus: each snapshot persists the full merged model `sources` plus the
 # exact build `now`, so any future model version can be re-run over the captured
 # day and scored against settlement. This turns every captured snapshot into a
-# permanent, replayable test case (see src/replay.py, src/replay_backtest.py).
+# permanent, replayable test case (see `weather.backtesting.replay` and
+# `weather.backtesting.replay_backtest`).
 REPLAY_SCHEMA_VERSION = schema_version("replay_inputs")
 FORECAST_PAYLOAD_SCHEMA_VERSION = schema_version("forecast_payload_manifest")
 OBSERVATION_PAYLOAD_SCHEMA_VERSION = schema_version("observation_payload_manifest")

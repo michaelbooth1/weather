@@ -986,7 +986,7 @@ def build_recommendations(snapshot, historical, loop, clob_loop=None, historical
             f"CLOB loop state is {clob_state}; status path is {clob_loop.get('status_path')}.",
             (
                 "Run `weather.market.market_microstructure start-detached` and register "
-                "`scripts/register_clob_supervisor.ps1` so book-depth history is "
+                "`scripts/ops/register_clob_supervisor.ps1` so book-depth history is "
                 "captured continuously and restarted after crashes or reboots."
             ),
             "Item 37 / Item 38",

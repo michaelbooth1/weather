@@ -208,7 +208,7 @@ def format_edge_table(edges):
     })
     
     # Extract only the columns we want to show
-    # (View Link will be added later in app.py due to Streamlit markdown limitations)
+    # (View Link is added later in app/streamlit_app.py due to Streamlit markdown limitations)
     return df[["Market", "Range Bucket", "Edge", "Model Prob", "Market Price", "Trust", "Settled Days", "Audit Saved", "market_id", "edge_percent"]]
 
 def format_status_table(status):

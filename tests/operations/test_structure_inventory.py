@@ -2,6 +2,7 @@ from pathlib import Path
 
 from weather.operations.structure_inventory import (
     build_structure_inventory,
+    compatibility_shims,
     render_report,
 )
 
@@ -53,7 +54,7 @@ def test_structure_inventory_counts_repo_areas_without_live_data_dependency(tmp_
         generated_at_utc="2026-06-22T00:00:00+00:00",
     )
 
-    assert payload["schema_version"] == "structure_inventory_v0.1"
+    assert payload["schema_version"] == "structure_inventory_v0.2"
     assert payload["tracked_file_count"] == 8
     top = {row["area"]: row["tracked_files"] for row in payload["top_level_counts"]}
     assert top["src"] == 4
@@ -75,11 +76,28 @@ def test_structure_inventory_counts_repo_areas_without_live_data_dependency(tmp_
     assert payload["compatibility_shims"]["root_streamlit_shims"] == 1
     assert payload["compatibility_shims"]["root_helper_shims"] == 1
     assert payload["compatibility_shims"]["root_script_shims"] == 1
+    assert payload["compatibility_shims"]["paths"] == [
+        "src/legacy_wrapper.py",
+        "app.py",
+        "backfill_all.py",
+        "scripts/start_weather_dashboard.cmd",
+    ]
     assert payload["artifacts"][0]["area"] == "models"
     assert payload["data"][0]["area"] == "snapshots"
     assert payload["data_budget_checks"]["checked"] is True
     assert payload["data_budget_checks"]["warning_count"] == 0
     assert payload["architecture_ratchet"]["status"] == "SKIPPED"
+
+
+def test_repository_compatibility_shim_surfaces_are_retired():
+    payload = compatibility_shims()
+
+    assert payload["flat_src_wrappers"] == 0
+    assert payload["root_streamlit_shims"] == 0
+    assert payload["root_helper_shims"] == 0
+    assert payload["root_script_shims"] == 0
+    assert payload["total"] == 0
+    assert payload["paths"] == []
 
 
 def test_structure_inventory_can_skip_data_sizes(tmp_path):

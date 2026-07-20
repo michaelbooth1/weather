@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-07-16T14:30:12.933567+00:00
+Generated: 2026-07-20T23:54:30.577564+00:00
 Status: `OK`
 
 ## Summary
@@ -12,10 +12,10 @@ Status: `OK`
 | Metric | Value |
 | :--- | :--- |
 | Items | 318 |
-| Active items | 31 |
-| OPEN | 4 |
+| Active items | 30 |
+| OPEN | 3 |
 | PARTIAL | 27 |
-| COMPLETE | 287 |
+| COMPLETE | 288 |
 | ROADMAP rows | 318 |
 | ROADMAP primary rows | 318 |
 | Metadata manifest rows | 318 |
@@ -44,7 +44,6 @@ Status: `OK`
 | 185 | PARTIAL | 2026-06-22 | SOURCE PREFLIGHT CLEARED, CHILD GATES OPEN | [Daily-High Predictor Data-Source Expansion](items/item-185-daily-high-predictor-data-source-expansion.md) |
 | 188 | PARTIAL | 2026-06-24 | AQ ARCHIVE AND SMOKE SLICE PREP LIVE, RETRAIN BLOCKED | [Aerosol & Wildfire-Smoke Suppression Features](items/item-188-aerosol-wildfire-smoke-features.md) |
 | 189 | PARTIAL | 2026-06-24 | GLOBAL-MODEL ARCHIVE SUPPORT LIVE, REPLAY BLOCKED | [ECMWF & ML-NWP Ensemble Forecast Members](items/item-189-ecmwf-ml-nwp-ensemble-members.md) |
-| 206 | OPEN | 2026-07-12 | OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18 | [Compatibility Shim Expiration Removal Execution](items/item-206-compatibility-shim-expiration-removal-execution.md) |
 | 219 | PARTIAL | 2026-07-12 | V0.1 PROOF INVALIDATED, CLEAN REQUALIFICATION REQUIRED | [Bottom-Location Early/Midday Winner-Centering Repair](items/item-219-bottom-location-early-midday-winner-centering.md) |
 | 224 | PARTIAL | 2026-07-11 | REOPENED, ITEM224 V0.1 LABEL-LEAK QUARANTINE | [Pooled F Retrain/Re-Export Location Gate](items/item-224-pooled-f-retrain-reexport-location-gate.md) |
 | 228 | PARTIAL | 2026-06-22 | PARAMETER SWEEP BLOCKS BROAD HOURLY | [Predawn Weak-Slot Repair Candidate Gate](items/item-228-predawn-weak-slot-repair-candidate-gate.md) |

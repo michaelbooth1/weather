@@ -19,10 +19,11 @@ machine-local state.
 ## Non-negotiable contracts
 
 - Canonical domain implementation lives under `src/weather/`; `app/` owns the
-  canonical Streamlit UI. Root app/CLI helpers, flat `src/*.py`, and root script
-  copies are compatibility surfaces, not owners for new logic. `sitecustomize.py`
-  and `weather/__init__.py` are intentional Windows/package bootstrap safeguards
-  described by the path policy; do not grow domain logic in them.
+  canonical Streamlit UI. The former root app/CLI helpers, flat `src/*.py`
+  wrappers, and root script copies are retired and must not be reintroduced.
+  `sitecustomize.py` and `weather/__init__.py` are intentional Windows/package
+  bootstrap safeguards described by the path policy; do not grow domain logic
+  in them.
 - Built-in markets operate end-to-end in their native settlement unit.
   Legacy names ending in `_c` do not prove that a value is Celsius.
 - Configured Weather Underground history is the settlement proxy. METAR, ECCC,
