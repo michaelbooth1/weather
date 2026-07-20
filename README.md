@@ -337,7 +337,8 @@ stateful and re-running a script replaces its named task. Read
 [the scoped script instructions](scripts/ops/AGENTS.md), the script's `param(...)`
 block, and the [operations topology](docs/operations/OPERATIONS_DESIGN.md) before
 registration. Some production pipeline scripts require explicit captured-input
-and production-readiness evidence paths; an argument-free example is not valid.
+and production-readiness evidence paths. A bare registration command is not a
+valid substitute for those inputs.
 
 The three core capture supervisors have self-contained defaults:
 
@@ -346,6 +347,17 @@ The three core capture supervisors have self-contained defaults:
 .\scripts\ops\register_clob_supervisor.ps1
 .\scripts\ops\register_observation_trigger_supervisor.ps1
 ```
+
+Before release #1 has reviewed parity inputs, the two daily-refresh tasks may
+be re-registered with only scheduler provenance and release arguments by using
+the explicit transitional mode:
+
+```powershell
+& .\scripts\ops\register_daily_refresh.ps1 -ProvenanceOnly
+```
+
+That command replaces both daily tasks. It intentionally omits the FULL
+production-evidence contract and does not assert production readiness.
 
 Scheduled settlement/evidence refresh, event-config refresh, exchange-economics
 refresh, maker/taker daily rolls and supervisors, analysis, host guards, and

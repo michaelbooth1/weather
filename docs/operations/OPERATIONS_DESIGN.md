@@ -148,6 +148,41 @@ Bot daily-roll workers and reporting jobs have their own launchers,
 supervisors, status artifacts, and evidence gates. They consume capture output
 but are not a fourth capture loop.
 
+## Daily Refresh Delegated-Child Tasks
+
+`scripts/ops/register_daily_refresh.ps1` registers both daily stages as
+scheduled PowerShell wrapper actions:
+
+- `WeatherDailySettlementPromotionRefresh` starts Stage A settlement at 09:30
+  local with a four-hour task limit and names the Stage B task it may trigger.
+- `WeatherEveningEvidenceRefresh` has guarded fallback triggers at 14:00 and
+  17:00 local with an eight-hour task limit.
+
+Both actions run `scripts/ops/daily_refresh.ps1`. Registration and runtime
+independently reconstruct the exact wrapper tokens through
+`scripts/ops/daily_refresh_contract.ps1`, using the shared argument serializer
+and base64 scheduler contract from `training_window_contract.ps1`. The Python
+`weather.operations.daily_refresh` child passes
+`scheduler-invocation-topology=delegated_child`, the exact registered wrapper
+action contract, its own venv executable and arguments, repository working
+directory, and stage-specific SLA. Countability still requires the running
+wrapper PID/instance, task state, action, child lineage, and run-time
+correlation to match; child-supplied flags alone are not evidence.
+
+The default `Full` registration parameter set keeps captured-input parity,
+served-artifact, and served-route inputs mandatory. Before reviewed release #1
+parity inputs exist, the explicit transitional command is:
+
+```powershell
+& .\scripts\ops\register_daily_refresh.ps1 -ProvenanceOnly
+```
+
+This replaces both tasks with wrapper, provenance, and release arguments but
+omits `--fail-on-production-readiness-block` and all production-evidence
+bindings. It proves scheduler lineage only; it does not satisfy or weaken the
+FULL production-evidence gate. Re-registration is a stateful adoption action
+and is not performed by repository tests or code changes.
+
 ## Retraining Topologies: Choose One
 
 Nightly retraining is heavy and candidate-only. It may build an immutable,
