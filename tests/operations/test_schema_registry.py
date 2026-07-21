@@ -370,6 +370,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("backtest_artifact_cleanup"), "backtest_artifact_cleanup_v0.1")
         self.assertEqual(schema_version("clob_order_book_tiering"), "clob_order_book_tiering_v0.1")
         self.assertEqual(schema_version("daily_progress_ledger"), "daily_progress_ledger_v0.1")
+        self.assertEqual(
+            schema_version("daily_refresh_step_child"),
+            "daily_refresh_step_child_v0.2",
+        )
+        self.assertEqual(
+            schema_version("daily_refresh_step_child_legacy"),
+            "daily_refresh_step_child_v0.1",
+        )
         self.assertEqual(schema_version("daily_refresh_disk_preflight"), "daily_refresh_disk_preflight_v0.1")
         self.assertEqual(schema_version("daily_refresh_stale_lock_repair"), "daily_refresh_stale_lock_repair_v0.1")
         self.assertEqual(schema_version("daily_rollup_freshness"), "daily_rollup_freshness_v0.1")

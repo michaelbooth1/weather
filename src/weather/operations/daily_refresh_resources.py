@@ -23,12 +23,23 @@ DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB = 1536
 DEFAULT_STAGE_A_MAX_COMMIT_PERCENT = 70.0
 
 
-def _budget(timeout_minutes, private_mb, working_set_mb, rationale):
+def _budget(
+    timeout_minutes,
+    private_mb,
+    working_set_mb,
+    rationale,
+    admission_working_set_bytes=None,
+):
     return {
         "isolation": "subprocess",
         "timeout_seconds": int(timeout_minutes * 60),
         "private_memory_max_bytes": int(private_mb * MIB),
         "working_set_max_bytes": int(working_set_mb * MIB),
+        "admission_working_set_bytes": (
+            None
+            if admission_working_set_bytes is None
+            else int(admission_working_set_bytes)
+        ),
         "rationale": rationale,
     }
 
@@ -122,12 +133,23 @@ def step_resource_budget(
     policy = dict(STAGE_A_STEP_RESOURCE_POLICIES.get(step_name) or {})
     if policy.get("isolation") != "subprocess":
         return None
+    working_set_max_bytes = int(policy["working_set_max_bytes"])
+    admission_working_set_bytes = policy.get("admission_working_set_bytes")
+    if admission_working_set_bytes is None:
+        admission_working_set_bytes = working_set_max_bytes
+    admission_working_set_bytes = int(admission_working_set_bytes)
+    if not 0 <= admission_working_set_bytes <= working_set_max_bytes:
+        raise AssertionError(
+            "Stage-A admission working set must be non-negative and no greater "
+            "than its containment ceiling"
+        )
     policy["step"] = step_name
+    policy["admission_working_set_bytes"] = admission_working_set_bytes
     policy["minimum_available_reserve_bytes"] = reserve_mb * MIB
     policy["maximum_host_commit_percent"] = max_commit_percent
     policy["required_available_before_start_bytes"] = (
         policy["minimum_available_reserve_bytes"]
-        + policy["working_set_max_bytes"]
+        + admission_working_set_bytes
     )
     return policy
 
@@ -353,6 +375,9 @@ def build_stage_a_step_admission(args, step_name, budget, *, phase="before"):
             "available_bytes": int(available) if available is not None else None,
             "required_available_bytes": required,
             "minimum_reserve_bytes": reserve,
+            "admission_working_set_bytes": int(
+                budget["admission_working_set_bytes"]
+            ),
             "working_set_budget_bytes": int(budget["working_set_max_bytes"]),
             "decision_uses_physical_availability": True,
         },

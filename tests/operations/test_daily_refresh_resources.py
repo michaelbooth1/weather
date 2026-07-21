@@ -11,6 +11,7 @@ from weather.operations.daily_refresh import _run_isolated_stage_a_step
 from weather.operations.daily_refresh_resources import (
     MIB,
     STAGE_A_ISOLATED_STEPS,
+    STAGE_A_STEP_RESOURCE_POLICIES,
     StageAChildFailure,
     bounded_resume_command,
     build_stage_a_step_admission,
@@ -86,6 +87,81 @@ class TestDailyRefreshResources(unittest.TestCase):
             watchdog["required_available_before_start_bytes"],
             3584 * MIB,
         )
+
+    def test_unset_admission_working_sets_preserve_existing_byte_requirements(self):
+        for step_name in STAGE_A_ISOLATED_STEPS:
+            configured = STAGE_A_STEP_RESOURCE_POLICIES[step_name]
+            self.assertIsNone(
+                configured["admission_working_set_bytes"],
+                msg=step_name,
+            )
+            budget = step_resource_budget(step_name, reserve_mb=1536)
+            self.assertEqual(
+                budget["admission_working_set_bytes"],
+                budget["working_set_max_bytes"],
+                msg=step_name,
+            )
+            self.assertEqual(
+                budget["required_available_before_start_bytes"],
+                1536 * MIB + budget["working_set_max_bytes"],
+                msg=step_name,
+            )
+
+    def test_explicit_admission_working_set_drives_physical_gate_only(self):
+        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["maker_paper_score"])
+        configured["admission_working_set_bytes"] = 2304 * MIB
+        with patch.dict(
+            STAGE_A_STEP_RESOURCE_POLICIES,
+            {"maker_paper_score": configured},
+        ), tempfile.TemporaryDirectory() as tmp:
+            budget = step_resource_budget("maker_paper_score", reserve_mb=1536)
+            required = (1536 + 2304) * MIB
+            args = _args(tmp)
+            args._stage_a_available_memory_fn = lambda: required - 1
+            blocked = build_stage_a_step_admission(
+                args,
+                "maker_paper_score",
+                budget,
+            )
+            args._stage_a_available_memory_fn = lambda: required
+            admitted = build_stage_a_step_admission(
+                args,
+                "maker_paper_score",
+                budget,
+            )
+
+        self.assertEqual(budget["admission_working_set_bytes"], 2304 * MIB)
+        self.assertEqual(budget["working_set_max_bytes"], 3072 * MIB)
+        self.assertEqual(budget["required_available_before_start_bytes"], required)
+        self.assertEqual(blocked["decision"], "DEFER")
+        self.assertEqual(admitted["decision"], "ADMIT")
+        self.assertEqual(
+            admitted["physical_memory"]["admission_working_set_bytes"],
+            2304 * MIB,
+        )
+        self.assertEqual(
+            admitted["physical_memory"]["working_set_budget_bytes"],
+            3072 * MIB,
+        )
+
+    def test_admission_working_set_never_exceeds_containment_ceiling(self):
+        for step_name in STAGE_A_ISOLATED_STEPS:
+            budget = step_resource_budget(step_name)
+            self.assertLessEqual(
+                budget["admission_working_set_bytes"],
+                budget["working_set_max_bytes"],
+                msg=step_name,
+            )
+
+        configured = dict(STAGE_A_STEP_RESOURCE_POLICIES["maker_paper_score"])
+        configured["admission_working_set_bytes"] = (
+            configured["working_set_max_bytes"] + 1
+        )
+        with patch.dict(
+            STAGE_A_STEP_RESOURCE_POLICIES,
+            {"maker_paper_score": configured},
+        ), self.assertRaisesRegex(AssertionError, "containment ceiling"):
+            step_resource_budget("maker_paper_score")
 
     def test_public_wu_restore_is_child_compatible_and_preserves_arguments(self):
         self.assertIs(
@@ -200,6 +276,14 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertTrue(
             admitted["physical_memory"]["decision_uses_physical_availability"]
         )
+        self.assertEqual(
+            admitted["physical_memory"]["admission_working_set_bytes"],
+            budget["working_set_max_bytes"],
+        )
+        self.assertEqual(
+            admitted["physical_memory"]["working_set_budget_bytes"],
+            budget["working_set_max_bytes"],
+        )
         self.assertTrue(admitted["host_commit"]["decision_uses_commit"])
         self.assertEqual(commit_blocked["decision"], "DEFER")
         self.assertEqual(commit_blocked["blockers"][0]["code"], "host_commit_above_limit")
@@ -304,8 +388,16 @@ class TestDailyRefreshResources(unittest.TestCase):
             args = _args(tmp)
             payload = _parent_payload()
             observed = {}
+            captured_limits = {}
+            configured = dict(
+                STAGE_A_STEP_RESOURCE_POLICIES["taker_edge_permission_map"]
+            )
+            configured["admission_working_set_bytes"] = 1024 * MIB
 
             def fake_run(command, **kwargs):
+                captured_limits["working_set_max_bytes"] = kwargs[
+                    "working_set_max_bytes"
+                ]
                 kwargs["on_started"]({
                     "pid": 43210,
                     "started_before_user_code": True,
@@ -315,7 +407,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                 result_path = Path(command[command.index("--result-json") + 1])
                 result_path.write_text(
                     json.dumps({
-                        "schema_version": "daily_refresh_step_child_v0.1",
+                        "schema_version": "daily_refresh_step_child_v0.2",
                         "status": "ok",
                         "step": "taker_edge_permission_map",
                         "pid": 43210,
@@ -346,7 +438,10 @@ class TestDailyRefreshResources(unittest.TestCase):
                     "runner_error": None,
                 }
 
-            with patch(
+            with patch.dict(
+                STAGE_A_STEP_RESOURCE_POLICIES,
+                {"taker_edge_permission_map": configured},
+            ), patch(
                 "weather.operations.daily_refresh.run_isolated_subprocess",
                 side_effect=fake_run,
             ):
@@ -382,6 +477,19 @@ class TestDailyRefreshResources(unittest.TestCase):
             result["resource_execution"]["subprocess"]["resource_io"]["read_bytes"],
             4096,
         )
+        self.assertEqual(captured_limits["working_set_max_bytes"], 1536 * MIB)
+        self.assertEqual(
+            result["resource_execution"]["budget"][
+                "admission_working_set_bytes"
+            ],
+            1024 * MIB,
+        )
+        self.assertEqual(
+            result["resource_execution"]["budget"][
+                "working_set_max_bytes"
+            ],
+            1536 * MIB,
+        )
         self.assertEqual(payload["status"], "running")
 
     def test_launcher_shim_child_receipt_pid_is_accepted_one_hop(self):
@@ -402,7 +510,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                     result_path = Path(command[command.index("--result-json") + 1])
                     result_path.write_text(
                         json.dumps({
-                            "schema_version": "daily_refresh_step_child_v0.1",
+                            "schema_version": "daily_refresh_step_child_v0.2",
                             "status": "ok",
                             "step": "taker_edge_permission_map",
                             "pid": 99999,
@@ -565,7 +673,7 @@ class TestDailyRefreshResources(unittest.TestCase):
                 result_path = Path(command[command.index("--result-json") + 1])
                 result_path.write_text(
                     json.dumps({
-                        "schema_version": "daily_refresh_step_child_v0.1",
+                        "schema_version": "daily_refresh_step_child_v0.2",
                         "status": "ok",
                         "step": "maker_paper_score",
                         "pid": 9001,

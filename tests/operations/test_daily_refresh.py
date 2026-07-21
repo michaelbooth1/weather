@@ -1064,7 +1064,7 @@ class TestDailyRefresh(unittest.TestCase):
             result_path.parent.mkdir(parents=True)
             result_path.write_text(
                 json.dumps({
-                    "schema_version": "daily_refresh_step_child_v0.1",
+                    "schema_version": "daily_refresh_step_child_v0.2",
                     "status": "ok",
                     "step": "maker_paper_score",
                     "pid": 4321,
