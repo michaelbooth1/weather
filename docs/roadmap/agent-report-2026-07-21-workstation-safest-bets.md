@@ -7,7 +7,10 @@
   `C:\Users\Michael\Documents\github\weather\scratch\worktrees\weather-safest-bets-home`
 - Base `origin/master` commit: `d330ad97d73f18cd2bb14bd17d873b0c7735f46b`
 - Implementation commit: `42a500a4`
-- Report commit: pending; a commit cannot contain its own final object ID
+- Initial report commit: `0000b441`
+- Audit implementation commit: `82a7c0dc`
+- Audit follow-up report commit: pending; a commit cannot contain its own final
+  object ID
 - Push, pull request, merge, promotion, release mutation, live-trading action,
   scheduler action, and production-host action: not performed at report draft
   time
@@ -208,3 +211,112 @@ sync completes, the remaining validation is a targeted real-data comparison:
 The production master retains ownership of review, quiet-window integration,
 release decisions, and any future trading authorization. This branch remains a
 read-only paper/research surface until those separate controls say otherwise.
+
+## Post-implementation audit follow-up - 2026-07-21
+
+This section records the subsequent audit of initial report commit `0000b441`
+and supersedes the earlier review snapshot where the results differ. The audit
+found fail-open evidence-binding gaps, fixed them in `82a7c0dc`, and repeated
+focused, architectural, browser, and real-local-data checks. The product scope
+did not expand: the homepage remains read-only, paper-only, and incapable of
+placing an order or changing a release.
+
+The hardened adapter now requires all of the following before it can show a
+card:
+
+- the candidate resolves against the current permission-map record, whose
+  record key and numeric settlement evidence must match the persisted row;
+- calibrated fair value is recomputed from that current permission record and
+  its canonical market-shrinkage formula rather than trusted from the row;
+- the row matches the exact run, experiment, exchange-economics snapshot and
+  hash, and strategy-specific policy/config hashes, including overridden
+  multi-arm strategies;
+- the selected side is exactly YES or NO, uses the corresponding persisted CLOB
+  token, and retains a configured market, canonical event prefix, and matching
+  native settlement unit;
+- the producer's immutable intent key and `taker_<intent>` order ID recompute
+  from the persisted contract identity;
+- candidate time is explicit and fresh, cadence evidence is affirmative, and
+  the homepage's age ceilings cannot be loosened by run configuration;
+- executable price, calibrated fair value, after-cost EV, fill notional, fee,
+  and total spend are arithmetically coherent; and
+- both JSON artifacts have a stable, complete root envelope and parseable
+  selected content, so a truncated or internally malformed synchronized file
+  cannot yield `READY`.
+
+The audit also split bounded artifact loading and evidence-lineage validation
+into `weather.reporting.market.safe_bets_io` and
+`weather.reporting.market.safe_bets_evidence`. The public adapter remains
+`weather.reporting.market.safe_bets`; the split keeps IO, identity validation,
+and view-model assembly explicit without changing the app import surface.
+
+The homepage audit improved the visible and assistive-technology behavior:
+recommendations or the fail-closed explanation now precede optional fund
+metrics, cards use article and heading semantics, gate state is announced with
+an ARIA live status, external links are restricted to HTTPS Polymarket URLs,
+unexpected adapter exceptions are logged and surfaced as `BLOCKED`, and a
+collapsed narrow-screen sidebar no longer leaves invisible controls in the
+keyboard tab order. A payload that says `READY` but contains no valid candidate
+is normalized to `BLOCKED` before any status is rendered.
+
+### Real local evidence at audit time
+
+A bounded read-only inspection of
+`data/backtest/taker_edge_permission_map.json` reported:
+
+- generated at `2026-07-20T14:03:17.948674+00:00`;
+- 7,215 records;
+- 167 `edge_allowed` records; and
+- zero records that were both `edge_allowed` and `all_fresh`.
+
+The expected current run summary at
+`data/taker_runs/2026-07-21/taker-20260721-1e563ae1/run_summary.json` was still
+absent. Therefore this report claims no real recommendation. With the evidence
+available at audit time, an empty fail-closed homepage is the correct result,
+not a product failure and not permission to weaken a gate.
+
+### Audit verification
+
+The final focused matrix was:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q tests\app `
+  tests\reporting\test_safe_bets.py `
+  tests\market\test_taker_bot_two_sided.py `
+  tests\operations\test_import_architecture.py
+```
+
+Result: **129 passed**. This includes regressions for current permission-record
+binding, recomputed calibrated fair value, exact intent/order identity,
+strategy-specific multi-arm policy hashes, nested exchange-economics identity,
+side-token binding, mandatory row timestamps, non-loosenable freshness limits,
+native-unit identity, fill/EV arithmetic, malformed complete-envelope JSON,
+zero-candidate `READY` normalization, link allowlisting, and accessible card and
+status semantics.
+
+The four selected taker-policy safety tests passed again: **4 passed, 77
+deselected**. `python -m compileall -q app src tests`, `git diff --check`, and
+the agent-documentation audit also passed.
+
+A repository-wide `pytest -q` run completed with **3,017 passed, 3 skipped, and
+19 failed**. None of the failures touched the changed homepage/reporting paths:
+13 were Windows path-length failures in experiment-executor temporary trees,
+four were local PowerShell execution-policy failures, and two were the existing
+module-size ownership ratchet mismatch. The latter is demonstrably present in
+base commit `0000b441`: `taker_bot_bakeoff.py` is already above the 2,000-line
+threshold while the ownership document still declares 18 warnings. These
+machine/baseline failures were recorded rather than hidden or broadened into
+unrelated fixes.
+
+Desktop and 390-by-844 browser checks covered the real no-data state and an
+isolated three-card fixture, including high-price YES, high-price NO with a real
+fresh NO book, and native Fahrenheit/Celsius labels. Candidate cards remained
+above the optional fund snapshot on mobile, browser console output stayed
+clean, and collapsed-sidebar focusability was verified. The fixture was removed
+and the local Streamlit/browser sessions were stopped.
+
+The only remaining operational validation is future-state observation: when a
+complete newer run summary and a current `edge_allowed` plus `all_fresh`
+permission cell exist locally, compare any displayed card against that exact
+row and record. This is not a branch implementation blocker and does not permit
+older-run fallback, synthetic recommendations, or weaker gates.
