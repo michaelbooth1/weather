@@ -87,6 +87,18 @@ http://localhost:8501/?history
 http://localhost:8501/?roadmap
 ```
 
+The overview route is the read-only paper homepage. Its **Safest bets right
+now** shortlist reads persisted paper-taker run evidence and shows only
+candidates that clear the current freshness, permission-map, liquidity, and
+after-cost-value gates. Each card is bound back to the current permission
+record, recomputed calibrated fair value, exact run and strategy lineage,
+producer order identity, configured native settlement unit, selected side
+token, and coherent paper-fill arithmetic. A market price above 90% is not
+excluded when those gates still pass. The page never places orders, never
+promotes a release, and fails closed to a named no-bet or unavailable state
+when its local `data/` inputs are missing, stale, blocked, malformed, or
+mid-copy.
+
 The dashboard views are overview, per-market detail, history, market making,
 operations, and roadmap.
 
