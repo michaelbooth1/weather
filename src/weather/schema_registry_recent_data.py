@@ -391,6 +391,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Per-row market-making quote intent and no-quote decision schema.",
     ),
     SchemaSpec(
+        "mm_scoring_projection",
+        "mm_scoring_projection_v0.1",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Compact source-bound base and model-variant quote inputs for bounded maker-paper scoring.",
+    ),
+    SchemaSpec(
         "mm_reward_score_diagnostics",
         "mm_reward_score_diagnostics_v0.2",
         "weather.market.mm_paper",

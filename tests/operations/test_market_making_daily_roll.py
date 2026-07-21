@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import sys
@@ -7,6 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from weather.market.mm_scoring_projection import (  # noqa: E402
+    BASE_PROJECTION_FILENAME,
+    MANIFEST_FILENAME,
+    MODEL_VARIANT_PROJECTION_FILENAME,
+    SCORING_COLUMNS,
+)
 from weather.operations.market_making_daily_roll import (  # noqa: E402
     build_market_making_command,
     ensure_for_date,
@@ -70,6 +77,28 @@ def _write_run_artifacts(
         gate = run_folder / "live_forward_gate.json"
         gate.write_text(json.dumps(live_forward_gate), encoding="utf-8")
         os.utime(gate, (timestamp, timestamp))
+
+
+def _write_scoring_source_tape(run_folder):
+    run_folder.mkdir(parents=True, exist_ok=True)
+    quote_path = run_folder / "quote_intents_long.csv"
+    row = {column: "" for column in SCORING_COLUMNS}
+    row.update({
+        "run_id": run_folder.name,
+        "target_date": run_folder.parent.name,
+        "generated_at_utc": "2026-06-16T23:59:00+00:00",
+        "market_id": "atlanta",
+        "reason_code": "NO_QUOTE_EDGE_TOO_SMALL",
+    })
+    with quote_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=SCORING_COLUMNS,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerow(row)
+    return quote_path
 
 
 class TestMarketMakingDailyRoll(unittest.TestCase):
@@ -621,6 +650,187 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertFalse(supervisor["start_time_gate"]["allowed"])
         self.assertEqual(supervisor["start_time_gate"]["start_after_local_time"], "19:30")
         self.assertEqual(supervisor["start_time_gate"]["reason"], "before_daily_start_time")
+
+    def test_day_roll_finalizes_superseded_scoring_projection_and_persists_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            runs_root = tmp / "mm_runs"
+            run_folder = runs_root / "2026-06-16" / "mm-settled"
+            _write_status(status_path, tmp)
+            canonical_path = _write_scoring_source_tape(run_folder)
+            canonical_before = canonical_path.read_bytes()
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                return_value={"pid": 4321, "stopped": True},
+            ), patch(
+                "weather.operations.market_making_daily_roll.wait_for_superseded_process_exit",
+                return_value={
+                    "exited": True,
+                    "reason": "superseded_process_not_alive",
+                },
+            ):
+                payload = ensure_for_date(
+                    "2026-06-17",
+                    status_path=status_path,
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=runs_root,
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-17T04:20:00+00:00",
+                    start_after_local_time="00:00",
+                    launcher=lambda command, repo_root, console_log_path: 9100,
+                    pid_alive=lambda pid, target_date=None: True,
+                )
+
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            receipt = payload["superseded_run_scoring_projection_finalization"]
+            canonical_after = canonical_path.read_bytes()
+            projection_exists = (run_folder / BASE_PROJECTION_FILENAME).exists()
+            variant_projection_exists = (
+                run_folder / MODEL_VARIANT_PROJECTION_FILENAME
+            ).exists()
+            manifest_exists = (run_folder / MANIFEST_FILENAME).exists()
+
+        self.assertEqual(payload["action"], "start")
+        self.assertEqual(receipt["status"], "PASS")
+        self.assertEqual(receipt["target_date"], "2026-06-16")
+        self.assertEqual(receipt["run_count"], 1)
+        self.assertEqual(receipt["written_run_count"], 1)
+        self.assertEqual(receipt["error_run_count"], 0)
+        self.assertEqual(
+            saved["superseded_run_scoring_projection_finalization"],
+            receipt,
+        )
+        self.assertEqual(canonical_after, canonical_before)
+        self.assertTrue(projection_exists)
+        self.assertTrue(variant_projection_exists)
+        self.assertTrue(manifest_exists)
+
+    def test_day_roll_waits_for_superseded_pid_exit_before_finalizing_projection(self):
+        events = []
+        state = {"termination_requested": False, "exit_polls": 0}
+
+        def terminate(pid, **kwargs):
+            state["termination_requested"] = True
+            events.append("terminate")
+            return {"pid": int(pid), "stopped": True}
+
+        def pid_alive(pid, target_date=None):
+            if not state["termination_requested"]:
+                return True
+            state["exit_polls"] += 1
+            events.append(f"poll_{state['exit_polls']}")
+            return state["exit_polls"] < 3
+
+        def finalize(runs_root, target_date):
+            events.append("finalize")
+            self.assertEqual(state["exit_polls"], 3)
+            return {
+                "status": "PASS",
+                "target_date": target_date,
+                "run_count": 0,
+                "written_run_count": 0,
+                "skipped_run_count": 0,
+                "error_run_count": 0,
+                "runs": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp)
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                side_effect=terminate,
+            ), patch(
+                "weather.operations.market_making_daily_roll.time.sleep",
+                side_effect=lambda seconds: events.append("sleep"),
+            ), patch(
+                "weather.operations.market_making_daily_roll.finalize_scoring_projections_for_date",
+                side_effect=finalize,
+            ):
+                payload = ensure_for_date(
+                    "2026-06-17",
+                    status_path=status_path,
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "mm_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-17T04:20:00+00:00",
+                    start_after_local_time="00:00",
+                    launcher=lambda command, repo_root, console_log_path: 9100,
+                    pid_alive=pid_alive,
+                )
+
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            events,
+            ["terminate", "poll_1", "sleep", "poll_2", "sleep", "poll_3", "finalize"],
+        )
+        self.assertEqual(payload["superseded_process_exit_wait"]["attempts"], 3)
+        self.assertTrue(payload["superseded_process_exit_wait"]["exited"])
+        self.assertEqual(
+            saved["superseded_process_exit_wait"],
+            payload["superseded_process_exit_wait"],
+        )
+
+    def test_day_roll_does_not_finalize_when_superseded_worker_fails_to_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            runs_root = tmp / "mm_runs"
+            run_folder = runs_root / "2026-06-16" / "mm-still-live"
+            _write_status(status_path, tmp)
+            canonical_path = _write_scoring_source_tape(run_folder)
+            canonical_before = canonical_path.read_bytes()
+
+            with patch(
+                "weather.operations.bot_daily_roll_supervisor.terminate_python_pid",
+                return_value={
+                    "pid": 4321,
+                    "stopped": False,
+                    "reason": "termination timeout",
+                },
+            ), patch(
+                "weather.operations.market_making_daily_roll.finalize_scoring_projections_for_date",
+            ) as finalize:
+                payload = ensure_for_date(
+                    "2026-06-17",
+                    status_path=status_path,
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=runs_root,
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-17T04:20:00+00:00",
+                    start_after_local_time="00:00",
+                    launcher=lambda command, repo_root, console_log_path: 9100,
+                    pid_alive=lambda pid, target_date=None: True,
+                )
+
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+            receipt = payload["superseded_run_scoring_projection_finalization"]
+            canonical_after = canonical_path.read_bytes()
+            projection_exists = (run_folder / BASE_PROJECTION_FILENAME).exists()
+            manifest_exists = (run_folder / MANIFEST_FILENAME).exists()
+
+        finalize.assert_not_called()
+        self.assertEqual(receipt["status"], "ERROR")
+        self.assertEqual(receipt["target_date"], "2026-06-16")
+        self.assertIn("did not stop cleanly", receipt["error"])
+        self.assertEqual(
+            saved["superseded_run_scoring_projection_finalization"],
+            receipt,
+        )
+        self.assertEqual(canonical_after, canonical_before)
+        self.assertFalse(projection_exists)
+        self.assertFalse(manifest_exists)
 
     def test_stop_status_file_stops_matching_paper_roll(self):
         with tempfile.TemporaryDirectory() as tmp:

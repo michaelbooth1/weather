@@ -24,6 +24,7 @@ from weather.market import taker_bot
 from weather.market import taker_edge_permission
 from weather.market.market_day_labels import discover_default_folders, parse_overrides
 from weather.market.market_registry import all_specs
+from weather.market.mm_scoring_projection import resolve_run_scoring_inputs
 from weather.operations import clob_order_book_tiering
 from weather.operations import closed_market_day_archive
 from weather.operations import daily_roll_log_hygiene
@@ -376,16 +377,31 @@ def run_maker_paper_score_step(args):
         latest_n=latest_runs,
         evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
     )
+    selected_inputs = [resolve_run_scoring_inputs(folder) for folder in selected]
+    scoring_input_paths_by_folder = {
+        receipt["run_folder"]: receipt["input_paths"]
+        for receipt in selected_inputs
+    }
+    scoring_input_bindings_by_folder = {
+        receipt["run_folder"]: receipt["input_bindings"]
+        for receipt in selected_inputs
+    }
     input_paths = [
-        path
-        for folder in selected
-        for path in (
-            Path(folder) / "quote_intents_long.csv",
-            Path(folder) / "model_variant_quote_intents_long.csv",
-        )
-        if path.exists()
+        Path(path)
+        for receipt in selected_inputs
+        for path in receipt["input_paths"].values()
+        if Path(path).exists()
     ]
-    input_bytes = sum(path.stat().st_size for path in input_paths)
+    input_bytes = sum(int(receipt["input_bytes"]) for receipt in selected_inputs)
+    canonical_input_bytes = sum(
+        int(receipt["canonical_bytes"])
+        for receipt in selected_inputs
+    )
+    projection_run_count = sum(
+        receipt["input_mode"] == "projection"
+        for receipt in selected_inputs
+    )
+    canonical_fallback_run_count = len(selected_inputs) - projection_run_count
     input_preflight = {
         "status": "PASS" if input_bytes <= max_input_bytes else "BLOCK",
         "reason": None if input_bytes <= max_input_bytes else "maker_paper_input_budget_exceeded",
@@ -395,8 +411,15 @@ def run_maker_paper_score_step(args):
         "available_run_count": selection.get("available_run_folders_before_selection"),
         "input_file_count": len(input_paths),
         "input_bytes": input_bytes,
+        "canonical_input_bytes": canonical_input_bytes,
+        "projected_vs_canonical_byte_ratio": (
+            input_bytes / canonical_input_bytes if canonical_input_bytes else None
+        ),
+        "projection_run_count": projection_run_count,
+        "canonical_fallback_run_count": canonical_fallback_run_count,
         "max_input_bytes": max_input_bytes,
         "selected_run_folders": [str(path) for path in selected],
+        "selected_inputs": selected_inputs,
     }
     if input_preflight["status"] == "BLOCK":
         return {
@@ -405,6 +428,9 @@ def run_maker_paper_score_step(args):
             "input_preflight": input_preflight,
             "selected_run_count": len(selected),
             "input_bytes": input_bytes,
+            "canonical_input_bytes": canonical_input_bytes,
+            "projection_run_count": projection_run_count,
+            "canonical_fallback_run_count": canonical_fallback_run_count,
             "max_input_bytes": max_input_bytes,
         }
     payload = mm_paper.build_paper_payload(
@@ -413,6 +439,8 @@ def run_maker_paper_score_step(args):
         backtest_root=backtest_root,
         selected_run_folders=selected,
         selected_run_folder_selection=selection,
+        scoring_input_paths_by_folder=scoring_input_paths_by_folder,
+        scoring_input_bindings_by_folder=scoring_input_bindings_by_folder,
         run_folder_latest_n=latest_runs,
         run_folder_evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
         casebook_path=backtest_path(args, "disagreement_casebook.json"),
@@ -443,6 +471,10 @@ def run_maker_paper_score_step(args):
             "selected_run_count",
             "input_file_count",
             "input_bytes",
+            "canonical_input_bytes",
+            "projected_vs_canonical_byte_ratio",
+            "projection_run_count",
+            "canonical_fallback_run_count",
             "max_input_bytes",
         )
     }
@@ -470,6 +502,12 @@ def run_maker_paper_score_step(args):
         "known_edge_report_out": as_path(backtest_path(args, "mm_known_edge_map.md")),
         "selected_run_count": len(selected),
         "input_bytes": input_bytes,
+        "canonical_input_bytes": canonical_input_bytes,
+        "projected_vs_canonical_byte_ratio": (
+            input_bytes / canonical_input_bytes if canonical_input_bytes else None
+        ),
+        "projection_run_count": projection_run_count,
+        "canonical_fallback_run_count": canonical_fallback_run_count,
         "max_input_bytes": max_input_bytes,
         "paper_score_freshness_status": freshness.get("status"),
         "paper_score_freshness_reason": freshness.get("reason"),

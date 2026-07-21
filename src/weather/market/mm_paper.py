@@ -2282,6 +2282,8 @@ def _build_paper_payload(
     run_folder_evidence_mode=None,
     selected_run_folders=None,
     selected_run_folder_selection=None,
+    scoring_input_paths_by_folder=None,
+    scoring_input_bindings_by_folder=None,
     casebook_path=DEFAULT_CASEBOOK,
     promotion_refresh=DEFAULT_PROMOTION_REFRESH,
     config=None,
@@ -2332,6 +2334,8 @@ def _build_paper_payload(
             config=config,
             include_model_variants=include_model_variants,
             include_fill_simulation=include_fill_simulation,
+            scoring_input_paths_by_folder=scoring_input_paths_by_folder,
+            scoring_input_bindings_by_folder=scoring_input_bindings_by_folder,
         )
         if _spill_cleanup is not None:
             _spill_cleanup.append(aggregation)
@@ -2347,9 +2351,53 @@ def _build_paper_payload(
         model_variant_legs = aggregation.model_variant_legs
         run_configs = aggregation.run_configs
     else:
+        base_input_paths = None
+        variant_input_paths = None
+        base_input_bindings = None
+        variant_input_bindings = None
+        if scoring_input_paths_by_folder is not None:
+            normalized_input_paths = {
+                str(Path(folder)): paths
+                for folder, paths in scoring_input_paths_by_folder.items()
+            }
+            try:
+                base_input_paths = {
+                    str(Path(folder)): normalized_input_paths[str(Path(folder))]["base"]
+                    for folder in run_folders
+                }
+                variant_input_paths = {
+                    str(Path(folder)): normalized_input_paths[str(Path(folder))]["model_variant"]
+                    for folder in run_folders
+                }
+            except KeyError as exc:
+                raise ValueError("incomplete explicit maker scoring input paths") from exc
+        if scoring_input_bindings_by_folder is not None:
+            if scoring_input_paths_by_folder is None:
+                raise ValueError(
+                    "maker scoring input bindings require explicit input paths"
+                )
+            normalized_input_bindings = {
+                str(Path(folder)): bindings
+                for folder, bindings in scoring_input_bindings_by_folder.items()
+            }
+            try:
+                base_input_bindings = {
+                    str(Path(folder)): normalized_input_bindings[str(Path(folder))]["base"]
+                    for folder in run_folders
+                }
+                variant_input_bindings = {
+                    str(Path(folder)): normalized_input_bindings[str(Path(folder))]["model_variant"]
+                    for folder in run_folders
+                }
+            except KeyError as exc:
+                raise ValueError(
+                    "incomplete explicit maker scoring input bindings"
+                ) from exc
         quote_rows, run_configs = load_quote_rows(
             run_folders,
             eligibility_by_folder=eligibility_by_folder,
+            input_paths_by_folder=base_input_paths,
+            input_bindings_by_folder=base_input_bindings,
         )
         legs = quote_legs(quote_rows, config)
         model_variant_quote_rows = []
@@ -2358,6 +2406,8 @@ def _build_paper_payload(
             model_variant_quote_rows, _model_variant_run_configs = load_model_variant_quote_rows(
                 run_folders,
                 eligibility_by_folder=eligibility_by_folder,
+                input_paths_by_folder=variant_input_paths,
+                input_bindings_by_folder=variant_input_bindings,
             )
             model_variant_legs = quote_legs(model_variant_quote_rows, config)
     quote_row_count = len(quote_rows)

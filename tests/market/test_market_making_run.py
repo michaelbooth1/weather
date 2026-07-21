@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
+from weather.market import market_making_run
 from weather.market.market_making_run import (
     build_useful_work_liveness,
     build_run_once,
@@ -570,6 +572,112 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
 
 
 class TestMarketMakingRun(unittest.TestCase):
+    def test_run_loop_finalizes_last_tick_exactly_once(self):
+        now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
+        tick_payload = {
+            "run_id": "loop-run",
+            "run_folder": "loop-folder",
+        }
+        finalized_payload = {
+            **tick_payload,
+            "scoring_projection": {"status": "PASS"},
+        }
+        with patch.object(
+            market_making_run,
+            "build_run_once",
+            return_value=tick_payload,
+        ) as build_once, patch.object(
+            market_making_run,
+            "utc_now",
+            return_value=now,
+        ), patch.object(
+            market_making_run.time,
+            "sleep",
+        ) as sleep, patch.object(
+            market_making_run,
+            "keep_system_awake",
+        ), patch.object(
+            market_making_run,
+            "finalize_scoring_projection",
+            return_value=finalized_payload,
+        ) as finalize:
+            result = market_making_run.run_loop(
+                TARGET_DATE,
+                500,
+                "paper-live-forward",
+                markets=["atlanta"],
+                until_utc="2026-06-14T17:00:00+00:00",
+                max_ticks=1,
+            )
+
+        build_once.assert_called_once()
+        sleep.assert_not_called()
+        finalize.assert_called_once_with(tick_payload)
+        self.assertIs(result, finalized_payload)
+
+    def test_main_finalizes_one_shot_once_and_does_not_refinalize_loop_result(self):
+        one_shot_payload = {"run_folder": "one-shot"}
+        finalized_payload = {
+            **one_shot_payload,
+            "scoring_projection": {"status": "PASS"},
+        }
+        with patch.object(
+            market_making_run,
+            "build_run_once",
+            return_value=one_shot_payload,
+        ) as build_once, patch.object(
+            market_making_run,
+            "finalize_scoring_projection",
+            return_value=finalized_payload,
+        ) as finalize, patch.object(
+            market_making_run,
+            "format_run_cli_summary",
+            return_value="one-shot",
+        ):
+            result = market_making_run.main([
+                "--date",
+                TARGET_DATE,
+                "--mode",
+                "shadow",
+                "--budget-usdc",
+                "500",
+            ])
+
+        build_once.assert_called_once()
+        finalize.assert_called_once_with(one_shot_payload)
+        self.assertIs(result, finalized_payload)
+
+        loop_payload = {
+            "run_folder": "loop",
+            "scoring_projection": {"status": "PASS"},
+        }
+        with patch.object(
+            market_making_run,
+            "run_loop",
+            return_value=loop_payload,
+        ) as run_loop, patch.object(
+            market_making_run,
+            "finalize_scoring_projection",
+        ) as finalize, patch.object(
+            market_making_run,
+            "format_run_cli_summary",
+            return_value="loop",
+        ):
+            result = market_making_run.main([
+                "--date",
+                TARGET_DATE,
+                "--mode",
+                "paper-live-forward",
+                "--max-ticks",
+                "1",
+                "--budget-usdc",
+                "500",
+            ])
+
+        run_loop.assert_called_once()
+        finalize.assert_not_called()
+        self.assertIs(result, loop_payload)
+
     def test_runtime_identity_snapshot_uses_recorded_scope_for_loop_status(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

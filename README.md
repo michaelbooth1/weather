@@ -226,6 +226,19 @@ of quote inputs. Operators can narrow those limits with
 `--maker-paper-latest-active-runs` and `--maker-paper-max-input-bytes`; raising
 them requires a separate host-capacity review.
 
+Finalized runs normally provide a source-bound `mm_scoring_projection_v0.1`
+base/variant CSV pair containing only current maker-score reader fields.
+Preflight validates both members against their canonical tapes and
+measures/passes those exact paths; if either member is missing, stale,
+malformed, or incompatible, the whole run falls back to both canonical quote
+tapes. The score receipt records selected and canonical bytes, their ratio,
+and every run's input mode. Existing runs can be projected without rewriting
+canonical tapes with:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
+```
+
 High-risk settlement-stage steps run one at a time in isolated child process
 trees. Each has a repository-declared timeout plus private-memory and
 working-set ceilings; admission requires host commit below 70%, fresh capture
@@ -320,6 +333,7 @@ wrapper, not the canonical training interface.
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode shadow --markets all
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
 .\venv\Scripts\python.exe -m weather.market.mm_paper
+.\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
 
 # Paper taker-bot simulator.
 .\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60

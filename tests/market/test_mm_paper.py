@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from weather.market import exchange_economics
 from weather.market.live_forward_gate import build_live_forward_gate
+from weather.market.market_making_run_constants import RUN_QUOTE_COLUMNS
 from weather.market.mm_paper import (
     build_known_edge_map,
     build_paper_payload,
@@ -20,6 +21,10 @@ from weather.market.mm_paper import (
     write_outputs,
 )
 from weather.market.mm_paper_scoring import load_casebook_index, write_json as write_scoring_json
+from weather.market.mm_scoring_projection import (
+    resolve_run_scoring_inputs,
+    write_run_scoring_projections,
+)
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
@@ -1404,6 +1409,104 @@ class TestMMPaper(unittest.TestCase):
         self.assertEqual(streamed["summary"]["model_variant_quote_rows"], 4)
         self.assertEqual(streamed["summary"]["model_variant_quote_legs"], 8)
         self.assertEqual(len(streamed["model_variant_fills"]), 1)
+
+    def test_scoring_projection_is_byte_equivalent_to_canonical_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs_root, run_folder = write_run_fixture(root)
+            legacy_quote = read_csv(run_folder / "quote_intents_long.csv")[0]
+            quote = {
+                column: legacy_quote.get(column, "")
+                for column in RUN_QUOTE_COLUMNS
+            }
+            quote.update({
+                "capture_hour_local": "4",
+                "event_gate_next_event_at_utc": "2026-06-14T16:30:00+00:00",
+                "book_spread": "0.02",
+                "model_variant_runtime_identity": "fat-provenance-" + ("x" * 2048),
+            })
+            write_csv(
+                run_folder / "quote_intents_long.csv",
+                RUN_QUOTE_COLUMNS,
+                [quote],
+            )
+            variants = [
+                {
+                    **quote,
+                    "model_variant_id": "served_current",
+                    "model_variant_family": "served_current",
+                    "model_variant_role": "served",
+                    "model_variant_counterfactual": "False",
+                },
+                {
+                    **quote,
+                    "model_variant_id": "candidate_shadow",
+                    "model_variant_family": "test",
+                    "model_variant_role": "shadow",
+                    "model_variant_counterfactual": "True",
+                    "fair_probability": "0.62",
+                },
+            ]
+            write_csv(
+                run_folder / "model_variant_quote_intents_long.csv",
+                RUN_QUOTE_COLUMNS,
+                variants,
+            )
+            config = json.loads((run_folder / "run_config.json").read_text(encoding="utf-8"))
+            config["schema_version"] = "mm_run_v0.2"
+            (run_folder / "run_config.json").write_text(
+                json.dumps(config),
+                encoding="utf-8",
+            )
+            receipt = write_run_scoring_projections(run_folder)
+            resolved = resolve_run_scoring_inputs(run_folder)
+            self.assertEqual(resolved["input_mode"], "projection")
+
+            snapshots_root = write_snapshot_fixture(root)
+            backtest_root = root / "backtest"
+            casebook = backtest_root / "casebook.json"
+            promotion = backtest_root / "promotion.json"
+            write_casebook(casebook)
+            write_promotion(promotion)
+            kwargs = {
+                "runs_root": runs_root,
+                "snapshots_root": snapshots_root,
+                "backtest_root": backtest_root,
+                "run_folders": [run_folder],
+                "casebook_path": casebook,
+                "promotion_refresh": promotion,
+                "clob_recon_path": backtest_root / "clob_recon.json",
+                "config": {"quote_ttl_seconds": 120.0},
+                "now": "2026-06-14T17:00:00+00:00",
+            }
+            canonical = build_paper_payload(**kwargs)
+            projected = build_paper_payload(
+                **kwargs,
+                scoring_input_paths_by_folder={
+                    str(run_folder): receipt["input_paths"],
+                },
+                scoring_input_bindings_by_folder={
+                    str(run_folder): receipt["input_bindings"],
+                },
+            )
+            canonical_path = backtest_root / "canonical_score.json"
+            projected_path = backtest_root / "projected_score.json"
+            write_scoring_json(canonical_path, canonical)
+            write_scoring_json(projected_path, projected)
+            self.assertEqual(canonical_path.read_bytes(), projected_path.read_bytes())
+
+            projection_path = Path(receipt["input_paths"]["base"])
+            projection_path.write_bytes(projection_path.read_bytes() + b"\n")
+            with self.assertRaisesRegex(RuntimeError, "binding mismatch"):
+                build_paper_payload(
+                    **kwargs,
+                    scoring_input_paths_by_folder={
+                        str(run_folder): receipt["input_paths"],
+                    },
+                    scoring_input_bindings_by_folder={
+                        str(run_folder): receipt["input_bindings"],
+                    },
+                )
 
     def test_streamed_build_peak_memory_stays_roughly_flat_as_runs_grow(self):
         def measured_peak(run_count):

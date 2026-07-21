@@ -22,6 +22,7 @@ from weather.market.market_making_evidence import (
     classify_market_making_evidence,
 )
 from weather.market.market_making_run_constants import DEFAULT_RUNS_ROOT, RUN_MODES
+from weather.market.mm_scoring_projection import backfill_run_scoring_projections
 from weather.operations.bot_run_liveness import (
     DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     DEFAULT_MIN_FREE_BYTES,
@@ -35,7 +36,11 @@ from weather.operations.bot_run_liveness import (
     terminal_status_for_inactive_process,
     utc_iso as liveness_utc_iso,
 )
-from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll, stop_daily_roll_process
+from weather.operations.bot_daily_roll_supervisor import (
+    call_pid_alive,
+    ensure_daily_roll,
+    stop_daily_roll_process,
+)
 from weather.operations.supervisor import SupervisorSpec
 from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
@@ -54,6 +59,8 @@ DEFAULT_BUDGET_USDC = 500.0
 DEFAULT_MODE = "paper-live-forward"
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
+SUPERSEDED_EXIT_WAIT_ATTEMPTS = 20
+SUPERSEDED_EXIT_WAIT_SECONDS = 0.1
 ACTIVITY_FILENAMES = (
     "quote_intents_long.csv",
     "order_lifecycle.jsonl",
@@ -1021,6 +1028,50 @@ def start_for_current_day(
     )
 
 
+def wait_for_superseded_process_exit(
+    pid,
+    target_date,
+    *,
+    pid_alive,
+    attempts=SUPERSEDED_EXIT_WAIT_ATTEMPTS,
+    sleep_seconds=SUPERSEDED_EXIT_WAIT_SECONDS,
+    sleep_fn=None,
+):
+    """Boundedly prove the old target-matched worker no longer exists."""
+
+    sleep_fn = sleep_fn or time.sleep
+    bounded_attempts = max(1, int(attempts))
+    for attempt in range(bounded_attempts):
+        if not call_pid_alive(pid_alive, pid, target_date):
+            return {
+                "exited": True,
+                "reason": "superseded_process_not_alive",
+                "pid": pid,
+                "target_date": str(target_date),
+                "attempts": attempt + 1,
+            }
+        if attempt + 1 < bounded_attempts:
+            sleep_fn(float(sleep_seconds))
+    return {
+        "exited": False,
+        "reason": "superseded_process_exit_not_observed",
+        "pid": pid,
+        "target_date": str(target_date),
+        "attempts": bounded_attempts,
+    }
+
+
+def finalize_scoring_projections_for_date(runs_root, target_date):
+    target = ensure_date(target_date)
+    folders = market_making_run_folders(runs_root, target)
+    payload = backfill_run_scoring_projections(folders, skip_existing=True)
+    return {
+        "status": "PASS" if not payload.get("error_run_count") else "WARN",
+        "target_date": target,
+        **payload,
+    }
+
+
 def ensure_for_date(
     target_date,
     *,
@@ -1095,7 +1146,7 @@ def ensure_for_date(
             force_retire_latest_run=force_retire_latest_run,
         )
 
-    return ensure_daily_roll(
+    result = ensure_daily_roll(
         spec=spec,
         target_date=target_date,
         load_status_fn=load_current_status,
@@ -1107,6 +1158,61 @@ def ensure_for_date(
         timezone_name=timezone_name,
         start_after_local_time=start_after_local_time,
     )
+    previous_target = result.get("status_target_date")
+    if (
+        result.get("action") == "start"
+        and previous_target
+        and str(previous_target) != target_date
+    ):
+        stop_result = result.get("stop_superseded") or {}
+        no_matching_process = (
+            stop_result.get("reason")
+            == "no live matching daily-roll python process"
+        )
+        exit_wait = None
+        if stop_result.get("stopped"):
+            if stop_result.get("exited") is True:
+                exit_wait = {
+                    "exited": True,
+                    "reason": "stop_receipt_confirmed_exit",
+                    "pid": stop_result.get("pid"),
+                    "target_date": str(previous_target),
+                    "attempts": 0,
+                }
+            else:
+                exit_wait = wait_for_superseded_process_exit(
+                    stop_result.get("pid"),
+                    previous_target,
+                    pid_alive=pid_alive,
+                )
+            result["superseded_process_exit_wait"] = exit_wait
+        safe_to_finalize = bool(no_matching_process or (exit_wait or {}).get("exited"))
+        try:
+            if not safe_to_finalize:
+                raise RuntimeError(
+                    "superseded maker worker did not stop cleanly or its exit was not "
+                    "confirmed; canonical fallback required"
+                )
+            finalization = finalize_scoring_projections_for_date(runs_root, previous_target)
+        except Exception as exc:
+            finalization = {
+                "status": "ERROR",
+                "target_date": str(previous_target),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        result["superseded_run_scoring_projection_finalization"] = finalization
+        latest_status = read_json(status_path)
+        if isinstance(latest_status, dict):
+            latest_status["superseded_run_scoring_projection_finalization"] = finalization
+            if exit_wait is not None:
+                latest_status["superseded_process_exit_wait"] = exit_wait
+            try:
+                write_json(status_path, latest_status)
+            except Exception as exc:
+                result["scoring_projection_status_persistence_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+    return result
 
 
 def ensure_for_current_day(*, now=None, timezone_name=DEFAULT_TIMEZONE, **kwargs):
