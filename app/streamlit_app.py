@@ -15,7 +15,7 @@ st.set_page_config(page_title="Weather Markets", layout="wide")
 
 def _market_labels():
     labels = {
-        "Overview": "overview",
+        "Home": "overview",
         "Roadmap": "roadmap",
         "History": "history",
         "Operations": "ops",
