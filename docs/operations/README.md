@@ -48,6 +48,8 @@ environment.
   construction.
 - [Exchange Economics Snapshot Runbook](EXCHANGE_ECONOMICS_SNAPSHOT_RUNBOOK.md)
   owns publication, review, acceptance, and drift checks for exchange rules.
+- [Capital Canary Bot](capital-canary-bot.md) owns the $75 lifetime-capital
+  envelope, capital-lock boundary, reconciliation ledger, and read-only tracker.
 - [Weather Underground Current-Day Degradation](2026-06-21-wu-history-current-day-degradation.md)
   is the incident-specific recovery note for that failure mode.
 

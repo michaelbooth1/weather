@@ -9,6 +9,9 @@ venv/
 .venv/
 env/
 
+# --- Local credentials ---
+.env
+
 # --- Raw source payloads (large, regenerable auditability backups) ---
 # ~600 MB+ of provider JSON/XML/CSV. Rebuildable from the network via the
 # collector CLIs (e.g. `python -m weather.sources.wu_history backfill`), and normalized
