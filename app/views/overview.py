@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-import json
+import logging
 import math
 from collections.abc import Mapping
 from datetime import datetime, timezone
@@ -13,6 +13,7 @@ import streamlit as st
 
 
 _READY_STATUS = "READY"
+_LOGGER = logging.getLogger(__name__)
 
 
 def _load_home_payload() -> dict:
@@ -86,7 +87,12 @@ def _candidate_link(candidate: Mapping) -> str:
         market_id = _text(candidate.get("market_id"), "")
         return f"/?market={market_id}" if market_id else "/?market=overview"
     parsed = urlsplit(href)
-    if href.startswith("/?") or (parsed.scheme in {"http", "https"} and parsed.netloc):
+    if href.startswith("/?"):
+        return href
+    if (
+        parsed.scheme == "https"
+        and parsed.netloc.lower() in {"polymarket.com", "www.polymarket.com"}
+    ):
         return href
     return "/?market=overview"
 
@@ -122,16 +128,22 @@ def _candidate_value(candidate: Mapping, *keys, fallback=None):
 
 
 def _render_candidate(candidate: Mapping) -> None:
-    side = html.escape(
-        _text(_candidate_value(candidate, "side_label", "display_side", "side"), "PAPER BET")
+    side_text = _text(
+        _candidate_value(candidate, "side_label", "display_side", "side"),
+        "PAPER BET",
     )
-    market = html.escape(
-        _text(candidate.get("market_label") or candidate.get("city_label"), "Weather market")
+    market_text = _text(
+        candidate.get("market_label") or candidate.get("city_label"),
+        "Weather market",
     )
+    range_text = _text(
+        _candidate_value(candidate, "range_label", "native_range_label"),
+        "Native range unavailable",
+    )
+    side = html.escape(side_text)
+    market = html.escape(market_text)
     target_date = html.escape(_text(candidate.get("target_date"), "date pending"))
-    range_label = html.escape(
-        _text(_candidate_value(candidate, "range_label", "native_range_label"), "Native range unavailable")
-    )
+    range_label = html.escape(range_text)
     market_link = html.escape(_candidate_link(candidate), quote=True)
     evidence_days = _count(
         _candidate_value(candidate, "independent_target_days", "independent_days", "evidence_days")
@@ -146,20 +158,24 @@ def _render_candidate(candidate: Mapping) -> None:
         _text(_candidate_value(candidate, "strategy_id", "strategy_name"), "paper policy")
     )
     strategy_status = html.escape(_text(candidate.get("strategy_status"), "paper"))
+    card_label = html.escape(
+        f"{side_text} paper candidate for {market_text}: {range_text}",
+        quote=True,
+    )
 
     st.markdown(
         f"""
-        <div class="safe-bet-card">
+        <article class="safe-bet-card" aria-label="{card_label}">
           <div class="safe-card-topline">
             <span class="safe-side-pill">{side}</span>
             <span class="safe-paper-label">CAPPED PAPER POSITION</span>
           </div>
           <div class="safe-market">{market}</div>
-          <div class="safe-contract">{range_label}</div>
+          <h2 class="safe-contract">{range_label}</h2>
           <div class="safe-date">Settlement date: {target_date}</div>
           <div class="safe-stat-grid">
             <div><span>Executable ask</span><strong>{_percent(_candidate_value(candidate, "executable_price", "entry_price"))}</strong></div>
-            <div><span>Conservative estimate</span><strong>{_percent(_candidate_value(candidate, "conservative_probability", "conservative_win_probability"))}</strong></div>
+            <div><span>Calibrated fair</span><strong>{_percent(_candidate_value(candidate, "calibrated_probability", "calibrated_fair_probability"))}</strong></div>
             <div><span>After-cost edge</span><strong>{_percent(_candidate_value(candidate, "after_cost_ev_per_share", "after_cost_edge"), signed=True)}</strong></div>
             <div><span>Paper stake</span><strong>{_money(_candidate_value(candidate, "paper_stake_usdc", "paper_allocation_usdc"))}</strong></div>
             <div><span>Maximum loss</span><strong>{_money(_candidate_value(candidate, "max_loss_usdc", "paper_stake_usdc", "paper_allocation_usdc"))}</strong></div>
@@ -169,10 +185,12 @@ def _render_candidate(candidate: Mapping) -> None:
             Paper arm: {strategy_id} / {strategy_status}<br>
             Evidence: {html.escape(evidence_days)} independent days / {html.escape(samples)} samples
             &nbsp;&middot;&nbsp; after-fee skill {html.escape(skill)}<br>
+            Conservative probability floor: {_percent(_candidate_value(candidate, "conservative_probability", "conservative_win_probability"))}
+            (lower of calibrated fair and executable ask)<br>
             Freshness: model {html.escape(model_age)} / order book {html.escape(book_age)}
           </div>
           <a class="safe-market-link" href="{market_link}" target="_self">Open market evidence</a>
-        </div>
+        </article>
         """,
         unsafe_allow_html=True,
     )
@@ -235,6 +253,15 @@ def _render_metrics(payload: Mapping, candidate_count: int) -> None:
     columns[4].metric("Passing bets", candidate_count)
 
 
+def _has_fund_metrics(payload: Mapping) -> bool:
+    metrics = payload.get("fund")
+    if not isinstance(metrics, Mapping):
+        metrics = payload.get("paper_metrics")
+    if not isinstance(metrics, Mapping):
+        return False
+    return any(_finite_number(value) is not None for value in metrics.values())
+
+
 def _render_blockers(payload: Mapping) -> None:
     blockers = payload.get("blocker_counts")
     if not isinstance(blockers, Mapping) or not blockers:
@@ -244,8 +271,15 @@ def _render_blockers(payload: Mapping) -> None:
     for reason, count in sorted(
         blockers.items(), key=lambda item: (-(_finite_number(item[1]) or 0), str(item[0]))
     ):
-        rows.append(f"**{html.escape(_text(reason).replace('_', ' ').title())}:** {html.escape(_text(count, '0'))}")
-    st.markdown(" &nbsp;&nbsp; ".join(rows), unsafe_allow_html=True)
+        label = html.escape(_text(reason).replace("_", " ").replace(":", ": ").title())
+        rows.append(
+            f'<span class="safe-blocker"><strong>{label}:</strong> '
+            f'{html.escape(_text(count, "0"))}</span>'
+        )
+    st.markdown(
+        f'<div class="safe-blocker-list">{"".join(rows)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_provenance(payload: Mapping) -> None:
@@ -259,17 +293,22 @@ def _render_provenance(payload: Mapping) -> None:
         if not provenance:
             st.write("No provenance was available for this run.")
             return
-        for key, value in sorted(provenance.items()):
-            if isinstance(value, (dict, list)):
-                rendered = json.dumps(value, sort_keys=True, default=str)
-            else:
-                rendered = _text(value)
-            st.markdown(f"**{html.escape(str(key).replace('_', ' ').title())}:** `{html.escape(rendered)}`")
+        st.json(dict(provenance), expanded=False)
 
 
 def _render_page_body(payload: Mapping) -> None:
     status = _status_name(payload)
     candidates = _candidate_rows(payload) if status == _READY_STATUS else []
+    if status == _READY_STATUS and not candidates:
+        status = "BLOCKED"
+        payload = {
+            **payload,
+            "status": status,
+            "status_message": (
+                "The latest payload reported READY without a valid candidate. "
+                "No bets are shown."
+            ),
+        }
     as_of_value = (
         payload.get("as_of_utc")
         if "as_of_utc" in payload
@@ -286,20 +325,10 @@ def _render_page_body(payload: Mapping) -> None:
         "and after-cost value all clear their gates."
     )
     st.markdown(
-        f'<div class="safe-asof">Gate status: <strong class="{status_class}">{html.escape(status)}</strong> &nbsp;&middot;&nbsp; '
+        f'<div class="safe-asof" role="status" aria-live="polite">Gate status: <strong class="{status_class}">{html.escape(status)}</strong> &nbsp;&middot;&nbsp; '
         f'As of {html.escape(generated_at)}</div>',
         unsafe_allow_html=True,
     )
-
-    _render_metrics(payload, len(candidates))
-
-    if candidates:
-        card_columns = st.columns(len(candidates), gap="large")
-        for column, candidate in zip(card_columns, candidates):
-            with column:
-                _render_candidate(candidate)
-    else:
-        _render_status("NO_BETS" if status == _READY_STATUS else status, payload)
 
     warnings = payload.get("warnings")
     if isinstance(warnings, list):
@@ -307,8 +336,27 @@ def _render_page_body(payload: Mapping) -> None:
             if warning:
                 st.warning(str(warning))
 
-    st.markdown("### Why other bets were held back")
-    _render_blockers(payload)
+    if candidates:
+        card_columns = st.columns(len(candidates), gap="large")
+        for column, candidate in zip(card_columns, candidates):
+            with column:
+                _render_candidate(candidate)
+    else:
+        _render_status(status, payload)
+
+    if _has_fund_metrics(payload):
+        st.markdown("## Paper fund snapshot")
+        _render_metrics(payload, len(candidates))
+
+    blockers = payload.get("blocker_counts")
+    if isinstance(blockers, Mapping) and blockers:
+        heading = (
+            "Why other bets were held back"
+            if status in {_READY_STATUS, "NO_BETS"}
+            else "Why no bets are shown"
+        )
+        st.markdown(f"## {heading}")
+        _render_blockers(payload)
     _render_provenance(payload)
 
     st.markdown(
@@ -391,15 +439,15 @@ def render_overview_page(live_refresh_seconds: int) -> None:
           font-weight: 800;
           white-space: nowrap;
         }
-        .safe-paper-label { color: var(--safe-muted); font-size: 0.64rem; letter-spacing: 0.06em; }
+        .safe-paper-label { color: var(--safe-muted); font-size: 0.75rem; letter-spacing: 0.06em; }
         .safe-market { color: var(--safe-muted); font-size: 0.9rem; margin-top: 1.15rem; }
-        .safe-contract { color: var(--safe-ink); font-size: 1.45rem; font-weight: 750; line-height: 1.15; margin-top: 0.2rem; }
-        .safe-date { color: var(--safe-muted); font-size: 0.78rem; margin-top: 0.35rem; }
+        h2.safe-contract { color: var(--safe-ink); font-size: 1.45rem; font-weight: 750; line-height: 1.15; margin: 0.2rem 0 0; }
+        .safe-date { color: var(--safe-muted); font-size: 0.82rem; margin-top: 0.35rem; }
         .safe-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin: 1.25rem 0; }
         .safe-stat-grid div { background: rgba(7, 18, 31, 0.5); border-radius: 10px; padding: 0.7rem; }
-        .safe-stat-grid span { color: var(--safe-muted); display: block; font-size: 0.69rem; }
+        .safe-stat-grid span { color: var(--safe-muted); display: block; font-size: 0.78rem; }
         .safe-stat-grid strong { color: var(--safe-ink); display: block; font-size: 1.03rem; margin-top: 0.1rem; }
-        .safe-evidence { color: var(--safe-muted); font-size: 0.75rem; line-height: 1.55; min-height: 3.4rem; }
+        .safe-evidence { color: var(--safe-muted); font-size: 0.82rem; line-height: 1.55; min-height: 3.4rem; }
         .safe-market-link {
           display: inline-block;
           color: var(--safe-teal) !important;
@@ -407,6 +455,21 @@ def render_overview_page(live_refresh_seconds: int) -> None:
           margin-top: 0.9rem;
           text-decoration: none;
           font-weight: 650;
+        }
+        .safe-market-link:focus-visible,
+        .safe-nav a:focus-visible {
+          outline: 3px solid #ffffff;
+          outline-offset: 4px;
+          border-radius: 3px;
+        }
+        .safe-blocker-list { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+        .safe-blocker {
+          color: var(--safe-muted);
+          background: rgba(21, 36, 58, 0.66);
+          border: 1px solid rgba(158, 175, 193, 0.15);
+          border-radius: 999px;
+          padding: 0.35rem 0.65rem;
+          font-size: 0.82rem;
         }
         .safe-nav {
           border-top: 1px solid rgba(158, 175, 193, 0.18);
@@ -419,6 +482,8 @@ def render_overview_page(live_refresh_seconds: int) -> None:
         }
         .safe-nav a { color: var(--safe-teal) !important; text-decoration: none; }
         @media (max-width: 640px) {
+          section[data-testid="stSidebar"][aria-expanded="false"]
+            [data-testid="stSidebarContent"] { visibility: hidden; }
           .safe-bet-card { min-height: auto; }
           .safe-stat-grid { grid-template-columns: 1fr; }
           .safe-card-topline { align-items: flex-start; flex-direction: column; }
@@ -433,11 +498,15 @@ def render_overview_page(live_refresh_seconds: int) -> None:
         try:
             payload = _load_home_payload()
         except Exception:
-            # The sync can expose a partial file between atomic units. The home
-            # page remains usable and, critically, never displays older bets.
+            _LOGGER.exception("Safest-bets homepage evidence adapter failed")
             payload = {
-                "status": "LOADING",
-                "message": "The latest paper-run evidence is incomplete. Waiting for sync to finish.",
+                "status": "BLOCKED",
+                "message": (
+                    "The homepage evidence adapter failed safely. No bets are shown; "
+                    "review the application log for the audit trace."
+                ),
+                "run_blockers": ["homepage_adapter_error"],
+                "blocker_counts": {"homepage_adapter_error": 1},
             }
         _render_page_body(payload)
 

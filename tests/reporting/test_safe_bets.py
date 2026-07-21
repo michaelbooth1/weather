@@ -13,41 +13,129 @@ from weather.reporting.market.safe_bets import (
     build_safe_bets_payload,
     load_safe_bets_payload,
 )
+from weather.market.taker_bot_strategy_registry import (
+    DEFAULT_CONTROL_STRATEGY_ID,
+    compact_float,
+    selected_strategy_specs,
+)
+from weather.market.taker_bot_tape_io import order_key
+from weather.market.taker_edge_permission import (
+    PERMISSION_FIELDS,
+    taker_permission_record_key,
+)
 
 
 NOW = datetime(2026, 7, 21, 16, 0, tzinfo=timezone.utc)
 TARGET_DATE = "2026-07-21"
+_BASE_STRATEGY_SPEC = selected_strategy_specs(
+    [DEFAULT_CONTROL_STRATEGY_ID],
+    base_config={
+        "policy_version": "taker_bot_policy_v0.1",
+        "require_active_market": True,
+        "max_book_age_seconds": 120,
+        "max_model_age_seconds": 900,
+    },
+)[0]
+BASE_CONFIG = deepcopy(_BASE_STRATEGY_SPEC["config"])
+BASE_STRATEGY = {
+    key: deepcopy(value)
+    for key, value in _BASE_STRATEGY_SPEC.items()
+    if key != "config"
+}
+EXCHANGE_SNAPSHOT_ID = "fees-2026-07"
+EXCHANGE_HASH = "exchange-economics-sha256"
+BASE_PERMISSION_RECORD = {
+    **{field: "*" for field in PERMISSION_FIELDS},
+    "source_freshness_state": "all_fresh",
+    "snapshot_cadence_quality_state": "clean",
+    "permission": "edge_allowed",
+    "reason": "settlement_scored_model_beats_market",
+    "settled_sample_size": 18,
+    "independent_target_day_count": 5,
+    "market_count": 2,
+    "historical_hit_rate": 0.97,
+    "calibrated_model_probability": 0.97,
+    "taker_skill_weight": 0.08,
+    "after_fee_model_minus_market_skill": 0.08,
+}
+PERMISSION_RECORD_KEY = taker_permission_record_key(BASE_PERMISSION_RECORD)
 
 
-def _permission(*, generated_at=None):
+def _bind_intent(row):
+    payload = {
+        "experiment_id": row.get("experiment_id") or "",
+        "strategy_id": row.get("strategy_id") or DEFAULT_CONTROL_STRATEGY_ID,
+        "run_id": row.get("run_id") or "",
+        "target_date": row.get("target_date") or "",
+        "market_id": row.get("market_id") or "",
+        "event_slug": row.get("event_slug") or "",
+        "snapshot_id": row.get("snapshot_id") or "",
+        "captured_at_utc": row.get("captured_at_utc") or "",
+        "clob_token_id": row.get("clob_token_id") or "",
+        "model_variant_id": row.get("model_variant_id") or "served_current",
+        "range_label": row.get("range_label") or "",
+        "fair_probability": compact_float(row.get("fair_probability")),
+        "best_ask": compact_float(row.get("best_ask")),
+    }
+    intent = order_key(payload)
+    row["intent_key"] = intent
+    row["order_id"] = f"taker_{intent}"
+    return row
+
+
+def _permission(*, generated_at=None, records=None):
+    selected_records = deepcopy(
+        [BASE_PERMISSION_RECORD] if records is None else records
+    )
     return {
         "schema_version": PERMISSION_SCHEMA_VERSION,
         "generated_at_utc": (generated_at or (NOW - timedelta(hours=3))).isoformat(),
         "summary": {
-            "record_count": 14,
-            "edge_allowed_count": 4,
-            "observe_count": 6,
-            "deny_count": 4,
+            "record_count": len(selected_records),
+            "edge_allowed_count": sum(
+                record.get("permission") == "edge_allowed"
+                for record in selected_records
+            ),
+            "observe_count": sum(
+                record.get("permission") == "observe" for record in selected_records
+            ),
+            "deny_count": sum(
+                record.get("permission") == "deny" for record in selected_records
+            ),
             "min_independent_days": 3,
         },
+        "records": selected_records,
     }
 
 
 def _row(**updates):
     row = {
+        "schema_version": RUN_SCHEMA_VERSION,
         "generated_at_utc": (NOW - timedelta(seconds=30)).isoformat(),
         "captured_at_utc": (NOW - timedelta(seconds=40)).isoformat(),
+        "run_id": "paper-current",
+        "experiment_id": "default_taker_strategy_experiment",
         "target_date": TARGET_DATE,
         "market_id": "nyc",
         "event_slug": "highest-temperature-in-nyc-on-july-21-2026",
         "range_label": "95°F or higher",
         "display_unit": "F",
         "side": "YES_BUY",
+        "clob_yes_token_id": "yes-token-95",
+        "clob_no_token_id": "no-token-95",
         "clob_token_id": "yes-token-95",
         "snapshot_id": "20260721T155920Z",
-        "strategy_id": "low_price_tail_capped",
-        "strategy_family": "calibrated_taker",
-        "strategy_status": "control",
+        "model_variant_id": "served_current",
+        "strategy_id": DEFAULT_CONTROL_STRATEGY_ID,
+        "strategy_family": BASE_STRATEGY["strategy_family"],
+        "strategy_status": BASE_STRATEGY["status"],
+        "assignment_rule": BASE_STRATEGY["assignment_rule"],
+        "control_strategy_id": BASE_STRATEGY["control_strategy_id"],
+        "strategy_config_hash": BASE_STRATEGY["strategy_config_hash"],
+        "policy_version": BASE_CONFIG["policy_version"],
+        "policy_hash": BASE_STRATEGY["policy_hash"],
+        "exchange_economics_snapshot_id": EXCHANGE_SNAPSHOT_ID,
+        "exchange_economics_hash": EXCHANGE_HASH,
         "market_status": "active",
         "action": "BUY",
         "order_status": "FILLED",
@@ -58,19 +146,22 @@ def _row(**updates):
         "snapshot_cadence_quality_state": "clean",
         "snapshot_cadence_permission": "allow",
         "taker_edge_permission": "edge_allowed",
+        "taker_edge_permission_record_key": PERMISSION_RECORD_KEY,
+        "taker_edge_permission_evidence_status": "matched",
         "taker_edge_permission_sample_size": 18,
         "taker_edge_permission_independent_days": 5,
         "taker_edge_permission_market_count": 2,
         "taker_edge_permission_after_fee_skill": 0.08,
         "taker_edge_permission_hit_rate": 0.97,
+        "calibrated_model_probability": 0.97,
+        "taker_skill_weight": 0.08,
         "market_benchmark_precondition": "allow",
         "adverse_selection_status": "clear",
         "book_age_seconds": 12,
         "model_age_seconds": 35,
+        "fair_probability": 0.98,
         "best_ask": 0.94,
         "market_implied_probability": 0.94,
-        "calibrated_fair_probability": 0.97,
-        "after_cost_ev_per_share": 0.025,
         "fill_price": 0.94,
         "executable_fill_price": 0.94,
         "fill_size": 5,
@@ -79,6 +170,37 @@ def _row(**updates):
         "total_spent_usdc": 4.71,
     }
     row.update(updates)
+    if "calibrated_fair_probability" not in updates:
+        market_probability = row["market_implied_probability"]
+        calibrated_model = row["calibrated_model_probability"]
+        skill_weight = row["taker_skill_weight"]
+        row["calibrated_fair_probability"] = round(
+            market_probability
+            + skill_weight * (calibrated_model - market_probability),
+            6,
+        )
+    if "fill_notional_usdc" not in updates:
+        row["fill_notional_usdc"] = round(
+            row["fill_size"] * row["executable_fill_price"], 6
+        )
+    if "total_spent_usdc" not in updates:
+        row["total_spent_usdc"] = round(
+            row["fill_notional_usdc"] + row["fee_usdc"], 6
+        )
+    if "after_cost_ev_per_share" not in updates:
+        row["after_cost_ev_per_share"] = round(
+            row["calibrated_fair_probability"]
+            - row["executable_fill_price"]
+            - (row["fee_usdc"] / row["fill_size"]),
+            6,
+        )
+    supplied_identity = {
+        key: updates[key]
+        for key in ("intent_key", "order_id")
+        if key in updates
+    }
+    _bind_intent(row)
+    row.update(supplied_identity)
     return row
 
 
@@ -88,19 +210,15 @@ def _run(*rows, generated_at=None, **updates):
         "generated_at_utc": (generated_at or (NOW - timedelta(seconds=45))).isoformat(),
         "run_id": "paper-current",
         "target_date": TARGET_DATE,
-        "mode": "paper-taker-multi-arm",
+        "mode": "paper-taker",
         "experiment_id": "default_taker_strategy_experiment",
         "summary": {
             "budget_usdc": 100,
             "budget_spent_usdc": 4.71,
             "budget_remaining_usdc": 95.29,
         },
-        "config": {
-            "policy_version": "taker_bot_policy_v0.1",
-            "require_active_market": True,
-            "max_book_age_seconds": 120,
-            "max_model_age_seconds": 900,
-        },
+        "config": deepcopy(BASE_CONFIG),
+        "strategies": [deepcopy(BASE_STRATEGY)],
         "pnl": {
             "summary": {
                 "filled_order_count": len(rows),
@@ -113,12 +231,56 @@ def _run(*rows, generated_at=None, **updates):
         "latest_orders": list(rows),
         "tape_integrity": {"status": "PASS", "actual_rows": len(rows), "expected_rows": len(rows)},
         "upstream_dependency_status": {"status": "PASS", "market_count": 1},
-        "exchange_economics_gate": {"status": "PASS", "ok": True, "snapshot_id": "fees-2026-07"},
+        "exchange_economics_gate": {
+            "status": "PASS",
+            "ok": True,
+            "snapshot_id": EXCHANGE_SNAPSHOT_ID,
+            "snapshot_hash": EXCHANGE_HASH,
+        },
+        "exchange_economics_snapshot_id": EXCHANGE_SNAPSHOT_ID,
+        "exchange_economics_hash": EXCHANGE_HASH,
         "release_identity_status": "research_unbound",
         "base_model_release_bound": False,
     }
     payload.update(updates)
+    for row in payload.get("latest_orders") or []:
+        if not isinstance(row, dict):
+            continue
+        row.setdefault("schema_version", payload["schema_version"])
+        row.setdefault("run_id", payload["run_id"])
+        row.setdefault("experiment_id", payload["experiment_id"])
+        row.setdefault("policy_version", payload["config"]["policy_version"])
+        strategy = next(
+            (
+                item
+                for item in payload.get("strategies") or []
+                if item.get("strategy_id") == row.get("strategy_id")
+            ),
+            {},
+        )
+        row.setdefault("policy_hash", strategy.get("policy_hash"))
+        row.setdefault("strategy_config_hash", strategy.get("strategy_config_hash"))
+        row.setdefault(
+            "exchange_economics_snapshot_id",
+            payload["exchange_economics_snapshot_id"],
+        )
+        row.setdefault("exchange_economics_hash", payload["exchange_economics_hash"])
     return payload
+
+
+def _rebind_control_strategy(run):
+    strategy = selected_strategy_specs(
+        [DEFAULT_CONTROL_STRATEGY_ID],
+        base_config=run["config"],
+    )[0]
+    run["strategies"] = [
+        {key: deepcopy(value) for key, value in strategy.items() if key != "config"}
+    ]
+    for row in run.get("latest_orders") or []:
+        row["policy_version"] = strategy["config"]["policy_version"]
+        row["policy_hash"] = strategy["policy_hash"]
+        row["strategy_config_hash"] = strategy["strategy_config_hash"]
+    return run
 
 
 def _build(run=None, permission=None, **kwargs):
@@ -155,7 +317,7 @@ def test_retains_a_permissioned_94_cent_favorite_and_preserves_native_label():
     assert bet["paper_stake_usdc"] == pytest.approx(4.71)
     assert bet["max_loss_usdc"] == pytest.approx(4.71)
     assert bet["profit_if_right_usdc"] == pytest.approx(0.29)
-    assert bet["expected_profit_usdc"] == pytest.approx(0.125)
+    assert bet["expected_profit_usdc"] == pytest.approx(0.002)
     assert bet["book_age_seconds"] == pytest.approx(42)
     assert bet["model_age_seconds"] == pytest.approx(65)
     assert bet["independent_days"] == 5
@@ -169,7 +331,12 @@ def test_retains_a_permissioned_94_cent_favorite_and_preserves_native_label():
         ({"after_cost_ev_per_share": 0.0}, "after_cost_ev_not_positive"),
         ({"source_freshness_state": "failed:wu_history"}, "source_not_all_fresh"),
         ({"snapshot_cadence_permission": "deny"}, "snapshot_cadence_not_allowed"),
-        ({"taker_edge_permission_independent_days": 2}, "insufficient_independent_days"),
+        ({"snapshot_cadence_permission": ""}, "snapshot_cadence_not_allowed"),
+        ({"snapshot_cadence_quality_state": "disabled"}, "snapshot_cadence_not_allowed"),
+        (
+            {"taker_edge_permission_independent_days": 2},
+            "permission_record_evidence_mismatch",
+        ),
         ({"market_benchmark_precondition": "no_trade"}, "market_benchmark_no_trade"),
         ({"adverse_selection_status": "warn"}, "adverse_selection_not_clear"),
         ({"book_age_seconds": 121}, "book_not_fresh"),
@@ -202,6 +369,7 @@ def test_canonical_fill_without_market_status_uses_persisted_active_market_polic
 
     unproven_run = _run(canonical_row)
     unproven_run["config"]["require_active_market"] = False
+    _rebind_control_strategy(unproven_run)
     blocked = _build(unproven_run)
     assert blocked["status"] == "NO_BETS"
     assert blocked["blocker_counts"]["market_activity_not_proven"] == 1
@@ -221,9 +389,31 @@ def test_candidate_freshness_advances_after_the_persisted_evaluation():
     assert payload["blocker_counts"]["book_not_fresh"] == 1
 
 
+def test_candidate_timestamp_is_required_instead_of_inheriting_run_freshness():
+    row = _row()
+    row.pop("generated_at_utc")
+
+    payload = _build(_run(row))
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"]["candidate_timestamp_missing"] == 1
+
+
+def test_homepage_freshness_ceiling_cannot_be_loosened_by_run_config():
+    run = _run(_row(book_age_seconds=130))
+    run["config"]["max_book_age_seconds"] = 10_000
+    _rebind_control_strategy(run)
+
+    payload = _build(run)
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"]["book_not_fresh"] == 1
+
+
 def test_no_side_requires_a_real_fresh_no_book():
     unsafe = _row(
         side="NO_BUY",
+        clob_token_id="no-token-95",
         event_slug="highest-temperature-in-atlanta-on-july-21-2026",
         market_id="atlanta",
         range_label="90°F or lower",
@@ -241,9 +431,6 @@ def test_no_side_requires_a_real_fresh_no_book():
         "no_book_source": "no_token_book",
         "real_no_book_depth_eligible": True,
         "no_book_fresh": True,
-        # Canonical NO projections may retain the YES permission-map implied
-        # probability; executable NO fill price remains the display bound.
-        "market_implied_probability": 0.08,
     })
     ready = _build(_run(safe))
     assert ready["status"] == "READY"
@@ -263,14 +450,177 @@ def test_no_side_requires_a_real_fresh_no_book():
     assert stale["blocker_counts"]["no_side_real_book_not_safe"] == 1
 
 
+@pytest.mark.parametrize(
+    ("updates", "blocker"),
+    [
+        ({"side": ""}, "candidate_side_invalid"),
+        ({"side": "SELL"}, "candidate_side_invalid"),
+        ({"clob_token_id": "no-token-95"}, "candidate_side_token_mismatch"),
+        ({"market_id": "unknown-city"}, "candidate_market_unknown"),
+        ({"display_unit": "C"}, "candidate_native_unit_mismatch"),
+        ({"range_label": "28°C or higher"}, "candidate_native_unit_mismatch"),
+        (
+            {"event_slug": "highest-temperature-in-atlanta-on-july-21-2026"},
+            "candidate_event_market_mismatch",
+        ),
+    ],
+)
+def test_candidate_identity_and_native_unit_are_fail_closed(updates, blocker):
+    payload = _build(_run(_row(**updates)))
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"][blocker] == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "blocker"),
+    [
+        ("schema_version", "candidate_schema_mismatch"),
+        ("run_id", "candidate_run_id_mismatch"),
+        ("experiment_id", "candidate_experiment_mismatch"),
+        ("policy_version", "candidate_policy_version_mismatch"),
+        ("policy_hash", "candidate_policy_hash_mismatch"),
+        ("strategy_config_hash", "candidate_strategy_config_hash_mismatch"),
+        ("strategy_family", "candidate_strategy_family_mismatch"),
+        ("strategy_status", "candidate_strategy_status_mismatch"),
+        ("assignment_rule", "candidate_assignment_rule_mismatch"),
+        ("control_strategy_id", "candidate_control_strategy_mismatch"),
+        ("exchange_economics_snapshot_id", "candidate_exchange_snapshot_mismatch"),
+        ("exchange_economics_hash", "candidate_exchange_hash_mismatch"),
+    ],
+)
+def test_candidate_lineage_must_match_parent_run(field, blocker):
+    run = _run(_row())
+    run["latest_orders"][0][field] = "mismatched"
+
+    payload = _build(run)
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"][blocker] == 1
+
+
+@pytest.mark.parametrize(
+    ("mutation", "blocker"),
+    [
+        ({"event_slug": "highest-temperature-in-nyc-on-july-20-2026"}, "candidate_intent_key_mismatch"),
+        ({"range_label": "94Â°F"}, "candidate_intent_key_mismatch"),
+        (
+            {"clob_yes_token_id": "alternate-yes", "clob_token_id": "alternate-yes"},
+            "candidate_intent_key_mismatch",
+        ),
+        ({"order_id": "taker_wrong"}, "candidate_order_id_mismatch"),
+    ],
+)
+def test_candidate_contract_identity_must_match_persisted_intent(mutation, blocker):
+    run = _run(_row())
+    run["latest_orders"][0].update(mutation)
+
+    payload = _build(run)
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"][blocker] == 1
+
+
+def test_multi_arm_candidate_uses_its_strategy_specific_policy_hash():
+    specs = selected_strategy_specs(
+        [DEFAULT_CONTROL_STRATEGY_ID, "low_price_tail_capped"],
+        base_config=BASE_CONFIG,
+    )
+    arm = specs[1]
+    row = _row(
+        strategy_id=arm["strategy_id"],
+        strategy_family=arm["strategy_family"],
+        strategy_status=arm["status"],
+        assignment_rule=arm["assignment_rule"],
+        control_strategy_id=arm["control_strategy_id"],
+        policy_version=arm["config"]["policy_version"],
+        policy_hash=arm["policy_hash"],
+        strategy_config_hash=arm["strategy_config_hash"],
+    )
+    strategies = [
+        {key: deepcopy(value) for key, value in spec.items() if key != "config"}
+        for spec in specs
+    ]
+
+    payload = _build(
+        _run(
+            row,
+            mode="paper-taker-multi-arm",
+            strategies=strategies,
+        )
+    )
+
+    assert payload["status"] == "READY"
+    assert payload["recommendations"][0]["strategy_id"] == "low_price_tail_capped"
+
+
+def test_current_permission_record_must_authorize_and_match_candidate_evidence():
+    wrong_slice = deepcopy(BASE_PERMISSION_RECORD)
+    wrong_slice["source_freshness_state"] = "failed:wu_history"
+    missing = _build(permission=_permission(records=[wrong_slice]))
+    assert missing["status"] == "NO_BETS"
+    assert missing["blocker_counts"]["permission_record_not_found"] == 1
+
+    denied_record = deepcopy(BASE_PERMISSION_RECORD)
+    denied_record["permission"] = "observe"
+    denied = _build(permission=_permission(records=[denied_record]))
+    assert denied["status"] == "NO_BETS"
+    assert denied["blocker_counts"]["permission_record_not_allowed"] == 1
+
+    changed_record = deepcopy(BASE_PERMISSION_RECORD)
+    changed_record["settled_sample_size"] = 19
+    changed = _build(permission=_permission(records=[changed_record]))
+    assert changed["status"] == "NO_BETS"
+    assert changed["blocker_counts"]["permission_record_evidence_mismatch"] == 1
+
+
+def test_current_permission_record_drives_minimum_evidence_gate():
+    thin_record = deepcopy(BASE_PERMISSION_RECORD)
+    thin_record["independent_target_day_count"] = 2
+    row = _row(taker_edge_permission_independent_days=2)
+
+    payload = _build(
+        _run(row),
+        permission=_permission(records=[thin_record]),
+    )
+
+    assert payload["status"] == "NO_BETS"
+    assert payload["blocker_counts"]["insufficient_independent_days"] == 1
+
+
+def test_calibrated_fair_after_cost_ev_and_fill_arithmetic_are_recomputed():
+    inflated_fair = _build(
+        _run(
+            _row(
+                calibrated_fair_probability=0.90,
+            )
+        )
+    )
+    assert inflated_fair["status"] == "NO_BETS"
+    assert inflated_fair["blocker_counts"]["calibrated_fair_probability_mismatch"] == 1
+
+    impossible_ev = _build(_run(_row(after_cost_ev_per_share=0.01)))
+    assert impossible_ev["status"] == "NO_BETS"
+    assert impossible_ev["blocker_counts"]["after_cost_ev_inconsistent"] == 1
+
+    impossible_fill = _build(
+        _run(
+            _row(
+                fill_notional_usdc=1.0,
+                total_spent_usdc=1.01,
+            )
+        )
+    )
+    assert impossible_fill["status"] == "NO_BETS"
+    assert impossible_fill["blocker_counts"]["paper_fill_arithmetic_inconsistent"] == 1
+
+
 def test_ranks_safety_then_ev_and_keeps_one_bet_per_event():
     lower_safety_same_event = _row(
         range_label="94°F",
         executable_fill_price=0.91,
         fill_price=0.91,
         market_implied_probability=0.91,
-        calibrated_fair_probability=0.99,
-        after_cost_ev_per_share=0.07,
     )
     safest_same_event = _row(range_label="95°F or higher")
     second_event = _row(
@@ -280,8 +630,6 @@ def test_ranks_safety_then_ev_and_keeps_one_bet_per_event():
         executable_fill_price=0.93,
         fill_price=0.93,
         market_implied_probability=0.93,
-        calibrated_fair_probability=0.98,
-        after_cost_ev_per_share=0.04,
     )
 
     payload = _build(_run(lower_safety_same_event, second_event, safest_same_event))
@@ -320,7 +668,6 @@ def test_conservative_probability_is_always_bounded_by_executable_price():
                 executable_fill_price=0.91,
                 fill_price=0.91,
                 market_implied_probability=0.96,
-                calibrated_fair_probability=0.98,
             )
         )
     )
@@ -342,6 +689,50 @@ def test_run_level_gates_block_the_whole_shortlist(field, value, blocker):
     assert payload["status"] == "BLOCKED"
     assert blocker in payload["run_blockers"]
     assert payload["recommendations"] == []
+
+
+def test_run_mode_and_exchange_gate_require_exact_affirmative_identity():
+    wrong_mode = _build(_run(_row(), mode="paper-taker-live"))
+    assert wrong_mode["status"] == "BLOCKED"
+    assert "run_not_paper_taker" in wrong_mode["run_blockers"]
+
+    missing_ok = _build(_run(_row(), exchange_economics_gate={"status": "PASS"}))
+    assert missing_ok["status"] == "BLOCKED"
+    assert "exchange_economics_not_pass" in missing_ok["run_blockers"]
+
+
+@pytest.mark.parametrize(
+    ("gate", "blocker"),
+    [
+        (
+            {"status": "PASS", "ok": True, "snapshot_id": EXCHANGE_SNAPSHOT_ID},
+            "exchange_economics_gate_hash_mismatch",
+        ),
+        (
+            {
+                "status": "PASS",
+                "ok": True,
+                "snapshot_id": "wrong-snapshot",
+                "snapshot_hash": EXCHANGE_HASH,
+            },
+            "exchange_economics_gate_snapshot_mismatch",
+        ),
+        (
+            {
+                "status": "PASS",
+                "ok": True,
+                "snapshot_id": EXCHANGE_SNAPSHOT_ID,
+                "snapshot_hash": "wrong-hash",
+            },
+            "exchange_economics_gate_hash_mismatch",
+        ),
+    ],
+)
+def test_exchange_gate_identity_must_match_projected_run_fields(gate, blocker):
+    payload = _build(_run(_row(), exchange_economics_gate=gate))
+
+    assert payload["status"] == "BLOCKED"
+    assert blocker in payload["run_blockers"]
 
 
 def test_stale_run_or_permission_map_never_falls_through_to_candidates():
@@ -439,6 +830,65 @@ def test_loader_does_not_fall_back_when_newest_run_is_partial(tmp_path):
     assert payload["status"] == "LOADING"
     assert payload["run_blockers"] == ["run_artifact_incomplete"]
     assert payload["provenance"]["run_path"] == str(newest)
+
+
+@pytest.mark.parametrize("artifact", ["run", "permission"])
+def test_loader_rejects_stable_artifact_without_complete_root_envelope(
+    tmp_path,
+    artifact,
+):
+    run_path = (
+        tmp_path / "taker_runs" / TARGET_DATE / "taker-current" / "run_summary.json"
+    )
+    permission_path = tmp_path / "backtest" / "taker_edge_permission_map.json"
+    _write_pretty(run_path, _run(_row()))
+    _write_pretty(permission_path, _permission())
+    corrupt_path = run_path if artifact == "run" else permission_path
+    complete = corrupt_path.read_text(encoding="utf-8")
+    corrupt_path.write_text(complete.removesuffix("}\n"), encoding="utf-8")
+
+    payload = load_safe_bets_payload(
+        now=NOW,
+        target_date=TARGET_DATE,
+        runs_root=tmp_path / "taker_runs",
+        permission_map_path=permission_path,
+    )
+
+    assert payload["status"] == "LOADING"
+    assert payload["run_blockers"] == [
+        "run_artifact_incomplete"
+        if artifact == "run"
+        else "permission_map_incomplete"
+    ]
+
+
+@pytest.mark.parametrize("artifact", ["run", "permission"])
+def test_loader_rejects_malformed_content_inside_complete_root_envelope(
+    tmp_path,
+    artifact,
+):
+    run_path = (
+        tmp_path / "taker_runs" / TARGET_DATE / "taker-current" / "run_summary.json"
+    )
+    permission_path = tmp_path / "backtest" / "taker_edge_permission_map.json"
+    _write_pretty(run_path, _run(_row()))
+    _write_pretty(permission_path, _permission())
+    corrupt_path = run_path if artifact == "run" else permission_path
+    corrupt_path.write_text("{\n  definitely-not-json\n}\n", encoding="utf-8")
+
+    payload = load_safe_bets_payload(
+        now=NOW,
+        target_date=TARGET_DATE,
+        runs_root=tmp_path / "taker_runs",
+        permission_map_path=permission_path,
+    )
+
+    assert payload["status"] == "LOADING"
+    assert payload["run_blockers"] == [
+        "run_artifact_incomplete"
+        if artifact == "run"
+        else "permission_map_incomplete"
+    ]
 
 
 def test_loader_treats_newest_run_directory_without_summary_as_loading(tmp_path):

@@ -9,6 +9,7 @@ filter and never writes to a tape, ledger, release, or market endpoint.
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
@@ -16,11 +17,22 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from weather.io import read_pretty_json_top_level_values
 from weather.market.market_registry import all_specs
+from weather.market.taker_edge_permission import (
+    PERMISSION_FIELDS,
+    resolve_taker_edge_permission_record,
+    taker_permission_dimensions,
+)
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 from weather.time import age_seconds, parse_datetime, utc_now
+
+from .safe_bets_evidence import (
+    candidate_intent_blocker,
+    candidate_lineage_blocker,
+    expected_calibrated_fair,
+    permission_binding_blocker,
+)
 
 
 DEFAULT_RUNS_ROOT = data_path("taker_runs")
@@ -38,41 +50,10 @@ DISPLAY_TIMEZONE = ZoneInfo("America/Toronto")
 RUN_SCHEMA_VERSION = schema_version("taker_bot_run")
 PERMISSION_SCHEMA_VERSION = schema_version("taker_edge_permission_map")
 
-_RUN_FIELDS = (
-    "schema_version",
-    "generated_at_utc",
-    "run_id",
-    "target_date",
-    "mode",
-    "experiment_id",
-    "summary",
-    "config",
-    "pnl",
-    "latest_orders",
-    "tape_integrity",
-    "upstream_dependency_status",
-    "exchange_economics_gate",
-    "release_id",
-    "release_manifest_sha256",
-    "release_pointer_sha256",
-    "release_sequence",
-    "release_identity_status",
-    "release_identity_reason",
-    "base_model_release_bound",
-    "base_model_binding_reason",
-    "release_kind",
-    "release_candidate_mode",
-    "release_production_capable",
-)
-_PERMISSION_FIELDS = (
-    "schema_version",
-    "generated_at_utc",
-    "summary",
-)
 _TRUE_VALUES = frozenset({"1", "true", "yes", "y", "ok", "pass", "active", "open", "trading"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "n", "deny", "blocked", "inactive", "closed"})
-
-
+_PAPER_RUN_MODES = frozenset({"paper-taker", "paper-taker-multi-arm"})
+_EVENT_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 def _now_utc(now: datetime | None) -> datetime:
     value = now or utc_now()
     if value.tzinfo is None:
@@ -84,7 +65,10 @@ def _target_date(value: str | date | datetime | None, now: datetime) -> str:
     if value is None:
         return now.astimezone(DISPLAY_TIMEZONE).date().isoformat()
     if isinstance(value, datetime):
-        return value.date().isoformat()
+        localized = value
+        if localized.tzinfo is None:
+            localized = localized.replace(tzinfo=DISPLAY_TIMEZONE)
+        return localized.astimezone(DISPLAY_TIMEZONE).date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
     return str(value).strip()
@@ -157,6 +141,43 @@ def _effective_age(value: Any, elapsed_seconds: float | None) -> float | None:
     return age_at_evaluation + max(0.0, elapsed_seconds)
 
 
+def _numbers_match(left: Any, right: Any, *, tolerance: float = 1e-6) -> bool:
+    left_number = _number(left)
+    right_number = _number(right)
+    return (
+        left_number is not None
+        and right_number is not None
+        and math.isclose(left_number, right_number, rel_tol=tolerance, abs_tol=tolerance)
+    )
+
+
+def _strict_age_limit(value: Any, ceiling: float) -> float:
+    configured = _number(value)
+    if configured is None:
+        return ceiling
+    return min(ceiling, max(0.0, configured))
+
+
+def _market_spec(market_id: Any):
+    normalized = str(market_id or "").strip()
+    return next((spec for spec in all_specs() if spec.id == normalized), None)
+
+
+def _normalized_unit(value: Any) -> str:
+    return str(value or "").strip().upper().replace("°", "")
+
+
+def _range_label_unit(value: Any) -> str | None:
+    label = str(value or "").upper()
+    has_celsius = "°C" in label
+    has_fahrenheit = "°F" in label
+    if has_celsius and has_fahrenheit:
+        return "INVALID"
+    if not has_celsius and not has_fahrenheit:
+        return None
+    return "C" if has_celsius else "F"
+
+
 def _base_payload(target_date: str, now: datetime) -> dict[str, Any]:
     return {
         "status": "NO_DATA",
@@ -226,6 +247,8 @@ def _run_provenance(
         "mode": run.get("mode"),
         "experiment_id": run.get("experiment_id"),
         "policy_version": _mapping(run.get("config")).get("policy_version"),
+        "exchange_economics_snapshot_id": run.get("exchange_economics_snapshot_id"),
+        "exchange_economics_hash": run.get("exchange_economics_hash"),
         "permission_map_path": (
             str(permission_map_path) if permission_map_path is not None else None
         ),
@@ -260,10 +283,34 @@ def _run_gate_blockers(
     stale: list[str] = []
     if run.get("schema_version") != RUN_SCHEMA_VERSION:
         blocked.append("unsupported_run_schema")
+    if not str(run.get("run_id") or "").strip():
+        blocked.append("run_id_missing")
+    if not str(run.get("experiment_id") or "").strip():
+        blocked.append("run_experiment_missing")
     if str(run.get("target_date") or "") != target_date:
         blocked.append("run_target_date_mismatch")
-    if not _normalized(run.get("mode")).startswith("paper-taker"):
+    run_mode = _normalized(run.get("mode"))
+    if run_mode not in _PAPER_RUN_MODES:
         blocked.append("run_not_paper_taker")
+    config = _mapping(run.get("config"))
+    if not str(config.get("policy_version") or "").strip():
+        blocked.append("run_policy_version_missing")
+    strategies = run.get("strategies")
+    strategy_ids = (
+        [str(item.get("strategy_id") or "").strip() for item in strategies]
+        if isinstance(strategies, list)
+        and strategies
+        and all(isinstance(item, Mapping) for item in strategies)
+        else []
+    )
+    if not strategy_ids or any(not strategy_id for strategy_id in strategy_ids):
+        blocked.append("run_strategies_invalid")
+    elif len(set(strategy_ids)) != len(strategy_ids):
+        blocked.append("run_strategy_ids_duplicate")
+    elif (run_mode == "paper-taker" and len(strategy_ids) != 1) or (
+        run_mode == "paper-taker-multi-arm" and len(strategy_ids) <= 1
+    ):
+        blocked.append("run_strategy_mode_mismatch")
 
     run_age = _age(now, run.get("generated_at_utc"))
     if run_age is None:
@@ -280,8 +327,25 @@ def _run_gate_blockers(
     if _normalized(upstream.get("status")) != "pass":
         blocked.append("upstream_dependencies_not_pass")
     exchange = _mapping(run.get("exchange_economics_gate"))
-    if _normalized(exchange.get("status")) != "pass" or _boolean(exchange.get("ok"), True) is False:
+    if (
+        _normalized(exchange.get("status")) != "pass"
+        or _boolean(exchange.get("ok"), False) is not True
+    ):
         blocked.append("exchange_economics_not_pass")
+    run_exchange_id = str(run.get("exchange_economics_snapshot_id") or "").strip()
+    run_exchange_hash = str(run.get("exchange_economics_hash") or "").strip()
+    gate_exchange_id = str(exchange.get("snapshot_id") or "").strip()
+    gate_exchange_hash = str(
+        exchange.get("snapshot_hash") or exchange.get("exchange_economics_hash") or ""
+    ).strip()
+    if not run_exchange_id:
+        blocked.append("exchange_economics_snapshot_missing")
+    if not run_exchange_hash:
+        blocked.append("exchange_economics_hash_missing")
+    if not gate_exchange_id or gate_exchange_id != run_exchange_id:
+        blocked.append("exchange_economics_gate_snapshot_mismatch")
+    if not gate_exchange_hash or gate_exchange_hash != run_exchange_hash:
+        blocked.append("exchange_economics_gate_hash_mismatch")
 
     if permission.get("schema_version") != PERMISSION_SCHEMA_VERSION:
         blocked.append("unsupported_permission_map_schema")
@@ -293,8 +357,21 @@ def _run_gate_blockers(
             else "permission_map_timestamp_missing"
         )
     permission_summary = _mapping(permission.get("summary"))
-    if (_number(permission_summary.get("record_count")) or 0.0) <= 0:
+    permission_records = permission.get("records")
+    if not isinstance(permission_records, list) or not all(
+        isinstance(record, Mapping) for record in permission_records
+    ):
+        blocked.append("permission_map_records_invalid")
+        permission_records = []
+    declared_record_count = _number(permission_summary.get("record_count"))
+    if (
+        declared_record_count is None
+        or declared_record_count <= 0
+        or not declared_record_count.is_integer()
+    ):
         blocked.append("permission_map_empty")
+    elif int(declared_record_count) != len(permission_records):
+        blocked.append("permission_map_record_count_mismatch")
 
     return blocked, stale
 
@@ -312,6 +389,8 @@ def _run_warnings(run: Mapping[str, Any]) -> list[str]:
 def _candidate_blocker(
     row: Mapping[str, Any],
     *,
+    run: Mapping[str, Any],
+    permission_record: Mapping[str, Any] | None,
     target_date: str,
     max_book_age_seconds: float,
     max_model_age_seconds: float,
@@ -328,16 +407,41 @@ def _candidate_blocker(
     reason_code = str(row.get("reason_code") or "").strip().upper()
     if action != "buy" or order_status != "filled" or reason_code != "BUY_EDGE":
         return f"policy:{reason_code or 'NOT_FILLED_BUY_EDGE'}"
+    lineage_blocker = candidate_lineage_blocker(row, run)
+    if lineage_blocker:
+        return lineage_blocker
     if str(row.get("target_date") or "") != target_date:
         return "candidate_target_date_mismatch"
-    if not str(row.get("market_id") or "").strip():
-        return "candidate_market_missing"
-    if not str(row.get("event_slug") or "").strip():
+    spec = _market_spec(row.get("market_id"))
+    if spec is None:
+        return "candidate_market_unknown"
+    event_slug = str(row.get("event_slug") or "").strip().lower()
+    if not event_slug:
         return "candidate_event_missing"
-    if not str(row.get("range_label") or "").strip():
+    if not _EVENT_SLUG.fullmatch(event_slug) or not event_slug.startswith(spec.slug_prefix.lower()):
+        return "candidate_event_market_mismatch"
+    range_label = str(row.get("range_label") or "").strip()
+    if not range_label:
         return "candidate_range_label_missing"
-    if not str(row.get("clob_token_id") or "").strip():
-        return "candidate_token_missing"
+    persisted_unit = _normalized_unit(row.get("display_unit"))
+    range_unit = _range_label_unit(range_label)
+    if (
+        persisted_unit
+        and persisted_unit != _normalized_unit(spec.display_unit)
+    ) or (range_unit and range_unit != _normalized_unit(spec.display_unit)):
+        return "candidate_native_unit_mismatch"
+
+    side = _normalized(_first(row, "side", "taker_side"))
+    if side not in {"yes_buy", "no_buy"}:
+        return "candidate_side_invalid"
+    side_token_field = "clob_no_token_id" if side == "no_buy" else "clob_yes_token_id"
+    side_token = str(row.get(side_token_field) or "").strip()
+    selected_token = str(row.get("clob_token_id") or "").strip()
+    if not side_token or not selected_token or selected_token != side_token:
+        return "candidate_side_token_mismatch"
+    intent_blocker = candidate_intent_blocker(row)
+    if intent_blocker:
+        return intent_blocker
 
     market_state = _first(row, "market_status", "active")
     if market_state in (None, ""):
@@ -352,20 +456,18 @@ def _candidate_blocker(
         return "source_not_all_fresh"
     cadence_permission = _normalized(row.get("snapshot_cadence_permission"))
     cadence_quality = _normalized(row.get("snapshot_cadence_quality_state"))
-    if cadence_permission == "deny" or cadence_quality in {
-        "blocked",
-        "degraded",
-        "missing",
-        "stale",
-    }:
+    if cadence_permission != "allow" or cadence_quality not in {"clean", "triggered"}:
         return "snapshot_cadence_not_allowed"
     if _normalized(row.get("taker_edge_permission")) != "edge_allowed":
         return "edge_not_permissioned"
-    independent_days = _number(row.get("taker_edge_permission_independent_days"))
+    permission_blocker = permission_binding_blocker(row, permission_record)
+    if permission_blocker:
+        return permission_blocker
+    independent_days = _number(permission_record.get("independent_target_day_count"))
     if independent_days is None or independent_days < min_independent_days:
         return "insufficient_independent_days"
-    sample_size = _number(row.get("taker_edge_permission_sample_size"))
-    after_fee_skill = _number(row.get("taker_edge_permission_after_fee_skill"))
+    sample_size = _number(permission_record.get("settled_sample_size"))
+    after_fee_skill = _number(permission_record.get("after_fee_model_minus_market_skill"))
     if sample_size is None or sample_size <= 0 or after_fee_skill is None or after_fee_skill <= 0:
         return "settlement_evidence_missing"
     if _normalized(row.get("market_benchmark_precondition")) == "no_trade":
@@ -399,6 +501,9 @@ def _candidate_blocker(
     implied = executable_price
     if calibrated is None:
         return "calibrated_probability_missing"
+    expected_fair = expected_calibrated_fair(row, permission_record)
+    if not _numbers_match(calibrated, expected_fair, tolerance=2e-6):
+        return "calibrated_fair_probability_mismatch"
     if min(calibrated, implied) < min_conservative_probability:
         return "below_safety_probability_floor"
     after_cost_ev = _number(
@@ -406,14 +511,51 @@ def _candidate_blocker(
     )
     if after_cost_ev is None or after_cost_ev <= 0:
         return "after_cost_ev_not_positive"
+    if not math.isclose(
+        after_cost_ev,
+        calibrated - executable_price,
+        rel_tol=1e-4,
+        abs_tol=2e-5,
+    ) and after_cost_ev > calibrated - executable_price:
+        return "after_cost_ev_inconsistent"
 
     fill_size = _number(row.get("fill_size"))
-    spent = _number(_first(row, "total_spent_usdc", "fill_notional_usdc"))
-    if fill_size is None or fill_size <= 0 or spent is None or spent <= 0:
+    fill_notional = _number(row.get("fill_notional_usdc"))
+    fee = _number(row.get("fee_usdc"))
+    spent = _number(row.get("total_spent_usdc"))
+    if (
+        fill_size is None
+        or fill_size <= 0
+        or fill_notional is None
+        or fill_notional <= 0
+        or fee is None
+        or fee < 0
+        or spent is None
+        or spent <= 0
+    ):
         return "paper_fill_invalid"
+    if not math.isclose(
+        fill_notional,
+        fill_size * executable_price,
+        rel_tol=1e-5,
+        abs_tol=1e-4,
+    ) or not math.isclose(
+        spent,
+        fill_notional + fee,
+        rel_tol=1e-5,
+        abs_tol=1e-4,
+    ):
+        return "paper_fill_arithmetic_inconsistent"
+    derived_after_cost_ev = calibrated - executable_price - (fee / fill_size)
+    if not math.isclose(
+        after_cost_ev,
+        derived_after_cost_ev,
+        rel_tol=1e-4,
+        abs_tol=2e-5,
+    ):
+        return "after_cost_ev_inconsistent"
 
-    side = _normalized(_first(row, "side", "taker_side"))
-    if side in {"no", "no_buy", "buy_no"} or side.startswith("no_"):
+    if side == "no_buy":
         if (
             _normalized(row.get("no_book_source")) != "no_token_book"
             or _boolean(row.get("real_no_book_depth_eligible"), False) is not True
@@ -426,13 +568,10 @@ def _candidate_blocker(
 
 
 def _market_metadata(row: Mapping[str, Any]) -> tuple[str, str | None]:
-    market_id = str(row.get("market_id") or "").strip()
-    spec = next((item for item in all_specs() if item.id == market_id), None)
-    label = str(_first(row, "market_label", "city_label") or "").strip()
-    if not label:
-        label = spec.city_label if spec is not None else market_id.replace("_", " ").title()
-    unit = str(row.get("display_unit") or (spec.display_unit if spec is not None else "")).strip().upper()
-    return label, unit or None
+    spec = _market_spec(row.get("market_id"))
+    if spec is None:
+        return "Unknown market", None
+    return spec.city_label, spec.display_unit
 
 
 def _candidate_view(
@@ -457,7 +596,7 @@ def _candidate_view(
     stake = _number(_first(row, "total_spent_usdc", "fill_notional_usdc")) or 0.0
     conservative = min(calibrated, implied)
     side = _normalized(_first(row, "side", "taker_side"))
-    is_no = side in {"no", "no_buy", "buy_no"} or side.startswith("no_")
+    is_no = side == "no_buy"
     market_label, display_unit = _market_metadata(row)
     event_slug = str(row.get("event_slug") or "").strip()
     return {
@@ -624,12 +763,16 @@ def build_safe_bets_payload(
         )
 
     config = _mapping(run.get("config"))
-    max_book_age = _number(config.get("max_book_age_seconds"))
-    max_model_age = _number(config.get("max_model_age_seconds"))
-    max_no_book_age = _number(config.get("two_sided_real_no_book_max_age_seconds"))
-    max_book_age = DEFAULT_MAX_BOOK_AGE_SECONDS if max_book_age is None else max_book_age
-    max_model_age = DEFAULT_MAX_MODEL_AGE_SECONDS if max_model_age is None else max_model_age
-    max_no_book_age = DEFAULT_MAX_BOOK_AGE_SECONDS if max_no_book_age is None else max_no_book_age
+    max_book_age = _strict_age_limit(
+        config.get("max_book_age_seconds"), DEFAULT_MAX_BOOK_AGE_SECONDS
+    )
+    max_model_age = _strict_age_limit(
+        config.get("max_model_age_seconds"), DEFAULT_MAX_MODEL_AGE_SECONDS
+    )
+    max_no_book_age = _strict_age_limit(
+        config.get("two_sided_real_no_book_max_age_seconds"),
+        DEFAULT_MAX_BOOK_AGE_SECONDS,
+    )
     active_market_policy_required = (
         _boolean(config.get("require_active_market"), False) is True
     )
@@ -647,15 +790,20 @@ def build_safe_bets_payload(
 
     blocker_counts: Counter[str] = Counter()
     eligible: list[dict[str, Any]] = []
+    permission_records = permission.get("records")
+    permission_cache: dict[tuple[Any, ...], Mapping[str, Any] | None] = {}
     for raw_row in latest_orders:
         if not isinstance(raw_row, Mapping):
             blocker_counts["candidate_malformed"] += 1
             continue
-        evaluated_at = _first(raw_row, "generated_at_utc") or run.get("generated_at_utc")
+        evaluated_at = raw_row.get("generated_at_utc")
         if _timestamp_is_far_future(now_utc, evaluated_at):
             blocker_counts["candidate_timestamp_future"] += 1
             continue
         elapsed_since_evaluation = _age(now_utc, evaluated_at)
+        if elapsed_since_evaluation is None:
+            blocker_counts["candidate_timestamp_missing"] += 1
+            continue
         effective_book_age = _effective_age(
             raw_row.get("book_age_seconds"), elapsed_since_evaluation
         )
@@ -665,8 +813,21 @@ def build_safe_bets_payload(
         effective_no_book_age = _effective_age(
             raw_row.get("no_book_age_seconds"), elapsed_since_evaluation
         )
+        permission_dimensions = taker_permission_dimensions(raw_row)
+        permission_cache_key = (
+            *(permission_dimensions.get(field) for field in PERMISSION_FIELDS),
+            _number(_first(raw_row, "fair_probability", "model_probability", "candidate_p")),
+        )
+        if permission_cache_key not in permission_cache:
+            permission_cache[permission_cache_key] = resolve_taker_edge_permission_record(
+                raw_row,
+                permission_records,
+            )
+        permission_record = permission_cache[permission_cache_key]
         blocker = _candidate_blocker(
             raw_row,
+            run=run,
+            permission_record=permission_record,
             target_date=target,
             max_book_age_seconds=max_book_age,
             max_model_age_seconds=max_model_age,
@@ -733,52 +894,6 @@ def build_safe_bets_payload(
     return payload
 
 
-def _stable_bounded_read(
-    path: Path,
-    fields: tuple[str, ...],
-) -> dict[str, Any] | None:
-    try:
-        before = path.stat()
-    except OSError:
-        return None
-    payload = read_pretty_json_top_level_values(path, fields)
-    try:
-        after = path.stat()
-    except OSError:
-        return None
-    if before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns:
-        return None
-    return payload
-
-
-def _newest_current_run(runs_root: Path, target_date: str) -> tuple[Path | None, bool]:
-    date_root = runs_root / target_date
-    try:
-        children = list(date_root.iterdir())
-    except OSError:
-        return None, False
-    candidates: list[tuple[int, str, Path]] = []
-    for child in children:
-        # Daily production run IDs are created by ``default_run_id`` with this
-        # prefix.  Housekeeping trees such as ``_quarantine`` must never look
-        # like a newer half-copied run and suppress a healthy current summary.
-        if not child.is_dir() or not child.name.startswith("taker-"):
-            continue
-        path = child / "run_summary.json"
-        try:
-            child_mtime = child.stat().st_mtime_ns
-        except OSError:
-            continue
-        try:
-            candidate_mtime = path.stat().st_mtime_ns if path.is_file() else child_mtime
-        except OSError:
-            candidate_mtime = child_mtime
-        candidates.append((candidate_mtime, child.as_posix(), path))
-    if not candidates:
-        return None, False
-    return max(candidates)[2], True
-
-
 def load_safe_bets_payload(
     *,
     now: datetime | None = None,
@@ -791,95 +906,15 @@ def load_safe_bets_payload(
     min_independent_days: int = DEFAULT_MIN_INDEPENDENT_DAYS,
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
-    """Boundedly load the newest current-day paper run and build the shortlist.
+    """Load the newest current-day paper run through the bounded IO adapter."""
 
-    Only direct ``<target-date>/<run-id>/run_summary.json`` children are
-    inspected.  If the newest artifact is malformed or changes during the
-    bounded read, the loader reports ``LOADING`` and deliberately does not
-    fall back to an older decision.
-    """
+    from .safe_bets_io import load_safe_bets_payload as load_from_artifacts
 
-    now_utc = _now_utc(now)
-    target = _target_date(target_date, now_utc)
-    root = Path(runs_root) if runs_root is not None else DEFAULT_RUNS_ROOT
-    permission_path = (
-        Path(permission_map_path)
-        if permission_map_path is not None
-        else DEFAULT_PERMISSION_MAP_PATH
-    )
-    run_path, run_child_present = _newest_current_run(root, target)
-    if run_path is None and not run_child_present:
-        return _result(
-            target,
-            now_utc,
-            "NO_DATA",
-            "No current paper-taker run is available yet.",
-            provenance={
-                "runs_root": str(root),
-                "permission_map_path": str(permission_path),
-            },
-        )
-
-    run = _stable_bounded_read(run_path, _RUN_FIELDS)
-    if not isinstance(run, Mapping) or not all(
-        key in run
-        for key in (
-            "schema_version",
-            "generated_at_utc",
-            "run_id",
-            "target_date",
-            "mode",
-            "summary",
-            "config",
-            "latest_orders",
-            "tape_integrity",
-            "upstream_dependency_status",
-            "exchange_economics_gate",
-        )
-    ):
-        return _result(
-            target,
-            now_utc,
-            "LOADING",
-            "The newest paper run is incomplete while local data is syncing.",
-            run_blockers=["run_artifact_incomplete"],
-            provenance={"run_path": str(run_path)},
-        )
-
-    if not permission_path.is_file():
-        return _result(
-            target,
-            now_utc,
-            "BLOCKED",
-            "The local settlement permission map is unavailable.",
-            run_blockers=["permission_map_missing"],
-            provenance={
-                "run_path": str(run_path),
-                "permission_map_path": str(permission_path),
-            },
-        )
-    permission = _stable_bounded_read(permission_path, _PERMISSION_FIELDS)
-    if not isinstance(permission, Mapping) or not all(
-        key in permission for key in _PERMISSION_FIELDS
-    ):
-        return _result(
-            target,
-            now_utc,
-            "LOADING",
-            "The settlement permission map is incomplete while local data is syncing.",
-            run_blockers=["permission_map_incomplete"],
-            provenance={
-                "run_path": str(run_path),
-                "permission_map_path": str(permission_path),
-            },
-        )
-    return build_safe_bets_payload(
-        run,
-        permission,
-        now=now_utc,
-        target_date=target,
-        run_path=run_path,
-        permission_map_path=permission_path,
+    return load_from_artifacts(
+        now=now,
+        target_date=target_date,
+        runs_root=runs_root,
+        permission_map_path=permission_map_path,
         run_max_age_seconds=run_max_age_seconds,
         permission_max_age_seconds=permission_max_age_seconds,
         min_conservative_probability=min_conservative_probability,
