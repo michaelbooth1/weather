@@ -87,17 +87,15 @@ http://localhost:8501/?history
 http://localhost:8501/?roadmap
 ```
 
-The overview route is the read-only paper homepage. Its **Safest bets right
-now** shortlist reads persisted paper-taker run evidence and shows only
-candidates that clear the current freshness, permission-map, liquidity, and
-after-cost-value gates. Each card is bound back to the current permission
-record, recomputed calibrated fair value, exact run and strategy lineage,
-producer order identity, configured native settlement unit, selected side
-token, and coherent paper-fill arithmetic. A market price above 90% is not
-excluded when those gates still pass. The page never places orders, never
-promotes a release, and fails closed to a named no-bet or unavailable state
-when its local `data/` inputs are missing, stale, blocked, malformed, or
-mid-copy.
+The overview route is the read-only **Safest bets right now** capital-canary
+tracker. It reads the bounded, self-hashed
+`data/live_taker_canary/status.json` projection and shows the bot's authority,
+$75 lifetime-capital envelope, reconciliation health, targets, positions,
+activity, and settlement-scored performance. Stale state keeps last-known risk
+visible and explicitly does not assume the account is flat. The page never
+loads credentials, places orders, changes size, promotes a release, or grants
+capital authority. Missing, malformed, stale, or mismatched local evidence
+fails closed. See the [capital-canary contract](docs/operations/capital-canary-bot.md).
 
 The dashboard views are overview, per-market detail, history, market making,
 operations, and roadmap.
@@ -351,10 +349,18 @@ wrapper, not the canonical training interface.
 .\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60
 .\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
 .\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
+
+# Capital-canary control plane. These commands are credential-free and cannot trade.
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary status
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary initialize
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary preflight
 ```
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
+`live_taker_canary preflight` exits nonzero while any capital gate is blocked;
+the current capital-locked implementation has no credential resolver or order
+adapter by construction.
 
 ## Scheduled Operations
 
@@ -441,6 +447,7 @@ data/
   settlements/<market-id>/      # settlement ledgers
   mm_runs/                      # market-making run folders
   taker_runs/                   # taker-bot run folders
+  live_taker_canary/            # capital-canary status and append-only ledgers
 ```
 
 Durable model artifacts are tracked under `artifacts/`. Small deterministic

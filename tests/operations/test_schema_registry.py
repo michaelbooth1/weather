@@ -137,6 +137,22 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("production_readiness_gate"),
             "production_readiness_gate_v0.1",
         )
+        self.assertEqual(
+            schema_version("capital_canary_activation"),
+            "capital_canary_activation_v0.1",
+        )
+        self.assertEqual(
+            schema_version("capital_canary_status"),
+            "capital_canary_status_v0.1",
+        )
+        self.assertEqual(
+            schema_version("capital_canary_journal_event"),
+            "capital_canary_journal_event_v0.1",
+        )
+        self.assertEqual(
+            schema_version("capital_canary_dashboard"),
+            "capital_canary_dashboard_v0.1",
+        )
         self.assertEqual(schema_version("june23_location_bias_repair"), "june23_location_bias_repair_v0.1")
         self.assertEqual(schema_version("afternoon_residual_centering"), "afternoon_residual_centering_v0.1")
         self.assertEqual(

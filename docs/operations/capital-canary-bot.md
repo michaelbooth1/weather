@@ -39,6 +39,9 @@ exchange fill and does not make `safe_bets` an order-authority surface.
 - Every submission must revalidate activation, readiness, release identity,
   account reconciliation, market metadata, input freshness, exchange
   economics, qualified edge, and risk.
+- The readiness artifact must have its canonical schema and self-hash, preserve
+  its classification-only/no-authority contract, and be no more than 15
+  minutes old.
 - There are no force, bypass, or "trade anyway" options.
 - An unknown submission result, external order, stream gap, identity drift,
   reconciliation mismatch, or risk breach halts new placement. Restart always
@@ -91,6 +94,11 @@ The first stage is operational evidence, not alpha evidence:
 
 If the venue's minimum order is larger than the cap, the decision is
 `VENUE_MINIMUM_EXCEEDS_RISK_CAP`; size is never rounded up to force a trade.
+The current sub-dollar caps may therefore be non-executable on markets whose
+minimum is one or more shares. That is an intentional capital lock, not a
+reason to widen the policy from an API example. Any supervised one-minimum-lot
+exception requires exact live market metadata and a separately reviewed,
+versioned activation-bound policy.
 
 ### Alpha canary
 
@@ -151,6 +159,13 @@ Every entry requires all of the following:
 6. A marketable FOK limit with a hard maximum price. No unlimited market order,
    resting GTC order, averaging down, leverage, or blind retry is permitted.
 
+The risk engine sizes YES shares. The current exchange interface expresses an
+immediate FOK BUY as a dollar amount with a worst-price bound. A future adapter
+must convert the approved share quantity to that request unit, re-estimate the
+entire fill against the fresh book, and prove both the share and all-in dollar
+caps immediately before signing. It must never pass a share count as dollars
+or infer the order unit from a field name.
+
 Raw market probability, raw model probability, calibrated out-of-sample fair,
 its lower bound, market-shrunk fair, and executable after-cost edge remain
 separate fields in the ledger and UI.
@@ -199,6 +214,15 @@ no-network and fixture implementations. Its official SDK version must be
 pinned and re-reviewed at activation time; no beta or legacy client is silently
 substituted.
 
+Exchange assumptions were last checked on 2026-07-21 against the official
+[orderbook](https://docs.polymarket.com/trading/orderbook),
+[order lifecycle](https://docs.polymarket.com/trading/orders/overview),
+[fee](https://docs.polymarket.com/trading/fees), and
+[Python SDK](https://docs.polymarket.com/dev-tooling/python) documentation.
+The contract deliberately re-queries each market's minimum order, tick, depth,
+and fee parameters instead of treating examples or category defaults as live
+truth.
+
 ## Read-only homepage
 
 The overview route remains titled **Safest bets right now** and becomes the
@@ -221,6 +245,27 @@ capital-canary tracker. It displays:
 Unknown account values are `null`, never zero. Stale authority hides targets
 and order-enabled claims but preserves last-known risk. Settled realized P&L
 and executable-bid unrealized P&L are never blended without labels.
+
+## Capital-locked commands
+
+Run these from the repository root with the project interpreter:
+
+```powershell
+# Inspect current inputs without writing runtime state.
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary status
+
+# Atomically materialize the read-only tracker status.
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary initialize
+
+# Return a nonzero exit while capital cannot be submitted.
+.\venv\Scripts\python.exe -m weather.market.live_taker_canary preflight
+```
+
+None of these commands implicitly loads `.env`, resolves a credential, contacts
+an exchange, creates an order, or provides an activation bypass. Operator-
+supplied artifact paths are read only as bounded strict JSON. `initialize` is
+idempotent and writes only the derived capital-locked `status.json` projection.
+All `.env*` paths and symlinked inputs/outputs are explicitly refused.
 
 ## Implementation and acceptance order
 
