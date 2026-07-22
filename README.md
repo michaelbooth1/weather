@@ -65,9 +65,8 @@ Canonical Streamlit entrypoint:
 .\venv\Scripts\python.exe -m streamlit run app/streamlit_app.py
 ```
 
-The legacy root `app.py` wrapper still resolves for one migration window, but it
-is no longer a documented command surface; always use the canonical entrypoint
-above. (Shim retirement is tracked separately.)
+The former root wrapper was retired on 2026-07-20. Use the canonical entrypoint
+above for every dashboard launch.
 
 The operator launcher starts Streamlit if needed, opens the Operations page, and
 writes Streamlit logs under `data/logs/`:
@@ -339,8 +338,8 @@ health proof are completed.
 
 `weather.calibration.feature_model` trains one market/unit-family at a time.
 Use `--market toronto` for Celsius artifacts and an F-market such as `nyc` for
-F-family artifacts. The root `train_all_markets.ps1` helper is a compatibility
-wrapper, not the canonical training interface.
+F-family artifacts. For the local multi-market helper, use
+`.\tools\train_all_markets.ps1`.
 
 ### Trading Simulations
 
@@ -480,12 +479,12 @@ docs/                 # operations, research, roadmap, and audit docs
 tests/                # unit, reporting, operations, market, model, source tests
 tests/fixtures/       # small deterministic fixture data
 weather/__init__.py   # repo-root import compatibility shim
-app.py                # Streamlit compatibility shim
 ```
 
-Canonical commands run through packaged `weather.*` modules. Legacy flat
-wrappers and root shims remain available for compatibility, but active runbooks
-and new docs should use `python -m weather...`.
+Canonical commands run through packaged `weather.*` modules. Retired flat
+wrappers and root shims are prohibited by the import/path architecture ratchets;
+use `app/streamlit_app.py`, `scripts/ops/*`, `scripts/launch/*`, and `tools/*`
+for their non-package command surfaces.
 
 ## Documentation
 

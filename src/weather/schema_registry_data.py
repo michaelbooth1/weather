@@ -1745,10 +1745,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "structure_inventory",
-        "structure_inventory_v0.1",
+        "structure_inventory_v0.2",
         "weather.operations.structure_inventory",
         "active",
-        "Repository structure, package-size, shim, artifact, data, and architecture-ratchet inventory.",
+        "Repository structure, package-size, exact shim-path, artifact, data, and architecture-ratchet inventory.",
     ),
     SchemaSpec("shadow_ab_monitor", "shadow_ab_monitor_v0.1", "weather.reporting.candidate_lifecycle.shadow_ab_monitor", "active"),
     SchemaSpec("snapshot_evaluation", "snapshot_evaluation_v0.1", "weather.reporting.scorecards.snapshot_evaluation", "active"),

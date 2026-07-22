@@ -361,6 +361,7 @@ WRAPPER_MODULE_NAMES = sorted(
     for path in Path("src").glob("*.py")
     if path.name != "__init__.py"
 )
+WRAPPER_MODULE_PATTERN = "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES) or r"(?!)"
 
 LEGACY_IMPORT_RE = re.compile(
     r"^(?:from|import)\s+("
@@ -387,7 +388,7 @@ LEGACY_IMPORT_RE = re.compile(
 
 APP_TEST_LEGACY_IMPORT_RE = re.compile(
     r"^(?:from|import)\s+("
-    + "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES)
+    + WRAPPER_MODULE_PATTERN
     + r")\b",
     re.MULTILINE,
 )
@@ -627,6 +628,7 @@ FIRST_PARTY_SHIM_CALLER_ROOTS = [
     Path("README.md"),
     Path(".github"),
     Path("app"),
+    Path("src/weather"),
     Path("tests"),
     Path("tools"),
     Path("scripts"),
@@ -637,6 +639,8 @@ FIRST_PARTY_SHIM_CALL_RE = re.compile(
     r"pythonw?\.exe\s+-m\s+src\.|"
     r"python\s+-m\s+src\.|"
     r"-m\s+src\.|"
+    r"(?:pythonw?\.exe|python)\s+(?:\.\\|\./)?(?:backfill_all|scratch)\.py|"
+    r"(?:^|[\s`'\"])(?:&\s*)?(?:\.\\|\./)train_all_markets\.ps1|"
     r"streamlit\s+run\s+app\.py|"
     r"AppTest\.from_file\(\s*['\"]app\.py['\"]\s*\)|"
     r"(?:^|[\s`'\"])(?:\.\\)?scripts\\(?!ops\\|launch\\)"
@@ -647,7 +651,9 @@ FIRST_PARTY_SHIM_CALL_RE = re.compile(
 )
 
 FIRST_PARTY_SHIM_CALL_SCAN_EXCLUDED = {
+    Path("src/weather/operations/structure_inventory.py"),
     Path("tests/operations/test_import_architecture.py"),
+    Path("tests/operations/test_structure_inventory.py"),
 }
 
 ACTIVE_DOC_FILES = [
@@ -914,23 +920,27 @@ def test_app_and_tests_use_canonical_imports_for_internal_modules():
     assert offenders == {}
 
 
-def test_legacy_wrappers_forward_import_and_module_execution_to_weather_package():
-    offenders = {}
-    for path in Path("src").glob("*.py"):
-        if path.name == "__init__.py":
-            continue
-        text = path.read_text(encoding="utf-8")
-        findings = []
-        if "Compatibility wrapper for weather." not in text:
-            findings.append("missing compatibility docstring")
-        if '_TARGET = "weather.' not in text:
-            findings.append("missing _TARGET weather module")
-        if '_runpy.run_module(_TARGET, run_name="__main__")' not in text:
-            findings.append("missing module execution forwarding")
-        if findings:
-            offenders[str(path)] = findings
+def test_compatibility_shim_surfaces_remain_retired():
+    offenders = [
+        *(
+            str(path)
+            for path in Path("src").glob("*.py")
+            if path.name != "__init__.py"
+        ),
+        *(
+            str(path)
+            for path in (
+                Path("app.py"),
+                Path("backfill_all.py"),
+                Path("scratch.py"),
+                Path("train_all_markets.ps1"),
+            )
+            if path.exists()
+        ),
+        *(str(path) for path in Path("scripts").glob("*") if path.is_file()),
+    ]
 
-    assert offenders == {}
+    assert sorted(offenders) == []
 
 
 def test_source_modules_do_not_import_backtest_cli_for_shared_helpers():

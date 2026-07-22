@@ -291,17 +291,19 @@ def compatibility_shims(repo_root: str | Path = REPO_ROOT) -> dict:
         for path in sorted((repo_root / "scripts").glob("*"))
         if path.is_file()
     ]
+    shim_paths = [
+        *flat_wrappers,
+        *root_streamlit_shims,
+        *root_helper_shims,
+        *script_root_shims,
+    ]
     return {
         "flat_src_wrappers": len(flat_wrappers),
         "root_streamlit_shims": len(root_streamlit_shims),
         "root_helper_shims": len(root_helper_shims),
         "root_script_shims": len(script_root_shims),
-        "total": (
-            len(flat_wrappers)
-            + len(root_streamlit_shims)
-            + len(root_helper_shims)
-            + len(script_root_shims)
-        ),
+        "total": len(shim_paths),
+        "paths": [_relative(path, repo_root) for path in shim_paths],
         "examples": [
             _relative(path, repo_root)
             for path in [

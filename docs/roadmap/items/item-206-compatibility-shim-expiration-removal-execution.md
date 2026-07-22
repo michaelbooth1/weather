@@ -1,4 +1,4 @@
-# 206. Compatibility Shim Expiration Removal Execution [OPEN 2026-07-12 - OWNED, PRE-SCAN CLEAN, EXECUTES ON 2026-07-18]
+# 206. Compatibility Shim Expiration Removal Execution [COMPLETE 2026-07-20 - ALL 103 SHIMS REMOVED, ABSENCE RATCHETS LIVE]
 
 Goal: execute the compatibility-shim removal window after 2026-07-18 rather
 than leaving the expiration policy as a completed plan with no active owner.
@@ -25,15 +25,15 @@ discoverable forever despite first-party docs moving to canonical paths.
 5. Update import/path architecture tests so removed shims cannot reappear
    accidentally.
 
-- [ ] Rerun the compatibility caller scan after 2026-07-18.
-- [ ] Check known local scheduled tasks and operator launch paths for shim use.
-- [ ] Refresh `docs/roadmap/compatibility-shim-inventory.md` with owner,
+- [x] Rerun the compatibility caller scan after 2026-07-18.
+- [x] Check known local scheduled tasks and operator launch paths for shim use.
+- [x] Refresh `docs/roadmap/compatibility-shim-inventory.md` with owner,
   dependency, and next-review metadata for any retained shim batch.
-- [ ] Remove eligible `src/*.py`, root helper, `app.py`, and root script shim
+- [x] Remove eligible `src/*.py`, root helper, `app.py`, and root script shim
   batches.
-- [ ] Document any retained shim groups with a concrete dependency and next
+- [x] Document any retained shim groups with a concrete dependency and next
   review date.
-- [ ] Update tests and docs so removed shims remain retired.
+- [x] Update tests and docs so removed shims remain retired.
 
 ## 2026-07-18 Execution Checklist
 
@@ -52,6 +52,31 @@ Run these after the expiration date:
 Acceptance: after the expiration date, every shim class is either deleted or
 retained with a current owner, external dependency, and next review date; no
 expired shim remains solely because the execution step was missed.
+
+## Completion Notes
+
+Executed on 2026-07-20 from branch
+`item206-shim-removal-2026-07-20`, based on master commit `6e31b8af`.
+
+- The required caller gate passed (`1 passed`). The fresh structure inventory
+  reported `tracked=1457 source_py=405 shims=103` and enumerated 103 unique
+  paths. The tracked count is one above the work-order pre-scan because that
+  base commit added the work-order file itself.
+- All 215 local Task Scheduler actions, including 17 `Weather*` tasks, were
+  checked against the exact shim list and `-m src.*`; there were zero hits.
+  Eleven top-level desktop shortcuts also had zero weather/shim targets.
+- README, operations docs, CI, app, scripts, tests, tools, and reusable runbooks
+  had no active shim dependency. A broader canonical-source scan found one
+  stale generated recommendation for `scripts/register_clob_supervisor.ps1`;
+  it now emits the canonical `scripts/ops/register_clob_supervisor.ps1` path.
+- Removed all 103 eligible files: 85 flat `src/*.py` wrappers, root `app.py`,
+  three root helpers, and 14 direct `scripts/*` shims. No shim was retained.
+- Import/path and structure-inventory ratchets now require the retired classes
+  and exact inventory path list to remain empty.
+- Verification passed: import architecture (`21 passed`), structure inventory
+  plus schema registry (`13 passed`), data-layer audit plus roadmap backlog
+  (`40 passed`), `compileall`, and the agent-doc audit. The post-removal
+  structure inventory reported `shims=0 paths=0`.
 
 ## 2026-07-12 ownership and pre-scan
 
