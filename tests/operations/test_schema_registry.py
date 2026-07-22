@@ -135,7 +135,11 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("production_readiness_gate"),
-            "production_readiness_gate_v0.1",
+            "production_readiness_gate_v0.2",
+        )
+        self.assertEqual(
+            schema_version("capital_canary_evidence"),
+            "capital_canary_evidence_v0.2",
         )
         self.assertEqual(
             schema_version("capital_canary_activation"),
@@ -147,7 +151,7 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("capital_canary_journal_event"),
-            "capital_canary_journal_event_v0.1",
+            "capital_canary_journal_event_v0.2",
         )
         self.assertEqual(
             schema_version("capital_canary_dashboard"),

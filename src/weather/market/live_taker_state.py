@@ -38,6 +38,8 @@ _RAW_ACCOUNT_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _REDACTED_ACCOUNT_RE = re.compile(
     r"^(?:acct_[0-9a-f]{16,64}|acct_sha256:[0-9a-f]{64}|sha256:[0-9a-f]{64})$"
 )
+_SAFE_SCOPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
+_SUPPORTED_PLATFORMS = frozenset({"polymarket_global", "polymarket_us"})
 _SENSITIVE_FIELD_RE = re.compile(
     r"(?:^|[_-])(?:api[_-]?(?:key|secret)|authorization|credential(?:s)?|mnemonic|"
     r"passphrase|password|private[_-]?key|seed[_-]?phrase|signature|signed[_-]?order)(?:$|[_-])",
@@ -129,6 +131,23 @@ class DuplicateIntentError(RuntimeError):
 
 class SecretMaterialError(ValueError):
     """Raised without echoing secret material into an exception or log."""
+
+
+def _bounded_scope_id(value: Any, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or not _SAFE_SCOPE_ID_RE.fullmatch(value)
+    ):
+        raise ValueError(f"{field} must be a bounded exact identifier")
+    assert_secret_safe(value)
+    return value
+
+
+def _exact_sha256(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+    return value
 
 
 def _utc_iso(value: datetime | str | None = None) -> str:
@@ -247,15 +266,217 @@ def assert_secret_safe(value: Any) -> None:
 
 
 @dataclass(frozen=True)
+class HaltedRecoveryScope:
+    """Identity and ledger boundary frozen when authority enters ``HALTED``."""
+
+    platform: str
+    account_id_sha256: str
+    release_id: str
+    manifest_sha256: str
+    activation_scope_sha256: str
+    halted_ledger_high_water: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.platform, str) or self.platform not in _SUPPORTED_PLATFORMS:
+            raise ValueError("platform must be a supported exact platform")
+        object.__setattr__(
+            self,
+            "account_id_sha256",
+            _exact_sha256(self.account_id_sha256, field="account_id_sha256"),
+        )
+        object.__setattr__(
+            self,
+            "release_id",
+            _bounded_scope_id(self.release_id, field="release_id"),
+        )
+        for name in ("manifest_sha256", "activation_scope_sha256"):
+            object.__setattr__(
+                self,
+                name,
+                _exact_sha256(getattr(self, name), field=name),
+            )
+        if (
+            isinstance(self.halted_ledger_high_water, bool)
+            or not isinstance(self.halted_ledger_high_water, int)
+            or self.halted_ledger_high_water < 0
+        ):
+            raise ValueError("halted_ledger_high_water must be a non-negative integer")
+
+    def as_record(self) -> dict[str, Any]:
+        payload = {
+            "platform": self.platform,
+            "account_id_sha256": self.account_id_sha256,
+            "release_id": self.release_id,
+            "manifest_sha256": self.manifest_sha256,
+            "activation_scope_sha256": self.activation_scope_sha256,
+            "halted_ledger_high_water": self.halted_ledger_high_water,
+        }
+        return {
+            **payload,
+            "halted_recovery_scope_sha256": canonical_sha256(payload),
+        }
+
+
+@dataclass(frozen=True)
+class AccountReconciliationEvidence:
+    """Structured, secret-free account proof for one halted recovery review."""
+
+    reconciliation_id: str
+    platform: str
+    account_id_sha256: str
+    release_id: str
+    manifest_sha256: str
+    activation_scope_sha256: str
+    observed_at_utc: str
+    sequence: int
+    status: str
+    open_order_count: int
+    unknown_order_count: int
+    position_reconciliation_status: str
+    cash_reconciliation_status: str
+    account_snapshot_sha256: str
+    open_orders_snapshot_sha256: str
+    positions_snapshot_sha256: str
+    cash_ledger_sha256: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "reconciliation_id",
+            _bounded_scope_id(self.reconciliation_id, field="reconciliation_id"),
+        )
+        if not isinstance(self.platform, str) or self.platform not in _SUPPORTED_PLATFORMS:
+            raise ValueError("platform must be a supported exact platform")
+        object.__setattr__(
+            self,
+            "account_id_sha256",
+            _exact_sha256(self.account_id_sha256, field="account_id_sha256"),
+        )
+        object.__setattr__(
+            self,
+            "release_id",
+            _bounded_scope_id(self.release_id, field="release_id"),
+        )
+        for name in ("manifest_sha256", "activation_scope_sha256"):
+            object.__setattr__(
+                self,
+                name,
+                _exact_sha256(getattr(self, name), field=name),
+            )
+        object.__setattr__(self, "observed_at_utc", _utc_iso(self.observed_at_utc))
+        if (
+            isinstance(self.sequence, bool)
+            or not isinstance(self.sequence, int)
+            or self.sequence <= 0
+        ):
+            raise ValueError("reconciliation sequence must be a positive integer")
+        for name in (
+            "status",
+            "position_reconciliation_status",
+            "cash_reconciliation_status",
+        ):
+            if getattr(self, name) != "PASS":
+                raise ValueError(f"{name} must be PASS")
+        for name in ("open_order_count", "unknown_order_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value != 0:
+                raise ValueError(f"{name} must be exactly zero")
+        for name in (
+            "account_snapshot_sha256",
+            "open_orders_snapshot_sha256",
+            "positions_snapshot_sha256",
+            "cash_ledger_sha256",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _exact_sha256(getattr(self, name), field=name),
+            )
+
+    def as_record(self) -> dict[str, Any]:
+        payload = {
+            "reconciliation_id": self.reconciliation_id,
+            "platform": self.platform,
+            "account_id_sha256": self.account_id_sha256,
+            "release_id": self.release_id,
+            "manifest_sha256": self.manifest_sha256,
+            "activation_scope_sha256": self.activation_scope_sha256,
+            "observed_at_utc": self.observed_at_utc,
+            "sequence": self.sequence,
+            "status": self.status,
+            "open_order_count": self.open_order_count,
+            "unknown_order_count": self.unknown_order_count,
+            "position_reconciliation_status": self.position_reconciliation_status,
+            "cash_reconciliation_status": self.cash_reconciliation_status,
+            "account_snapshot_sha256": self.account_snapshot_sha256,
+            "open_orders_snapshot_sha256": self.open_orders_snapshot_sha256,
+            "positions_snapshot_sha256": self.positions_snapshot_sha256,
+            "cash_ledger_sha256": self.cash_ledger_sha256,
+        }
+        return {
+            **payload,
+            "reconciliation_evidence_sha256": canonical_sha256(payload),
+        }
+
+
+@dataclass(frozen=True)
+class ReviewedRecoveryEvidence:
+    """Reviewed proof required before leaving ``HALTED``.
+
+    The proof binds one reviewer and one passing account-reconciliation
+    artifact to the exact halted state sequence.  It is evidence for entering
+    reconcile-only mode, never authority to submit an order.
+    """
+
+    recovery_id: str
+    reviewed_by: str
+    reviewed_at_utc: str
+    halt_sequence: int
+    reconciliation: AccountReconciliationEvidence
+
+    def __post_init__(self) -> None:
+        for name in ("recovery_id", "reviewed_by"):
+            object.__setattr__(
+                self,
+                name,
+                _bounded_scope_id(getattr(self, name), field=name),
+            )
+        object.__setattr__(self, "reviewed_at_utc", _utc_iso(self.reviewed_at_utc))
+        if (
+            isinstance(self.halt_sequence, bool)
+            or not isinstance(self.halt_sequence, int)
+            or self.halt_sequence <= 0
+        ):
+            raise ValueError("halt_sequence must be a positive integer")
+        if not isinstance(self.reconciliation, AccountReconciliationEvidence):
+            raise ValueError("reviewed recovery requires structured reconciliation evidence")
+
+    def as_record(self) -> dict[str, Any]:
+        payload = {
+            "recovery_id": self.recovery_id,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at_utc": self.reviewed_at_utc,
+            "halt_sequence": self.halt_sequence,
+            "reconciliation": self.reconciliation.as_record(),
+        }
+        return {
+            **payload,
+            "recovery_evidence_sha256": canonical_sha256(payload),
+        }
+
+
+@dataclass(frozen=True)
 class StateTransition:
     sequence: int
     previous_state: AuthorityState
     state: AuthorityState
     reason_code: str
     recorded_at_utc: str
+    recovery_evidence: ReviewedRecoveryEvidence | None = None
+    halted_recovery_scope: HaltedRecoveryScope | None = None
 
     def as_record(self) -> dict[str, Any]:
-        return {
+        record = {
             "schema_version": EVIDENCE_SCHEMA_VERSION,
             "event_type": "authority_state_transition",
             "sequence": self.sequence,
@@ -265,6 +486,11 @@ class StateTransition:
             "recorded_at_utc": self.recorded_at_utc,
             "network_write_phase": self.state is AuthorityState.SUBMITTING,
         }
+        if self.recovery_evidence is not None:
+            record["recovery_evidence"] = self.recovery_evidence.as_record()
+        if self.halted_recovery_scope is not None:
+            record["halted_recovery_scope"] = self.halted_recovery_scope.as_record()
+        return record
 
 
 @dataclass(frozen=True)
@@ -272,6 +498,7 @@ class CanaryStateMachine:
     state: AuthorityState = AuthorityState.LOCKED
     sequence: int = 0
     last_transition_at_utc: str | None = None
+    halted_recovery_scope: HaltedRecoveryScope | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -290,6 +517,11 @@ class CanaryStateMachine:
                 "last_transition_at_utc",
                 _utc_iso(self.last_transition_at_utc),
             )
+        if self.state is AuthorityState.HALTED:
+            if not isinstance(self.halted_recovery_scope, HaltedRecoveryScope):
+                raise ValueError("HALTED state requires its exact recovery scope")
+        elif self.halted_recovery_scope is not None:
+            raise ValueError("halted recovery scope is valid only in HALTED state")
 
     @property
     def in_submission_phase(self) -> bool:
@@ -307,6 +539,8 @@ class CanaryStateMachine:
         *,
         reason_code: str,
         recorded_at_utc: datetime | str | None = None,
+        recovery_evidence: ReviewedRecoveryEvidence | None = None,
+        halted_recovery_scope: HaltedRecoveryScope | None = None,
     ) -> tuple[CanaryStateMachine, StateTransition]:
         try:
             destination = AuthorityState(next_state)
@@ -321,18 +555,88 @@ class CanaryStateMachine:
             raise ValueError("reason_code is required for every authority transition")
         assert_secret_safe(reason)
         timestamp = _utc_iso(recorded_at_utc)
+        halted_recovery = (
+            self.state is AuthorityState.HALTED
+            and destination is AuthorityState.RECONCILE_ONLY
+        )
+        entering_halted = destination is AuthorityState.HALTED
+        if entering_halted:
+            if not isinstance(halted_recovery_scope, HaltedRecoveryScope):
+                raise StateTransitionError(
+                    "entering HALTED requires the exact persisted recovery scope"
+                )
+        elif halted_recovery_scope is not None:
+            raise StateTransitionError(
+                "halted recovery scope is only valid on a transition into HALTED"
+            )
+        if halted_recovery:
+            if not isinstance(recovery_evidence, ReviewedRecoveryEvidence):
+                raise StateTransitionError(
+                    "HALTED recovery requires structured reviewed recovery evidence"
+                )
+            if recovery_evidence.halt_sequence != self.sequence:
+                raise StateTransitionError(
+                    "reviewed recovery evidence does not bind the current halted sequence"
+                )
+            expected_scope = self.halted_recovery_scope
+            if expected_scope is None:  # Defensive after construction validation.
+                raise StateTransitionError("HALTED state has no persisted recovery scope")
+            reconciliation = recovery_evidence.reconciliation
+            if (
+                reconciliation.platform != expected_scope.platform
+                or reconciliation.account_id_sha256
+                != expected_scope.account_id_sha256
+                or reconciliation.release_id != expected_scope.release_id
+                or reconciliation.manifest_sha256 != expected_scope.manifest_sha256
+                or reconciliation.activation_scope_sha256
+                != expected_scope.activation_scope_sha256
+            ):
+                raise StateTransitionError(
+                    "reconciliation identity does not match the halted recovery scope"
+                )
+            if reconciliation.sequence <= expected_scope.halted_ledger_high_water:
+                raise StateTransitionError(
+                    "reconciliation sequence is not newer than the halted ledger high-water"
+                )
+            if self.last_transition_at_utc is None:
+                raise StateTransitionError(
+                    "reviewed recovery requires the persisted halted transition time"
+                )
+            halted_at = datetime.fromisoformat(
+                self.last_transition_at_utc.replace("Z", "+00:00")
+            )
+            reviewed_at = datetime.fromisoformat(
+                recovery_evidence.reviewed_at_utc.replace("Z", "+00:00")
+            )
+            reconciled_at = datetime.fromisoformat(
+                recovery_evidence.reconciliation.observed_at_utc.replace(
+                    "Z", "+00:00"
+                )
+            )
+            transition_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if not halted_at <= reconciled_at <= reviewed_at <= transition_at:
+                raise StateTransitionError(
+                    "reconciliation and review must follow the halt and precede recovery"
+                )
+        elif recovery_evidence is not None:
+            raise StateTransitionError(
+                "reviewed recovery evidence is only valid for HALTED -> RECONCILE_ONLY"
+            )
         event = StateTransition(
             sequence=self.sequence + 1,
             previous_state=self.state,
             state=destination,
             reason_code=reason,
             recorded_at_utc=timestamp,
+            recovery_evidence=recovery_evidence,
+            halted_recovery_scope=halted_recovery_scope,
         )
         return (
             CanaryStateMachine(
                 state=destination,
                 sequence=event.sequence,
                 last_transition_at_utc=timestamp,
+                halted_recovery_scope=halted_recovery_scope,
             ),
             event,
         )
@@ -380,6 +684,7 @@ def make_idempotency_key(
     snapshot_hash: str,
     policy_hash: str,
     sequence: int,
+    risk_decision_hash: str | None = None,
 ) -> str:
     """Bind an intent to its exact reviewed inputs using canonical JSON."""
     account = _required_identity_text(
@@ -416,6 +721,11 @@ def make_idempotency_key(
         "policy_hash": _required_sha256(policy_hash, field="policy_hash"),
         "sequence": int(sequence),
     }
+    if risk_decision_hash is not None:
+        identity["risk_decision_hash"] = _required_sha256(
+            risk_decision_hash,
+            field="risk_decision_hash",
+        )
     return f"capital-canary:{canonical_sha256(identity)}"
 
 
@@ -936,6 +1246,7 @@ def write_status_snapshot(
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
+    "AccountReconciliationEvidence",
     "AuthorityState",
     "CampaignBusyError",
     "CampaignLock",
@@ -943,12 +1254,14 @@ __all__ = [
     "DuplicateIntentError",
     "EVIDENCE_SCHEMA_VERSION",
     "GENESIS_HASH",
+    "HaltedRecoveryScope",
     "HashChainJournal",
     "JournalBusyError",
     "JournalIntegrityError",
     "JournalVerification",
     "MAX_JOURNAL_RECORD_BYTES",
     "MAX_STATUS_BYTES",
+    "ReviewedRecoveryEvidence",
     "STATUS_SCHEMA_VERSION",
     "SecretMaterialError",
     "SnapshotVerification",

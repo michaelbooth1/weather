@@ -25,6 +25,7 @@ def _healthy_state(**overrides):
         "reconciled_equity_usdc": D("75"),
         "available_cash_usdc": D("75"),
         "account_reconciled": True,
+        "unresolved_open_or_unknown_order_count": 0,
     }
     values.update(overrides)
     return CanaryRiskState(**values)
@@ -108,6 +109,53 @@ def test_account_reconciliation_fails_closed_when_omitted():
 
     assert decision.permitted is False
     assert decision.reason_code == "ACCOUNT_NOT_RECONCILED"
+
+
+@pytest.mark.parametrize("value", (-1, 1.5, True))
+def test_unresolved_order_count_requires_a_nonnegative_integer(value):
+    with pytest.raises(ValueError, match="non-negative integer"):
+        _healthy_state(unresolved_open_or_unknown_order_count=value)
+
+
+def test_unresolved_open_or_unknown_order_blocks_every_new_order_stage():
+    state = _healthy_state(unresolved_open_or_unknown_order_count=1)
+    lifecycle = size_lifecycle_probe(
+        limit_price=D("0.90"),
+        venue_min_quantity=D("0.1"),
+        quantity_step=D("0.01"),
+        state=state,
+    )
+    alpha = size_alpha_order(
+        limit_price=D("0.90"),
+        fair_value_lower_bound=D("0.99"),
+        fee_per_share_usdc=D("0"),
+        slippage_per_share_usdc=D("0"),
+        spread=D("0.01"),
+        minutes_to_close=D("30"),
+        top_ask_quantity=D("100"),
+        venue_min_quantity=D("0.1"),
+        quantity_step=D("0.01"),
+        state=_credible_alpha_state(unresolved_open_or_unknown_order_count=1),
+    )
+
+    assert lifecycle.permitted is False
+    assert lifecycle.reason_code == "UNRESOLVED_OPEN_OR_UNKNOWN_ORDER"
+    assert alpha.permitted is False
+    assert alpha.reason_code == "UNRESOLVED_OPEN_OR_UNKNOWN_ORDER"
+
+
+def test_omitted_open_or_unknown_order_observation_fails_closed():
+    state = _healthy_state(unresolved_open_or_unknown_order_count=None)
+
+    decision = size_lifecycle_probe(
+        limit_price=D("0.90"),
+        venue_min_quantity=D("0.1"),
+        quantity_step=D("0.01"),
+        state=state,
+    )
+
+    assert decision.permitted is False
+    assert decision.reason_code == "OPEN_OR_UNKNOWN_ORDER_COUNT_UNVERIFIED"
 
 
 def test_risk_basis_escrows_three_quarters_of_positive_profit():

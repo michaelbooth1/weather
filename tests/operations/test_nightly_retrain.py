@@ -197,7 +197,11 @@ def _write_promotion(path, *, promote=None, shadow=None, blocked=None):
 
 
 def _write_point_in_time_source(
-    root: Path, *, candidate_id: str
+    root: Path,
+    *,
+    candidate_id: str,
+    market_id: str = "nyc",
+    settlement_unit: str = "F",
 ) -> tuple[Path, Path, Path]:
     del candidate_id
     source = root / "point-in-time-source"
@@ -213,7 +217,7 @@ def _write_point_in_time_source(
                 {
                     "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
                     "target_date": target_date,
-                    "market_id": "nyc",
+                    "market_id": market_id,
                     "cutoff_or_snapshot": "08:00",
                     "band": band,
                     "feature_available_at_utc": f"{target_date}T12:00:00+00:00",
@@ -247,20 +251,20 @@ def _write_point_in_time_source(
     snapshots_root.mkdir(exist_ok=True)
     replay_entries = []
     for index, target_date in enumerate(fleet_dates):
-        slug = f"nyc-high-{target_date}"
+        slug = f"{market_id}-high-{target_date}"
         folder = snapshots_root / slug
         folder.mkdir(exist_ok=True)
         snapshot_id = "08:00"
         replay_entries.append(
             {
                 "event_slug": slug,
-                "market_id": "nyc",
+                "market_id": market_id,
                 "target_date": target_date,
                 "folder": str(folder),
                 "folder_name": slug,
                 "folder_relative_to_snapshots_root": slug,
-                "settlement_bucket": 80,
-                "settlement_unit": "F",
+                "settlement_bucket": 80 if settlement_unit == "F" else 27,
+                "settlement_unit": settlement_unit,
                 "settlement_source": "wu_history",
                 "winning_band": "low",
                 "quality_grade": "complete",
@@ -447,6 +451,10 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertFalse(args.skip_production_readiness_gate)
         self.assertFalse(args.bootstrap_first_inactive_release)
 
+    def test_cli_rejects_c_until_nightly_pipeline_is_unit_generic(self):
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["run", "--family-unit", "C"])
+
     def test_folder_backed_qualification_uses_prelock_materialized_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(
@@ -454,12 +462,25 @@ class TestNightlyRetrain(unittest.TestCase):
                 "--release-candidate-mode",
                 "production",
                 "--point-in-time-folder",
-                str(Path(tmp) / "snapshots" / "nyc-high-2026-07-01"),
+                str(
+                    Path(tmp)
+                    / "snapshots"
+                    / "highest-temperature-in-nyc-on-july-1-2026"
+                ),
             )
             guard = prepare_candidate_outputs(args)
             prepare_production_point_in_time_outputs(args, guard)
             command = point_in_time_qualification_command(args)
 
+        self.assertEqual(guard["status"], "PASS")
+        self.assertEqual(
+            guard["point_in_time_source_family_preflight"]["status"],
+            "PASS",
+        )
+        self.assertEqual(
+            guard["point_in_time_source_family_preflight"]["observed_family_units"],
+            ["F"],
+        )
         self.assertNotIn("--folder", command)
         self.assertEqual(
             command[command.index("--source-corpus") + 1],
@@ -469,6 +490,49 @@ class TestNightlyRetrain(unittest.TestCase):
             command[command.index("--source-manifest") + 1],
             args.point_in_time_source_materialized_manifest,
         )
+
+    def test_production_c_source_blocks_before_preselection_or_training(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            source_corpus, source_manifest, source_replay_manifest = (
+                _write_point_in_time_source(
+                    Path(tmp),
+                    candidate_id="test-nightly",
+                    market_id="toronto",
+                    settlement_unit="C",
+                )
+            )
+            args = _args(
+                tmp,
+                "--release-candidate-mode",
+                "production",
+                "--point-in-time-source-corpus",
+                str(source_corpus),
+                "--point-in-time-source-manifest",
+                str(source_manifest),
+                "--point-in-time-source-replay-manifest",
+                str(source_replay_manifest),
+            )
+            payload, _status, _report = run_nightly_retrain(
+                args,
+                runner=lambda command, **_kwargs: calls.append(command),
+            )
+
+        guard = payload["config"]["candidate_output_guard"]
+        preflight = guard["point_in_time_source_family_preflight"]
+        self.assertEqual(guard["status"], "BLOCK")
+        self.assertEqual(preflight["status"], "BLOCK")
+        self.assertEqual(preflight["expected_family_unit"], "F")
+        self.assertEqual(preflight["observed_family_units"], ["C"])
+        self.assertEqual(preflight["market_ids"], ["toronto"])
+        self.assertIn(
+            "production point-in-time source is incompatible with --family-unit F",
+            preflight["detail"],
+        )
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["steps"][0]["name"], "candidate_output_preflight")
+        self.assertIn("toronto=C", payload["steps"][0]["stderr"])
+        self.assertEqual(calls, [])
 
     def test_dry_run_plans_candidate_only_outputs_and_manual_release_build(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -12,6 +12,7 @@ from weather.market.live_taker_canary import (
     RISK_CAPS_SHA256,
     RISK_POLICY_ID,
     RISK_POLICY_SHA256,
+    READINESS_SCHEMA_VERSION,
     STATUS_SCHEMA_VERSION,
     activation_content_sha256,
     build_capital_locked_status,
@@ -27,37 +28,8 @@ from weather.market.live_taker_state import assert_secret_safe, verify_status_sn
 NOW = datetime(2026, 7, 21, 12, tzinfo=timezone.utc)
 
 
-def _readiness(*, capital_pass: bool = True) -> dict:
-    release = {
-        "status": "PASS",
-        "release_id": "release-1",
-        "manifest_sha256": "a" * 64,
-        "production_capable": True,
-    }
+def _authorization_scope(**changes) -> dict:
     payload = {
-        "schema_version": "production_readiness_gate_v0.1",
-        "generated_at_utc": NOW.isoformat(),
-        "status": "PASS" if capital_pass else "BLOCK",
-        "stage": "CAPITAL_CANARY" if capital_pass else "NOT_READY",
-        "highest_permitted_stage": "CAPITAL_CANARY" if capital_pass else "NOT_READY",
-        "release_identity": release if capital_pass else {**release, "status": "BLOCK"},
-        "stage_results": {
-            "CAPITAL_CANARY": {"status": "PASS" if capital_pass else "BLOCK"}
-        },
-        "capital_permissions": {
-            "classification_only": True,
-            "credential_access_permitted": False,
-            "order_submission_permitted": False,
-        },
-        "blockers": [] if capital_pass else [{"code": "active_release_missing", "detail": "missing"}],
-    }
-    payload["gate_sha256"] = canonical_payload_sha256(payload)
-    return payload
-
-
-def _activation(**changes) -> dict:
-    payload = {
-        "schema_version": ACTIVATION_SCHEMA_VERSION,
         "activation_id": "canary-2026-07",
         "platform": "polymarket_global",
         "release_id": "release-1",
@@ -72,6 +44,57 @@ def _activation(**changes) -> dict:
         "authorized_at_utc": (NOW - timedelta(hours=1)).isoformat(),
         "expires_at_utc": (NOW + timedelta(hours=4)).isoformat(),
         "reviewed_by": "operator-review",
+    }
+    payload.update(changes)
+    return payload
+
+
+def _readiness(*, capital_pass: bool = True) -> dict:
+    release = {
+        "status": "PASS",
+        "release_id": "release-1",
+        "manifest_sha256": "a" * 64,
+        "production_capable": True,
+    }
+    scope = _authorization_scope()
+    payload = {
+        "schema_version": READINESS_SCHEMA_VERSION,
+        "generated_at_utc": NOW.isoformat(),
+        "status": "PASS" if capital_pass else "BLOCK",
+        "stage": "CAPITAL_CANARY" if capital_pass else "NOT_READY",
+        "highest_permitted_stage": "CAPITAL_CANARY" if capital_pass else "NOT_READY",
+        "release_identity": release if capital_pass else {**release, "status": "BLOCK"},
+        "stage_results": {
+            "CAPITAL_CANARY": {"status": "PASS" if capital_pass else "BLOCK"}
+        },
+        "capital_permissions": {
+            "classification_only": True,
+            "credential_access_permitted": False,
+            "order_submission_permitted": False,
+        },
+        "capital_authorization_binding": {
+            "status": "PASS" if capital_pass else "BLOCK",
+            "source_evidence_sha256": "c" * 64,
+            "scope": scope if capital_pass else None,
+            "scope_sha256": canonical_payload_sha256(scope) if capital_pass else None,
+        },
+        "inputs": [
+            {
+                "name": "capital_canary",
+                "sha256": "c" * 64,
+                "validation_status": "PASS" if capital_pass else "BLOCK",
+            }
+        ],
+        "blockers": [] if capital_pass else [{"code": "active_release_missing", "detail": "missing"}],
+    }
+    payload["gate_sha256"] = canonical_payload_sha256(payload)
+    return payload
+
+
+def _activation(**changes) -> dict:
+    payload = {
+        "schema_version": ACTIVATION_SCHEMA_VERSION,
+        **_authorization_scope(),
     }
     payload.update(changes)
     payload["activation_sha256"] = activation_content_sha256(payload)
@@ -150,6 +173,7 @@ def test_activation_rejects_secret_fields_and_scope_drift():
     assert "activation_capital_ceiling_mismatch" in codes
     assert "activation_platform_mismatch" in codes
     assert "activation_account_mismatch" in codes
+    assert "activation_readiness_scope_mismatch" in codes
 
     status = build_capital_locked_status(_readiness(), activation, now=NOW)
     assert "must-never-appear" not in json.dumps(status, sort_keys=True)
@@ -237,6 +261,32 @@ def test_tampered_or_authority_granting_readiness_fails_closed():
     assert payload["authority"]["order_submission_enabled"] is False
     assert any(
         row["code"] == "production_readiness_authority_contract_mismatch"
+        for row in payload["blockers"]
+    )
+
+
+def test_capital_readiness_requires_a_verified_authorization_source_binding():
+    readiness = _readiness()
+    readiness["capital_authorization_binding"]["source_evidence_sha256"] = "d" * 64
+    readiness["gate_sha256"] = canonical_payload_sha256(
+        readiness,
+        omit=("gate_sha256",),
+    )
+
+    issues = validate_activation(
+        _activation(),
+        readiness,
+        now=NOW,
+        expected_platform="polymarket_global",
+        expected_account_sha256="b" * 64,
+    )
+    payload = build_capital_locked_status(readiness, _activation(), now=NOW)
+
+    assert "capital_readiness_not_passed" in {row["code"] for row in issues}
+    assert "activation_readiness_binding_invalid" in {row["code"] for row in issues}
+    assert payload["authority"]["capital_gate_status"] == "BLOCK"
+    assert any(
+        row["code"] == "production_readiness_capital_binding_invalid"
         for row in payload["blockers"]
     )
 

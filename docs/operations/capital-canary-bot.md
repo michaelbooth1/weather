@@ -36,6 +36,19 @@ exchange fill and does not make `safe_bets` an order-authority surface.
 - A separate, self-hashed activation must match the exact release, manifest,
   platform, redacted account identity, market allowlist, $75 ceiling, risk
   policy, reviewer, and expiry.
+- Capital evidence uses `capital_canary_evidence_v0.2`, and the bound parent
+  output uses `production_readiness_gate_v0.2`. The contract requires a
+  one-shot FOK/no-replace lifecycle, a SHA-256 proof binding for every claimed
+  control, and an exact secret-free authorization scope. Each control hash is
+  checked against a stable, bounded, non-symlink JSON artifact beside the
+  capital evidence. The proof uses `reviewed_capital_control_v1` and must name
+  both the control and its exact asserted Boolean or lifecycle-mode value;
+  name-only proofs, unknown proof fields, absolute or escaping paths, `.env`,
+  missing, moving, stale, secret-bearing, or mismatched references fail closed.
+  The parent capital payload also rejects secret material and fields outside
+  its exact v0.2 contract. The canonical readiness artifact republishes only
+  the reviewed authorization scope and its hash; activation validation fails
+  unless every field and the exact verified capital-evidence input hash match.
 - Every submission must revalidate activation, readiness, release identity,
   account reconciliation, market metadata, input freshness, exchange
   economics, qualified edge, and risk.
@@ -62,7 +75,7 @@ stateDiagram-v2
     RECONCILE_ONLY --> SCANNING: account and ledgers agree
     SCANNING --> SUBMITTING: one qualified intent is reserved
     SUBMITTING --> EXPOSED: exchange acknowledgement and fill reconcile
-    SUBMITTING --> HALTED: outcome is unknown or inconsistent
+    SUBMITTING --> HALTED: unknown, inconsistent, or known rejection pending review
     EXPOSED --> SCANNING: settlement and account reconcile
     SCANNING --> PAUSED: no target or scheduled review
     PAUSED --> RECONCILE_ONLY: reviewed resume
@@ -75,6 +88,19 @@ stateDiagram-v2
 `LOCKED`, `PREFLIGHT`, `PAUSED`, and `HALTED` cannot submit. `ARMED` only
 permits a reconcile-only worker start. `SCANNING` may create an intent, but the
 final order gate runs again immediately before `SUBMITTING`.
+
+Leaving `HALTED` requires structured, self-hashed recovery evidence that binds
+the exact halt sequence, platform, account hash, release and manifest,
+activation-scope hash, and a reconciliation sequence newer than the ledger
+high-water frozen on entry to `HALTED`. It also requires zero open/unknown
+orders, passing position/cash reconciliation, account/order/position/ledger
+snapshot hashes, reviewer, and ordered reconciliation/review times. The halted
+scope is self-hashed and persisted on the transition into `HALTED`; evidence
+for another scope cannot clear it. Recovery only permits `RECONCILE_ONLY`; it
+cannot restore submission authority. Any unresolved open or unknown exchange
+order blocks both lifecycle and alpha sizing. Recovery transition records use
+`capital_canary_journal_event_v0.2`; older v0.1 journal readers must not infer
+that a reason string is reviewed recovery.
 
 ## $75 risk envelope
 
@@ -170,6 +196,28 @@ Raw market probability, raw model probability, calibrated out-of-sample fair,
 its lower bound, market-shrunk fair, and executable after-cost edge remain
 separate fields in the ledger and UI.
 
+## Post-transfer alpha qualification order
+
+When the production `/data` copy finishes, use the additional history to build
+and compare an **inactive** candidate in this order:
+
+1. Verify a bounded source inventory, sizes, modification times, and available
+   producer checksums before trusting the copy. Copied mutable status files are
+   observations, not fresh development-PC evidence.
+2. Rebuild event metadata, settlement labels, point-in-time source selection,
+   and input-quality reports locally. Reject any source whose native settlement
+   unit does not match the requested candidate family before expensive replay.
+3. Train and replay a frozen candidate with captured-input parity, native-unit
+   settlement, probability-mass, WU cutoff, and release-manifest checks intact.
+4. Compare the candidate with the current model and market/no-trade baselines;
+   build an immutable inactive release only if the predeclared gates pass.
+5. Accumulate fresh shadow and executable paper evidence on the exact release.
+   Historical volume improves training and backtesting, but cannot retroactively
+   satisfy the independent forward windows required by Item 321.
+
+This work order may begin as soon as the copy is stable. It does not read
+credentials or make tomorrow a capital-eligible date.
+
 ## Persistence and reconciliation
 
 Canonical capital evidence lives under `data/live_taker_canary/`, separate from
@@ -187,9 +235,16 @@ Canonical capital evidence lives under `data/live_taker_canary/`, separate from
 
 One process owns a campaign lock. An idempotency key binds platform, redacted
 account identity, event, token, side, price, quantity, release, input snapshot,
-policy, and sequence. The intent is durably recorded before the network write.
-An uncertain response is reconciled through private-stream and REST evidence;
-the bot never resubmits blindly.
+policy, exact risk-decision hash, and sequence. The immutable
+`capital_canary_fok_yes_buy_v1` request separately hashes the complete request,
+including stage, BUY dollars, fee reserve, and all-in debit. The intent is
+durably recorded before the network write. An uncertain response is reconciled
+through private-stream and REST evidence; the bot never resubmits blindly.
+
+Replacement is structurally disabled for the canary. A fresh reviewed intent
+may place one FOK order, and cancellation/cancel-all remain available for
+defensive reconciliation; no cancel-and-replace workflow may widen or silently
+repeat the original exposure.
 
 Placement freezes and cancel-all reconciliation starts on any unknown order,
 acknowledgement timeout, unexpected partial fill, authentication/signature
@@ -214,11 +269,23 @@ no-network and fixture implementations. Its official SDK version must be
 pinned and re-reviewed at activation time; no beta or legacy client is silently
 substituted.
 
+`weather.market.live_taker_exchange` now owns that credential-free boundary.
+It keeps risk-approved shares distinct from the venue's FOK BUY dollar amount,
+uses immutable `Decimal` account/book/order/receipt records, rejects stale or
+partial/unknown state, binds each request to the reviewed stage risk policy and
+risk decision, and enforces the $0.50 lifecycle / $0.75 alpha order caps at the
+last boundary. It provides only null and simulation adapters. The one-shot
+simulation runner has no retry, filesystem, environment, SDK, or network path;
+rejections and uncertainty halt closed. Neither adapter can produce
+capital-grade evidence or resolve credentials. A concrete authenticated
+implementation remains deferred to the reviewed capital gate.
+
 Exchange assumptions were last checked on 2026-07-21 against the official
 [orderbook](https://docs.polymarket.com/trading/orderbook),
 [order lifecycle](https://docs.polymarket.com/trading/orders/overview),
 [fee](https://docs.polymarket.com/trading/fees), and
-[Python SDK](https://docs.polymarket.com/dev-tooling/python) documentation.
+[official client SDK](https://docs.polymarket.com/api-reference/clients-sdks)
+documentation.
 The contract deliberately re-queries each market's minimum order, tick, depth,
 and fee parameters instead of treating examples or category defaults as live
 truth.

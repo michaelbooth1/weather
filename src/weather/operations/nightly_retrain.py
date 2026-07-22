@@ -57,6 +57,7 @@ from weather.operations.producer_provenance import (
     build_stage_sla,
     producer_release_proof,
 )
+from weather.market.market_registry import REGISTRY, spec_for_slug
 from weather.paths import REPO_ROOT, data_path
 from weather.io import write_json_atomic
 from weather.release_contract import (
@@ -91,6 +92,8 @@ DEFAULT_MISSED_RUN_GRACE_MINUTES = 120
 DEFAULT_SLA_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_sla_status.json"
 DEFAULT_SLA_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "nightly_retrain_sla_status_report.md"
 DEFAULT_STEP_TIMEOUT_SECONDS = 60 * 60
+POINT_IN_TIME_SOURCE_MANIFEST_PREFLIGHT_MAX_BYTES = 4 * 1024**2
+POINT_IN_TIME_REPLAY_MANIFEST_PREFLIGHT_MAX_BYTES = 16 * 1024**2
 
 
 def utc_iso():
@@ -530,6 +533,180 @@ def artifact_registry_command(args):
     ]
 
 
+def _load_bounded_json_object(path, *, max_bytes):
+    path = Path(path).resolve()
+    with path.open("rb") as handle:
+        raw = handle.read(int(max_bytes) + 1)
+    if not raw:
+        raise ValueError(f"manifest is empty: {path}")
+    if len(raw) > int(max_bytes):
+        raise ValueError(f"manifest exceeds {int(max_bytes)} bytes: {path}")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"manifest is not valid UTF-8 JSON: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"manifest root must be an object: {path}")
+    return payload
+
+
+def point_in_time_source_family_preflight(args):
+    """Verify a production PIT source matches the model's native-unit family.
+
+    The bounded candidate replay intentionally ignores markets outside the
+    artifact family. Catching an all-C source paired with an F artifact here
+    avoids doing preselection and training work before replay discovers that
+    the candidate has no rows.
+    """
+
+    expected_unit = str(getattr(args, "family_unit", "") or "").strip().upper()
+    folders = [
+        Path(value).resolve()
+        for value in getattr(args, "point_in_time_folder", []) or ()
+        if str(value).strip()
+    ]
+    source_manifest_path = str(
+        getattr(args, "point_in_time_source_manifest", "") or ""
+    ).strip()
+    source_replay_manifest_path = str(
+        getattr(args, "point_in_time_source_replay_manifest", "") or ""
+    ).strip()
+    declarations = []
+    errors = []
+
+    def record_error(message):
+        if message not in errors:
+            errors.append(message)
+
+    def inspect_declaration(row, *, origin):
+        if not isinstance(row, dict):
+            record_error(f"{origin} entry must be an object")
+            return
+        event_slug = str(row.get("event_slug") or "").strip()
+        declared_market_id = str(row.get("market_id") or "").strip().lower()
+        slug_spec = spec_for_slug(event_slug) if event_slug else None
+        declared_spec = REGISTRY.get(declared_market_id) if declared_market_id else None
+        if declared_market_id and declared_spec is None:
+            record_error(f"{origin} declares unknown market_id {declared_market_id!r}")
+            return
+        if (
+            declared_spec is not None
+            and slug_spec is not None
+            and slug_spec.id != declared_spec.id
+        ):
+            record_error(
+                f"{origin} market_id {declared_spec.id!r} conflicts with event slug "
+                f"for {slug_spec.id!r}"
+            )
+            return
+        spec = declared_spec or slug_spec
+        if spec is None:
+            record_error(f"{origin} does not identify a registered market")
+            return
+        native_unit = str(spec.display_unit or "").strip().upper()
+        declared_unit = str(row.get("settlement_unit") or "").strip().upper()
+        if declared_unit and declared_unit != native_unit:
+            record_error(
+                f"{origin} declares settlement unit {declared_unit} for {spec.id}, "
+                f"whose registered native unit is {native_unit}"
+            )
+            return
+        declarations.append(
+            {
+                "origin": origin,
+                "event_slug": event_slug,
+                "market_id": spec.id,
+                "target_date": str(row.get("target_date") or ""),
+                "native_unit": native_unit,
+            }
+        )
+
+    for folder in folders:
+        inspect_declaration(
+            {"event_slug": folder.name},
+            origin=f"point-in-time folder {folder}",
+        )
+
+    if source_manifest_path:
+        try:
+            source_manifest = _load_bounded_json_object(
+                source_manifest_path,
+                max_bytes=POINT_IN_TIME_SOURCE_MANIFEST_PREFLIGHT_MAX_BYTES,
+            )
+            inputs = source_manifest.get("inputs")
+            if not isinstance(inputs, list) or not inputs:
+                record_error("point-in-time source manifest has no input inventory")
+            else:
+                for index, row in enumerate(inputs):
+                    inspect_declaration(
+                        row,
+                        origin=f"point-in-time source manifest input[{index}]",
+                    )
+        except (OSError, TypeError, ValueError) as exc:
+            record_error(f"point-in-time source manifest cannot be inspected: {exc}")
+
+    if source_replay_manifest_path:
+        try:
+            replay_manifest = _load_bounded_json_object(
+                source_replay_manifest_path,
+                max_bytes=POINT_IN_TIME_REPLAY_MANIFEST_PREFLIGHT_MAX_BYTES,
+            )
+            entries = replay_manifest.get("entries")
+            if not isinstance(entries, list) or not entries:
+                record_error("point-in-time source replay manifest has no entries")
+            else:
+                for index, row in enumerate(entries):
+                    inspect_declaration(
+                        row,
+                        origin=f"point-in-time source replay manifest entry[{index}]",
+                    )
+        except (OSError, TypeError, ValueError) as exc:
+            record_error(
+                f"point-in-time source replay manifest cannot be inspected: {exc}"
+            )
+
+    observed_units = sorted({row["native_unit"] for row in declarations})
+    market_ids = sorted({row["market_id"] for row in declarations})
+    market_days = {
+        (row["market_id"], row["target_date"], row["event_slug"])
+        for row in declarations
+    }
+    incompatible_markets = sorted(
+        {
+            row["market_id"]
+            for row in declarations
+            if row["native_unit"] != expected_unit
+        }
+    )
+    if incompatible_markets:
+        native_summary = ", ".join(
+            f"{market_id}={REGISTRY[market_id].display_unit}"
+            for market_id in incompatible_markets
+        )
+        record_error(
+            f"production point-in-time source is incompatible with --family-unit "
+            f"{expected_unit}: {native_summary}"
+        )
+    if not declarations and not errors:
+        record_error("production point-in-time source has no identifiable market-days")
+
+    status = "BLOCK" if errors else "PASS"
+    return {
+        "status": status,
+        "reason": (
+            "source_family_compatible"
+            if status == "PASS"
+            else "source_family_incompatible_or_unverifiable"
+        ),
+        "detail": errors[0] if errors else "all source markets match the model family",
+        "expected_family_unit": expected_unit,
+        "observed_family_units": observed_units,
+        "market_ids": market_ids,
+        "market_day_count": len(market_days),
+        "errors": errors,
+    }
+
+
 def prepare_production_point_in_time_outputs(args, candidate_guard):
     """Resolve production PIT roles inside this run's candidate directory."""
 
@@ -641,6 +818,31 @@ def prepare_production_point_in_time_outputs(args, candidate_guard):
                 "error": "production mode requires explicit point-in-time folders or a staged corpus/manifest",
             }
         )
+    source_shape_valid = bool(source_corpus and source_manifest and not folders) or bool(
+        folders and not source_corpus and not source_manifest
+    )
+    if source_shape_valid:
+        family_preflight = point_in_time_source_family_preflight(args)
+        candidate_guard["point_in_time_source_family_preflight"] = family_preflight
+        if family_preflight["status"] != "PASS":
+            failures.append(
+                {
+                    "attribute": "point_in_time_source_family",
+                    "path": source_manifest or ",".join(folders),
+                    "error": family_preflight["detail"],
+                }
+            )
+    else:
+        candidate_guard["point_in_time_source_family_preflight"] = {
+            "status": "NOT_RUN",
+            "reason": "point_in_time_source_configuration_invalid",
+            "detail": "family compatibility requires exactly one valid source mode",
+            "expected_family_unit": str(args.family_unit).upper(),
+            "observed_family_units": [],
+            "market_ids": [],
+            "market_day_count": 0,
+            "errors": [],
+        }
     candidate_guard["point_in_time_outputs"] = rows
     candidate_guard["failures"] = failures
     if failures:
@@ -2343,7 +2545,15 @@ def _run_nightly_retrain_guarded(
 
 
 def build_run_parser(parser):
-    parser.add_argument("--family-unit", default="F", choices=["F"])
+    parser.add_argument(
+        "--family-unit",
+        default="F",
+        choices=["F"],
+        help=(
+            "Native settlement-unit family. Nightly production artifacts remain "
+            "F-only; the production source preflight blocks incompatible markets."
+        ),
+    )
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--backtest-root", default=str(DEFAULT_BACKTEST_ROOT))
     parser.add_argument("--status-out", default=str(DEFAULT_STATUS_OUT))

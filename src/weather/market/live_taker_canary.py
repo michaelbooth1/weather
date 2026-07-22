@@ -57,6 +57,7 @@ RISK_CAPS: dict[str, str | int] = {
 RISK_CAPS_SHA256 = canonical_payload_sha256(RISK_CAPS)
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_SCOPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 _LOCAL_PATH_RE = re.compile(
     r"(?i)(?:[A-Z]:[\\/](?:[^\\/\s]+[\\/])*[^\\/\s,;]+)"
 )
@@ -92,6 +93,22 @@ _ACTIVATION_FIELDS = frozenset(
         "reviewed_by",
         "activation_sha256",
     }
+)
+_ACTIVATION_SCOPE_FIELDS = (
+    "activation_id",
+    "platform",
+    "release_id",
+    "manifest_sha256",
+    "account_id_sha256",
+    "market_ids",
+    "capital_ceiling_usdc",
+    "risk_policy_id",
+    "risk_policy_sha256",
+    "risk_caps",
+    "risk_caps_sha256",
+    "authorized_at_utc",
+    "expires_at_utc",
+    "reviewed_by",
 )
 
 
@@ -209,6 +226,43 @@ def activation_content_sha256(payload: Mapping[str, Any]) -> str:
     return canonical_payload_sha256(payload, omit=("activation_sha256",))
 
 
+def _activation_authorization_scope(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        field_name: payload.get(field_name)
+        for field_name in _ACTIVATION_SCOPE_FIELDS
+    }
+
+
+def _valid_readiness_authorization_scope(
+    readiness: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    binding = readiness.get("capital_authorization_binding")
+    binding = binding if isinstance(binding, Mapping) else {}
+    scope = binding.get("scope")
+    scope = scope if isinstance(scope, Mapping) else {}
+    scope_hash = str(binding.get("scope_sha256") or "")
+    source_hash = str(binding.get("source_evidence_sha256") or "")
+    input_rows = readiness.get("inputs")
+    input_rows = input_rows if isinstance(input_rows, list) else []
+    capital_rows = [
+        row
+        for row in input_rows
+        if isinstance(row, Mapping) and row.get("name") == "capital_canary"
+    ]
+    capital_row = capital_rows[0] if len(capital_rows) == 1 else {}
+    if not (
+        binding.get("status") == "PASS"
+        and scope
+        and _SHA256_RE.fullmatch(source_hash)
+        and _SHA256_RE.fullmatch(scope_hash)
+        and scope_hash == canonical_payload_sha256(scope)
+        and capital_row.get("validation_status") == "PASS"
+        and capital_row.get("sha256") == source_hash
+    ):
+        return None
+    return scope
+
+
 def _readiness_capital_pass(
     readiness: Mapping[str, Any],
     *,
@@ -244,6 +298,7 @@ def _readiness_capital_pass(
         readiness.get("status") == "PASS"
         and readiness.get("highest_permitted_stage") == _CAPITAL_STAGE
         and capital.get("status") == "PASS"
+        and _valid_readiness_authorization_scope(readiness) is not None
     )
 
 
@@ -311,6 +366,16 @@ def _readiness_contract_blockers(
             _blocker(
                 "production_readiness_status_not_passed",
                 "The production-readiness decision has not passed.",
+            )
+        )
+    if (
+        readiness.get("highest_permitted_stage") == _CAPITAL_STAGE
+        and _valid_readiness_authorization_scope(readiness) is None
+    ):
+        blockers.append(
+            _blocker(
+                "production_readiness_capital_binding_invalid",
+                "The CAPITAL_CANARY readiness decision lacks a verified authorization binding.",
             )
         )
     return blockers
@@ -387,12 +452,37 @@ def validate_activation(
             _blocker("activation_hash_mismatch", "Activation self-hash does not verify.")
         )
 
+    readiness_scope = (
+        _valid_readiness_authorization_scope(readiness)
+        if isinstance(readiness, Mapping)
+        else None
+    )
+    if readiness_scope is None:
+        issues.append(
+            _blocker(
+                "activation_readiness_binding_invalid",
+                "Readiness does not contain a verified capital-authorization scope binding.",
+            )
+        )
+    elif dict(readiness_scope) != _activation_authorization_scope(activation):
+        issues.append(
+            _blocker(
+                "activation_readiness_scope_mismatch",
+                "Activation does not exactly match the capital scope reviewed by readiness.",
+            )
+        )
+
     for field in ("activation_id", "platform", "release_id", "reviewed_by"):
-        if not str(activation.get(field) or "").strip():
+        value = activation.get(field)
+        if (
+            not isinstance(value, str)
+            or value != value.strip()
+            or not _SAFE_SCOPE_ID_RE.fullmatch(value)
+        ):
             issues.append(
                 _blocker(
-                    f"activation_{field}_missing",
-                    f"Activation requires a non-empty {field}.",
+                    f"activation_{field}_invalid",
+                    f"Activation requires a bounded exact {field} identifier.",
                 )
             )
     for field in ("manifest_sha256", "account_id_sha256"):
@@ -505,6 +595,7 @@ def validate_activation(
             not isinstance(value, str)
             or not value.strip()
             or value != value.strip()
+            or len(value) > 256
             for value in markets
         )
         or len(set(markets)) != len(markets)

@@ -216,6 +216,7 @@ class CanaryRiskState:
     independent_target_dates: int = 0
     after_cost_lcb_nonnegative: bool = False
     account_reconciled: bool = False
+    unresolved_open_or_unknown_order_count: int | None = None
 
     def __post_init__(self) -> None:
         nonnegative_names = {
@@ -261,6 +262,16 @@ class CanaryRiskState:
             if isinstance(value, bool) or int(value) != value or int(value) < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
             object.__setattr__(self, name, int(value))
+        unresolved_orders = self.unresolved_open_or_unknown_order_count
+        if unresolved_orders is not None:
+            if (
+                isinstance(unresolved_orders, bool)
+                or not isinstance(unresolved_orders, int)
+                or unresolved_orders < 0
+            ):
+                raise ValueError(
+                    "unresolved_open_or_unknown_order_count must be a non-negative integer or null"
+                )
         for name in ("after_cost_lcb_nonnegative", "account_reconciled"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a boolean")
@@ -408,6 +419,10 @@ def risk_halt_reasons(
     reasons: list[str] = []
     if not state.account_reconciled:
         reasons.append("ACCOUNT_NOT_RECONCILED")
+    if state.unresolved_open_or_unknown_order_count is None:
+        reasons.append("OPEN_OR_UNKNOWN_ORDER_COUNT_UNVERIFIED")
+    elif state.unresolved_open_or_unknown_order_count > 0:
+        reasons.append("UNRESOLVED_OPEN_OR_UNKNOWN_ORDER")
     if state.realized_loss_today_usdc >= policy.alpha_daily_realized_loss_halt_usdc:
         reasons.append("DAILY_REALIZED_LOSS_HALT")
     if state.rolling_7d_drawdown_usdc >= policy.alpha_rolling_7d_drawdown_halt_usdc:

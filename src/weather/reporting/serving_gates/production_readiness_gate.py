@@ -14,12 +14,22 @@ import hashlib
 import json
 import math
 import os
+import re
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from weather.market.live_taker_canary import (
+    CAPITAL_CEILING_USDC,
+    RISK_CAPS,
+    RISK_CAPS_SHA256,
+    RISK_POLICY_ID,
+    RISK_POLICY_SHA256,
+)
+from weather.market.live_taker_state import SecretMaterialError, assert_secret_safe
 from weather.operations.capture_resource_gate import (
     EVIDENCE_CONTRACT as CAPTURE_RESOURCE_EVIDENCE_CONTRACT,
     INTEGRATED_WORKLOADS as CAPTURE_RESOURCE_WORKLOADS,
@@ -72,6 +82,88 @@ REGISTERED_SCHEMA_NAMES = {
     for row in registry_payload().get("schemas") or []
 }
 
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_REVIEWER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
+_CAPITAL_SUPPORTED_PLATFORMS = frozenset({"polymarket_global", "polymarket_us"})
+_CAPITAL_AUTHORIZATION_SCOPE_FIELDS = (
+    "activation_id",
+    "platform",
+    "release_id",
+    "manifest_sha256",
+    "account_id_sha256",
+    "market_ids",
+    "capital_ceiling_usdc",
+    "risk_policy_id",
+    "risk_policy_sha256",
+    "risk_caps",
+    "risk_caps_sha256",
+    "authorized_at_utc",
+    "expires_at_utc",
+    "reviewed_by",
+)
+_CAPITAL_REQUIRED_TRUE_CONTROLS = (
+    "authenticated_secret_store",
+    "read_only_account_preflight",
+    "idempotent_order_keys",
+    "place_order",
+    "cancel_order",
+    "replace_disabled_for_fok",
+    "private_stream_acknowledgement",
+    "position_order_reconciliation",
+    "cancel_all_dead_man",
+    "tiny_hard_caps",
+    "correlated_exposure_limits",
+    "health_triggered_demotion",
+)
+_CAPITAL_CONTROL_FIELDS = frozenset(
+    {
+        *_CAPITAL_REQUIRED_TRUE_CONTROLS,
+        "order_lifecycle_mode",
+        "replace_order",
+    }
+)
+_CAPITAL_CONTROL_PROOF_FIELDS = frozenset(
+    {
+        "evidence_contract",
+        "control",
+        "asserted_value",
+        "status",
+        "generated_at_utc",
+        "reviewed_by",
+        "evidence",
+        "evidence_sha256",
+    }
+)
+_CAPITAL_EVIDENCE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at_utc",
+        "status",
+        "release_id",
+        "manifest_sha256",
+        "evidence_contract",
+        "second_independent_window",
+        "edge_proof_status",
+        "executable_paper_fill_count",
+        "net_pnl_after_all_costs",
+        "clustered_uncertainty_status",
+        "market_and_no_trade_benchmark_status",
+        "risk_and_reconciliation_controls_status",
+        "manual_authorization_status",
+        "controls",
+        "control_evidence",
+        "manual_authorization",
+    }
+)
+_CAPITAL_ALLOWED_SENSITIVE_LABEL_PATHS = frozenset(
+    {
+        ("manual_authorization_status",),
+        ("manual_authorization",),
+        ("controls", "authenticated_secret_store"),
+        ("control_evidence", "authenticated_secret_store"),
+    }
+)
+
 
 def utc_iso(value: datetime | None = None) -> str:
     current = value or datetime.now(timezone.utc)
@@ -98,6 +190,126 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_relative_control_artifact(
+    evidence_path: Path,
+    *,
+    control: str,
+    expected_value: Any,
+    relative_path: Any,
+    expected_sha256: Any,
+    now: datetime,
+) -> str | None:
+    """Return a fail-closed reason for an unverified capital-control artifact."""
+
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        return "path_invalid"
+    relative = Path(relative_path)
+    if (
+        relative.is_absolute()
+        or relative.drive
+        or relative.suffix.lower() != ".json"
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or any(
+            part.lower() == ".env" or part.lower().startswith(".env.")
+            for part in relative.parts
+        )
+    ):
+        return "path_invalid"
+    digest = str(expected_sha256 or "")
+    if not _SHA256_RE.fullmatch(digest):
+        return "hash_invalid"
+    base = evidence_path.parent.resolve()
+    unresolved = base / relative
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return "symlink_refused"
+    try:
+        artifact = unresolved.resolve(strict=True)
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        return "unreadable"
+    if not artifact.is_relative_to(base) or artifact == evidence_path.resolve():
+        return "path_invalid"
+    try:
+        before = artifact.stat()
+    except OSError:
+        return "unreadable"
+    if not artifact.is_file() or before.st_size <= 0 or before.st_size > 2 * 1024 * 1024:
+        return "size_invalid"
+    try:
+        raw = artifact.read_bytes()
+        after = artifact.stat()
+    except OSError:
+        return "unreadable"
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        return "unstable"
+    if hashlib.sha256(raw).hexdigest() != digest:
+        return "hash_mismatch"
+    try:
+        proof = strict_json_loads(raw.decode("utf-8"), label="capital control evidence")
+    except (UnicodeDecodeError, ValueError):
+        return "json_invalid"
+    if not isinstance(proof, Mapping):
+        return "contract_invalid"
+    try:
+        assert_secret_safe(proof)
+    except SecretMaterialError:
+        return "secret_material_refused"
+    reviewed_by = proof.get("reviewed_by")
+    if (
+        set(map(str, proof)) != _CAPITAL_CONTROL_PROOF_FIELDS
+        or proof.get("evidence_contract") != "reviewed_capital_control_v1"
+        or proof.get("control") != control
+        or type(proof.get("asserted_value")) is not type(expected_value)
+        or proof.get("asserted_value") != expected_value
+        or proof.get("status") != "PASS"
+        or not isinstance(reviewed_by, str)
+        or reviewed_by != reviewed_by.strip()
+        or not _SAFE_REVIEWER_RE.fullmatch(reviewed_by)
+    ):
+        return "contract_invalid"
+    generated = _parse_utc(proof.get("generated_at_utc"))
+    if generated is None or generated > now or now - generated > timedelta(hours=24):
+        return "freshness_invalid"
+    evidence = proof.get("evidence")
+    evidence = evidence if isinstance(evidence, Mapping) else {}
+    evidence_hash = str(proof.get("evidence_sha256") or "")
+    if (
+        not evidence
+        or not _SHA256_RE.fullmatch(evidence_hash)
+        or evidence_hash != canonical_payload_sha256(evidence)
+    ):
+        return "evidence_binding_invalid"
+    return None
+
+
+def _assert_capital_payload_secret_safe(
+    value: Any,
+    *,
+    path: tuple[str, ...] = (),
+) -> None:
+    """Inspect the full contract while permitting reviewed control labels."""
+
+    if isinstance(value, Mapping):
+        for raw_key, child in value.items():
+            key = str(raw_key)
+            child_path = (*path, key)
+            if child_path not in _CAPITAL_ALLOWED_SENSITIVE_LABEL_PATHS:
+                # A true marker makes assert_secret_safe validate the key name;
+                # the child is inspected separately so no value is echoed.
+                assert_secret_safe({key: True})
+            _assert_capital_payload_secret_safe(child, path=child_path)
+        return
+    if isinstance(value, (list, tuple)):
+        for child in value:
+            _assert_capital_payload_secret_safe(child, path=path)
+        return
+    assert_secret_safe(value)
+
+
 def _field(payload: Mapping[str, Any], path: Sequence[str]) -> Any:
     value: Any = payload
     for key in path:
@@ -115,6 +327,29 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _exact_decimal(value: Any) -> Decimal | None:
+    """Parse exact JSON decimal text while refusing floats and booleans."""
+
+    if isinstance(value, (bool, float)):
+        return None
+    try:
+        parsed = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def _capital_authorization_scope(
+    authorization: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project only the secret-free fields that an activation must match."""
+
+    return {
+        field_name: authorization.get(field_name)
+        for field_name in _CAPITAL_AUTHORIZATION_SCOPE_FIELDS
+    }
 
 
 def _explicit_release_identity(payload: Mapping[str, Any]) -> tuple[str, str]:
@@ -1155,6 +1390,24 @@ def _validate_paper(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def _validate_capital(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    try:
+        _assert_capital_payload_secret_safe(payload)
+    except SecretMaterialError:
+        issues.append(
+            _validator_issue(
+                "capital_evidence_contains_secret_material",
+                "capital evidence must contain only secret-free identifiers and hashes",
+            )
+        )
+    unknown_payload_fields = sorted(set(map(str, payload)) - _CAPITAL_EVIDENCE_FIELDS)
+    if unknown_payload_fields:
+        issues.append(
+            _validator_issue(
+                "capital_evidence_unknown_fields",
+                "capital evidence contains fields outside the exact reviewed contract",
+                fields=unknown_payload_fields,
+            )
+        )
     _expect(
         issues,
         payload,
@@ -1203,18 +1456,7 @@ def _validate_capital(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         _expect(issues, payload, (field_name,), "PASS", code=f"capital_{field_name}_failed")
     controls = payload.get("controls")
     controls = controls if isinstance(controls, Mapping) else {}
-    for field_name in (
-        "authenticated_secret_store",
-        "read_only_account_preflight",
-        "idempotent_order_keys",
-        "place_cancel_replace",
-        "private_stream_acknowledgement",
-        "position_order_reconciliation",
-        "cancel_all_dead_man",
-        "tiny_hard_caps",
-        "correlated_exposure_limits",
-        "health_triggered_demotion",
-    ):
+    for field_name in _CAPITAL_REQUIRED_TRUE_CONTROLS:
         _expect(
             issues,
             controls,
@@ -1222,8 +1464,86 @@ def _validate_capital(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
             True,
             code=f"capital_control_{field_name}_failed",
         )
+    _expect(
+        issues,
+        controls,
+        ("order_lifecycle_mode",),
+        "fok_one_shot_no_replace",
+        code="capital_control_order_lifecycle_mode_failed",
+    )
+    _expect(
+        issues,
+        controls,
+        ("replace_order",),
+        False,
+        code="capital_control_replace_order_must_be_disabled",
+    )
+    unknown_control_fields = sorted(set(map(str, controls)) - _CAPITAL_CONTROL_FIELDS)
+    if unknown_control_fields:
+        issues.append(
+            _validator_issue(
+                "capital_control_unknown_fields",
+                "capital controls contain fields outside the exact FOK lifecycle contract",
+                fields=unknown_control_fields,
+            )
+        )
+    control_evidence = payload.get("control_evidence")
+    control_evidence = control_evidence if isinstance(control_evidence, Mapping) else {}
+    for field_name in (
+        *_CAPITAL_REQUIRED_TRUE_CONTROLS,
+        "order_lifecycle_mode",
+        "replace_order",
+    ):
+        evidence_ref = control_evidence.get(field_name)
+        evidence_ref = evidence_ref if isinstance(evidence_ref, Mapping) else {}
+        digest = str(evidence_ref.get("sha256") or "")
+        relative_path = evidence_ref.get("path")
+        if (
+            set(map(str, evidence_ref)) != {"path", "sha256"}
+            or not isinstance(relative_path, str)
+            or not relative_path.strip()
+            or not _SHA256_RE.fullmatch(digest)
+        ):
+            issues.append(
+                _validator_issue(
+                    "capital_control_evidence_reference_invalid",
+                    "every capital control requires one exact relative path and lowercase SHA-256 binding",
+                    control=field_name,
+                )
+            )
+    unknown_evidence_fields = sorted(
+        set(map(str, control_evidence)) - _CAPITAL_CONTROL_FIELDS
+    )
+    if unknown_evidence_fields:
+        issues.append(
+            _validator_issue(
+                "capital_control_evidence_unknown_fields",
+                "control evidence contains fields outside the exact FOK lifecycle contract",
+                fields=unknown_evidence_fields,
+            )
+        )
     authorization = payload.get("manual_authorization")
     authorization = authorization if isinstance(authorization, Mapping) else {}
+    try:
+        assert_secret_safe(authorization)
+    except SecretMaterialError:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_contains_secret_material",
+                "manual authorization must contain only secret-free identifiers and hashes",
+            )
+        )
+    unknown_authorization_fields = sorted(
+        set(map(str, authorization)) - set(_CAPITAL_AUTHORIZATION_SCOPE_FIELDS)
+    )
+    if unknown_authorization_fields:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_unknown_fields",
+                "manual authorization contains fields outside the exact reviewed scope",
+                fields=unknown_authorization_fields,
+            )
+        )
     if authorization.get("release_id") != payload.get("release_id"):
         issues.append(
             _validator_issue(
@@ -1233,40 +1553,127 @@ def _validate_capital(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
                 release_id=payload.get("release_id"),
             )
         )
-    _expect_nonempty(
-        issues,
-        authorization,
-        ("reviewed_by",),
-        code="capital_authorization_reviewer_missing",
-    )
-    _expect_nonempty(
-        issues,
-        authorization,
-        ("account_id",),
-        code="capital_authorization_account_missing",
-    )
-    markets = authorization.get("markets")
-    if not isinstance(markets, list) or not markets or any(not str(value).strip() for value in markets):
+    if authorization.get("manifest_sha256") != payload.get("manifest_sha256"):
+        issues.append(
+            _validator_issue(
+                "capital_authorization_manifest_mismatch",
+                "manual authorization must name the exact evidence manifest_sha256",
+                authorization_manifest_sha256=authorization.get("manifest_sha256"),
+                manifest_sha256=payload.get("manifest_sha256"),
+            )
+        )
+    for field_name, code in (
+        ("activation_id", "capital_authorization_activation_id_missing"),
+        ("reviewed_by", "capital_authorization_reviewer_missing"),
+    ):
+        _expect_nonempty(issues, authorization, (field_name,), code=code)
+        value = authorization.get(field_name)
+        if (
+            not isinstance(value, str)
+            or value != value.strip()
+            or not _SAFE_REVIEWER_RE.fullmatch(value)
+        ):
+            issues.append(
+                _validator_issue(
+                    f"capital_authorization_{field_name}_invalid",
+                    f"manual authorization {field_name} must be a bounded exact identifier",
+                )
+            )
+    platform = authorization.get("platform")
+    if platform not in _CAPITAL_SUPPORTED_PLATFORMS:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_platform_invalid",
+                "manual authorization must name one supported exact platform",
+                actual=platform,
+                supported=sorted(_CAPITAL_SUPPORTED_PLATFORMS),
+            )
+        )
+    account_digest = str(authorization.get("account_id_sha256") or "")
+    if not _SHA256_RE.fullmatch(account_digest):
+        issues.append(
+            _validator_issue(
+                "capital_authorization_account_hash_invalid",
+                "manual authorization requires a lowercase SHA-256 account identity",
+            )
+        )
+    if "account_id" in authorization:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_raw_account_forbidden",
+                "manual authorization must not contain a raw account identifier",
+            )
+        )
+    markets = authorization.get("market_ids")
+    if (
+        not isinstance(markets, list)
+        or not markets
+        or any(
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+            or len(value) > 256
+            for value in markets
+        )
+        or len(set(markets)) != len(markets)
+    ):
         issues.append(
             _validator_issue(
                 "capital_authorization_markets_missing",
-                "manual authorization must name at least one exact market",
+                "manual authorization requires a non-empty unique exact market allowlist",
             )
         )
-    _expect_number(
-        issues,
-        authorization,
-        ("budget",),
-        lambda value: value > 0,
-        "greater than 0",
-        code="capital_authorization_budget_invalid",
-    )
-    caps = authorization.get("caps")
-    if not isinstance(caps, Mapping) or not caps:
+    if _exact_decimal(authorization.get("capital_ceiling_usdc")) != Decimal(
+        CAPITAL_CEILING_USDC
+    ):
         issues.append(
             _validator_issue(
-                "capital_authorization_caps_missing",
-                "manual authorization must contain explicit non-empty caps",
+                "capital_authorization_budget_invalid",
+                "manual authorization must bind the exact $75 lifetime capital ceiling without float coercion",
+            )
+        )
+    if isinstance(authorization.get("capital_ceiling_usdc"), (float, bool)):
+        issues.append(
+            _validator_issue(
+                "capital_authorization_budget_not_exact",
+                "capital money fields must not use binary floating-point JSON values",
+            )
+        )
+    _expect(
+        issues,
+        authorization,
+        ("risk_policy_id",),
+        RISK_POLICY_ID,
+        code="capital_authorization_risk_policy_mismatch",
+    )
+    _expect(
+        issues,
+        authorization,
+        ("risk_policy_sha256",),
+        RISK_POLICY_SHA256,
+        code="capital_authorization_risk_policy_hash_mismatch",
+    )
+    caps = authorization.get("risk_caps")
+    if not isinstance(caps, Mapping) or dict(caps) != RISK_CAPS:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_caps_mismatch",
+                "manual authorization must bind the exact reviewed $75 risk caps",
+            )
+        )
+    _expect(
+        issues,
+        authorization,
+        ("risk_caps_sha256",),
+        RISK_CAPS_SHA256,
+        code="capital_authorization_caps_hash_mismatch",
+    )
+    authorized = _parse_utc(authorization.get("authorized_at_utc"))
+    if authorized is None:
+        issues.append(
+            _validator_issue(
+                "capital_authorization_authorized_at_invalid",
+                "manual authorization requires a timezone-aware authorized_at_utc",
             )
         )
     expires = _parse_utc(authorization.get("expires_at_utc"))
@@ -1452,14 +1859,27 @@ def _input_blocker(
     }
 
 
-def _read_json_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+def _read_stable_json_file(
+    path: Path,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    """Hash and parse the same stable bytes so identity cannot drift mid-read."""
+
     try:
-        payload = strict_json_loads(path.read_text(encoding="utf-8"), label=str(path))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        return None, f"{type(exc).__name__}: {exc}"
+        before = path.stat()
+        raw = path.read_bytes()
+        after = path.stat()
+    except OSError as exc:
+        return None, None, f"{type(exc).__name__}: {exc}"
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        return None, None, "evidence changed while it was being read"
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        payload = strict_json_loads(raw.decode("utf-8"), label=str(path))
+    except (UnicodeDecodeError, ValueError) as exc:
+        return None, digest, f"{type(exc).__name__}: {exc}"
     if not isinstance(payload, dict):
-        return None, "evidence must be a JSON object"
-    return payload, None
+        return None, digest, "evidence must be a JSON object"
+    return payload, digest, None
 
 
 def _load_evidence(
@@ -1510,19 +1930,8 @@ def _load_evidence(
             )
         )
         return record, None
-    try:
-        record["sha256"] = _file_sha256(path)
-    except OSError as exc:
-        record["read_status"] = "UNREADABLE"
-        blockers.append(
-            _input_blocker(
-                spec,
-                "unreadable_evidence",
-                f"evidence could not be hashed: {type(exc).__name__}: {exc}",
-            )
-        )
-        return record, None
-    payload, error = _read_json_file(path)
+    payload, digest, error = _read_stable_json_file(path)
+    record["sha256"] = digest
     if payload is None:
         record["read_status"] = "UNREADABLE"
         blockers.append(
@@ -1642,15 +2051,62 @@ def _load_evidence(
             )
         )
     if spec.name == "capital_canary":
+        controls = payload.get("controls")
+        controls = controls if isinstance(controls, Mapping) else {}
+        control_evidence = payload.get("control_evidence")
+        control_evidence = (
+            control_evidence if isinstance(control_evidence, Mapping) else {}
+        )
+        for control in sorted(_CAPITAL_CONTROL_FIELDS):
+            evidence_ref = control_evidence.get(control)
+            evidence_ref = evidence_ref if isinstance(evidence_ref, Mapping) else {}
+            failure = _verify_relative_control_artifact(
+                path,
+                control=control,
+                expected_value=controls.get(control),
+                relative_path=evidence_ref.get("path"),
+                expected_sha256=evidence_ref.get("sha256"),
+                now=now,
+            )
+            if failure is not None:
+                blockers.append(
+                    _input_blocker(
+                        spec,
+                        "capital_control_evidence_artifact_unverified",
+                        "a referenced capital-control evidence artifact did not verify",
+                        control=control,
+                        verification_failure=failure,
+                    )
+                )
         authorization = payload.get("manual_authorization")
         authorization = authorization if isinstance(authorization, Mapping) else {}
+        authorized = _parse_utc(authorization.get("authorized_at_utc"))
         expires = _parse_utc(authorization.get("expires_at_utc"))
+        if authorized is not None and authorized > now:
+            blockers.append(
+                _input_blocker(
+                    spec,
+                    "capital_authorization_not_yet_valid",
+                    "manual capital authorization is dated in the future",
+                    authorized_at_utc=authorized.isoformat(),
+                )
+            )
         if expires is not None and expires <= now:
             blockers.append(
                 _input_blocker(
                     spec,
                     "capital_authorization_expired",
                     "manual capital authorization is expired",
+                    expires_at_utc=expires.isoformat(),
+                )
+            )
+        if authorized is not None and expires is not None and expires <= authorized:
+            blockers.append(
+                _input_blocker(
+                    spec,
+                    "capital_authorization_window_invalid",
+                    "manual capital authorization must expire after it is authorized",
+                    authorized_at_utc=authorized.isoformat(),
                     expires_at_utc=expires.isoformat(),
                 )
             )
@@ -1701,21 +2157,8 @@ def _release_file_record(
             }
         )
         return record, None, blockers
-    try:
-        record["sha256"] = _file_sha256(path)
-    except OSError as exc:
-        record["read_status"] = "UNREADABLE"
-        blockers.append(
-            {
-                "stage": STAGE_SHADOW,
-                "input": name,
-                "code": "unreadable_release_input",
-                "detail": f"release input could not be hashed: {type(exc).__name__}: {exc}",
-                "next_action": f"repair {name}",
-            }
-        )
-        return record, None, blockers
-    payload, error = _read_json_file(path)
+    payload, digest, error = _read_stable_json_file(path)
+    record["sha256"] = digest
     if payload is None:
         record["read_status"] = "UNREADABLE"
         blockers.append(
@@ -2312,6 +2755,24 @@ def build_production_readiness_gate(
         }
         for record in sorted(records, key=lambda row: str(row.get("name")))
     ]
+    capital_record = next(
+        record for record in records if record["name"] == "capital_canary"
+    )
+    capital_scope = (
+        _capital_authorization_scope(capital_authorization)
+        if capital_record.get("validation_status") == "PASS"
+        else None
+    )
+    capital_authorization_binding = {
+        "status": "PASS" if capital_scope is not None else "BLOCK",
+        "source_evidence_sha256": capital_record.get("sha256"),
+        "scope": capital_scope,
+        "scope_sha256": (
+            canonical_payload_sha256(capital_scope)
+            if capital_scope is not None
+            else None
+        ),
+    }
     output = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(current),
@@ -2331,6 +2792,7 @@ def build_production_readiness_gate(
         "stage_results": stage_results,
         "inputs": records,
         "input_set_sha256": canonical_payload_sha256({"inputs": input_set_material}),
+        "capital_authorization_binding": capital_authorization_binding,
         "configuration": {
             "freshness_hours": configured_freshness,
             "release_identity_contract": "one exact verified served release across every release-scoped input",

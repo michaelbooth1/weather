@@ -596,10 +596,24 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "capital_canary_evidence",
-        "capital_canary_evidence_v0.1",
+        "capital_canary_evidence_v0.2",
         "weather.reporting.serving_gates.production_readiness_gate",
         "active",
         "Reviewed capital-canary readiness proof; never grants credentials or order permissions by itself.",
+    ),
+    SchemaSpec(
+        "reviewed_capital_control",
+        "reviewed_capital_control_v1",
+        "weather.reporting.serving_gates.production_readiness_gate",
+        "active",
+        "Fresh, self-hashed, secret-free proof of one exact capital-control value.",
+    ),
+    SchemaSpec(
+        "capital_canary_fok_yes_buy",
+        "capital_canary_fok_yes_buy_v1",
+        "weather.market.live_taker_exchange",
+        "active",
+        "Credential-free immutable one-shot FOK YES-buy intent with exact risk lineage.",
     ),
     SchemaSpec(
         "capital_canary_activation",
@@ -617,7 +631,7 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "capital_canary_journal_event",
-        "capital_canary_journal_event_v0.1",
+        "capital_canary_journal_event_v0.2",
         "weather.market.live_taker_state",
         "active",
         "Secret-safe, fsynced, hash-chained append-only decision, intent, order, fill, reconciliation, settlement, and risk event.",
@@ -835,7 +849,7 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "production_readiness_gate",
-        "production_readiness_gate_v0.1",
+        "production_readiness_gate_v0.2",
         "weather.reporting.serving_gates.production_readiness_gate",
         "active",
         "Hash-linked fail-closed parent gate classifying the highest permitted immutable-release production stage.",

@@ -832,11 +832,18 @@ Primary child evidence: Items 69, 85, 104, 108, 113, 115, 125, 163, 165, 182,
   positive net P&L after fees, slippage, depth, and adverse-selection costs,
   plus date/market-clustered uncertainty and a market/no-trade benchmark.
 - [ ] Implement and verify authenticated secret-store access, read-only account
-  preflight, idempotent order keys, place/cancel/replace, private-stream
-  acknowledgement, position/order reconciliation, cancel-all/dead-man control,
-  tiny hard caps, correlated-exposure limits, and health-triggered demotion.
+  preflight, idempotent order keys, one-shot FOK place/cancel with replacement
+  structurally disabled, private-stream acknowledgement, position/order
+  reconciliation, cancel-all/dead-man control, tiny hard caps,
+  correlated-exposure limits, and health-triggered demotion. Every control must
+  be bound to a reviewed SHA-256 evidence artifact that the parent gate loads
+  and verifies rather than a bare self-attestation. Each proof must bind the
+  exact asserted control value, and the parent evidence/proofs must remain
+  secret-free and reject fields outside their reviewed contracts.
 - [ ] Require a reviewed manual authorization for the exact release, account,
-  markets, budget, caps, and expiry. No general live permission is implied.
+  platform, markets, $75 lifetime ceiling, versioned risk policy/caps, reviewer,
+  authorization time, and expiry. The readiness output and separate activation
+  must carry the same hash-bound scope. No general live permission is implied.
 - [ ] Automatically demote to paper/shadow on release mismatch, data/capture
   degradation, reconciliation failure, drawdown/risk breach, stale economics,
   or any production-readiness blocker.

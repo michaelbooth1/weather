@@ -1,19 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 
 import pytest
 
 from weather.market.live_taker_state import (
+    AccountReconciliationEvidence,
     AuthorityState,
     CampaignBusyError,
     CampaignLock,
     CanaryStateMachine,
     DuplicateIntentError,
     GENESIS_HASH,
+    HaltedRecoveryScope,
     HashChainJournal,
     MAX_JOURNAL_RECORD_BYTES,
     MAX_STATUS_BYTES,
+    ReviewedRecoveryEvidence,
     SecretMaterialError,
     StateTransitionError,
     make_idempotency_key,
@@ -27,6 +30,58 @@ from weather.market.live_taker_state import (
 
 FIXED_TIME = datetime(2026, 7, 21, 12, 30, tzinfo=timezone.utc)
 ACCOUNT_DIGEST = "acct_" + "a" * 24
+ACCOUNT_SHA256 = "a" * 64
+MANIFEST_SHA256 = "f" * 64
+ACTIVATION_SCOPE_SHA256 = "1" * 64
+
+
+def _halted_scope(**changes) -> HaltedRecoveryScope:
+    values = {
+        "platform": "polymarket_global",
+        "account_id_sha256": ACCOUNT_SHA256,
+        "release_id": "release-1",
+        "manifest_sha256": MANIFEST_SHA256,
+        "activation_scope_sha256": ACTIVATION_SCOPE_SHA256,
+        "halted_ledger_high_water": 9,
+    }
+    values.update(changes)
+    return HaltedRecoveryScope(**values)
+
+
+def _reconciliation(**changes) -> AccountReconciliationEvidence:
+    values = {
+        "reconciliation_id": "reconcile-halt-9",
+        "platform": "polymarket_global",
+        "account_id_sha256": ACCOUNT_SHA256,
+        "release_id": "release-1",
+        "manifest_sha256": MANIFEST_SHA256,
+        "activation_scope_sha256": ACTIVATION_SCOPE_SHA256,
+        "observed_at_utc": FIXED_TIME + timedelta(seconds=30),
+        "sequence": 10,
+        "status": "PASS",
+        "open_order_count": 0,
+        "unknown_order_count": 0,
+        "position_reconciliation_status": "PASS",
+        "cash_reconciliation_status": "PASS",
+        "account_snapshot_sha256": "b" * 64,
+        "open_orders_snapshot_sha256": "c" * 64,
+        "positions_snapshot_sha256": "d" * 64,
+        "cash_ledger_sha256": "e" * 64,
+    }
+    values.update(changes)
+    return AccountReconciliationEvidence(**values)
+
+
+def _recovery(**changes) -> ReviewedRecoveryEvidence:
+    values = {
+        "recovery_id": "recovery-review-9",
+        "reviewed_by": "risk-operator",
+        "reviewed_at_utc": FIXED_TIME + timedelta(minutes=1),
+        "halt_sequence": 9,
+        "reconciliation": _reconciliation(),
+    }
+    values.update(changes)
+    return ReviewedRecoveryEvidence(**values)
 
 
 def test_state_machine_enforces_restart_through_reconcile_only():
@@ -71,12 +126,213 @@ def test_submitting_is_only_a_phase_marker_and_not_an_authority_claim():
     assert machine.in_submission_phase is True
     assert event.as_record()["network_write_phase"] is True
     assert "submission_authorized" not in event.as_record()
-    machine, _ = machine.transition(
+    machine, halted = machine.transition(
         AuthorityState.HALTED,
         reason_code="SUBMISSION_OUTCOME_UNKNOWN",
         recorded_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
     )
     assert machine.in_submission_phase is False
+    assert halted.as_record()["halted_recovery_scope"]["release_id"] == "release-1"
+    assert len(
+        halted.as_record()["halted_recovery_scope"][
+            "halted_recovery_scope_sha256"
+        ]
+    ) == 64
+
+
+def test_entering_or_reconstructing_halted_requires_persisted_scope():
+    machine = CanaryStateMachine(AuthorityState.SCANNING, sequence=8)
+    with pytest.raises(StateTransitionError, match="persisted recovery scope"):
+        machine.transition(
+            AuthorityState.HALTED,
+            reason_code="RISK_HALT",
+            recorded_at_utc=FIXED_TIME,
+        )
+    with pytest.raises(ValueError, match="exact recovery scope"):
+        CanaryStateMachine(
+            AuthorityState.HALTED,
+            sequence=9,
+            last_transition_at_utc=FIXED_TIME,
+        )
+
+
+def test_halted_recovery_fails_closed_without_structured_review_evidence():
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+
+    with pytest.raises(StateTransitionError, match="structured reviewed"):
+        machine.transition(
+            AuthorityState.RECONCILE_ONLY,
+            reason_code="OPERATOR_SAID_RESUME",
+            recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+        )
+
+
+def test_halted_recovery_requires_exact_reviewed_reconciliation_evidence():
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+    evidence = _recovery()
+
+    recovered, event = machine.transition(
+        AuthorityState.RECONCILE_ONLY,
+        reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+        recovery_evidence=evidence,
+        recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+    )
+
+    record = event.as_record()
+    assert recovered.state is AuthorityState.RECONCILE_ONLY
+    assert record["network_write_phase"] is False
+    assert record["recovery_evidence"]["halt_sequence"] == 9
+    reconciliation = record["recovery_evidence"]["reconciliation"]
+    assert reconciliation["status"] == "PASS"
+    assert reconciliation["open_order_count"] == 0
+    assert len(reconciliation["reconciliation_evidence_sha256"]) == 64
+    assert len(record["recovery_evidence"]["recovery_evidence_sha256"]) == 64
+
+
+def test_reviewed_recovery_transition_round_trips_through_hash_chain(tmp_path):
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+    _recovered, event = machine.transition(
+        AuthorityState.RECONCILE_ONLY,
+        reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+        recovery_evidence=_recovery(),
+        recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+    )
+    path = tmp_path / "recovery_events.jsonl"
+
+    HashChainJournal(path).append(
+        "authority_state_transition",
+        event.as_record(),
+        recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+    )
+
+    verification = verify_hash_chain(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))["payload"]
+    assert verification.valid is True
+    assert payload["schema_version"] == "capital_canary_journal_event_v0.2"
+    assert payload["recovery_evidence"]["reconciliation"]["open_order_count"] == 0
+
+
+def test_halted_recovery_rejects_misbound_review_evidence():
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+    stale = _recovery(
+        recovery_id="recovery-review-8",
+        reviewed_at_utc=FIXED_TIME - timedelta(seconds=1),
+        halt_sequence=8,
+    )
+
+    with pytest.raises(StateTransitionError, match="current halted sequence"):
+        machine.transition(
+            AuthorityState.RECONCILE_ONLY,
+            reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+            recovery_evidence=stale,
+            recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+        )
+
+
+def test_halted_recovery_rejects_review_from_before_the_halt():
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+    stale = _recovery(reviewed_at_utc=FIXED_TIME - timedelta(seconds=1))
+
+    with pytest.raises(StateTransitionError, match="follow the halt"):
+        machine.transition(
+            AuthorityState.RECONCILE_ONLY,
+            reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+            recovery_evidence=stale,
+            recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+        )
+
+
+@pytest.mark.parametrize(
+    "reconciliation_changes",
+    [
+        {"platform": "polymarket_us"},
+        {"account_id_sha256": "2" * 64},
+        {"release_id": "release-2"},
+        {"manifest_sha256": "3" * 64},
+        {"activation_scope_sha256": "4" * 64},
+    ],
+)
+def test_halted_recovery_rejects_wrong_identity_scope(reconciliation_changes):
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(),
+    )
+    evidence = _recovery(reconciliation=_reconciliation(**reconciliation_changes))
+
+    with pytest.raises(StateTransitionError, match="halted recovery scope"):
+        machine.transition(
+            AuthorityState.RECONCILE_ONLY,
+            reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+            recovery_evidence=evidence,
+            recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+        )
+
+
+def test_halted_recovery_requires_newer_reconciliation_sequence():
+    machine = CanaryStateMachine(
+        AuthorityState.HALTED,
+        sequence=9,
+        last_transition_at_utc=FIXED_TIME,
+        halted_recovery_scope=_halted_scope(halted_ledger_high_water=10),
+    )
+    evidence = _recovery(reconciliation=_reconciliation(sequence=10))
+
+    with pytest.raises(StateTransitionError, match="not newer"):
+        machine.transition(
+            AuthorityState.RECONCILE_ONLY,
+            reason_code="REVIEWED_RECOVERY_TO_RECONCILE_ONLY",
+            recovery_evidence=evidence,
+            recorded_at_utc=FIXED_TIME + timedelta(minutes=2),
+        )
+
+
+@pytest.mark.parametrize(
+    ("factory", "changes", "message"),
+    [
+        (_reconciliation, {"reconciliation_id": None}, "reconciliation_id"),
+        (_reconciliation, {"release_id": None}, "release_id"),
+        (_reconciliation, {"platform": None}, "supported exact platform"),
+        (_reconciliation, {"platform": "other"}, "supported exact platform"),
+        (_recovery, {"recovery_id": None}, "recovery_id"),
+        (_recovery, {"reviewed_by": None}, "reviewed_by"),
+    ],
+)
+def test_recovery_identifiers_require_exact_bounded_strings(factory, changes, message):
+    with pytest.raises(ValueError, match=message):
+        factory(**changes)
+
+
+def test_reviewed_recovery_evidence_requires_passing_reconciliation():
+    with pytest.raises(ValueError, match="must be PASS"):
+        _reconciliation(status="BLOCK")
 
 
 def test_idempotency_key_is_deterministic_and_decimal_normalized():
@@ -99,11 +355,23 @@ def test_idempotency_key_is_deterministic_and_decimal_normalized():
         limit_price="0.9",
         **{**common, "sequence": 10},
     )
+    decision_bound = make_idempotency_key(
+        limit_price="0.9",
+        risk_decision_hash="e" * 64,
+        **common,
+    )
+    changed_decision = make_idempotency_key(
+        limit_price="0.9",
+        risk_decision_hash="f" * 64,
+        **common,
+    )
 
     assert first == second
     assert first.startswith("capital-canary:")
     assert len(first.removeprefix("capital-canary:")) == 64
     assert changed != first
+    assert decision_bound != first
+    assert changed_decision != decision_bound
 
 
 def test_idempotency_key_rejects_raw_account_identity():

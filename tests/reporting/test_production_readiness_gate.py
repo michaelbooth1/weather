@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from weather.market.live_taker_canary import (
+    CAPITAL_CEILING_USDC,
+    RISK_CAPS,
+    RISK_CAPS_SHA256,
+    RISK_POLICY_ID,
+    RISK_POLICY_SHA256,
+)
 from weather.operations.capture_resource_gate import (
     DAILY_REFRESH_WORKLOAD,
     EVIDENCE_CONTRACT as CAPTURE_RESOURCE_EVIDENCE_CONTRACT,
@@ -315,6 +323,22 @@ def _evidence_payload(name: str) -> dict:
             "current_release_evidence": True,
         }
     if name == "capital_canary":
+        controls = {
+            "authenticated_secret_store": True,
+            "read_only_account_preflight": True,
+            "idempotent_order_keys": True,
+            "order_lifecycle_mode": "fok_one_shot_no_replace",
+            "place_order": True,
+            "cancel_order": True,
+            "replace_order": False,
+            "replace_disabled_for_fok": True,
+            "private_stream_acknowledgement": True,
+            "position_order_reconciliation": True,
+            "cancel_all_dead_man": True,
+            "tiny_hard_caps": True,
+            "correlated_exposure_limits": True,
+            "health_triggered_demotion": True,
+        }
         return {
             **_base("capital_canary_evidence", release_scoped=True),
             "evidence_contract": "reviewed_capital_canary_readiness",
@@ -326,25 +350,28 @@ def _evidence_payload(name: str) -> dict:
             "market_and_no_trade_benchmark_status": "PASS",
             "risk_and_reconciliation_controls_status": "PASS",
             "manual_authorization_status": "PASS",
-            "controls": {
-                "authenticated_secret_store": True,
-                "read_only_account_preflight": True,
-                "idempotent_order_keys": True,
-                "place_cancel_replace": True,
-                "private_stream_acknowledgement": True,
-                "position_order_reconciliation": True,
-                "cancel_all_dead_man": True,
-                "tiny_hard_caps": True,
-                "correlated_exposure_limits": True,
-                "health_triggered_demotion": True,
+            "controls": controls,
+            "control_evidence": {
+                field_name: {
+                    "path": f"capital_controls/{field_name}.json",
+                    "sha256": "c" * 64,
+                }
+                for field_name in controls
             },
             "manual_authorization": {
+                "activation_id": "canary-2026-07",
+                "platform": "polymarket_global",
                 "release_id": RELEASE_ID,
+                "manifest_sha256": MANIFEST_SHA,
                 "reviewed_by": "risk-operator",
-                "account_id": "canary-account",
-                "markets": ["toronto"],
-                "budget": 10.0,
-                "caps": {"per_market": 2.0, "total": 10.0},
+                "account_id_sha256": "b" * 64,
+                "market_ids": ["toronto"],
+                "capital_ceiling_usdc": CAPITAL_CEILING_USDC,
+                "risk_policy_id": RISK_POLICY_ID,
+                "risk_policy_sha256": RISK_POLICY_SHA256,
+                "risk_caps": dict(RISK_CAPS),
+                "risk_caps_sha256": RISK_CAPS_SHA256,
+                "authorized_at_utc": (NOW - timedelta(hours=1)).isoformat(),
                 "expires_at_utc": (NOW + timedelta(days=1)).isoformat(),
             },
         }
@@ -354,9 +381,33 @@ def _evidence_payload(name: str) -> dict:
 def _full_fixture(tmp_path: Path) -> dict:
     evidence_paths = {}
     for spec in EVIDENCE_SPECS:
+        evidence_payload = _evidence_payload(spec.name)
+        if spec.name == "capital_canary":
+            for control, evidence_ref in evidence_payload["control_evidence"].items():
+                verification = {
+                    "assertion_count": 1,
+                    "failure_count": 0,
+                    "producer": "synthetic-capital-control-verifier",
+                }
+                proof_path = _write_json(
+                    tmp_path / evidence_ref["path"],
+                    {
+                        "evidence_contract": "reviewed_capital_control_v1",
+                        "control": control,
+                        "asserted_value": evidence_payload["controls"][control],
+                        "status": "PASS",
+                        "generated_at_utc": NOW.isoformat(),
+                        "reviewed_by": "risk-operator",
+                        "evidence": verification,
+                        "evidence_sha256": canonical_payload_sha256(verification),
+                    },
+                )
+                evidence_ref["sha256"] = hashlib.sha256(
+                    proof_path.read_bytes()
+                ).hexdigest()
         evidence_paths[spec.name] = _write_json(
             tmp_path / f"{spec.name}.json",
-            _evidence_payload(spec.name),
+            evidence_payload,
         )
     releases_root = tmp_path / "releases"
     manifest_path = releases_root / RELEASE_ID / "release_manifest.json"
@@ -439,11 +490,136 @@ def test_full_synthetic_contract_classifies_capital_but_never_grants_permissions
     assert payload["release_identity"]["release_id"] == RELEASE_ID
     assert payload["capital_permissions"]["credential_access_permitted"] is False
     assert payload["capital_permissions"]["order_submission_permitted"] is False
+    binding = payload["capital_authorization_binding"]
+    assert binding["status"] == "PASS"
+    assert binding["scope"]["account_id_sha256"] == "b" * 64
+    assert binding["scope"]["capital_ceiling_usdc"] == CAPITAL_CEILING_USDC
+    assert binding["scope_sha256"] == canonical_payload_sha256(binding["scope"])
     assert all(row["sha256"] for row in payload["inputs"])
     assert payload["gate_sha256"] == canonical_payload_sha256(
         payload,
         omit=("gate_sha256",),
     )
+
+
+def test_capital_order_lifecycle_requires_fok_without_replace_and_hashed_proof(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    path = Path(fixture["evidence_paths"]["capital_canary"])
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    evidence["controls"]["order_lifecycle_mode"] = "place_cancel_replace"
+    evidence["controls"]["replace_order"] = True
+    evidence["controls"]["replace_disabled_for_fok"] = False
+    evidence["control_evidence"].pop("cancel_all_dead_man")
+    _write_json(path, evidence)
+
+    payload = build_production_readiness_gate(**fixture)
+    codes = {row["code"] for row in payload["blockers"]}
+
+    assert payload["stage"] == STAGE_PAPER
+    assert "capital_control_order_lifecycle_mode_failed" in codes
+    assert "capital_control_replace_order_must_be_disabled" in codes
+    assert "capital_control_replace_disabled_for_fok_failed" in codes
+    assert "capital_control_evidence_reference_invalid" in codes
+    assert "capital_control_evidence_artifact_unverified" in codes
+    assert payload["capital_authorization_binding"]["status"] == "BLOCK"
+    assert payload["capital_authorization_binding"]["scope"] is None
+
+
+def test_capital_control_artifacts_are_loaded_stably_and_hash_verified(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    path = Path(fixture["evidence_paths"]["capital_canary"])
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    control_ref = evidence["control_evidence"]["tiny_hard_caps"]
+    proof_path = path.parent / control_ref["path"]
+    proof_path.write_text('{"status":"TAMPERED"}\n', encoding="utf-8")
+    evidence["control_evidence"]["authenticated_secret_store"]["path"] = ".env"
+    empty_ref = evidence["control_evidence"]["idempotent_order_keys"]
+    empty_path = path.parent / empty_ref["path"]
+    empty_path.write_text("{}\n", encoding="utf-8")
+    empty_ref["sha256"] = hashlib.sha256(empty_path.read_bytes()).hexdigest()
+    _write_json(path, evidence)
+
+    payload = build_production_readiness_gate(**fixture)
+    failures = {
+        (row.get("control"), row.get("verification_failure"))
+        for row in payload["blockers"]
+        if row["code"] == "capital_control_evidence_artifact_unverified"
+    }
+
+    assert payload["stage"] == STAGE_PAPER
+    assert ("tiny_hard_caps", "hash_mismatch") in failures
+    assert ("authenticated_secret_store", "path_invalid") in failures
+    assert ("idempotent_order_keys", "contract_invalid") in failures
+    assert payload["capital_authorization_binding"]["status"] == "BLOCK"
+
+
+def test_capital_control_artifact_binds_the_exact_asserted_value(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    path = Path(fixture["evidence_paths"]["capital_canary"])
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    control_ref = evidence["control_evidence"]["replace_order"]
+    proof_path = path.parent / control_ref["path"]
+    proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    proof["asserted_value"] = True
+    _write_json(proof_path, proof)
+    control_ref["sha256"] = hashlib.sha256(proof_path.read_bytes()).hexdigest()
+    _write_json(path, evidence)
+
+    payload = build_production_readiness_gate(**fixture)
+    failures = {
+        (row.get("control"), row.get("verification_failure"))
+        for row in payload["blockers"]
+        if row["code"] == "capital_control_evidence_artifact_unverified"
+    }
+
+    assert payload["stage"] == STAGE_PAPER
+    assert ("replace_order", "contract_invalid") in failures
+    assert payload["capital_authorization_binding"]["status"] == "BLOCK"
+
+
+def test_capital_evidence_rejects_secret_material_and_unknown_top_level_fields(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    path = Path(fixture["evidence_paths"]["capital_canary"])
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    evidence["private_key"] = "must-not-appear-in-readiness-evidence"
+    evidence["unreviewed_extension"] = True
+    _write_json(path, evidence)
+
+    payload = build_production_readiness_gate(**fixture)
+    codes = {row["code"] for row in payload["blockers"]}
+
+    assert payload["stage"] == STAGE_PAPER
+    assert "capital_evidence_contains_secret_material" in codes
+    assert "capital_evidence_unknown_fields" in codes
+    assert payload["capital_authorization_binding"]["status"] == "BLOCK"
+
+
+def test_capital_authorization_rejects_raw_identity_float_money_and_scope_drift(tmp_path):
+    fixture = _full_fixture(tmp_path)
+    path = Path(fixture["evidence_paths"]["capital_canary"])
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    authorization = evidence["manual_authorization"]
+    authorization["account_id"] = "raw-account"
+    authorization["account_id_sha256"] = "not-a-hash"
+    authorization["platform"] = "unknown-platform"
+    authorization["reviewed_by"] = "private_key=must-not-leak"
+    authorization["capital_ceiling_usdc"] = 75.0
+    authorization["risk_caps"]["alpha_order_max_loss_usdc"] = "7.50"
+    authorization["market_ids"] = ["toronto", "toronto"]
+    _write_json(path, evidence)
+
+    payload = build_production_readiness_gate(**fixture)
+    codes = {row["code"] for row in payload["blockers"]}
+
+    assert payload["stage"] == STAGE_PAPER
+    assert "capital_authorization_raw_account_forbidden" in codes
+    assert "capital_authorization_unknown_fields" in codes
+    assert "capital_authorization_account_hash_invalid" in codes
+    assert "capital_authorization_platform_invalid" in codes
+    assert "capital_authorization_contains_secret_material" in codes
+    assert "capital_authorization_budget_not_exact" in codes
+    assert "capital_authorization_caps_mismatch" in codes
+    assert "capital_authorization_markets_missing" in codes
 
 
 def test_bootstrap_release_permits_evidence_stages_but_blocks_capital(tmp_path):
