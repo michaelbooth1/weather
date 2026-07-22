@@ -5,7 +5,7 @@ For the workstation agent on `DESKTOP-RFCD2GH` (32 GB RAM, strong CPU). Read
 (no master pushes, no production-host access, mirror is read-only, branch +
 report workflow) govern everything below. This document adds the *what*: the
 research program the operator wants the workstation to run now that a full copy
-of `data/` lives on this machine at `D:\weather-mirror\data`.
+of `data/` lives on this machine at `\data`.
 
 The one-sentence mission: **production is grinding out the 14-day streak that
 gates release #1; the workstation's job is to have a sharper, replay-proven
@@ -19,14 +19,9 @@ The mirror is a best-effort nightly replica; files that were mid-write at copy
 time can be torn. No experiment result is trustworthy until the workstation can
 reproduce a production number from its own copy.
 
-1. Verify the mirror landed: `D:\weather-mirror\data` populated, recent mtimes,
+1. Verify the mirror landed: `C:\Users\Michael\Documents\github\weather\data` populated, recent mtimes,
    and `data/snapshots` contains the market-day event directories (562+).
-2. Copy — never symlink, never read live during the 04:30–05:00 refresh — the
-   subtrees an experiment needs into your clone's own `data/` directory,
-   preserving layout. Start with: `data/snapshots` for a settled sample window,
-   `data/backtest`, `data/taker_runs`, `data/settlements`. Prefer settled,
-   day-old dates; skip today's.
-3. **Parity gate:** re-run an existing replay/scorecard over a window production
+2. **Parity gate:** re-run an existing replay/scorecard over a window production
    has already scored (the replay corpus and frozen-baseline trend artifacts
    under `data/backtest` record production's numbers). Key entry points:
    `weather.backtesting.replay`, `weather.backtesting.replay_backtest`,
@@ -35,7 +30,7 @@ reproduce a production number from its own copy.
    production's recorded scores to within float noise. If they do not match,
    diagnose (torn file? missing subtree? version skew?) and record it — do not
    proceed on unverified data.
-4. Record in your report exactly which mirror date each staged subtree came
+3. Record in your report exactly which mirror date each staged subtree came
    from. Every experiment cites its data provenance.
 
 ## Workstream A — under-sharpness (highest value)
