@@ -89,13 +89,17 @@ Stage-A high-risk steps are now isolated one child at a time. The orchestrator
 persists an interruption-safe resume receipt before resuming child code and
 enforces the repository-declared private-memory, working-set, and timeout
 budget. Every child requires commit below 70%, fresh capture-loop evidence, and
-available physical RAM equal to its working-set ceiling plus a 1.5 GiB capture
-reserve; the same physical/capture checks run again after exit. These are
-fail-closed ceilings. Receipts include elapsed time, peak private/working-set
-memory, lifetime process-tree read/write bytes, and bounded result cardinality
-fields. Do not loosen the ceilings to force a scheduled run through; Item
-324 remains partial until a representative scheduled soak supplies measured
-per-step peaks and I/O/cardinality evidence.
+available physical RAM equal to its admission working-set expectation plus a
+1.5 GiB capture reserve. An unspecified expectation defaults byte-for-byte to
+the working-set ceiling and every expectation must remain at or below that
+ceiling; the same physical/capture checks run again after exit. The containment
+ceilings remain fail closed. Parent receipts include elapsed time, peak private
+and working-set memory, lifetime process-tree read/write bytes, and bounded result
+cardinality fields. Child result envelopes additionally record the child's own
+peak working set and peak commit when the platform query is available. Do not
+loosen the ceilings to force a scheduled run through; Item 324 remains partial
+until a representative scheduled soak supplies measured per-step peaks, I/O,
+and cardinality evidence.
 
 These ceilings authorize containment, not completion claims. A child that
 reaches a ceiling must terminate inside its container and leave an exact safe

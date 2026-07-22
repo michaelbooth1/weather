@@ -166,10 +166,19 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "daily_refresh_step_child",
-        "daily_refresh_step_child_v0.1",
+        "daily_refresh_step_child_v0.2",
         "weather.operations.daily_refresh_step_child",
         "active",
-        "Terminal result envelope for one isolated daily-refresh settlement child.",
+        "Terminal result envelope with self-reported memory peaks for one "
+        "isolated daily-refresh settlement child.",
+        supersedes=("daily_refresh_step_child_v0.1",),
+    ),
+    SchemaSpec(
+        "daily_refresh_step_child_legacy",
+        "daily_refresh_step_child_v0.1",
+        "weather.operations.daily_refresh_step_child",
+        "legacy",
+        "Pre-instrumentation isolated daily-refresh child result envelope.",
     ),
     SchemaSpec(
         "daily_refresh_stage_manifest",

@@ -253,13 +253,17 @@ canonical tapes with:
 
 High-risk settlement-stage steps run one at a time in isolated child process
 trees. Each has a repository-declared timeout plus private-memory and
-working-set ceilings; admission requires host commit below 70%, fresh capture
-loops, and enough available physical RAM for the child's working-set ceiling
-plus a 1.5 GiB capture reserve. Status is interruption-safe: while a child is
-live, `daily_refresh_status.json` is already terminal/resumable and records the
-step, PID, budget, last progress, resource peaks, and exact bounded resume
-command. Completed child receipts also record elapsed time, lifetime process-
-tree read/write bytes, and a bounded set of result cardinality/byte metrics.
+working-set ceilings, plus an admission working-set expectation that defaults
+to the working-set ceiling when unspecified and may never exceed it. Admission
+requires host commit below 70%, fresh capture loops, and enough available
+physical RAM for that expectation plus a 1.5 GiB capture reserve. Status is
+interruption-safe: while a child is live, `daily_refresh_status.json` is already
+terminal/resumable and records the step, PID, budget, last progress, parent-
+observed process-tree resource peaks, and exact bounded resume command. The
+child result envelope records the child's own peak working set and peak commit
+when the platform query is available. Completed parent receipts also record
+elapsed time, lifetime process-tree read/write bytes, and a bounded set of
+result cardinality/byte metrics.
 `--stage-a-min-available-reserve-mb` and
 `--stage-a-max-commit-percent` may make admission stricter; loosening either
 requires host-capacity review.
