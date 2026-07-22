@@ -61,9 +61,12 @@ class TestDailyRefreshResources(unittest.TestCase):
         maker = step_resource_budget("maker_paper_score", reserve_mb=1536)
         self.assertEqual(maker["private_memory_max_bytes"], 4096 * MIB)
         self.assertEqual(maker["working_set_max_bytes"], 3072 * MIB)
+        # Phase 2: measured peak working set is ~687 MiB, so admission is gated on
+        # 2048 MiB rather than the 3072 MiB containment ceiling.
+        self.assertEqual(maker["admission_working_set_bytes"], 2048 * MIB)
         self.assertEqual(
             maker["required_available_before_start_bytes"],
-            (1536 + 3072) * MIB,
+            (1536 + 2048) * MIB,
         )
         wu_restore = step_resource_budget(
             "public_wu_settlement_restore",
@@ -72,9 +75,10 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertEqual(wu_restore["timeout_seconds"], 60 * 60)
         self.assertEqual(wu_restore["private_memory_max_bytes"], 4096 * MIB)
         self.assertEqual(wu_restore["working_set_max_bytes"], 2560 * MIB)
+        self.assertEqual(wu_restore["admission_working_set_bytes"], 2048 * MIB)
         self.assertEqual(
             wu_restore["required_available_before_start_bytes"],
-            4096 * MIB,
+            (1536 + 2048) * MIB,
         )
         watchdog = step_resource_budget(
             "taker_finalization_watchdog",
@@ -89,13 +93,37 @@ class TestDailyRefreshResources(unittest.TestCase):
         )
 
     def test_unset_admission_working_sets_preserve_existing_byte_requirements(self):
+        # Steps with a measured peak carry an explicit admission working set; every
+        # other isolated step must still admit against its full containment ceiling.
+        measured_admission_working_sets = {
+            "maker_paper_score": 2048 * MIB,
+            "public_wu_settlement_restore": 2048 * MIB,
+        }
         for step_name in STAGE_A_ISOLATED_STEPS:
             configured = STAGE_A_STEP_RESOURCE_POLICIES[step_name]
+            budget = step_resource_budget(step_name, reserve_mb=1536)
+            if step_name in measured_admission_working_sets:
+                expected = measured_admission_working_sets[step_name]
+                self.assertEqual(
+                    configured["admission_working_set_bytes"],
+                    expected,
+                    msg=step_name,
+                )
+                self.assertEqual(
+                    budget["admission_working_set_bytes"],
+                    expected,
+                    msg=step_name,
+                )
+                self.assertEqual(
+                    budget["required_available_before_start_bytes"],
+                    1536 * MIB + expected,
+                    msg=step_name,
+                )
+                continue
             self.assertIsNone(
                 configured["admission_working_set_bytes"],
                 msg=step_name,
             )
-            budget = step_resource_budget(step_name, reserve_mb=1536)
             self.assertEqual(
                 budget["admission_working_set_bytes"],
                 budget["working_set_max_bytes"],
