@@ -114,8 +114,12 @@ def _parse_local(value: str) -> dt.datetime | None:
         return None
 
 
-def today_capture_health(today: dt.date) -> dict:
-    """Live read of today's afternoon (12:00-18:00) snapshot cadence."""
+def today_capture_health(today: dt.date, now_override: dt.datetime | None = None) -> dict:
+    """Live read of today's afternoon (12:00-18:00) snapshot cadence.
+
+    ``now_override`` (tz-aware) exists only as a test seam to exercise the
+    end-of-window boundary logic deterministically; production passes nothing.
+    """
     folder = toronto_folder_for(today)
     wide = folder / "snapshots_wide.csv"
     out: dict = {"date": today.isoformat(), "folder_exists": folder.exists(),
@@ -143,7 +147,7 @@ def today_capture_health(today: dt.date) -> dict:
     tz = times[0].tzinfo
     ws = dt.datetime.combine(today, dt.time(AFTERNOON_START_HOUR), tzinfo=tz)
     we = dt.datetime.combine(today, dt.time(AFTERNOON_END_HOUR), tzinfo=tz)
-    now = dt.datetime.now(tz)
+    now = now_override if now_override is not None else dt.datetime.now(tz)
 
     # window times with the nearest before/after boundary capture (mirrors grader)
     inside = [t for t in times if ws <= t <= we]
@@ -163,6 +167,8 @@ def today_capture_health(today: dt.date) -> dict:
     out["window_gaps"] = gaps
     out["max_window_gap_min"] = max((g["gap_min"] for g in gaps), default=0.0)
     out["window_covered"] = bool(times[0] <= ws and times[-1] >= we)
+    minutes_since_last = (now - times[-1]).total_seconds() / 60.0
+    out["minutes_since_last_capture"] = round(minutes_since_last, 1)
 
     if gaps:
         out["verdict"] = "AT_RISK"
@@ -173,12 +179,22 @@ def today_capture_health(today: dt.date) -> dict:
         out["verdict"] = "on_track"
         out["reason"] = (f"clean so far; window covered through {covered_so_far:%H:%M}, "
                          f"closes 18:00")
-    elif not out["window_covered"]:
-        out["verdict"] = "AT_RISK"
-        out["reason"] = "afternoon window not fully covered (12:00->18:00)"
-    else:
+    elif out["window_covered"]:
         out["verdict"] = "clean"
         out["reason"] = "no in-window gaps; 12:00-18:00 covered"
+    elif minutes_since_last <= GAP_LIMIT_MIN:
+        # The window just closed at 18:00 and the closing ~18:00 capture has not been
+        # written yet, but capture is alive and on cadence (last capture < one gap-limit
+        # ago). This is the benign 18:00-boundary race, NOT a coverage failure -- the
+        # covering capture is imminent. Alerting here cries wolf every day at 18:00.
+        out["verdict"] = "on_track"
+        out["reason"] = (f"window closed 18:00; last capture {times[-1]:%H:%M} "
+                         f"({minutes_since_last:.0f} min ago), closing capture imminent")
+    else:
+        # Genuinely stalled near the close: no capture for >15 min and 18:00 uncovered.
+        out["verdict"] = "AT_RISK"
+        out["reason"] = (f"no capture for {minutes_since_last:.0f} min "
+                         f"(last {times[-1]:%H:%M}); 18:00 window close not covered")
     return out
 
 
