@@ -55,14 +55,18 @@ days (see `memory/missed-chain-day-leaves-settlement-hole.md`).
 The recurring streak-killer is an in-window snapshot gap caused by **resource
 contention** on this 16 GB host. Defenses in place:
 
-1. **Capture loops run at `AboveNormal` priority.** The three capture supervisors
-   (`WeatherSnapshotLoopSupervisor`, `WeatherClobBookLoopSupervisor`,
-   `WeatherObservationTriggerSupervisor`) are set to Task-Scheduler priority **3**
-   (AboveNormal) so respawned workers inherit it; the live workers are bumped too.
-   Windows tasks default to priority 7 (**BelowNormal**), which had been letting every
-   Normal-priority app preempt the capture loops under load. Verify with
-   `Get-Process pythonw | Select Id,PriorityClass` — the snapshot/microstructure/
-   observation workers should read `AboveNormal`.
+1. **Capture loops run at `AboveNormal` priority, enforced by a guard.** Windows tasks
+   default to priority 7 (**BelowNormal**), which let every Normal-priority app preempt
+   the capture loops under load. The catch: multiple restart paths reset priority and
+   *none* of the obvious fixes survive all of them — a supervisor `ensure` respawn comes
+   back at **Normal**, and the **01:00 training-window restart re-launches the snapshot
+   loop as `python.exe` at `BelowNormal`**. So `WeatherCapturePriorityGuard`
+   (`scripts/ops/capture_priority_guard.ps1`) runs every 5 min, 24/7, and re-asserts
+   `AboveNormal` on the three capture workers (matching both `python.exe` and
+   `pythonw.exe`). The supervisor task priorities are also set to 3 as a belt-and-braces
+   default. Verify with
+   `Get-Process python,pythonw | Select Id,PriorityClass` — the snapshot/microstructure/
+   observation workers should read `AboveNormal` (they will self-heal within 5 min if not).
 2. **Trading bots (`taker_bot`, `market_making_run`) stay `BelowNormal`** — they are
    not streak-critical and must yield to capture.
 3. **Heavy daily-chain steps are memory-admission-gated** so they don't start unless
