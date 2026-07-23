@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.io import write_json_atomic, write_text_atomic
 from weather.paths import REPO_ROOT, data_path, relative_to_repo
 from weather.schema_registry import schema_version
 
@@ -151,17 +151,22 @@ OWNERSHIP_NOTES = {
     "src/weather/schema_registry.py": {
         "owner": "shared",
         "boundary": "Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports.",
-        "next_split": "Item 318 slice complete; static registry records live in schema_registry_data and schema_registry_recent_data.",
+        "next_split": "Item 318 slice complete; static registry records live in schema_registry_data, schema_registry_recent_data, and schema_registry_research_data.",
     },
     "src/weather/schema_registry_data.py": {
         "owner": "shared",
-        "boundary": "Static registered schema records, exclusion records, and lookup maps for the schema registry facade.",
-        "next_split": "WARN in the 2026-07-03 audit; acceptable as static registry data for now, but the next growth slice should move another schema family into schema_registry_recent_data or a new static shard without importing producer modules.",
+        "boundary": "Legacy static registered schema records, exclusion records, and lookup maps for the schema registry facade.",
+        "next_split": "WARN in the 2026-07-03 audit; the 2026-07-22 research-family growth moved to a dedicated shard, so keep future schema-family growth out of this warned owner.",
     },
     "src/weather/schema_registry_recent_data.py": {
         "owner": "shared",
         "boundary": "Recent runtime, snapshot-sidecar, source-status, and taker schema records split from the main registry data shard.",
         "next_split": "Owner module for item 318; static data shard that imports only schema registry record types.",
+    },
+    "src/weather/schema_registry_research_data.py": {
+        "owner": "shared",
+        "boundary": "Offline research, workstation replay, predictor, smoothing, maker, and training-benchmark schema records.",
+        "next_split": "Bounded static shard added 2026-07-22; imports only schema registry record types and must not import producer modules.",
     },
     "src/weather/schema_registry_types.py": {
         "owner": "shared",
@@ -191,7 +196,7 @@ OWNERSHIP_NOTES = {
     "src/weather/market/taker_bot_bakeoff.py": {
         "owner": "market",
         "boundary": "Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers.",
-        "next_split": "Item 318 slice complete; replay input, profitability verification, and model-variant scoring helpers live in taker_bot_bakeoff_scoring.",
+        "next_split": "Replay input, profitability verification, and model-variant scoring helpers already live in taker_bot_bakeoff_scoring; next extract report rendering and champion/challenger ledger persistence behind the stable facade.",
     },
     "src/weather/market/taker_bot_bakeoff_scoring.py": {
         "owner": "market",
@@ -328,10 +333,7 @@ def build_module_size_audit(
 
 
 def write_json(path: str | Path, payload: dict) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def render_report(payload: dict) -> str:
@@ -385,10 +387,7 @@ def render_report(payload: dict) -> str:
 
 
 def write_report(path: str | Path, payload: dict) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_report(payload), encoding="utf-8")
-    return path
+    return write_text_atomic(path, render_report(payload))
 
 
 def main(argv=None):

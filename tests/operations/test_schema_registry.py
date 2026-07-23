@@ -304,6 +304,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("pooled_f_retrain_location_gate"), "pooled_f_retrain_location_gate_v0.1")
         self.assertEqual(schema_version("serving_ordinal_smoothing_gate"), "serving_ordinal_smoothing_gate_v0.1")
         self.assertEqual(
+            schema_version("source_ablation_runtime_support_correction"),
+            "source_ablation_runtime_support_correction_v0.1",
+        )
+        self.assertEqual(
+            schema_version("source_ablation_runtime_support_parity"),
+            "source_ablation_runtime_support_parity_v0.1",
+        )
+        self.assertEqual(
             schema_version("served_distribution_calibration_contract"),
             "served_distribution_calibration_contract_v0.1",
         )

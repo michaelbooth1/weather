@@ -25,19 +25,20 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
-import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.io import copy_file_atomic, write_json_atomic, write_text_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
 from weather.reporting.candidate_lifecycle.multi_variant_shadow import (
+    ALIASES,
     normalize_rows,
     observation_key,
-    read_prediction_rows,
 )
 from weather.schema_registry import schema_version
 
@@ -53,9 +54,85 @@ DEFAULT_BASELINE_STORE = DEFAULT_DIR / "frozen_baselines"
 
 _EPS = 1e-6
 
+# ``build_payload`` deliberately continues to use the canonical row normalizer.
+# These are the only normalized fields that can affect its validation errors,
+# observation keys, run date, score aggregates, or report slices.  Keep every
+# accepted raw alias so projecting a wide retained export cannot change those
+# semantics.
+_PREDICTION_INPUT_FIELDS = (
+    "variant_id",
+    "variant_family",
+    "market_id",
+    "target_date",
+    "snapshot_id",
+    "band_key",
+    "probability",
+    "current_probability",
+    "market_yes",
+    "outcome",
+    "cutoff_regime",
+)
+_PREDICTION_INPUT_COLUMNS = tuple(
+    dict.fromkeys(
+        column
+        for field in _PREDICTION_INPUT_FIELDS
+        for column in ALIASES.get(field, (field,))
+    )
+)
+
 
 def utc_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _json_prediction_rows(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("rows", "predictions", "variant_rows"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+    raise ValueError(f"{path} is not a JSON array or object with rows/predictions")
+
+
+def _iter_prediction_rows(paths):
+    """Yield raw rows without retaining a whole input file in memory.
+
+    CSV and JSONL are streamed. JSON arrays retain their historical whole-file
+    parsing behavior because the standard-library JSON decoder is not
+    incremental; retained production prediction exports use CSV.
+    """
+    for path in paths:
+        path = Path(path)
+        if path.suffix.lower() == ".jsonl":
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.strip():
+                        yield json.loads(line)
+        elif path.suffix.lower() == ".json":
+            yield from _json_prediction_rows(path)
+        else:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                yield from csv.DictReader(handle)
+
+
+def read_prediction_rows(paths, variant_id=None):
+    """Read only score-relevant rows and columns from prediction exports.
+
+    The variant predicate is applied while CSV/JSONL rows are streamed, before
+    either irrelevant variants or wide attribution fields can accumulate in
+    memory. Row order and raw value types are preserved so canonical
+    normalization, selected-row numbering, and validation behavior remain the
+    same as the former read-all-then-filter path.
+    """
+    rows = []
+    for row in _iter_prediction_rows(paths):
+        if variant_id and row.get("variant_id") != variant_id:
+            continue
+        rows.append({column: row.get(column) for column in _PREDICTION_INPUT_COLUMNS if column in row})
+    return rows
 
 
 def _brier(probability, outcome):
@@ -295,16 +372,15 @@ def upsert_trend(row, path=DEFAULT_TREND_JSONL):
     rows.append(row)
     rows.sort(key=lambda r: str(r.get("run_date") or ""))
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(json.dumps(r, sort_keys=True, default=str) for r in rows) + "\n", encoding="utf-8")
+    write_text_atomic(
+        path,
+        "\n".join(json.dumps(r, sort_keys=True, default=str) for r in rows) + "\n",
+    )
     return rows
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def load_manifest(path=DEFAULT_MANIFEST):
@@ -331,7 +407,7 @@ def pin_baseline(
     for src in baseline_predictions:
         src = Path(src)
         dest = store_dir / src.name
-        shutil.copyfile(src, dest)
+        copy_file_atomic(src, dest)
         stored.append(str(dest))
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -342,9 +418,7 @@ def pin_baseline(
         "predictions_paths": stored,
         "source_paths": [str(p) for p in baseline_predictions],
     }
-    manifest_path = Path(manifest_path)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_atomic(manifest_path, manifest, trailing_newline=True)
     return manifest
 
 
@@ -535,8 +609,14 @@ def main(argv=None):
         if not baseline_paths:
             print("No baseline pinned; run `pin` first or pass --baseline-predictions.")
             return 2
-        current_rows = _filter_variant(read_prediction_rows(args.current_predictions), args.current_variant_id)
-        baseline_rows = _filter_variant(read_prediction_rows(baseline_paths), args.baseline_variant_id)
+        current_rows = read_prediction_rows(
+            args.current_predictions,
+            variant_id=args.current_variant_id,
+        )
+        baseline_rows = read_prediction_rows(
+            baseline_paths,
+            variant_id=args.baseline_variant_id,
+        )
         payload = build_payload(
             current_rows,
             baseline_rows,
@@ -547,7 +627,7 @@ def main(argv=None):
         )
         rows = upsert_trend(trend_row(payload), args.trend_jsonl)
         write_json(args.json_out, payload)
-        Path(args.report_out).write_text(render_report(payload, rows), encoding="utf-8")
+        write_text_atomic(args.report_out, render_report(payload, rows))
         overall = payload.get("overall") or {}
         print(f"Frozen-baseline trend: status={payload['independent_baseline_status']} "
               f"shared={payload['coverage']['shared_observations']} "
@@ -556,7 +636,10 @@ def main(argv=None):
         return 0
     if args.command == "report":
         payload = json.loads(Path(args.json_out).read_text(encoding="utf-8")) if Path(args.json_out).exists() else {}
-        Path(args.report_out).write_text(render_report(payload, load_trend(args.trend_jsonl)), encoding="utf-8")
+        write_text_atomic(
+            args.report_out,
+            render_report(payload, load_trend(args.trend_jsonl)),
+        )
         print(f"Report written to {args.report_out}")
         return 0
     return 1

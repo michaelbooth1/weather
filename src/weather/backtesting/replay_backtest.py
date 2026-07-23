@@ -34,6 +34,7 @@ from datetime import datetime
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.io import write_json_atomic, write_text_atomic
 
 import pandas as pd
 
@@ -297,16 +298,21 @@ def settlement_distance_bucket(value):
 
 def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                         include_reconstructed=False, write=True,
-                        corpus_manifest=None, long_job_guard_info=None):
+                        corpus_manifest=None, long_job_guard_info=None,
+                        model_factory=None, daily_summary_resolver=None,
+                        include_distribution_rows=False):
     # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
     # climatology) and settles against its own market's daily summary; one
     # Toronto model for every folder silently mis-replayed the 11 F markets.
     # An explicit daily_summary_path stays a global override for all folders.
     models = {}
+    make_model = model_factory or (
+        lambda market_id: TorontoHighTempModel(market_id=market_id)
+    )
 
     def model_for_market(market_id):
         if market_id not in models:
-            models[market_id] = TorontoHighTempModel(market_id=market_id)
+            models[market_id] = make_model(market_id)
         return models[market_id]
 
     daily_indexes = {}
@@ -318,13 +324,21 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
                 daily_indexes[key] = load_daily_summary(daily_summary_path)
             return daily_indexes[key]
         if market_id not in daily_indexes:
-            spec = REGISTRY[market_id]
+            if daily_summary_resolver is not None:
+                summary_path = daily_summary_resolver(market_id)
+            else:
+                spec = REGISTRY[market_id]
+                summary_path = spec.data_root / "daily" / "daily_summary.csv"
             daily_indexes[market_id] = load_daily_summary(
-                spec.data_root / "daily" / "daily_summary.csv"
+                summary_path
             )
         return daily_indexes[market_id]
 
     all_rows = []
+    # Full per-snapshot distributions can retain multiple GiB on a large
+    # corpus.  Keep the general replay API bounded unless a caller explicitly
+    # needs that research-only evidence surface.
+    distribution_rows = []
     days = []
     fidelity_rows = []
     corpus_warnings = []
@@ -387,6 +401,29 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
             if not distribution:
                 continue
             snaps_scored += 1
+            if include_distribution_rows:
+                captured_at_local = (
+                    record.get("captured_at_local") or record.get("built_at")
+                )
+                distribution_minute = capture_minute(captured_at_local)
+                distribution_rows.append({
+                    "snapshot_id": str(snapshot_id),
+                    "market_id": market_id,
+                    "target_date": date_label,
+                    "captured_at_local": captured_at_local,
+                    "capture_minute": distribution_minute,
+                    "cutoff_hour": (
+                        distribution_minute // 60
+                        if distribution_minute is not None
+                        else None
+                    ),
+                    "distribution": {
+                        str(bucket): float(probability)
+                        for bucket, probability in sorted(
+                            distribution.items(), key=lambda item: int(item[0])
+                        )
+                    },
+                })
 
             recorded_distribution = record.get("recorded_distribution")
             if recorded_distribution:
@@ -488,6 +525,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         "days": days,
         "total_rows": len(all_rows),
         "all_rows": all_rows,
+        "distribution_rows": distribution_rows,
         "snaps_in_corpus": snaps_in_corpus,
         "snaps_scored": snaps_scored,
         "replayed_versions": sorted({f["replayed_version"] for f in fidelity_rows if f["replayed_version"]}),
@@ -709,8 +747,7 @@ def write_report(results, out_path):
         ],
     )
 
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_atomic(out_path, "\n".join(lines) + "\n")
 
 
 # --- Baseline / regression gate ---------------------------------------------
@@ -734,8 +771,7 @@ def baseline_payload(results):
 
 
 def save_baseline(path, results):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(baseline_payload(results), indent=2, sort_keys=True), encoding="utf-8")
+    write_json_atomic(path, baseline_payload(results))
 
 
 def gate(baseline_path, results, tol):

@@ -13,11 +13,15 @@ WRAPPER_MODULE_NAMES = sorted(
     if path.name != "__init__.py"
 )
 
-LEGACY_IMPORT_RE = re.compile(
-    r"^(?:from|import)\s+("
-    + "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES)
-    + r")\b",
-    re.MULTILINE,
+LEGACY_IMPORT_RE = (
+    re.compile(
+        r"^(?:from|import)\s+("
+        + "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES)
+        + r")\b",
+        re.MULTILINE,
+    )
+    if WRAPPER_MODULE_NAMES
+    else None
 )
 
 MOJIBAKE_FRAGMENTS = ("\u00c2", "\u00c3", "\u00e2", "\u00f0", "\ufffd")
@@ -36,7 +40,8 @@ def test_app_files_do_not_mutate_sys_path_or_import_legacy_wrappers():
         findings = []
         if any(pattern in text for pattern in SYS_PATH_MUTATION_PATTERNS):
             findings.append("sys.path mutation")
-        findings.extend(match.group(0) for match in LEGACY_IMPORT_RE.finditer(text))
+        if LEGACY_IMPORT_RE is not None:
+            findings.extend(match.group(0) for match in LEGACY_IMPORT_RE.finditer(text))
         if findings:
             offenders[str(path)] = findings
 

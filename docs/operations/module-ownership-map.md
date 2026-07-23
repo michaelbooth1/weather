@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-17
+Last updated: 2026-07-22
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 18 modules.
+- Current warning count: 19 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -19,8 +19,8 @@ Current module-size audit status:
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
-  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`, and
-  `weather.collection.snapshot_tracker`.
+  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`,
+  `weather.market.taker_bot_bakeoff`, and `weather.collection.snapshot_tracker`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
@@ -63,13 +63,16 @@ Current module-size audit status:
 | `weather.market.mm_paper_aggregation` | Market | One-run-at-a-time quote/variant folding, SQLite row/leg/output spools, exact quote-to-leg membership views, and disk-backed queue ordering for maker-paper scoring. | Bounded owner module added 2026-07-16; must not import the `mm_paper` facade. |
 | `weather.market.mm_paper_scoring` | Market | Active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries. | Owner module for item 318; must not import the `mm_paper` facade. |
 | `weather.market.mm_scoring_projection` | Market | Source-bound compact base and model-variant quote projections, validation, canonical fallback resolution, and idempotent backfill CLI for bounded maker-paper scoring. | Canonical projection owner; canonical quote tapes remain immutable provenance. |
-| `weather.schema_registry` | Shared | Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports. Static registry records live in `weather.schema_registry_data` and `weather.schema_registry_recent_data`; shared record types live in `weather.schema_registry_types`. | Item 318 slice complete; facade is back below the 2,000-line warning threshold. |
-| `weather.schema_registry_data` | Shared | Static registered schema records, exclusion records, and lookup maps for the schema registry facade. | WARN in the 2026-07-03 audit. Acceptable as static registry data for now, but the next growth slice should move another schema family into `weather.schema_registry_recent_data` or a new static shard without importing producer modules. |
+| `weather.schema_registry` | Shared | Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports. Static registry records live in `weather.schema_registry_data`, `weather.schema_registry_recent_data`, and `weather.schema_registry_research_data`; shared record types live in `weather.schema_registry_types`. | Item 318 slice complete; facade is back below the 2,000-line warning threshold. |
+| `weather.schema_registry_data` | Shared | Legacy static registered schema records, exclusion records, and lookup maps for the schema registry facade. | WARN in the 2026-07-03 audit. The 2026-07-22 research-family growth moved to a dedicated shard; keep future schema-family growth out of this warned owner. |
 | `weather.schema_registry_recent_data` | Shared | Recent runtime, snapshot-sidecar, source-status, and taker schema records split from the main registry data shard. | Owner module for item 318; static data shard that imports only schema registry record types. |
+| `weather.schema_registry_research_data` | Shared | Offline research, workstation replay, predictor, smoothing, maker, and training-benchmark schema records. | Bounded static shard added 2026-07-22; imports only schema registry record types and must not import producer modules. |
 | `weather.schema_registry_types` | Shared | Dependency-free schema registry dataclasses and registry schema version constant. | Owner module for item 318; shared by registry data shards and the public facade. |
+| `weather.reporting.research.source_ablation_synthesis` | Reporting | Public report renderer, multiplicity helpers, and fail-closed CLI facade for the exact sealed source-ablation synthesis. Direct loose-leaf publication is disabled. | Delegates synthesis and generation publication to the hardened owner; must not regain multi-batch or uncommitted-artifact modes. |
+| `weather.reporting.research.source_ablation_synthesis_hardened` | Reporting | Source-generation commit verification, terminal-seal and replay-inference recomputation checks, execution-closure binding, and exclusive synthesis-generation commit. | Bounded hardened owner added 2026-07-22; consumes one exact committed 22-variant research generation and never authorizes serving or release. |
 | `weather.collection.snapshot_store` | Collection | Snapshot schema constants, readers, writers, compatibility exports, and the feature-component, observation-payload, and explanation backfill method implementations. | WARN in the 2026-07-03 audit. Next split should extract payload persistence, explanation sidecar, replay-input helpers, or the remaining backfill methods while preserving `SnapshotStore`'s public surface. |
 | `weather.collection.snapshot_store_backfill` | Collection | Snapshot cadence backfill implementation, wrappers around `SnapshotStore` backfill methods, and snapshot-store utility CLI wiring. | Owner module for item 318; imports `SnapshotStore` lazily to avoid cycles. |
-| `weather.market.taker_bot_bakeoff` | Market | Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers. Replay input, profitability verification, and model-variant scoring helpers live in `weather.market.taker_bot_bakeoff_scoring`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
+| `weather.market.taker_bot_bakeoff` | Market | Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers. Replay input, profitability verification, and model-variant scoring helpers live in `weather.market.taker_bot_bakeoff_scoring`. | WARN in the 2026-07-22 audit. Extract report rendering and champion/challenger ledger persistence behind the stable facade; keep replay/scoring logic in the existing scoring owner. |
 | `weather.market.taker_bot_bakeoff_scoring` | Market | Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion. | Owner module for item 318; must not import the `taker_bot_bakeoff` facade. |
 | `weather.market.taker_bot_aggregation` | Market | One-run-at-a-time SQLite scratch stores, replay deduplication/tick ordering, scored-row views, and explicit deferred-payload lifecycle for taker bakeoff and finalization. | Bounded owner module added 2026-07-17; scratch state is rebuildable and must not become canonical evidence. |
 | `weather.market.taker_bot_artifact_projection` | Market | Compact source-bound bakeoff and settled-finalization projections plus bounded canonical-schema inspection. | Bounded reader/publisher owner added 2026-07-17; canonical bakeoff and finalization artifacts retain their existing schemas. |

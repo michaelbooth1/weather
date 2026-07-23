@@ -11,7 +11,9 @@ from weather.backtesting.replay import (
     as_int_distribution,
     band_value_hi,
     band_model_probability,
+    canonical_replay_record_sha256,
     distribution_l1,
+    index_records_by_pinned_hash,
     load_replay_records,
     parse_built_at,
     reconstruct_corpus_for_folder,
@@ -244,6 +246,7 @@ class TestReplayBacktest(unittest.TestCase):
 
         self.assertEqual(results["snaps_scored"], 1)
         self.assertEqual(results["total_rows"], 3)
+        self.assertEqual(results["distribution_rows"], [])
 
         fidelity = results["fidelity"]
         self.assertEqual(fidelity["same_version_n"], 1)
@@ -256,6 +259,55 @@ class TestReplayBacktest(unittest.TestCase):
         # Recorded probs were produced by this code, so replay reproduces them.
         self.assertAlmostEqual(aggregate["code_effect"], 0.0, places=9)
         self.assertAlmostEqual(aggregate["replayed_brier"], aggregate["recorded_brier"], places=9)
+
+    def test_full_distribution_rows_are_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            results = run_replay_backtest(
+                [str(folder)],
+                daily_summary_path=str(Path(tmp) / "missing.csv"),
+                overrides={"2026-06-03": 25},
+                out_path=str(Path(tmp) / "unused.md"),
+                write=False,
+                include_distribution_rows=True,
+            )
+
+        self.assertEqual(len(results["distribution_rows"]), 1)
+        self.assertAlmostEqual(
+            sum(results["distribution_rows"][0]["distribution"].values()),
+            1.0,
+            places=12,
+        )
+
+    def test_replay_accepts_research_model_and_daily_summary_injection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            created_markets = []
+            resolved_markets = []
+
+            def model_factory(market_id):
+                created_markets.append(market_id)
+                return TorontoHighTempModel(market_id=market_id)
+
+            def daily_summary_resolver(market_id):
+                resolved_markets.append(market_id)
+                return Path(tmp) / "missing-daily-summary.csv"
+
+            results = run_replay_backtest(
+                [str(folder)],
+                daily_summary_path=None,
+                overrides={"2026-06-03": 25},
+                out_path=str(Path(tmp) / "unused.md"),
+                write=False,
+                model_factory=model_factory,
+                daily_summary_resolver=daily_summary_resolver,
+            )
+
+        self.assertEqual(created_markets, ["toronto"])
+        self.assertEqual(resolved_markets, ["toronto"])
+        self.assertEqual(results["snaps_scored"], 1)
 
     def test_report_file_written(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -507,6 +559,30 @@ class TestRegressionGate(unittest.TestCase):
             passed, message = gate(baseline_path, current, tol=0.003)
             self.assertFalse(passed)
             self.assertIn("baseline missing corpus hash", message)
+
+
+class TestPinnedReplayRecordIdentity(unittest.TestCase):
+    def test_duplicate_id_is_selected_by_exact_pinned_hash_not_file_order(self):
+        first = {"snapshot_id": "same", "sources": {"a": 1}}
+        second = {"snapshot_id": "same", "sources": {"a": 2}}
+        expected = canonical_replay_record_sha256(first)
+        selected = index_records_by_pinned_hash(
+            [first, second], {"same": expected}
+        )
+        self.assertIs(selected["same"], first)
+
+    def test_pinned_hash_must_select_exactly_one_candidate(self):
+        record = {"snapshot_id": "same", "sources": {"a": 1}}
+        expected = canonical_replay_record_sha256(record)
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            index_records_by_pinned_hash(
+                [record, dict(record)], {"same": expected}
+            )
+
+    def test_stale_or_missing_pinned_hash_fails_closed(self):
+        record = {"snapshot_id": "same", "sources": {"a": 1}}
+        with self.assertRaisesRegex(ValueError, "matches=0"):
+            index_records_by_pinned_hash([record], {"same": "0" * 64})
 
 
 if __name__ == "__main__":

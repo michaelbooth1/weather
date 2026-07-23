@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import tempfile
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -25,6 +27,71 @@ CSV_DIAGNOSTIC_COLUMNS = {
 }
 LEGACY_CSV_ENCODINGS = ("cp1252", "latin-1")
 MAX_RETRY_DELAY_SECONDS = 10.0
+
+
+def _extended_windows_path(path: str | Path) -> str:
+    """Return an absolute Win32 extended path without changing POSIX paths."""
+
+    raw = os.path.abspath(os.fspath(path))
+    if os.name != "nt" or raw.startswith(("\\\\?\\", "\\\\.\\")):
+        return raw
+    if raw.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + raw[2:]
+    return "\\\\?\\" + raw
+
+
+def _open_exclusive_sibling(
+    path: Path,
+    *,
+    mode: str,
+    encoding: str | None = None,
+    newline: str | None = None,
+):
+    """Create and open an unpredictable sibling temp file exactly once."""
+
+    descriptor, raw_temp = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        # ``mkstemp`` otherwise applies the legacy Windows path limit to the
+        # longer temporary basename even when the final destination is valid.
+        dir=_extended_windows_path(path.parent),
+    )
+    temp = Path(raw_temp)
+    kwargs: dict[str, Any] = {}
+    if "b" not in mode:
+        kwargs.update({"encoding": encoding, "newline": newline})
+    try:
+        handle = os.fdopen(descriptor, mode, **kwargs)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        temp.unlink(missing_ok=True)
+        raise
+    return temp, handle
+
+
+def _replace_temp_atomic(
+    temp: Path,
+    path: Path,
+    *,
+    retries: int = 20,
+    retry_sleep_seconds: float = 0.05,
+    sleep_fn: SleepFn = time.sleep,
+) -> None:
+    if retries < 1:
+        raise ValueError("atomic replacement retries must be positive")
+    for attempt in range(retries):
+        try:
+            Path(_extended_windows_path(temp)).replace(
+                Path(_extended_windows_path(path))
+            )
+            return
+        except PermissionError:
+            if attempt == retries - 1:
+                raise
+            sleep_fn(retry_sleep_seconds)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -229,19 +296,26 @@ def write_json_atomic(
 ) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     text = json.dumps(payload, indent=2, sort_keys=True, default=str)
     if trailing_newline:
         text += "\n"
-    tmp.write_text(text, encoding="utf-8")
-    for attempt in range(retries):
-        try:
-            tmp.replace(path)
-            return path
-        except PermissionError:
-            if attempt == retries - 1:
-                raise
-            sleep_fn(retry_sleep_seconds)
+    tmp, handle = _open_exclusive_sibling(
+        path,
+        mode="w",
+        encoding="utf-8",
+    )
+    try:
+        with handle:
+            handle.write(text)
+        _replace_temp_atomic(
+            tmp,
+            path,
+            retries=retries,
+            retry_sleep_seconds=retry_sleep_seconds,
+            sleep_fn=sleep_fn,
+        )
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 
@@ -319,23 +393,26 @@ def write_json_streaming_atomic(
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp, handle = _open_exclusive_sibling(
+        path,
+        mode="w",
+        encoding="utf-8",
+        newline="\n",
+    )
     try:
-        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        with handle:
             _write_json_streaming_value(handle, payload, level=0)
             if trailing_newline:
                 handle.write("\n")
-        for attempt in range(retries):
-            try:
-                tmp.replace(path)
-                return path
-            except PermissionError:
-                if attempt == retries - 1:
-                    raise
-                sleep_fn(retry_sleep_seconds)
-    except BaseException:
+        _replace_temp_atomic(
+            tmp,
+            path,
+            retries=retries,
+            retry_sleep_seconds=retry_sleep_seconds,
+            sleep_fn=sleep_fn,
+        )
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
     return path
 
 
@@ -344,18 +421,56 @@ def write_text_atomic(
     text: str,
     *,
     encoding: str = "utf-8",
+    newline: str | None = None,
 ) -> Path:
     """Write a text artifact through a same-directory atomic replacement."""
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp, handle = _open_exclusive_sibling(
+        path,
+        mode="w",
+        encoding=encoding,
+        newline=newline,
+    )
     try:
-        tmp.write_text(text, encoding=encoding)
-        tmp.replace(path)
-    except BaseException:
+        with handle:
+            handle.write(text)
+        _replace_temp_atomic(tmp, path)
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
+    return path
+
+
+def write_bytes_atomic(path: str | Path, content: bytes) -> Path:
+    """Write bytes through an exclusive same-directory temp replacement."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp, handle = _open_exclusive_sibling(path, mode="wb")
+    try:
+        with handle:
+            handle.write(content)
+        _replace_temp_atomic(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
+
+
+def copy_file_atomic(source: str | Path, path: str | Path) -> Path:
+    """Copy one file through an exclusive sibling and atomically publish it."""
+
+    source = Path(source)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp, target_handle = _open_exclusive_sibling(path, mode="wb")
+    try:
+        with source.open("rb") as source_handle, target_handle:
+            shutil.copyfileobj(source_handle, target_handle, length=1024 * 1024)
+        shutil.copystat(source, tmp)
+        _replace_temp_atomic(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 
@@ -858,17 +973,21 @@ def write_csv_rows_atomic(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = list(columns)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp, handle = _open_exclusive_sibling(
+        path,
+        mode="w",
+        encoding="utf-8",
+        newline="",
+    )
     try:
-        with tmp.open("w", encoding="utf-8", newline="") as handle:
+        with handle:
             writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
             writer.writeheader()
             for row in rows:
                 writer.writerow(normalize_csv_row(row))
-        tmp.replace(path)
-    except BaseException:
+        _replace_temp_atomic(tmp, path)
+    finally:
         tmp.unlink(missing_ok=True)
-        raise
     return path
 
 

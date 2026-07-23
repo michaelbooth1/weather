@@ -12,6 +12,7 @@ This module is the pure engine (no scoring, no I/O beyond reading the corpus);
 """
 import json
 import csv
+import hashlib
 import math
 import re
 from datetime import datetime
@@ -82,6 +83,53 @@ def load_replay_records(folder):
 def index_records_by_snapshot(records):
     """snapshot_id -> record. Later duplicates win (a re-run overwrites)."""
     return {str(record.get("snapshot_id")): record for record in records}
+
+
+def canonical_replay_record_sha256(record):
+    """Hash one parsed replay record using the promotion-corpus encoding."""
+
+    payload = json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def index_records_by_pinned_hash(records, expected_hashes):
+    """Select exactly one record per pinned ID by its canonical corpus hash.
+
+    The ordinary replay index deliberately preserves its historical later-wins
+    behavior.  Research bound to a promotion corpus must not depend on JSONL
+    order, so this stricter index fails on missing, ambiguous, or stale pins.
+    """
+
+    grouped = {}
+    for record in records:
+        snapshot_id = str(record.get("snapshot_id") or "").strip()
+        if not snapshot_id:
+            raise ValueError("replay input contains a blank snapshot_id")
+        grouped.setdefault(snapshot_id, []).append(record)
+    selected = {}
+    for raw_snapshot_id, raw_expected in expected_hashes.items():
+        snapshot_id = str(raw_snapshot_id).strip()
+        expected = str(raw_expected).strip().lower()
+        if not snapshot_id or len(expected) != 64:
+            raise ValueError("pinned replay identity is blank or malformed")
+        candidates = grouped.get(snapshot_id, ())
+        matches = [
+            record
+            for record in candidates
+            if canonical_replay_record_sha256(record) == expected
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "pinned replay hash must select exactly one record: "
+                f"{snapshot_id}; candidates={len(candidates)}, matches={len(matches)}"
+            )
+        selected[snapshot_id] = matches[0]
+    return selected
 
 
 def parse_built_at(record):

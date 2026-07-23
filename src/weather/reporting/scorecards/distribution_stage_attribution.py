@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.io import write_json_atomic, write_text_atomic
 from weather.model.model_presentation import DRIVER_WATERFALL_STAGES
 from weather.runtime_identity import (
     format_runtime_identity,
@@ -194,11 +195,11 @@ def _score_component_row(row, folder, settlement):
     }
 
 
-def attribution_rows_for_folder(folder):
+def iter_attribution_rows_for_folder(folder):
     folder = Path(folder)
     settlement = read_json(folder / SETTLEMENT_FILENAME, default={}) or {}
     if maybe_int(settlement.get("settlement_bucket")) is None:
-        return []
+        return
     by_snapshot_band = defaultdict(dict)
     component_path = folder / COMPONENT_FILENAME
     with component_path.open("r", encoding="utf-8", newline="") as handle:
@@ -214,7 +215,6 @@ def attribution_rows_for_folder(folder):
             )
             by_snapshot_band[key][scored["component_name"]] = scored
 
-    rows = []
     for components in by_snapshot_band.values():
         previous = None
         for component_name in STAGE_ORDER:
@@ -250,9 +250,12 @@ def attribution_rows_for_folder(folder):
                         row["effective_band_spread"] - previous["effective_band_spread"]
                     ),
                 })
-            rows.append(row)
+            yield row
             previous = current
-    return rows
+
+
+def attribution_rows_for_folder(folder):
+    return list(iter_attribution_rows_for_folder(folder))
 
 
 def _component_scope_row(row, folder):
@@ -281,16 +284,18 @@ def _component_scope_row(row, folder):
     }
 
 
-def component_scope_rows_for_folder(folder):
+def iter_component_scope_rows_for_folder(folder):
     folder = Path(folder)
     component_path = folder / COMPONENT_FILENAME
-    rows = []
     with component_path.open("r", encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             scope_row = _component_scope_row(row, folder)
             if scope_row:
-                rows.append(scope_row)
-    return rows
+                yield scope_row
+
+
+def component_scope_rows_for_folder(folder):
+    return list(iter_component_scope_rows_for_folder(folder))
 
 
 def mean(values):
@@ -298,42 +303,126 @@ def mean(values):
     return sum(values) / len(values) if values else None
 
 
-def aggregate_rows_by_keys(rows, group_keys=None):
-    group_keys = tuple(group_keys or ())
-    groups = defaultdict(list)
-    for row in rows:
-        if not group_keys:
-            key = ("all",)
-        else:
-            key = tuple(str(row.get(item) if row.get(item) not in (None, "") else "-") for item in group_keys)
-        groups[key].append(row)
-    output = []
-    for key, group in sorted(groups.items()):
-        delta_rows = [row for row in group if row.get("delta_brier") is not None]
-        output_row = {
+class _RunningMean:
+    __slots__ = ("count", "total")
+
+    def __init__(self):
+        self.count = 0
+        self.total = 0
+
+    def add(self, value):
+        if value is None:
+            return
+        self.total += value
+        self.count += 1
+
+    def value(self):
+        return self.total / self.count if self.count else None
+
+
+class _MetricAggregate:
+    __slots__ = (
+        "n",
+        "delta_n",
+        "brier",
+        "logloss",
+        "delta_brier",
+        "delta_logloss",
+        "winner_probability_delta",
+        "adjacent_winner_mass_delta",
+        "effective_band_spread_delta",
+        "brier_worse_rows",
+        "brier_better_rows",
+    )
+
+    def __init__(self):
+        self.n = 0
+        self.delta_n = 0
+        self.brier = _RunningMean()
+        self.logloss = _RunningMean()
+        self.delta_brier = _RunningMean()
+        self.delta_logloss = _RunningMean()
+        self.winner_probability_delta = _RunningMean()
+        self.adjacent_winner_mass_delta = _RunningMean()
+        self.effective_band_spread_delta = _RunningMean()
+        self.brier_worse_rows = 0
+        self.brier_better_rows = 0
+
+    def add(self, row):
+        self.n += 1
+        self.brier.add(row.get("brier"))
+        self.logloss.add(row.get("logloss"))
+        delta_brier = row.get("delta_brier")
+        if delta_brier is None:
+            return
+        self.delta_n += 1
+        self.delta_brier.add(delta_brier)
+        self.delta_logloss.add(row.get("delta_logloss"))
+        self.winner_probability_delta.add(row.get("winner_probability_delta"))
+        self.adjacent_winner_mass_delta.add(row.get("adjacent_winner_mass_delta"))
+        self.effective_band_spread_delta.add(row.get("effective_band_spread_delta"))
+        if delta_brier > 0:
+            self.brier_worse_rows += 1
+        elif delta_brier < 0:
+            self.brier_better_rows += 1
+
+    def as_row(self, key, group_keys):
+        output = {
             "group": " | ".join(key),
-            "n": len(group),
-            "delta_n": len(delta_rows),
-            "mean_brier": mean(row.get("brier") for row in group),
-            "mean_logloss": mean(row.get("logloss") for row in group),
-            "mean_delta_brier": mean(row.get("delta_brier") for row in delta_rows),
-            "mean_delta_logloss": mean(row.get("delta_logloss") for row in delta_rows),
-            "mean_winner_probability_delta": mean(
-                row.get("winner_probability_delta") for row in delta_rows
-            ),
-            "mean_adjacent_winner_mass_delta": mean(
-                row.get("adjacent_winner_mass_delta") for row in delta_rows
-            ),
-            "mean_effective_band_spread_delta": mean(
-                row.get("effective_band_spread_delta") for row in delta_rows
-            ),
-            "brier_worse_rows": sum(1 for row in delta_rows if row.get("delta_brier", 0.0) > 0),
-            "brier_better_rows": sum(1 for row in delta_rows if row.get("delta_brier", 0.0) < 0),
+            "n": self.n,
+            "delta_n": self.delta_n,
+            "mean_brier": self.brier.value(),
+            "mean_logloss": self.logloss.value(),
+            "mean_delta_brier": self.delta_brier.value(),
+            "mean_delta_logloss": self.delta_logloss.value(),
+            "mean_winner_probability_delta": self.winner_probability_delta.value(),
+            "mean_adjacent_winner_mass_delta": self.adjacent_winner_mass_delta.value(),
+            "mean_effective_band_spread_delta": self.effective_band_spread_delta.value(),
+            "brier_worse_rows": self.brier_worse_rows,
+            "brier_better_rows": self.brier_better_rows,
         }
         for index, group_key in enumerate(group_keys):
-            output_row[group_key] = key[index]
-        output.append(output_row)
-    return output
+            output[group_key] = key[index]
+        return output
+
+
+class _GroupedMetricAccumulator:
+    __slots__ = ("group_keys", "groups")
+
+    def __init__(self, group_keys=None):
+        self.group_keys = tuple(group_keys or ())
+        self.groups = {}
+
+    def _key(self, row):
+        if not self.group_keys:
+            return ("all",)
+        return tuple(
+            str(row.get(item) if row.get(item) not in (None, "") else "-")
+            for item in self.group_keys
+        )
+
+    def add(self, row):
+        key = self._key(row)
+        aggregate = self.groups.get(key)
+        if aggregate is None:
+            aggregate = self.groups[key] = _MetricAggregate()
+        aggregate.add(row)
+
+    def extend(self, rows):
+        for row in rows:
+            self.add(row)
+
+    def as_rows(self):
+        return [
+            self.groups[key].as_row(key, self.group_keys)
+            for key in sorted(self.groups)
+        ]
+
+
+def aggregate_rows_by_keys(rows, group_keys=None):
+    accumulator = _GroupedMetricAccumulator(group_keys)
+    accumulator.extend(rows)
+    return accumulator.as_rows()
 
 
 def aggregate_rows(rows, group_key=None):
@@ -346,12 +435,25 @@ def bottom_location_guardrail_rows(
     bottom_markets=BOTTOM_LOCATION_MARKETS,
     guard_stages=BOTTOM_LOCATION_GUARD_STAGES,
 ):
-    bottom = {str(market) for market in bottom_markets}
-    stage_set = {str(stage) for stage in guard_stages}
     market_day_stage = aggregate_rows_by_keys(
         rows,
         ("market_id", "target_date", "component_name", "cutoff_regime"),
     )
+    return _bottom_location_guardrail_rows_from_aggregates(
+        market_day_stage,
+        bottom_markets=bottom_markets,
+        guard_stages=guard_stages,
+    )
+
+
+def _bottom_location_guardrail_rows_from_aggregates(
+    market_day_stage,
+    *,
+    bottom_markets=BOTTOM_LOCATION_MARKETS,
+    guard_stages=BOTTOM_LOCATION_GUARD_STAGES,
+):
+    bottom = {str(market) for market in bottom_markets}
+    stage_set = {str(stage) for stage in guard_stages}
     guardrails = []
     for row in market_day_stage:
         market_id = row.get("market_id")
@@ -500,7 +602,8 @@ def forecast_shape_scope_summary(rows, *, current_identity=None, raw_rows=None):
             "but no current-code feature-model component tape is available yet"
         )
         next_unblock_action = (
-            "regenerate/replay current-code feature-model component tapes and require "
+            "regenerate/replay a complete nonzero current-code feature-model component "
+            "population and require current_code_feature_model_component_rows>0 with "
             "current_code_feature_model_forecast_shape_rows=0"
         )
     elif feature_rows and current_identity:
@@ -595,6 +698,235 @@ def forecast_shape_scope_summary(rows, *, current_identity=None, raw_rows=None):
     }
 
 
+def _forecast_shape_example(row):
+    return {
+        "market_id": row.get("market_id"),
+        "target_date": row.get("target_date"),
+        "snapshot_id": row.get("snapshot_id"),
+        "captured_at_utc": row.get("captured_at_utc"),
+        "captured_at_local": row.get("captured_at_local"),
+        "active_model_kind": row.get("active_model_kind"),
+        "runtime_git_commit": row.get("runtime_git_commit"),
+        "runtime_source_fingerprint": row.get("runtime_source_fingerprint"),
+    }
+
+
+class _ForecastShapeScopeAccumulator:
+    __slots__ = (
+        "current_identity",
+        "counts",
+        "means",
+        "current_snapshot_ids",
+        "current_feature_snapshot_ids",
+        "feature_regimes",
+        "current_feature_regimes",
+        "empirical_regimes",
+        "examples",
+        "times",
+    )
+
+    def __init__(self, current_identity=None):
+        self.current_identity = current_identity or None
+        self.counts = defaultdict(int)
+        self.means = {
+            "feature_model_delta_brier": _RunningMean(),
+            "current_code_feature_model_delta_brier": _RunningMean(),
+            "feature_model_delta_logloss": _RunningMean(),
+            "current_code_feature_model_delta_logloss": _RunningMean(),
+            "empirical_delta_brier": _RunningMean(),
+            "empirical_delta_logloss": _RunningMean(),
+            "empirical_winner_probability_delta": _RunningMean(),
+        }
+        self.current_snapshot_ids = set()
+        self.current_feature_snapshot_ids = set()
+        self.feature_regimes = set()
+        self.current_feature_regimes = set()
+        self.empirical_regimes = set()
+        self.examples = {}
+        self.times = {}
+
+    def _record_time(self, earliest_key, latest_key, value):
+        if not value:
+            return
+        value = str(value)
+        earliest = self.times.get(earliest_key)
+        latest = self.times.get(latest_key)
+        if earliest is None or value < earliest:
+            self.times[earliest_key] = value
+        if latest is None or value > latest:
+            self.times[latest_key] = value
+
+    def add_scope(self, row):
+        regime = row.get("stage_regime")
+        feature_model = _is_feature_model_regime(regime)
+        current = _matches_current_runtime(row, self.current_identity)
+        snapshot_id = row.get("snapshot_id")
+        if current:
+            self.counts["current_code_component_rows"] += 1
+            if snapshot_id:
+                self.current_snapshot_ids.add(snapshot_id)
+            if feature_model:
+                self.counts["current_code_feature_model_component_rows"] += 1
+                if snapshot_id:
+                    self.current_feature_snapshot_ids.add(snapshot_id)
+
+        if row.get("component_name") not in FORECAST_SHAPE_STAGES:
+            return
+        self.counts["forecast_shape_stage_rows"] += 1
+        if feature_model:
+            self.counts["feature_model_forecast_shape_rows"] += 1
+            self.feature_regimes.add(regime or "unknown")
+            if "feature" not in self.examples:
+                self.examples["feature"] = _forecast_shape_example(row)
+            self._record_time(
+                "earliest_feature",
+                "latest_feature",
+                row.get("captured_at_utc"),
+            )
+            if current:
+                self.counts["current_code_feature_model_forecast_shape_rows"] += 1
+                self.current_feature_regimes.add(regime or "unknown")
+                if "current_feature" not in self.examples:
+                    self.examples["current_feature"] = _forecast_shape_example(row)
+                self.means["current_code_feature_model_delta_brier"].add(
+                    row.get("delta_brier")
+                )
+                self.means["current_code_feature_model_delta_logloss"].add(
+                    row.get("delta_logloss")
+                )
+                self._record_time(
+                    "earliest_current_feature",
+                    "latest_current_feature",
+                    row.get("captured_at_utc"),
+                )
+            elif self.current_identity:
+                self.counts["stale_feature_model_forecast_shape_rows"] += 1
+                self._record_time(
+                    "earliest_stale_feature",
+                    "latest_stale_feature",
+                    row.get("captured_at_utc"),
+                )
+        else:
+            self.counts["empirical_forecast_shape_rows"] += 1
+            self.empirical_regimes.add(regime or "unknown")
+
+    def add_scored(self, row):
+        if row.get("component_name") not in FORECAST_SHAPE_STAGES:
+            return
+        self.counts["scored_forecast_shape_stage_rows"] += 1
+        if _is_feature_model_regime(row.get("stage_regime")):
+            self.counts["scored_feature_model_forecast_shape_rows"] += 1
+            self.means["feature_model_delta_brier"].add(row.get("delta_brier"))
+            self.means["feature_model_delta_logloss"].add(row.get("delta_logloss"))
+        else:
+            self.counts["scored_empirical_forecast_shape_rows"] += 1
+            self.means["empirical_delta_brier"].add(row.get("delta_brier"))
+            self.means["empirical_delta_logloss"].add(row.get("delta_logloss"))
+            self.means["empirical_winner_probability_delta"].add(
+                row.get("winner_probability_delta")
+            )
+
+    def summary(self):
+        feature_rows = self.counts["feature_model_forecast_shape_rows"]
+        current_feature_rows = self.counts["current_code_feature_model_forecast_shape_rows"]
+        has_current_feature_model_evidence = bool(
+            self.counts["current_code_feature_model_component_rows"]
+        )
+        feature_regimes = sorted(self.feature_regimes)
+        if current_feature_rows:
+            status = "BLOCK"
+            reason = (
+                "current-code forecast floor/pull rows were recorded under feature-model regimes: "
+                + ", ".join(sorted(self.current_feature_regimes))
+            )
+            next_unblock_action = (
+                "remove current-code feature-model forecast-shape application or "
+                "replay after the fix"
+            )
+        elif feature_rows and self.current_identity and not has_current_feature_model_evidence:
+            status = "BLOCK"
+            reason = (
+                "feature-model forecast-shape rows are stale relative to current source, "
+                "but no current-code feature-model component tape is available yet"
+            )
+            next_unblock_action = (
+                "regenerate/replay a complete nonzero current-code feature-model component "
+                "population and require current_code_feature_model_component_rows>0 with "
+                "current_code_feature_model_forecast_shape_rows=0"
+            )
+        elif feature_rows and self.current_identity:
+            status = "PASS"
+            reason = (
+                "forecast floor/pull rows under feature-model regimes are stale relative "
+                "to current source; current-code feature-model rows have none"
+            )
+            next_unblock_action = None
+        else:
+            status = "PASS" if not feature_rows else "BLOCK"
+            reason = (
+                "forecast floor/pull is scoped to empirical fallback rows"
+                if not feature_rows
+                else "forecast floor/pull rows were recorded under feature-model regimes: "
+                + ", ".join(feature_regimes)
+            )
+            next_unblock_action = None if not feature_rows else (
+                "regenerate/replay after removing feature-model forecast-shape application"
+            )
+        return {
+            "status": status,
+            "current_identity": self.current_identity or {},
+            "current_identity_text": (
+                format_runtime_identity(self.current_identity)
+                if self.current_identity
+                else None
+            ),
+            "forecast_shape_stage_rows": self.counts["forecast_shape_stage_rows"],
+            "feature_model_forecast_shape_rows": feature_rows,
+            "empirical_forecast_shape_rows": self.counts["empirical_forecast_shape_rows"],
+            "scored_forecast_shape_stage_rows": self.counts[
+                "scored_forecast_shape_stage_rows"
+            ],
+            "scored_feature_model_forecast_shape_rows": self.counts[
+                "scored_feature_model_forecast_shape_rows"
+            ],
+            "scored_empirical_forecast_shape_rows": self.counts[
+                "scored_empirical_forecast_shape_rows"
+            ],
+            "current_code_component_rows": self.counts["current_code_component_rows"],
+            "current_code_snapshot_count": len(self.current_snapshot_ids),
+            "current_code_feature_model_component_rows": self.counts[
+                "current_code_feature_model_component_rows"
+            ],
+            "current_code_feature_model_snapshot_count": len(
+                self.current_feature_snapshot_ids
+            ),
+            "current_code_feature_model_forecast_shape_rows": current_feature_rows,
+            "stale_feature_model_forecast_shape_rows": self.counts[
+                "stale_feature_model_forecast_shape_rows"
+            ],
+            "feature_model_regimes": feature_regimes,
+            "empirical_regimes": sorted(self.empirical_regimes),
+            **{name: accumulator.value() for name, accumulator in self.means.items()},
+            "earliest_feature_model_forecast_shape_at_utc": self.times.get(
+                "earliest_feature"
+            ),
+            "latest_feature_model_forecast_shape_at_utc": self.times.get("latest_feature"),
+            "latest_stale_feature_model_forecast_shape_at_utc": self.times.get(
+                "latest_stale_feature"
+            ),
+            "latest_current_code_feature_model_forecast_shape_at_utc": self.times.get(
+                "latest_current_feature"
+            ),
+            "example_feature_model_forecast_shape": self.examples.get("feature", {}),
+            "example_current_code_feature_model_forecast_shape": self.examples.get(
+                "current_feature",
+                {},
+            ),
+            "reason": reason,
+            "next_unblock_action": next_unblock_action,
+        }
+
+
 def net_negative_stages(by_component, min_rows):
     rows = [
         row for row in by_component
@@ -622,34 +954,58 @@ def build_payload(
     current_identity=None,
 ):
     current_identity = current_identity or get_runtime_identity()
-    rows = []
-    scope_rows = []
     folders = component_folders(snapshots_root)
     settled_folders = 0
-    for folder in folders:
-        scope_rows.extend(component_scope_rows_for_folder(folder))
-        folder_rows = attribution_rows_for_folder(folder)
-        if folder_rows:
-            settled_folders += 1
-            rows.extend(folder_rows)
-
-    by_component = aggregate_rows(rows, "component_name")
-    negatives = net_negative_stages(by_component, min_rows=min_stage_rows)
-    by_market_stage = aggregate_rows_by_keys(rows, ("market_id", "component_name"))
-    by_market_stage_cutoff_regime = aggregate_rows_by_keys(
-        rows,
-        ("market_id", "component_name", "cutoff_regime"),
+    attribution_row_count = 0
+    overall_accumulator = _GroupedMetricAccumulator()
+    component_accumulator = _GroupedMetricAccumulator(("component_name",))
+    cutoff_hour_accumulator = _GroupedMetricAccumulator(("cutoff_hour",))
+    regime_accumulator = _GroupedMetricAccumulator(("stage_regime",))
+    market_accumulator = _GroupedMetricAccumulator(("market_id",))
+    market_stage_accumulator = _GroupedMetricAccumulator(("market_id", "component_name"))
+    market_stage_regime_accumulator = _GroupedMetricAccumulator(
+        ("market_id", "component_name", "cutoff_regime")
     )
-    bottom_guardrails = bottom_location_guardrail_rows(rows)
+    guardrail_accumulator = _GroupedMetricAccumulator(
+        ("market_id", "target_date", "component_name", "cutoff_regime")
+    )
+    forecast_shape_accumulator = _ForecastShapeScopeAccumulator(current_identity)
+    metric_accumulators = (
+        overall_accumulator,
+        component_accumulator,
+        cutoff_hour_accumulator,
+        regime_accumulator,
+        market_accumulator,
+        market_stage_accumulator,
+        market_stage_regime_accumulator,
+        guardrail_accumulator,
+    )
+    for folder in folders:
+        for scope_row in iter_component_scope_rows_for_folder(folder):
+            forecast_shape_accumulator.add_scope(scope_row)
+        folder_has_rows = False
+        for row in iter_attribution_rows_for_folder(folder):
+            folder_has_rows = True
+            attribution_row_count += 1
+            forecast_shape_accumulator.add_scored(row)
+            for accumulator in metric_accumulators:
+                accumulator.add(row)
+        if folder_has_rows:
+            settled_folders += 1
+
+    by_component = component_accumulator.as_rows()
+    negatives = net_negative_stages(by_component, min_rows=min_stage_rows)
+    by_market_stage = market_stage_accumulator.as_rows()
+    by_market_stage_cutoff_regime = market_stage_regime_accumulator.as_rows()
+    bottom_guardrails = _bottom_location_guardrail_rows_from_aggregates(
+        guardrail_accumulator.as_rows()
+    )
     bottom_guardrail_blockers = [row for row in bottom_guardrails if row.get("status") == "BLOCK"]
-    status = "NO_DATA" if not rows else (
+    status = "NO_DATA" if not attribution_row_count else (
         "ACTIONABLE" if negatives or bottom_guardrail_blockers else "OK"
     )
-    forecast_shape_scope = forecast_shape_scope_summary(
-        rows,
-        current_identity=current_identity,
-        raw_rows=scope_rows,
-    )
+    forecast_shape_scope = forecast_shape_accumulator.summary()
+    overall_rows = overall_accumulator.as_rows()
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": now or utc_now(),
@@ -659,7 +1015,7 @@ def build_payload(
         "status": status,
         "folder_count": len(folders),
         "settled_folder_count": settled_folders,
-        "attribution_row_count": len(rows),
+        "attribution_row_count": attribution_row_count,
         "min_stage_rows": min_stage_rows,
         "summary": {
             "status": status,
@@ -670,11 +1026,11 @@ def build_payload(
                 bottom_guardrail_blockers[0] if bottom_guardrail_blockers else None
             ),
         },
-        "overall": aggregate_rows(rows)[0] if rows else {},
+        "overall": overall_rows[0] if overall_rows else {},
         "by_component": by_component,
-        "by_cutoff_hour": aggregate_rows(rows, "cutoff_hour"),
-        "by_regime": aggregate_rows(rows, "stage_regime"),
-        "by_market": aggregate_rows(rows, "market_id"),
+        "by_cutoff_hour": cutoff_hour_accumulator.as_rows(),
+        "by_regime": regime_accumulator.as_rows(),
+        "by_market": market_accumulator.as_rows(),
         "by_market_stage": by_market_stage,
         "by_market_stage_cutoff_regime": by_market_stage_cutoff_regime,
         "bottom_location_winner_mass_guardrails": bottom_guardrails,
@@ -868,10 +1224,8 @@ def render_report(payload, *, top_n=12):
 def write_outputs(payload, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_OUT):
     json_out = Path(json_out)
     report_out = Path(report_out)
-    json_out.parent.mkdir(parents=True, exist_ok=True)
-    report_out.parent.mkdir(parents=True, exist_ok=True)
-    json_out.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    report_out.write_text(render_report(payload), encoding="utf-8")
+    write_json_atomic(json_out, payload)
+    write_text_atomic(report_out, render_report(payload))
     return json_out, report_out
 
 

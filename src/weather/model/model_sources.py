@@ -65,6 +65,7 @@ from weather.model.model_constants import (
     MODEL_VERSION_EMPIRICAL,
     _UNLOADED,
 )
+from weather.model.source_plan import planned_live_source_names
 
 
 OPEN_METEO_SOURCE_FAMILY = {
@@ -212,17 +213,7 @@ class SourceFetchMixin:
         # Open-Meteo Air Quality is a same-provider adjunct to the canonical
         # Open-Meteo forecast, so markets with Open-Meteo opt into it without
         # duplicating every market spec.
-        source_names = list(self.spec.sources)
-        if "open_meteo" in source_names and "open_meteo_air_quality" not in source_names:
-            source_names.append("open_meteo_air_quality")
-        if "open_meteo" in source_names and "open_meteo_global_models" not in source_names:
-            source_names.append("open_meteo_global_models")
-        if (
-            ":US" in str(self.spec.wu_history_id)
-            and ("nws_grid" in source_names or "open_meteo_multimodel" in source_names)
-            and "nbm_probabilistic_tmax" not in source_names
-        ):
-            source_names.append("nbm_probabilistic_tmax")
+        source_names = planned_live_source_names(self.spec)
         fetchers = {name: all_fetchers[name] for name in source_names if name in all_fetchers}
         fetchers = {
             name: self.source_fetcher_with_budget(name, fetcher)

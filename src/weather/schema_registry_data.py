@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from weather.schema_registry_recent_data import RECENT_REGISTERED_SCHEMAS
+from weather.schema_registry_research_data import RESEARCH_REGISTERED_SCHEMAS
 from weather.schema_registry_types import (
     SCHEMA_REGISTRY_SCHEMA_VERSION,
     SchemaLiteralExclusion,
@@ -772,10 +773,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "source_family_ablation",
-        "source_family_ablation_v0.1",
+        "source_family_ablation_v0.2",
         "weather.backtesting.replay_ablation",
         "active",
-        "Settlement-scored source-family knockout replay artifact used by input promotion preflight.",
+        "Research-unbound source-family terminal-removal replay with exact pinned-record selection, sealed support accounting, paired Brier/log-loss inference, and no serving authorization.",
     ),
     SchemaSpec(
         "source_family_inventory",
@@ -2039,7 +2040,7 @@ REGISTERED_SCHEMAS = (
         "active",
         "Predawn candidate ten-minute performance sidecar.",
     ),
-) + RECENT_REGISTERED_SCHEMAS
+) + RESEARCH_REGISTERED_SCHEMAS + RECENT_REGISTERED_SCHEMAS
 
 # A version normally identifies one registry name. This compatibility alias is
 # retained deliberately because both public lookup names have shipped.

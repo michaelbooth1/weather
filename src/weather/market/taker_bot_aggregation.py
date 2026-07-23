@@ -758,6 +758,14 @@ class DeferredTakerPayload(dict):
             raise RuntimeError("deferred taker payload is closed")
         return aggregation.materialize(dict(self))
 
+    def iter_scored_rows(self) -> Iterator[dict[str, Any]]:
+        """Iterate bounded scored rows while the deferred payload is open."""
+
+        aggregation = self._aggregation
+        if aggregation is None:
+            raise RuntimeError("deferred taker payload is closed")
+        return iter(aggregation.scored_rows)
+
     def close(self) -> None:
         aggregation = self._aggregation
         if aggregation is not None:
