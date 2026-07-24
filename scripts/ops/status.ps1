@@ -118,6 +118,10 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     else {
         $ok = ($res -eq "0x0")
+        # 0x41301 = SCHED_S_TASK_RUNNING: we sampled the task mid-execution (the
+        # every-minute supervisors make this a routine race). The task is healthy
+        # by definition while running; its next completed result is what matters.
+        if (-not $ok -and $res -eq "0x41301") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
         if (-not $ok) { $flags.Add("$name $res unexpected (last run $($ti.LastRunTime))") }
     }
