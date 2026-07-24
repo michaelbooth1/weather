@@ -1211,13 +1211,22 @@ def attach_band_candidate_probabilities(
                 )
             rows[row_index]["candidate_p"] = probability
 
-    if postprocess.get("partition_normalization_enabled", True):
+    partition_normalization_enabled = postprocess.get(
+        "partition_normalization_enabled",
+        True,
+    )
+    if partition_normalization_enabled:
         normalize_partition_probabilities(
             rows,
             gamma=float(postprocess.get("partition_normalization_gamma", 1.25)),
         )
     if postprocess.get("current_blend_enabled", False):
         apply_current_blend_guardrail(rows, postprocess)
+        if partition_normalization_enabled:
+            # Contextual blend weights can differ by band.  Even when both the
+            # candidate and incumbent are simplexes, mixing their rows with
+            # different alphas does not preserve total probability mass.
+            normalize_partition_probabilities(rows, gamma=1.0)
     for row in rows:
         row.pop("_band_postprocess_row", None)
 

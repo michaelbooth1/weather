@@ -844,7 +844,11 @@ def _band_binary_probabilities(
         if _postprocess_enabled(postprocess):
             p = apply_band_postprocessing(p, record, config=postprocess)
         probabilities[band_key(band)] = max(0.0, min(1.0, float(p)))
-    if postprocess.get("partition_normalization_enabled", True):
+    partition_normalization_enabled = postprocess.get(
+        "partition_normalization_enabled",
+        True,
+    )
+    if partition_normalization_enabled:
         probabilities = _normalize_probability_partition(
             probabilities,
             float(postprocess.get("partition_normalization_gamma", 1.25)),
@@ -857,6 +861,13 @@ def _band_binary_probabilities(
         feature_vector=feature_vector,
         source_diagnostics=(context.get("model") or {}).get("source_diagnostics"),
     )
+    if (
+        partition_normalization_enabled
+        and postprocess.get("current_blend_enabled", False)
+    ):
+        # A band-specific blend policy is not a convex combination of whole
+        # simplexes.  Restore the categorical mass after the shared row blend.
+        probabilities = _normalize_probability_partition(probabilities, 1.0)
     return probabilities
 
 
