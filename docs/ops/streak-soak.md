@@ -37,6 +37,21 @@ down, low RAM/disk, an unexpected task result, TODAY at risk) flips the verdict 
 transient per-cycle "hot capture" subprocesses (which run at Normal by design). Like the
 streak checker it is host tooling and rolls nothing.
 
+It also answers the questions that previously required a manual dig:
+
+- **which** chain step failed and why (`failing step -> maker_paper_score ->
+  maker_paper_input_budget_exceeded`), instead of a bare `error`, and whether a run is
+  in flight right now (the stored `terminal` flag goes stale the moment a resume starts);
+- **unattended resilience** — a pending reboot combined with logon-dependent tasks and
+  no auto-logon is a FLAG, because almost every `Weather*` task is
+  `LogonType=Interactive` and therefore does not run at all after a reboot with nobody
+  logged in. That failure mode also silences the monitoring itself, so it has to be
+  surfaced continuously rather than alerted on;
+- **off-host mirror** freshness/success (nothing else watches it, and it is the only
+  copy of `data\` that is not on this disk);
+- a **capture alert raised in the last 24h** is promoted to a FLAG — alerts are appended
+  to `data/alerts/streak_capture_alerts.jsonl`, which nothing otherwise reads.
+
 ## Where the truth lives (read this before trusting any number)
 
 - **Authoritative grade source:** `data/settlements/toronto/ledger.jsonl` — an

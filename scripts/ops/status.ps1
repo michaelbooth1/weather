@@ -84,6 +84,31 @@ $cf = Join-Path $repo "data\backtest\daily_refresh_status.json"
 if (Test-Path $cf) { try { $chain = Get-Content $cf -Raw | ConvertFrom-Json } catch {} }
 $chainStatus = if ($chain) { [string]$chain.status } else { "?" }
 $chainTerm = if ($chain -and $chain.terminal) { "terminal" } else { "running/unknown" }
+# Name the failing STEP and its reason. A bare "error" costs a manual dig through
+# daily_refresh_status.json every single time, which is exactly what this script exists
+# to avoid (2026-07-24: "error" was maker_paper_input_budget_exceeded, 20 min to find).
+$chainFail = $null
+if ($chain -and $chain.steps) {
+    $bad = @($chain.steps | Where-Object { $_.status -and $_.status -notin @("ok", "skipped") })
+    if ($bad.Count -gt 0) {
+        $f = $bad[0]
+        $why = [string]$f.result.reason
+        if (-not $why) { $why = [string]$f.error }
+        if (-not $why) { $why = [string]$f.result.status }
+        if (-not $why) { $why = [string]$f.status }
+        $chainFail = "{0} -> {1}" -f $f.name, $why
+        $warns.Add("chain step $chainFail")
+    }
+}
+# `terminal` describes the LAST completed run and goes stale the moment a resume starts,
+# so trust the live step state instead: a running step means a run is in flight now.
+if ($chain -and $chain.current_step -and [string]$chain.current_step.status -like "running*") {
+    $chainTerm = "RUNNING NOW: $($chain.current_step.name)"
+    $chainFail = $null
+}
+elseif ($chain -and -not $chain.terminal) {
+    $chainTerm = "running/unknown"
+}
 
 # ---- git / push ----
 $unpushed = & git -C $repo rev-list --count origin/master..master 2>$null
@@ -99,13 +124,18 @@ $expNonZero = @{
     "WeatherDailySettlementPromotionRefresh" = @("0x2")   # model-skill gates BLOCK
     "WeatherEveningEvidenceRefresh"          = @("0x2")   # evidence gates BLOCK
     "WeatherTrainingWindow"                  = @("0x2")   # no promotion pre-release
-    "WeatherOneShotPush"                     = @("0x1", "0x0") # benign wrapper exit
+    # 0x41306 = we terminated a wedged push. Pushes need an interactive logon session,
+    # so this task legitimately fails when nobody is logged on; the honest health signal
+    # is the unpushed-commit count below, not this exit code.
+    "WeatherOneShotPush"                     = @("0x1", "0x0", "0x41306")
 }
 $expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
     "WeatherTapeBackupAndRestoreDrill")
 $taskCount = 0
+$interactiveTasks = 0
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
+    if ([string]$_.Principal.LogonType -eq "Interactive") { $interactiveTasks++ }
     $ti = $_ | Get-ScheduledTaskInfo
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
@@ -127,12 +157,58 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
 }
 
+# ---- unattended resilience ----
+# Almost every Weather* task is LogonType=Interactive, so the fleet only runs while a
+# user session exists. With no auto-logon, a reboot leaves this host DARK -- capture,
+# chain, streak monitor and these very alerts all stop -- until somebody logs in. The
+# monitoring cannot warn about the one failure that disables the monitoring, so surface
+# the exposure continuously instead.
+$rebootPending = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+$autoLogon = ""
+try {
+    $autoLogon = [string](Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -ErrorAction SilentlyContinue).AutoAdminLogon
+}
+catch {}
+if ($interactiveTasks -gt 0 -and $autoLogon -ne "1") {
+    if ($rebootPending) {
+        $flags.Add("REBOOT PENDING + $interactiveTasks logon-dependent tasks + no auto-logon: a restart leaves the whole fleet DOWN until someone logs in")
+    }
+    else {
+        $warns.Add("$interactiveTasks Weather tasks are LogonType=Interactive with no auto-logon - none of them run after an unattended reboot")
+    }
+}
+
+# ---- off-host mirror (the only copy of data\ that is not on this disk) ----
+$mirror = $null
+$mirrorAgeH = $null
+$mf = "C:\Users\micha\ops\mirror_status.json"
+if (Test-Path $mf) {
+    try {
+        $mirror = Get-Content $mf -Raw | ConvertFrom-Json
+        $mirrorAgeH = [math]::Round(((Get-Date) - [datetime]$mirror.last_run).TotalHours, 1)
+    }
+    catch {}
+}
+if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy unverified") }
+elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
+elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
+
 # ---- alerts ----
 $alertLast = $null
 $af = Join-Path $repo "data\alerts\streak_capture_alerts.jsonl"
 if (Test-Path $af) {
     $l = Get-Content $af -Tail 1
-    if ($l) { try { $j = $l | ConvertFrom-Json; $alertLast = "$($j.ts)  $($j.level)" } catch {} }
+    if ($l) {
+        try {
+            $j = $l | ConvertFrom-Json
+            $alertLast = "$($j.ts)  $($j.level)"
+            # Alerts are written to a file nobody watches; a fresh one must reach the digest.
+            if (((Get-Date) - [datetime]$j.ts).TotalHours -lt 24) {
+                $flags.Add("capture alert raised in the last 24h: $alertLast")
+            }
+        }
+        catch {}
+    }
 }
 
 # ---- verdict ----
@@ -158,8 +234,12 @@ if ($Json) {
             settled = $streak.most_recent_settled
         }
         capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
-        chain    = @{ status = $chainStatus; terminal = $chainTerm }
+        chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
+        mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH }
+        resilience = @{ reboot_pending = $rebootPending; auto_logon = ($autoLogon -eq "1");
+            interactive_tasks = $interactiveTasks
+        }
         tasks_scanned = $taskCount; alert_last = $alertStr
     } | ConvertTo-Json -Depth 6
     exit $exitCode
@@ -174,6 +254,11 @@ Write-Output ("              lock ~{0} if all clean   |  settled -> {1}" -f $str
 Write-Output ("  CAPTURE   : {0}" -f $capSummary)
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free" -f $freeRamGB, $totRamGB, $freeDiskGB)
 Write-Output ("  CHAIN     : {0} / {1}   (0x2 = gates BLOCK, expected pre-release)" -f $chainStatus, $chainTerm)
+if ($chainFail) { Write-Output ("              failing step -> {0}" -f $chainFail) }
+$mirrorStr = if ($null -eq $mirror) { "unreadable" }
+elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
+else { "FAILED (exit $($mirror.robocopy_exit))" }
+Write-Output ("  OFF-HOST  : mirror {0}    |  reboot pending: {1}   logon-dependent tasks: {2}" -f $mirrorStr, $rebootPending, $interactiveTasks)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
