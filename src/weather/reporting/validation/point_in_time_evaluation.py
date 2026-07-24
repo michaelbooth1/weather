@@ -38,6 +38,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from weather.backtesting.settled_days import discover_settled_folders, folder_market_id
+from weather.backtesting.settlement_io import canonical_winning_band
 from weather.calibration.pooled_candidate_replay import (
     iter_bounded_preselection_source_market_days,
     iter_bounded_pooled_band_candidate_replay_market_days,
@@ -51,6 +52,10 @@ from weather.operations.closed_market_day_archive import (
     DEFAULT_ARCHIVE_ROOT,
     DEFAULT_SNAPSHOTS_ROOT,
     read_market_day_artifact,
+)
+from weather.operations.point_in_time_staging_receipt import (
+    StagingReceiptError,
+    verify_staging_receipt,
 )
 from weather.paths import data_path
 from weather.reporting.promotion.promotion_corpus import (
@@ -532,6 +537,7 @@ def validate_canonical_row(row: Mapping[str, Any]) -> dict[str, Any]:
         normalized[field] = _required_text(
             row.get(field), f"missing_{field}", field
         )
+    normalized["band"] = canonical_winning_band(normalized["band"])
 
     payload_value = row.get("source_payload_json")
     if not isinstance(payload_value, str) or not payload_value.strip():
@@ -936,6 +942,7 @@ def validate_production_preselection_source_row(
                 "oversized_preselection_source_field",
                 f"{field} exceeds the production source text bound",
             )
+    normalized["band"] = canonical_winning_band(normalized["band"])
     feature_time = _parse_utc(
         row.get("feature_available_at_utc"), "feature_available_at_utc"
     )
@@ -1217,6 +1224,14 @@ def _materialize_production_preselection_source_locked(
         }
         for entry in entries
     ]
+    settlement_label_authority = Counter()
+    for entry in entries:
+        authority = entry.get("settlement_label_authority")
+        if not isinstance(authority, dict):
+            authority = {}
+        settlement_label_authority[
+            str(authority.get("status") or "unreported")
+        ] += 1
     manifest = {
         "schema_version": PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
         "artifact_type": "production_point_in_time_preselection_source_manifest",
@@ -1262,6 +1277,11 @@ def _materialize_production_preselection_source_locked(
         "counts": {
             "market_days_read": market_days,
             "accepted_rows": row_count,
+        },
+        "summary": {
+            "settlement_label_authority": dict(
+                sorted(settlement_label_authority.items())
+            ),
         },
         "inputs": inputs,
     }
@@ -1433,7 +1453,9 @@ def verify_production_preselection_source_manifest(
         observed_label_qualities[market_day].add(row["label_quality"])
         if float(row["label"]) == 1.0:
             observed_winner_counts[(*market_day, snapshot_id)] += 1
-            observed_winner_bands[market_day].add(row["band"])
+            observed_winner_bands[market_day].add(
+                canonical_winning_band(row["band"])
+            )
     input_market_day_counts: dict[tuple[str, str], int] = {}
     input_inventory: dict[tuple[str, str], tuple[str, int, int, str]] = {}
     for item in manifest.get("inputs") or ():
@@ -1505,7 +1527,7 @@ def verify_production_preselection_source_manifest(
         snapshot_count = int(item.get("snapshot_count") or 0)
         label_hash = str(item.get("label_hash") or "")
         quality_grade = str(item.get("quality_grade") or "").strip().lower()
-        winning_band = str(item.get("winning_band") or "").strip()
+        winning_band = canonical_winning_band(item.get("winning_band"))
         try:
             target_date = date.fromisoformat(key[0])
         except ValueError as exc:
@@ -3992,6 +4014,7 @@ def prepare_production_preselection(
     max_market_days: int = 60,
     max_rows_per_market_day: int = 250_000,
     generated_at_utc: str | None = None,
+    staging_receipt_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Freeze the candidate-independent evaluation population before training."""
 
@@ -4078,6 +4101,23 @@ def prepare_production_preselection(
         locked_at_utc=lock["generated_at_utc"],
         require_current_prelock=generated_at_utc is None,
     )
+    source_binding = {
+        "corpus_path": str(source_corpus),
+        "corpus_sha256": sha256_file(source_corpus),
+        "manifest_path": str(source_manifest),
+        "manifest_sha256": sha256_file(source_manifest),
+        "manifest_hash": str(manifest["manifest_hash"]),
+        "replay_manifest_path": str(replay_manifest),
+        "replay_manifest_sha256": sha256_file(replay_manifest),
+        "replay_corpus_hash": str(replay["corpus_hash"]),
+        "settlement_label_authority": dict(
+            ((manifest.get("summary") or {}).get("settlement_label_authority") or {})
+        ),
+    }
+    if str(staging_receipt_sha256 or "").strip():
+        source_binding["staging_receipt_sha256"] = str(
+            staging_receipt_sha256
+        ).strip()
     payload = _finalize_hash(
         {
             "schema_version": PRODUCTION_PRESELECTION_SCHEMA_VERSION,
@@ -4086,16 +4126,7 @@ def prepare_production_preselection(
             "status": "PASS",
             "candidate_selection_permission": "forbidden",
             "locked_before_candidate_training": True,
-            "source": {
-                "corpus_path": str(source_corpus),
-                "corpus_sha256": sha256_file(source_corpus),
-                "manifest_path": str(source_manifest),
-                "manifest_sha256": sha256_file(source_manifest),
-                "manifest_hash": str(manifest["manifest_hash"]),
-                "replay_manifest_path": str(replay_manifest),
-                "replay_manifest_sha256": sha256_file(replay_manifest),
-                "replay_corpus_hash": str(replay["corpus_hash"]),
-            },
+            "source": source_binding,
             "selection_universe": universe,
             "window_lock": lock,
         },
@@ -5140,6 +5171,31 @@ def _prepare_replay_manifest(
     return output
 
 
+def _verify_prelock_staging_receipt(args: argparse.Namespace) -> dict[str, Any]:
+    receipt_path = str(args.source_receipt or "").strip()
+    expected_sha256 = str(args.expected_source_receipt_sha256 or "").strip()
+    ledger_root = str(args.ledger_root or "").strip()
+    if not receipt_path or not expected_sha256 or not ledger_root:
+        raise ContractViolation(
+            "invalid_staging_receipt",
+            "staged production preselection requires its preflight receipt identity and ledger root",
+        )
+    try:
+        return verify_staging_receipt(
+            receipt_path=receipt_path,
+            corpus_path=args.source_corpus,
+            manifest_path=args.source_manifest,
+            replay_manifest_path=args.source_replay_manifest,
+            ledger_root=ledger_root,
+            expected_receipt_sha256=expected_sha256,
+        )
+    except (OSError, StagingReceiptError, TypeError, ValueError) as exc:
+        raise ContractViolation(
+            "invalid_staging_receipt",
+            f"staged production source receipt rejected: {exc}",
+        ) from exc
+
+
 def _cmd_prelock(args: argparse.Namespace) -> None:
     if (
         not 0 < int(args.batch_rows) <= PRODUCTION_MAX_ARROW_BATCH_ROWS
@@ -5153,6 +5209,7 @@ def _cmd_prelock(args: argparse.Namespace) -> None:
     source_manifest = args.source_manifest
     if bool(source_corpus) != bool(source_manifest):
         raise SystemExit("--source-corpus and --source-manifest must be supplied together")
+    staged_source = bool(source_corpus and source_manifest)
     if source_corpus and args.folder:
         raise SystemExit("staged source corpus cannot be combined with --folder")
     if not source_corpus:
@@ -5211,6 +5268,7 @@ def _cmd_prelock(args: argparse.Namespace) -> None:
         source_corpus = args.source_corpus_out
         source_manifest = args.source_manifest_out
     else:
+        receipt_verification = _verify_prelock_staging_receipt(args)
         replay_manifest = _prepare_replay_manifest(
             source_manifest=source_manifest,
             source_replay_manifest=args.source_replay_manifest or None,
@@ -5219,16 +5277,49 @@ def _cmd_prelock(args: argparse.Namespace) -> None:
             as_of=args.as_of or None,
             quality_grades=args.quality_grades,
         )
-    payload = prepare_production_preselection(
-        source_corpus=source_corpus,
-        source_manifest=source_manifest,
-        replay_manifest=replay_manifest,
-        lock_out=args.lock_out,
-        window_end=args.window_end or None,
-        batch_rows=args.batch_rows,
-        max_market_days=args.max_market_days,
-        max_rows_per_market_day=args.max_rows_per_market_day,
-    )
+    final_lock = Path(args.lock_out).resolve()
+    lock_out = final_lock
+    if staged_source:
+        lock_out = final_lock.with_name(
+            f".{final_lock.name}.{os.getpid()}.staged.tmp"
+        )
+        lock_out.unlink(missing_ok=True)
+    try:
+        payload = prepare_production_preselection(
+            source_corpus=source_corpus,
+            source_manifest=source_manifest,
+            replay_manifest=replay_manifest,
+            lock_out=lock_out,
+            window_end=args.window_end or None,
+            batch_rows=args.batch_rows,
+            max_market_days=args.max_market_days,
+            max_rows_per_market_day=args.max_rows_per_market_day,
+            staging_receipt_sha256=(
+                receipt_verification["receipt_sha256"]
+                if staged_source
+                else None
+            ),
+        )
+        if staged_source:
+            post_read_receipt = _verify_prelock_staging_receipt(args)
+            locked_dates = list(
+                (payload.get("window_lock") or {}).get("target_dates") or ()
+            )
+            receipt_dates = list(receipt_verification.get("target_dates") or ())
+            if (
+                locked_dates != receipt_dates
+                or receipt_dates
+                != list(post_read_receipt.get("target_dates") or ())
+            ):
+                raise ContractViolation(
+                    "staging_receipt_window_mismatch",
+                    "production preselection window does not match the receipt's Toronto lock dates",
+                )
+            final_lock.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(lock_out, final_lock)
+    finally:
+        if staged_source:
+            lock_out.unlink(missing_ok=True)
     print(
         "point-in-time production preselection: "
         f"status={payload['status']} lock={payload['window_lock']['window_lock_id']}"
@@ -5336,6 +5427,9 @@ def build_parser() -> argparse.ArgumentParser:
     prelock.add_argument("--source-corpus-out", default="")
     prelock.add_argument("--source-manifest-out", default="")
     prelock.add_argument("--source-replay-manifest", default="")
+    prelock.add_argument("--source-receipt", default="")
+    prelock.add_argument("--expected-source-receipt-sha256", default="")
+    prelock.add_argument("--ledger-root", default="")
     prelock.add_argument("--replay-manifest-out", required=True)
     prelock.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     prelock.add_argument("--archive-root", default=str(DEFAULT_ARCHIVE_ROOT))
