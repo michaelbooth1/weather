@@ -19,6 +19,24 @@ grade tape, the daily complete-rate, whether **today** is on track, and any prom
 lag. It is pure stdlib and imports nothing from the `weather` package, so it can never
 roll a capture loop and runs even mid-refactor.
 
+## Full host status in one command
+
+For a broader check — streak **plus** capture-loop priority, RAM/disk, the daily
+chain, git/push state, scheduled-task health, and recent alerts — run:
+
+```powershell
+.\scripts\ops\status.ps1            # compact, interpreted digest
+.\scripts\ops\status.ps1 -Json       # machine-readable; exit 2 if any FLAG
+```
+
+It encodes what is **expected vs anomalous** so only genuine problems surface. Known
+conditions — the daily chain exiting `0x2` (model-skill gates BLOCK pre-release), the
+tape backup broken since Jun 30 — go to `notes`, not `FLAGS`. A `FLAG` (capture loop
+down, low RAM/disk, an unexpected task result, TODAY at risk) flips the verdict to
+`ATTENTION`. It measures only the **persistent** capture loop's priority, ignoring the
+transient per-cycle "hot capture" subprocesses (which run at Normal by design). Like the
+streak checker it is host tooling and rolls nothing.
+
 ## Where the truth lives (read this before trusting any number)
 
 - **Authoritative grade source:** `data/settlements/toronto/ledger.jsonl` — an
