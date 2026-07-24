@@ -16,6 +16,7 @@ from weather.market.mm_scoring_projection import (
     BASE_PROJECTION_FILENAME,
     MODEL_VARIANT_PROJECTION_FILENAME,
     SCORING_COLUMNS,
+    resolve_run_scoring_inputs,
     write_run_scoring_projections,
 )
 from weather.operations.daily_refresh import (  # noqa: E402
@@ -3664,11 +3665,65 @@ class TestDailyRefresh(unittest.TestCase):
             ) as build_payload:
                 result = run_maker_paper_score_step(args)
 
+        # Not even the single newest run fits, so nothing is admitted and the
+        # step still fails loudly rather than scoring an empty corpus.
         self.assertEqual(result["status"], "BLOCK")
         self.assertEqual(result["reason"], "maker_paper_input_budget_exceeded")
-        self.assertGreater(result["input_bytes"], result["max_input_bytes"])
+        self.assertGreater(result["candidate_input_bytes"], result["max_input_bytes"])
+        self.assertEqual(result["input_bytes"], 0)
+        self.assertEqual(result["selected_run_count"], 0)
         self.assertEqual(result["input_preflight"]["latest_run_limit"], 14)
         build_payload.assert_not_called()
+
+    def test_maker_paper_score_step_trims_oldest_runs_to_fit_input_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            oldest = _write_active_mm_run(tmp, target_date="2026-06-17", run_id="mm-oldest")
+            middle = _write_active_mm_run(tmp, target_date="2026-06-18", run_id="mm-middle")
+            latest = _write_active_mm_run(tmp, target_date="2026-06-19", run_id="mm-latest")
+
+            sizing = _args(tmp, as_of="2026-06-20T12:00:00+00:00")
+            _write_exchange_snapshot(Path(sizing.exchange_economics_snapshot))
+            per_run_bytes = sum(
+                int(receipt["input_bytes"])
+                for receipt in (
+                    resolve_run_scoring_inputs(folder)
+                    for folder in (oldest, middle, latest)
+                )
+            ) // 3
+
+            # Budget fits the two newest runs but not all three.
+            args = _args(
+                tmp,
+                as_of="2026-06-20T12:00:00+00:00",
+                maker_paper_max_input_bytes=per_run_bytes * 2,
+            )
+            result = run_maker_paper_score_step(args)
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        preflight = payload["input_preflight"]
+        # The step proceeds on the freshest evidence instead of blocking, and
+        # the admitted set never exceeds the memory guard.
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["candidate_run_count"], 3)
+        self.assertEqual(result["input_budget_trimmed_run_count"], 1)
+        self.assertEqual(result["selected_run_count"], 2)
+        self.assertLessEqual(result["input_bytes"], result["max_input_bytes"])
+        self.assertEqual(
+            preflight["selected_run_folders"],
+            [str(middle), str(latest)],
+        )
+        self.assertEqual(
+            preflight["input_budget_trimmed_run_folders"],
+            [str(oldest)],
+        )
+        # Provenance stays consistent with what was actually scored.
+        self.assertEqual(
+            payload["run_folder_selection"]["selected_run_folders"],
+            preflight["selected_run_folders"],
+        )
+        self.assertEqual(payload["run_folder_selection"]["input_budget_trimmed_run_count"], 1)
+        self.assertEqual(payload["summary"]["run_folders"], 2)
+        self.assertEqual(list(payload["run_configs"]), [str(middle), str(latest)])
 
     def test_maker_paper_score_step_scores_exact_preflight_selection(self):
         with tempfile.TemporaryDirectory() as tmp:

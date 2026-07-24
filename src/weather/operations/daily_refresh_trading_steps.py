@@ -350,6 +350,23 @@ def run_taker_tail_casebook_step(args):
     }
 
 
+def _budget_admitted_start(selected_inputs, max_input_bytes):
+    """Index of the oldest run that still fits the input-byte budget.
+
+    ``selected_inputs`` is ordered oldest -> newest, so everything from the
+    returned index onward is admitted and the older prefix is dropped. Walking
+    newest-first keeps the freshest evidence, which is what the settled-day
+    barrier and the paper-score freshness gate actually consume.
+    """
+    running = 0
+    for index in range(len(selected_inputs) - 1, -1, -1):
+        candidate = running + int(selected_inputs[index]["input_bytes"])
+        if candidate > max_input_bytes:
+            return index + 1
+        running = candidate
+    return 0
+
+
 def run_maker_paper_score_step(args):
     if getattr(args, "skip_maker_paper_score", False):
         return {"status": "SKIPPED", "reason": "skip_maker_paper_score"}
@@ -378,6 +395,31 @@ def run_maker_paper_score_step(args):
         evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
     )
     selected_inputs = [resolve_run_scoring_inputs(folder) for folder in selected]
+    # Admit the most recent runs that FIT the byte budget rather than demanding
+    # exactly latest_runs and blocking the whole step when they do not. The
+    # budget is a memory guard on a 16 GB host, so it is still never exceeded;
+    # per-run size grows over time, so a fixed run count silently becomes
+    # unsatisfiable and starves the settled-day barrier of maker evidence.
+    candidate_run_count = len(selected_inputs)
+    candidate_input_bytes = sum(
+        int(receipt["input_bytes"]) for receipt in selected_inputs
+    )
+    trimmed_start = _budget_admitted_start(selected_inputs, max_input_bytes)
+    trimmed_run_folders = [str(folder) for folder in selected[:trimmed_start]]
+    trimmed_input_bytes = sum(
+        int(receipt["input_bytes"]) for receipt in selected_inputs[:trimmed_start]
+    )
+    if trimmed_start:
+        selected = selected[trimmed_start:]
+        selected_inputs = selected_inputs[trimmed_start:]
+        selection = {
+            **selection,
+            "selected_run_folders": [str(folder) for folder in selected],
+            "selected_runs": (selection.get("selected_runs") or [])[trimmed_start:],
+            "candidate_run_folders_after_selection": len(selected),
+            "input_budget_trimmed_run_count": trimmed_start,
+            "input_budget_trimmed_run_folders": trimmed_run_folders,
+        }
     scoring_input_paths_by_folder = {
         receipt["run_folder"]: receipt["input_paths"]
         for receipt in selected_inputs
@@ -402,12 +444,20 @@ def run_maker_paper_score_step(args):
         for receipt in selected_inputs
     )
     canonical_fallback_run_count = len(selected_inputs) - projection_run_count
+    # Runs were discovered but not even the newest one fits: a genuine anomaly
+    # rather than ordinary corpus growth, so keep failing loudly.
+    budget_blocked = bool(candidate_run_count) and not selected_inputs
     input_preflight = {
-        "status": "PASS" if input_bytes <= max_input_bytes else "BLOCK",
-        "reason": None if input_bytes <= max_input_bytes else "maker_paper_input_budget_exceeded",
+        "status": "BLOCK" if budget_blocked else "PASS",
+        "reason": "maker_paper_input_budget_exceeded" if budget_blocked else None,
         "evidence_mode": mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
         "latest_run_limit": latest_runs,
         "selected_run_count": len(selected),
+        "candidate_run_count": candidate_run_count,
+        "candidate_input_bytes": candidate_input_bytes,
+        "input_budget_trimmed_run_count": trimmed_start,
+        "input_budget_trimmed_run_folders": trimmed_run_folders,
+        "input_budget_trimmed_bytes": trimmed_input_bytes,
         "available_run_count": selection.get("available_run_folders_before_selection"),
         "input_file_count": len(input_paths),
         "input_bytes": input_bytes,
@@ -427,6 +477,9 @@ def run_maker_paper_score_step(args):
             "reason": input_preflight["reason"],
             "input_preflight": input_preflight,
             "selected_run_count": len(selected),
+            "candidate_run_count": candidate_run_count,
+            "candidate_input_bytes": candidate_input_bytes,
+            "input_budget_trimmed_run_count": trimmed_start,
             "input_bytes": input_bytes,
             "canonical_input_bytes": canonical_input_bytes,
             "projection_run_count": projection_run_count,
@@ -469,6 +522,8 @@ def run_maker_paper_score_step(args):
             "evidence_mode",
             "latest_run_limit",
             "selected_run_count",
+            "candidate_run_count",
+            "input_budget_trimmed_run_count",
             "input_file_count",
             "input_bytes",
             "canonical_input_bytes",
@@ -501,6 +556,9 @@ def run_maker_paper_score_step(args):
         "known_edge_out": as_path(backtest_path(args, "mm_known_edge_map.json")),
         "known_edge_report_out": as_path(backtest_path(args, "mm_known_edge_map.md")),
         "selected_run_count": len(selected),
+        "candidate_run_count": candidate_run_count,
+        "candidate_input_bytes": candidate_input_bytes,
+        "input_budget_trimmed_run_count": trimmed_start,
         "input_bytes": input_bytes,
         "canonical_input_bytes": canonical_input_bytes,
         "projected_vs_canonical_byte_ratio": (
