@@ -16,4 +16,3 @@ def test_deferred_payload_exposes_bounded_scored_row_iterator_until_closed():
     payload.close()
     with pytest.raises(RuntimeError, match="closed"):
         list(payload.iter_scored_rows())
-

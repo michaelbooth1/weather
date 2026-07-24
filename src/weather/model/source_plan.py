@@ -35,4 +35,3 @@ def planned_live_source_names(spec) -> tuple[str, ...]:
     ):
         names.append(US_GUIDANCE_ADJUNCT)
     return tuple(dict.fromkeys(str(name) for name in names if str(name)))
-
