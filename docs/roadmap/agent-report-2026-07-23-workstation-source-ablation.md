@@ -22,9 +22,23 @@ not an active release. It does not change Weather Underground's role as the
 configured settlement proxy, authorize a collector or station change, prove
 market edge, or permit serving, promotion, release, or trading action.
 
+The sealed result uses research schema `source_family_ablation_v0.2`. It cannot
+satisfy the current operational `source_family_ablation_v0.3`, inventory v0.2,
+or physical-ratchet v0.2 contracts; those require a separately regenerated,
+active-release-bound chain in an authorized writable environment.
+
+Subsequent operational hardening preserves that boundary. Operational v0.3
+evidence is accepted only through the canonical active-release manifest and
+its current-byte-verified artifact chain. Detached candidate artifacts are
+rejected before deserialization, and legacy or research artifacts, including
+this v0.2 `RESEARCH_UNBOUND` bundle, cannot authorize serving, promotion, or
+release action. The hardening did not regenerate a runtime artifact and does
+not upgrade this sealed research result into operational evidence.
+
 ## Design and inference contract
 
-The replay used the Phase 0 corpus with canonical corpus hash
+The replay used the Phase 0 sealed legacy-v0.1 corpus with execution-time
+corpus hash
 `d7cfdc58e31ecffab1e4e7f0ef19c4773dbf7c16e8eaeffbf19589e22fc0893f`:
 309 market-days, 44,178 snapshots, 12 configured markets, and 32 fleet dates.
 It scored 6,550,533 band rows. Reconstructed snapshots were excluded.
@@ -117,12 +131,38 @@ marker; its identical start/completion identity is
 Both markers say `research_only=true` and
 `serving_or_release_authorization=false`.
 
-Independent recomputation matched 6,224 of 6,224 inferential leaves exactly,
-with maximum floating-point difference `0.0`. A second audit checked 220 pooled
-summary leaves with maximum difference below `3.2e-14`. All 967 captured input
-bindings (952 paths and 15 trees) and all terminal seals were rehashed. The
-publication validators found no extra child, temporary leaf, missing receipt,
-changed identity, or broken source-generation binding.
+The final independent verifier replaces an earlier ad-hoc `6,224`-leaf count
+whose traversal rule was not preserved. It recomputed all three sealed
+inference arrays from `day_effects`, `market_days`, and `split_dates`: 66 paired
+rows, 264 robustness rows, and 630 market rows. All 960 rows matched exactly
+across 43,404 primitive leaves, including 35,862 numeric and 14,688
+floating-point leaves; the maximum floating-point difference was `0.0`.
+
+A separate pooled audit checked exactly 220 fields: 22 variants times the 10
+declared support, Brier, log-loss, and helped/hurt-day fields. Its maximum
+difference was `3.189115638235762e-14`. The exact focused synthesis collection
+also passed all 26 parametrized cases (`26 passed in 0.56s`).
+
+The verifier attempted all 967 source-generation bindings (952 paths and 15
+trees). Of those, 966 still match; only the captured `weather_source_tree`
+shows expected post-seal drift from the safety-development changes documented
+below. The same single tree explains the synthesis-generation drift. The
+publication-time start/completion identities remain identical, every terminal
+seal still matches, and both generation directories still contain exactly
+their two outputs plus `COMPLETE.json`.
+
+The scratch-only v0.2 verification receipt is
+`scratch/workstation-research-output/workstream_b/source_ablation/final_sealed_source_verification_receipt_v0.2.json`
+(`748,615` bytes; SHA-256
+`1c492a34cd215f63d66293cba9cec76a571644853cb0b6a3c390907c01b26d55`;
+status `PASS_WITH_LEGACY_COUNT_REPLACEMENT_AND_POST_SEAL_DRIFT`). Its base
+verifier SHA-256 is
+`cdf945ebc79c157d6e963ee31ff5aa249bc233c7ed4fed8c75ebe02e56337a8b`;
+the Windows short-path finalizer SHA-256 is
+`4839ec65a2b6c2fcef694cd6d8369006505f9c4500722eb877d61f368f8bd864`.
+The first receipt is retained as chronology: its inference checks passed, but
+its deeply nested pytest temporary path hit Windows `MAX_PATH`; v0.2 reran the
+same 26-test collection under a short system-temporary path outside `data/`.
 
 | Artifact | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -185,12 +225,13 @@ once.
 - Feasibility seal SHA-256:
   `09b8d7c20930d9a37dd0310c41071c4344d274bae11bf7d688a486f38af4d148`
 
-The nightly mirror refreshed before source replay. The source run therefore
-used the already staged, content-addressed corpus outside `data/`, while the
-live mirror state remained bound as provenance. No file was created, changed,
-or deleted under `data/` by this experiment. No production host, scheduler,
-release pointer, serving configuration, promotion path, or live/paper order
-surface was touched.
+The nightly mirror refreshed before source replay. The source run used a
+staged, content-addressed corpus manifest outside `data/`, while reading the
+manifest-bound, hash-verified snapshot and WU inputs from the read-only
+`data/` mirror. No file was created, changed, or deleted under `data/` by this
+source-ablation experiment; that no-mutation statement is scoped to this
+experiment. No production host, scheduler, release pointer, serving
+configuration, promotion path, or live/paper order surface was touched.
 
 ## Disposition
 

@@ -192,6 +192,7 @@ def test_validated_surrogate_repairs_integrate_into_active_replay_contract(tmp_p
             ],
         },
         candidate,
+        readiness=readiness,
         generated_at_utc="2026-06-25T00:00:00+00:00",
     )
 
@@ -212,8 +213,12 @@ def test_validated_surrogate_repairs_integrate_into_active_replay_contract(tmp_p
         "bottom_location_centering",
         "predawn_weak_slot",
     ]
-    assert readiness["status"] == "READY"
-    assert allowlist["markets"][0]["candidate_serving_allowed"] is True
+    assert readiness["status"] == "OPEN"
+    assert {
+        "source_family_preflight",
+        "physical_feature_family_ratchet",
+    }.issubset({row["category"] for row in readiness["blockers"]})
+    assert allowlist["markets"][0]["candidate_serving_allowed"] is False
 
 
 def test_preview_only_repair_reports_not_yet_integrated_status(tmp_path):
@@ -272,6 +277,7 @@ def test_row_export_surrogate_preview_cannot_satisfy_promotion_countability():
     allowlist = build_promotion_allowlist(
         decisions,
         candidate,
+        readiness=readiness,
         generated_at_utc="2026-06-25T00:00:00+00:00",
     )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from weather.market.mm_paper_constants import (
@@ -996,10 +996,10 @@ def render_paper_report(payload):
 def promotion_state_from_action(action, verdict=None):
     action = str(action or "").upper()
     verdict = str(verdict or "").upper()
-    if action == "PROMOTE_CANDIDATE" or verdict == "PASS":
-        return "PASS"
     if action == "BLOCK_CANDIDATE" or verdict == "BLOCK":
         return "BLOCK"
+    if action == "PROMOTE_CANDIDATE" and verdict == "PASS":
+        return "PASS"
     if action == "KEEP_SHADOW" or verdict == "SHADOW":
         return "SHADOW"
     return "BLOCK"
@@ -1025,12 +1025,26 @@ def load_promotion_records(path):
             }
         action = row.get("action")
         verdict = row.get("verdict")
+        derived_permission = promotion_state_from_action(action, verdict)
+        # promotion_allowlist_v0.1 and the legacy decisions projection do not
+        # carry a runtime-verifiable current-input authorization envelope.
+        # Preserve explicit blocks; cap every other row at shadow until a new
+        # schema can prove current evidence bindings and expiry.
+        base_permission = (
+            "BLOCK" if derived_permission == "BLOCK" else "SHADOW"
+        )
         records[market_id] = {
             "market_id": market_id,
-            "base_permission": promotion_state_from_action(action, verdict),
+            "base_permission": base_permission,
+            "authorization_status": "NON_AUTHORIZING_SCHEMA",
+            "authorization_schema_supported": False,
             "action": action,
             "verdict": verdict,
-            "reason": row.get("blocker_reason") or row.get("reason"),
+            "reason": (
+                row.get("blocker_reason")
+                or row.get("reason")
+                or "promotion evidence is detached and non-authorizing"
+            ),
             "delta_vs_market": metrics.get("delta_vs_market"),
             "candidate_brier": metrics.get("candidate_brier"),
             "market_brier": metrics.get("market_brier"),
@@ -1038,8 +1052,8 @@ def load_promotion_records(path):
             "settled_days_in_corpus": row.get("settled_days_in_corpus"),
             "market_evidence_ok": (finite_float(metrics.get("delta_vs_market"), 1.0) or 1.0) <= 0.0,
             "candidate_id": row.get("candidate_id") or (payload.get("promotion_allowlist") or {}).get("candidate_id"),
-            "candidate_serving_allowed": row.get("candidate_serving_allowed"),
-            "candidate_permission_allowed": row.get("candidate_permission_allowed"),
+            "candidate_serving_allowed": False,
+            "candidate_permission_allowed": False,
             "promotion_allowlist_enforced": bool(allowlist_rows),
         }
     return records, payload
@@ -1050,20 +1064,50 @@ def permission_for_record(base_permission, paper_slice, promotion, paper_summary
         return "no_quote", "promotion_block"
     if base_permission == "SHADOW":
         return "harvest_only", "promotion_shadow"
-    if (paper_summary.get("exchange_economics_gate") or {}).get("status") == "BLOCK":
-        return "harvest_only", "paper_stale_exchange_economics"
-    if paper_summary.get("exchange_economics_gate_status") == "BLOCK":
+    if (
+        promotion.get("authorization_schema_supported") is not True
+        or promotion.get("authorization_status") != "AUTHORIZED"
+        or promotion.get("candidate_permission_allowed") is not True
+    ):
+        return "harvest_only", "promotion_authorization_missing"
+    exchange_gate = paper_summary.get("exchange_economics_gate") or {}
+    exchange_status = (
+        exchange_gate.get("status")
+        or paper_summary.get("exchange_economics_gate_status")
+        or "MISSING"
+    )
+    if exchange_status != "PASS":
         return "harvest_only", "paper_stale_exchange_economics"
     fill_count = int(paper_slice.get("fill_count") or 0) if paper_slice else 0
     ci_low = finite_float((paper_slice or {}).get("markout_30m_ci_low"))
     net = finite_float((paper_slice or {}).get("net_pnl_after_fees_incentives_usdc"), 0.0) or 0.0
-    live_days = len((paper_summary.get("anti_overfit") or {}).get("live_forward_days") or [])
+    raw_live_days = (
+        (paper_summary.get("anti_overfit") or {}).get("live_forward_days") or []
+    )
+    live_day_values = []
+    live_days_valid = isinstance(raw_live_days, list)
+    if live_days_valid:
+        for value in raw_live_days:
+            if not isinstance(value, str):
+                live_days_valid = False
+                break
+            try:
+                parsed = date.fromisoformat(value)
+            except ValueError:
+                live_days_valid = False
+                break
+            live_day_values.append(parsed.isoformat())
+        if len(live_day_values) != len(set(live_day_values)):
+            live_days_valid = False
+    live_days = len(live_day_values) if live_days_valid else 0
     if fill_count <= 0:
         return "harvest_only", "awaiting_paper_markouts"
     if ci_low is None or ci_low <= 0.0 or net <= 0.0:
         return "harvest_only", "paper_markout_not_positive"
     if not promotion.get("market_evidence_ok"):
         return "edge_research", "paper_positive_but_market_brier_gap_open"
+    if not live_days_valid:
+        return "edge_research", "paper_live_forward_days_invalid"
     if (
         live_days >= int(config["min_edge_allowed_live_days"])
         and fill_count >= int(config["min_edge_allowed_fills"])
@@ -1334,6 +1378,14 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
             "paper_evidence": None,
             "requires_policy_hash": (paper_summary.get("anti_overfit") or {}).get("policy_hashes") or [],
         })
+    records = [
+        {
+            **record,
+            "serving_or_release_authorization": False,
+            "candidate_serving_allowed": False,
+        }
+        for record in records
+    ]
     active_gap_cells = [
         {
             "market_id": record["market_id"],
@@ -1359,6 +1411,12 @@ def build_known_edge_map(paper_payload, promotion_refresh=DEFAULT_PROMOTION_REFR
     return {
         "schema_version": KNOWN_EDGE_SCHEMA_VERSION,
         "generated_at_utc": generated_at_iso(now),
+        "serving_or_release_authorization": False,
+        "authorization_status": "NON_AUTHORIZING_PROMOTION_SCHEMA",
+        "authorization_note": (
+            "This v0.2 map is detached evidence. edge_allowed records cannot "
+            "authorize the runtime edge lane without a future verified envelope."
+        ),
         "promotion_refresh": str(promotion_refresh),
         "paper_report_schema_version": paper_payload.get("schema_version"),
         "exchange_economics_gate": paper_payload.get("exchange_economics_gate") or paper_summary.get("exchange_economics_gate"),

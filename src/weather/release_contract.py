@@ -29,6 +29,11 @@ PRODUCTION_CANDIDATE_MODE = "production"
 RESEARCH_ONLY_CANDIDATE_MODE = "research_only"
 CANDIDATE_MODES = frozenset({PRODUCTION_CANDIDATE_MODE, RESEARCH_ONLY_CANDIDATE_MODE})
 
+# Detached promotion artifacts cannot make their own schema authoritative.
+# Add a version here only together with a code-owned structural/cryptographic
+# validator. No promotion allowlist schema is authorizing today.
+SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS = frozenset()
+
 PRODUCTION_RELEASE_KIND = "production"
 SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND = "serving_identity_bootstrap"
 ACTIVE_RELEASE_KINDS = frozenset(

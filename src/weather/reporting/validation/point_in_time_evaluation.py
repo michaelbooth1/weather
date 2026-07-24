@@ -3458,6 +3458,33 @@ def verify_streaming_evaluation_payload(
                         raise ContractViolation(
                             "invalid_clustered_intervals", "interval is not date-clustered"
                         )
+                    numeric_interval = {}
+                    for field in ("point_estimate", "lower", "upper"):
+                        value = interval.get(field)
+                        try:
+                            numeric_value = float(value)
+                        except (OverflowError, TypeError, ValueError):
+                            numeric_value = math.nan
+                        if (
+                            isinstance(value, bool)
+                            or not isinstance(value, (int, float))
+                            or not math.isfinite(numeric_value)
+                        ):
+                            raise ContractViolation(
+                                "invalid_clustered_intervals",
+                                "interval point_estimate/lower/upper must be "
+                                "finite numbers",
+                            )
+                        numeric_interval[field] = numeric_value
+                    if not (
+                        numeric_interval["lower"]
+                        <= numeric_interval["point_estimate"]
+                        <= numeric_interval["upper"]
+                    ):
+                        raise ContractViolation(
+                            "invalid_clustered_intervals",
+                            "interval bounds do not contain the point estimate",
+                        )
     if require_production_window:
         weather_summaries = lanes.get("weather_only") or []
         if not weather_summaries or any(
@@ -3473,8 +3500,13 @@ def verify_streaming_evaluation_payload(
 
 def _read_contract_json(path: str | Path, *, code: str) -> dict[str, Any]:
     try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            parse_constant=_reject_nonfinite_json_constant,
+            object_pairs_hook=_reject_duplicate_json_pairs,
+        )
+        _reject_nested_nonfinite_json(payload)
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise ContractViolation(code, f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ContractViolation(code, f"{path} must contain a JSON object")
@@ -3494,6 +3526,17 @@ def _reject_nonfinite_json_constant(value):
     raise ValueError(f"non-finite JSON value {value}")
 
 
+def _reject_nested_nonfinite_json(value: Any, *, path: str = "$") -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number at {path}")
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_nested_nonfinite_json(item, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_nested_nonfinite_json(item, path=f"{path}[{index}]")
+
+
 def _read_bounded_contract_json(
     path: str | Path,
     *,
@@ -3510,6 +3553,7 @@ def _read_bounded_contract_json(
             parse_constant=_reject_nonfinite_json_constant,
             object_pairs_hook=_reject_duplicate_json_pairs,
         )
+        _reject_nested_nonfinite_json(payload)
     except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise ContractViolation(code, f"cannot read {path}: {exc}") from exc
     if not isinstance(payload, dict):

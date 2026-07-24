@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-22
+Last updated: 2026-07-23
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,10 +8,12 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 19 modules.
+- Current warning count: 21 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
+  `weather.reporting.research.pool_city_training_benchmark`,
+  `weather.reporting.source_gates.source_family_inventory`,
   `weather.collection.snapshot_store`, `weather.market.mm_paper`,
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
@@ -77,8 +79,15 @@ Current module-size audit status:
 | `weather.market.taker_bot_aggregation` | Market | One-run-at-a-time SQLite scratch stores, replay deduplication/tick ordering, scored-row views, and explicit deferred-payload lifecycle for taker bakeoff and finalization. | Bounded owner module added 2026-07-17; scratch state is rebuildable and must not become canonical evidence. |
 | `weather.market.taker_bot_artifact_projection` | Market | Compact source-bound bakeoff and settled-finalization projections plus bounded canonical-schema inspection. | Bounded reader/publisher owner added 2026-07-17; canonical bakeoff and finalization artifacts retain their existing schemas. |
 | `weather.market.taker_profitability_artifact_verification` | Market | Streaming order-field presence checks and bounded compact-artifact verification for fee, slippage, executable-depth, benchmark, no-trade, and exchange-economics evidence. | Owner module; large legacy JSON must fail over to current replay evidence rather than be materialized. |
-| `weather.reporting.source_gates.source_family_inventory` | Reporting | Source-family input readers, family/gate classification, payload assembly, and CLI. Markdown rendering lives in `weather.reporting.source_gates.source_family_inventory_report`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
+| `weather.reporting.source_gates.source_family_inventory` | Reporting | Source-family input readers, family/gate classification, payload assembly, and CLI. Shared authorization validation lives in `weather.reporting.source_gates.source_family_contracts`; stable upstream byte receipts live in `weather.reporting.source_gates.source_artifact_binding`; Markdown rendering lives in `weather.reporting.source_gates.source_family_inventory_report`. | WARN after the 2026-07-23 safety migration. Extract scan-input closure and guarded publication orchestration while preserving the stable facade and current-input contracts. |
+| `weather.reporting.source_gates.physical_feature_family_ratchet` | Reporting | Physical-family input binding, exact rebuild validation, readiness projection, report rendering, and guarded publication. | Safety owner expanded on 2026-07-23 but remains below the warning threshold; preserve exact rebuild semantics if path/publication guards are later extracted. |
+| `weather.reporting.research.pool_city_training_benchmark` | Reporting | Research-only pooled, per-city, and leave-one-city-out training benchmark with an explicit historical-season anchor, authenticated checkpoints, and full execution closure. | WARN after the 2026-07-23 assurance migration. Extract checkpoint/status authentication and source-closure helpers without changing run IDs or prediction contracts. |
+| `weather.reporting.source_gates.source_family_current_inputs` | Reporting | Stable current-path loading and exact receipt revalidation for source-family inventory, ablation, and ratchet consumers. | Fail-closed shared owner; consumers must not substitute detached stored payloads for current verified bytes. |
+| `weather.reporting.source_gates.source_family_consumer_contract` | Reporting | Direct-consumer source-family authorization projection and blocker normalization. | Shared owner for consistent current-chain enforcement across source gates and daily learning. |
+| `weather.backtesting.source_ablation_evidence` | Backtesting | Source-ablation evidence-mode constants and operational/research authorization vocabulary shared by replay producers and reporting consumers. | Dependency-light contract owner; must not import reporting consumers. |
 | `weather.reporting.source_gates.source_family_inventory_report` | Reporting | Markdown rendering for source-family inventory artifacts. | Owner module for item 318; must not import the source-family inventory facade. |
+| `weather.reporting.source_gates.source_family_contracts` | Reporting | Fail-closed operational/research schema, completeness, provenance, derived-decision, and active-release-only model-binding contracts shared by source promotion gates. | Bounded safety-contract owner; must not import producer facades. |
+| `weather.reporting.source_gates.source_artifact_binding` | Reporting | Stable same-byte JSON reads, SHA-256 input receipts, current-path revalidation, canonical current-release serving-bundle resolution for candidate-replay model bytes, and artifact feature/lane inspection for source-gate publications. | Bounded safety-binding owner; detached candidate artifacts fail closed before deserialization and all reads remain read-only toward source artifacts. |
 | `weather.reporting.scorecards.live_variant_settlement_scorecard` | Reporting | Settled live-variant probability scoring, captured-input replay parity orchestration, persistence, report rendering, and CLI. | WARN in the 2026-07-12 audit. Move parity normalization, comparison, persistence, and rendering to `weather.reporting.validation.captured_input_replay_parity` while preserving facade exports and byte-identical payloads. |
 | `weather.reporting.serving_gates.production_readiness_gate` | Reporting | Production-readiness child evidence validation, active-release verification, pointer attestation, parent gate composition, and report output. | WARN in the 2026-07-12 audit. Extract the child-evidence validator registry and active-release binding checks; leave first-blocker ordering and parent gate composition in the facade. |
 | `weather.reporting.validation.point_in_time_evaluation` | Reporting | Point-in-time materialization, validation planning, fold and fit receipts, streaming evaluation, persistence, and CLI. | WARN in the 2026-07-12 audit. After verifier consolidation, separate materialization, fit receipts, and the streaming evaluator behind stable frozen contracts without adding cross-owner cycles. |

@@ -1,5 +1,28 @@
 # Agent Report - 2026-07-22 Workstation Morning Forecast Frontier
 
+## 2026-07-23 rendering assurance correction
+
+The structured result and every metric below remain unchanged. A deterministic
+rerender audit found that the prose named only San Francisco when five markets
+reverse the sign of their tune-versus-evaluation reach gap: Dallas, Denver,
+NYC, San Francisco, and Toronto.  The renderer now enumerates all five without
+changing selection, inference, multiplicity, or disposition. San Francisco is
+the clearest warning among the tune-selected markets because its gap changes
+from `+0.1854` to `-0.3657`.
+
+The final same-input assurance rerender is
+`scratch/workstation-research-output/followup-assurance/morning-frontier-generation-003/`.
+Its JSON is `1,045,971` bytes with SHA-256
+`6e327611e038c8b36955beecc668352e456cd0f1a67e9b9b798e0a0dddfb51ba`;
+its Markdown is `6,032` bytes with SHA-256
+`09226e53f6bfefd691e00eb925c128ada8e10e96a099be07adfc41d3d03ae933`.
+Generation 002 and generation 003 are byte-identical. Parsed as structured
+JSON, generation 003 is exactly semantically equal to the original provenance
+JSON (`1,070,748` bytes; SHA-256
+`92eadcb401b993375dc67d3527ca42da96ca3dd8eb94c3540c44316f0359a236`).
+The byte difference from the original is therefore serialization/rendering
+provenance, not a result change.
+
 ## Outcome
 
 **RETROSPECTIVE, SPLIT-RESPECTING DIAGNOSTIC: THE MORNING MODEL IS ADVERSE TO
@@ -20,10 +43,11 @@ the tune split only and reporting later dates separately.
 The corrected tune-only rule selects **Austin, Los Angeles, Miami, and San
 Francisco**. Their later-date group is adverse to the market, but the group was
 defined retrospectively after those dates had already been opened. It is not
-preregistered or untouched confirmation. San Francisco also reverses reach
-direction, and the nonselected cities are adverse too. Only Miami clears the
-joint city-level multiplicity standard. No serving change or city policy is
-supported.
+preregistered or untouched confirmation. Dallas, Denver, NYC, San Francisco,
+and Toronto reverse reach direction between tune and evaluation; San Francisco
+is the clearest selected-market warning. The nonselected cities are adverse
+too. Only Miami clears the joint city-level multiplicity standard. No serving
+change or city policy is supported.
 
 ## Evidence classification and provenance
 
@@ -46,10 +70,12 @@ then resampled 20,000 times with seed `20260722`. Binary reach is scored against
 the model and market probability assigned to reaching the forecast bucket.
 Positive model-minus-market losses mean the model is worse.
 
-The corrected aggregate artifact is
+The original structured provenance artifact is
 `scratch/workstation-research-output/workstream_a/morning_tracker/aggregate_morning_frontier.json`,
 schema `workstation_morning_frontier_v0.2`, SHA-256
-`92EADCB401B993375DC67D3527CA42DA96CA3DD8EB94C3540C44316F0359A236`.
+`92eadcb401b993375dc67d3527ca42da96ca3dd8eb94c3540c44316f0359a236`
+and size `1,070,748` bytes. The assured generation-003 rerender identified
+above is semantically exactly equal to this original JSON.
 It was written outside the read-only `data/` mirror through the shared
 exclusive-temp atomic writer. At 09:00 the full artifact contains 308
 observations: 271 use configured daily-summary settlement and 37 use the source
@@ -106,10 +132,12 @@ audit provenance and never participate in selection or inference.
 | Seattle | +0.0294 | Model calibrated | +0.0102 |
 | Toronto | -0.1190 | Model calibrated | +0.0486 |
 
-San Francisco is the clearest stability warning: its tune gap is `+0.1854`,
-but its later-date gap is `-0.3657`. Conversely, Atlanta, Dallas, Denver, and
-Houston were not selected on tune yet became strongly positive later. A fixed
-city label is therefore not stable on this panel.
+Five markets reverse reach-gap direction between tune and evaluation: Dallas,
+Denver, NYC, San Francisco, and Toronto. San Francisco is the clearest
+tune-selected stability warning: its tune gap is `+0.1854`, but its later-date
+gap is `-0.3657`. Atlanta and Houston do not reverse sign, but were not selected
+on tune and became strongly positive later. A fixed city label is therefore
+not stable on this panel.
 
 ### Separately reported group results
 
@@ -172,6 +200,7 @@ forecast-adoption candidate with both Brier and log-loss constraints.
 
 No serving parameter changed. The fleet-wide morning weakness is material
 diagnostic evidence; the 13:00 multiplicity result is directional, the
-four-city rule is retrospective, San Francisco reverses, and only Miami has
+four-city rule is retrospective, five markets reverse reach-gap direction,
+San Francisco is the clearest selected warning, and only Miami has
 city-specific Holm support. A future candidate must be specified before new
 dates arrive and clear both proper scores on that untouched panel.

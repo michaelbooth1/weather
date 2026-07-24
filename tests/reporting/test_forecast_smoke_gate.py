@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.forecast_smoke_gate import (
     SMOKE_FEATURES,
@@ -11,9 +12,19 @@ from weather.reporting.source_gates.forecast_smoke_gate import (
     source_inventory_evidence,
     write_markdown_report,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 class ForecastSmokeGateTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.forecast_smoke_gate."
+            "source_family_inventory_consumer_contract",
+            return_value={"status": "PASS", "blockers": []},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _write_hgb_csv(self, path, features):
         rows = [
             {
@@ -36,8 +47,8 @@ class ForecastSmokeGateTests(unittest.TestCase):
             writer.writerows(rows)
 
     def _inventory(self, *, aq_seen=True, historical_status="historical_aq_archive_available", active=True):
-        return {
-            "inventory": [
+        return operational_inventory(
+            [
                 {
                     "family_id": "open_meteo_expanded",
                     "source_keys": ["open_meteo", "open_meteo_air_quality"],
@@ -59,7 +70,7 @@ class ForecastSmokeGateTests(unittest.TestCase):
                     "feature_missingness": {"missing_rate": 0.0},
                 }
             ]
-        }
+        )
 
     def _candidate(self, *, feature_subset="forecast_aerosol_smoke", high_smoke_n=3):
         return {
@@ -130,8 +141,10 @@ class ForecastSmokeGateTests(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "forecast_smoke_gate_v0.1")
         self.assertEqual(payload["acceptance"]["status"], "PASS")
+        self.assertFalse(payload["serving_or_release_authorization"])
         self.assertEqual(payload["permutation_evidence"]["observed_expected_feature_count"], len(SMOKE_FEATURES))
         self.assertIn("Forecast Smoke Suppression Gate", text)
+        self.assertIn("runtime current-input revalidation is required", text)
         self.assertIn("No blockers.", text)
 
 

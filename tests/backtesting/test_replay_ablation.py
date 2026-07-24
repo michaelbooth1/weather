@@ -1,17 +1,29 @@
 import csv
+import copy
+import hashlib
 import json
 import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+
+import pandas as pd
+
 from weather.market.market_registry import REGISTRY
 from weather.backtesting.replay import (
     band_model_probability,
     canonical_replay_record_sha256,
 )
 from weather.backtesting.replay_ablation import (
+    DEFAULT_OUT,
+    DEFAULT_JSON_OUT,
+    DEFAULT_RESEARCH_JSON_OUT,
+    _load_manifest_with_receipt,
+    _stable_file_identity,
     ablate_sources,
     add_robustness_to_existing_artifact,
     build_payload,
@@ -20,11 +32,21 @@ from weather.backtesting.replay_ablation import (
     run_ablation,
     paired_day_inference,
     paired_market_inference,
+    resolve_evidence_output_paths,
     summarize,
     summarize_slice_effects,
+    validate_operational_cli_args,
     variant_names_for_spec,
 )
+from weather.backtesting.source_ablation_contract import ALL_VARIANTS
+from weather.backtesting.source_ablation_evidence import (
+    applicable_market_ids_for_variant,
+)
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
+from weather.reporting.promotion.promotion_corpus import corpus_hash
+from weather.reporting.source_gates.source_family_contracts import (
+    source_ablation_operational_contract,
+)
 
 NOW = datetime(2026, 6, 3, 14, 30, tzinfo=TORONTO_TZ)
 SLUG = "highest-temperature-in-toronto-on-june-3-2026"
@@ -57,6 +79,149 @@ def make_sources():
         "open_meteo": {"ok": True, "stale": False, "data": {
             "rows": [{"temp_c": 25.5, "time": "15:00"}], "day_max_c": 26.0}},
         "metar": {"ok": True, "stale": False, "data": {"temp_c": 23.0, "target_date_match": True}},
+    }
+
+
+def operational_build_case():
+    dates = ["2026-06-01", "2026-06-02"]
+    market_ids = sorted(REGISTRY)
+    market_day_count = len(market_ids) * len(dates)
+    summaries = []
+    day_tables = {}
+    for variant in ALL_VARIANTS:
+        applicable_markets = applicable_market_ids_for_variant(variant)
+        if not applicable_markets:
+            raise AssertionError(
+                f"canonical operational test variant has no market: {variant}"
+            )
+        market_id = applicable_markets[0]
+        summaries.append(
+            {
+            "variant": variant,
+            "n": market_day_count * 10,
+            "market_days": 2,
+            "base_brier": 0.20,
+            "variant_brier": 0.21,
+            "delta": 0.01,
+            "base_logloss": 0.50,
+            "variant_logloss": 0.52,
+            "logloss_delta": 0.02,
+            "market_days_source_helped": 2,
+            "market_days_source_hurt": 0,
+            "by_family": {"us_f": 0.01},
+            }
+        )
+        day_tables[variant] = [
+            {
+                "market_day": f"{market_id} {target_date}",
+                "n": market_day_count * 5,
+                "base_brier": 0.20,
+                "variant_brier": 0.21,
+                "delta": 0.01,
+                "brier_delta": 0.01,
+                "base_logloss": 0.50,
+                "variant_logloss": 0.52,
+                "logloss_delta": 0.02,
+            }
+            for target_date in dates
+        ]
+    day_meta = [
+        {
+            "market_day": f"{market_id} {target_date}",
+            "settlement_source": "daily_summary",
+        }
+        for market_id in market_ids
+        for target_date in dates
+    ]
+    split_dates = {"tune": [dates[0]], "holdout": [dates[1]]}
+    entries = [
+        {
+            "event_slug": f"{market_id}-{target_date}",
+            "market_id": market_id,
+            "target_date": target_date,
+            "settlement_source": "daily_summary",
+        }
+        for market_id in market_ids
+        for target_date in dates
+    ]
+    corpus_path = "C:/synthetic/promotion_corpus.json"
+    corpus_manifest = {
+        "_path": corpus_path,
+        "schema_version": "promotion_corpus_v0.2",
+        "corpus_hash": corpus_hash(entries),
+        "include_reconstructed": False,
+        "allow_unsettled": False,
+        "market_filter": None,
+        "entries": entries,
+        "summary": {
+            "market_day_count": market_day_count,
+            "snapshot_count": market_day_count * 10,
+        },
+    }
+    paired = paired_day_inference(day_tables, split_dates)
+    robustness = paired_inference_sensitivities(
+        day_tables,
+        day_meta,
+        split_dates=split_dates,
+        required_market_ids=tuple(sorted(REGISTRY)),
+    )
+    market_inference = paired_market_inference(
+        day_tables,
+        split_dates,
+        day_meta=day_meta,
+    )
+    input_receipts = {
+        "corpus": {
+            "path": corpus_path,
+            "status": "PASS",
+            "sha256": "1" * 64,
+            "size_bytes": 100,
+            "blockers": [],
+        },
+        "tune_dates": {
+            "path": "C:/synthetic/tune.txt",
+            "status": "PASS",
+            "sha256": "2" * 64,
+            "size_bytes": 10,
+            "blockers": [],
+        },
+        "holdout_dates": {
+            "path": "C:/synthetic/holdout.txt",
+            "status": "PASS",
+            "sha256": "3" * 64,
+            "size_bytes": 10,
+            "blockers": [],
+        },
+    }
+    model_binding = {
+        "status": "BOUND",
+        "binding_kind": "verified_active_release",
+        "pointer_present": True,
+        "base_model_bound": True,
+        "release_id": "synthetic-release",
+        "release_manifest_sha256": "4" * 64,
+        "release_pointer_sha256": "5" * 64,
+        "market_ids": market_ids,
+        "model_count": len(market_ids),
+        "shared_explicit_bundle": True,
+        "shared_verified_bundle": True,
+        "serving_or_release_authorization": True,
+    }
+    return {
+        "summaries": summaries,
+        "day_tables": day_tables,
+        "day_meta": day_meta,
+        "requested_sources": list(ALL_VARIANTS),
+        "include_reconstructed": False,
+        "slice_effects": [],
+        "corpus_manifest": corpus_manifest,
+        "paired_inference": paired,
+        "robustness_inference": robustness,
+        "market_inference": market_inference,
+        "split_dates": split_dates,
+        "model_binding": model_binding,
+        "input_receipts": input_receipts,
+        "evidence_mode": "operational",
     }
 
 
@@ -104,6 +269,112 @@ class TestVariantSelection(unittest.TestCase):
         )
         self.assertEqual(nyc["marine_context"], ("marine_context",))
         self.assertEqual(nyc["mrms_precip"], ("mrms_precip",))
+
+
+class TestEvidenceModeCli(unittest.TestCase):
+    def test_research_and_operational_defaults_do_not_share_json_path(self):
+        _research_out, research_json = resolve_evidence_output_paths(
+            operational_evidence=False
+        )
+        _operational_out, operational_json = resolve_evidence_output_paths(
+            operational_evidence=True
+        )
+
+        self.assertEqual(research_json, DEFAULT_RESEARCH_JSON_OUT)
+        self.assertEqual(operational_json, DEFAULT_JSON_OUT)
+        self.assertNotEqual(research_json, operational_json)
+        with self.assertRaisesRegex(ValueError, "--operational-evidence"):
+            resolve_evidence_output_paths(
+                operational_evidence=False,
+                json_out=DEFAULT_JSON_OUT,
+            )
+        with self.assertRaisesRegex(ValueError, "--operational-evidence"):
+            resolve_evidence_output_paths(
+                operational_evidence=False,
+                out=DEFAULT_OUT,
+            )
+
+    def test_operational_preflight_requires_full_corpus_and_forbids_subsets(self):
+        with self.assertRaisesRegex(ValueError, "corpus"):
+            validate_operational_cli_args(
+                SimpleNamespace(
+                    corpus=None,
+                    tune_dates_file=None,
+                    holdout_dates_file=None,
+                    folders=[],
+                    market=None,
+                    include_reconstructed=False,
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "forbids folder/market subsets"):
+            validate_operational_cli_args(
+                SimpleNamespace(
+                    corpus="corpus.json",
+                    tune_dates_file="tune.txt",
+                    holdout_dates_file="holdout.txt",
+                    folders=["one-day"],
+                    market=None,
+                    include_reconstructed=False,
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "exact ordered 22-variant"):
+            validate_operational_cli_args(
+                SimpleNamespace(
+                    corpus="corpus.json",
+                    tune_dates_file="tune.txt",
+                    holdout_dates_file="holdout.txt",
+                    folders=[],
+                    market=None,
+                    include_reconstructed=False,
+                ),
+                requested_sources=["open_meteo"],
+            )
+
+
+class TestStableOperationalInputs(unittest.TestCase):
+    def test_manifest_payload_and_receipt_share_one_physical_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion_corpus.json"
+            manifest = {
+                "schema_version": "promotion_corpus_v0.2",
+                "entries": [],
+                "corpus_hash": corpus_hash([]),
+            }
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            original_read_bytes = Path.read_bytes
+            reads = []
+
+            def counted_read(candidate):
+                if candidate == path.resolve():
+                    reads.append(str(candidate))
+                return original_read_bytes(candidate)
+
+            with mock.patch.object(Path, "read_bytes", counted_read):
+                loaded, receipt = _load_manifest_with_receipt(path)
+
+        self.assertEqual(reads, [str(path.resolve())])
+        self.assertEqual(loaded["corpus_hash"], corpus_hash([]))
+        self.assertEqual(receipt["status"], "PASS")
+
+    def test_stable_identity_includes_device_and_inode(self):
+        first = SimpleNamespace(
+            st_dev=1,
+            st_ino=10,
+            st_size=100,
+            st_mtime_ns=20,
+            st_ctime_ns=30,
+        )
+        replacement = SimpleNamespace(
+            st_dev=1,
+            st_ino=11,
+            st_size=100,
+            st_mtime_ns=20,
+            st_ctime_ns=30,
+        )
+        self.assertNotEqual(
+            _stable_file_identity(first),
+            _stable_file_identity(replacement),
+        )
 
 
 class TestRobustnessScopes(unittest.TestCase):
@@ -188,9 +459,16 @@ class TestRobustnessScopes(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            original_bytes = artifact.read_bytes()
+            expected_sha256 = hashlib.sha256(original_bytes).hexdigest()
+            augmented_json = Path(tmp) / "augmented.json"
+            augmented_report = Path(tmp) / "augmented.md"
             augmented = add_robustness_to_existing_artifact(
                 artifact,
                 read_only_data_root=data_root,
+                expected_sha256=expected_sha256,
+                output_json_path=augmented_json,
+                report_path=augmented_report,
                 split_dates={
                     "tune": ["2026-06-01"],
                     "holdout": ["2026-06-02"],
@@ -203,12 +481,33 @@ class TestRobustnessScopes(unittest.TestCase):
                 ]
             )
             self.assertTrue(augmented["market_inference"])
-
-            with self.assertRaisesRegex(ValueError, "must not alias"):
+            self.assertEqual(artifact.read_bytes(), original_bytes)
+            self.assertTrue(augmented_json.is_file())
+            self.assertTrue(augmented_report.is_file())
+            self.assertEqual(
+                augmented["augmentation_input_receipt"]["sha256"],
+                expected_sha256,
+            )
+            with self.assertRaisesRegex(ValueError, "refuses existing outputs"):
                 add_robustness_to_existing_artifact(
                     artifact,
                     read_only_data_root=data_root,
-                    report_path=artifact,
+                    expected_sha256=expected_sha256,
+                    output_json_path=augmented_json,
+                    report_path=augmented_report,
+                    split_dates={
+                        "tune": ["2026-06-01"],
+                        "holdout": ["2026-06-02"],
+                    },
+                )
+
+            with self.assertRaisesRegex(ValueError, "aliases a protected input"):
+                add_robustness_to_existing_artifact(
+                    artifact,
+                    read_only_data_root=data_root,
+                    expected_sha256=expected_sha256,
+                    output_json_path=artifact,
+                    report_path=Path(tmp) / "alias-report.md",
                     split_dates={
                         "tune": ["2026-06-01"],
                         "holdout": ["2026-06-02"],
@@ -216,15 +515,63 @@ class TestRobustnessScopes(unittest.TestCase):
                 )
 
             forbidden = data_root / "ablation.json"
-            forbidden.write_text(artifact.read_text(encoding="utf-8"), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "read-only data root"):
                 add_robustness_to_existing_artifact(
-                    forbidden,
+                    artifact,
                     read_only_data_root=data_root,
+                    expected_sha256=expected_sha256,
+                    output_json_path=forbidden,
+                    report_path=Path(tmp) / "forbidden-report.md",
                     split_dates={
                         "tune": ["2026-06-01"],
                         "holdout": ["2026-06-02"],
                     },
+                )
+
+    def test_robustness_augmentation_rejects_untrusted_or_non_strict_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / "data"
+            data_root.mkdir()
+            artifact = root / "ablation.json"
+            split_dates = {"tune": ["2026-06-01"], "holdout": ["2026-06-02"]}
+
+            for name, raw, message in (
+                (
+                    "duplicate",
+                    b'{"day_effects": {}, "day_effects": {}, "market_days": []}',
+                    "duplicate key",
+                ),
+                (
+                    "overflow",
+                    b'{"day_effects": {}, "market_days": [], "value": 1e999}',
+                    "non-finite number",
+                ),
+            ):
+                with self.subTest(name=name):
+                    artifact.write_bytes(raw)
+                    with self.assertRaisesRegex(ValueError, message):
+                        add_robustness_to_existing_artifact(
+                            artifact,
+                            read_only_data_root=data_root,
+                            expected_sha256=hashlib.sha256(raw).hexdigest(),
+                            output_json_path=root / f"{name}.json",
+                            report_path=root / f"{name}.md",
+                            split_dates=split_dates,
+                        )
+
+            artifact.write_text(
+                json.dumps({"day_effects": {}, "market_days": []}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "trusted receipt"):
+                add_robustness_to_existing_artifact(
+                    artifact,
+                    read_only_data_root=data_root,
+                    expected_sha256="0" * 64,
+                    output_json_path=root / "mismatch.json",
+                    report_path=root / "mismatch.md",
+                    split_dates=split_dates,
                 )
 
     def test_supplied_read_only_root_rejects_direct_and_aliased_outputs(self):
@@ -246,6 +593,31 @@ class TestRobustnessScopes(unittest.TestCase):
                 resolve_outputs_outside_read_only_root(
                     data_root,
                     {"json_out": alias / "report.json"},
+                )
+
+    def test_output_guard_rejects_explicit_input_and_snapshot_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / "data"
+            snapshots_root = root / "captured-snapshots"
+            output_root = root / "output"
+            data_root.mkdir()
+            snapshots_root.mkdir()
+            output_root.mkdir()
+            corpus = output_root / "corpus.json"
+            corpus.write_text("{}", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "protected input"):
+                resolve_outputs_outside_read_only_root(
+                    data_root,
+                    {"json_out": corpus},
+                    protected_inputs=(corpus,),
+                )
+            with self.assertRaisesRegex(ValueError, "protected read-only root"):
+                resolve_outputs_outside_read_only_root(
+                    data_root,
+                    {"json_out": snapshots_root / "report.json"},
+                    protected_roots=(snapshots_root,),
                 )
 
 
@@ -329,6 +701,9 @@ class TestRunAblationEndToEnd(unittest.TestCase):
         slices = summarize_slice_effects(data)
         payload = build_payload(summaries, day_tables, day_meta, ["open_meteo", "all_forecasts"], False, slices)
         self.assertEqual(payload["schema_version"], "source_family_ablation_v0.2")
+        self.assertEqual(payload["evidence_mode"], "research")
+        self.assertTrue(payload["research_only"])
+        self.assertFalse(payload["promotion_preflight_evidence_authorization"])
         self.assertEqual(payload["summary"]["variant_count"], 2)
         self.assertGreater(payload["summary"]["slice_effect_count"], 0)
         self.assertIn("variants", payload)
@@ -337,6 +712,78 @@ class TestRunAblationEndToEnd(unittest.TestCase):
             next(row for row in payload["variants"] if row["variant"] == "all_forecasts")["ablated_sources"],
             ["open_meteo", "weather_forecast", "eccc_citypage"],
         )
+        research_payload = build_payload(
+            summaries,
+            day_tables,
+            day_meta,
+            ["open_meteo", "all_forecasts"],
+            False,
+            slices,
+            evidence_mode="research",
+        )
+        self.assertEqual(
+            research_payload["schema_version"], "source_family_ablation_v0.2"
+        )
+        self.assertTrue(research_payload["research_only"])
+
+    def test_operational_build_requires_all_authorization_inputs(self):
+        case = operational_build_case()
+        payload = build_payload(**case)
+        self.assertEqual(payload["schema_version"], "source_family_ablation_v0.3")
+        self.assertEqual(payload["evidence_mode"], "operational")
+        self.assertFalse(payload["research_only"])
+        self.assertTrue(payload["promotion_preflight_evidence_authorization"])
+        self.assertEqual(payload["corpus"]["manifest_sha256"], "1" * 64)
+        self.assertEqual(
+            source_ablation_operational_contract(payload)["status"],
+            "PASS",
+        )
+
+        adversarial = [
+            (
+                "missing corpus",
+                {"corpus_manifest": None},
+                "promotion corpus manifest",
+            ),
+            (
+                "overlapping splits",
+                {
+                    "split_dates": {
+                        "tune": ["2026-06-01"],
+                        "holdout": ["2026-06-01"],
+                    }
+                },
+                "must be disjoint",
+            ),
+            (
+                "detached inference",
+                {"paired_inference": []},
+                "paired inference differs",
+            ),
+            (
+                "unbound model",
+                {"model_binding": {"status": "RESEARCH_UNBOUND"}},
+                "model_binding.status must be BOUND",
+            ),
+            (
+                "research-derived corpus",
+                {
+                    "corpus_manifest": {
+                        **copy.deepcopy(case["corpus_manifest"]),
+                        "materialization": {
+                            "schema_version": "ordinal_smoothing_literal_panel_v0.1",
+                            "kind": "fresh",
+                        },
+                    }
+                },
+                "research-derived materialization",
+            ),
+        ]
+        for label, replacement, message in adversarial:
+            with self.subTest(label=label), self.assertRaisesRegex(
+                ValueError, message
+            ):
+                build_payload(**{**copy.deepcopy(case), **replacement})
 
     def test_model_binding_audit_keyword_is_accepted_by_non_hardened_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -349,7 +796,10 @@ class TestRunAblationEndToEnd(unittest.TestCase):
                 model_binding_audit=audit,
             )
 
-        self.assertEqual(audit, {})
+        self.assertEqual(audit["model_count"], 1)
+        self.assertEqual(audit["market_ids"], ["toronto"])
+        self.assertIn(audit["status"], {"BOUND", "RESEARCH_UNBOUND"})
+        self.assertIn("serving_or_release_authorization", audit)
 
     def test_pinned_corpus_filters_rows_and_uses_pinned_settlement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -414,6 +864,47 @@ class TestRunAblationEndToEnd(unittest.TestCase):
                 )
 
         self.assertEqual(created, [])
+
+    def test_scoring_frame_is_reverified_after_initial_corpus_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            self._build_day(folder)
+            replay_path = folder / "replay_inputs.jsonl"
+            record = json.loads(replay_path.read_text(encoding="utf-8").splitlines()[0])
+            manifest = {
+                "entries": [
+                    {
+                        "event_slug": SLUG,
+                        "snapshot_ids": ["snap1"],
+                        "tape_row_hashes": {},
+                        "replay_record_hashes": {
+                            "snap1": canonical_replay_record_sha256(record)
+                        },
+                        "settlement_bucket": 25,
+                        "settlement_source": "fixture",
+                    }
+                ]
+            }
+
+            def mutate_after_preflight(*_args, **_kwargs):
+                tape = folder / "snapshots_long.csv"
+                frame = pd.read_csv(tape)
+                frame["snapshot_id"] = "replacement"
+                frame.to_csv(tape, index=False)
+                return []
+
+            with (
+                mock.patch(
+                    "weather.backtesting.replay_ablation.verify_corpus_inputs",
+                    side_effect=mutate_after_preflight,
+                ),
+                self.assertRaisesRegex(ValueError, "exact scoring-frame"),
+            ):
+                run_ablation(
+                    [str(folder)],
+                    ["open_meteo"],
+                    corpus_manifest=manifest,
+                )
 
 
 if __name__ == "__main__":

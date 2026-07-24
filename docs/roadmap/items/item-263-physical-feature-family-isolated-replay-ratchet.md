@@ -87,3 +87,53 @@ promotion claim unless its own lineage, parity, missingness, and isolated
 settlement-scored replay evidence pass the shared ratchet.
 
 Related: items 32, 50, 74, 75, 76, 125, 185, 186, 187, 188, 189, 190, 191, 242.
+
+## 2026-07-23 Safety Migration
+
+The v0.1 completion record above remains historical. Operational promotion
+now requires `physical_feature_family_ratchet_v0.2`; v0.1 lacks the input
+authorization and byte-binding needed to support a current decision.
+
+Ratchet v0.2 validates the complete canonical physical-family set, derives
+status, blockers, rollup buckets, counts, and slice summaries from raw rows,
+and rejects forged summaries or omitted families. A promotion-eligible family
+must have a positive pooled ablation plus all four required settlement slice
+kinds. Every promotion-used slice requires positive integer support and a
+finite delta; zero-support, non-finite, detached-variant, harmful, or
+non-positive required-kind evidence blocks the family.
+
+The ratchet binds both input files by resolved path, byte count, and SHA-256,
+and requires the inventory's embedded ablation receipt to equal the ratchet's
+ablation input. Promotion readers re-read both current paths. Replacing an
+authorized ablation with research output—or changing either input after
+ratchet publication—therefore produces `BLOCK_UNAUTHORIZED_ARTIFACT` until
+the chain is regenerated in order: operational ablation, inventory v0.2,
+ratchet v0.2. Candidate-bound reanalysis operational publication and merging
+are both disabled under the schema's single root model binding. The retained
+research implementation captures mutable feature, CLOB, and freshness inputs
+once and shares that generation between pre-cloned arms, but publication blocks
+before candidate pickle deserialization because it still lacks an independently
+anchored trust root. It also lacks sealed per-variant model bindings and a
+migrated operational schema.
+Research-only reanalysis output cannot satisfy this ratchet.
+
+No runtime artifact was regenerated during this migration because the mirrored
+`data/` tree was explicitly read-only. The code and tests intentionally leave
+stale runtime evidence blocked rather than silently upgrading it.
+
+Ratchet publication now requires an explicit read-only data root and new JSON
+and Markdown targets outside that tree and outside both source inputs. It
+rejects existing or aliased targets, serializes both leaves before publication,
+then publishes the report before an exclusive JSON completion leaf. Legacy
+default targets below `data/` therefore fail closed. Embedded Item 27
+`market_details[].path` values have no immutable receipts; the ratchet no longer
+follows them or lets their derived slices contribute to readiness, and records
+that omission as diagnostic-only evidence.
+
+Raw inventory and ratchet roots explicitly carry
+`serving_or_release_authorization=false`; they are evidence components, not
+serving decisions. Forecast, global-model, marine, NBM, official-guidance,
+weak-family, Item 186, and daily-learning consumers now re-read and validate
+the current inventory receipt and its root operational contract. Missing,
+detached, stale, incomplete, or root-blocked evidence therefore stays blocked
+instead of becoming an implicit empty/pass result.

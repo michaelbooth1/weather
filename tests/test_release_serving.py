@@ -1,4 +1,6 @@
+import hashlib
 import json
+import os
 import pickle
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -6,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import weather.release_serving as release_serving
 from tests.operations.test_release_candidate_contract import (
     _fixture,
     _freeze,
@@ -64,6 +67,19 @@ class FakeClient:
     def bin_probability(self, distribution, bin_data, calibration_context=None):
         del distribution, bin_data, calibration_context
         return 0.5
+
+
+def _write_pickle_execution_marker(path: str) -> str:
+    Path(path).write_text("unverified pickle executed", encoding="utf-8")
+    return "executed"
+
+
+class MarkerOnUnpickle:
+    def __init__(self, path: Path):
+        self.path = str(path)
+
+    def __reduce__(self):
+        return (_write_pickle_execution_marker, (self.path,))
 
 
 def _runtime_versions():
@@ -227,6 +243,7 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
     assert bundle.release_kind == "production"
     assert bundle.candidate_mode == PRODUCTION_CANDIDATE_MODE
     assert bundle.production_capable is True
+    assert bundle.model_bundle_materialized is True
     assert bundle.route["markets"]["nyc"]["candidate_variant_id"] == "r1.pooled_band"
     assert bundle.model_variant_registry["variants"][0]["variant_id"] == "candidate"
     assert Path(bundle.artifact_paths["pooled_band_model"]).is_relative_to(releases / "r1")
@@ -253,6 +270,154 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
         "afternoon_residual_centering",
         "family_secondary_artifacts",
     }
+
+
+def test_verified_loader_can_bind_roles_without_deserializing_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    paths, _frozen, _result, releases, pointer = _active_fixture(tmp_path)
+
+    def forbidden_deserialization(*_args, **_kwargs):
+        raise AssertionError("verification-only loading must not deserialize models")
+
+    monkeypatch.setattr(
+        release_serving,
+        "_checked_pickle",
+        forbidden_deserialization,
+    )
+
+    bundle = load_verified_active_serving_bundle(
+        pointer_path=pointer,
+        releases_root=releases,
+        repo_root=paths["repo"],
+        check_runtime=False,
+        deserialize_model_artifacts=False,
+    )
+
+    assert bundle.status == STATUS_BOUND
+    assert bundle.model_bundle_materialized is False
+    assert bundle.model_bundle == {}
+    assert bundle.artifact_hashes["pooled_band_model"]
+    assert bundle.route["markets"]["nyc"]["artifact_role"] == "pooled_band_model"
+
+
+def test_verified_loader_rejects_pointer_symlink_before_resolution(tmp_path: Path):
+    paths, _frozen, _result, releases, pointer = _active_fixture(tmp_path)
+    real_pointer = releases / "real-current-release.json"
+    pointer.rename(real_pointer)
+    try:
+        pointer.symlink_to(real_pointer)
+    except OSError as exc:
+        pytest.skip(f"file symlink unavailable: {exc}")
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="symlink or reparse point",
+    ):
+        _load(pointer, releases, paths["repo"])
+
+
+def test_verified_loader_rejects_releases_root_symlink_ancestor(tmp_path: Path):
+    paths, _frozen, _result, releases, _pointer = _active_fixture(tmp_path)
+    alias = tmp_path / "releases-alias"
+    try:
+        alias.symlink_to(releases, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlink unavailable: {exc}")
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="symlink or reparse point",
+    ):
+        _load(alias / "current_release.json", alias, paths["repo"])
+
+
+def test_checked_pickle_deserializes_the_same_single_open_bytes_it_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    artifact = tmp_path / "model.pkl"
+    marker = tmp_path / "unverified-pickle-executed.txt"
+    verified_bytes = pickle.dumps({"source": "verified"})
+    swapped_bytes = pickle.dumps(
+        {
+            "source": "unverified",
+            "payload": MarkerOnUnpickle(marker),
+        }
+    )
+    artifact.write_bytes(verified_bytes)
+    expected_sha256 = hashlib.sha256(verified_bytes).hexdigest()
+    real_open = Path.open
+    artifact_open_count = 0
+
+    def swap_before_a_second_open(path, *args, **kwargs):
+        nonlocal artifact_open_count
+        mode = str(args[0] if args else kwargs.get("mode", "r"))
+        if path == artifact and "r" in mode:
+            artifact_open_count += 1
+            if artifact_open_count == 2:
+                descriptor = os.open(
+                    artifact,
+                    os.O_WRONLY | os.O_TRUNC,
+                )
+                try:
+                    os.write(descriptor, swapped_bytes)
+                finally:
+                    os.close(descriptor)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", swap_before_a_second_open)
+
+    payload = release_serving._checked_pickle(
+        artifact,
+        expected_sha256=expected_sha256,
+        label="test model",
+    )
+
+    assert payload == {"source": "verified"}
+    assert artifact_open_count == 1
+    assert not marker.exists()
+
+
+def test_checked_json_parses_the_same_single_open_bytes_it_hashes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    artifact = tmp_path / "route.json"
+    verified_bytes = b'{"source":"verified"}\n'
+    swapped_bytes = b'{"source":"unverified"}\n'
+    artifact.write_bytes(verified_bytes)
+    expected_sha256 = hashlib.sha256(verified_bytes).hexdigest()
+    real_open = Path.open
+    artifact_open_count = 0
+
+    def swap_before_a_second_open(path, *args, **kwargs):
+        nonlocal artifact_open_count
+        mode = str(args[0] if args else kwargs.get("mode", "r"))
+        if path == artifact and "r" in mode:
+            artifact_open_count += 1
+            if artifact_open_count == 2:
+                descriptor = os.open(
+                    artifact,
+                    os.O_WRONLY | os.O_TRUNC,
+                )
+                try:
+                    os.write(descriptor, swapped_bytes)
+                finally:
+                    os.close(descriptor)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", swap_before_a_second_open)
+
+    payload = release_serving._checked_json(
+        artifact,
+        expected_sha256=expected_sha256,
+        label="test route",
+    )
+
+    assert payload == {"source": "verified"}
+    assert artifact_open_count == 1
 
 
 def test_research_release_without_valid_bootstrap_provenance_is_rejected(

@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.nbm_probabilistic_tmax_gate import (
     NBM_FEATURES,
@@ -11,9 +12,19 @@ from weather.reporting.source_gates.nbm_probabilistic_tmax_gate import (
     source_inventory_evidence,
     write_markdown_report,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 class NbmProbabilisticTmaxGateTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.nbm_probabilistic_tmax_gate."
+            "source_family_inventory_consumer_contract",
+            return_value={"status": "PASS", "blockers": []},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _write_hgb_csv(self, path, features):
         rows = [
             {
@@ -46,8 +57,8 @@ class NbmProbabilisticTmaxGateTests(unittest.TestCase):
     ):
         sources = ["nws_grid", "nws_hourly", "nbm_probabilistic_tmax"]
         payload_sources = sources if nbm_payload_seen else ["nws_grid", "nws_hourly"]
-        return {
-            "inventory": [
+        return operational_inventory(
+            [
                 {
                     "family_id": "nws_grid",
                     "source_keys": sources,
@@ -69,7 +80,7 @@ class NbmProbabilisticTmaxGateTests(unittest.TestCase):
                     "feature_missingness": {"missing_rate": 0.0},
                 }
             ]
-        }
+        )
 
     def _candidate(self, *, feature_subset="nbm_probabilistic_tmax", market_rows=2):
         return {
@@ -184,8 +195,10 @@ class NbmProbabilisticTmaxGateTests(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "nbm_probabilistic_tmax_gate_v0.1")
         self.assertEqual(payload["acceptance"]["status"], "PASS")
+        self.assertFalse(payload["serving_or_release_authorization"])
         self.assertEqual(payload["permutation_evidence"]["observed_expected_feature_count"], len(NBM_FEATURES))
         self.assertIn("NBM Probabilistic Tmax Gate", text)
+        self.assertIn("runtime current-input revalidation is required", text)
         self.assertIn("No blockers.", text)
 
 

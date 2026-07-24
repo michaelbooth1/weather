@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -16,12 +17,21 @@ from weather.operations.nightly_retrain import (  # noqa: E402
     point_in_time_qualification_command,
     prepare_candidate_outputs,
     prepare_production_point_in_time_outputs,
+    promotion_summary,
     production_promotion_selection,
+    promotion_refresh_command,
     run_nightly_retrain,
     settled_day_freshness_command,
 )
 from tests.operations.test_experiment_contract import materialized_manifest
+from weather.operations.release_bootstrap import (
+    evaluate_first_inactive_release_bootstrap,
+)
+from weather.operations.release_candidate_build import (
+    _release_construction_authorization,
+)
 from weather.operations.release_candidate_contract import verify_candidate_semantic_contract
+from weather.operations.release_manifest import ReleaseLifecycleError
 from weather.reporting.validation.point_in_time_evaluation import (
     PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
     PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
@@ -177,18 +187,68 @@ def _args(tmp, *extra):
     ])
 
 
-def _write_promotion(path, *, promote=None, shadow=None, blocked=None):
+def _write_promotion(
+    path,
+    *,
+    promote=None,
+    shadow=None,
+    blocked=None,
+    authorized=False,
+    root_candidate_serving_allowed=None,
+):
+    promote = promote or []
+    shadow = shadow or []
+    blocked = blocked or []
+    root_candidate_serving_allowed = (
+        authorized
+        if root_candidate_serving_allowed is None
+        else root_candidate_serving_allowed
+    )
+    rows = []
+    for action, market_ids in (
+        ("PROMOTE_CANDIDATE", promote),
+        ("KEEP_SHADOW", shadow),
+        ("BLOCK_CANDIDATE", blocked),
+    ):
+        for market_id in market_ids:
+            market_authorized = authorized and action == "PROMOTE_CANDIDATE"
+            rows.append(
+                {
+                    "market_id": market_id,
+                    "action": action,
+                    "authorization_schema_supported": market_authorized,
+                    "authorization_status": (
+                        "AUTHORIZED"
+                        if market_authorized
+                        else "NON_AUTHORIZING_SCHEMA"
+                    ),
+                    "serving_or_release_authorization": market_authorized,
+                    "candidate_serving_allowed": market_authorized,
+                    "candidate_permission_allowed": market_authorized,
+                }
+            )
     payload = {
         "readiness": {"status": "READY"},
         "serving_gauntlet": {"verdict": "PASS_WITH_SHADOWS"},
         "decisions": {
-            "promote_markets": promote or [],
-            "shadow_markets": shadow or [],
-            "blocked_markets": blocked or [],
+            "promote_markets": promote,
+            "shadow_markets": shadow,
+            "blocked_markets": blocked,
             "markets": [
                 {"market_id": market_id}
-                for market_id in [*(promote or []), *(shadow or []), *(blocked or [])]
+                for market_id in [*promote, *shadow, *blocked]
             ],
+        },
+        "promotion_allowlist": {
+            "schema_version": "promotion_allowlist_v0.1",
+            "authorization_schema_supported": authorized,
+            "authorization_status": (
+                "AUTHORIZED" if authorized else "NON_AUTHORIZING_SCHEMA"
+            ),
+            "serving_or_release_authorization": authorized,
+            "candidate_serving_allowed": root_candidate_serving_allowed,
+            "candidate_permission_allowed": authorized,
+            "markets": rows,
         },
     }
     path = Path(path)
@@ -363,7 +423,13 @@ def _write_point_in_time_source(
     return corpus, manifest_path, replay_manifest_path
 
 
-def _materializing_runner(command, *, promotion="promote", **_kwargs):
+def _materializing_runner(
+    command,
+    *,
+    promotion="promote",
+    promotion_authorized=True,
+    **_kwargs,
+):
     if "weather.calibration.family_secondary_artifacts" in command:
         out = Path(command[command.index("--out") + 1])
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -419,7 +485,11 @@ def _materializing_runner(command, *, promotion="promote", **_kwargs):
     elif "weather.reporting.promotion.promotion_refresh" in command:
         out = command[command.index("--out") + 1]
         if promotion == "promote":
-            _write_promotion(out, promote=["nyc"])
+            _write_promotion(
+                out,
+                promote=["nyc"],
+                authorized=promotion_authorized,
+            )
         elif promotion == "shadow":
             _write_promotion(out, shadow=["nyc"])
         else:
@@ -439,6 +509,143 @@ def _clean_code_identity(*, repo_root):
 
 
 class TestNightlyRetrain(unittest.TestCase):
+    def test_exact_bootstrap_rejects_authorized_route_before_release_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                "--build-candidate-release",
+                "--release-candidate-mode",
+                "production",
+            )
+            args.bootstrap_first_inactive_release = True
+            args.skip_captured_input_replay_parity = False
+            contract = evaluate_first_inactive_release_bootstrap(
+                args,
+                release_identity={"status": "BLOCK"},
+            )
+            self.assertEqual(contract["status"], "PASS")
+            args._first_inactive_release_bootstrap_contract = contract
+            future_authorized_route = {
+                "promotion_verdict": "promote_ready",
+                "promotion_eligibility": "ELIGIBLE_FOR_GATED_PROMOTION",
+                "promotion_authorization": {"status": "AUTHORIZED"},
+                "markets": {
+                    "nyc": {
+                        "decision": "promote",
+                        "counts_toward_promotion": True,
+                        "serving_release": "test-nightly",
+                    }
+                },
+            }
+
+            with self.assertRaisesRegex(
+                ReleaseLifecycleError,
+                "first inactive release route failed closed",
+            ):
+                _release_construction_authorization(
+                    args=args,
+                    candidate_mode="production",
+                    parent_release=None,
+                    route=future_authorized_route,
+                )
+
+            self.assertFalse(Path(args.releases_root).exists())
+
+    def test_forged_route_cannot_construct_ordinary_candidate_release(self):
+        forged_route = {
+            "promotion_eligibility": "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+            "promotion_authorization": {
+                "status": "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+                "authorization_schema_claimed_supported": True,
+                "authorization_schema_supported": False,
+                "authorization_status": "UNSUPPORTED_SCHEMA",
+            },
+        }
+        for candidate_mode in ("research_only", "production"):
+            with self.subTest(candidate_mode=candidate_mode):
+                with self.assertRaisesRegex(
+                    ReleaseLifecycleError,
+                    "requires code-authorized promotion",
+                ):
+                    _release_construction_authorization(
+                        args=SimpleNamespace(),
+                        candidate_mode=candidate_mode,
+                        parent_release=None,
+                        route=forged_route,
+                    )
+
+        with self.assertRaisesRegex(
+            ReleaseLifecycleError,
+            "restricted to production candidate mode",
+        ):
+            _release_construction_authorization(
+                args=SimpleNamespace(
+                    _first_inactive_release_bootstrap_contract={}
+                ),
+                candidate_mode="research_only",
+                parent_release=None,
+                route=forged_route,
+            )
+
+    def test_promotion_summary_rejects_forged_v01_all_true_authorization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            _write_promotion(
+                path,
+                promote=["nyc"],
+                authorized=True,
+            )
+            summary = promotion_summary(path)
+
+        self.assertTrue(summary["authorization_schema_claimed_supported"])
+        self.assertFalse(summary["authorization_schema_supported"])
+        self.assertEqual(summary["authorization_status"], "UNSUPPORTED_SCHEMA")
+        self.assertEqual(
+            summary["authorization_gate_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
+        self.assertEqual(summary["promote_markets"], [])
+        self.assertEqual(summary["recommendation_promote_markets"], ["nyc"])
+        self.assertEqual(summary["shadow_markets"], ["nyc"])
+
+    def test_promotion_summary_requires_root_candidate_serving_authorization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            _write_promotion(
+                path,
+                promote=["nyc"],
+                authorized=True,
+                root_candidate_serving_allowed=False,
+            )
+            summary = promotion_summary(path)
+
+        self.assertEqual(
+            summary["authorization_gate_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
+        self.assertEqual(summary["verdict"], "shadow")
+        self.assertEqual(summary["promote_markets"], [])
+        self.assertEqual(summary["recommendation_promote_markets"], ["nyc"])
+        self.assertEqual(summary["shadow_markets"], ["nyc"])
+
+    def test_promotion_summary_blocks_overlapping_decision_categories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            _write_promotion(
+                path,
+                promote=["nyc"],
+                blocked=["nyc"],
+                authorized=True,
+            )
+            summary = promotion_summary(path)
+
+        self.assertEqual(summary["verdict"], "blocked")
+        self.assertEqual(
+            summary["decision_category_overlaps"],
+            {"nyc": ["promote", "blocked"]},
+        )
+        self.assertEqual(summary["promote_markets"], [])
+
     def test_cli_defaults_capture_resource_admission_to_live_host(self):
         args = build_parser().parse_args(["run"])
 
@@ -446,6 +653,40 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertFalse(args.skip_captured_input_replay_parity)
         self.assertFalse(args.skip_production_readiness_gate)
         self.assertFalse(args.bootstrap_first_inactive_release)
+
+    def test_promotion_command_uses_fresh_generation_corpus_on_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            args._nightly_retrain_generation_id = (
+                "nightly:2026-07-23T03:30:00Z"
+            )
+            first_command = promotion_refresh_command(args)
+            first = Path(
+                first_command[first_command.index("--corpus-out") + 1]
+            )
+
+            self.assertEqual(
+                first.parent.name,
+                "promotion_corpus_generations",
+            )
+            self.assertNotEqual(
+                first,
+                Path(args.backtest_root) / "promotion_corpus.json",
+            )
+            first.parent.mkdir(parents=True)
+            first.write_text("immutable-nightly-corpus", encoding="utf-8")
+
+            retry_command = promotion_refresh_command(args)
+            retry = Path(
+                retry_command[retry_command.index("--corpus-out") + 1]
+            )
+
+            self.assertNotEqual(retry, first)
+            self.assertIn("-retry-0002", retry.name)
+            self.assertEqual(
+                first.read_text(encoding="utf-8"),
+                "immutable-nightly-corpus",
+            )
 
     def test_folder_backed_qualification_uses_prelock_materialized_source(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -779,7 +1020,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertIn("--allow-legacy-serving-output", pooled_step["command"])
         self.assertFalse(release_exists)
 
-    def test_passed_gates_build_inactive_immutable_release_without_pointer(self):
+    def test_forged_authorization_does_not_build_ordinary_research_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             payload, _status, report_path = run_nightly_retrain(
@@ -788,33 +1029,74 @@ class TestNightlyRetrain(unittest.TestCase):
                 code_identity_provider=_clean_code_identity,
             )
             release_dir = root / "artifacts" / "releases" / "test-nightly"
-            manifest = json.loads((release_dir / "release_manifest.json").read_text(encoding="utf-8"))
             report = Path(report_path).read_text(encoding="utf-8")
             pointer_exists = (release_dir.parent / "current_release.json").exists()
 
-        self.assertEqual(payload["status"], "promote_ready")
+        self.assertEqual(payload["status"], "shadow")
         self.assertTrue(payload["capture_resource_admission"]["admitted"])
         self.assertEqual(
             payload["capture_resource_admission"]["decision"],
             "ADMIT",
         )
-        self.assertEqual(payload["candidate_release"]["status"], "CREATED")
-        self.assertEqual(payload["candidate_release"]["activation"], "MANUAL_POINTER_ONLY")
-        self.assertTrue(payload["candidate_release"]["active_pointer_unchanged"])
-        self.assertEqual(manifest["release_id"], "test-nightly")
-        self.assertEqual(manifest["state"], "IMMUTABLE_CANDIDATE")
-        self.assertEqual(manifest["code"]["git_dirty"], False)
-        self.assertEqual(manifest["artifacts"]["file_count"], 25)
         self.assertEqual(
-            {
-                row["role"]: row["kind"]
-                for row in manifest["artifacts"]["inventory"]
-                if row["declared"]
-            }["semantic_serving_contract"],
-            "contract",
+            payload["promotion"]["authorization_status"],
+            "UNSUPPORTED_SCHEMA",
         )
+        self.assertEqual(
+            payload["promotion"]["authorization_gate_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
+        self.assertEqual(payload["promotion"]["promote_markets"], [])
+        self.assertEqual(
+            payload["promotion"]["recommendation_promote_markets"],
+            ["nyc"],
+        )
+        self.assertEqual(payload["candidate_release"]["status"], "NOT_BUILT")
+        self.assertEqual(
+            payload["candidate_release"]["reason"],
+            "promotion_evidence_non_authorizing",
+        )
+        self.assertFalse(release_dir.exists())
         self.assertFalse(pointer_exists)
-        self.assertIn("MANUAL_POINTER_ONLY", report)
+        self.assertIn("BLOCKED_NON_AUTHORIZING_EVIDENCE", report)
+
+    def test_nonauthorizing_promote_recommendation_skips_candidate_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def runner(command, **kwargs):
+                return _materializing_runner(
+                    command,
+                    promotion_authorized=False,
+                    **kwargs,
+                )
+
+            payload, _status, _report = run_nightly_retrain(
+                _args(tmp, "--build-candidate-release"),
+                runner=runner,
+                code_identity_provider=_clean_code_identity,
+            )
+            release_exists = (
+                root / "artifacts" / "releases" / "test-nightly"
+            ).exists()
+
+        self.assertEqual(payload["status"], "shadow")
+        self.assertEqual(payload["promotion"]["promote_markets"], [])
+        self.assertEqual(
+            payload["promotion"]["recommendation_promote_markets"],
+            ["nyc"],
+        )
+        self.assertEqual(
+            payload["promotion"]["authorization_gate_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
+        self.assertEqual(payload["promotion"]["shadow_markets"], ["nyc"])
+        self.assertEqual(payload["candidate_release"]["status"], "NOT_BUILT")
+        self.assertEqual(
+            payload["candidate_release"]["reason"],
+            "promotion_evidence_non_authorizing",
+        )
+        self.assertFalse(release_exists)
 
     def test_production_mode_materializes_real_receipts_and_locked_candidate_packet(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1071,7 +1353,7 @@ class TestNightlyRetrain(unittest.TestCase):
                     runner=production_runner,
                     code_identity_provider=_clean_code_identity,
                 )
-            self.assertEqual(payload["status"], "promote_ready", payload)
+            self.assertEqual(payload["status"], "shadow", payload)
             self.assertEqual(
                 payload["candidate_release"]["status"], "CREATED", payload
             )
@@ -1107,6 +1389,18 @@ class TestNightlyRetrain(unittest.TestCase):
             ).exists()
 
         self.assertEqual(payload["candidate_release"]["candidate_mode"], "production")
+        self.assertTrue(
+            payload["promotion"]["authorization_schema_claimed_supported"]
+        )
+        self.assertFalse(payload["promotion"]["authorization_schema_supported"])
+        self.assertEqual(
+            payload["promotion"]["authorization_status"],
+            "UNSUPPORTED_SCHEMA",
+        )
+        self.assertEqual(
+            payload["candidate_release"]["promotion_authorization_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
         self.assertEqual(
             payload["first_inactive_release_bootstrap"]["status"],
             "PASS",
@@ -1125,6 +1419,32 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertFalse(qualification["serving_authorized"])
         self.assertFalse(qualification["live_fallback_authorized"])
         self.assertFalse(pointer_exists)
+        route = verified["route"]
+        self.assertEqual(route["promotion_verdict"], "shadow")
+        self.assertEqual(
+            route["promotion_eligibility"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
+        self.assertEqual(
+            route["recommendation_route_selection"]["promote_markets"],
+            ["nyc"],
+        )
+        self.assertEqual(
+            [
+                market_id
+                for market_id, row in route["markets"].items()
+                if row["decision"] == "promote"
+            ],
+            [],
+        )
+        self.assertTrue(
+            all(
+                row["decision"] == "shadow"
+                and row["counts_toward_promotion"] is False
+                and row["serving_release"] is None
+                for row in route["markets"].values()
+            )
+        )
         self.assertEqual(
             release_manifest["lineage"]["first_inactive_release_bootstrap"][
                 "contract_sha256"
@@ -1234,8 +1554,11 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(payload["steps"][-1]["status"], "skipped")
         self.assertFalse(release_exists)
 
-    def test_dirty_source_blocks_release_build_after_gates_without_creating_release(self):
+    def test_nonauthorizing_evidence_skips_before_code_identity_check(self):
+        code_identity_calls = []
+
         def dirty_code_identity(*, repo_root):
+            code_identity_calls.append(repo_root)
             del repo_root
             return {
                 "git_commit": "e" * 40,
@@ -1254,12 +1577,16 @@ class TestNightlyRetrain(unittest.TestCase):
             )
             release_exists = (root / "artifacts" / "releases" / "test-nightly").exists()
 
-        self.assertEqual(payload["status"], "error")
-        self.assertEqual(payload["candidate_release"]["status"], "BLOCK")
-        self.assertIn("clean source tree", payload["candidate_release"]["error"])
+        self.assertEqual(payload["status"], "shadow")
+        self.assertEqual(payload["candidate_release"]["status"], "NOT_BUILT")
+        self.assertEqual(
+            payload["candidate_release"]["reason"],
+            "promotion_evidence_non_authorizing",
+        )
+        self.assertEqual(code_identity_calls, [])
         self.assertFalse(release_exists)
 
-    def test_run_executes_steps_and_reports_promote_ready_status(self):
+    def test_run_reports_nonauthorizing_promote_as_shadow_recommendation(self):
         calls = []
 
         def runner(command, **_kwargs):
@@ -1309,8 +1636,16 @@ class TestNightlyRetrain(unittest.TestCase):
         ])
         self.assertEqual(len(calls), 7)
         self.assertIn("weather.operations.settled_day_freshness", calls[0])
-        self.assertEqual(payload["status"], "promote_ready")
-        self.assertEqual(saved["promotion"]["promote_markets"], ["nyc"])
+        self.assertEqual(payload["status"], "shadow")
+        self.assertEqual(saved["promotion"]["promote_markets"], [])
+        self.assertEqual(
+            saved["promotion"]["recommendation_promote_markets"],
+            ["nyc"],
+        )
+        self.assertEqual(
+            saved["promotion"]["authorization_gate_status"],
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE",
+        )
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
         self.assertEqual(saved["invocation"]["status"], "PASS")
         self.assertEqual(saved["lock_proof"]["status"], "PASS")

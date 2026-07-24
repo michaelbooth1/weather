@@ -64,8 +64,12 @@ from weather.release_contract import (
     PRODUCTION_CANDIDATE_MODE,
     PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
     RESEARCH_ONLY_CANDIDATE_MODE,
+    SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS,
 )
 from weather.reporting.scorecards import live_variant_settlement_scorecard
+from weather.reporting.promotion.promotion_corpus import (
+    generation_scoped_manifest_path,
+)
 from weather.reporting.serving_gates import production_readiness_gate
 from weather.schema_registry import schema_version
 
@@ -99,6 +103,25 @@ def utc_iso():
 
 def backtest_path(args, name):
     return str(Path(args.backtest_root) / name)
+
+
+def _nightly_retrain_generation_id(args):
+    value = str(
+        getattr(args, "_nightly_retrain_generation_id", "") or ""
+    ).strip()
+    if not value:
+        value = f"nightly-manual-{utc_iso()}"
+        setattr(args, "_nightly_retrain_generation_id", value)
+    return value
+
+
+def _nightly_promotion_corpus_path(args, base_path=None):
+    path = generation_scoped_manifest_path(
+        base_path or backtest_path(args, "promotion_corpus.json"),
+        _nightly_retrain_generation_id(args),
+    )
+    setattr(args, "_current_promotion_corpus_path", str(path))
+    return str(path)
 
 
 def _capture_resource_preflight(args):
@@ -801,6 +824,8 @@ def promotion_refresh_command(args, *, folders=()):
         args.snapshots_root,
         "--quality-grades",
         args.quality_grades,
+        "--corpus-out",
+        _nightly_promotion_corpus_path(args),
         "--artifact",
         args.pooled_band_artifact,
         "--out",
@@ -1043,16 +1068,203 @@ def run_step(name, command, args, runner):
     return step
 
 
+def _stable_market_ids(values):
+    seen = set()
+    output = []
+    for value in values or []:
+        market_id = str(value or "").strip()
+        if market_id and market_id not in seen:
+            seen.add(market_id)
+            output.append(market_id)
+    return output
+
+
+def _duplicate_market_ids(values):
+    seen = set()
+    duplicates = set()
+    for value in values or []:
+        market_id = str(value or "").strip()
+        if not market_id:
+            continue
+        if market_id in seen:
+            duplicates.add(market_id)
+        seen.add(market_id)
+    return sorted(duplicates)
+
+
+def _promotion_market_authorized(row):
+    return bool(
+        isinstance(row, dict)
+        and row.get("authorization_schema_supported") is True
+        and row.get("authorization_status") == "AUTHORIZED"
+        and row.get("serving_or_release_authorization") is True
+        and row.get("candidate_serving_allowed") is True
+        and row.get("candidate_permission_allowed") is True
+    )
+
+
+def _promotion_authorization_projection(payload, recommendation_promote):
+    allowlist = payload.get("promotion_allowlist") or {}
+    schema_version = str(allowlist.get("schema_version") or "")
+    schema_claimed_supported = (
+        allowlist.get("authorization_schema_supported") is True
+    )
+    schema_supported = (
+        schema_version in SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS
+    )
+    rows = [
+        dict(row)
+        for row in (allowlist.get("markets") or [])
+        if isinstance(row, dict) and str(row.get("market_id") or "").strip()
+    ]
+    rows_by_market = {}
+    duplicate_markets = set()
+    for row in rows:
+        market_id = str(row["market_id"]).strip()
+        if market_id in rows_by_market:
+            duplicate_markets.add(market_id)
+        rows_by_market[market_id] = row
+
+    root_authorized = bool(
+        schema_supported
+        and schema_claimed_supported
+        and allowlist.get("authorization_status") == "AUTHORIZED"
+        and allowlist.get("serving_or_release_authorization") is True
+        and allowlist.get("candidate_serving_allowed") is True
+        and allowlist.get("candidate_permission_allowed") is True
+    )
+    unauthorized_markets = [
+        market_id
+        for market_id in recommendation_promote
+        if (
+            market_id in duplicate_markets
+            or not _promotion_market_authorized(rows_by_market.get(market_id))
+        )
+    ]
+    authorized = bool(
+        recommendation_promote
+        and root_authorized
+        and not unauthorized_markets
+    )
+    blockers = []
+    if recommendation_promote and not root_authorized:
+        blockers.append(
+            "promotion allowlist root is not a supported AUTHORIZED serving/release envelope"
+        )
+    if duplicate_markets:
+        blockers.append(
+            "promotion allowlist has duplicate market authorization rows: "
+            + ", ".join(sorted(duplicate_markets))
+        )
+    if unauthorized_markets:
+        blockers.append(
+            "promotion recommendations lack exact per-market authorization: "
+            + ", ".join(unauthorized_markets)
+        )
+    return {
+        "promotion_allowlist_schema_version": schema_version or None,
+        "authorization_schema_claimed_supported": schema_claimed_supported,
+        "authorization_schema_supported": schema_supported,
+        "authorization_claimed_status": (
+            allowlist.get("authorization_status") or "MISSING"
+        ),
+        "authorization_status": (
+            allowlist.get("authorization_status") or "MISSING"
+            if schema_supported
+            else "UNSUPPORTED_SCHEMA"
+        ),
+        "serving_or_release_authorization": (
+            allowlist.get("serving_or_release_authorization") is True
+        ),
+        "candidate_permission_allowed": (
+            allowlist.get("candidate_permission_allowed") is True
+        ),
+        "candidate_serving_allowed": (
+            allowlist.get("candidate_serving_allowed") is True
+        ),
+        "authorization_gate_status": (
+            "AUTHORIZED"
+            if authorized
+            else "NOT_APPLICABLE"
+            if not recommendation_promote
+            else "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+        ),
+        "authorization_blockers": blockers,
+        "authorization_markets": rows,
+    }
+
+
 def promotion_summary(path):
     payload = read_json(path)
     decisions = payload.get("decisions") or {}
     readiness = payload.get("readiness") or {}
-    promote = decisions.get("promote_markets") or []
-    shadow = decisions.get("shadow_markets") or []
-    blocked = decisions.get("blocked_markets") or []
+    raw_decisions = {
+        "promote": decisions.get("promote_markets") or [],
+        "shadow": decisions.get("shadow_markets") or [],
+        "blocked": decisions.get("blocked_markets") or [],
+    }
+    recommendation_promote = _stable_market_ids(
+        raw_decisions["promote"]
+    )
+    recommendation_shadow = _stable_market_ids(
+        raw_decisions["shadow"]
+    )
+    blocked = _stable_market_ids(raw_decisions["blocked"])
+    decision_duplicates = {
+        decision: _duplicate_market_ids(values)
+        for decision, values in raw_decisions.items()
+        if _duplicate_market_ids(values)
+    }
+    memberships = {}
+    for decision, markets in (
+        ("promote", recommendation_promote),
+        ("shadow", recommendation_shadow),
+        ("blocked", blocked),
+    ):
+        for market_id in markets:
+            memberships.setdefault(market_id, []).append(decision)
+    decision_overlaps = {
+        market_id: categories
+        for market_id, categories in memberships.items()
+        if len(categories) != 1
+    }
+    authorization = _promotion_authorization_projection(
+        payload,
+        recommendation_promote,
+    )
+    if decision_duplicates or decision_overlaps:
+        authorization["authorization_gate_status"] = (
+            "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+        )
+        if decision_duplicates:
+            authorization["authorization_blockers"].append(
+                "promotion decision lists contain duplicate markets: "
+                + json.dumps(decision_duplicates, sort_keys=True)
+            )
+        if decision_overlaps:
+            authorization["authorization_blockers"].append(
+                "promotion decision categories overlap: "
+                + json.dumps(decision_overlaps, sort_keys=True)
+            )
+    promote = (
+        recommendation_promote
+        if authorization["authorization_gate_status"] == "AUTHORIZED"
+        else []
+    )
+    shadow = _stable_market_ids(
+        [
+            *recommendation_shadow,
+            *(
+                recommendation_promote
+                if authorization["authorization_gate_status"]
+                == "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+                else []
+            ),
+        ]
+    )
     if not payload:
         verdict = "missing"
-    elif blocked:
+    elif blocked or decision_duplicates or decision_overlaps:
         verdict = "blocked"
     elif promote:
         verdict = "promote_ready"
@@ -1064,10 +1276,15 @@ def promotion_summary(path):
         "verdict": verdict,
         "readiness_status": readiness.get("status"),
         "promote_markets": promote,
+        "recommendation_promote_markets": recommendation_promote,
+        "recommendation_shadow_markets": recommendation_shadow,
         "shadow_markets": shadow,
         "blocked_markets": blocked,
         "market_count": len((decisions.get("markets") or [])),
         "serving_gauntlet_verdict": (payload.get("serving_gauntlet") or {}).get("verdict"),
+        "decision_category_duplicates": decision_duplicates,
+        "decision_category_overlaps": decision_overlaps,
+        **authorization,
     }
 
 
@@ -1079,10 +1296,25 @@ def promotion_not_run_summary(path, reason):
         "reason": reason,
         "readiness_status": None,
         "promote_markets": [],
+        "recommendation_promote_markets": [],
+        "recommendation_shadow_markets": [],
         "shadow_markets": [],
         "blocked_markets": [],
         "market_count": 0,
         "serving_gauntlet_verdict": None,
+        "promotion_allowlist_schema_version": None,
+        "authorization_schema_supported": False,
+        "authorization_schema_claimed_supported": False,
+        "authorization_claimed_status": "MISSING",
+        "authorization_status": "MISSING",
+        "serving_or_release_authorization": False,
+        "candidate_permission_allowed": False,
+        "authorization_gate_status": "NOT_APPLICABLE",
+        "authorization_blockers": [],
+        "authorization_markets": [],
+        "candidate_serving_allowed": False,
+        "decision_category_duplicates": {},
+        "decision_category_overlaps": {},
     }
 
 
@@ -1508,6 +1740,8 @@ def render_report(payload):
         "",
         f"- Reason: {promotion.get('reason') or '-'}",
         f"- Promote-ready markets: {', '.join(promotion.get('promote_markets') or []) or '-'}",
+        f"- Promote recommendations: {', '.join(promotion.get('recommendation_promote_markets') or []) or '-'}",
+        f"- Promotion authorization: {promotion.get('authorization_gate_status') or '-'}",
         f"- Shadow markets: {', '.join(promotion.get('shadow_markets') or []) or '-'}",
         f"- Blocked markets: {', '.join(promotion.get('blocked_markets') or []) or '-'}",
         f"- Serving gauntlet: {promotion.get('serving_gauntlet_verdict') or '-'}",
@@ -1729,6 +1963,7 @@ def _run_nightly_retrain_guarded(
 ):
     started = time.time()
     started_at = utc_iso()
+    setattr(args, "_nightly_retrain_generation_id", f"nightly-{started_at}")
     invocation = build_invocation_proof(
         args,
         module_name="weather.operations.nightly_retrain",
@@ -2070,11 +2305,13 @@ def _run_nightly_retrain_guarded(
                             production_promotion_selection(args)
                         )
                         command = promotion_refresh_command(args, folders=folders)
-                        corpus_option = command.index("--out")
-                        command[corpus_option:corpus_option] = [
-                            "--corpus-out",
-                            args.point_in_time_promotion_selection_corpus,
-                        ]
+                        corpus_option = command.index("--corpus-out")
+                        command[corpus_option + 1] = (
+                            _nightly_promotion_corpus_path(
+                                args,
+                                args.point_in_time_promotion_selection_corpus,
+                            )
+                        )
                         promotion_selection_context = (preselection, inventory)
                     except Exception as exc:  # noqa: BLE001 - fail closed before replay
                         step = {
@@ -2166,6 +2403,22 @@ def _run_nightly_retrain_guarded(
             payload["daily_learning"],
             fail_on_daily_learning_blocker=args.fail_on_daily_learning_blocker,
         )
+        nonauthorizing_recommendation = bool(
+            payload["promotion"].get("recommendation_promote_markets")
+            and payload["promotion"].get("authorization_gate_status")
+            == "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+        )
+        # The code-owned bootstrap contract authorizes only construction of one
+        # immutable, inactive production identity.  It does not turn detached
+        # promotion evidence into an authorizing decision: the frozen route
+        # remains shadow-only and the post-freeze verifier proves that the
+        # pointer is still absent.
+        bootstrap_shadow_build = bool(
+            bootstrap_eligible
+            and args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE
+            and payload["status"] == "shadow"
+            and nonauthorizing_recommendation
+        )
         if not args.build_candidate_release:
             payload["candidate_release"] = {
                 "status": "DISABLED",
@@ -2189,7 +2442,10 @@ def _run_nightly_retrain_guarded(
                 }
             )
             payload["status"] = "blocked"
-        elif payload["status"] == "promote_ready":
+        elif (
+            payload["status"] == "promote_ready"
+            or bootstrap_shadow_build
+        ):
             release_step, release_result = run_candidate_release_step(
                 args,
                 promotion=payload["promotion"],
@@ -2237,9 +2493,14 @@ def _run_nightly_retrain_guarded(
             if release_step["status"] != "ok":
                 payload["status"] = "error"
         else:
+            release_skip_reason = (
+                "promotion_evidence_non_authorizing"
+                if nonauthorizing_recommendation
+                else "existing_validation_gates_not_passed"
+            )
             payload["candidate_release"] = {
                 "status": "NOT_BUILT",
-                "reason": "existing_validation_gates_not_passed",
+                "reason": release_skip_reason,
                 "activation": "NONE",
             }
             steps.append(
@@ -2249,7 +2510,7 @@ def _run_nightly_retrain_guarded(
                     "status": "skipped",
                     "returncode": 0,
                     "duration_seconds": 0.0,
-                    "reason": "existing_validation_gates_not_passed",
+                    "reason": release_skip_reason,
                 }
             )
     if not args.dry_run and not getattr(args, "skip_production_readiness_gate", False):

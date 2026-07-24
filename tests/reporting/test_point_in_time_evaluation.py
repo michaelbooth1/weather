@@ -14,6 +14,8 @@ from weather.reporting.validation.point_in_time_evaluation import (
     CONTRACT_SCHEMA_VERSION,
     MATERIALIZER_SCHEMA_VERSION,
     VALIDATION_PLAN_SCHEMA_VERSION,
+    _read_bounded_contract_json,
+    _read_contract_json,
     _verified_stage_selection_binding,
     _verify_production_latest_target_freshness,
     ContractViolation,
@@ -34,6 +36,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
     validate_canonical_row,
     validation_plan_payload,
     verify_materialization_manifest,
+    verify_streaming_evaluation_payload,
     verify_validation_plan_payload,
 )
 
@@ -44,6 +47,38 @@ PROVENANCE = {
     "manifest_hash": "manifest-hash",
     "source_file_hash": "source-hash",
 }
+
+
+def test_bounded_contract_json_rejects_nested_exponent_overflow(tmp_path):
+    contract = tmp_path / "control.json"
+    contract.write_text(
+        '{"contract":{"receipts":[{"seconds":1e999}]}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ContractViolation,
+        match=r"non-finite JSON number at \$\.contract\.receipts\[0\]\.seconds",
+    ):
+        _read_bounded_contract_json(
+            contract,
+            code="overflow_control",
+            max_bytes=1024,
+        )
+
+
+def test_contract_json_rejects_nested_exponent_overflow(tmp_path):
+    contract = tmp_path / "full-contract.json"
+    contract.write_text(
+        '{"contract":{"receipts":[{"seconds":1e999}]}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ContractViolation,
+        match=r"non-finite JSON number at \$\.contract\.receipts\[0\]\.seconds",
+    ):
+        _read_contract_json(contract, code="overflow_full_contract")
 
 
 def test_stage_selection_binding_rejects_self_hashed_locked_inventory():
@@ -582,6 +617,79 @@ def test_streaming_evaluator_isolates_lanes_and_weights_market_days_and_dates():
     assert payload["counts"]["fleet_dates"] == 2
     assert payload["streaming_memory_contract"]["active_market_days"] == 1
     assert payload["runtime_identities"] == ["runtime-1"]
+
+
+def _valid_streaming_evaluation_for_verification():
+    target_dates = ["2026-06-01", "2026-06-02"]
+    rows = []
+    for target_date in target_dates:
+        rows.extend(
+            _distribution_rows(
+                target_date=target_date,
+                market_id="toronto",
+                lane="weather_only",
+                variant="weather-v1",
+                release="release-weather",
+                winner_probability=0.8,
+            )
+        )
+    lock = build_window_lock(
+        target_dates,
+        input_sha256="a" * 64,
+        window_days=2,
+        generated_at_utc="2026-06-03T00:00:00+00:00",
+    )
+    return evaluate_point_in_time_rows(
+        sorted(rows, key=point_in_time_key),
+        locked_dates=target_dates,
+        window_lock=lock,
+        bootstrap_iterations=20,
+        generated_at_utc="2026-06-03T00:00:00+00:00",
+        evaluation_started_at_utc="2026-06-03T00:00:00+00:00",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("point_estimate", None),
+        ("lower", float("-inf")),
+        ("upper", "not-a-number"),
+    ],
+)
+def test_streaming_verifier_rejects_nonfinite_or_nonnumeric_interval_values(
+    field,
+    value,
+):
+    payload = _valid_streaming_evaluation_for_verification()
+    interval = payload["lanes"]["weather_only"][0]["metrics"][
+        "categorical_brier"
+    ]["equal_market_day"]
+    interval[field] = value
+    payload.pop("evaluation_hash")
+    payload["evaluation_hash"] = sha256_text(canonical_json(payload))
+
+    with pytest.raises(
+        ContractViolation,
+        match="point_estimate/lower/upper must be finite numbers",
+    ):
+        verify_streaming_evaluation_payload(payload)
+
+
+def test_streaming_verifier_rejects_interval_bounds_excluding_point_estimate():
+    payload = _valid_streaming_evaluation_for_verification()
+    interval = payload["lanes"]["weather_only"][0]["metrics"][
+        "categorical_brier"
+    ]["equal_market_day"]
+    interval["lower"] = interval["point_estimate"] + 1.0
+    payload.pop("evaluation_hash")
+    payload["evaluation_hash"] = sha256_text(canonical_json(payload))
+
+    with pytest.raises(
+        ContractViolation,
+        match="interval bounds do not contain the point estimate",
+    ):
+        verify_streaming_evaluation_payload(payload)
 
 
 def test_date_clustered_interval_is_deterministic_and_uses_fleet_date_clusters():

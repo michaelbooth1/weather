@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,10 +20,12 @@ from typing import Any, Mapping, Sequence
 from weather.execution_identity import atomic_write_json_exclusive
 from weather.market.market_registry import REGISTRY
 from weather.reporting.promotion.promotion_corpus import (
-    PROMOTION_CORPUS_SCHEMA_VERSION,
+    PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION,
     corpus_hash,
-    load_manifest,
     summarize_entries,
+)
+from weather.reporting.research.research_path_contract import (
+    resolve_output_outside_read_only_roots,
 )
 from weather.schema_registry import schema_version
 
@@ -96,15 +99,13 @@ CONTRACTS = {
 }
 
 
-def _stable_sha256(path: Path) -> tuple[str, int]:
+def _stable_source_bytes(path: Path) -> tuple[bytes, str, int]:
     before = path.stat()
     if not path.is_file() or before.st_size <= 0 or before.st_size > MAX_SOURCE_BYTES:
         raise PanelMaterializationError(f"source manifest is missing or too large: {path}")
-    digest = hashlib.sha256()
     with path.open("rb") as handle:
         opened_before = os.fstat(handle.fileno())
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+        raw = handle.read(MAX_SOURCE_BYTES + 1)
         opened_after = os.fstat(handle.fileno())
     after = path.stat()
 
@@ -120,7 +121,67 @@ def _stable_sha256(path: Path) -> tuple[str, int]:
 
     if not identity(before) == identity(opened_before) == identity(opened_after) == identity(after):
         raise PanelMaterializationError("source manifest changed while hashing")
-    return digest.hexdigest(), int(after.st_size)
+    if not raw or len(raw) > MAX_SOURCE_BYTES:
+        raise PanelMaterializationError(f"source manifest is missing or too large: {path}")
+    return raw, hashlib.sha256(raw).hexdigest(), len(raw)
+
+
+def _manifest_from_stable_bytes(raw: bytes, *, source: Path) -> dict[str, Any]:
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PanelMaterializationError("source manifest is not valid UTF-8") from exc
+
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise PanelMaterializationError(
+                    f"source manifest contains duplicate JSON key {key!r}"
+                )
+            result[key] = value
+        return result
+
+    def reject_non_finite(value):
+        raise PanelMaterializationError(
+            f"source manifest contains non-finite JSON constant {value!r}"
+        )
+
+    def reject_nested_non_finite(value, path="$"):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise PanelMaterializationError(
+                f"source manifest contains non-finite JSON number at {path}"
+            )
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                reject_nested_non_finite(item, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                reject_nested_non_finite(item, f"{path}[{index}]")
+
+    try:
+        manifest = json.loads(
+            text,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_non_finite,
+        )
+        reject_nested_non_finite(manifest)
+    except json.JSONDecodeError as exc:
+        raise PanelMaterializationError("source manifest is not valid JSON") from exc
+    if not isinstance(manifest, dict):
+        raise PanelMaterializationError("source manifest root is not an object")
+    if manifest.get("schema_version") != PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION:
+        raise PanelMaterializationError(
+            f"unsupported source manifest schema {manifest.get('schema_version')!r}"
+        )
+    expected = corpus_hash(
+        manifest.get("entries") or [],
+        schema_version=PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION,
+    )
+    if manifest.get("corpus_hash") != expected:
+        raise PanelMaterializationError("source manifest corpus hash is invalid")
+    manifest["_path"] = str(source)
+    return manifest
 
 
 def _validate_entries(
@@ -167,24 +228,37 @@ def _validate_entries(
 
 
 def materialize_panel(
-    *, kind: str, source_manifest: Path, output: Path
+    *, kind: str, source_manifest: Path, output: Path, read_only_data_root: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if kind not in CONTRACTS:
         raise PanelMaterializationError(f"unsupported materialization kind: {kind!r}")
     contract = CONTRACTS[kind]
     source = Path(source_manifest).expanduser().resolve(strict=True)
-    target = Path(output).expanduser().resolve(strict=False)
-    source_sha, source_size = _stable_sha256(source)
+    try:
+        target = resolve_output_outside_read_only_roots(
+            output,
+            read_only_roots=(read_only_data_root,),
+            protected_inputs=(source,),
+        )
+    except ValueError as exc:
+        raise PanelMaterializationError(str(exc)) from exc
+    raw, source_sha, source_size = _stable_source_bytes(source)
     if source_sha != contract.source_file_sha256:
         raise PanelMaterializationError("source manifest file hash differs from contract")
-    loaded = load_manifest(source, max_bytes=MAX_SOURCE_BYTES)
+    loaded = _manifest_from_stable_bytes(raw, source=source)
     if loaded.get("corpus_hash") != contract.source_corpus_hash:
         raise PanelMaterializationError("source manifest corpus hash differs from contract")
     source_entries = list(loaded.get("entries") or [])
     selected = _validate_entries(source_entries, contract)
-    selected_hash = corpus_hash(selected)
+    selected_hash = corpus_hash(
+        selected,
+        schema_version=LITERAL_PANEL_SCHEMA_VERSION,
+    )
     manifest = {
-        "schema_version": PROMOTION_CORPUS_SCHEMA_VERSION,
+        "schema_version": LITERAL_PANEL_SCHEMA_VERSION,
+        "research_only": True,
+        "serving_or_release_authorization": False,
+        "source_schema_version": PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION,
         "as_of": loaded.get("as_of"),
         "admit_promotion_countable": bool(loaded.get("admit_promotion_countable")),
         "include_reconstructed": bool(loaded.get("include_reconstructed")),
@@ -211,7 +285,7 @@ def materialize_panel(
         },
     }
     atomic_write_json_exclusive(target, manifest)
-    output_sha, output_size = _stable_sha256(target)
+    _, output_sha, output_size = _stable_source_bytes(target)
     receipt = {
         "path": str(target),
         "sha256": output_sha,
@@ -228,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--kind", required=True, choices=tuple(CONTRACTS))
     parser.add_argument("--source-manifest", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--read-only-data-root", required=True)
     return parser
 
 
@@ -238,6 +313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             kind=args.kind,
             source_manifest=Path(args.source_manifest),
             output=Path(args.output),
+            read_only_data_root=Path(args.read_only_data_root),
         )
     except (PanelMaterializationError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"literal panel materialization blocked: {exc}")

@@ -419,19 +419,6 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         family_unit=args.family_unit,
     )
     generated_at = _utc_now()
-    promotion_allowlist = build_promotion_allowlist(
-        decisions,
-        candidate_summary,
-        family_unit=args.family_unit,
-        generated_at_utc=generated_at,
-        path=getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
-    )
-    allowlist_path = _write_json(
-        getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
-        promotion_allowlist,
-        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
-        context="promotion allowlist JSON export",
-    )
     runtime_identity_evidence = build_runtime_identity_evidence(
         snapshots_root=args.snapshots_root,
         snapshot_manifest=manifest,
@@ -462,6 +449,20 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
         per_location_artifact_quarantine=per_location_artifact_quarantine,
         early_hour_promotion_blocker=early_hour_promotion_blocker,
         source_missingness_location_gate=source_missingness_location_gate,
+    )
+    promotion_allowlist = build_promotion_allowlist(
+        decisions,
+        candidate_summary,
+        readiness=readiness,
+        family_unit=args.family_unit,
+        generated_at_utc=generated_at,
+        path=getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
+    )
+    allowlist_path = _write_json(
+        getattr(args, "promotion_allowlist_out", DEFAULT_PROMOTION_ALLOWLIST),
+        promotion_allowlist,
+        min_free_bytes=getattr(args, "min_artifact_free_bytes", 0),
+        context="promotion allowlist JSON export",
     )
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -516,4 +517,3 @@ def _run_promotion_refresh_guarded(args, long_job_guard_info=None):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-

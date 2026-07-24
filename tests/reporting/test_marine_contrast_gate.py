@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.marine_contrast_gate import (
     WATER_CONTRAST_FEATURES,
@@ -11,9 +12,25 @@ from weather.reporting.source_gates.marine_contrast_gate import (
     source_inventory_evidence,
     write_markdown_report,
 )
+from weather.reporting.source_gates.source_artifact_binding import (
+    stable_json_artifact,
+)
+from tests.reporting.source_family_contract_fixtures import (
+    operational_ablation_payload,
+    operational_inventory,
+)
 
 
 class MarineContrastGateTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.marine_contrast_gate."
+            "source_family_inventory_consumer_contract",
+            return_value={"status": "PASS", "blockers": []},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _write_hgb_csv(self, path, features):
         rows = [
             {
@@ -43,8 +60,8 @@ class MarineContrastGateTests(unittest.TestCase):
         parity="PASS",
         missing_folders=0,
     ):
-        return {
-            "inventory": [
+        return operational_inventory(
+            [
                 {
                     "family_id": "marine_context",
                     "source_keys": ["marine_context"],
@@ -65,7 +82,7 @@ class MarineContrastGateTests(unittest.TestCase):
                     "feature_missingness": {"missing_rate": 0.0},
                 }
             ]
-        }
+        )
 
     def _candidate(self, *, feature_subset="marine_context", onshore_rows=3):
         return {
@@ -88,20 +105,18 @@ class MarineContrastGateTests(unittest.TestCase):
         }
 
     def _ablation(self, *, delta=0.01):
-        return {
-            "schema_version": "source_family_ablation_v0.1",
-            "summary": {"days_scored": 3, "rows_scored": 100},
-            "variants": [
+        return operational_ablation_payload(
+            [
                 {
                     "variant": "marine_context",
                     "delta": delta,
-                    "days": 3,
+                    "market_days": 3,
                     "n": 100,
-                    "days_source_helped": 2 if delta > 0 else 0,
-                    "days_source_hurt": 0,
+                    "market_days_source_helped": 2 if delta > 0 else 0,
+                    "market_days_source_hurt": 0,
                 }
-            ],
-        }
+            ]
+        )
 
     def test_source_inventory_evidence_reports_partial_marine_lineage(self):
         evidence = source_inventory_evidence(
@@ -153,8 +168,11 @@ class MarineContrastGateTests(unittest.TestCase):
             candidate_path = root / "candidate.json"
             hgb_path = root / "hgb.csv"
             report_path = root / "report.md"
-            inventory_path.write_text(json.dumps(self._inventory()), encoding="utf-8")
             ablation_path.write_text(json.dumps(self._ablation()), encoding="utf-8")
+            _ablation, ablation_receipt = stable_json_artifact(ablation_path)
+            inventory = self._inventory()
+            inventory["ablation_input_receipt"] = ablation_receipt
+            inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
             candidate_path.write_text(json.dumps(self._candidate()), encoding="utf-8")
             self._write_hgb_csv(hgb_path, WATER_CONTRAST_FEATURES)
 
@@ -164,9 +182,43 @@ class MarineContrastGateTests(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "marine_contrast_gate_v0.1")
         self.assertEqual(payload["acceptance"]["status"], "PASS")
+        self.assertFalse(payload["serving_or_release_authorization"])
         self.assertEqual(payload["permutation_evidence"]["observed_water_contrast_feature_count"], len(WATER_CONTRAST_FEATURES))
         self.assertIn("Marine Contrast Gate", text)
+        self.assertIn("runtime current-input revalidation is required", text)
         self.assertIn("No blockers.", text)
+
+    def test_report_payload_blocks_ablation_replaced_after_inventory_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inventory_path = root / "source_inventory.json"
+            ablation_path = root / "ablation.json"
+            candidate_path = root / "candidate.json"
+            hgb_path = root / "hgb.csv"
+            ablation_path.write_text(json.dumps(self._ablation()), encoding="utf-8")
+            _ablation, ablation_receipt = stable_json_artifact(ablation_path)
+            inventory = self._inventory()
+            inventory["ablation_input_receipt"] = ablation_receipt
+            inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+            candidate_path.write_text(json.dumps(self._candidate()), encoding="utf-8")
+            self._write_hgb_csv(hgb_path, WATER_CONTRAST_FEATURES)
+            ablation_path.write_text(
+                json.dumps(self._ablation(delta=0.02)),
+                encoding="utf-8",
+            )
+
+            payload = build_report_payload(
+                inventory_path,
+                ablation_path,
+                candidate_path,
+                hgb_path,
+            )
+
+        codes = {
+            row["code"] for row in payload["acceptance"]["blockers"]
+        }
+        self.assertEqual(payload["acceptance"]["status"], "BLOCK")
+        self.assertIn("marine_ablation_not_bound_to_inventory", codes)
 
 
 if __name__ == "__main__":

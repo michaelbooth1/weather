@@ -114,3 +114,14 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 
+## 2026-07-23 Authorization Clarification
+
+The June statement that an `edge_allowed` row sets
+`known_edge_allowed=true` describes historical behavior and is superseded.
+Current `mm_known_edge_map_v0.2` rows are detached research/diagnostic
+evidence. Runtime policy normalizes `edge_allowed` to `edge_research` and
+cannot grant model-skewed quoting from that schema. `no_quote` remains a
+fail-closed restriction, while any future positive edge permission requires a
+new supported authorization envelope with independently verified current
+evidence, exact scope, and expiry. See
+[item 47](item-47-model-readiness-and-known-edge-permission-map.md).

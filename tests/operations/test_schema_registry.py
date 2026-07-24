@@ -321,7 +321,31 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("physical_feature_family_ratchet"),
+            "physical_feature_family_ratchet_v0.2",
+        )
+        self.assertEqual(
+            schema_version("physical_feature_family_ratchet_legacy"),
             "physical_feature_family_ratchet_v0.1",
+        )
+        self.assertEqual(
+            schema_version("source_family_ablation"),
+            "source_family_ablation_v0.3",
+        )
+        self.assertEqual(
+            schema_version("source_family_ablation_research"),
+            "source_family_ablation_v0.2",
+        )
+        self.assertEqual(
+            schema_version("source_family_ablation_legacy"),
+            "source_family_ablation_v0.1",
+        )
+        self.assertEqual(
+            schema_version("source_family_inventory"),
+            "source_family_inventory_v0.2",
+        )
+        self.assertEqual(
+            schema_version("source_family_inventory_legacy"),
+            "source_family_inventory_v0.1",
         )
         self.assertEqual(
             schema_version("market_benchmark_residual_edge"),

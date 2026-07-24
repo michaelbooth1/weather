@@ -20,7 +20,10 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Iterable, Mapping, Sequence
 
-from weather.io import write_json_atomic, write_text_atomic
+from weather.execution_identity import (
+    atomic_write_json_exclusive,
+    atomic_write_text_exclusive,
+)
 from weather.market.market_registry import all_specs
 from weather.schema_registry import schema_version
 
@@ -57,12 +60,74 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _stable_json_input(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Parse and receipt the same bytes while rejecting in-read replacement."""
+
+    try:
+        before = path.stat()
+        raw = path.read_bytes()
+        after = path.stat()
+    except OSError as exc:
+        raise MorningFrontierError(f"could not read forecast-tracker JSON: {path}") from exc
+    identity_before = (
+        getattr(before, "st_dev", 0),
+        getattr(before, "st_ino", 0),
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    identity_after = (
+        getattr(after, "st_dev", 0),
+        getattr(after, "st_ino", 0),
+        after.st_size,
+        after.st_mtime_ns,
+    )
+    if identity_before != identity_after or len(raw) != after.st_size:
+        raise MorningFrontierError(
+            f"forecast-tracker JSON changed during stable read: {path}"
+        )
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise MorningFrontierError(
+                    f"forecast-tracker JSON contains duplicate key {key!r}: {path}"
+                )
+            result[key] = value
+        return result
+
+    def reject_non_finite(value):
+        raise MorningFrontierError(
+            f"forecast-tracker JSON contains non-finite constant {value!r}: {path}"
+        )
+
+    def reject_nested_non_finite(value, json_path="$"):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise MorningFrontierError(
+                "forecast-tracker JSON contains non-finite number at "
+                f"{json_path}: {path}"
+            )
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                reject_nested_non_finite(item, f"{json_path}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                reject_nested_non_finite(item, f"{json_path}[{index}]")
+
+    try:
+        payload = json.loads(
+            raw.decode("utf-8-sig"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_non_finite,
+        )
+        reject_nested_non_finite(payload)
+    except MorningFrontierError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MorningFrontierError(f"invalid forecast-tracker JSON: {path}") from exc
+    return payload, {
+        "size_bytes": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
 
 
 def validate_paths(
@@ -108,6 +173,10 @@ def validate_paths(
                 raise MorningFrontierError(
                     f"{label} must not overwrite a source report: {source}"
                 )
+        if path.exists():
+            raise MorningFrontierError(
+                f"{label} already exists; research generations refuse overwrite: {path}"
+            )
     return {"data_root": data_root, "input_dir": source_root, **outputs}
 
 
@@ -611,10 +680,7 @@ def _load_market_payloads(
         path = input_dir / f"{market}.json"
         if not path.is_file():
             raise MorningFrontierError(f"missing forecast-tracker input for {market}: {path}")
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise MorningFrontierError(f"invalid forecast-tracker JSON: {path}") from exc
+        payload, receipt = _stable_json_input(path)
         if not isinstance(payload, dict) or not isinstance(payload.get("per_cutoff"), dict):
             raise MorningFrontierError(f"forecast-tracker payload is malformed: {path}")
         inputs.append(
@@ -622,8 +688,7 @@ def _load_market_payloads(
                 "market": market,
                 "unit": unit,
                 "path": str(path.resolve()),
-                "size_bytes": path.stat().st_size,
-                "sha256": _sha256(path),
+                **receipt,
             }
         )
         payloads.append({"market": market, "unit": unit, "payload": payload})
@@ -645,7 +710,12 @@ def build_payload(
         raise MorningFrontierError("at least one configured market is required")
     if tune_end >= holdout_start:
         raise MorningFrontierError("tune_end must precede holdout_start")
-    cutoffs = tuple(sorted({int(value) for value in cutoffs}))
+    if any(isinstance(value, bool) for value in cutoffs):
+        raise MorningFrontierError("cutoffs must be unique local hours from 0 through 23")
+    normalized_cutoffs = tuple(int(value) for value in cutoffs)
+    if len(normalized_cutoffs) != len(set(normalized_cutoffs)):
+        raise MorningFrontierError("cutoffs must be unique local hours from 0 through 23")
+    cutoffs = tuple(sorted(normalized_cutoffs))
     if not cutoffs or any(value < 0 or value > 23 for value in cutoffs):
         raise MorningFrontierError("cutoffs must be unique local hours from 0 through 23")
     if CITY_SELECTION_CUTOFF not in cutoffs:
@@ -659,21 +729,41 @@ def build_payload(
     exclusions: Counter[str] = Counter()
     reported_full_corpus_verdicts: dict[str, dict[str, Any]] = {}
     seen: set[tuple[str, int, str]] = set()
+    settlement_identity: dict[tuple[str, str], tuple[float, str]] = {}
     for item in market_payloads:
         market = str(item["market"])
         unit = str(item["unit"])
         payload = item["payload"]
         reported_full_corpus_verdicts[market] = dict(payload.get("verdict") or {})
-        available = {int(value) for value in payload["per_cutoff"]}
+        normalized_payloads: dict[int, dict[str, Any]] = {}
+        for raw_cutoff, cutoff_value in payload["per_cutoff"].items():
+            if isinstance(raw_cutoff, bool):
+                raise MorningFrontierError(
+                    f"{market} has an invalid cutoff key: {raw_cutoff!r}"
+                )
+            try:
+                normalized_cutoff = int(raw_cutoff)
+            except (TypeError, ValueError) as exc:
+                raise MorningFrontierError(
+                    f"{market} has an invalid cutoff key: {raw_cutoff!r}"
+                ) from exc
+            if normalized_cutoff < 0 or normalized_cutoff > 23:
+                raise MorningFrontierError(
+                    f"{market} has an invalid cutoff key: {raw_cutoff!r}"
+                )
+            if normalized_cutoff in normalized_payloads:
+                raise MorningFrontierError(
+                    f"{market} has duplicate normalized cutoff {normalized_cutoff}"
+                )
+            normalized_payloads[normalized_cutoff] = cutoff_value
+        available = set(normalized_payloads)
         missing_cutoffs = sorted(set(cutoffs) - available)
         if missing_cutoffs:
             raise MorningFrontierError(
                 f"{market} is missing required cutoffs: {missing_cutoffs}"
             )
         for cutoff in cutoffs:
-            cutoff_payload = payload["per_cutoff"].get(str(cutoff))
-            if cutoff_payload is None:
-                cutoff_payload = payload["per_cutoff"].get(cutoff)
+            cutoff_payload = normalized_payloads.get(cutoff)
             if not isinstance(cutoff_payload, dict):
                 raise MorningFrontierError(f"{market} cutoff {cutoff} is malformed")
             for position, record in enumerate(cutoff_payload.get("records") or []):
@@ -681,10 +771,43 @@ def build_payload(
                     raise MorningFrontierError(
                         f"{market} cutoff {cutoff} record {position} is malformed"
                     )
+                target_date_text = str(record.get("date") or "")
+                try:
+                    target_date = date.fromisoformat(target_date_text).isoformat()
+                except ValueError as exc:
+                    raise MorningFrontierError(
+                        f"{market} cutoff {cutoff} has invalid date: {target_date_text!r}"
+                    ) from exc
+                key = (market, cutoff, target_date)
+                if key in seen:
+                    raise MorningFrontierError(f"duplicate market/cutoff/date record: {key}")
+                seen.add(key)
+                if not isinstance(record.get("reached"), bool):
+                    raise MorningFrontierError(f"{key} reached must be boolean")
+                settlement = _finite_float(
+                    record.get("settlement"),
+                    field=f"{key}.settlement",
+                )
+                settlement_source = str(
+                    record.get("settlement_source") or "unknown"
+                )
+                settlement_key = (market, target_date)
+                current_settlement_identity = (settlement, settlement_source)
+                prior_settlement_identity = settlement_identity.get(settlement_key)
+                if (
+                    prior_settlement_identity is not None
+                    and prior_settlement_identity != current_settlement_identity
+                ):
+                    raise MorningFrontierError(
+                        "settlement value/source differs across cutoffs for "
+                        f"{settlement_key}: {prior_settlement_identity!r} != "
+                        f"{current_settlement_identity!r}"
+                    )
+                settlement_identity[settlement_key] = current_settlement_identity
+
                 required = (
                     "model_reach",
                     "market_reach",
-                    "settlement",
                     "model_median",
                     "market_median",
                 )
@@ -694,19 +817,6 @@ def build_payload(
                         f"cutoff_{cutoff}:missing_{'+'.join(missing)}"
                     ] += 1
                     continue
-                target_date = str(record.get("date") or "")
-                try:
-                    date.fromisoformat(target_date)
-                except ValueError as exc:
-                    raise MorningFrontierError(
-                        f"{market} cutoff {cutoff} has invalid date: {target_date!r}"
-                    ) from exc
-                key = (market, cutoff, target_date)
-                if key in seen:
-                    raise MorningFrontierError(f"duplicate market/cutoff/date record: {key}")
-                seen.add(key)
-                if not isinstance(record.get("reached"), bool):
-                    raise MorningFrontierError(f"{key} reached must be boolean")
                 outcome = 1.0 if record["reached"] else 0.0
                 model_probability = _probability(
                     record["model_reach"], field=f"{key}.model_reach"
@@ -714,7 +824,6 @@ def build_payload(
                 market_probability = _probability(
                     record["market_reach"], field=f"{key}.market_reach"
                 )
-                settlement = _finite_float(record["settlement"], field=f"{key}.settlement")
                 model_median = _finite_float(
                     record["model_median"], field=f"{key}.model_median"
                 )
@@ -727,9 +836,7 @@ def build_payload(
                         "market": market,
                         "unit": unit,
                         "date": target_date,
-                        "settlement_source": str(
-                            record.get("settlement_source") or "unknown"
-                        ),
+                        "settlement_source": settlement_source,
                         "outcome_minus_model_reach": outcome - model_probability,
                         "outcome_minus_market_reach": outcome - market_probability,
                         "model_minus_market_brier":
@@ -953,6 +1060,7 @@ def render_report(payload: Mapping[str, Any]) -> str:
         "| Market | Tune class | Tune reach gap | Holdout reach gap | Holdout Brier | Holm p | Holdout log-loss | Holm p | Both scores supported |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
+    reversal_markets = []
     for city in city_analysis.get("cities") or []:
         tune = city.get("tune") or {}
         holdout = city.get("holdout") or {}
@@ -962,6 +1070,12 @@ def render_report(payload: Mapping[str, Any]) -> str:
         holdout_gap = (
             ((holdout.get("equal_fleet_date") or {}).get("outcome_minus_model_reach") or {}).get("mean")
         )
+        if (
+            tune_gap is not None
+            and holdout_gap is not None
+            and float(tune_gap) * float(holdout_gap) < 0.0
+        ):
+            reversal_markets.append(str(city.get("market") or "unknown"))
         tests = city.get("holdout_multiplicity") or {}
         brier = tests.get("model_minus_market_brier") or {}
         logloss = tests.get("model_minus_market_logloss") or {}
@@ -977,17 +1091,27 @@ def render_report(payload: Mapping[str, Any]) -> str:
             f"{float(logloss.get('holm_adjusted_p', 1.0)):.6f} | "
             f"{'yes' if supported else 'no'} |"
         )
-    lines += [
-        "",
-        "San Francisco reverses reach direction between tune and holdout. That instability is a direct warning against interpreting the selected group as a stable city policy.",
-        "",
-    ]
+    if reversal_markets:
+        verb = "reverses" if len(reversal_markets) == 1 else "reverse"
+        reversal_text = (
+            f"{', '.join(reversal_markets)} {verb} reach direction between tune and holdout. "
+            "That instability is a direct warning against interpreting the selected group as a stable city policy."
+        )
+    else:
+        reversal_text = (
+            "No reported city reverses reach direction between tune and holdout; this diagnostic "
+            "still does not establish a stable city policy."
+        )
+    lines += ["", reversal_text, ""]
     return "\n".join(lines)
 
 
 def write_outputs(payload: Mapping[str, Any], json_path: Path, report_path: Path) -> None:
-    write_json_atomic(json_path, payload)
-    write_text_atomic(report_path, render_report(payload))
+    json.dumps(payload, sort_keys=True, allow_nan=False)
+    atomic_write_text_exclusive(report_path, render_report(payload))
+    # JSON is the primary completion leaf and appears only after the companion
+    # report has been published atomically.
+    atomic_write_json_exclusive(json_path, payload)
 
 
 def _parse_cutoffs(value: str) -> tuple[int, ...]:

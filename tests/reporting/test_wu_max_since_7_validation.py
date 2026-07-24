@@ -119,11 +119,20 @@ class TestWuMaxSince7Validation(unittest.TestCase):
 
     def test_builds_payload_from_pinned_corpus_and_writes_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            folder = write_test_folder(tmp)
-            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
-            corpus_path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = write_test_folder(snapshots_root)
+            manifest = build_promotion_corpus(
+                [folder], snapshots_root=snapshots_root, as_of="2026-06-04"
+            )
+            corpus_path = write_manifest(
+                manifest, Path(tmp) / "output" / "promotion_corpus.json"
+            )
 
-            payload = build_validation_payload(corpus_path, snapshots_root=tmp, focus_market="toronto")
+            payload = build_validation_payload(
+                corpus_path,
+                snapshots_root=snapshots_root,
+                focus_market="toronto",
+            )
 
             self.assertEqual(payload["summary"]["snapshots"], 3)
             self.assertEqual(payload["summary"]["state_counts"]["above_final_wu_high"], 1)

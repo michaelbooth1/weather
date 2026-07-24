@@ -11,6 +11,9 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
 
 
 SCHEMA_VERSION = "official_guidance_sparse_coverage_v0.1"
@@ -28,7 +31,7 @@ FAMILY_TARGETS = {
         "min_unique_raw": 10,
         "min_row_coverage": 0.35,
         "min_replay_days": 20,
-        "required_replay_delta": -0.0001,
+        "required_replay_delta": 0.0001,
         "owner": "US official guidance",
     },
     "multi_model_guidance": {
@@ -37,7 +40,7 @@ FAMILY_TARGETS = {
         "min_unique_raw": 10,
         "min_row_coverage": 0.35,
         "min_replay_days": 20,
-        "required_replay_delta": -0.0001,
+        "required_replay_delta": 0.0001,
         "owner": "forecast archive",
     },
     "eccc_gridded": {
@@ -46,7 +49,7 @@ FAMILY_TARGETS = {
         "min_unique_raw": 5,
         "min_row_coverage": 0.25,
         "min_replay_days": 15,
-        "required_replay_delta": -0.0001,
+        "required_replay_delta": 0.0001,
         "owner": "Canadian official guidance",
         "market_scope": "toronto_only",
     },
@@ -56,7 +59,7 @@ FAMILY_TARGETS = {
         "min_unique_raw": 5,
         "min_row_coverage": 0.25,
         "min_replay_days": 15,
-        "required_replay_delta": -0.0001,
+        "required_replay_delta": 0.0001,
         "owner": "precip source adapter",
     },
 }
@@ -177,19 +180,21 @@ def build_field_rows(
     return sorted(rows, key=lambda item: (item["family_id"], not item["priority"], item["feature"]))
 
 
-def _inventory_by_family(path: str | Path) -> dict[str, dict[str, Any]]:
+def _inventory_by_family(path: str | Path) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     payload = _read_json(path)
-    return {
+    rows = {
         row.get("family_id"): row
         for row in payload.get("inventory") or []
         if row.get("family_id")
     }
+    return rows, source_family_inventory_consumer_contract(payload)
 
 
 def family_gate_status(
     family_id: str,
     field_rows: list[dict[str, Any]],
     inventory: dict[str, dict[str, Any]],
+    inventory_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target = FAMILY_TARGETS[family_id]
     fields = [row for row in field_rows if row["family_id"] == family_id]
@@ -205,22 +210,29 @@ def family_gate_status(
     replay_present = bool(ablation.get("settlement_scored")) and replay_days > 0
 
     blockers = []
+    if (inventory_contract or {}).get("status") != "PASS":
+        blockers.append("source-family inventory integrity contract is not PASS")
     if not fields:
         blockers.append("no configured fields found in coverage artifact")
     if not pass_fields:
         blockers.append("no field clears coverage targets")
     if priority_fields and not priority_pass_fields:
         blockers.append("no priority field clears coverage targets")
-    if "PARTIAL" in lineage_status or str(promotion.get("status") or "").startswith("BLOCK_LINEAGE"):
+    if "PARTIAL" in lineage_status:
         blockers.append(f"lineage not promotion-ready: {lineage_status}")
+    if promotion.get("status") != "PROMOTION_CANDIDATE":
+        blockers.append(
+            "inventory promotion decision is not PROMOTION_CANDIDATE: "
+            + str(promotion.get("status") or "MISSING")
+        )
     if not replay_present:
         blockers.append("family replay evidence missing")
     elif replay_days < target["min_replay_days"]:
         blockers.append(f"replay days {replay_days} < {target['min_replay_days']}")
-    if replay_delta is None or replay_delta >= target["required_replay_delta"]:
+    if replay_delta is None or replay_delta <= target["required_replay_delta"]:
         blockers.append(
             "family replay does not show positive lift "
-            f"({fmt_signed(replay_delta, 4)} >= {target['required_replay_delta']:+.4f})"
+            f"({fmt_signed(replay_delta, 4)} <= {target['required_replay_delta']:+.4f})"
         )
 
     status = "PASS" if not blockers else "BLOCK"
@@ -265,19 +277,30 @@ def build_report_payload(
     source_family_inventory: str | Path = DEFAULT_SOURCE_FAMILY_INVENTORY,
 ) -> dict[str, Any]:
     fields = build_field_rows(coverage_path, variable_summary_path)
-    inventory = _inventory_by_family(source_family_inventory)
+    inventory, inventory_contract = _inventory_by_family(source_family_inventory)
     families = [
-        family_gate_status(family_id, fields, inventory)
+        family_gate_status(
+            family_id,
+            fields,
+            inventory,
+            inventory_contract=inventory_contract,
+        )
         for family_id in FAMILY_TARGETS
     ]
     blocked = [row for row in families if row["status"] != "PASS"]
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached report only; runtime current-input revalidation is required "
+            "before serving or release authorization."
+        ),
         "inputs": {
             "coverage": str(coverage_path),
             "variable_summary": str(variable_summary_path),
             "source_family_inventory": str(source_family_inventory),
+            "source_family_inventory_contract": inventory_contract,
         },
         "coverage_targets": FAMILY_TARGETS,
         "field_rows": fields,
@@ -350,6 +373,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         f"Schema: `{payload.get('schema_version')}`",
         f"Promotion gate: `{gate.get('status')}`",
         f"Decision: `{gate.get('decision')}`",
+        "Serving/release authorization: `false`",
+        (
+            "This detached report cannot authorize serving or release; runtime "
+            "current-input revalidation is required."
+        ),
         "",
         "## Family Gates",
         "",

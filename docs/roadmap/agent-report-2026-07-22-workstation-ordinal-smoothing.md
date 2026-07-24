@@ -6,11 +6,11 @@
 `1.25 C = 2.25 F` for the F family. F is supported against its fresh tune W0;
 Toronto is directional only. Neither result establishes market edge, and
 neither has fresh confirmation.** The separately preregistered July 15-19
-one-shot attempt consumed its authorization and ran both arms, but failed
-closed before committing any result because the deliberately transformed
-candidate retained the base replay identity and was therefore misclassified by
-the same-identity W0 fidelity canary. That five-date panel is now exposed and
-must not be retried or described as fresh evidence.
+one-shot attempt durably consumed its authorization. Non-durable,
+contemporaneous terminal output indicated that both arms ran before an identity
+gate failed; the apparent same-identity W0-fidelity misclassification is an
+operator-session diagnosis, not a committed artifact fact. That five-date
+panel is now exposed and must not be retried or described as fresh evidence.
 
 The earlier native-unit experiment remains useful, permanently opened
 historical evidence. Its tune-only rule selected weight `1.0` for both
@@ -353,25 +353,29 @@ at `2026-07-23T02:36:16Z`. The marker binds:
 - intended generation
   `physical-confirmation-0eb3dc7990c0-b9ea179b2fe6`.
 
-Observed terminal output showed the fresh W0 and the single frozen mixed-family
-candidate arms both complete before the run failed with
+Contemporaneous terminal output, which was not retained as a durable artifact,
+indicated that the fresh W0 and the single frozen mixed-family candidate arms
+both completed before the run failed with
 `candidate gate failed: same-identity replay fidelity canary failed`. The
-candidate arm deliberately applied the physical-bandwidth ordinal
-transformation through a research subclass, but at attempt time that subclass
-retained the base replay model version and identity. `run_partition_arm`
-therefore classified the intentionally changed candidate distributions as
-same-identity W0 replays and applied the recorded-distribution equality canary
-to them. The failure is an identity/gate-semantics false positive, not evidence
-that the tune generation is corrupt.
+operator-session interpretation is that the candidate arm deliberately applied
+the physical-bandwidth ordinal transformation through a research subclass, but
+at attempt time that subclass retained the base replay model version and
+identity. `run_partition_arm` therefore appears to have classified the
+intentionally changed candidate distributions as same-identity W0 replays and
+applied the recorded-distribution equality canary to them. No committed error
+or arm artifact independently verifies that sequence or diagnosis; it is not
+evidence that the tune generation is corrupt.
 
 The failure committed no confirmation cache, JSON, Markdown, or
 `COMPLETE.json`; the intended generation directory does not exist. The
 persistent attempt marker is the only durable confirmation-attempt artifact
-and intentionally survives failure. It contains no error field or fresh score,
-so no confirmation metric is recoverable or reportable. The completed arms
-also opened the five-date outcomes for this candidate; July 15-19 is no longer
-a fresh panel and must not be rerun, reconstructed, or retrospectively scored
-for a confirmatory claim.
+and intentionally survives failure. It proves authorization consumption and
+binds the declared inputs, but contains no arm-completion state, error field, or
+fresh score, so no confirmation metric or durable failure sequence is
+recoverable or reportable. The contemporaneously observed attempt opened the
+five-date outcomes for this candidate; July 15-19 is no longer a fresh panel
+and must not be rerun, reconstructed, or retrospectively scored for a
+confirmatory claim.
 
 Before any future one-shot design, the transformed research candidate must
 carry a distinct research model version/identity so only the true W0 arm is
@@ -466,8 +470,8 @@ commands.
 3. Permanently retire the June 22-July 10 holdout from all ordinal-smoothing
    selection and confirmation.
 4. Permanently retire July 15-19 from fresh ordinal-smoothing confirmation. Its
-   one-shot authorization is consumed, both arms ran, no result committed, and
-   no retry is authorized.
+   one-shot authorization is durably consumed; terminal-observed arm execution
+   has no committed result or error artifact, and no retry is authorized.
 5. Before a new preregistered panel is opened, give the transformed research
    candidate a distinct version/identity, retain strict W0 fidelity and
    candidate mass/alignment/effect gates, and complete deterministic preflight

@@ -19,12 +19,19 @@ from weather.operations.release_manifest import (
 from weather.operations.release_candidate_contract import (
     freeze_candidate_semantic_contract,
 )
-from weather.operations.release_bootstrap import bootstrap_release_lineage
+from weather.operations.release_bootstrap import (
+    bootstrap_release_lineage,
+    validate_first_inactive_release_route,
+)
 from weather.operations.release_promotion import (
     DEFAULT_ACTIVE_POINTER,
     DEFAULT_CANDIDATES_ROOT,
     assert_training_output_path,
     load_active_pointer,
+)
+from weather.release_artifacts import (
+    assert_no_link_or_reparse_ancestors,
+    lexical_absolute_path,
 )
 from weather.release_contract import (
     CANDIDATE_MODES,
@@ -64,12 +71,20 @@ def _utc_candidate_id(now: datetime | None = None) -> str:
 def prepare_candidate_outputs(args: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """Resolve and guard every scheduled training/export output."""
 
-    candidates_root = Path(getattr(args, "candidates_root", DEFAULT_CANDIDATES_ROOT)).resolve()
-    releases_root = Path(getattr(args, "releases_root", DEFAULT_RELEASES_ROOT)).resolve()
+    candidates_root = lexical_absolute_path(
+        getattr(args, "candidates_root", DEFAULT_CANDIDATES_ROOT)
+    )
+    releases_root = lexical_absolute_path(
+        getattr(args, "releases_root", DEFAULT_RELEASES_ROOT)
+    )
     candidate_id = str(getattr(args, "candidate_id", "") or _utc_candidate_id(now))
-    candidate_dir = (candidates_root / candidate_id).resolve()
+    candidate_dir = lexical_absolute_path(candidates_root / candidate_id)
     pointer_value = getattr(args, "release_pointer", "")
-    pointer_path = Path(pointer_value).resolve() if pointer_value else releases_root / DEFAULT_ACTIVE_POINTER.name
+    pointer_path = lexical_absolute_path(
+        pointer_value
+        if pointer_value
+        else releases_root / DEFAULT_ACTIVE_POINTER.name
+    )
     allow_legacy = bool(getattr(args, "allow_legacy_serving_output", False))
     candidate_mode = str(
         getattr(args, "release_candidate_mode", RESEARCH_ONLY_CANDIDATE_MODE)
@@ -84,6 +99,25 @@ def prepare_candidate_outputs(args: Any, *, now: datetime | None = None) -> dict
 
     rows = []
     failures = []
+    for attribute, path in (
+        ("candidates_root", candidates_root),
+        ("candidate_dir", candidate_dir),
+        ("releases_root", releases_root),
+        ("release_pointer", pointer_path),
+    ):
+        try:
+            assert_no_link_or_reparse_ancestors(
+                path,
+                label=attribute.replace("_", " "),
+            )
+        except ReleaseLifecycleError as exc:
+            failures.append(
+                {
+                    "attribute": attribute,
+                    "path": str(path),
+                    "error": str(exc),
+                }
+            )
     try:
         validate_release_id(candidate_id)
     except ReleaseLifecycleError as exc:
@@ -106,9 +140,15 @@ def prepare_candidate_outputs(args: Any, *, now: datetime | None = None) -> dict
         )
     for attribute, default_relative, kind, role in CANDIDATE_OUTPUTS:
         configured = getattr(args, attribute, "")
-        path = Path(configured).resolve() if configured else candidate_dir / default_relative
+        path = lexical_absolute_path(
+            configured if configured else candidate_dir / default_relative
+        )
         setattr(args, attribute, str(path))
         try:
+            assert_no_link_or_reparse_ancestors(
+                path,
+                label=f"candidate output {attribute}",
+            )
             guard = assert_training_output_path(
                 path,
                 candidates_root=candidates_root,
@@ -182,6 +222,55 @@ def _active_parent(args: Any) -> str | None:
     return active_id
 
 
+def _release_construction_authorization(
+    *,
+    args: Any,
+    candidate_mode: str,
+    parent_release: str | None,
+    route: Mapping[str, Any],
+) -> dict[str, Any]:
+    promotion_authorization = route.get("promotion_authorization") or {}
+    promotion_authorized = (
+        promotion_authorization.get("status") == "AUTHORIZED"
+        and route.get("promotion_eligibility")
+        == "ELIGIBLE_FOR_GATED_PROMOTION"
+    )
+    bootstrap_contract = getattr(
+        args,
+        "_first_inactive_release_bootstrap_contract",
+        None,
+    )
+    if bootstrap_contract is not None:
+        if candidate_mode != PRODUCTION_CANDIDATE_MODE:
+            raise ReleaseLifecycleError(
+                "first-inactive release construction is restricted to "
+                "production candidate mode"
+            )
+        bootstrap_lineage = bootstrap_release_lineage(
+            bootstrap_contract,
+            args=args,
+            parent_release=parent_release,
+        )
+        validate_first_inactive_release_route(route)
+        return {
+            "promotion_authorized": promotion_authorized,
+            "promotion_authorization": promotion_authorization,
+            "bootstrap_contract": bootstrap_contract,
+            "bootstrap_lineage": bootstrap_lineage,
+        }
+    if not promotion_authorized:
+        raise ReleaseLifecycleError(
+            "candidate release construction requires code-authorized promotion "
+            "or the exact first-inactive production bootstrap contract"
+        )
+    return {
+        "promotion_authorized": True,
+        "promotion_authorization": promotion_authorization,
+        "bootstrap_contract": None,
+        "bootstrap_lineage": None,
+    }
+
+
 def build_candidate_release(
     args: Any,
     *,
@@ -213,10 +302,16 @@ def build_candidate_release(
                     f"production candidate is missing point-in-time artifact: {role}"
                 )
             point_in_time_artifacts[role] = value
-    candidate_dir = Path(args.candidate_dir).resolve()
+    candidate_dir = assert_no_link_or_reparse_ancestors(
+        lexical_absolute_path(args.candidate_dir),
+        label="candidate directory",
+    )
     output_by_role = {}
     for row in candidate_guard.get("outputs") or []:
-        path = Path(row["path"]).resolve()
+        path = assert_no_link_or_reparse_ancestors(
+            lexical_absolute_path(row["path"]),
+            label=f"candidate artifact {row.get('role')!r}",
+        )
         try:
             relative = path.relative_to(candidate_dir).as_posix()
         except ValueError as exc:
@@ -255,6 +350,20 @@ def build_candidate_release(
         raise ReleaseLifecycleError("candidate semantic contract is not exact PASS")
     declarations = semantic["declarations"]
     route = semantic["route"]
+    construction_authorization = _release_construction_authorization(
+        args=args,
+        candidate_mode=candidate_mode,
+        parent_release=parent_release,
+        route=route,
+    )
+    promotion_authorization = construction_authorization[
+        "promotion_authorization"
+    ]
+    promotion_authorized = construction_authorization[
+        "promotion_authorized"
+    ]
+    bootstrap_contract = construction_authorization["bootstrap_contract"]
+    bootstrap_lineage = construction_authorization["bootstrap_lineage"]
     lineage = {
         "holdout_year": args.holdout_year,
         "quality_grades": args.quality_grades,
@@ -272,17 +381,8 @@ def build_candidate_release(
             "rejection_count": semantic["audit"]["rejection_count"],
         },
     }
-    bootstrap_contract = getattr(
-        args,
-        "_first_inactive_release_bootstrap_contract",
-        None,
-    )
-    if bootstrap_contract is not None:
-        lineage["first_inactive_release_bootstrap"] = bootstrap_release_lineage(
-            bootstrap_contract,
-            args=args,
-            parent_release=parent_release,
-        )
+    if bootstrap_lineage is not None:
+        lineage["first_inactive_release_bootstrap"] = bootstrap_lineage
     pointer_path = Path(args.release_pointer)
     pointer_before = sha256_file(pointer_path) if pointer_path.exists() else None
     result = release_builder(
@@ -308,10 +408,17 @@ def build_candidate_release(
         "promotion_eligibility": (
             "BLOCKED_PENDING_POST_FREEZE_EVIDENCE"
             if first_inactive_bootstrap
+            else "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+            if (
+                candidate_mode == PRODUCTION_CANDIDATE_MODE
+                and not promotion_authorized
+            )
             else "ELIGIBLE_FOR_GATED_PROMOTION"
             if candidate_mode == PRODUCTION_CANDIDATE_MODE
             else "BLOCKED_RESEARCH_ONLY"
         ),
+        "promotion_authorization_status": promotion_authorization.get("status"),
+        "promotion_authorization": promotion_authorization,
         "bootstrap_scope": (
             "INACTIVE_IDENTITY_ONLY" if first_inactive_bootstrap else None
         ),

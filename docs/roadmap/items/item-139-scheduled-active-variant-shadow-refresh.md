@@ -121,6 +121,30 @@ Verification:
 - `python -m pytest tests\reporting\test_variant_registry.py tests\reporting\test_multi_variant_shadow.py tests\operations\test_schema_registry.py tests\operations\test_import_architecture.py -q`
 - `python -m py_compile src\weather\reporting\active_variant_shadow_refresh.py src\weather\operations\daily_refresh.py tests\operations\test_daily_refresh.py`
 
+## 2026-07-23 immutable-generation hardening
+
+Scheduled refreshes now publish the promotion corpus beneath
+`promotion_corpus_generations/` using a bounded, sanitized, hash-suffixed run
+identity. Reusing a run identity never overwrites evidence: the next absent
+`-retry-NNNN` leaf is selected and the existing bytes remain unchanged. The
+promotion step reports its exact `corpus_path`; inline active-variant execution
+uses that same-run path or the exact path carried in a resume ledger, rather
+than reopening the fixed legacy filename. Its window manifest is likewise
+generation-scoped. Scheduled chains therefore preserve an immutable evidence
+history and cannot silently mix a new shadow run with an older corpus. Direct
+manual research calls may still read a deliberately supplied legacy corpus.
+
+The scheduled promotion result also records a stable corpus receipt binding
+the resolved path, byte size, SHA-256, manifest schema, semantic corpus hash,
+and producing daily-refresh run. Active shadow requires exactly one successful
+promotion step and re-verifies that receipt immediately before constructing its
+command. Resumed runs additionally bind carried steps to the exact prior status
+ledger bytes and preserve an ordered ledger-hash chain across repeated resumes.
+Missing or modified corpus bytes, stale producer identity, path-only private
+state, ambiguous step/result status, and duplicate or non-finite resume JSON
+all fail closed before shadow execution. The legacy path-only fallback remains
+available only to direct/manual research calls outside a scheduled run.
+
 ## Completion Notes
 
 Validated in the 2026-06-24 complete-roadmap sweep:
@@ -129,4 +153,3 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - The file contains 5 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the item-specific `Verification:` command(s) or artifact checks listed above.
-

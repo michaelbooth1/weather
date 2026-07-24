@@ -1879,7 +1879,12 @@ def _bounded_locked_manifest_entries(
         )
 
     entries = list((manifest or {}).get("entries") or ())
-    folders = list(folders_from_manifest(manifest, snapshots_root))
+    try:
+        folders = list(folders_from_manifest(manifest, snapshots_root))
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise BoundedCandidateReplayError(
+            f"manifest folder is outside the explicit snapshots root: {exc}"
+        ) from exc
     if len(entries) != len(folders):
         raise BoundedCandidateReplayError(
             "promotion manifest entries and resolved folders differ"
@@ -2298,6 +2303,17 @@ def _reject_bounded_json_constant(value):
     raise ValueError(f"non-finite JSON value {value}")
 
 
+def _reject_bounded_json_nonfinite(value, *, path="$"):
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number at {path}")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _reject_bounded_json_nonfinite(item, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_bounded_json_nonfinite(item, path=f"{path}[{index}]")
+
+
 def _bounded_json_object(raw, *, description):
     try:
         payload = json.loads(
@@ -2305,6 +2321,7 @@ def _bounded_json_object(raw, *, description):
             parse_constant=_reject_bounded_json_constant,
             object_pairs_hook=_bounded_json_pairs,
         )
+        _reject_bounded_json_nonfinite(payload)
     except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise BoundedCandidateReplayError(
             f"{description} is not strict UTF-8 JSON: {exc}"

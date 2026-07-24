@@ -206,7 +206,17 @@ OWNERSHIP_NOTES = {
     "src/weather/reporting/source_gates/source_family_inventory.py": {
         "owner": "reporting",
         "boundary": "Source-family input readers, family/gate classification, payload assembly, and CLI.",
-        "next_split": "Item 318 slice complete; Markdown rendering lives in source_family_inventory_report.",
+        "next_split": "WARN after the 2026-07-23 safety migration; extract scan-input closure and guarded publication orchestration while preserving the stable facade and current-input contracts.",
+    },
+    "src/weather/reporting/source_gates/physical_feature_family_ratchet.py": {
+        "owner": "reporting",
+        "boundary": "Physical-family input binding, exact rebuild validation, readiness projection, report rendering, and guarded publication.",
+        "next_split": "WARN after the 2026-07-23 safety migration; extract path/publication guards and item-27 diagnostic projection behind the stable ratchet API while preserving exact rebuild semantics.",
+    },
+    "src/weather/reporting/research/pool_city_training_benchmark.py": {
+        "owner": "reporting",
+        "boundary": "Research-only pooled, per-city, and leave-one-city-out training benchmark with authenticated checkpoints and execution closure.",
+        "next_split": "WARN after the 2026-07-23 assurance migration; extract checkpoint/status authentication and source-closure helpers without changing run IDs or prediction contracts.",
     },
     "src/weather/reporting/source_gates/source_family_inventory_report.py": {
         "owner": "reporting",

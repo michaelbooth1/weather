@@ -1643,3 +1643,30 @@ Verification:
 - `python -m pytest tests\reporting\test_item48_promotion_readiness_acceptance.py tests\operations\test_schema_registry.py tests\reporting\test_roadmap_backlog.py -q`
 - `python -m weather.reporting.research.item48_promotion_readiness_acceptance`
 - `python -m weather.reporting.roadmap.roadmap_backlog --roadmap-root docs\roadmap --json-out data\backtest\roadmap_backlog.json --report-out docs\roadmap\active-backlog.md`
+
+## 2026-07-23 Authorization And Source-Evidence Clarification
+
+The June completion evidence and its stored booleans remain historical. Current
+`promotion_allowlist_v0.1` readers preserve `PROMOTE_CANDIDATE` as an operator
+recommendation but project it to `SHADOW`; they force candidate-serving and
+candidate-permission claims false. Release eligibility independently requires a
+supported, runtime-verifiable authorization envelope, so the line above saying
+candidate serving/permission was enabled is not a current permission claim.
+Existing `BLOCK` rows remain blocks.
+
+The June source-family preflight also predates the current trust contract.
+Operational source evidence now requires `source_family_ablation_v0.3` bound
+to the canonically verified active release, followed by
+`source_family_inventory_v0.2` with exact current-byte receipts. A detached
+candidate artifact, legacy v0.1 inventory/ablation, or research v0.2 ablation
+cannot clear the gate. No runtime artifact was regenerated during this
+migration because the workstation's mirrored `data/` tree was explicitly
+read-only; stale runtime evidence remains blocked until an operator regenerates
+the chain in an authorized writable environment. See
+[item 125](item-125-weather-input-value-attribution-and-promotion-queue.md) and
+[item 218](item-218-location-specific-f-family-promotion-allowlist.md).
+
+The historical verification command immediately above writes its JSON output
+under `data/` and must not be run against a read-only mirror. Workstation audits
+must supply a fresh `--json-out` below `scratch/` while retaining the tracked
+`--report-out docs/roadmap/active-backlog.md` destination.

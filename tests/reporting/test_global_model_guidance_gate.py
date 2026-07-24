@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.global_model_guidance_gate import (
     GLOBAL_MODEL_FEATURES,
@@ -11,9 +12,19 @@ from weather.reporting.source_gates.global_model_guidance_gate import (
     source_inventory_evidence,
     write_markdown_report,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 class GlobalModelGuidanceGateTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.global_model_guidance_gate."
+            "source_family_inventory_consumer_contract",
+            return_value={"status": "PASS", "blockers": []},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _write_hgb_csv(self, path, features):
         rows = [
             {
@@ -44,8 +55,8 @@ class GlobalModelGuidanceGateTests(unittest.TestCase):
         parity="PASS",
         missing_folders=0,
     ):
-        return {
-            "inventory": [
+        return operational_inventory(
+            [
                 {
                     "family_id": "multi_model_guidance",
                     "source_keys": ["open_meteo_multimodel", "open_meteo_global_models", "global_ensemble"],
@@ -69,7 +80,7 @@ class GlobalModelGuidanceGateTests(unittest.TestCase):
                     "feature_missingness": {"missing_rate": 0.0},
                 }
             ]
-        }
+        )
 
     def _candidate(self, *, feature_subset="global_model_guidance", early_n=3):
         return {
@@ -156,8 +167,10 @@ class GlobalModelGuidanceGateTests(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "global_model_guidance_gate_v0.1")
         self.assertEqual(payload["acceptance"]["status"], "PASS")
+        self.assertFalse(payload["serving_or_release_authorization"])
         self.assertEqual(payload["permutation_evidence"]["observed_global_model_feature_count"], len(GLOBAL_MODEL_FEATURES))
         self.assertIn("Global Model Guidance Gate", text)
+        self.assertIn("runtime current-input revalidation is required", text)
         self.assertIn("No blockers.", text)
 
 

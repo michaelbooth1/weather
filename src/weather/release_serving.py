@@ -10,7 +10,10 @@ or byte change requires an explicit cache clear/process restart.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import pickle
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -20,11 +23,16 @@ from weather.paths import REPO_ROOT
 from weather.release_artifacts import (
     DEFAULT_ACTIVE_RELEASE_POINTER,
     DEFAULT_RELEASES_ROOT,
+    RELEASE_MANIFEST_NAME,
     ReleaseArtifactVerificationError,
+    assert_no_link_or_reparse_ancestors,
+    is_link_or_reparse_point,
+    lexical_absolute_path,
     load_active_release_pointer,
     resolve_verified_active_release,
     sha256_file,
     strict_json_loads,
+    trusted_active_release_paths,
     verify_release,
 )
 from weather.release_contract import (
@@ -72,6 +80,7 @@ class VerifiedServingBundle:
     pointer_file_sha256: str | None = None
     release_id: str = ""
     manifest_sha256: str = ""
+    manifest_file_sha256: str = ""
     pointer_sha256: str = ""
     sequence: int | None = None
     release_kind: str = ""
@@ -81,6 +90,7 @@ class VerifiedServingBundle:
     route: Mapping[str, Any] = field(default_factory=dict)
     model_variant_registry: Mapping[str, Any] = field(default_factory=dict)
     model_bundle: Mapping[str, Any] = field(default_factory=dict)
+    model_bundle_materialized: bool = False
     json_artifacts: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     artifact_paths: Mapping[str, str] = field(default_factory=dict)
     artifact_hashes: Mapping[str, str] = field(default_factory=dict)
@@ -169,48 +179,119 @@ def _verify_route_registry_model_binding(
             )
 
 
+def _file_identity(observed: os.stat_result) -> tuple[int, ...]:
+    """Return stable identity and mutation fields for one regular file."""
+
+    return (
+        int(observed.st_dev),
+        int(observed.st_ino),
+        int(stat.S_IFMT(observed.st_mode)),
+        int(observed.st_size),
+        int(observed.st_mtime_ns),
+        int(observed.st_ctime_ns),
+    )
+
+
+def _read_verified_artifact_bytes(
+    path: Path,
+    *,
+    expected_sha256: str | None,
+    label: str,
+) -> bytes:
+    """Read and hash one opened file descriptor, then rebind it to its path."""
+
+    path = lexical_absolute_path(path)
+    try:
+        assert_no_link_or_reparse_ancestors(path, label=label)
+    except ReleaseArtifactVerificationError as exc:
+        raise ReleaseServingBindingError(f"{label} path is unsafe: {exc}") from exc
+    if is_link_or_reparse_point(path):
+        raise ReleaseServingBindingError(
+            f"{label} must not be a symlink or reparse point: {path}"
+        )
+    try:
+        with path.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ReleaseServingBindingError(
+                    f"{label} is not a regular file: {path}"
+                )
+            raw = handle.read()
+            after = os.fstat(handle.fileno())
+    except ReleaseServingBindingError:
+        raise
+    except OSError as exc:
+        raise ReleaseServingBindingError(f"{label} cannot be read: {exc}") from exc
+    if (
+        _file_identity(before) != _file_identity(after)
+        or len(raw) != int(after.st_size)
+    ):
+        raise ReleaseServingBindingError(
+            f"{label} changed while its verified bytes were being read"
+        )
+    if (
+        expected_sha256 is not None
+        and hashlib.sha256(raw).hexdigest() != expected_sha256
+    ):
+        raise ReleaseServingBindingError(
+            f"{label} hash changed before deserialization"
+        )
+    try:
+        assert_no_link_or_reparse_ancestors(path, label=label)
+        if is_link_or_reparse_point(path):
+            raise ReleaseServingBindingError(
+                f"{label} became a symlink or reparse point: {path}"
+            )
+        path_after = path.lstat()
+    except ReleaseServingBindingError:
+        raise
+    except (OSError, ReleaseArtifactVerificationError) as exc:
+        raise ReleaseServingBindingError(
+            f"{label} path changed while its verified bytes were being read: {exc}"
+        ) from exc
+    if (
+        not stat.S_ISREG(path_after.st_mode)
+        or _file_identity(path_after) != _file_identity(after)
+    ):
+        raise ReleaseServingBindingError(
+            f"{label} path no longer names the verified opened file"
+        )
+    return raw
+
+
 def _checked_json(path: Path, *, expected_sha256: str, label: str) -> dict[str, Any]:
     try:
-        before = path.stat()
-        if sha256_file(path) != expected_sha256:
-            raise ReleaseServingBindingError(f"{label} hash changed before deserialization")
-        payload = strict_json_loads(path.read_text(encoding="utf-8"), label=label)
+        raw = _read_verified_artifact_bytes(
+            path,
+            expected_sha256=expected_sha256,
+            label=label,
+        )
+        payload = strict_json_loads(raw.decode("utf-8"), label=label)
+    except ReleaseServingBindingError:
+        raise
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ReleaseServingBindingError(f"{label} cannot be deserialized: {exc}") from exc
-    try:
-        after = path.stat()
-        stable = (
-            before.st_size == after.st_size
-            and before.st_mtime_ns == after.st_mtime_ns
-            and sha256_file(path) == expected_sha256
-        )
-    except OSError as exc:
-        raise ReleaseServingBindingError(f"{label} disappeared during deserialization: {exc}") from exc
-    if not isinstance(payload, dict) or not stable:
-        raise ReleaseServingBindingError(f"{label} changed during deserialization")
+    if not isinstance(payload, dict):
+        raise ReleaseServingBindingError(f"{label} must be a JSON object")
     return payload
 
 
 def _checked_pickle(path: Path, *, expected_sha256: str, label: str) -> dict[str, Any]:
     try:
-        before = path.stat()
-        if sha256_file(path) != expected_sha256:
-            raise ReleaseServingBindingError(f"{label} hash changed before deserialization")
-        with path.open("rb") as handle:
-            payload = pickle.load(handle)  # noqa: S301 - immutable, hash-verified release artifact
+        raw = _read_verified_artifact_bytes(
+            path,
+            expected_sha256=expected_sha256,
+            label=label,
+        )
+        payload = pickle.loads(  # noqa: S301 - exact hash-verified release bytes
+            raw
+        )
+    except ReleaseServingBindingError:
+        raise
     except Exception as exc:  # noqa: BLE001 - unsafe format must fail the serving binding
         raise ReleaseServingBindingError(f"{label} cannot be deserialized: {exc}") from exc
-    try:
-        after = path.stat()
-        stable = (
-            before.st_size == after.st_size
-            and before.st_mtime_ns == after.st_mtime_ns
-            and sha256_file(path) == expected_sha256
-        )
-    except OSError as exc:
-        raise ReleaseServingBindingError(f"{label} disappeared during deserialization: {exc}") from exc
-    if not isinstance(payload, dict) or not stable:
-        raise ReleaseServingBindingError(f"{label} changed during deserialization")
+    if not isinstance(payload, dict):
+        raise ReleaseServingBindingError(f"{label} pickle must contain a mapping")
     return payload
 
 
@@ -397,11 +478,14 @@ def load_verified_active_serving_bundle(
     check_runtime: bool = True,
     current_runtime_versions: Mapping[str, Any] | None = None,
     current_runtime_identity: Mapping[str, Any] | None = None,
+    deserialize_model_artifacts: bool = True,
 ) -> VerifiedServingBundle:
-    """Load exact manifest roles only after all outer bindings pass."""
+    """Load exact roles, optionally stopping before trusted model deserialization."""
 
-    pointer_path = Path(pointer_path).resolve()
-    releases_root = Path(releases_root).resolve()
+    pointer_path, releases_root = trusted_active_release_paths(
+        pointer_path=pointer_path,
+        releases_root=releases_root,
+    )
     present, pointer_file_sha = _pointer_state(pointer_path)
     if not present:
         return VerifiedServingBundle(
@@ -436,6 +520,26 @@ def load_verified_active_serving_bundle(
             "active release is research-only and cannot bind a serving runtime"
         )
     manifest = verified["manifest"]
+    manifest_path = release_dir / RELEASE_MANIFEST_NAME
+    manifest_raw = _read_verified_artifact_bytes(
+        manifest_path,
+        expected_sha256=None,
+        label="release manifest",
+    )
+    try:
+        current_manifest = strict_json_loads(
+            manifest_raw.decode("utf-8"),
+            label="release manifest",
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ReleaseServingBindingError(
+            f"release manifest cannot be deserialized: {exc}"
+        ) from exc
+    if current_manifest != manifest:
+        raise ReleaseServingBindingError(
+            "release manifest changed after immutable verification"
+        )
+    manifest_file_sha256 = hashlib.sha256(manifest_raw).hexdigest()
     roles = _inventory_by_role(manifest)
     serving_rows = {
         role: row
@@ -509,10 +613,14 @@ def load_verified_active_serving_bundle(
         json_payloads=json_payloads,
         release_dir=release_dir,
     )
-    model_bundle = _checked_pickle(
-        release_dir / str(model_row["path"]),
-        expected_sha256=str(model_row["sha256"]),
-        label="pooled band model",
+    model_bundle = (
+        _checked_pickle(
+            release_dir / str(model_row["path"]),
+            expected_sha256=str(model_row["sha256"]),
+            label="pooled band model",
+        )
+        if deserialize_model_artifacts
+        else {}
     )
     return VerifiedServingBundle(
         status=STATUS_BOUND,
@@ -526,6 +634,7 @@ def load_verified_active_serving_bundle(
         pointer_file_sha256=pointer_file_sha,
         release_id=str(resolved["release_id"]),
         manifest_sha256=str(resolved["manifest_sha256"]),
+        manifest_file_sha256=manifest_file_sha256,
         pointer_sha256=str(resolved["pointer_sha256"]),
         sequence=int(resolved["sequence"]),
         release_kind=release_kind,
@@ -535,6 +644,7 @@ def load_verified_active_serving_bundle(
         route=_deep_freeze(route),
         model_variant_registry=_deep_freeze(registry),
         model_bundle=model_bundle,
+        model_bundle_materialized=deserialize_model_artifacts,
         json_artifacts=_deep_freeze(json_payloads),
         artifact_paths=MappingProxyType({role: str(path) for role, path in served_paths.items()}),
         artifact_hashes=MappingProxyType(

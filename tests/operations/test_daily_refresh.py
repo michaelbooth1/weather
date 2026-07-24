@@ -9,6 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
+
+import pytest
+
 from weather.market import exchange_economics, mm_paper
 from weather.market.taker_bot import ORDER_COLUMNS
 from weather.market.market_config import event_slug_for_date
@@ -20,6 +23,7 @@ from weather.market.mm_scoring_projection import (
 )
 from weather.operations.daily_refresh import (  # noqa: E402
     DEFAULT_RUNNERS,
+    SCHEMA_VERSION as DAILY_REFRESH_SCHEMA_VERSION,
     _captured_input_parity_preflight,
     acquire_lock,
     build_parser,
@@ -63,7 +67,20 @@ from weather.operations.daily_refresh import (  # noqa: E402
 from weather.operations.daily_refresh_registry import carried_forward_steps, step_names_for_stage
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
+from weather.operations.daily_refresh_reporting_steps import (
+    _active_variant_shadow_command,
+    promotion_args,
+)
+from weather.operations.daily_refresh_corpus_binding import (
+    _read_stable_bytes,
+    build_promotion_corpus_receipt,
+    read_resume_source_status,
+)
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
+from weather.reporting.promotion.promotion_corpus import (
+    PROMOTION_CORPUS_SCHEMA_VERSION,
+    corpus_hash,
+)
 
 
 def _recent_active_variant_row(as_of=None):
@@ -79,6 +96,63 @@ def _recent_active_variant_row(as_of=None):
         "active_v,f_family,False,False,nyc,"
         f"{target_date},s1,eq:82,0.6,0.5,0.5,0.5,1,a,p,{target_date}\n"
     )
+
+
+def _write_test_promotion_corpus(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": PROMOTION_CORPUS_SCHEMA_VERSION,
+        "entries": [],
+        "corpus_hash": corpus_hash([]),
+    }
+    path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _promotion_corpus_step(path, producer_run_id):
+    receipt = build_promotion_corpus_receipt(
+        path,
+        producer_run_id=producer_run_id,
+    )
+    return {
+        "name": "promotion_refresh",
+        "status": "ok",
+        "result": {
+            "status": "OK",
+            "corpus_path": receipt["path"],
+            "corpus_schema_version": receipt["manifest_schema_version"],
+            "corpus_hash": receipt["corpus_hash"],
+            "corpus_receipt": receipt,
+        },
+    }
+
+
+def test_daily_refresh_stable_binding_consumes_the_opened_descriptor(tmp_path):
+    path = tmp_path / "promotion_corpus.json"
+    path.write_bytes(b"verified-opened-bytes")
+
+    with patch.object(Path, "read_bytes", return_value=b"swapped-path-bytes"):
+        resolved, raw = _read_stable_bytes(
+            path,
+            description="promotion corpus binding",
+        )
+
+    assert resolved == path.absolute()
+    assert raw == b"verified-opened-bytes"
+
+
+def test_daily_refresh_stable_binding_rejects_symlink_alias(tmp_path):
+    target = tmp_path / "promotion_corpus.json"
+    target.write_bytes(b"verified-opened-bytes")
+    alias = tmp_path / "promotion_corpus_alias.json"
+    try:
+        alias.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"file symlink unavailable: {exc}")
+
+    with pytest.raises(RuntimeError, match="symlink or reparse point"):
+        _read_stable_bytes(alias, description="promotion corpus binding")
 
 
 def _args(tmp, **overrides):
@@ -2539,6 +2613,65 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertIn("weather.reporting.promotion.promotion_refresh", captured["command"])
         self.assertIn("--out", captured["command"])
 
+    def test_scheduled_promotion_refresh_records_immutable_corpus_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            args._daily_refresh_run_id = "daily:2026-07-23T09:30:00Z"
+            args._daily_refresh_steps_so_far = [
+                {
+                    "name": "live_variant_settlement_scorecard",
+                    "status": "ok",
+                    "result": {"status": "PASS"},
+                }
+            ]
+
+            def fake_refresh(refresh_args):
+                corpus_path = _write_test_promotion_corpus(
+                    refresh_args.corpus_out
+                )
+                manifest = json.loads(corpus_path.read_text(encoding="utf-8"))
+                payload = {
+                    "status": "OK",
+                    "corpus": {
+                        "path": str(corpus_path),
+                        "schema_version": manifest["schema_version"],
+                        "corpus_hash": manifest["corpus_hash"],
+                        "market_day_count": 0,
+                        "snapshot_count": 0,
+                        "band_row_count": 0,
+                    },
+                    "candidate": {},
+                    "decisions": {},
+                    "serving_gauntlet": {},
+                }
+                return payload, refresh_args.out, refresh_args.report
+
+            with patch(
+                "weather.operations.daily_refresh_reporting_steps.promotion_disk_preflight",
+                return_value={
+                    "status": "PASS",
+                    "resume_command": "resume promotion_refresh",
+                },
+            ), patch(
+                "weather.operations.daily_refresh_reporting_steps.promotion_refresh.run_promotion_refresh",
+                side_effect=fake_refresh,
+            ):
+                result = run_promotion_refresh_step(args)
+
+        receipt = result["corpus_receipt"]
+        self.assertEqual(
+            receipt["schema_version"],
+            "daily_refresh_promotion_corpus_binding_v0.1",
+        )
+        self.assertEqual(
+            receipt["producer_daily_refresh_run_id"],
+            "daily:2026-07-23T09:30:00Z",
+        )
+        self.assertEqual(receipt["path"], result["corpus_path"])
+        self.assertGreater(receipt["byte_size"], 0)
+        self.assertEqual(len(receipt["sha256"]), 64)
+        self.assertEqual(receipt["corpus_hash"], result["corpus_hash"])
+
     def test_resume_from_step_skips_upstream_steps(self):
         calls = []
 
@@ -4002,6 +4135,320 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["registry"]["contract_status"], "OK")
         self.assertEqual(payload["summary"]["source_path_count"], 1)
         self.assertEqual(payload["registry"]["reported_active_variant_ids"], ["active_v"])
+
+    def _run_active_shadow_resume_binding(
+        self,
+        tmp,
+        *,
+        mutate_step=None,
+        mutate_corpus=None,
+    ):
+        prior_run_id = "daily:2026-07-23T09:30:00Z"
+        prior_args = _args(tmp)
+        prior_args._daily_refresh_run_id = prior_run_id
+        refresh_args = promotion_args(prior_args)
+        promotion_corpus = _write_test_promotion_corpus(
+            refresh_args.corpus_out
+        )
+        promotion_step = _promotion_corpus_step(
+            promotion_corpus,
+            prior_run_id,
+        )
+        if mutate_step is not None:
+            mutate_step(promotion_step, promotion_corpus)
+        if mutate_corpus is not None:
+            mutate_corpus(promotion_corpus)
+
+        resumed = _args(
+            tmp,
+            resume_from_step="active_variant_shadow",
+            disable_long_job_guard=True,
+            skip_daily_progress_ledger=True,
+        )
+        prior_status = {
+            "schema_version": DAILY_REFRESH_SCHEMA_VERSION,
+            "runner": "daily_refresh",
+            "run_id": prior_run_id,
+            "started_at_utc": "2026-07-23T09:30:00+00:00",
+            "status": "running",
+            "steps": [promotion_step],
+            "resource_steps": [],
+        }
+        status_path = Path(resumed.status_out)
+        status_path.parent.mkdir(parents=True, exist_ok=True)
+        status_path.write_text(
+            json.dumps(prior_status, sort_keys=True),
+            encoding="utf-8",
+        )
+
+        captured = {}
+
+        def active_shadow_runner(step_args):
+            command = _active_variant_shadow_command(step_args, [])
+            captured["command"] = command
+            return {"status": "OK", "command": command}
+
+        payload, _status_path, _report_path = run_daily_refresh(
+            resumed,
+            runners=[("active_variant_shadow", active_shadow_runner)],
+        )
+        return resumed, payload, captured, promotion_corpus
+
+    def test_daily_generation_paths_bind_valid_resume_to_exact_corpus_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resumed, payload, captured, promotion_corpus = (
+                self._run_active_shadow_resume_binding(tmp)
+            )
+            command = captured["command"]
+            bound_corpus = command[command.index("--corpus-path") + 1]
+            first_window = Path(
+                command[command.index("--window-corpus-out") + 1]
+            )
+
+            self.assertEqual(
+                promotion_corpus.parent.name,
+                "promotion_corpus_generations",
+            )
+            self.assertNotEqual(
+                promotion_corpus,
+                Path(resumed.backtest_root) / "promotion_corpus.json",
+            )
+            self.assertEqual(bound_corpus, str(promotion_corpus.resolve()))
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(
+                payload["config"]["carried_forward_source"]["status"],
+                "VERIFIED",
+            )
+            promotion_step = payload["steps"][0]
+            self.assertTrue(promotion_step["carried_forward"])
+            self.assertEqual(
+                promotion_step["carried_forward_source"]["run_id"],
+                "daily:2026-07-23T09:30:00Z",
+            )
+            self.assertEqual(
+                len(promotion_step["carried_forward_source"]["ledger_sha256"]),
+                64,
+            )
+            self.assertEqual(
+                promotion_step["carried_forward_sources"],
+                [promotion_step["carried_forward_source"]],
+            )
+            self.assertEqual(
+                first_window.parent.name,
+                "active_variant_shadow_window_corpus_generations",
+            )
+            first_window.parent.mkdir(parents=True)
+            first_window.write_text("immutable-window", encoding="utf-8")
+
+            retry_command = _active_variant_shadow_command(resumed, [])
+            retry_window = Path(
+                retry_command[
+                    retry_command.index("--window-corpus-out") + 1
+                ]
+            )
+
+            self.assertNotEqual(retry_window, first_window)
+            self.assertIn("-retry-0002", retry_window.name)
+            self.assertEqual(
+                first_window.read_text(encoding="utf-8"),
+                "immutable-window",
+            )
+
+    def test_daily_generation_paths_preserve_multihop_resume_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resumed, _payload, _captured, promotion_corpus = (
+                self._run_active_shadow_resume_binding(tmp)
+            )
+            next_resume = _args(
+                tmp,
+                resume_from_step="active_variant_shadow",
+                disable_long_job_guard=True,
+                skip_daily_progress_ledger=True,
+            )
+            captured = {}
+
+            def active_shadow_runner(step_args):
+                captured["command"] = _active_variant_shadow_command(
+                    step_args,
+                    [],
+                )
+                return {"status": "OK"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                next_resume,
+                runners=[("active_variant_shadow", active_shadow_runner)],
+            )
+
+        command = captured["command"]
+        self.assertEqual(
+            command[command.index("--corpus-path") + 1],
+            str(promotion_corpus.resolve()),
+        )
+        sources = payload["steps"][0]["carried_forward_sources"]
+        self.assertEqual(len(sources), 2)
+        self.assertEqual(
+            sources[0]["run_id"],
+            "daily:2026-07-23T09:30:00Z",
+        )
+        self.assertEqual(
+            sources[-1],
+            payload["steps"][0]["carried_forward_source"],
+        )
+
+    def test_scheduled_active_shadow_rejects_tampered_corpus_path(self):
+        def tamper_path(step, promotion_corpus):
+            replacement = _write_test_promotion_corpus(
+                promotion_corpus.with_name("replacement.json")
+            )
+            step["result"]["corpus_path"] = str(replacement.resolve())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _args, payload, captured, _corpus = (
+                self._run_active_shadow_resume_binding(
+                    tmp,
+                    mutate_step=tamper_path,
+                )
+            )
+
+        self.assertNotIn("command", captured)
+        self.assertEqual(payload["status"], "error")
+        active = payload["steps"][-1]
+        self.assertEqual(active["name"], "active_variant_shadow")
+        self.assertIn(
+            "path does not match its immutable receipt",
+            active["error"],
+        )
+
+    def test_scheduled_active_shadow_rejects_modified_corpus_bytes(self):
+        def tamper_bytes(promotion_corpus):
+            with promotion_corpus.open("a", encoding="utf-8") as handle:
+                handle.write("\n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _args, payload, captured, _corpus = (
+                self._run_active_shadow_resume_binding(
+                    tmp,
+                    mutate_corpus=tamper_bytes,
+                )
+            )
+
+        self.assertNotIn("command", captured)
+        self.assertEqual(payload["status"], "error")
+        self.assertIn(
+            "byte size does not match its immutable receipt",
+            payload["steps"][-1]["error"],
+        )
+
+    def test_scheduled_active_shadow_rejects_missing_corpus_bytes(self):
+        def remove_corpus(promotion_corpus):
+            promotion_corpus.unlink()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _args, payload, captured, _corpus = (
+                self._run_active_shadow_resume_binding(
+                    tmp,
+                    mutate_corpus=remove_corpus,
+                )
+            )
+
+        self.assertNotIn("command", captured)
+        self.assertEqual(payload["status"], "error")
+        self.assertIn(
+            "scheduled promotion corpus path is missing",
+            payload["steps"][-1]["error"],
+        )
+
+    def test_scheduled_active_shadow_rejects_ambiguous_promotion_status(self):
+        cases = (
+            (
+                "step_error",
+                lambda step, _path: step.update(status="error"),
+                "promotion step status 'ok'",
+            ),
+            (
+                "result_block",
+                lambda step, _path: step["result"].update(status="BLOCK"),
+                "promotion result status 'OK'",
+            ),
+        )
+        for label, mutate_step, expected in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                _args, payload, captured, _corpus = (
+                    self._run_active_shadow_resume_binding(
+                        tmp,
+                        mutate_step=mutate_step,
+                    )
+                )
+                self.assertNotIn("command", captured)
+                self.assertEqual(payload["status"], "error")
+                self.assertIn(expected, payload["steps"][-1]["error"])
+
+    def test_resume_source_rejects_ambiguous_or_nonfinite_status_json(self):
+        cases = (
+            (
+                "duplicate",
+                '{"schema_version":"daily_refresh_v0.5",'
+                '"runner":"daily_refresh","runner":"forged","run_id":"run-1"}',
+            ),
+            (
+                "overflow",
+                '{"schema_version":"daily_refresh_v0.5",'
+                '"runner":"daily_refresh","run_id":"run-1","metric":1e999}',
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "daily_refresh_status.json"
+            for label, raw in cases:
+                with self.subTest(label=label):
+                    path.write_text(raw, encoding="utf-8")
+                    prior, provenance = read_resume_source_status(
+                        path,
+                        expected_schema_version=DAILY_REFRESH_SCHEMA_VERSION,
+                    )
+                    self.assertEqual(prior, {})
+                    self.assertEqual(provenance["status"], "UNVERIFIED")
+                    self.assertEqual(
+                        provenance["reason"],
+                        "status_missing_unreadable_or_unstable",
+                    )
+
+    def test_scheduled_active_shadow_rejects_stale_run_binding(self):
+        def stale_producer(step, _promotion_corpus):
+            step["result"]["corpus_receipt"][
+                "producer_daily_refresh_run_id"
+            ] = "daily:some-other-run"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _args, payload, captured, _corpus = (
+                self._run_active_shadow_resume_binding(
+                    tmp,
+                    mutate_step=stale_producer,
+                )
+            )
+
+        self.assertNotIn("command", captured)
+        self.assertEqual(payload["status"], "error")
+        self.assertIn(
+            "producer run does not match",
+            payload["steps"][-1]["error"],
+        )
+
+    def test_scheduled_active_shadow_does_not_trust_current_path_without_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(tmp)
+            args._daily_refresh_run_id = "daily:current"
+            args._current_promotion_corpus_path = str(
+                _write_test_promotion_corpus(
+                    Path(tmp) / "unverified-current.json"
+                )
+            )
+            args._daily_refresh_steps_so_far = []
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "requires exactly one promotion refresh step",
+            ):
+                _active_variant_shadow_command(args, [])
 
     def test_active_variant_shadow_step_executes_registry_predictions_when_sources_empty(self):
         header = (

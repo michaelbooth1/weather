@@ -33,6 +33,7 @@ from weather.release_contract import (
     RESEARCH_ONLY_CANDIDATE_MODE,
     SEMANTIC_CONTRACT_SCHEMA_VERSION,
     SEMANTIC_SERVING_ROLE_KINDS,
+    SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS,
 )
 from weather.schema_registry import schema_version
 
@@ -608,6 +609,195 @@ def _bundle_sidecars(bundle: Mapping[str, Any], bundle_sha256: str) -> dict[str,
     }
 
 
+def _market_ids(values: Sequence[Any] | None) -> list[str]:
+    return sorted(
+        {
+            market_id
+            for value in values or ()
+            if (market_id := str(value or "").strip())
+        }
+    )
+
+
+def _duplicate_market_ids(values: Sequence[Any] | None) -> list[str]:
+    seen = set()
+    duplicates = set()
+    for value in values or ():
+        market_id = str(value or "").strip()
+        if not market_id:
+            continue
+        if market_id in seen:
+            duplicates.add(market_id)
+        seen.add(market_id)
+    return sorted(duplicates)
+
+
+def _promotion_recommendation_selection(
+    promotion: Mapping[str, Any],
+) -> dict[str, Any]:
+    promote_source = promotion.get("recommendation_promote_markets")
+    shadow_source = promotion.get("recommendation_shadow_markets")
+    promote = _market_ids(
+        promote_source
+        if promote_source is not None
+        else promotion.get("promote_markets") or []
+    )
+    shadow = _market_ids(
+        shadow_source
+        if shadow_source is not None
+        else promotion.get("shadow_markets") or []
+    )
+    blocked = _market_ids(promotion.get("blocked_markets") or [])
+    return {
+        "verdict": (
+            "blocked"
+            if blocked
+            else "promote_ready"
+            if promote
+            else "shadow"
+        ),
+        "promote_markets": promote,
+        "shadow_markets": shadow,
+        "blocked_markets": blocked,
+    }
+
+
+def _promotion_authorization_state(
+    promotion: Mapping[str, Any],
+    recommendation_promote: Sequence[str],
+) -> dict[str, Any]:
+    nested = promotion.get("promotion_allowlist")
+    envelope = nested if isinstance(nested, Mapping) else promotion
+    schema_version = str(
+        envelope.get("schema_version")
+        or promotion.get("promotion_allowlist_schema_version")
+        or ""
+    )
+    schema_claimed_supported = (
+        envelope.get(
+            "authorization_schema_claimed_supported",
+            envelope.get("authorization_schema_supported"),
+        )
+        is True
+    )
+    authorization_claimed_status = str(
+        envelope.get("authorization_claimed_status")
+        or envelope.get("authorization_status")
+        or "MISSING"
+    )
+    schema_supported = (
+        schema_version in SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS
+    )
+    rows_value = promotion.get("authorization_markets")
+    if rows_value is None:
+        rows_value = envelope.get("markets")
+    rows = [
+        row
+        for row in (rows_value or [])
+        if isinstance(row, Mapping) and str(row.get("market_id") or "").strip()
+    ]
+    rows_by_market: dict[str, Mapping[str, Any]] = {}
+    duplicate_markets = set()
+    for row in rows:
+        market_id = str(row["market_id"]).strip()
+        if market_id in rows_by_market:
+            duplicate_markets.add(market_id)
+        rows_by_market[market_id] = row
+
+    root_authorized = bool(
+        schema_supported
+        and schema_claimed_supported
+        and authorization_claimed_status == "AUTHORIZED"
+        and envelope.get("serving_or_release_authorization") is True
+        and envelope.get("candidate_serving_allowed") is True
+        and envelope.get("candidate_permission_allowed") is True
+    )
+    market_diagnostics = []
+    unauthorized_markets = []
+    for market_id in recommendation_promote:
+        row = rows_by_market.get(market_id)
+        authorized = bool(
+            root_authorized
+            and market_id not in duplicate_markets
+            and isinstance(row, Mapping)
+            and row.get("authorization_schema_supported") is True
+            and row.get("authorization_status") == "AUTHORIZED"
+            and row.get("serving_or_release_authorization") is True
+            and row.get("candidate_serving_allowed") is True
+            and row.get("candidate_permission_allowed") is True
+        )
+        if not authorized:
+            unauthorized_markets.append(market_id)
+        market_diagnostics.append(
+            {
+                "market_id": market_id,
+                "authorized": authorized,
+                "authorization_status": (
+                    row.get("authorization_status")
+                    if isinstance(row, Mapping)
+                    else "MISSING"
+                ),
+            }
+        )
+
+    authorized = bool(
+        recommendation_promote
+        and root_authorized
+        and not unauthorized_markets
+    )
+    blockers = []
+    if recommendation_promote and not root_authorized:
+        blockers.append(
+            "promotion authorization root is not supported/AUTHORIZED/true"
+        )
+    if duplicate_markets:
+        blockers.append(
+            "duplicate per-market authorization rows: "
+            + ", ".join(sorted(duplicate_markets))
+        )
+    if unauthorized_markets:
+        blockers.append(
+            "missing or nonauthorizing market rows: "
+            + ", ".join(unauthorized_markets)
+        )
+    return {
+        "status": (
+            "AUTHORIZED"
+            if authorized
+            else "NOT_APPLICABLE"
+            if not recommendation_promote
+            else "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+        ),
+        "schema_version": schema_version or None,
+        "authorization_schema_claimed_supported": schema_claimed_supported,
+        "authorization_schema_supported": schema_supported,
+        "authorization_claimed_status": authorization_claimed_status,
+        "authorization_status": (
+            authorization_claimed_status
+            if schema_supported
+            else "UNSUPPORTED_SCHEMA"
+        ),
+        "serving_or_release_authorization": (
+            envelope.get("serving_or_release_authorization") is True
+        ),
+        "candidate_permission_allowed": (
+            envelope.get("candidate_permission_allowed") is True
+        ),
+        "candidate_serving_allowed": (
+            envelope.get("candidate_serving_allowed") is True
+        ),
+        "recommendation_promote_markets": list(recommendation_promote),
+        "authorized_promote_markets": (
+            list(recommendation_promote) if authorized else []
+        ),
+        "demoted_promote_markets": (
+            [] if authorized else list(recommendation_promote)
+        ),
+        "market_authorization": market_diagnostics,
+        "blockers": blockers,
+    }
+
+
 def _route_table(
     *,
     candidate_id: str,
@@ -616,16 +806,98 @@ def _route_table(
     family_unit: str,
     base_model_graph: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    nonempty_decision_diagnostics = []
+    for field in (
+        "decision_category_duplicates",
+        "decision_category_overlaps",
+    ):
+        diagnostics = promotion.get(field)
+        if diagnostics is not None and not isinstance(diagnostics, Mapping):
+            raise CandidateContractError(
+                f"promotion {field} diagnostic must be a map"
+            )
+        if diagnostics:
+            nonempty_decision_diagnostics.append(field)
+    if nonempty_decision_diagnostics:
+        raise CandidateContractError(
+            "promotion diagnostics report duplicate or overlapping market "
+            "routes: "
+            + ", ".join(nonempty_decision_diagnostics)
+        )
+
+    promote_source = promotion.get("recommendation_promote_markets")
+    shadow_source = promotion.get("recommendation_shadow_markets")
+    raw_decision_markets = {
+        "promote": (
+            promote_source
+            if promote_source is not None
+            else promotion.get("promote_markets") or []
+        ),
+        "shadow": (
+            shadow_source
+            if shadow_source is not None
+            else promotion.get("shadow_markets") or []
+        ),
+        "blocked": promotion.get("blocked_markets") or [],
+    }
+    duplicate_decisions = {
+        decision: duplicates
+        for decision, values in raw_decision_markets.items()
+        if (duplicates := _duplicate_market_ids(values))
+    }
+    if duplicate_decisions:
+        raise CandidateContractError(
+            "promotion decision contains duplicate market routes: "
+            + json.dumps(duplicate_decisions, sort_keys=True)
+        )
+    recommendation = _promotion_recommendation_selection(promotion)
+    recommendation_markets = {
+        "promote": recommendation["promote_markets"],
+        "shadow": recommendation["shadow_markets"],
+        "blocked": recommendation["blocked_markets"],
+    }
+    recommendation_memberships: dict[str, list[str]] = {}
+    for decision, markets in recommendation_markets.items():
+        for market_id in markets:
+            recommendation_memberships.setdefault(market_id, []).append(decision)
+    recommendation_overlaps = {
+        market: values
+        for market, values in recommendation_memberships.items()
+        if len(values) != 1
+    }
+    if recommendation_overlaps:
+        raise CandidateContractError(
+            f"promotion market routes overlap: {recommendation_overlaps}"
+        )
+
+    authorization = _promotion_authorization_state(
+        promotion,
+        recommendation_markets["promote"],
+    )
+    authorized = authorization["status"] == "AUTHORIZED"
     decision_markets = {
-        "promote": sorted({str(value) for value in promotion.get("promote_markets") or []}),
-        "shadow": sorted({str(value) for value in promotion.get("shadow_markets") or []}),
-        "blocked": sorted({str(value) for value in promotion.get("blocked_markets") or []}),
+        "promote": (
+            recommendation_markets["promote"] if authorized else []
+        ),
+        "shadow": _market_ids(
+            [
+                *recommendation_markets["shadow"],
+                *(
+                    recommendation_markets["promote"]
+                    if not authorized
+                    else []
+                ),
+            ]
+        ),
+        "blocked": recommendation_markets["blocked"],
     }
     memberships: dict[str, list[str]] = {}
     for decision, markets in decision_markets.items():
         for market_id in markets:
             memberships.setdefault(market_id, []).append(decision)
-    overlaps = {market: values for market, values in memberships.items() if len(values) != 1}
+    overlaps = {
+        market: values for market, values in memberships.items() if len(values) != 1
+    }
     if overlaps:
         raise CandidateContractError(f"promotion market routes overlap: {overlaps}")
     if not memberships:
@@ -655,6 +927,18 @@ def _route_table(
                 }
             ),
         }
+    effective_selection = {
+        "verdict": (
+            "blocked"
+            if decision_markets["blocked"]
+            else "promote_ready"
+            if decision_markets["promote"]
+            else "shadow"
+        ),
+        "promote_markets": decision_markets["promote"],
+        "shadow_markets": decision_markets["shadow"],
+        "blocked_markets": decision_markets["blocked"],
+    }
     return _finalize_payload(
         {
             "schema_version": schema_version("release_market_route_table"),
@@ -663,7 +947,17 @@ def _route_table(
             "parent_release_id": parent_release,
             "family_unit": family_unit,
             "objective": "band",
-            "promotion_verdict": promotion.get("verdict"),
+            "promotion_verdict": effective_selection["verdict"],
+            "promotion_recommendation_verdict": (
+                promotion.get("verdict") or recommendation["verdict"]
+            ),
+            "recommendation_route_selection": recommendation,
+            "promotion_authorization": authorization,
+            "promotion_eligibility": (
+                "ELIGIBLE_FOR_GATED_PROMOTION"
+                if authorization["status"] == "AUTHORIZED"
+                else "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+            ),
             "markets": routes,
         }
     )
@@ -691,6 +985,26 @@ def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
         "promote_markets": decisions["promote"],
         "shadow_markets": decisions["shadow"],
         "blocked_markets": decisions["blocked"],
+    }
+
+
+def _point_in_time_recommendation_selection(
+    route: Mapping[str, Any],
+) -> dict[str, Any]:
+    recommendation = route.get("recommendation_route_selection")
+    if not isinstance(recommendation, Mapping):
+        return _point_in_time_route_selection(route)
+    return {
+        "verdict": str(recommendation.get("verdict") or "shadow"),
+        "promote_markets": _market_ids(
+            recommendation.get("promote_markets") or []
+        ),
+        "shadow_markets": _market_ids(
+            recommendation.get("shadow_markets") or []
+        ),
+        "blocked_markets": _market_ids(
+            recommendation.get("blocked_markets") or []
+        ),
     }
 
 
@@ -1265,7 +1579,7 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
                 expected_routing_artifact_sha256=str(
                     frozen_candidate_artifacts.get("routing_sha256") or ""
                 ),
-                expected_route_selection=_point_in_time_route_selection(
+                expected_route_selection=_point_in_time_recommendation_selection(
                     sidecars["market_route_table"]
                 ),
                 expected_training_evidence=embedded_training_evidence,
@@ -1461,7 +1775,9 @@ def freeze_candidate_semantic_contract(
                     Path(family_secondary_path).resolve()
                 ),
                 expected_routing_artifact_sha256=sha256_file(routing_source),
-                expected_route_selection=_point_in_time_route_selection(route),
+                expected_route_selection=_point_in_time_recommendation_selection(
+                    route
+                ),
                 expected_training_evidence=embedded_training_evidence,
                 expected_selection_stage_bindings=expected_stage_bindings,
                 max_age_days=MAX_PRODUCTION_EVALUATION_AGE_DAYS,
@@ -1623,6 +1939,8 @@ def freeze_candidate_semantic_contract(
             "candidate_id": candidate_id,
             "candidate_mode": mode,
             "production_capable": mode == PRODUCTION_CANDIDATE_MODE,
+            "promotion_eligibility": route.get("promotion_eligibility"),
+            "promotion_authorization": route.get("promotion_authorization") or {},
             "bundle_sha256": bundle_sha,
             "leakage_audit_status": audit["status"],
             "required_role_kinds": required_role_kinds,

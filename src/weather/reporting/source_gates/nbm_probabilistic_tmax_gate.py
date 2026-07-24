@@ -12,6 +12,9 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
 from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 
 
@@ -73,6 +76,9 @@ def _find_inventory_row(payload: dict[str, Any], family_id: str) -> dict[str, An
 
 
 def source_inventory_evidence(source_inventory: dict[str, Any]) -> dict[str, Any]:
+    inventory_contract = source_family_inventory_consumer_contract(
+        source_inventory
+    )
     row = _find_inventory_row(source_inventory, "nws_grid")
     feature_columns = set(row.get("feature_columns") or [])
     active_columns = set(row.get("active_model_feature_columns") or [])
@@ -84,6 +90,7 @@ def source_inventory_evidence(source_inventory: dict[str, Any]) -> dict[str, Any
     active_nbm = [feature for feature in NBM_FEATURES if feature in active_columns]
 
     return {
+        "operational_contract": inventory_contract,
         "family_id": row.get("family_id"),
         "source_keys": row.get("source_keys") or [],
         "historical_archive_status": row.get("historical_archive_status"),
@@ -221,6 +228,14 @@ def acceptance(
     aggregate = candidate.get("aggregate") or {}
     blocked_validation = candidate.get("blocked_validation") or {}
 
+    if (source_evidence.get("operational_contract") or {}).get("status") != "PASS":
+        blockers.append({
+            "code": "source_inventory_not_operationally_authorized",
+            "detail": "; ".join(
+                (source_evidence.get("operational_contract") or {}).get("blockers") or []
+            ),
+        })
+
     if not candidate:
         blockers.append({"code": "candidate_replay_missing", "detail": "missing candidate replay JSON"})
     if not artifact_scope["isolated"]:
@@ -338,6 +353,11 @@ def build_report_payload(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached report only; runtime current-input revalidation is required "
+            "before serving or release authorization."
+        ),
         "inputs": {
             "source_inventory_json": str(source_inventory_json),
             "candidate_json": str(candidate_json),
@@ -391,6 +411,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         f"Generated: {payload.get('generated_at_utc')}",
         f"Schema: `{payload.get('schema_version')}`",
         f"Gate status: `{acceptance_payload.get('status')}`",
+        "Serving/release authorization: `false`",
+        (
+            "This detached report cannot authorize serving or release; runtime "
+            "current-input revalidation is required."
+        ),
         "",
         "## Source Inventory",
         "",

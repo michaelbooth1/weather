@@ -11,6 +11,7 @@ import pytest
 from weather.operations.release_candidate_contract import (
     CandidateContractError,
     SEMANTIC_PATHS,
+    _route_table,
     freeze_candidate_semantic_contract,
     verify_candidate_semantic_contract,
 )
@@ -211,12 +212,43 @@ def _freeze(
     *,
     candidate_mode: str = RESEARCH_ONLY_CANDIDATE_MODE,
     point_in_time_artifacts: dict | None = None,
+    promotion_authorized: bool = True,
+    root_candidate_serving_allowed: bool | None = None,
 ) -> dict:
+    root_candidate_serving_allowed = (
+        promotion_authorized
+        if root_candidate_serving_allowed is None
+        else root_candidate_serving_allowed
+    )
     promotion = {
         "verdict": "promote_ready",
+        "promotion_allowlist_schema_version": "promotion_allowlist_v0.1",
         "promote_markets": ["nyc"],
         "shadow_markets": [],
         "blocked_markets": [],
+        "authorization_schema_supported": promotion_authorized,
+        "authorization_status": (
+            "AUTHORIZED"
+            if promotion_authorized
+            else "NON_AUTHORIZING_SCHEMA"
+        ),
+        "serving_or_release_authorization": promotion_authorized,
+        "candidate_serving_allowed": root_candidate_serving_allowed,
+        "candidate_permission_allowed": promotion_authorized,
+        "authorization_markets": [
+            {
+                "market_id": "nyc",
+                "authorization_schema_supported": promotion_authorized,
+                "authorization_status": (
+                    "AUTHORIZED"
+                    if promotion_authorized
+                    else "NON_AUTHORIZING_SCHEMA"
+                ),
+                "serving_or_release_authorization": promotion_authorized,
+                "candidate_serving_allowed": promotion_authorized,
+                "candidate_permission_allowed": promotion_authorized,
+            }
+        ],
     }
     if paths.get("promotion") is not None:
         promotion["path"] = str(paths["promotion"])
@@ -1164,6 +1196,128 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
     assert pointer["release_kind_provenance"]["origin_manifest_sha256"] == (
         result["manifest_sha256"]
     )
+
+
+def test_candidate_contract_demotes_nonauthorizing_promote_route(tmp_path: Path):
+    paths = _fixture(tmp_path)
+    frozen = _freeze(paths, promotion_authorized=True)
+
+    route = frozen["route"]
+    market = route["markets"]["nyc"]
+    assert route["promotion_verdict"] == "shadow"
+    assert route["promotion_recommendation_verdict"] == "promote_ready"
+    assert (
+        route["promotion_eligibility"]
+        == "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    )
+    assert (
+        route["promotion_authorization"]["status"]
+        == "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    )
+    assert route["promotion_authorization"][
+        "authorization_schema_claimed_supported"
+    ] is True
+    assert route["promotion_authorization"][
+        "authorization_schema_supported"
+    ] is False
+    assert (
+        route["promotion_authorization"]["authorization_status"]
+        == "UNSUPPORTED_SCHEMA"
+    )
+    assert route["promotion_authorization"]["market_authorization"] == [
+        {
+            "market_id": "nyc",
+            "authorized": False,
+            "authorization_status": "AUTHORIZED",
+        }
+    ]
+    assert route["recommendation_route_selection"]["promote_markets"] == [
+        "nyc"
+    ]
+    assert market["decision"] == "shadow"
+    assert market["serving_release"] is None
+    assert market["counts_toward_promotion"] is False
+    contract = json.loads(
+        Path(frozen["contract_path"]).read_text(encoding="utf-8")
+    )
+    assert contract["promotion_eligibility"] == (
+        "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    )
+
+
+def test_candidate_contract_requires_root_candidate_serving_authorization(
+    tmp_path: Path,
+):
+    paths = _fixture(tmp_path)
+    frozen = _freeze(
+        paths,
+        promotion_authorized=True,
+        root_candidate_serving_allowed=False,
+    )
+
+    assert (
+        frozen["route"]["promotion_authorization"]["status"]
+        == "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    )
+    assert frozen["route"]["markets"]["nyc"]["decision"] == "shadow"
+
+
+@pytest.mark.parametrize(
+    "promotion, match",
+    [
+        (
+            {
+                "promote_markets": ["nyc", "nyc"],
+                "shadow_markets": [],
+                "blocked_markets": [],
+            },
+            "duplicate market routes",
+        ),
+        (
+            {
+                "promote_markets": ["nyc"],
+                "shadow_markets": [],
+                "blocked_markets": ["nyc"],
+            },
+            "market routes overlap",
+        ),
+        (
+            {
+                "recommendation_promote_markets": ["nyc"],
+                "recommendation_shadow_markets": [],
+                "blocked_markets": [],
+                "decision_category_duplicates": {
+                    "promote": ["nyc"],
+                },
+                "decision_category_overlaps": {},
+            },
+            "diagnostics report duplicate or overlapping",
+        ),
+        (
+            {
+                "recommendation_promote_markets": ["nyc"],
+                "recommendation_shadow_markets": [],
+                "blocked_markets": [],
+                "decision_category_duplicates": {},
+                "decision_category_overlaps": {
+                    "nyc": ["promote", "shadow"],
+                },
+            },
+            "diagnostics report duplicate or overlapping",
+        ),
+    ],
+)
+def test_candidate_route_rejects_duplicate_or_overlapping_recommendations(
+    promotion,
+    match,
+):
+    with pytest.raises(CandidateContractError, match=match):
+        _route_table(
+            candidate_id="r1",
+            parent_release=None,
+            promotion=promotion,
+            family_unit="F",
+        )
 
 
 def test_candidate_contract_persists_rejections_and_refuses_release_on_hidden_alias(tmp_path: Path):

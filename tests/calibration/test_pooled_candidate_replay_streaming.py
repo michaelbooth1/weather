@@ -387,7 +387,7 @@ class TestBoundedPooledCandidateReplay(unittest.TestCase):
                 }
             )
         manifest = {
-            "schema_version": "promotion_corpus_v0.1",
+            "schema_version": "promotion_corpus_v0.2",
             "as_of": "2026-07-03",
             "snapshots_root": str(snapshots_root),
             "include_reconstructed": False,

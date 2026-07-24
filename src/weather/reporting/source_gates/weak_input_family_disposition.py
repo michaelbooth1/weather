@@ -18,6 +18,13 @@ from typing import Any
 from weather.io import read_csv_rows, read_json, write_json_atomic
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
+from weather.reporting.source_gates.source_artifact_binding import (
+    load_verified_current_json_artifact,
+    stable_json_artifact,
+)
 from weather.schema_registry import schema_version
 
 
@@ -193,13 +200,16 @@ def input_family_for_model_feature(feature_name: str) -> str | None:
     return None
 
 
-def _inventory_by_family(path: str | Path) -> dict[str, dict[str, Any]]:
-    payload = read_json(path, default={}) or {}
-    return {
+def _inventory_by_family(
+    path: str | Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    payload, receipt = stable_json_artifact(path)
+    rows = {
         row.get("family_id"): row
         for row in payload.get("inventory") or []
         if row.get("family_id")
     }
+    return rows, source_family_inventory_consumer_contract(payload), receipt
 
 
 def _family_permutation_by_family(path: str | Path) -> dict[str, dict[str, dict[str, Any]]]:
@@ -307,7 +317,11 @@ def _coverage_summary(features: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _inventory_summary(source_family_ids: list[str], inventory: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _inventory_summary(
+    source_family_ids: list[str],
+    inventory: dict[str, dict[str, Any]],
+    inventory_contract: dict[str, Any],
+) -> dict[str, Any]:
     rows = [inventory[family_id] for family_id in source_family_ids if family_id in inventory]
     active_columns = sorted({
         column
@@ -321,6 +335,7 @@ def _inventory_summary(source_family_ids: list[str], inventory: dict[str, dict[s
         for row in rows
     })
     return {
+        "operational_contract": inventory_contract,
         "source_family_ids": source_family_ids,
         "active_model_usage_statuses": active_statuses,
         "active_model_feature_columns": active_columns,
@@ -337,6 +352,9 @@ def _family_disposition(
     inventory_summary: dict[str, Any],
 ) -> tuple[str, list[str]]:
     blockers = []
+    if (inventory_summary.get("operational_contract") or {}).get("status") != "PASS":
+        blockers.append("source-family inventory integrity contract is not PASS")
+        return "diagnostic_only", blockers
     if coverage["low_coverage_feature_count"]:
         blockers.append(f"{coverage['low_coverage_feature_count']} low-coverage/sparse feature(s)")
     if coverage["near_constant_feature_count"]:
@@ -367,6 +385,7 @@ def _family_rows(
     family_permutation: dict[str, dict[str, dict[str, Any]]],
     coverage: dict[str, list[dict[str, Any]]],
     inventory: dict[str, dict[str, Any]],
+    inventory_contract: dict[str, Any],
 ) -> list[dict[str, Any]]:
     families = sorted(set(family_permutation) | set(coverage))
     rows = []
@@ -379,7 +398,11 @@ def _family_rows(
         })
         gate = _family_gate(family, family_permutation.get(family) or {})
         coverage_info = _coverage_summary(feature_rows)
-        inventory_info = _inventory_summary(source_family_ids, inventory)
+        inventory_info = _inventory_summary(
+            source_family_ids,
+            inventory,
+            inventory_contract,
+        )
         disposition, blockers = _family_disposition(family, gate, coverage_info, inventory_info)
         plan = BACKFILL_PLANS.get(family)
         rows.append({
@@ -407,23 +430,87 @@ def weak_input_training_preflight(
     *,
     report_path: str | Path = DEFAULT_OUT,
 ) -> dict[str, Any]:
-    """Warn when a candidate includes diagnostic-only or sparse families."""
+    """Fail closed when candidate-family policy is missing or non-current."""
     if disposition_payload is None:
         disposition_payload = read_json(report_path, default=None)
     if not disposition_payload:
         return {
             "schema_version": SCHEMA_VERSION,
-            "status": "UNKNOWN",
+            "status": "BLOCK",
+            "serving_or_release_authorization": False,
             "reason": "weak input-family disposition report is not available",
             "feature_count": len(feature_names or []),
             "diagnostic_only_families": [],
             "warnings": [],
+            "authorization_blockers": [
+                "weak input-family disposition report is not available"
+            ],
         }
 
+    disposition_payload = (
+        disposition_payload if isinstance(disposition_payload, dict) else {}
+    )
+    inputs = disposition_payload.get("inputs")
+    inputs = inputs if isinstance(inputs, dict) else {}
+    inventory_contract = inputs.get("source_family_inventory_contract")
+    inventory_contract = (
+        inventory_contract if isinstance(inventory_contract, dict) else {}
+    )
+    summary = disposition_payload.get("summary")
+    summary = summary if isinstance(summary, dict) else {}
+    authorization_blockers = []
+    inventory_receipt = inputs.get("source_family_inventory_receipt")
+    current_inventory, inventory_verification = (
+        load_verified_current_json_artifact(
+            inventory_receipt,
+            label="weak input-family source inventory",
+        )
+    )
+    current_inventory_contract = source_family_inventory_consumer_contract(
+        current_inventory
+    )
+    authorization_blockers.extend(inventory_verification.get("blockers") or [])
+    if inventory_verification.get("status") != "PASS" and not (
+        inventory_verification.get("blockers")
+    ):
+        authorization_blockers.append(
+            "current weak input-family source inventory receipt is not PASS"
+        )
+    if current_inventory_contract != inventory_contract:
+        authorization_blockers.append(
+            "stored source-family inventory contract differs from current verified input"
+        )
+    if disposition_payload.get("schema_version") != SCHEMA_VERSION:
+        authorization_blockers.append(
+            f"schema_version must equal {SCHEMA_VERSION}"
+        )
+    if disposition_payload.get("serving_or_release_authorization") is not False:
+        authorization_blockers.append(
+            "serving_or_release_authorization must be explicitly false"
+        )
+    if inventory_contract.get("status") != "PASS":
+        authorization_blockers.append(
+            "current source-family inventory contract is not PASS"
+        )
+    if inventory_contract.get("serving_or_release_authorization") is not False:
+        authorization_blockers.append(
+            "source-family inventory contract is missing its non-authorization marker"
+        )
+    if summary.get("status") not in {"PASS", "WARN"}:
+        authorization_blockers.append(
+            "weak input-family disposition summary is missing or BLOCK"
+        )
+
+    family_rows = disposition_payload.get("families")
+    if not isinstance(family_rows, list) or not family_rows:
+        authorization_blockers.append(
+            "weak input-family disposition families must be a non-empty list"
+        )
+        family_rows = []
     policy = {
         row.get("family"): row
-        for row in disposition_payload.get("families") or []
-        if row.get("family")
+        for row in family_rows
+        if isinstance(row, dict) and row.get("family")
     }
     features_by_family: dict[str, list[str]] = defaultdict(list)
     for feature in sorted(set(feature_names or [])):
@@ -436,6 +523,16 @@ def weak_input_training_preflight(
     for family, features in sorted(features_by_family.items()):
         row = policy.get(family)
         if not row:
+            authorization_blockers.append(
+                f"no disposition row for referenced feature family {family}"
+            )
+            warnings.append({
+                "family": family,
+                "disposition": "MISSING",
+                "feature_count": len(features),
+                "features": features,
+                "reasons": ["referenced feature family is absent from policy"],
+            })
             continue
         coverage = row.get("coverage") or {}
         disposition = row.get("disposition")
@@ -460,10 +557,16 @@ def weak_input_training_preflight(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "status": "WARN" if warnings else "PASS",
+        "status": (
+            "BLOCK"
+            if authorization_blockers
+            else "WARN" if warnings else "PASS"
+        ),
+        "serving_or_release_authorization": False,
         "feature_count": len(feature_names or []),
         "diagnostic_only_families": sorted(set(diagnostic_families)),
         "warnings": warnings,
+        "authorization_blockers": authorization_blockers,
     }
 
 
@@ -474,8 +577,15 @@ def build_report_payload(
 ) -> dict[str, Any]:
     permutation_by_family = _family_permutation_by_family(family_permutation)
     coverage_by_family = _coverage_by_family(coverage)
-    inventory = _inventory_by_family(source_family_inventory)
-    families = _family_rows(permutation_by_family, coverage_by_family, inventory)
+    inventory, inventory_contract, inventory_receipt = _inventory_by_family(
+        source_family_inventory
+    )
+    families = _family_rows(
+        permutation_by_family,
+        coverage_by_family,
+        inventory,
+        inventory_contract,
+    )
     disposition_counts = Counter(row["disposition"] for row in families)
 
     active_feature_names = sorted({
@@ -485,16 +595,36 @@ def build_report_payload(
     })
     training_preflight = weak_input_training_preflight(
         active_feature_names,
-        {"families": families},
+        {
+            "schema_version": SCHEMA_VERSION,
+            "serving_or_release_authorization": False,
+            "inputs": {
+                "source_family_inventory_contract": inventory_contract,
+                "source_family_inventory_receipt": inventory_receipt,
+            },
+            "summary": {
+                "status": (
+                    "PASS" if inventory_contract.get("status") == "PASS" else "BLOCK"
+                ),
+            },
+            "families": families,
+        },
     )
     diagnostic = [row["family"] for row in families if row["disposition"] in DIAGNOSTIC_DISPOSITIONS]
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": _utc_now(),
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached report only; runtime current-input revalidation is required "
+            "before serving or release authorization."
+        ),
         "inputs": {
             "family_permutation": str(family_permutation),
             "coverage": str(coverage),
             "source_family_inventory": str(source_family_inventory),
+            "source_family_inventory_contract": inventory_contract,
+            "source_family_inventory_receipt": inventory_receipt,
         },
         "thresholds": {
             "significant_q_threshold": SIGNIFICANT_Q_THRESHOLD,
@@ -504,7 +634,11 @@ def build_report_payload(
             "min_backfill_days": MIN_BACKFILL_DAYS,
         },
         "summary": {
-            "status": "WARN" if training_preflight["status"] == "WARN" else "PASS",
+            "status": (
+                "BLOCK"
+                if training_preflight["status"] == "BLOCK"
+                else "WARN" if training_preflight["status"] == "WARN" else "PASS"
+            ),
             "family_count": len(families),
             "disposition_counts": dict(sorted(disposition_counts.items())),
             "diagnostic_or_backfill_families": sorted(diagnostic),
@@ -524,6 +658,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Schema: `{payload.get('schema_version')}`",
+        "Serving/release authorization: `false`",
+        (
+            "This detached report cannot authorize serving or release; runtime "
+            "current-input revalidation is required."
+        ),
         "",
         "## Summary",
         "",

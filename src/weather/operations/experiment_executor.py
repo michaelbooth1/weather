@@ -87,6 +87,17 @@ def utc_iso(now: datetime | None = None) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+def _reject_nested_nonfinite_json(value: Any, *, path: str = "$") -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number at {path}")
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_nested_nonfinite_json(item, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_nested_nonfinite_json(item, path=f"{path}[{index}]")
+
+
 def _strict_json(path: Path) -> dict[str, Any]:
     def object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -111,6 +122,7 @@ def _strict_json(path: Path) -> dict[str, Any]:
                 ValueError(f"non-finite JSON constant {value}")
             ),
         )
+        _reject_nested_nonfinite_json(payload)
     except ExperimentExecutionError:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:

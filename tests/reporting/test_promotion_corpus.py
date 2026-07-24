@@ -11,7 +11,15 @@ from unittest.mock import patch
 import pandas as pd
 
 from weather.backtesting.replay import index_records_by_snapshot, load_replay_records
-from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
+from weather.reporting.promotion.promotion_corpus import (
+    build_promotion_corpus,
+    corpus_hash,
+    folders_from_manifest,
+    folders_from_manifest_strict,
+    generation_scoped_manifest_path,
+    load_manifest,
+    write_manifest,
+)
 from weather.reporting.promotion.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
 from weather.backtesting.replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
@@ -104,15 +112,100 @@ def _write_raw_observation_payload(folder, snapshot_id="snap1"):
 
 
 class TestPromotionCorpus(unittest.TestCase):
+    def test_legacy_corpus_hash_regression_is_schema_aware(self):
+        entry = {
+            "event_slug": "legacy-day",
+            "market_id": "toronto",
+            "target_date": "2026-01-01",
+            "settlement_bucket": 25,
+            "settlement_unit": "C",
+            "settlement_source": "daily_summary",
+            "quality_grade": "complete",
+            "snapshot_ids": ["s1"],
+            "replay_record_hashes": {"s1": "a" * 64},
+            "tape_row_hashes": {"s1": "b" * 64},
+            "label_hash": "c" * 64,
+        }
+        legacy_hash = (
+            "9197ce20f9a361f351e904a35ed25b616fc7e7263db97074d77ebb44592569e3"
+        )
+        current_hash = (
+            "c471787c390497e7205b531943cdc691fc47b7f77da74efaba43d6ebecb38ef0"
+        )
+        self.assertEqual(
+            corpus_hash([entry], schema_version="promotion_corpus_v0.1"),
+            legacy_hash,
+        )
+        self.assertEqual(corpus_hash([entry]), current_hash)
+        self.assertNotEqual(legacy_hash, current_hash)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy-literal-panel.json"
+            write_manifest(
+                {
+                    "schema_version": "promotion_corpus_v0.1",
+                    "research_only": True,
+                    "serving_or_release_authorization": False,
+                    "entries": [entry],
+                    "corpus_hash": legacy_hash,
+                    "materialization": {
+                        "schema_version": "ordinal_smoothing_literal_panel_v0.1",
+                        "kind": "fresh",
+                    },
+                },
+                path,
+            )
+            loaded = load_manifest(path, allow_research_materialization=True)
+
+        self.assertEqual(loaded["corpus_hash"], legacy_hash)
+
+    def test_strict_folder_expansion_never_follows_divergent_absolute_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            explicit_root = root / "explicit"
+            alternate_root = root / "alternate"
+            explicit_root.mkdir()
+            alternate_root.mkdir()
+            slug = "one-market-day"
+            (explicit_root / slug).mkdir()
+            (alternate_root / slug).mkdir()
+            manifest = {
+                "entries": [
+                    {
+                        "event_slug": slug,
+                        "folder_relative_to_snapshots_root": slug,
+                        "folder": str(alternate_root / slug),
+                    }
+                ]
+            }
+
+            with self.assertRaisesRegex(ValueError, "diverges"):
+                folders_from_manifest_strict(manifest, explicit_root)
+            with self.assertRaisesRegex(ValueError, "diverges"):
+                folders_from_manifest(manifest, explicit_root)
+
+            manifest["entries"][0]["folder"] = str(
+                alternate_root / "does-not-exist"
+            )
+            with self.assertRaisesRegex(ValueError, "diverges"):
+                folders_from_manifest(manifest, explicit_root)
+
+            manifest["entries"][0]["folder_relative_to_snapshots_root"] = (
+                "../alternate/one-market-day"
+            )
+            with self.assertRaisesRegex(ValueError, "unsafe relative folder"):
+                folders_from_manifest(manifest, explicit_root)
+
     def test_manifest_pins_settlement_snapshot_ids_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / SLUG
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = snapshots_root / SLUG
             _build_corpus_day(folder)
             _write_label(folder)
 
             manifest = build_promotion_corpus(
                 [folder],
-                snapshots_root=tmp,
+                snapshots_root=snapshots_root,
                 as_of="2026-06-04",
             )
 
@@ -125,24 +218,98 @@ class TestPromotionCorpus(unittest.TestCase):
             self.assertIn("snap1", entry["replay_record_hashes"])
             self.assertIn("snap1", entry["tape_row_hashes"])
 
-            path = Path(tmp) / "promotion_corpus.json"
+            path = Path(tmp) / "output" / "promotion_corpus.json"
             write_manifest(manifest, path)
             loaded = load_manifest(path)
             self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
 
     def test_manifest_bounded_load_accepts_exact_size(self):
         with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / SLUG
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = snapshots_root / SLUG
             _build_corpus_day(folder)
             _write_label(folder)
             manifest = build_promotion_corpus(
-                [folder], snapshots_root=tmp, as_of="2026-06-04"
+                [folder], snapshots_root=snapshots_root, as_of="2026-06-04"
             )
-            path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
+            path = write_manifest(
+                manifest, Path(tmp) / "output" / "promotion_corpus.json"
+            )
 
             loaded = load_manifest(path, max_bytes=path.stat().st_size)
 
             self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
+
+    def test_manifest_loader_rejects_research_materialization_without_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = snapshots_root / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            manifest = build_promotion_corpus(
+                [folder], snapshots_root=snapshots_root, as_of="2026-06-04"
+            )
+            manifest["schema_version"] = "ordinal_smoothing_literal_panel_v0.1"
+            manifest["research_only"] = True
+            manifest["serving_or_release_authorization"] = False
+            manifest["materialization"] = {
+                "schema_version": "ordinal_smoothing_literal_panel_v0.1",
+                "kind": "fresh",
+            }
+            manifest["corpus_hash"] = corpus_hash(
+                manifest["entries"], schema_version=manifest["schema_version"]
+            )
+            path = write_manifest(
+                manifest, Path(tmp) / "output" / "literal-panel.json"
+            )
+
+            with self.assertRaisesRegex(ValueError, "research-derived"):
+                load_manifest(path)
+            loaded = load_manifest(path, allow_research_materialization=True)
+
+            self.assertEqual(loaded["corpus_hash"], manifest["corpus_hash"])
+            self.assertEqual(loaded["materialization"]["kind"], "fresh")
+
+            for overrides in (
+                {"research_only": False},
+                {"serving_or_release_authorization": True},
+            ):
+                with self.subTest(overrides=overrides):
+                    override_path = path.with_name(
+                        f"literal-panel-{next(iter(overrides))}.json"
+                    )
+                    write_manifest({**manifest, **overrides}, override_path)
+                    with self.assertRaisesRegex(ValueError, "literal-panel contract"):
+                        load_manifest(
+                            override_path, allow_research_materialization=True
+                        )
+
+    def test_active_and_legacy_corpus_schemas_cannot_spoof_research_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = snapshots_root / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            manifest = build_promotion_corpus(
+                [folder], snapshots_root=snapshots_root, as_of="2026-06-04"
+            )
+            self.assertEqual(manifest["schema_version"], "promotion_corpus_v0.2")
+            output_root = Path(tmp) / "output"
+
+            for index, marker in enumerate(({}, "", 1)):
+                with self.subTest(marker=marker, index=index):
+                    path = output_root / f"promotion-corpus-{index}.json"
+                    write_manifest({**manifest, "materialization": marker}, path)
+                    with self.assertRaisesRegex(ValueError, "research-derived"):
+                        load_manifest(path, allow_research_materialization=True)
+
+            legacy = {**manifest, "schema_version": "promotion_corpus_v0.1"}
+            path = output_root / "promotion-corpus-legacy.json"
+            write_manifest(legacy, path)
+            with self.assertRaisesRegex(ValueError, "legacy corpus"):
+                load_manifest(path)
+            with self.assertRaisesRegex(ValueError, "literal-panel contract"):
+                load_manifest(path, allow_research_materialization=True)
 
     def test_manifest_bounded_load_rejects_bad_inputs(self):
         cases = (
@@ -163,6 +330,8 @@ class TestPromotionCorpus(unittest.TestCase):
         cases = (
             (b'{"schema_version":"a","schema_version":"b"}', "duplicate JSON key"),
             (b'{"schema_version":NaN}', "non-finite JSON constant"),
+            (b'{"entries":[{"nested":Infinity}]}', "non-finite JSON constant"),
+            (b'{"entries":[{"nested":1e999}]}', "non-finite JSON number"),
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "promotion_corpus.json"
@@ -171,6 +340,88 @@ class TestPromotionCorpus(unittest.TestCase):
                     path.write_bytes(raw)
                     with self.assertRaisesRegex(ValueError, message):
                         load_manifest(path, max_bytes=len(raw))
+
+    def test_manifest_writer_refuses_source_roots_aliases_and_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            snapshots_root = base / "snapshots"
+            snapshots_root.mkdir()
+            manifest = {
+                "schema_version": "promotion_corpus_v0.2",
+                "snapshots_root": str(snapshots_root),
+                "entries": [],
+            }
+
+            nested_output = snapshots_root / "promotion-corpus.json"
+            with self.assertRaisesRegex(ValueError, "outside.*root"):
+                write_manifest(manifest, nested_output)
+            self.assertFalse(nested_output.exists())
+
+            external_folder = base / "external-source"
+            external_folder.mkdir()
+            tape = external_folder / "snapshots_long.csv"
+            tape.write_text("source-bytes", encoding="utf-8")
+            source_manifest = {
+                **manifest,
+                "entries": [
+                    {
+                        "event_slug": "external-source",
+                        "folder": str(external_folder),
+                        "snapshot_tape_path": str(tape),
+                    }
+                ],
+            }
+            with self.assertRaisesRegex(ValueError, "aliases a source"):
+                write_manifest(source_manifest, tape)
+            self.assertEqual(tape.read_text(encoding="utf-8"), "source-bytes")
+
+            alias = base / "hardlink-alias.json"
+            os.link(tape, alias)
+            with self.assertRaisesRegex(ValueError, "aliases a source"):
+                write_manifest(source_manifest, alias)
+            self.assertEqual(tape.read_text(encoding="utf-8"), "source-bytes")
+
+            output = base / "output" / "promotion-corpus.json"
+            output.parent.mkdir()
+            output.write_text("existing-bytes", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                write_manifest(manifest, output)
+            self.assertEqual(
+                output.read_text(encoding="utf-8"), "existing-bytes"
+            )
+
+    def test_generation_scoped_path_is_bounded_deterministic_and_retry_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "promotion_corpus.json"
+            generation_id = "daily:/unsafe?" + ("very-long-generation-" * 20)
+
+            first = generation_scoped_manifest_path(base, generation_id)
+            self.assertEqual(
+                generation_scoped_manifest_path(base, generation_id),
+                first,
+            )
+            self.assertEqual(
+                first.parent.name,
+                "promotion_corpus_generations",
+            )
+            self.assertLessEqual(len(str(first)), 240)
+            self.assertNotIn(":", first.name)
+            self.assertNotIn("?", first.name)
+
+            first.parent.mkdir(parents=True)
+            first.write_text("immutable-first-generation", encoding="utf-8")
+            retry = generation_scoped_manifest_path(base, generation_id)
+
+            self.assertNotEqual(retry, first)
+            self.assertIn("-retry-0002", retry.name)
+            self.assertEqual(
+                generation_scoped_manifest_path(base, generation_id),
+                retry,
+            )
+            self.assertEqual(
+                first.read_text(encoding="utf-8"),
+                "immutable-first-generation",
+            )
 
     def test_manifest_bounded_load_requires_positive_integer_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -459,17 +710,22 @@ class TestPromotionCorpus(unittest.TestCase):
 
     def test_gauntlet_passes_single_clean_exact_identity_corpus(self):
         with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / SLUG
+            snapshots_root = Path(tmp) / "snapshots"
+            folder = snapshots_root / SLUG
             _build_corpus_day(folder)
             _write_label(folder)
-            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
-            corpus_path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
+            manifest = build_promotion_corpus(
+                [folder], snapshots_root=snapshots_root, as_of="2026-06-04"
+            )
+            corpus_path = write_manifest(
+                manifest, Path(tmp) / "output" / "promotion_corpus.json"
+            )
             forecast_tracker = Path(tmp) / "forecast_vs_realized.json"
             forecast_tracker.write_text("[]", encoding="utf-8")
 
             args = SimpleNamespace(
                 corpus=str(corpus_path),
-                snapshots_root=str(tmp),
+                snapshots_root=str(snapshots_root),
                 baseline=None,
                 no_baseline=True,
                 forecast_tracker=str(forecast_tracker),

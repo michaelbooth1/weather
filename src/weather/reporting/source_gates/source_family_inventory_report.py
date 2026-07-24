@@ -26,6 +26,12 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: {payload.get('status')}",
+        "Serving/release authorization: `false`",
+        (
+            "This inventory is a detached diagnostic artifact. Runtime "
+            "current-input revalidation is required before any serving or release "
+            "authorization."
+        ),
         "",
         "## Summary",
         "",
@@ -200,12 +206,25 @@ def write_report(payload, report_out=DEFAULT_REPORT_OUT):
             ],
         )
     preflight = payload.get("promotion_preflight") or {}
+    ablation_contract = preflight.get("ablation_evidence_contract") or {}
+    blocking_evidence = preflight.get("blocking_evidence") or []
+    evidence_details = "; ".join(
+        f"{row.get('artifact')}: {row.get('status')}"
+        + (
+            " (" + "; ".join(row.get("blockers") or []) + ")"
+            if row.get("blockers")
+            else ""
+        )
+        for row in blocking_evidence
+    )
     lines += ["", "## Promotion Preflight", ""]
     lines += markdown_table(
         ["Field", "Value"],
         [
             ["Status", preflight.get("status")],
             ["Blocked families", ", ".join(preflight.get("blocked_families") or []) or "-"],
+            ["Ablation evidence contract", ablation_contract.get("status") or "MISSING"],
+            ["Blocking evidence", evidence_details or "-"],
             ["Inventory command", preflight.get("inventory_command")],
             ["Ablation command", preflight.get("ablation_command")],
         ],

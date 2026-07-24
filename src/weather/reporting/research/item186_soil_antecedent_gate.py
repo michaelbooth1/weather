@@ -12,6 +12,9 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_pct, markdown_table
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
 from weather.schema_registry import schema_version
 
 
@@ -196,6 +199,9 @@ def coverage_summary(reanalysis_root: str | Path) -> dict[str, Any]:
 
 def source_family_summary(path: str | Path) -> dict[str, Any]:
     payload = _read_json(path) or {}
+    inventory_contract = source_family_inventory_consumer_contract(
+        payload
+    )
     rows = payload.get("inventory") or payload.get("rows") or []
     family = next(
         (row for row in rows if isinstance(row, dict) and row.get("family_id") == "reanalysis_synoptic"),
@@ -207,6 +213,7 @@ def source_family_summary(path: str | Path) -> dict[str, Any]:
     promotion = family.get("promotion_decision") or {}
     lane = family.get("promotion_lane") or {}
     return {
+        "operational_contract": inventory_contract,
         "path": str(path),
         "exists": Path(path).exists(),
         "schema_version": payload.get("schema_version"),
@@ -349,7 +356,8 @@ def build_gates(
     ))
 
     source_ready = (
-        source_family.get("family_present")
+        (source_family.get("operational_contract") or {}).get("status") == "PASS"
+        and source_family.get("family_present")
         and source_family.get("train_serve_parity_status") == "PASS"
         and source_family.get("promotion_decision_status") == "PROMOTION_CANDIDATE"
         and not source_family.get("missing_required_columns")
@@ -437,6 +445,11 @@ def build_payload(
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
         "status": "PASS" if not blockers else "BLOCK",
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached report only; runtime current-input revalidation is required "
+            "before serving or release authorization."
+        ),
         "disposition": "PROMOTION_READY" if not blockers else "KEEP_SHADOW_DIAGNOSTIC",
         "promotion_allowed": not blockers,
         "blocker_count": len(blockers),
@@ -466,6 +479,11 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Schema: `{payload.get('schema_version')}`",
+        "Serving/release authorization: `false`",
+        (
+            "This detached report cannot authorize serving or release; runtime "
+            "current-input revalidation is required."
+        ),
         "",
         "## Summary",
         "",

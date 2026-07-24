@@ -47,8 +47,12 @@ candidate markets are blocked.
 Can be done now, in implementation order:
 
 1. [COMPLETE] Item 47: wire `mm_known_edge_map.json` into `mm_policy` and
-   `market_making_run` so every quote-intent row carries generated permission
-   fields and model-skewed edge quoting only unlocks on `edge_allowed`.
+   `market_making_run` so every quote-intent row carries generated evidence
+   fields. Security clarification (2026-07-23): the detached
+   `mm_known_edge_map_v0.2` and `promotion_allowlist_v0.1` schemas are
+   recommendation/diagnostic artifacts, not runtime authorization envelopes;
+   an `edge_allowed` claim is capped at research until a future independently
+   verified authorization schema exists.
 2. [COMPLETE] Item 52: validate Miami `wu_max_since_7am`, scope the hard-floor
    change to Miami only, and clear the current-serving Miami `BLOCK`.
 3. [COMPLETE] Item 49: add `forecast_high` and `forecast_gap` to late-day

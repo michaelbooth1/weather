@@ -2084,3 +2084,31 @@ reopened item. A clean successor must complete all of the following:
   equal-market-day/date-clustered evidence.
 - [ ] Pass captured-input replay/serve parity and forward requalification under
   one immutable release; never overwrite or rehabilitate v0.1 artifacts.
+
+## 2026-07-23 reanalysis command retirement
+
+The June 24 reanalysis command and artifacts above remain historical evidence;
+the command is intentionally non-runnable under the current safety contract.
+It writes into the mirrored runtime tree, deserializes an unpreregistered
+candidate, builds the two arms from separately read mutable inputs, and merges
+candidate-model rows into an active-release root binding. None of those
+properties can support current authorization.
+
+The current runner is fully retired at its trust boundary. It stably reads and
+hashes the requested candidate bytes, then blocks before `pickle.loads`: a
+digest supplied beside the pickle proves only consistency, not independent
+provenance. It also refuses both `--operational-evidence` and
+`--merged-source-family-ablation-out`. The retained research implementation
+resolves corpus entries under the explicit snapshots root, captures
+feature/CLOB/freshness inputs once, and pre-clones both model arms before either
+scores, but no command invocation can currently publish candidate-bound
+reanalysis evidence.
+
+Any historical output remains `source_family_ablation_v0.2`, carries
+`serving_or_release_authorization=false`, and cannot clear Item 224 or the
+physical-family ratchet. Reopening even research deserialization requires an
+independently verified candidate manifest or release graph. Reopening
+operational publication additionally requires one sealed captured-input
+generation, explicit per-variant model bindings, and a new schema/consumer
+migration; it is not a matter of changing command-line paths or co-supplying a
+hash.

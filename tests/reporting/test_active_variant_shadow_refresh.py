@@ -287,10 +287,10 @@ def test_windowed_corpus_manifest_keeps_newest_dates_and_valid_hash(tmp_path):
         for day in range(1, 11)
     ]
     manifest = {
-        "schema_version": "promotion_corpus_v0.1",
+        "schema_version": "promotion_corpus_v0.2",
         "generated_at_utc": "2026-07-06T00:00:00+00:00",
         "as_of": "2026-07-06",
-        "snapshots_root": str(tmp_path),
+        "snapshots_root": str(tmp_path / "snapshots"),
         "quality_grades": ["complete", "manual_override"],
         "admit_promotion_countable": True,
         "include_reconstructed": False,
@@ -302,9 +302,10 @@ def test_windowed_corpus_manifest_keeps_newest_dates_and_valid_hash(tmp_path):
         "skipped": [],
         "corpus_hash": corpus_hash(entries),
     }
-    source_path = tmp_path / "promotion_corpus.json"
+    (tmp_path / "snapshots").mkdir()
+    source_path = tmp_path / "output" / "promotion_corpus.json"
     write_manifest(manifest, source_path)
-    out_path = tmp_path / "window_corpus.json"
+    out_path = tmp_path / "output" / "window_corpus.json"
 
     info = windowed_corpus_manifest(source_path, out_path, window_dates=3)
 
@@ -331,7 +332,7 @@ def test_windowed_corpus_manifest_passthrough_when_window_covers_corpus(tmp_path
         _pinned_manifest_entry("highest-temperature-in-nyc-on-june-2-2026", "2026-06-02"),
     ]
     manifest = {
-        "schema_version": "promotion_corpus_v0.1",
+        "schema_version": "promotion_corpus_v0.2",
         "entries": entries,
         "corpus_hash": corpus_hash(entries),
     }

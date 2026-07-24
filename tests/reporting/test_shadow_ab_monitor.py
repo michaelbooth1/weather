@@ -15,6 +15,80 @@ def _write(path, payload):
 
 
 class TestShadowABMonitor(unittest.TestCase):
+    def test_monitor_rejects_forged_v01_all_true_authorization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            promotion = _write(
+                root / "promotion.json",
+                {
+                    "readiness": {"status": "READY", "blockers": []},
+                    "serving_gauntlet": {
+                        "verdict": "PASS",
+                        "blocking_markets": {},
+                    },
+                    "decisions": {
+                        "promote_markets": ["nyc"],
+                        "shadow_markets": [],
+                        "blocked_markets": [],
+                        "markets": [
+                            {
+                                "market_id": "nyc",
+                                "action": "PROMOTE_CANDIDATE",
+                            }
+                        ],
+                    },
+                    "promotion_allowlist": {
+                        "schema_version": "promotion_allowlist_v0.1",
+                        "authorization_schema_supported": True,
+                        "authorization_status": "AUTHORIZED",
+                        "serving_or_release_authorization": True,
+                        "candidate_serving_allowed": True,
+                        "candidate_permission_allowed": True,
+                        "markets": [
+                            {
+                                "market_id": "nyc",
+                                "action": "PROMOTE_CANDIDATE",
+                                "authorization_schema_supported": True,
+                                "authorization_status": "AUTHORIZED",
+                                "serving_or_release_authorization": True,
+                                "candidate_serving_allowed": True,
+                                "candidate_permission_allowed": True,
+                            }
+                        ],
+                    },
+                },
+            )
+            candidate = _write(
+                root / "candidate.json",
+                {
+                    "replay_gate": {"global_ok": True},
+                    "market_rows": [
+                        {
+                            "market_id": "nyc",
+                            "verdict": "PASS",
+                            "days": 3,
+                            "rows": 30,
+                            "comparison": {
+                                "delta_vs_current": -0.01,
+                                "delta_vs_market": -0.01,
+                            },
+                        }
+                    ],
+                },
+            )
+
+            payload = build_monitor(promotion, candidate)
+
+        [market] = payload["markets"]
+        self.assertEqual(payload["status"], "WARN")
+        self.assertEqual(market["status"], "RECOMMENDATION_READY")
+        self.assertFalse(market["promotion_authorized"])
+        self.assertEqual(payload["summary"]["promote_ready_markets"], 0)
+        self.assertEqual(
+            payload["summary"]["recommendation_ready_markets"],
+            1,
+        )
+
     def test_monitor_classifies_promote_shadow_and_alert_markets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -35,8 +109,22 @@ class TestShadowABMonitor(unittest.TestCase):
                     "schema_version": "promotion_allowlist_v0.1",
                     "path": "allowlist.json",
                     "candidate_id": "candidate_v1",
+                    "authorization_schema_supported": False,
+                    "authorization_status": "NON_AUTHORIZING_SCHEMA",
+                    "serving_or_release_authorization": False,
+                    "candidate_serving_allowed": False,
+                    "candidate_permission_allowed": False,
                     "markets": [
-                        {"market_id": "nyc", "action": "PROMOTE_CANDIDATE", "reason": "clear"},
+                        {
+                            "market_id": "nyc",
+                            "action": "PROMOTE_CANDIDATE",
+                            "reason": "clear",
+                            "authorization_schema_supported": False,
+                            "authorization_status": "NON_AUTHORIZING_SCHEMA",
+                            "serving_or_release_authorization": False,
+                            "candidate_serving_allowed": False,
+                            "candidate_permission_allowed": False,
+                        },
                         {"market_id": "denver", "action": "KEEP_SHADOW", "reason": "trust low"},
                         {"market_id": "miami", "action": "BLOCK_CANDIDATE", "blocker_reason": "serving block"},
                     ],
@@ -85,11 +173,14 @@ class TestShadowABMonitor(unittest.TestCase):
 
         by_market = {row["market_id"]: row for row in payload["markets"]}
         self.assertEqual(payload["status"], "ALERT")
-        self.assertEqual(by_market["nyc"]["status"], "PROMOTE_READY")
+        self.assertEqual(by_market["nyc"]["status"], "RECOMMENDATION_READY")
+        self.assertFalse(by_market["nyc"]["promotion_authorized"])
         self.assertEqual(by_market["denver"]["status"], "SHADOW")
         self.assertEqual(by_market["miami"]["status"], "ALERT")
         self.assertIn("candidate regresses current", "; ".join(by_market["miami"]["alerts"]))
         self.assertEqual(payload["summary"]["alert_markets"], 1)
+        self.assertEqual(payload["summary"]["recommendation_ready_markets"], 1)
+        self.assertEqual(payload["summary"]["promote_ready_markets"], 0)
         self.assertEqual(payload["summary"]["unique_observation_count"], 60)
         self.assertEqual(payload["evidence_accounting"]["source"], "candidate_replay_market_rows")
         self.assertTrue(payload["promotion_allowlist"]["present"])
@@ -111,6 +202,7 @@ class TestShadowABMonitor(unittest.TestCase):
             "summary": {
                 "market_count": 1,
                 "promote_ready_markets": 0,
+                "recommendation_ready_markets": 0,
                 "shadow_markets": 1,
                 "alert_markets": 0,
                 "alert_count": 0,

@@ -700,6 +700,17 @@ def test_direct_replay_reader_enforces_the_raw_record_bound(tmp_path):
         )
 
 
+def test_bounded_json_rejects_nested_exponent_overflow():
+    with pytest.raises(
+        BoundedCandidateReplayError,
+        match=r"non-finite JSON number at \$\.record\.elapsed_seconds",
+    ):
+        pooled_replay._bounded_json_object(
+            b'{"record":{"elapsed_seconds":1e999}}',
+            description="bounded replay record",
+        )
+
+
 def test_staged_source_rejects_same_row_count_snapshot_substitution(tmp_path):
     corpus, source_manifest, replay = _materialize_valid_staged_source(tmp_path)
     _rewrite_staged_rows(

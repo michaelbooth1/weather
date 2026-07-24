@@ -15,10 +15,11 @@ This is a parity result, not evidence of model edge. On the frozen 12-day,
 three-market comparison, current Brier is `0.04272136` versus market Brier
 `0.03310608` (`current - market = +0.00961528`).
 
-The current promotion-corpus manifest binds 309 market-days, 44,178 snapshots,
-486,486 band rows, 12 markets, and 32 fleet dates from 2026-06-03 through
-2026-07-10. Every entry was independently rehashed against the read-only
-snapshot mirror: 309 checked, zero warnings, zero affected folders.
+The promotion-corpus manifest sealed for this execution binds 309 market-days,
+44,178 snapshots, 486,486 band rows, 12 markets, and 32 fleet dates from
+2026-06-03 through 2026-07-10. Every entry was independently rehashed against
+the read-only snapshot mirror: 309 checked, zero warnings, zero affected
+folders.
 
 ## Isolation and safety
 
@@ -102,11 +103,11 @@ Comparison result:
 - row-export corpus hash: exact match
   (`b407a5237e74790d4e4e32c60b4c1cad92b0f7599ac128d7b572b6f2aecfc7ae`).
 
-### Current corpus integrity
+### Sealed execution-time corpus integrity
 
-The current manifest file SHA-256 is
+The sealed manifest file SHA-256 is
 `4CAFCF1AA827BBF0B2B4C85AF898192A50637C49D0B270C5006EF56F3CACD1F5`;
-its canonical corpus hash is
+its execution-time `promotion_corpus_v0.1` corpus hash is
 `d7cfdc58e31ecffab1e4e7f0ef19c4773dbf7c16e8eaeffbf19589e22fc0893f`.
 `verify_entry_inputs` was applied to every manifest entry and reported 309/309
 checked, zero warnings, and zero affected folders. The audit output is
@@ -117,6 +118,11 @@ SHA-256
 An older 51-day manifest was rejected: all 6,989 bound tape hashes differ from
 the current mirror (manifest dated 2026-06-19; tapes modified 2026-06-24). No
 experiment in this program uses that stale manifest.
+
+As of the 2026-07-23 safety migration, plain `promotion_corpus_v0.1` is legacy
+research evidence and is no longer an operational corpus. Current operational
+consumers require `promotion_corpus_v0.2`; this terminology change does not
+alter the sealed Phase 0 hashes or parity result.
 
 ## Disposition
 

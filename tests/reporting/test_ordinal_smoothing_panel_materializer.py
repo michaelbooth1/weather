@@ -11,6 +11,8 @@ from weather.reporting.research import ordinal_smoothing_panel_materializer as m
 
 
 def _source(tmp_path: Path, *, mismatched_folder: bool = False):
+    source_root = tmp_path / "data"
+    source_root.mkdir(parents=True, exist_ok=True)
     date = "2026-01-01"
     entries = []
     for index, market_id in enumerate(sorted(REGISTRY)):
@@ -57,9 +59,12 @@ def _source(tmp_path: Path, *, mismatched_folder: bool = False):
         "allow_unsettled": False,
         "entries": entries,
         "skipped": [],
-        "corpus_hash": corpus_hash(entries),
+        "corpus_hash": corpus_hash(
+            entries,
+            schema_version="promotion_corpus_v0.1",
+        ),
     }
-    path = tmp_path / "source.json"
+    path = source_root / "source.json"
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path, manifest, date
 
@@ -75,20 +80,41 @@ def _install_contract(monkeypatch, path: Path, manifest: dict, date: str):
     monkeypatch.setitem(materializer.CONTRACTS, "fixture", contract)
 
 
+def test_source_manifest_rejects_nested_exponent_overflow(tmp_path):
+    source = tmp_path / "source.json"
+    raw = b'{"entries":[{"runtime":{"seconds":1e999}}]}'
+
+    with pytest.raises(
+        materializer.PanelMaterializationError,
+        match=r"non-finite JSON number at \$\.entries\[0\]\.runtime\.seconds",
+    ):
+        materializer._manifest_from_stable_bytes(raw, source=source)
+
+
 def test_literal_materialization_excludes_every_nonpanel_outcome(tmp_path, monkeypatch):
     source, source_manifest, date = _source(tmp_path)
     _install_contract(monkeypatch, source, source_manifest, date)
     output = tmp_path / "derived.json"
     manifest, receipt = materializer.materialize_panel(
-        kind="fixture", source_manifest=source, output=output
+        kind="fixture",
+        source_manifest=source,
+        output=output,
+        read_only_data_root=source.parent,
     )
 
     assert receipt["entry_count"] == len(REGISTRY)
     assert receipt["dates"] == [date]
+    assert manifest["schema_version"] == "ordinal_smoothing_literal_panel_v0.1"
+    assert manifest["research_only"] is True
+    assert manifest["serving_or_release_authorization"] is False
+    assert manifest["source_schema_version"] == "promotion_corpus_v0.1"
     assert manifest["materialization"]["source_entry_count"] == len(REGISTRY) + 1
     assert manifest["materialization"]["excluded_entry_count"] == 1
     assert "forbidden-holdout-outcome-marker" not in output.read_text(encoding="utf-8")
-    assert manifest["corpus_hash"] == corpus_hash(manifest["entries"])
+    assert manifest["corpus_hash"] == corpus_hash(
+        manifest["entries"],
+        schema_version="ordinal_smoothing_literal_panel_v0.1",
+    )
 
 
 def test_materialization_rejects_folder_alias_before_publication(tmp_path, monkeypatch):
@@ -97,7 +123,10 @@ def test_materialization_rejects_folder_alias_before_publication(tmp_path, monke
     output = tmp_path / "derived.json"
     with pytest.raises(materializer.PanelMaterializationError, match="folder identity"):
         materializer.materialize_panel(
-            kind="fixture", source_manifest=source, output=output
+            kind="fixture",
+            source_manifest=source,
+            output=output,
+            read_only_data_root=source.parent,
         )
     assert not output.exists()
 
@@ -121,14 +150,64 @@ def test_materialization_hard_pins_source_file_and_refuses_overwrite(
     )
     with pytest.raises(materializer.PanelMaterializationError, match="file hash"):
         materializer.materialize_panel(
-            kind="fixture", source_manifest=source, output=tmp_path / "blocked.json"
+            kind="fixture",
+            source_manifest=source,
+            output=tmp_path / "blocked.json",
+            read_only_data_root=source.parent,
         )
 
     _install_contract(monkeypatch, source, source_manifest, date)
     output = tmp_path / "derived.json"
-    materializer.materialize_panel(kind="fixture", source_manifest=source, output=output)
+    materializer.materialize_panel(
+        kind="fixture",
+        source_manifest=source,
+        output=output,
+        read_only_data_root=source.parent,
+    )
     with pytest.raises(ExclusivePublicationError, match="overwrite"):
-        materializer.materialize_panel(kind="fixture", source_manifest=source, output=output)
+        materializer.materialize_panel(
+            kind="fixture",
+            source_manifest=source,
+            output=output,
+            read_only_data_root=source.parent,
+        )
+
+
+def test_materialization_rejects_output_inside_read_only_root(tmp_path, monkeypatch):
+    source, source_manifest, date = _source(tmp_path)
+    _install_contract(monkeypatch, source, source_manifest, date)
+
+    with pytest.raises(materializer.PanelMaterializationError, match="read-only root"):
+        materializer.materialize_panel(
+            kind="fixture",
+            source_manifest=source,
+            output=source.parent / "derived.json",
+            read_only_data_root=source.parent,
+        )
+
+
+def test_materialization_parses_the_exact_bytes_it_hashes(tmp_path, monkeypatch):
+    source, source_manifest, date = _source(tmp_path)
+    _install_contract(monkeypatch, source, source_manifest, date)
+    original = materializer._stable_source_bytes
+
+    def replace_source_after_read(path):
+        result = original(path)
+        if Path(path) == source:
+            source.write_text('{"schema_version":"replaced"}\n', encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(materializer, "_stable_source_bytes", replace_source_after_read)
+    output = tmp_path / "derived.json"
+    manifest, _ = materializer.materialize_panel(
+        kind="fixture",
+        source_manifest=source,
+        output=output,
+        read_only_data_root=source.parent,
+    )
+
+    assert manifest["materialization"]["source_entry_count"] == len(REGISTRY) + 1
+    assert json.loads(output.read_text(encoding="utf-8"))["corpus_hash"] == manifest["corpus_hash"]
 
 
 def test_production_contracts_are_literal_and_disjoint():

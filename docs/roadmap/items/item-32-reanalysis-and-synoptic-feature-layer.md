@@ -1081,3 +1081,26 @@ Verification:
 
 - `python -m pytest tests\reporting\test_reanalysis_sidecar_coverage_audit.py tests\reporting\test_source_family_inventory.py tests\sources\test_reanalysis_synoptic.py tests\calibration\test_pooled_candidate_replay.py tests\operations\test_schema_registry.py -q`
   passed with `73 passed`, `1 warning`.
+
+## 2026-07-23 Source-Evidence Safety Supersession
+
+The June inventory statuses and candidate commands above remain historical
+research evidence. They do not describe the current operational trust
+boundary. Operational source-family promotion now requires, in order, a
+`promotion_corpus_v0.2` input, `source_family_ablation_v0.3` bound to the
+canonically verified active release, `source_family_inventory_v0.2` with exact
+current-byte receipts, and `physical_feature_family_ratchet_v0.2`. A
+`PROMOTION_CANDIDATE` label in the legacy inventory is therefore a research
+classification, not serving, release, or promotion authorization.
+
+Candidate-artifact operational reanalysis evidence and merge publication are
+disabled. The retained reanalysis command blocks before candidate pickle
+deserialization and refuses both operational publication and source-family
+merge output. Reopening even research deserialization requires an independently
+verified candidate manifest or release graph; reopening operational publication
+also requires sealed per-variant model bindings and a migrated schema/consumer
+contract. No runtime artifact was regenerated during this migration because the
+workstation's mirrored `data/` tree was explicitly read-only. See
+[item 125](item-125-weather-input-value-attribution-and-promotion-queue.md),
+[item 224](item-224-pooled-f-retrain-reexport-location-gate.md), and
+[item 263](item-263-physical-feature-family-isolated-replay-ratchet.md).

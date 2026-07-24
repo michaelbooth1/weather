@@ -111,3 +111,76 @@ new trained artifact with matching train/serve evidence.
 
 Verification:
 `python -m pytest -q tests/backtesting/test_replay_ablation.py tests/reporting/test_source_family_inventory.py tests/reporting/test_daily_learning.py`
+
+## 2026-07-23 Safety Migration
+
+The v0.1 behavior and counts above remain historical evidence. Operational
+consumers now require `source_family_ablation_v0.3` and
+`source_family_inventory_v0.2`; the retired v0.1 schemas fail closed.
+`source_family_ablation_v0.2` is a separate research-only schema and can never
+satisfy a promotion preflight.
+
+Loose `weather.backtesting.replay_ablation` runs now default to research-only
+v0.2 output and to a distinct research filename. Producing v0.3 requires the
+explicit `--operational-evidence` mode. That mode rejects folder or market
+subsets and reconstructed inputs, requires a current pinned promotion corpus
+plus sorted, disjoint tune and holdout manifests that exactly partition its
+dates, recomputes paired/robustness/market inference, and requires a verified
+active-release binding. Detached candidate-artifact bindings are research-only
+and always block the operational contract, even when their bytes have a stable
+receipt. The downstream contract independently recomputes these relationships,
+so changing only the schema string or authorization flag cannot make weak
+evidence operational.
+
+Inventory v0.2 records the exact source-ablation path, byte count, and SHA-256
+read from one stable byte sequence. Promotion readers re-read that path and
+block if it has been replaced since inventory publication. Stale, malformed,
+research-only, partially populated, or unbound evidence is reported as an
+unsafe-artifact blocker rather than as zero blocked families.
+
+The operational schema has one root model binding. The reanalysis publisher
+therefore disables both operational candidate evidence and merging: one root
+cannot truthfully bind both the base and masked models. The retained research
+implementation reads mutable feature, CLOB, and freshness inputs once and
+pre-clones both model arms before either scores. Publication is nevertheless
+retired earlier: it blocks before `pickle.loads` because a candidate digest
+co-supplied by the caller is not an independent trust anchor. A future research
+path needs a verified candidate manifest or release graph; a future operational
+schema must additionally represent and validate per-variant bindings under one
+sealed generation.
+
+The required regeneration order is:
+
+1. Run active-release operational source ablation into a writable staging
+   root outside every input or mirrored data root, for example
+   `python -m weather.backtesting.replay_ablation --operational-evidence --corpus <promotion-corpus.json> --tune-dates-file <tune-dates.txt> --holdout-dates-file <holdout-dates.txt> --out <writable-root>/source_family_ablation.md --json-out <writable-root>/source_family_ablation.json`.
+2. Build inventory v0.2 from that exact JSON into the same writable staging
+   root.
+3. Build the physical-family ratchet v0.2 from the staged inventory and
+   ablation, then consume it through the promotion reader so current path
+   digests are revalidated.
+
+This workstation program did not run those stateful regeneration commands:
+the mirrored `data/` tree was explicitly read-only. Existing legacy runtime
+artifacts therefore remain blocked until an operator performs the sequence in
+an authorized writable environment.
+
+The active operational corpus envelope is now `promotion_corpus_v0.2`.
+`promotion_corpus_v0.1` and the separate
+`ordinal_smoothing_literal_panel_v0.1` envelope are retired, research-only
+inputs: default loaders and every operational source contract reject them.
+Plain v0.1 corpora remain rejected even with research opt-in. Only a legacy
+envelope carrying the explicit ordinal literal-panel materialization contract
+may be loaded for sealed replay, and only by a caller that explicitly opts into
+research materialization. Generic replay also
+resolves manifest folders beneath the supplied snapshots root, verifies the
+exact in-memory scoring frame against the corpus pins, and refuses outputs
+inside the data/snapshot trees or aliased to corpus/split inputs.
+
+Current `promotion_allowlist_v0.1` and `mm_known_edge_map_v0.2`
+artifacts are recommendation/diagnostic schemas, not authorization envelopes.
+Readers canonicalize them to shadow/block and ignore stored permission claims;
+every emitted root and row now carries
+`serving_or_release_authorization=false`. A future authorization schema must
+bind the current source chain, candidate/release, policy, economics, unique
+market/date scope, and expiry before it may influence serving or trading.

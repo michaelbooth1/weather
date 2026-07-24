@@ -8,6 +8,12 @@ from pathlib import Path
 from weather.calibration.pooled_candidate_scoring import ATTRIBUTION_FEATURE_FIELDS
 from weather.reporting.serving_gates.model_scoring_liveness import apply_liveness_to_gate, gate_has_liveness_blocker
 from weather.reporting.promotion.readers import *  # noqa: F403
+from weather.reporting.source_gates.physical_feature_family_ratchet import (
+    physical_feature_family_ratchet_operational_contract,
+)
+from weather.reporting.source_gates.source_family_contracts import (
+    source_family_inventory_operational_contract,
+)
 from weather.schema_registry import schema_version
 
 # The extracted functions below intentionally resolve globals from the
@@ -143,15 +149,41 @@ def _candidate_cutover_blocker(candidate):
     return f"candidate cutover is not allowed: verdict={verdict}, cutover={cutover}"
 
 
-def _allowlist_row(item, *, candidate_id, generated_at_utc, candidate_cutover_allowed=True, candidate_cutover_blocker=""):
+def _allowlist_row(
+    item,
+    *,
+    candidate_id,
+    generated_at_utc,
+    readiness_status,
+    candidate_cutover_allowed=True,
+    candidate_cutover_blocker="",
+):
     metrics = item.get("metrics") or {}
     action = item.get("action") or "BLOCK_CANDIDATE"
     action_promotes = action == "PROMOTE_CANDIDATE"
-    candidate_allowed = action_promotes and candidate_cutover_allowed
+    readiness_allowed = readiness_status == "READY"
+    candidate_recommendation_eligible = (
+        action_promotes and candidate_cutover_allowed and readiness_allowed
+    )
+    # promotion_allowlist_v0.1 is a detached reporting projection.  The
+    # source-family scan closure is not yet runtime-verifiable, so this schema
+    # must never claim serving permission even when every cached readiness
+    # signal agrees.  Preserve recommendation eligibility separately for audit.
+    candidate_allowed = False
     reason = item.get("reason") or "-"
-    blocker_reason = "" if candidate_allowed else reason
+    blocker_reason = reason
     if action_promotes and not candidate_cutover_allowed:
         blocker_reason = candidate_cutover_blocker or "candidate cutover is not allowed"
+    elif action_promotes and not readiness_allowed:
+        blocker_reason = (
+            "promotion readiness must be READY before candidate permission; "
+            f"observed={readiness_status or 'MISSING'}"
+        )
+    elif candidate_recommendation_eligible:
+        blocker_reason = (
+            "promotion_allowlist_v0.1 is detached, non-authorizing evidence; "
+            "a runtime-verifiable authorization envelope is required"
+        )
     return {
         "market_id": item.get("market_id"),
         "candidate_id": candidate_id,
@@ -161,6 +193,13 @@ def _allowlist_row(item, *, candidate_id, generated_at_utc, candidate_cutover_al
         "effective_promotion_state": "PASS" if candidate_allowed else ("BLOCK" if action == "BLOCK_CANDIDATE" else "SHADOW"),
         "candidate_cutover_allowed": bool(candidate_cutover_allowed),
         "candidate_cutover_blocker": "" if candidate_cutover_allowed else candidate_cutover_blocker,
+        "readiness_status": readiness_status or "MISSING",
+        "readiness_required_status": "READY",
+        "readiness_permission_allowed": readiness_allowed,
+        "candidate_recommendation_eligible": candidate_recommendation_eligible,
+        "authorization_schema_supported": False,
+        "authorization_status": "NON_AUTHORIZING_SCHEMA",
+        "serving_or_release_authorization": False,
         "candidate_serving_allowed": candidate_allowed,
         "candidate_permission_allowed": candidate_allowed,
         "serving_behavior": "candidate" if candidate_allowed else "current_or_shadow",
@@ -186,6 +225,7 @@ def build_promotion_allowlist(
     decisions,
     candidate,
     *,
+    readiness=None,
     family_unit=DEFAULT_FAMILY_UNIT,
     generated_at_utc=None,
     path=None,
@@ -193,6 +233,8 @@ def build_promotion_allowlist(
     generated_at_utc = generated_at_utc or _utc_now()
     candidate = candidate or {}
     candidate_id = _candidate_identity(candidate)
+    readiness = readiness if isinstance(readiness, dict) else {}
+    readiness_status = readiness.get("status") or "MISSING"
     candidate_cutover_allowed = _candidate_cutover_allowed(candidate)
     candidate_cutover_blocker = "" if candidate_cutover_allowed else _candidate_cutover_blocker(candidate)
     rows = [
@@ -200,6 +242,7 @@ def build_promotion_allowlist(
             item,
             candidate_id=candidate_id,
             generated_at_utc=generated_at_utc,
+            readiness_status=readiness_status,
             candidate_cutover_allowed=candidate_cutover_allowed,
             candidate_cutover_blocker=candidate_cutover_blocker,
         )
@@ -221,11 +264,30 @@ def build_promotion_allowlist(
         "candidate_cutover_decision": candidate.get("cutover_decision"),
         "candidate_json_path": candidate.get("json_path"),
         "candidate_report_path": candidate.get("report_path"),
+        "readiness_status": readiness_status,
+        "readiness_required_status": "READY",
+        "readiness_permission_allowed": readiness_status == "READY",
+        "readiness_blocker_count": len(readiness.get("blockers") or []),
+        "candidate_recommendation_eligible": any(
+            row.get("candidate_recommendation_eligible") is True for row in rows
+        ),
+        "authorization_schema_supported": False,
+        "authorization_status": "NON_AUTHORIZING_SCHEMA",
+        "serving_or_release_authorization": False,
+        "candidate_permission_allowed": any(
+            row.get("candidate_permission_allowed") is True for row in rows
+        ),
+        "candidate_serving_allowed": any(
+            row.get("candidate_serving_allowed") is True for row in rows
+        ),
         "policy": {
             "candidate_serving_allowed_action": "PROMOTE_CANDIDATE",
             "candidate_cutover_required": "candidate verdict must not be BLOCK and cutover_decision must not be DO_NOT_CUT_OVER",
             "non_promote_behavior": "current_or_shadow",
-            "permission_gate": "candidate_permission_allowed is true only for PROMOTE_CANDIDATE markets",
+            "permission_gate": (
+                "promotion_allowlist_v0.1 is detached and non-authorizing; "
+                "candidate_permission_allowed is always false"
+            ),
         },
         "summary": {
             "market_count": len(rows),
@@ -1212,8 +1274,15 @@ def promotion_readiness(
             "evidence": source_missingness_gate,
         })
     source_preflight = (source_family_inventory or {}).get("promotion_preflight") or {}
+    source_contract = source_family_inventory_operational_contract(
+        source_family_inventory
+    )
     source_status = source_preflight.get("status")
-    if source_family_inventory is not None and source_status != "PASS":
+    if (source_contract or {}).get("status") != "PASS":
+        source_status = (
+            "MISSING" if not source_family_inventory else "BLOCK"
+        )
+    if source_status != "PASS":
         blocked_families = source_preflight.get("blocked_families") or []
         blockers.append({
             "category": "source_family_preflight",
@@ -1222,10 +1291,21 @@ def promotion_readiness(
                 f"source-family promotion preflight is {source_status or 'MISSING'}"
                 + (f": {', '.join(blocked_families)}" if blocked_families else "")
             ),
-            "evidence": source_preflight,
+            "evidence": {
+                **source_preflight,
+                "operational_contract": source_contract or {},
+            },
         })
     physical_ratchet = physical_feature_family_ratchet or {}
-    if physical_feature_family_ratchet is not None and physical_ratchet.get("status") != "PASS":
+    physical_contract = physical_feature_family_ratchet_operational_contract(
+        physical_ratchet
+    )
+    physical_status = physical_ratchet.get("status")
+    if (physical_contract or {}).get("status") != "PASS":
+        physical_status = (
+            "MISSING" if not physical_feature_family_ratchet else "BLOCK"
+        )
+    if physical_status != "PASS":
         summary = physical_ratchet.get("summary") or {}
         first = physical_ratchet.get("first_blocker") or {}
         blocked_families = ((physical_ratchet.get("rollup") or {}).get("evidence_blocked") or [])
@@ -1242,17 +1322,18 @@ def promotion_readiness(
             "severity": "block",
             "detail": (
                 "physical feature-family ratchet is "
-                f"{physical_ratchet.get('status') or 'MISSING'}; "
+                f"{physical_status or 'MISSING'}; "
                 f"blocked families={summary.get('blocking_family_count')}; "
                 + family_detail_text
             ),
             "evidence": {
                 "path": physical_ratchet.get("path"),
-                "status": physical_ratchet.get("status"),
+                "status": physical_status,
                 "summary": summary,
                 "blocked_families": blocked_families[:20],
                 "blocked_family_details": family_details[:20],
                 "first_blocker": first,
+                "operational_contract": physical_contract or {},
             },
         })
     fleet_summary = (fleet_observability or {}).get("summary") or {}
@@ -1390,4 +1471,3 @@ def promotion_readiness(
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-

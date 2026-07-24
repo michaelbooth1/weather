@@ -59,3 +59,20 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
 
+## 2026-07-23 Authorization Clarification
+
+The completion record above preserves the June policy behavior, but its
+positive-permission wording is superseded. Current
+`promotion_allowlist_v0.1` and `mm_known_edge_map_v0.2` artifacts are detached
+recommendation/diagnostic schemas, not runtime authorization roots. A stored
+`PASS`, `PROMOTE_CANDIDATE`, or `edge_allowed` value cannot by itself enter the
+model-skewed edge lane: runtime readers cap promotion recommendations at
+`SHADOW`, force candidate-serving and candidate-permission claims false, and
+normalize `edge_allowed` to `edge_research`.
+
+Existing negative restrictions remain fail closed: `BLOCK` and `no_quote`
+still prevent quoting. A future positive edge lane requires a separately
+supported authorization schema with an independently verified current-input
+root, exact market scope, expiry, and runtime-verifiable authorization. See
+[item 47](item-47-model-readiness-and-known-edge-permission-map.md) and
+[item 218](item-218-location-specific-f-family-promotion-allowlist.md).

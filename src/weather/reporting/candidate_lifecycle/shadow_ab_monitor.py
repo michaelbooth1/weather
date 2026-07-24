@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import data_path
+from weather.release_contract import (
+    SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS,
+)
 
 from weather.reporting.formatting import (
     fmt_signed,
@@ -95,9 +98,40 @@ def serving_blocked_markets(promotion):
     return set()
 
 
-def market_monitor_row(market_id, decision, candidate_row, serving_blocked, current_tol, market_tol):
+def promotion_root_authorized(promotion):
+    allowlist = promotion.get("promotion_allowlist") or {}
+    return bool(
+        str(allowlist.get("schema_version") or "")
+        in SUPPORTED_PROMOTION_AUTHORIZATION_SCHEMA_VERSIONS
+        and allowlist.get("authorization_schema_supported") is True
+        and allowlist.get("authorization_status") == "AUTHORIZED"
+        and allowlist.get("serving_or_release_authorization") is True
+        and allowlist.get("candidate_serving_allowed") is True
+        and allowlist.get("candidate_permission_allowed") is True
+    )
+
+
+def market_monitor_row(
+    market_id,
+    decision,
+    candidate_row,
+    serving_blocked,
+    current_tol,
+    market_tol,
+    *,
+    root_authorized=False,
+):
     comparison = (candidate_row or {}).get("comparison") or {}
     action = (decision or {}).get("action") or "MISSING_DECISION"
+    market_authorized = bool(
+        root_authorized
+        and action == "PROMOTE_CANDIDATE"
+        and (decision or {}).get("authorization_schema_supported") is True
+        and (decision or {}).get("authorization_status") == "AUTHORIZED"
+        and (decision or {}).get("serving_or_release_authorization") is True
+        and (decision or {}).get("candidate_serving_allowed") is True
+        and (decision or {}).get("candidate_permission_allowed") is True
+    )
     candidate_verdict = (candidate_row or {}).get("verdict")
     delta_vs_current = maybe_float(comparison.get("delta_vs_current"))
     delta_vs_market = maybe_float(comparison.get("delta_vs_market"))
@@ -118,11 +152,17 @@ def market_monitor_row(market_id, decision, candidate_row, serving_blocked, curr
         warnings.append("missing candidate replay row")
     if action == "KEEP_SHADOW" and not alerts:
         warnings.append((decision or {}).get("reason") or "candidate remains shadow")
+    if action == "PROMOTE_CANDIDATE" and not market_authorized and not alerts:
+        warnings.append(
+            "promotion recommendation is detached and lacks serving/release authorization"
+        )
 
     if alerts:
         status = "ALERT"
-    elif action == "PROMOTE_CANDIDATE":
+    elif market_authorized:
         status = "PROMOTE_READY"
+    elif action == "PROMOTE_CANDIDATE":
+        status = "RECOMMENDATION_READY"
     else:
         status = "SHADOW"
 
@@ -131,6 +171,7 @@ def market_monitor_row(market_id, decision, candidate_row, serving_blocked, curr
         "status": status,
         "promotion_action": action,
         "promotion_reason": (decision or {}).get("reason"),
+        "promotion_authorized": market_authorized,
         "candidate_verdict": candidate_verdict,
         "days": (candidate_row or {}).get("days"),
         "snapshots": (candidate_row or {}).get("snapshots"),
@@ -176,6 +217,7 @@ def build_monitor(
     candidates = candidate_by_market(candidate)
     blocked = set((promotion.get("decisions") or {}).get("blocked_markets") or [])
     serving_blocked = serving_blocked_markets(promotion)
+    root_authorized = promotion_root_authorized(promotion)
     market_ids = sorted(set(decisions) | set(candidates) | blocked | serving_blocked)
     markets = [
         market_monitor_row(
@@ -185,6 +227,7 @@ def build_monitor(
             serving_blocked,
             current_tol,
             market_tol,
+            root_authorized=root_authorized,
         )
         for market_id in market_ids
     ]
@@ -193,7 +236,16 @@ def build_monitor(
     alert_count = len(alerts) + sum(len(row["alerts"]) for row in markets)
     shadow_count = sum(1 for row in markets if row["status"] == "SHADOW")
     promote_ready_count = sum(1 for row in markets if row["status"] == "PROMOTE_READY")
-    status = "ALERT" if alert_count else ("WARN" if shadow_count else "OK")
+    recommendation_ready_count = sum(
+        1 for row in markets if row["status"] == "RECOMMENDATION_READY"
+    )
+    status = (
+        "ALERT"
+        if alert_count
+        else "WARN"
+        if shadow_count or recommendation_ready_count
+        else "OK"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_iso(),
@@ -204,6 +256,10 @@ def build_monitor(
             "schema_version": (promotion.get("promotion_allowlist") or {}).get("schema_version"),
             "path": (promotion.get("promotion_allowlist") or {}).get("path"),
             "candidate_id": (promotion.get("promotion_allowlist") or {}).get("candidate_id"),
+            "authorization_status": (
+                promotion.get("promotion_allowlist") or {}
+            ).get("authorization_status"),
+            "serving_or_release_authorization": root_authorized,
         },
         "candidate_replay_path": str(candidate_replay),
         "thresholds": {
@@ -213,6 +269,7 @@ def build_monitor(
         "summary": {
             "market_count": len(markets),
             "promote_ready_markets": promote_ready_count,
+            "recommendation_ready_markets": recommendation_ready_count,
             "shadow_markets": shadow_count,
             "alert_markets": sum(1 for row in markets if row["status"] == "ALERT"),
             "alert_count": alert_count,
@@ -244,6 +301,10 @@ def render_report(payload):
         [
             ["Markets", summary.get("market_count", 0)],
             ["Promote-ready", summary.get("promote_ready_markets", 0)],
+            [
+                "Recommendation-ready (non-authorizing)",
+                summary.get("recommendation_ready_markets", 0),
+            ],
             ["Shadow", summary.get("shadow_markets", 0)],
             ["Alert markets", summary.get("alert_markets", 0)],
             ["Alerts", summary.get("alert_count", 0)],
@@ -254,6 +315,10 @@ def render_report(payload):
             ["Promotion allowlist", allowlist.get("present")],
             ["Allowlist candidate", allowlist.get("candidate_id") or "-"],
             ["Allowlist path", allowlist.get("path") or "-"],
+            [
+                "Serving/release authorization",
+                allowlist.get("serving_or_release_authorization"),
+            ],
         ],
     )
     alerts = payload.get("global_alerts") or []

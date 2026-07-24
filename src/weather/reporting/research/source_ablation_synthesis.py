@@ -33,7 +33,7 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("source_ablation_synthesis")
-SOURCE_ARTIFACT_SCHEMA_VERSION = schema_version("source_family_ablation")
+SOURCE_ARTIFACT_SCHEMA_VERSION = schema_version("source_family_ablation_research")
 PRIMARY_SCOPE = "daily_summary_complete_exact_market_panel"
 SECONDARY_SCOPE = "configured_daily_summary_only"
 PRIMARY_SPLIT = "holdout"

@@ -3,12 +3,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.official_guidance_sparse_coverage import (
     build_report_payload,
     guidance_family_for_feature,
     write_markdown_report,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 def write_coverage(path):
@@ -90,19 +92,20 @@ def write_summary(path):
 
 
 def write_inventory(path):
-    payload = {
-        "inventory": [
+    payload = operational_inventory(
+        [
             {
                 "family_id": "nws_grid",
                 "lineage_status": "PASS",
-                "promotion_decision": {"status": "PASS"},
+                "promotion_decision": {"status": "PROMOTION_CANDIDATE"},
                 "ablation": {
                     "status": "PRESENT",
                     "settlement_scored": True,
                     "days": 25,
                     "rows": 500,
-                    "delta": -0.002,
+                    "delta": 0.002,
                     "variant": "official_us_guidance",
+                    "evidence_source": "source_family_ablation",
                 },
             },
             {
@@ -131,11 +134,24 @@ def write_inventory(path):
                 "ablation": {},
             },
         ]
-    }
+    )
+    nws = next(row for row in payload["inventory"] if row["family_id"] == "nws_grid")
+    nws["ablation"]["evidence_contract"] = dict(
+        payload["ablation_evidence_contract"]
+    )
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 class OfficialGuidanceSparseCoverageTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.official_guidance_sparse_coverage."
+            "source_family_inventory_consumer_contract",
+            return_value={"status": "PASS", "blockers": []},
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_guidance_family_mapping(self):
         self.assertEqual(guidance_family_for_feature("nws_grid_high"), "nws_grid")
         self.assertEqual(guidance_family_for_feature("open_meteo_nam_high_delta"), "multi_model_guidance")
@@ -156,6 +172,7 @@ class OfficialGuidanceSparseCoverageTests(unittest.TestCase):
             payload = build_report_payload(coverage, summary, inventory)
 
         self.assertEqual(payload["schema_version"], "official_guidance_sparse_coverage_v0.1")
+        self.assertFalse(payload["serving_or_release_authorization"])
         families = {row["family_id"]: row for row in payload["family_gates"]}
         self.assertEqual(families["nws_grid"]["status"], "PASS")
         self.assertEqual(families["multi_model_guidance"]["status"], "BLOCK")
@@ -181,6 +198,7 @@ class OfficialGuidanceSparseCoverageTests(unittest.TestCase):
             text = report.read_text(encoding="utf-8")
         self.assertIn("Family Gates", text)
         self.assertIn("Priority Field Coverage", text)
+        self.assertIn("runtime current-input revalidation is required", text)
         self.assertIn("nws_grid_high", text)
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import weather.operations.release_promotion as release_promotion
+import weather.release_artifacts as release_artifacts
 from weather.artifacts import ReleaseArtifactVerificationError, resolve_verified_active_release
 from weather.operations.release_lifecycle import (
     MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
@@ -33,6 +35,26 @@ from weather.operations.release_manifest import canonical_payload_sha256
 
 NOW = datetime(2026, 7, 11, 15, 0, tzinfo=timezone.utc)
 COMMIT = "a" * 40
+
+
+def create_directory_link_or_junction(alias: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        result = subprocess.run(
+            ["cmd", "/d", "/c", "mklink", "/J", str(alias), str(target)],
+            check=False,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"directory junction unavailable: {result.stderr}")
+        return
+    try:
+        alias.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlink unavailable: {exc}")
 
 
 def code_identity(*, dirty: bool = False) -> dict:
@@ -192,6 +214,47 @@ def test_create_release_inventories_every_file_and_never_overwrites(tmp_path: Pa
     assert (release_dir / RELEASE_MANIFEST_NAME).exists()
 
 
+@pytest.mark.parametrize("linked_root", ["candidate", "releases"])
+def test_create_release_rejects_link_or_reparse_roots_before_writing(
+    tmp_path: Path,
+    linked_root: str,
+):
+    case_root = tmp_path / linked_root
+    candidate = write_candidate(case_root, "r1")
+    releases_root = case_root / "releases"
+    external = case_root / "external"
+    alias = case_root / "alias"
+    if linked_root == "candidate":
+        create_directory_link_or_junction(alias, candidate)
+        candidate = alias
+    else:
+        create_directory_link_or_junction(alias, external)
+        releases_root = alias / "nested-releases"
+
+    with pytest.raises(
+        ReleaseLifecycleError,
+        match="symlink or reparse point",
+    ):
+        create_release(
+            release_id="r1",
+            candidate_dir=candidate,
+            declarations=declarations(),
+            route={
+                "default_variant": "pooled_v1",
+                "market_routes": {"toronto": "pooled_v1"},
+            },
+            expected_live_runtimes=["snapshot_loop"],
+            releases_root=releases_root,
+            repo_root=case_root,
+            code_identity=code_identity(),
+            runtime_versions=runtime_versions(),
+            runtime_identity=runtime_identity(),
+            created_at_utc=NOW.isoformat(),
+        )
+
+    assert not (external / "nested-releases" / "r1").exists()
+
+
 @pytest.mark.parametrize("mutation", ["tamper", "extra", "nested-manifest", "missing"])
 def test_complete_verification_rejects_any_release_file_set_change(tmp_path: Path, mutation: str):
     result = build_release(tmp_path, "r1")
@@ -207,6 +270,57 @@ def test_complete_verification_rejects_any_release_file_set_change(tmp_path: Pat
         (release_dir / "config" / "route.json").unlink()
 
     with pytest.raises(ReleaseLifecycleError):
+        verify_release(
+            release_dir,
+            repo_root=tmp_path,
+            current_runtime_versions=runtime_versions(),
+            current_runtime_identity=runtime_identity(),
+        )
+
+
+def test_strict_release_json_rejects_nested_exponent_overflow():
+    with pytest.raises(ValueError, match="non-finite JSON number"):
+        release_artifacts.strict_json_loads(
+            '{"outer":{"rows":[{"value":1e999}]}}',
+            label="release boundary",
+        )
+
+
+def test_release_artifact_symlink_ancestor_is_rejected_before_file_read(
+    tmp_path: Path,
+    monkeypatch,
+):
+    result = build_release(tmp_path, "r1")
+    release_dir = Path(result["release_dir"])
+    external_models = tmp_path / "external-models"
+    (release_dir / "models").rename(external_models)
+    try:
+        (release_dir / "models").symlink_to(
+            external_models,
+            target_is_directory=True,
+        )
+    except OSError as exc:
+        pytest.skip(f"directory symlink unavailable: {exc}")
+
+    original_sha256_file = release_artifacts.sha256_file
+
+    def reject_external_read(path):
+        candidate = Path(path).resolve(strict=False)
+        try:
+            candidate.relative_to(external_models.resolve())
+        except ValueError:
+            return original_sha256_file(path)
+        raise AssertionError("external artifact bytes were read before rejection")
+
+    monkeypatch.setattr(
+        release_artifacts,
+        "sha256_file",
+        reject_external_read,
+    )
+    with pytest.raises(
+        ReleaseLifecycleError,
+        match="must not traverse a symlink or reparse point",
+    ):
         verify_release(
             release_dir,
             repo_root=tmp_path,

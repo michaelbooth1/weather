@@ -246,6 +246,20 @@ def _write_queue(repo_root: Path, manifest: dict) -> Path:
     return path
 
 
+def test_strict_json_rejects_nested_exponent_overflow(tmp_path):
+    queue = tmp_path / "experiment_queue.json"
+    queue.write_text(
+        '{"experiment_queue":{"metrics":[{"value":1e999}]}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ExperimentExecutionError,
+        match=r"non-finite JSON number at \$\.experiment_queue\.metrics\[0\]\.value",
+    ):
+        experiment_executor_module._strict_json(queue)
+
+
 def _fixture(
     repo_root: Path,
     *,

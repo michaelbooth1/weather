@@ -27,8 +27,11 @@ from weather.release_artifacts import (
     RELEASE_MANIFEST_NAME,
     RELEASE_MANIFEST_SCHEMA_VERSION,
     ReleaseArtifactVerificationError,
+    assert_no_link_or_reparse_ancestors,
     canonical_payload_sha256,
     capture_runtime_versions,
+    is_link_or_reparse_point,
+    lexical_absolute_path,
     load_release_manifest as load_release_manifest,
     manifest_content_sha256,
     safe_relative_artifact_path,
@@ -176,12 +179,23 @@ def _normalize_declarations(declarations: Sequence[Mapping[str, Any]]) -> dict[s
 
 
 def _candidate_inventory(candidate_dir: Path) -> dict[str, dict[str, Any]]:
+    assert_no_link_or_reparse_ancestors(
+        candidate_dir,
+        label="candidate directory",
+    )
     if not candidate_dir.exists() or not candidate_dir.is_dir():
         raise ReleaseLifecycleError(f"candidate directory does not exist: {candidate_dir}")
     rows: dict[str, dict[str, Any]] = {}
     for path in sorted(candidate_dir.rglob("*")):
-        if path.is_symlink():
-            raise ReleaseLifecycleError(f"candidate contains a symlink, which is not allowed: {path}")
+        assert_no_link_or_reparse_ancestors(
+            path,
+            label="candidate artifact",
+        )
+        if is_link_or_reparse_point(path):
+            raise ReleaseLifecycleError(
+                "candidate contains a symlink or reparse point, which is not "
+                f"allowed: {path}"
+            )
         if path.is_dir():
             continue
         if not path.is_file():
@@ -255,13 +269,20 @@ def create_release(
     if not runtimes:
         raise ReleaseLifecycleError("at least one expected live runtime is required")
     declarations_by_path = _normalize_declarations(declarations)
-    candidate_input = Path(candidate_dir)
-    if candidate_input.is_symlink():
-        raise ReleaseLifecycleError(f"candidate directory must not be a symlink: {candidate_input}")
-    candidate_dir = candidate_input.resolve()
-    releases_root = Path(releases_root).resolve()
+    candidate_dir = assert_no_link_or_reparse_ancestors(
+        lexical_absolute_path(candidate_dir),
+        label="candidate directory",
+    )
+    releases_root = assert_no_link_or_reparse_ancestors(
+        lexical_absolute_path(releases_root),
+        label="immutable releases root",
+    )
     repo_root = Path(repo_root).resolve()
     release_dir = releases_root / release_id
+    assert_no_link_or_reparse_ancestors(
+        release_dir,
+        label="immutable release destination",
+    )
     if release_dir.exists():
         raise ReleaseLifecycleError(f"immutable release already exists: {release_dir}")
     try:
@@ -325,7 +346,19 @@ def create_release(
     }
     manifest["manifest_sha256"] = manifest_content_sha256(manifest)
 
+    assert_no_link_or_reparse_ancestors(
+        releases_root,
+        label="immutable releases root",
+    )
     releases_root.mkdir(parents=True, exist_ok=True)
+    assert_no_link_or_reparse_ancestors(
+        releases_root,
+        label="immutable releases root",
+    )
+    if not releases_root.is_dir():
+        raise ReleaseLifecycleError(
+            f"immutable releases root is not a directory: {releases_root}"
+        )
     # The target mkdir is the fail-if-exists reservation.  The manifest is
     # written last and is the commit marker, so a concurrent consumer will
     # reject an in-progress or crash-interrupted release rather than observe a
@@ -333,17 +366,44 @@ def create_release(
     owns_release_dir = False
     try:
         try:
+            assert_no_link_or_reparse_ancestors(
+                release_dir,
+                label="immutable release destination",
+            )
             release_dir.mkdir(parents=False, exist_ok=False)
+            assert_no_link_or_reparse_ancestors(
+                release_dir,
+                label="immutable release destination",
+            )
             owns_release_dir = True
         except FileExistsError as exc:
             raise ReleaseLifecycleError(f"immutable release already exists: {release_dir}") from exc
         for rel, expected in source_inventory.items():
             source = candidate_dir / rel
             destination = release_dir / rel
+            assert_no_link_or_reparse_ancestors(
+                source,
+                label=f"candidate artifact {rel!r}",
+            )
+            assert_no_link_or_reparse_ancestors(
+                destination.parent,
+                label=f"release artifact parent {rel!r}",
+            )
             destination.parent.mkdir(parents=True, exist_ok=True)
+            assert_no_link_or_reparse_ancestors(
+                destination,
+                label=f"release artifact {rel!r}",
+            )
             shutil.copy2(source, destination, follow_symlinks=False)
-            if destination.is_symlink():
-                raise ReleaseLifecycleError(f"release copy unexpectedly produced a symlink: {rel}")
+            assert_no_link_or_reparse_ancestors(
+                destination,
+                label=f"release artifact {rel!r}",
+            )
+            if is_link_or_reparse_point(destination):
+                raise ReleaseLifecycleError(
+                    "release copy unexpectedly produced a symlink or reparse "
+                    f"point: {rel}"
+                )
             if destination.stat().st_size != expected["bytes"] or sha256_file(destination) != expected["sha256"]:
                 raise ReleaseLifecycleError(f"candidate changed while release was being copied: {rel}")
         if code_identity is None and runtime_identity is None:
@@ -353,7 +413,12 @@ def create_release(
                 raise ReleaseLifecycleError("repository code identity changed while release was being built")
             if final_identity.get("source_fingerprint") != identity.get("source_fingerprint"):
                 raise ReleaseLifecycleError("runtime source identity changed while release was being built")
-        _write_json_exclusive(release_dir / RELEASE_MANIFEST_NAME, manifest)
+        manifest_path = release_dir / RELEASE_MANIFEST_NAME
+        assert_no_link_or_reparse_ancestors(
+            manifest_path,
+            label="release manifest destination",
+        )
+        _write_json_exclusive(manifest_path, manifest)
     except Exception:
         # Cleanup is safe only because this process won the exclusive mkdir and
         # the manifest (the release commit marker) has not been published.

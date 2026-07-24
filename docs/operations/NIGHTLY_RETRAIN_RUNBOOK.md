@@ -147,6 +147,36 @@ qualification declarations, not permission to raise the host load limits.
 Production mode remains candidate-only. It does not promote, replace the
 active pointer, restart workers, or grant trading permission.
 
+### Immutable promotion-corpus generations
+
+Scheduled daily and nightly chains do not reuse the fixed
+`data/backtest/promotion_corpus.json` publication target. Each run derives a
+bounded, sanitized, hash-suffixed leaf below
+`promotion_corpus_generations/`; a retry with an already-published run identity
+uses a new `-retry-NNNN` leaf. Publication remains exclusive and never deletes
+or overwrites an earlier corpus. The active-variant shadow step consumes the
+exact corpus path returned by the promotion step, including when that step is
+carried forward during resume, and writes its window corpus to its own immutable
+generation. A missing same-run or carried-forward binding fails closed instead
+of silently selecting an older scheduled corpus. The fixed legacy path remains
+available only to explicit/manual research consumers that name it.
+
+### Promotion evidence is not authorization
+
+The current `promotion_allowlist_v0.1` payload records model recommendations;
+it is not a serving or release authorization envelope. Nightly status preserves
+raw promote recommendations for operator review but projects them to shadow
+unless a future schema is explicitly supported and proves root-level plus exact
+per-market `AUTHORIZED` fields. Candidate release eligibility independently
+rechecks that envelope, so editing recommendation booleans cannot make the
+current schema promote-ready. A skipped candidate with reason
+`promotion_evidence_non_authorizing` is the expected fail-closed result, not an
+instruction to bypass the gate. The sole construction exception is the exact
+first-inactive bootstrap below: after its independent empty-store/no-pointer
+contract passes, it may freeze one inactive, shadow-routed identity. That
+release has activation `NONE`, zero promote routes, and remains ineligible for
+promotion; the exception does not authorize the detached recommendation.
+
 ### First inactive production release
 
 Captured-input parity is ordinarily checked before candidate work and must bind

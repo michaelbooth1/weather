@@ -12,6 +12,15 @@ from typing import Any
 
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
+from weather.reporting.source_gates.source_family_contracts import (
+    source_ablation_operational_contract,
+)
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
+from weather.reporting.source_gates.source_artifact_binding import (
+    stable_json_artifact,
+)
 from weather.sources.marine_context import MARINE_CONTEXT_FEATURE_COLUMNS
 
 
@@ -53,13 +62,6 @@ HISTORICAL_MARINE_STATUSES = {
 }
 
 
-def _read_json(path: str | Path) -> dict[str, Any]:
-    path = Path(path)
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _read_csv(path: str | Path) -> list[dict[str, str]]:
     path = Path(path)
     if not path.exists():
@@ -85,6 +87,9 @@ def _find_inventory_row(payload: dict[str, Any], family_id: str) -> dict[str, An
 
 
 def source_inventory_evidence(source_inventory: dict[str, Any]) -> dict[str, Any]:
+    operational_contract = source_family_inventory_consumer_contract(
+        source_inventory
+    )
     row = _find_inventory_row(source_inventory, "marine_context")
     feature_columns = set(row.get("feature_columns") or [])
     active_columns = set(row.get("active_model_feature_columns") or [])
@@ -94,6 +99,7 @@ def source_inventory_evidence(source_inventory: dict[str, Any]) -> dict[str, Any
     active_contrast = [feature for feature in WATER_CONTRAST_FEATURES if feature in active_columns]
 
     return {
+        "operational_contract": operational_contract,
         "family_id": row.get("family_id"),
         "source_keys": row.get("source_keys") or [],
         "historical_archive_status": row.get("historical_archive_status"),
@@ -116,10 +122,38 @@ def source_inventory_evidence(source_inventory: dict[str, Any]) -> dict[str, Any
     }
 
 
-def ablation_evidence(ablation_payload: dict[str, Any]) -> dict[str, Any]:
+def ablation_evidence(
+    ablation_payload: dict[str, Any],
+    *,
+    current_receipt: dict[str, Any] | None = None,
+    inventory_ablation_receipt: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    operational_contract = source_ablation_operational_contract(ablation_payload)
+    current_receipt = current_receipt if isinstance(current_receipt, dict) else {}
+    inventory_ablation_receipt = (
+        inventory_ablation_receipt
+        if isinstance(inventory_ablation_receipt, dict)
+        else {}
+    )
+    binding_blockers = list(current_receipt.get("blockers") or [])
+    if current_receipt.get("status") != "PASS" and not binding_blockers:
+        binding_blockers.append("marine ablation stable read is not PASS")
+    if inventory_ablation_receipt != current_receipt:
+        binding_blockers.append(
+            "current marine ablation receipt differs from source inventory binding"
+        )
+    input_binding_contract = {
+        "status": "BLOCK" if binding_blockers else "PASS",
+        "inventory_ablation_receipt": inventory_ablation_receipt,
+        "current_ablation_receipt": current_receipt,
+        "serving_or_release_authorization": False,
+        "blockers": binding_blockers,
+    }
     variants = ablation_payload.get("variants") or []
     variant = next((row for row in variants if row.get("variant") == "marine_context"), {})
     return {
+        "operational_contract": operational_contract,
+        "input_binding_contract": input_binding_contract,
         "schema_version": ablation_payload.get("schema_version"),
         "summary": ablation_payload.get("summary") or {},
         "variant": variant,
@@ -267,6 +301,28 @@ def acceptance(
     candidate_features = candidate_contrast_features(candidate)
     sidecar_evidence = candidate_sidecar_evidence(candidate)
 
+    if (source_evidence.get("operational_contract") or {}).get("status") != "PASS":
+        blockers.append({
+            "code": "source_inventory_not_operationally_authorized",
+            "detail": "; ".join(
+                (source_evidence.get("operational_contract") or {}).get("blockers") or []
+            ),
+        })
+    if (ablation.get("operational_contract") or {}).get("status") != "PASS":
+        blockers.append({
+            "code": "marine_ablation_not_operationally_authorized",
+            "detail": "; ".join(
+                (ablation.get("operational_contract") or {}).get("blockers") or []
+            ),
+        })
+    if (ablation.get("input_binding_contract") or {}).get("status") != "PASS":
+        blockers.append({
+            "code": "marine_ablation_not_bound_to_inventory",
+            "detail": "; ".join(
+                (ablation.get("input_binding_contract") or {}).get("blockers") or []
+            ),
+        })
+
     if not candidate:
         blockers.append({"code": "candidate_replay_missing", "detail": "missing candidate replay JSON"})
     if not artifact_scope["isolated"]:
@@ -366,19 +422,35 @@ def build_report_payload(
     current_tol: float = DEFAULT_CURRENT_TOL,
     min_onshore_rows: int = DEFAULT_MIN_ONSHORE_ROWS,
 ) -> dict[str, Any]:
-    source_inventory = _read_json(source_inventory_json)
-    ablation_payload = _read_json(ablation_json)
-    candidate = _read_json(candidate_json)
+    source_inventory, source_inventory_receipt = stable_json_artifact(
+        source_inventory_json
+    )
+    ablation_payload, ablation_receipt = stable_json_artifact(ablation_json)
+    candidate, candidate_receipt = stable_json_artifact(candidate_json)
     source_evidence = source_inventory_evidence(source_inventory)
-    ablation = ablation_evidence(ablation_payload)
+    ablation = ablation_evidence(
+        ablation_payload,
+        current_receipt=ablation_receipt,
+        inventory_ablation_receipt=source_inventory.get(
+            "ablation_input_receipt"
+        ),
+    )
     permutation = permutation_evidence(hgb_permutation)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached report only; runtime current-input revalidation is required "
+            "before serving or release authorization."
+        ),
         "inputs": {
             "source_inventory_json": str(source_inventory_json),
+            "source_inventory_receipt": source_inventory_receipt,
             "ablation_json": str(ablation_json),
+            "ablation_receipt": ablation_receipt,
             "candidate_json": str(candidate_json),
+            "candidate_receipt": candidate_receipt,
             "hgb_permutation": str(hgb_permutation),
         },
         "source_inventory": source_evidence,
@@ -439,6 +511,11 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
         f"Generated: {payload.get('generated_at_utc')}",
         f"Schema: `{payload.get('schema_version')}`",
         f"Gate status: `{acceptance_payload.get('status')}`",
+        "Serving/release authorization: `false`",
+        (
+            "This detached report cannot authorize serving or release; runtime "
+            "current-input revalidation is required."
+        ),
         "",
         "## Source Inventory",
         "",

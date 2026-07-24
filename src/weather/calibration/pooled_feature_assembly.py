@@ -572,6 +572,25 @@ def _target_date_is_excluded(local_date, excluded_target_dates):
     return value in excluded_target_dates
 
 
+def _normalized_date(value, *, field):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be an ISO calendar date") from exc
+
+
+def _target_date_precedes(local_date, cutoff):
+    try:
+        observed = _normalized_date(local_date, field="source target date")
+    except ValueError:
+        return False
+    return observed < cutoff
+
+
 def market_climate_stats(cache, excluded_target_dates=None):
     excluded_target_dates = _normalized_target_dates(excluded_target_dates)
     buckets = [
@@ -594,6 +613,7 @@ def market_source_reliability(
     spec,
     include_historical_only=False,
     excluded_target_dates=None,
+    prior_as_of_exclusive=None,
 ):
     """Static per-market source-quality priors for pooled training.
 
@@ -611,12 +631,24 @@ def market_source_reliability(
     except Exception:  # noqa: BLE001 - pooled training should survive missing optional stores
         indexes = {}
     excluded_target_dates = _normalized_target_dates(excluded_target_dates)
-    if excluded_target_dates:
+    prior_cutoff = (
+        _normalized_date(
+            prior_as_of_exclusive,
+            field="prior_as_of_exclusive",
+        )
+        if prior_as_of_exclusive is not None
+        else None
+    )
+    if excluded_target_dates or prior_cutoff is not None:
         indexes = {
             source: {
                 local_date: row
                 for local_date, row in (rows or {}).items()
                 if not _target_date_is_excluded(local_date, excluded_target_dates)
+                and (
+                    prior_cutoff is None
+                    or _target_date_precedes(local_date, prior_cutoff)
+                )
             }
             for source, rows in indexes.items()
         }
@@ -773,16 +805,31 @@ def build_market_records(
     excluded_target_dates=None,
     included_target_dates=None,
     prior_as_of_exclusive=None,
+    historical_window_target_date=None,
     _available_target_dates=None,
 ):
     excluded_target_dates = _normalized_target_dates(excluded_target_dates)
     included_target_dates = _normalized_target_dates(included_target_dates)
     prior_cutoff = (
-        date.fromisoformat(str(prior_as_of_exclusive))
-        if prior_as_of_exclusive
+        _normalized_date(
+            prior_as_of_exclusive,
+            field="prior_as_of_exclusive",
+        )
+        if prior_as_of_exclusive is not None
         else None
     )
-    model = TorontoHighTempModel(market_id=spec.id)
+    historical_window_target_date = (
+        _normalized_date(
+            historical_window_target_date,
+            field="historical_window_target_date",
+        )
+        if historical_window_target_date is not None
+        else None
+    )
+    model_kwargs = {"market_id": spec.id}
+    if historical_window_target_date is not None:
+        model_kwargs["target_date"] = historical_window_target_date
+    model = TorontoHighTempModel(**model_kwargs)
     cache = model.historical_target_cache()
     daily = cache.get("daily") or {}
     by_date = cache.get("by_date") or {}
@@ -828,6 +875,7 @@ def build_market_records(
     source_reliability = market_source_reliability(
         spec,
         excluded_target_dates=prior_excluded_dates,
+        prior_as_of_exclusive=prior_cutoff,
     )
 
     records = []
@@ -874,6 +922,7 @@ def build_family_dataset(
     excluded_target_dates=None,
     included_target_dates=None,
     prior_as_of_exclusive=None,
+    historical_window_target_date=None,
 ):
     specs = family_specs(unit)
     records = []
@@ -890,6 +939,7 @@ def build_family_dataset(
             excluded_target_dates=excluded_target_dates,
             included_target_dates=included_target_dates,
             prior_as_of_exclusive=prior_as_of_exclusive,
+            historical_window_target_date=historical_window_target_date,
             _available_target_dates=available_target_dates,
         )
         counts[spec.id] = len(market_records)

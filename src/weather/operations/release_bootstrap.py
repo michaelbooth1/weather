@@ -20,6 +20,11 @@ from weather.operations.release_manifest import (
     verify_release,
 )
 from weather.operations.release_promotion import DEFAULT_ACTIVE_POINTER
+from weather.release_artifacts import (
+    assert_no_link_or_reparse_ancestors,
+    is_link_or_reparse_point,
+    lexical_absolute_path,
+)
 from weather.release_contract import PRODUCTION_CANDIDATE_MODE
 from weather.schema_registry import schema_version
 
@@ -38,8 +43,13 @@ def _utc_iso(now: datetime | None = None) -> str:
 
 
 def _release_store_inventory(releases_root: Path) -> tuple[str, list[dict[str, str]]]:
-    if releases_root.is_symlink():
-        return "SYMLINK", []
+    try:
+        assert_no_link_or_reparse_ancestors(
+            releases_root,
+            label="first-inactive release store",
+        )
+    except ReleaseLifecycleError:
+        return "LINK_OR_REPARSE", []
     if not releases_root.exists():
         return "ABSENT", []
     if not releases_root.is_dir():
@@ -50,8 +60,8 @@ def _release_store_inventory(releases_root: Path) -> tuple[str, list[dict[str, s
             {
                 "name": path.name,
                 "kind": (
-                    "symlink"
-                    if path.is_symlink()
+                    "link_or_reparse"
+                    if is_link_or_reparse_point(path)
                     else "directory"
                     if path.is_dir()
                     else "file"
@@ -64,8 +74,13 @@ def _release_store_inventory(releases_root: Path) -> tuple[str, list[dict[str, s
 
 
 def _pointer_state(pointer_path: Path) -> str:
-    if pointer_path.is_symlink():
-        return "SYMLINK"
+    try:
+        assert_no_link_or_reparse_ancestors(
+            pointer_path,
+            label="first-inactive active pointer",
+        )
+    except ReleaseLifecycleError:
+        return "LINK_OR_REPARSE"
     if not pointer_path.exists():
         return "ABSENT"
     if pointer_path.is_file():
@@ -90,15 +105,17 @@ def evaluate_first_inactive_release_bootstrap(
     """Evaluate the explicit pre-release exception without changing state."""
 
     requested = bool(getattr(args, "bootstrap_first_inactive_release", False))
-    releases_input = Path(
+    releases_input = lexical_absolute_path(
         getattr(args, "releases_root", "") or DEFAULT_RELEASES_ROOT
-    ).absolute()
-    releases_root = releases_input.resolve()
-    pointer_value = getattr(args, "release_pointer", "")
-    pointer_input = Path(pointer_value).absolute() if pointer_value else (
-        releases_root / DEFAULT_ACTIVE_POINTER.name
     )
-    pointer_path = pointer_input.resolve()
+    releases_root = releases_input
+    pointer_value = getattr(args, "release_pointer", "")
+    pointer_input = lexical_absolute_path(
+        pointer_value
+        if pointer_value
+        else releases_root / DEFAULT_ACTIVE_POINTER.name
+    )
+    pointer_path = pointer_input
     store_state, entries = _release_store_inventory(releases_input)
     pointer_state = _pointer_state(pointer_input)
     candidate_mode = str(getattr(args, "release_candidate_mode", "") or "")
@@ -181,14 +198,22 @@ def evaluate_first_inactive_release_bootstrap(
     if pointer_state != "ABSENT":
         blockers.append(
             {
-                "code": "active_pointer_not_absent",
+                "code": (
+                    "active_pointer_link_or_reparse"
+                    if pointer_state == "LINK_OR_REPARSE"
+                    else "active_pointer_not_absent"
+                ),
                 "detail": f"active pointer state is {pointer_state}",
             }
         )
     if store_state not in {"ABSENT", "EMPTY"}:
         blockers.append(
             {
-                "code": "release_store_not_empty",
+                "code": (
+                    "release_store_link_or_reparse"
+                    if store_state == "LINK_OR_REPARSE"
+                    else "release_store_not_empty"
+                ),
                 "detail": f"release store state is {store_state}",
             }
         )
@@ -294,8 +319,22 @@ def validate_first_inactive_release_bootstrap(
     ):
         failures.append("prohibited action inventory is invalid")
     if args is not None:
-        releases_root = Path(getattr(args, "releases_root")).resolve()
-        pointer_path = Path(getattr(args, "release_pointer")).resolve()
+        releases_root = lexical_absolute_path(getattr(args, "releases_root"))
+        pointer_path = lexical_absolute_path(getattr(args, "release_pointer"))
+        try:
+            assert_no_link_or_reparse_ancestors(
+                releases_root,
+                label="first-inactive release store",
+            )
+        except ReleaseLifecycleError as exc:
+            failures.append(str(exc))
+        try:
+            assert_no_link_or_reparse_ancestors(
+                pointer_path,
+                label="first-inactive active pointer",
+            )
+        except ReleaseLifecycleError as exc:
+            failures.append(str(exc))
         if (payload.get("release_store") or {}).get("path") != str(releases_root):
             failures.append("release store path no longer matches the invocation")
         if (payload.get("active_pointer") or {}).get("path") != str(pointer_path):
@@ -321,13 +360,13 @@ def bootstrap_release_lineage(
         raise ReleaseLifecycleError(
             "first inactive release bootstrap cannot bind a parent release"
         )
-    pointer_input = Path(getattr(args, "release_pointer")).absolute()
+    pointer_input = lexical_absolute_path(getattr(args, "release_pointer"))
     if _pointer_state(pointer_input) != "ABSENT":
         raise ReleaseLifecycleError(
             "active pointer appeared after first inactive bootstrap preflight"
         )
     store_state, entries = _release_store_inventory(
-        Path(getattr(args, "releases_root")).absolute()
+        lexical_absolute_path(getattr(args, "releases_root"))
     )
     if store_state not in {"ABSENT", "EMPTY"} or entries:
         raise ReleaseLifecycleError(
@@ -354,6 +393,58 @@ def _bootstrap_release_lineage_payload(
     }
 
 
+def validate_first_inactive_release_route(
+    route: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Require the bootstrap's candidate route to remain wholly shadow-only."""
+
+    failures = []
+    if not isinstance(route, Mapping):
+        failures.append("release route is missing or invalid")
+        route = {}
+    if route.get("promotion_verdict") != "shadow":
+        failures.append("release route verdict is not shadow")
+    if (
+        route.get("promotion_eligibility")
+        != "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    ):
+        failures.append(
+            "release route is not blocked from promotion eligibility"
+        )
+    route_authorization = route.get("promotion_authorization")
+    if (
+        not isinstance(route_authorization, Mapping)
+        or route_authorization.get("status")
+        != "BLOCKED_NON_AUTHORIZING_EVIDENCE"
+    ):
+        failures.append("release route authorization is not explicitly blocked")
+    route_markets = route.get("markets")
+    if not isinstance(route_markets, Mapping) or not route_markets:
+        failures.append("release route has no shadow markets")
+        route_markets = {}
+    invalid_route_markets = sorted(
+        str(market_id)
+        for market_id, row in route_markets.items()
+        if (
+            not isinstance(row, Mapping)
+            or row.get("decision") != "shadow"
+            or row.get("counts_toward_promotion") is not False
+            or row.get("serving_release") is not None
+        )
+    )
+    if invalid_route_markets:
+        failures.append(
+            "release route contains serving or promotion-capable markets: "
+            + ", ".join(invalid_route_markets)
+        )
+    if failures:
+        raise ReleaseLifecycleError(
+            "first inactive release route failed closed: "
+            + "; ".join(failures)
+        )
+    return dict(route)
+
+
 def verify_first_inactive_release(
     contract: Mapping[str, Any],
     *,
@@ -368,8 +459,12 @@ def verify_first_inactive_release(
         raise ReleaseLifecycleError(
             "first inactive release was not created successfully"
         )
-    releases_root = Path(getattr(args, "releases_root")).resolve()
-    pointer_input = Path(getattr(args, "release_pointer")).absolute()
+    releases_root = lexical_absolute_path(getattr(args, "releases_root"))
+    assert_no_link_or_reparse_ancestors(
+        releases_root,
+        label="first-inactive release store",
+    )
+    pointer_input = lexical_absolute_path(getattr(args, "release_pointer"))
     if _pointer_state(pointer_input) != "ABSENT":
         raise ReleaseLifecycleError(
             "active pointer appeared during first inactive release construction"
@@ -388,6 +483,7 @@ def verify_first_inactive_release(
     )
     manifest = verified["manifest"]
     semantic = verified.get("semantic_contract") or {}
+    route = manifest.get("route")
     expected_lineage = _bootstrap_release_lineage_payload(validated)
     failures = []
     if manifest.get("state") != "IMMUTABLE_CANDIDATE":
@@ -400,12 +496,16 @@ def verify_first_inactive_release(
         failures.append("release semantic contract is not production mode")
     if semantic.get("production_capable") is not True:
         failures.append("release did not pass production qualification")
+    try:
+        validate_first_inactive_release_route(route)
+    except ReleaseLifecycleError as exc:
+        failures.append(str(exc))
     if (manifest.get("lineage") or {}).get(
         "first_inactive_release_bootstrap"
     ) != expected_lineage:
         failures.append("release manifest does not bind the bootstrap contract")
     store_state, entries = _release_store_inventory(
-        Path(getattr(args, "releases_root")).absolute()
+        lexical_absolute_path(getattr(args, "releases_root"))
     )
     if store_state != "POPULATED" or entries != [
         {"name": release_id, "kind": "directory"}
@@ -458,7 +558,7 @@ def assert_bootstrap_release_remains_inactive(
     """Final whole-run guard against concurrent or accidental activation."""
 
     validate_first_inactive_release_bootstrap(contract, args=args)
-    pointer_input = Path(getattr(args, "release_pointer")).absolute()
+    pointer_input = lexical_absolute_path(getattr(args, "release_pointer"))
     if _pointer_state(pointer_input) != "ABSENT":
         raise ReleaseLifecycleError(
             "first inactive release bootstrap ended with an active pointer"

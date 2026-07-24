@@ -12,6 +12,7 @@ from weather.market.mm_policy import (
     decide_quote,
     hourly_trust_state,
     known_edge_record_key,
+    load_known_edge_map,
     load_promotion_states,
     resolve_known_edge_record,
     run_policy_snapshot,
@@ -54,7 +55,8 @@ def fresh_row(**overrides):
 
 def write_known_edge_map(path, records):
     path.write_text(json.dumps({
-        "schema_version": "mm_known_edge_map_v0.1",
+        "schema_version": "mm_known_edge_map_v0.2",
+        "serving_or_release_authorization": False,
         "records": records,
         "summary": {"record_count": len(records)},
     }), encoding="utf-8")
@@ -142,6 +144,247 @@ class TestMmPolicy(unittest.TestCase):
         self.assertEqual(states["austin"]["promotion_state"], "SHADOW")
         self.assertFalse(states["austin"]["candidate_permission_allowed"])
         self.assertTrue(diag["promotion_allowlist_enforced"])
+
+    def test_runtime_denies_forged_permission_without_ready_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "readiness": {"status": "OPEN"},
+                        "promotion_allowlist": {
+                            "schema_version": "promotion_allowlist_v0.1",
+                            "readiness_status": "READY",
+                            "readiness_permission_allowed": True,
+                            "candidate_permission_allowed": True,
+                            "markets": [
+                                {
+                                    "market_id": "austin",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "PASS",
+                                    "effective_promotion_state": "PASS",
+                                    "readiness_status": "READY",
+                                    "readiness_permission_allowed": True,
+                                    "candidate_serving_allowed": True,
+                                    "candidate_permission_allowed": True,
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "SHADOW")
+        self.assertFalse(states["austin"]["candidate_permission_allowed"])
+        self.assertFalse(states["austin"]["candidate_serving_allowed"])
+        self.assertFalse(states["austin"]["readiness_bound"])
+        self.assertFalse(diag["readiness_bound"])
+
+    def test_runtime_v01_allowlist_remains_non_authorizing_even_when_ready_claims_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "readiness": {"status": "READY"},
+                        "promotion_allowlist": {
+                            "schema_version": "promotion_allowlist_v0.1",
+                            "readiness_status": "READY",
+                            "readiness_permission_allowed": True,
+                            "candidate_permission_allowed": True,
+                            "markets": [
+                                {
+                                    "market_id": "austin",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "PASS",
+                                    "effective_promotion_state": "PASS",
+                                    "readiness_status": "READY",
+                                    "readiness_permission_allowed": True,
+                                    "candidate_serving_allowed": True,
+                                    "candidate_permission_allowed": True,
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "SHADOW")
+        self.assertFalse(states["austin"]["candidate_permission_allowed"])
+        self.assertFalse(states["austin"]["candidate_serving_allowed"])
+        self.assertFalse(states["austin"]["readiness_bound"])
+        self.assertFalse(diag["readiness_bound"])
+        self.assertTrue(diag["readiness_claims_match"])
+        self.assertFalse(diag["authorization_schema_supported"])
+        self.assertEqual(diag["authorization_status"], "NON_AUTHORIZING_SCHEMA")
+
+    def test_runtime_does_not_trust_case_variant_effective_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "readiness": {"status": "OPEN"},
+                        "promotion_allowlist": {
+                            "schema_version": "promotion_allowlist_v0.1",
+                            "markets": [
+                                {
+                                    "market_id": "austin",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "PASS",
+                                    "effective_promotion_state": "pass",
+                                    "candidate_serving_allowed": True,
+                                    "candidate_permission_allowed": True,
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            states, _diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "SHADOW")
+        self.assertFalse(states["austin"]["candidate_permission_allowed"])
+
+    def test_runtime_treats_contradictory_block_verdict_as_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "decisions": {
+                            "markets": [
+                                {
+                                    "market_id": "austin",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "BLOCK",
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            states, _diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "BLOCK")
+        self.assertFalse(states["austin"]["candidate_permission_allowed"])
+
+    def test_runtime_blocks_duplicate_market_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "decisions": {
+                            "markets": [
+                                {
+                                    "market_id": "austin",
+                                    "action": "BLOCK_CANDIDATE",
+                                    "verdict": "BLOCK",
+                                },
+                                {
+                                    "market_id": "austin",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "PASS",
+                                },
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states["austin"]["promotion_state"], "BLOCK")
+        self.assertEqual(diag["duplicate_market_ids"], ["austin"])
+
+    def test_runtime_rejects_duplicate_json_object_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                '{"readiness":{"status":"OPEN"},'
+                '"readiness":{"status":"READY"}}',
+                encoding="utf-8",
+            )
+
+            states, diag = load_promotion_states(path)
+
+        self.assertEqual(states, {})
+        self.assertEqual(diag["authorization_status"], "BLOCK_MALFORMED")
+        self.assertIn("duplicate JSON object key", diag["blockers"][0])
+
+    def test_strict_policy_loaders_reject_all_nested_non_finite_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for token in ("NaN", "Infinity", "1e999"):
+                with self.subTest(loader="promotion", token=token):
+                    path = root / "promotion.json"
+                    path.write_text(
+                        (
+                            '{"decisions":{"markets":[{"market_id":"austin",'
+                            '"nested":{"value":TOKEN}}]}}'
+                        ).replace("TOKEN", token),
+                        encoding="utf-8",
+                    )
+                    states, diag = load_promotion_states(path)
+                    self.assertEqual(states, {})
+                    self.assertEqual(
+                        diag["authorization_status"], "BLOCK_MALFORMED"
+                    )
+                    self.assertIn("non-finite JSON", diag["blockers"][0])
+
+                with self.subTest(loader="known_edge", token=token):
+                    path = root / "known-edge.json"
+                    path.write_text(
+                        (
+                            '{"schema_version":"mm_known_edge_map_v0.2",'
+                            '"records":[{"nested":[{"value":TOKEN}]}]}'
+                        ).replace("TOKEN", token),
+                        encoding="utf-8",
+                    )
+                    records, diag = load_known_edge_map(path)
+                    self.assertEqual(records, [])
+                    self.assertEqual(diag["status"], "BLOCK")
+                    self.assertIn("non-finite JSON", diag["blockers"][0])
+
+    def test_known_edge_loader_suppresses_detached_edge_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "known_edge.json"
+            write_known_edge_map(
+                path,
+                [
+                    {
+                        "market_id": "austin",
+                        "cutoff": "*",
+                        "hour_utc": "*",
+                        "band_distance_bucket": "*",
+                        "band_type": "*",
+                        "casebook_taxonomy": "*",
+                        "regime": "*",
+                        "source_fresh": "*",
+                        "source_freshness_state": "*",
+                        "book_imbalance_bucket": "*",
+                        "permission": "edge_allowed",
+                    }
+                ],
+            )
+
+            records, diag = load_known_edge_map(path)
+
+        self.assertEqual(records[0]["permission"], "edge_research")
+        self.assertEqual(diag["sanitized_edge_allowed_count"], 1)
+        self.assertFalse(diag["edge_allowed_authorization_supported"])
 
     def test_blocked_promotion_fails_closed(self):
         quote = decide_quote(fresh_row(promotion_state="BLOCK"), now=NOW)
@@ -842,7 +1085,7 @@ class TestMmPolicy(unittest.TestCase):
             self.assertTrue(payload["known_edge_map"]["exists"])
             self.assertEqual({row["known_edge_permission"] for row in payload["rows"]}, {"harvest_only"})
 
-    def test_policy_snapshot_uses_edge_allowed_map_record(self):
+    def test_policy_snapshot_does_not_let_edge_map_override_non_authorizing_refresh(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             snapshots_root = root / "snapshots"
@@ -962,12 +1205,18 @@ class TestMmPolicy(unittest.TestCase):
                 now=NOW,
             )
 
-            self.assertEqual(payload["quote_permission_rows"], 1)
-            self.assertEqual(payload["reason_counts"]["QUOTE_EDGE_MODEL"], 1)
+            self.assertEqual(payload["quote_permission_rows"], 0)
+            self.assertEqual(payload["reason_counts"]["NO_QUOTE_DISAGREEMENT_SHADOW"], 1)
             row = payload["rows"][0]
-            self.assertTrue(row["known_edge_allowed"])
-            self.assertEqual(row["known_edge_permission"], "edge_allowed")
+            self.assertFalse(row["known_edge_allowed"])
+            self.assertEqual(row["known_edge_permission"], "edge_research")
             self.assertTrue(row["known_edge_record_key"])
+            self.assertEqual(row["promotion_state"], "SHADOW")
+            self.assertFalse(payload["promotion"]["authorization_schema_supported"])
+            self.assertEqual(
+                payload["known_edge_map"]["sanitized_edge_allowed_count"],
+                1,
+            )
 
     def test_policy_snapshot_prefers_source_freshness_gap_record(self):
         with tempfile.TemporaryDirectory() as tmp:

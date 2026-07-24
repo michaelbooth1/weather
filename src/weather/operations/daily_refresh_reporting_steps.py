@@ -29,6 +29,12 @@ from weather.operations import daily_roll_log_hygiene
 from weather.operations import event_metadata_validation
 from weather.operations import nightly_health_checks
 from weather.operations import replay_status_backfill
+from weather.operations.daily_refresh_corpus_binding import (
+    active_shadow_window_corpus_path as _active_shadow_window_corpus_path,
+    build_promotion_corpus_receipt,
+    fresh_daily_manifest_path as _fresh_daily_manifest_path,
+    promotion_corpus_path_for_active_shadow as _promotion_corpus_path_for_active_shadow,
+)
 from weather.operations.daily_refresh_registry import (
     STEP_ORDER,
     carried_forward_steps,
@@ -155,7 +161,10 @@ def promotion_args(args):
     refresh_args.skip_serving_gauntlet = args.skip_serving_gauntlet
     refresh_args.require_exact_identity = args.require_exact_identity
     refresh_args.require_all_markets = args.require_all_markets
-    refresh_args.corpus_out = backtest_path(args, "promotion_corpus.json")
+    refresh_args.corpus_out = str(
+        _fresh_daily_manifest_path(args, "promotion_corpus.json")
+    )
+    setattr(args, "_current_promotion_corpus_path", refresh_args.corpus_out)
     refresh_args.trust_out = backtest_path(args, "location_trust.json")
     refresh_args.candidate_report = backtest_path(args, "pooled_candidate_replay_latest_report.md")
     refresh_args.candidate_json = backtest_path(args, "pooled_candidate_replay_latest.json")
@@ -272,6 +281,9 @@ def _promotion_step_summary(payload, out_path, report_path, disk_preflight, *, s
         "corpus_market_days": corpus.get("market_day_count"),
         "corpus_snapshots": corpus.get("snapshot_count"),
         "corpus_band_rows": corpus.get("band_row_count"),
+        "corpus_path": corpus.get("path"),
+        "corpus_schema_version": corpus.get("schema_version"),
+        "corpus_hash": corpus.get("corpus_hash"),
         "candidate_brier": aggregate.get("candidate_brier"),
         "current_brier": aggregate.get("current_brier"),
         "market_brier": aggregate.get("market_brier"),
@@ -350,15 +362,55 @@ def run_promotion_refresh_step(args):
             _promotion_refresh_command(args, refresh_args),
         )
         payload = _load_child_json(refresh_args.out, "promotion_refresh")
-        return _promotion_step_summary(
+        result = _promotion_step_summary(
             payload,
             refresh_args.out,
             refresh_args.report,
             disk_preflight,
             subprocess_result=subprocess_result,
         )
-    payload, out_path, report_path = promotion_refresh.run_promotion_refresh(refresh_args)
-    return _promotion_step_summary(payload, out_path, report_path, disk_preflight)
+    else:
+        payload, out_path, report_path = promotion_refresh.run_promotion_refresh(
+            refresh_args
+        )
+        result = _promotion_step_summary(
+            payload,
+            out_path,
+            report_path,
+            disk_preflight,
+        )
+    corpus_path = str(result.get("corpus_path") or "").strip()
+    if corpus_path:
+        setattr(args, "_current_promotion_corpus_path", corpus_path)
+    producer_run_id = str(
+        getattr(args, "_daily_refresh_run_id", "") or ""
+    ).strip()
+    if producer_run_id:
+        if result.get("status") != "OK":
+            raise RuntimeError(
+                "scheduled promotion refresh did not produce a successful "
+                f"corpus result: {result.get('status')!r}"
+            )
+        if not corpus_path:
+            raise RuntimeError(
+                "scheduled promotion refresh did not report a corpus path"
+            )
+        receipt = build_promotion_corpus_receipt(
+            corpus_path,
+            producer_run_id=producer_run_id,
+        )
+        if (
+            result.get("corpus_schema_version")
+            != receipt.get("manifest_schema_version")
+            or result.get("corpus_hash") != receipt.get("corpus_hash")
+        ):
+            raise RuntimeError(
+                "scheduled promotion refresh corpus summary does not match "
+                "the published manifest"
+            )
+        result["corpus_path"] = receipt["path"]
+        result["corpus_receipt"] = receipt
+    return result
 
 
 def scoring_liveness_fields(payload):
@@ -639,7 +691,13 @@ def _active_variant_shadow_outputs(args):
     }
 
 
-def _active_variant_shadow_command(args, source_paths):
+def _active_variant_shadow_command(
+    args,
+    source_paths,
+    *,
+    corpus_path=None,
+    window_corpus_out=None,
+):
     outputs = _active_variant_shadow_outputs(args)
     command = [
         sys.executable,
@@ -658,12 +716,18 @@ def _active_variant_shadow_command(args, source_paths):
         outputs["report_out"],
     ]
     if not source_paths:
+        corpus_path = str(
+            corpus_path or _promotion_corpus_path_for_active_shadow(args)
+        )
+        window_corpus_out = str(
+            window_corpus_out or _active_shadow_window_corpus_path(args)
+        )
         command.extend([
             "--execute-registry-contracts",
             "--corpus-path",
-            backtest_path(args, "promotion_corpus.json"),
+            corpus_path,
             "--window-corpus-out",
-            backtest_path(args, "active_variant_shadow_window_corpus.json"),
+            window_corpus_out,
             "--active-variant-shadow-window-dates",
             str(getattr(
                 args,
@@ -727,11 +791,21 @@ def run_active_variant_shadow_step(args):
         return {"status": "SKIPPED", "reason": "skip_active_variant_shadow"}
     source_paths = _active_variant_shadow_source_paths(args)
     outputs = _active_variant_shadow_outputs(args)
+    corpus_path = None
+    window_corpus_out = None
+    if not source_paths:
+        corpus_path = _promotion_corpus_path_for_active_shadow(args)
+        window_corpus_out = _active_shadow_window_corpus_path(args)
     if _heavy_step_subprocess_enabled(args):
         subprocess_result = _run_heavy_step_child(
             args,
             "active_variant_shadow",
-            _active_variant_shadow_command(args, source_paths),
+            _active_variant_shadow_command(
+                args,
+                source_paths,
+                corpus_path=corpus_path,
+                window_corpus_out=window_corpus_out,
+            ),
         )
         payload = _load_child_json(outputs["json_out"], "active_variant_shadow")
         return _active_variant_shadow_step_summary(
@@ -743,8 +817,8 @@ def run_active_variant_shadow_step(args):
     evidence_window = None
     if not source_paths:
         evidence_window = active_variant_shadow_refresh.windowed_corpus_manifest(
-            backtest_path(args, "promotion_corpus.json"),
-            backtest_path(args, "active_variant_shadow_window_corpus.json"),
+            corpus_path,
+            window_corpus_out,
             window_dates=getattr(
                 args,
                 "active_variant_shadow_window_dates",

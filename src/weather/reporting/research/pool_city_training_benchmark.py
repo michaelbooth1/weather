@@ -11,6 +11,8 @@ Temperature-like inputs and targets are converted by the canonical density
 adapter to Fahrenheit inside the model, then projected back onto native C/F
 market bands for scoring.  The development year may select density width and
 shape; the later confirmation year is never used by fitting or selection.
+The historical season window requires an explicit calendar anchor so reruns do
+not silently move when the workstation date changes.
 
 The CLI is research-only and defaults to ``plan`` mode.  Full execution
 requires ``--mode run --confirm-research-only``.  All writes are constrained to
@@ -21,12 +23,14 @@ opened through a read-only tracing guard.
 from __future__ import annotations
 
 import argparse
+import builtins
 import hashlib
-import inspect
 import json
 import math
+import os
 import platform
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -34,11 +38,11 @@ from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
-import sklearn
 
 from weather.io import (
     write_csv_rows_atomic as _write_csv_rows_atomic,
@@ -49,6 +53,8 @@ from weather.schema_registry import schema_version
 
 
 SCHEMA_VERSION = schema_version("pool_city_training_benchmark")
+CHECKPOINT_SCHEMA_VERSION = schema_version("pool_city_task_checkpoint")
+CHECKPOINT_STATUS_SCHEMA_VERSION = schema_version("pool_city_checkpoint_status")
 DEFAULT_HOURS = tuple(range(7, 21))
 DEFAULT_PANEL_START_YEAR = 2015
 DEFAULT_DEVELOPMENT_YEAR = 2024
@@ -60,6 +66,20 @@ DEFAULT_MEMORY_BUDGET_BYTES = 4 * 1024**3
 REGIMES = ("pooled", "per_city", "loco")
 SPLITS = ("development", "confirmation")
 NON_CONTRACTUAL_CORPUS_FIELDS = frozenset({"non_contractual_runtime"})
+CHECKPOINT_DIGEST_FIELD = "checkpoint_sha256"
+CHECKPOINT_STATUS_DIGEST_FIELD = "status_sha256"
+PREDICTION_NUMERIC_FIELDS = (
+    "mean_f",
+    "target_f",
+    "sigma_f",
+    "density_logloss",
+    "winning_bucket_brier",
+    "mean_absolute_error_f",
+    "market_band_rows",
+    "market_band_weight",
+    "market_band_brier_sum",
+    "market_band_logloss_sum",
+)
 
 
 def utc_iso() -> str:
@@ -107,6 +127,62 @@ def payload_sha256(payload: Any) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def self_digest(payload: Mapping[str, Any], *, digest_field: str) -> str:
+    return payload_sha256({
+        key: value for key, value in payload.items() if key != digest_field
+    })
+
+
+def require_sha256(value: Any, *, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} is not a lowercase SHA-256 digest")
+    return value
+
+
+def _reject_duplicate_json_keys(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in output:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        output[key] = value
+    return output
+
+
+def _reject_nonfinite_json_constant(value: str) -> Any:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _reject_nested_nonfinite_json(value: Any, *, path: str = "$") -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number at {path}")
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_nested_nonfinite_json(item, path=f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _reject_nested_nonfinite_json(item, path=f"{path}[{index}]")
+
+
+def load_json_mapping_strict(path: str | Path, *, label: str) -> dict[str, Any]:
+    artifact_path = Path(path)
+    try:
+        payload = json.loads(
+            artifact_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+        _reject_nested_nonfinite_json(payload)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid {label} {artifact_path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"invalid {label} {artifact_path}: root must be an object")
+    return payload
+
+
 def corpus_contract_sha256(corpus: Mapping[str, Any]) -> str:
     """Hash reproducible corpus identity while retaining diagnostic timings."""
 
@@ -147,47 +223,362 @@ def write_csv_atomic(path: str | Path, rows: Sequence[Mapping[str, Any]]) -> Pat
 class ReadTrace:
     opened: set[Path]
     checked: set[Path]
+    opened_identity: dict[Path, tuple[int, int, int, int]]
+
+
+def _file_identity(stat_result) -> tuple[int, int, int, int]:
+    return (
+        int(getattr(stat_result, "st_dev", 0)),
+        int(getattr(stat_result, "st_ino", 0)),
+        int(stat_result.st_size),
+        int(stat_result.st_mtime_ns),
+    )
 
 
 @contextmanager
 def read_only_path_trace(data_root: str | Path):
     """Trace data-root reads and reject any attempted mirror write."""
 
-    data_root = Path(data_root).resolve()
-    original_open = Path.open
+    supplied_data_root = Path(data_root).expanduser()
+    lexical_data_root = Path(os.path.abspath(os.fspath(supplied_data_root)))
+    data_root = supplied_data_root.resolve()
+    lexical_data_roots = tuple({lexical_data_root, data_root})
+    original_path_open = Path.open
     original_exists = Path.exists
-    trace = ReadTrace(opened=set(), checked=set())
+    original_builtin_open = builtins.open
+    original_os_open = os.open
+    path_mutator_names = tuple(
+        name
+        for name in (
+            "unlink",
+            "rename",
+            "replace",
+            "mkdir",
+            "rmdir",
+            "touch",
+            "write_text",
+            "write_bytes",
+            "chmod",
+            "symlink_to",
+            "hardlink_to",
+        )
+        if hasattr(Path, name)
+    )
+    original_path_mutators = {
+        name: getattr(Path, name) for name in path_mutator_names
+    }
+    os_single_mutator_names = tuple(
+        name
+        for name in (
+            "remove",
+            "unlink",
+            "mkdir",
+            "makedirs",
+            "rmdir",
+            "removedirs",
+            "chmod",
+            "utime",
+            "truncate",
+        )
+        if hasattr(os, name)
+    )
+    original_os_single_mutators = {
+        name: getattr(os, name) for name in os_single_mutator_names
+    }
+    os_pair_mutator_names = tuple(
+        name for name in ("rename", "replace", "link") if hasattr(os, name)
+    )
+    original_os_pair_mutators = {
+        name: getattr(os, name) for name in os_pair_mutator_names
+    }
+    original_os_symlink = getattr(os, "symlink", None)
+    shutil_destination_mutator_names = tuple(
+        name
+        for name in (
+            "copy",
+            "copy2",
+            "copyfile",
+            "copytree",
+            "copymode",
+            "copystat",
+        )
+        if hasattr(shutil, name)
+    )
+    original_shutil_destination_mutators = {
+        name: getattr(shutil, name)
+        for name in shutil_destination_mutator_names
+    }
+    original_shutil_move = shutil.move
+    original_shutil_rmtree = shutil.rmtree
+    trace = ReadTrace(opened=set(), checked=set(), opened_identity={})
 
-    def relevant(path: Path) -> bool:
+    def resolved_path(raw_path: Any) -> Path | None:
+        if isinstance(raw_path, int):
+            return None
         try:
-            resolved = path.resolve(strict=False)
+            path = Path(os.fsdecode(raw_path)).resolve(strict=False)
+        except (OSError, TypeError, ValueError):
+            return None
+        return path
+
+    def relevant(raw_path: Any) -> Path | None:
+        resolved = resolved_path(raw_path)
+        if resolved is None or not _is_relative_to(resolved, data_root):
+            return None
+        return resolved
+
+    def deny_mutation(
+        raw_path: Any,
+        *,
+        operation: str,
+        dir_fd: int | None = None,
+    ) -> None:
+        if isinstance(raw_path, int):
+            raise PermissionError(
+                f"descriptor-based {operation} cannot prove read-only mirror provenance"
+            )
+        if dir_fd is not None:
+            try:
+                relative = not os.path.isabs(os.fsdecode(raw_path))
+            except (TypeError, ValueError):
+                relative = True
+            if relative:
+                raise PermissionError(
+                    f"relative {operation} with dir_fd cannot prove read-only mirror provenance"
+                )
+        try:
+            lexical = Path(
+                os.path.abspath(os.fsdecode(raw_path))
+            )
+        except (OSError, TypeError, ValueError):
+            lexical = None
+        resolved = relevant(raw_path)
+        lexical_inside = lexical is not None and any(
+            _is_relative_to(lexical, root) for root in lexical_data_roots
+        )
+        if resolved is not None or lexical_inside:
+            blocked = resolved or lexical
+            if blocked is not None:
+                trace.checked.add(blocked)
+            raise PermissionError(
+                f"research input mirror is read-only: {operation}: {blocked}"
+            )
+
+    def record_opened(resolved: Path, identity: tuple[int, int, int, int] | None) -> None:
+        trace.checked.add(resolved)
+        previous = trace.opened_identity.get(resolved)
+        if previous is not None and identity is not None and previous != identity:
+            raise RuntimeError(f"research input changed between reads: {resolved}")
+        if identity is not None:
+            trace.opened_identity[resolved] = identity
+        trace.opened.add(resolved)
+
+    def identity_for_handle(handle: Any, resolved: Path) -> tuple[int, int, int, int] | None:
+        try:
+            return _file_identity(os.fstat(handle.fileno()))
+        except (AttributeError, OSError, ValueError):
+            try:
+                return _file_identity(resolved.stat())
+            except OSError:
+                return None
+
+    def identity_for_fd(fd: int, resolved: Path) -> tuple[int, int, int, int] | None:
+        try:
+            return _file_identity(os.fstat(fd))
         except OSError:
-            return False
-        return _is_relative_to(resolved, data_root)
+            try:
+                return _file_identity(resolved.stat())
+            except OSError:
+                return None
 
     def traced_open(self: Path, mode="r", *args, **kwargs):
-        path = Path(self)
-        if relevant(path):
-            resolved = path.resolve(strict=False)
+        resolved = relevant(self)
+        if resolved is not None:
             trace.checked.add(resolved)
             if any(flag in str(mode) for flag in ("w", "a", "x", "+")):
                 raise PermissionError(f"research input mirror is read-only: {resolved}")
-            trace.opened.add(resolved)
-        return original_open(self, mode, *args, **kwargs)
+        handle = original_path_open(self, mode, *args, **kwargs)
+        if resolved is not None:
+            try:
+                record_opened(resolved, identity_for_handle(handle, resolved))
+            except Exception:
+                handle.close()
+                raise
+        return handle
+
+    def traced_builtin_open(file, mode="r", *args, **kwargs):
+        if isinstance(file, int):
+            raise PermissionError(
+                "descriptor-based builtins.open cannot prove read-only mirror provenance"
+            )
+        resolved = relevant(file)
+        if resolved is not None:
+            trace.checked.add(resolved)
+            if any(flag in str(mode) for flag in ("w", "a", "x", "+")):
+                raise PermissionError(f"research input mirror is read-only: {resolved}")
+            if kwargs.get("opener") is not None:
+                raise PermissionError(
+                    f"custom opener is forbidden for research mirror input: {resolved}"
+                )
+        handle = original_builtin_open(file, mode, *args, **kwargs)
+        if resolved is not None:
+            try:
+                record_opened(resolved, identity_for_handle(handle, resolved))
+            except Exception:
+                handle.close()
+                raise
+        return handle
+
+    write_flags = (
+        os.O_WRONLY
+        | os.O_RDWR
+        | os.O_APPEND
+        | os.O_CREAT
+        | os.O_TRUNC
+        | os.O_EXCL
+        | int(getattr(os, "O_TEMPORARY", 0))
+    )
+
+    def traced_os_open(path, flags, mode=0o777, *, dir_fd=None):
+        if dir_fd is not None and not os.path.isabs(path):
+            raise PermissionError(
+                "relative os.open with dir_fd cannot prove read-only mirror provenance"
+            )
+        resolved = relevant(path)
+        if resolved is not None:
+            trace.checked.add(resolved)
+            if int(flags) & write_flags:
+                raise PermissionError(f"research input mirror is read-only: {resolved}")
+        if dir_fd is None:
+            fd = original_os_open(path, flags, mode)
+        else:
+            fd = original_os_open(path, flags, mode, dir_fd=dir_fd)
+        if resolved is not None:
+            try:
+                record_opened(resolved, identity_for_fd(fd, resolved))
+            except Exception:
+                os.close(fd)
+                raise
+        return fd
 
     def traced_exists(self: Path):
-        path = Path(self)
-        if relevant(path):
-            trace.checked.add(path.resolve(strict=False))
+        resolved = relevant(self)
+        if resolved is not None:
+            trace.checked.add(resolved)
         return original_exists(self)
+
+    def guarded_path_mutator(name: str):
+        original = original_path_mutators[name]
+
+        def guarded(self: Path, *args, **kwargs):
+            deny_mutation(self, operation=f"Path.{name}")
+            target = args[0] if args else kwargs.get("target")
+            if name in {"rename", "replace"} and target is not None:
+                deny_mutation(
+                    target,
+                    operation=f"Path.{name} destination",
+                )
+            return original(self, *args, **kwargs)
+
+        return guarded
+
+    def guarded_os_single_mutator(name: str):
+        original = original_os_single_mutators[name]
+
+        def guarded(path, *args, **kwargs):
+            deny_mutation(
+                path,
+                operation=f"os.{name}",
+                dir_fd=kwargs.get("dir_fd"),
+            )
+            return original(path, *args, **kwargs)
+
+        return guarded
+
+    def guarded_os_pair_mutator(name: str):
+        original = original_os_pair_mutators[name]
+
+        def guarded(source, destination, *args, **kwargs):
+            deny_mutation(
+                source,
+                operation=f"os.{name} source",
+                dir_fd=kwargs.get("src_dir_fd"),
+            )
+            deny_mutation(
+                destination,
+                operation=f"os.{name} destination",
+                dir_fd=kwargs.get("dst_dir_fd"),
+            )
+            return original(source, destination, *args, **kwargs)
+
+        return guarded
+
+    def guarded_os_symlink(source, destination, *args, **kwargs):
+        # Creating a link mutates its destination directory. The source may be
+        # a deliberately relative link target, so only the link path is gated.
+        deny_mutation(
+            destination,
+            operation="os.symlink destination",
+            dir_fd=kwargs.get("dir_fd"),
+        )
+        return original_os_symlink(source, destination, *args, **kwargs)
+
+    def guarded_shutil_destination_mutator(name: str):
+        original = original_shutil_destination_mutators[name]
+
+        def guarded(source, destination, *args, **kwargs):
+            deny_mutation(
+                destination,
+                operation=f"shutil.{name} destination",
+            )
+            return original(source, destination, *args, **kwargs)
+
+        return guarded
+
+    def guarded_shutil_move(source, destination, *args, **kwargs):
+        deny_mutation(source, operation="shutil.move source")
+        deny_mutation(destination, operation="shutil.move destination")
+        return original_shutil_move(source, destination, *args, **kwargs)
+
+    def guarded_shutil_rmtree(path, *args, **kwargs):
+        deny_mutation(path, operation="shutil.rmtree")
+        return original_shutil_rmtree(path, *args, **kwargs)
 
     Path.open = traced_open
     Path.exists = traced_exists
+    for name in path_mutator_names:
+        setattr(Path, name, guarded_path_mutator(name))
+    builtins.open = traced_builtin_open
+    os.open = traced_os_open
+    for name in os_single_mutator_names:
+        setattr(os, name, guarded_os_single_mutator(name))
+    for name in os_pair_mutator_names:
+        setattr(os, name, guarded_os_pair_mutator(name))
+    if original_os_symlink is not None:
+        os.symlink = guarded_os_symlink
+    for name in shutil_destination_mutator_names:
+        setattr(shutil, name, guarded_shutil_destination_mutator(name))
+    shutil.move = guarded_shutil_move
+    shutil.rmtree = guarded_shutil_rmtree
     try:
         yield trace
     finally:
-        Path.open = original_open
+        shutil.rmtree = original_shutil_rmtree
+        shutil.move = original_shutil_move
+        for name, original in original_shutil_destination_mutators.items():
+            setattr(shutil, name, original)
+        if original_os_symlink is not None:
+            os.symlink = original_os_symlink
+        for name, original in original_os_pair_mutators.items():
+            setattr(os, name, original)
+        for name, original in original_os_single_mutators.items():
+            setattr(os, name, original)
+        Path.open = original_path_open
         Path.exists = original_exists
+        for name, original in original_path_mutators.items():
+            setattr(Path, name, original)
+        builtins.open = original_builtin_open
+        os.open = original_os_open
 
 
 def configure_data_root(data_root: str | Path) -> Path:
@@ -314,11 +705,22 @@ def complete_panel_dates(
 
     required = {(str(market), int(hour)) for market in markets for hour in hours}
     cells: dict[str, list[tuple[str, int]]] = defaultdict(list)
+    seen_keys: set[tuple[str, str, int]] = set()
     for row in rows:
         target_date = record_date(row)
         year = int(target_date[:4])
         if int(start_year) <= year <= int(end_year):
-            cells[target_date].append((str(row.get("market_id")), int(row.get("cutoff_hour"))))
+            cell = (str(row.get("market_id")), int(row.get("cutoff_hour")))
+            if cell not in required:
+                continue
+            key = (cell[0], target_date, cell[1])
+            if key in seen_keys:
+                raise ValueError(
+                    "balanced panel contains duplicate market/date/hour key: "
+                    f"{key}"
+                )
+            seen_keys.add(key)
+            cells[target_date].append(cell)
     output = []
     for target_date, observed in sorted(cells.items()):
         if len(observed) == len(required) and set(observed) == required:
@@ -367,6 +769,9 @@ def filter_panel_rows(
         output[split].append(row)
     for split in output:
         output[split].sort(key=record_key)
+        keys = [record_key(row) for row in output[split]]
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"{split} panel contains duplicate market/date/hour keys")
     return output
 
 
@@ -388,17 +793,35 @@ def build_input_manifest(
             rows.append({"path": relative, "status": "non_file"})
             continue
         stat = path.stat()
+        before_identity = _file_identity(stat)
+        captured_identity = trace.opened_identity.get(path)
+        if captured_identity is not None and before_identity != captured_identity:
+            raise RuntimeError(
+                f"research input changed between corpus load and manifest hash: {path}"
+            )
+        digest = file_sha256(path)
+        after = path.stat()
+        after_identity = _file_identity(after)
+        if before_identity != after_identity:
+            raise RuntimeError(f"research input changed during manifest hash: {path}")
         rows.append({
             "path": relative,
             "status": "read" if path in trace.opened else "checked_present",
-            "size_bytes": int(stat.st_size),
-            "mtime_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-            "sha256": file_sha256(path),
+            "size_bytes": int(after.st_size),
+            "mtime_utc": datetime.fromtimestamp(after.st_mtime, timezone.utc).isoformat(),
+            "sha256": digest,
         })
     manifest = {
         "schema_version": "pool_city_input_manifest_v0.1",
         "data_root": str(data_root),
         "read_only_guard": True,
+        "read_only_guard_contract": (
+            "python_open_and_common_pathname_mutation_v0.2"
+        ),
+        "read_only_guard_scope": (
+            "corpus-load Python APIs; raw pre-opened descriptors and direct "
+            "native calls are outside scope and are unused by audited loaders"
+        ),
         "files": rows,
         "opened_file_count": sum(1 for row in rows if row.get("status") == "read"),
         "missing_checked_path_count": sum(1 for row in rows if row.get("status") == "missing"),
@@ -411,6 +834,7 @@ def build_input_manifest(
 def load_corpus(
     *,
     data_root: str | Path,
+    season_anchor_date: date,
     hours: Sequence[int] = DEFAULT_HOURS,
     panel_start_year: int = DEFAULT_PANEL_START_YEAR,
     development_year: int = DEFAULT_DEVELOPMENT_YEAR,
@@ -430,6 +854,7 @@ def load_corpus(
             unit="all",
             cutoff_hours=tuple(int(hour) for hour in hours),
             prior_as_of_exclusive=context_cutoff,
+            historical_window_target_date=season_anchor_date,
         )
     load_seconds = time.perf_counter() - started
     panel_dates = complete_panel_dates(
@@ -457,6 +882,16 @@ def load_corpus(
                 f"{split} panel lost rows during native/canonical assembly: "
                 f"expected={expected}, native={len(native[split])}, canonical={len(canonical[split])}"
             )
+        native_keys = [record_key(row) for row in native[split]]
+        canonical_keys = [record_key(row) for row in canonical[split]]
+        if len(native_keys) != len(set(native_keys)):
+            raise ValueError(f"{split} native panel contains duplicate keys")
+        if len(canonical_keys) != len(set(canonical_keys)):
+            raise ValueError(f"{split} canonical panel contains duplicate keys")
+        if set(native_keys) != set(canonical_keys):
+            raise ValueError(
+                f"{split} native/canonical panel key sets differ"
+            )
 
     manifest = build_input_manifest(resolved_root, trace)
     corpus = {
@@ -467,6 +902,10 @@ def load_corpus(
         "panel_start_year": int(panel_start_year),
         "development_year": int(development_year),
         "confirmation_year": int(confirmation_year),
+        "season_anchor_date": season_anchor_date.isoformat(),
+        "season_anchor_policy": (
+            "explicit CLI-bound calendar anchor for the historical target-season window"
+        ),
         "feature_context_as_of_exclusive": context_cutoff,
         "feature_context_policy": (
             "climate and static source-reliability context exclude development "
@@ -855,39 +1294,166 @@ def fit_task(
     }
 
 
-def source_provenance(dependencies: Mapping[str, Any]) -> dict[str, Any]:
-    callables = (
-        dependencies["train_density_hour_model"],
-        dependencies["feature_frame"],
-        dependencies["canonical_density_records"],
-        dependencies["predict_density_means"],
-        dependencies["density_weight_matrix"],
-    )
-    files = sorted({Path(inspect.getsourcefile(value) or "").resolve() for value in callables})
-    own_file = Path(__file__).resolve()
-    files.append(own_file)
-    source_files = []
-    for path in sorted(set(files)):
-        if path.is_file():
-            source_files.append({"path": str(path), "sha256": file_sha256(path), "size_bytes": path.stat().st_size})
+def _git_value(repo_root: Path, *arguments: str) -> str | None:
     try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=own_file.parents[4],
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=repo_root,
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
-        commit = None
+        return None
+
+
+def _closure_file_entry(path: Path, repo_root: Path) -> dict[str, Any]:
+    resolved = path.resolve(strict=True)
+    if not _is_relative_to(resolved, repo_root):
+        raise ValueError(f"execution closure file escapes repository: {path}")
+    before = resolved.stat()
+    before_identity = _file_identity(before)
+    digest = file_sha256(resolved)
+    after = resolved.stat()
+    if before_identity != _file_identity(after):
+        raise RuntimeError(f"execution closure file changed while hashing: {resolved}")
     return {
-        "git_commit": commit,
+        "path": resolved.relative_to(repo_root).as_posix(),
+        "sha256": digest,
+        "size_bytes": int(after.st_size),
+    }
+
+
+def _repository_execution_files(repo_root: Path) -> list[Path]:
+    """Return an over-complete deterministic repository code/config closure."""
+
+    candidates: set[Path] = set()
+    for root, suffixes in (
+        (repo_root / "src" / "weather", {".py"}),
+        (repo_root / "weather", {".py"}),
+        (repo_root / "config", None),
+    ):
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            if suffixes is not None and path.suffix.lower() not in suffixes:
+                continue
+            if path.suffix.lower() in {".pyc", ".pyo"}:
+                continue
+            resolved = path.resolve(strict=True)
+            if not _is_relative_to(resolved, repo_root):
+                raise ValueError(f"execution closure path escapes repository: {path}")
+            candidates.add(resolved)
+    for name in (
+        "pyproject.toml",
+        "requirements.txt",
+        "pytest.ini",
+        "sitecustomize.py",
+    ):
+        path = repo_root / name
+        if path.is_file():
+            candidates.add(path.resolve(strict=True))
+    return sorted(candidates, key=lambda path: path.relative_to(repo_root).as_posix())
+
+
+def source_provenance(dependencies: Mapping[str, Any]) -> dict[str, Any]:
+    """Seal the full repository code/config tree and execution environment."""
+
+    own_file = Path(__file__).resolve()
+    repo_root = own_file.parents[4]
+    closure_paths = _repository_execution_files(repo_root)
+    source_files = [
+        _closure_file_entry(path, repo_root)
+        for path in closure_paths
+    ]
+    verification_files = [
+        _closure_file_entry(path, repo_root)
+        for path in closure_paths
+    ]
+    if verification_files != source_files:
+        raise RuntimeError(
+            "repository execution closure changed during two-pass hashing"
+        )
+    dependency_modules = sorted({
+        str(getattr(value, "__module__", ""))
+        for value in dependencies.values()
+        if callable(value) and getattr(value, "__module__", None)
+    })
+    git_status = _git_value(
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=no",
+    )
+    head_commit = _git_value(repo_root, "rev-parse", "HEAD")
+    head_tree = _git_value(repo_root, "rev-parse", "HEAD^{tree}")
+    if git_status is None or not head_commit or not head_tree:
+        raise RuntimeError("cannot seal exact Git identity for benchmark execution")
+    git_identity = {
+        "head_commit": head_commit,
+        "head_tree": head_tree,
+        "tracked_worktree_status_sha256": hashlib.sha256(
+            git_status.encode("utf-8")
+        ).hexdigest(),
+        "tracked_worktree_dirty": bool(git_status),
+    }
+    distributions = {}
+    for distribution in ("numpy", "pandas", "scipy", "scikit-learn"):
+        try:
+            distributions[distribution] = metadata.version(distribution)
+        except metadata.PackageNotFoundError:
+            distributions[distribution] = None
+    contract = {
+        "contract_version": "pool_city_execution_source_closure_v0.2",
+        "closure_policy": (
+            "all src/weather and bootstrap Python; all repository config files; "
+            "root build/runtime pins; callable owner modules; exact Git identity"
+        ),
+        "git_identity": git_identity,
         "source_files": source_files,
-        "source_contract_sha256": payload_sha256(source_files),
-        "python_version": platform.python_version(),
-        "numpy_version": np.__version__,
-        "sklearn_version": sklearn.__version__,
-        "platform": platform.platform(),
+        "source_tree_sha256": payload_sha256(source_files),
+        "dependency_callable_modules": dependency_modules,
+        "runtime": {
+            "python_version": platform.python_version(),
+            "python_implementation": platform.python_implementation(),
+            "distributions": distributions,
+            "platform": platform.platform(),
+        },
+    }
+    return {
+        **contract,
+        "git_commit": git_identity["head_commit"],
+        "source_contract_sha256": payload_sha256(contract),
+    }
+
+
+def verify_source_provenance_unchanged(
+    initial: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail before COMPLETE if code/config/Git/runtime changed during the run."""
+
+    if not isinstance(initial, Mapping) or not isinstance(current, Mapping):
+        raise RuntimeError("benchmark source closure verification is malformed")
+    if dict(initial) != dict(current):
+        changed = [
+            key
+            for key in sorted(set(initial) | set(current))
+            if initial.get(key) != current.get(key)
+        ]
+        raise RuntimeError(
+            "benchmark code/config/Git/runtime closure changed during execution: "
+            + ", ".join(changed)
+        )
+    return {
+        "status": "PASS",
+        "verified_at_utc": utc_iso(),
+        "source_contract_sha256": initial.get("source_contract_sha256"),
+        "source_tree_sha256": initial.get("source_tree_sha256"),
+        "git_identity": initial.get("git_identity"),
+        "exact_initial_completion_match": True,
     }
 
 
@@ -898,13 +1464,17 @@ def benchmark_run_id(
     grid_f: Sequence[float],
     configuration: Mapping[str, Any],
     sources: Mapping[str, Any],
+    task_contracts: Mapping[str, Mapping[str, Any]],
 ) -> str:
     return payload_sha256({
         "corpus_contract_sha256": corpus["corpus_contract_sha256"],
+        "input_manifest_sha256": corpus["input_manifest_sha256"],
         "feature_contracts": {str(hour): row["sha256"] for hour, row in sorted(contracts.items())},
         "grid_f": list(grid_f),
         "configuration": configuration,
         "source_contract_sha256": sources["source_contract_sha256"],
+        "git_identity": sources["git_identity"],
+        "task_contracts_sha256": payload_sha256(task_contracts),
     })
 
 
@@ -912,48 +1482,473 @@ def _checkpoint_path(root: Path, task: Mapping[str, Any]) -> Path:
     return root / "models" / str(task["regime"]) / f"{task['task_id']}.json"
 
 
-def load_checkpoint(path: Path, *, run_id: str, task_id: str) -> dict[str, Any] | None:
+def _normalized_task(task: Mapping[str, Any]) -> dict[str, Any]:
+    regime = str(task.get("regime") or "")
+    if regime not in REGIMES:
+        raise ValueError(f"invalid checkpoint task regime: {regime!r}")
+    task_id = str(task.get("task_id") or "")
+    if not task_id:
+        raise ValueError("checkpoint task_id is empty")
+    raw_hour = task.get("hour")
+    if isinstance(raw_hour, bool) or not isinstance(raw_hour, (int, np.integer)):
+        raise ValueError(f"invalid checkpoint task hour: {raw_hour!r}")
+    hour = int(raw_hour)
+    if hour < 0 or hour > 23:
+        raise ValueError(f"invalid checkpoint task hour: {hour}")
+    market_id = task.get("market_id")
+    if regime == "pooled":
+        if market_id is not None:
+            raise ValueError("pooled checkpoint task must have market_id=None")
+    else:
+        market_id = str(market_id or "")
+        if not market_id:
+            raise ValueError(f"{regime} checkpoint task must name a market")
+    expected_task_id = (
+        f"pooled__all__h{hour:02d}"
+        if regime == "pooled"
+        else f"{regime}__{market_id}__h{hour:02d}"
+    )
+    if task_id != expected_task_id:
+        raise ValueError(
+            f"checkpoint task_id does not match task fields: "
+            f"expected={expected_task_id}, actual={task_id}"
+        )
+    return {
+        "task_id": task_id,
+        "regime": regime,
+        "market_id": market_id,
+        "hour": hour,
+    }
+
+
+def _strict_prediction_key(row: Mapping[str, Any]) -> tuple[str, str, str, int]:
+    if not isinstance(row, Mapping):
+        raise ValueError("checkpoint scored_rows entries must be objects")
+    raw_date = row.get("target_date")
+    if not isinstance(raw_date, str):
+        raise ValueError(f"malformed prediction target_date: {raw_date!r}")
+    try:
+        target_date = date.fromisoformat(raw_date).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"malformed prediction target_date: {raw_date!r}") from exc
+    if target_date != raw_date:
+        raise ValueError(f"prediction target_date is not canonical ISO date: {raw_date!r}")
+    market_id = row.get("market_id")
+    if not isinstance(market_id, str) or not market_id:
+        raise ValueError(f"malformed prediction market_id: {market_id!r}")
+    raw_hour = row.get("cutoff_hour")
+    if isinstance(raw_hour, bool) or not isinstance(raw_hour, int):
+        raise ValueError(f"malformed prediction cutoff_hour: {raw_hour!r}")
+    if raw_hour < 0 or raw_hour > 23:
+        raise ValueError(f"malformed prediction cutoff_hour: {raw_hour!r}")
+    split = row.get("split")
+    if not isinstance(split, str) or split not in SPLITS:
+        raise ValueError(f"checkpoint prediction split is invalid: {split!r}")
+    return split, market_id, target_date, raw_hour
+
+
+def _prediction_key_contract(
+    keys: Iterable[tuple[str, str, str, int]],
+) -> tuple[list[tuple[str, str, str, int]], str]:
+    ordered = sorted(keys)
+    if len(ordered) != len(set(ordered)):
+        raise ValueError("expected task prediction keys contain duplicates")
+    return ordered, payload_sha256([
+        {
+            "split": split,
+            "market_id": market_id,
+            "target_date": target_date,
+            "cutoff_hour": hour,
+        }
+        for split, market_id, target_date, hour in ordered
+    ])
+
+
+def expected_task_prediction_keys(
+    task: Mapping[str, Any],
+    rows_by_split: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> list[tuple[str, str, str, int]]:
+    normalized = _normalized_task(task)
+    scopes = task_row_scopes(normalized, rows_by_split)
+    keys = []
+    for split in SPLITS:
+        keys.extend(
+            (
+                split,
+                str(row.get("market_id")),
+                record_date(row),
+                int(row.get("cutoff_hour")),
+            )
+            for row in scopes[split]
+        )
+    return _prediction_key_contract(keys)[0]
+
+
+def expected_task_prediction_keys_from_corpus(
+    task: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+) -> list[tuple[str, str, str, int]]:
+    normalized = _normalized_task(task)
+    markets = [str(value) for value in (corpus.get("markets") or ())]
+    if not markets or len(markets) != len(set(markets)):
+        raise ValueError("corpus markets are empty or duplicated")
+    target_markets = (
+        markets if normalized["regime"] == "pooled"
+        else [str(normalized["market_id"])]
+    )
+    if any(market not in markets for market in target_markets):
+        raise ValueError(f"task market is absent from corpus: {normalized['market_id']}")
+    split_dates = corpus.get("split_dates")
+    if not isinstance(split_dates, Mapping):
+        raise ValueError("corpus split_dates is missing")
+    keys = []
+    for split in SPLITS:
+        dates = split_dates.get(split)
+        if not isinstance(dates, list) or not dates:
+            raise ValueError(f"corpus {split} dates are missing")
+        canonical_dates = []
+        for raw_date in dates:
+            if not isinstance(raw_date, str):
+                raise ValueError(f"corpus {split} contains a non-string date")
+            parsed = date.fromisoformat(raw_date).isoformat()
+            if parsed != raw_date:
+                raise ValueError(f"corpus {split} date is not canonical: {raw_date!r}")
+            canonical_dates.append(parsed)
+        if len(canonical_dates) != len(set(canonical_dates)):
+            raise ValueError(f"corpus {split} dates contain duplicates")
+        for target_date in canonical_dates:
+            for market_id in target_markets:
+                keys.append((
+                    split,
+                    market_id,
+                    target_date,
+                    int(normalized["hour"]),
+                ))
+    return _prediction_key_contract(keys)[0]
+
+
+def build_task_contract(
+    task: Mapping[str, Any],
+    *,
+    feature_contract_sha256: str,
+    expected_prediction_keys: Sequence[tuple[str, str, str, int]],
+) -> dict[str, Any]:
+    normalized = _normalized_task(task)
+    ordered, prediction_digest = _prediction_key_contract(expected_prediction_keys)
+    contract = {
+        "contract_version": "pool_city_task_contract_v0.2",
+        "task": normalized,
+        "feature_contract_sha256": str(feature_contract_sha256),
+        "expected_prediction_rows": len(ordered),
+        "expected_prediction_keys_sha256": prediction_digest,
+    }
+    return {**contract, "task_contract_sha256": payload_sha256(contract)}
+
+
+def build_checkpoint_run_contract(
+    *,
+    run_id: str,
+    corpus: Mapping[str, Any],
+    contracts: Mapping[int, Mapping[str, Any]],
+    grid_f: Sequence[float],
+    configuration: Mapping[str, Any],
+    sources: Mapping[str, Any],
+    task_contracts: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    task_ids = list(task_contracts)
+    contract = {
+        "contract_version": "pool_city_checkpoint_run_contract_v0.2",
+        "run_id": str(run_id),
+        "corpus_contract_sha256": str(corpus["corpus_contract_sha256"]),
+        "input_manifest_sha256": str(corpus["input_manifest_sha256"]),
+        "native_corpus_sha256": corpus["native_corpus_sha256"],
+        "canonical_corpus_sha256": corpus["canonical_corpus_sha256"],
+        "feature_contracts": {
+            str(hour): str(row["sha256"])
+            for hour, row in sorted(contracts.items())
+        },
+        "grid_f_sha256": payload_sha256(list(grid_f)),
+        "grid_points": len(grid_f),
+        "configuration_sha256": payload_sha256(configuration),
+        "source_contract_sha256": str(sources["source_contract_sha256"]),
+        "source_tree_sha256": str(sources["source_tree_sha256"]),
+        "git_identity": sources["git_identity"],
+        "task_ids": task_ids,
+        "task_contracts_sha256": payload_sha256(task_contracts),
+    }
+    return {**contract, "run_contract_sha256": payload_sha256(contract)}
+
+
+def _validate_prediction_rows(
+    rows: Any,
+    *,
+    task: Mapping[str, Any],
+    expected_prediction_keys: Sequence[tuple[str, str, str, int]],
+) -> None:
+    if not isinstance(rows, list):
+        raise ValueError("checkpoint scored_rows must be a list")
+    normalized = _normalized_task(task)
+    expected, expected_digest = _prediction_key_contract(expected_prediction_keys)
+    actual = []
+    for row in rows:
+        key = _strict_prediction_key(row)
+        actual.append(key)
+        if row.get("task_id") != normalized["task_id"]:
+            raise ValueError("checkpoint prediction task_id mismatch")
+        if row.get("regime") != normalized["regime"]:
+            raise ValueError("checkpoint prediction regime mismatch")
+        expected_scored_market = (
+            "all" if normalized["regime"] == "pooled"
+            else normalized["market_id"]
+        )
+        if row.get("scored_market_id") != expected_scored_market:
+            raise ValueError("checkpoint prediction scored_market_id mismatch")
+        if key[3] != normalized["hour"]:
+            raise ValueError("checkpoint prediction cutoff hour mismatches task")
+        if row.get("unit") not in {"C", "F"}:
+            raise ValueError(f"checkpoint prediction unit is invalid: {row.get('unit')!r}")
+        for field in PREDICTION_NUMERIC_FIELDS:
+            value = row.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"checkpoint prediction {field} is not numeric")
+            if not math.isfinite(float(value)):
+                raise ValueError(f"checkpoint prediction {field} is not finite")
+        if not isinstance(row.get("market_band_rows"), int):
+            raise ValueError("checkpoint prediction market_band_rows is not integral")
+        if int(row["market_band_rows"]) <= 0 or float(row["market_band_weight"]) <= 0:
+            raise ValueError("checkpoint prediction has no scored market bands")
+        if not isinstance(row.get("density_shape_id"), str) or not row["density_shape_id"]:
+            raise ValueError("checkpoint prediction density_shape_id is missing")
+    actual_ordered, actual_digest = _prediction_key_contract(actual)
+    if actual_ordered != expected or actual_digest != expected_digest:
+        raise ValueError(
+            "checkpoint prediction key set mismatch: "
+            f"expected={len(expected)}, actual={len(actual_ordered)}"
+        )
+
+
+def validate_checkpoint_run_contract(run_contract: Mapping[str, Any]) -> None:
+    if not isinstance(run_contract, Mapping):
+        raise ValueError("checkpoint run contract is not an object")
+    if run_contract.get("contract_version") != "pool_city_checkpoint_run_contract_v0.2":
+        raise ValueError("checkpoint run contract version mismatch")
+    claimed = run_contract.get("run_contract_sha256")
+    require_sha256(claimed, label="checkpoint run contract self-digest")
+    if claimed != self_digest(
+        run_contract,
+        digest_field="run_contract_sha256",
+    ):
+        raise ValueError("checkpoint run contract self-digest mismatch")
+    require_sha256(run_contract.get("run_id"), label="checkpoint run_id")
+    for field in (
+        "corpus_contract_sha256",
+        "input_manifest_sha256",
+        "grid_f_sha256",
+        "configuration_sha256",
+        "source_contract_sha256",
+        "source_tree_sha256",
+        "task_contracts_sha256",
+    ):
+        require_sha256(
+            run_contract.get(field),
+            label=f"checkpoint run contract {field}",
+        )
+    for field in ("native_corpus_sha256", "canonical_corpus_sha256"):
+        split_hashes = run_contract.get(field)
+        if not isinstance(split_hashes, Mapping) or set(split_hashes) != {
+            "train",
+            *SPLITS,
+        }:
+            raise ValueError(f"checkpoint run contract {field} is malformed")
+        for split, digest in split_hashes.items():
+            require_sha256(
+                digest,
+                label=f"checkpoint run contract {field}.{split}",
+            )
+    feature_contracts = run_contract.get("feature_contracts")
+    if not isinstance(feature_contracts, Mapping) or not feature_contracts:
+        raise ValueError("checkpoint run feature contracts are missing")
+    for hour, digest in feature_contracts.items():
+        try:
+            parsed_hour = int(hour)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("checkpoint run feature contract hour is invalid") from exc
+        if str(parsed_hour) != str(hour) or parsed_hour < 0 or parsed_hour > 23:
+            raise ValueError("checkpoint run feature contract hour is invalid")
+        require_sha256(
+            digest,
+            label=f"checkpoint run feature contract hour {hour}",
+        )
+    grid_points = run_contract.get("grid_points")
+    if isinstance(grid_points, bool) or not isinstance(grid_points, int) or grid_points <= 0:
+        raise ValueError("checkpoint run grid point count is invalid")
+    git_identity = run_contract.get("git_identity")
+    if not isinstance(git_identity, Mapping):
+        raise ValueError("checkpoint run Git identity is missing")
+    for field in ("head_commit", "head_tree"):
+        value = git_identity.get(field)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"checkpoint run Git {field} is missing")
+    require_sha256(
+        git_identity.get("tracked_worktree_status_sha256"),
+        label="checkpoint run Git worktree status digest",
+    )
+    if not isinstance(git_identity.get("tracked_worktree_dirty"), bool):
+        raise ValueError("checkpoint run Git dirty marker is malformed")
+    task_ids = run_contract.get("task_ids")
+    if (
+        not isinstance(task_ids, list)
+        or any(not isinstance(value, str) or not value for value in task_ids)
+        or len(task_ids) != len(set(task_ids))
+    ):
+        raise ValueError("checkpoint run contract task inventory is malformed")
+
+
+def validate_task_contract(task_contract: Mapping[str, Any]) -> None:
+    if not isinstance(task_contract, Mapping):
+        raise ValueError("checkpoint task contract is not an object")
+    if task_contract.get("contract_version") != "pool_city_task_contract_v0.2":
+        raise ValueError("checkpoint task contract version mismatch")
+    claimed = task_contract.get("task_contract_sha256")
+    require_sha256(claimed, label="checkpoint task contract self-digest")
+    if claimed != self_digest(
+        task_contract,
+        digest_field="task_contract_sha256",
+    ):
+        raise ValueError("checkpoint task contract self-digest mismatch")
+    _normalized_task(task_contract.get("task") or {})
+    require_sha256(
+        task_contract.get("feature_contract_sha256"),
+        label="checkpoint task feature contract",
+    )
+    require_sha256(
+        task_contract.get("expected_prediction_keys_sha256"),
+        label="checkpoint task prediction-key contract",
+    )
+    rows = task_contract.get("expected_prediction_rows")
+    if isinstance(rows, bool) or not isinstance(rows, int) or rows <= 0:
+        raise ValueError("checkpoint task contract prediction count is invalid")
+
+
+def load_checkpoint(
+    path: Path,
+    *,
+    run_contract: Mapping[str, Any],
+    task_contract: Mapping[str, Any],
+    expected_prediction_keys: Sequence[tuple[str, str, str, int]],
+) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid checkpoint {path}: {exc}") from exc
-    if payload.get("run_id") != run_id or payload.get("task_id") != task_id:
+    validate_checkpoint_run_contract(run_contract)
+    validate_task_contract(task_contract)
+    expected_ordered, expected_digest = _prediction_key_contract(
+        expected_prediction_keys
+    )
+    if (
+        task_contract.get("expected_prediction_rows") != len(expected_ordered)
+        or task_contract.get("expected_prediction_keys_sha256") != expected_digest
+    ):
+        raise ValueError("checkpoint task contract prediction-key binding mismatch")
+    payload = load_json_mapping_strict(path, label="checkpoint")
+    if payload.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:
+        raise ValueError(
+            f"checkpoint schema mismatch: expected={CHECKPOINT_SCHEMA_VERSION}, "
+            f"actual={payload.get('schema_version')}"
+        )
+    claimed_digest = payload.get(CHECKPOINT_DIGEST_FIELD)
+    require_sha256(claimed_digest, label="checkpoint self-digest")
+    if claimed_digest != self_digest(
+        payload,
+        digest_field=CHECKPOINT_DIGEST_FIELD,
+    ):
+        raise ValueError(f"checkpoint self-digest mismatch: {path}")
+    expected_task = task_contract["task"]
+    if (
+        payload.get("run_id") != run_contract.get("run_id")
+        or payload.get("run_contract_sha256") != run_contract.get("run_contract_sha256")
+        or payload.get("task_id") != expected_task.get("task_id")
+        or payload.get("task_contract_sha256") != task_contract.get("task_contract_sha256")
+    ):
         raise ValueError(f"checkpoint identity mismatch: {path}")
+    for field in ("regime", "market_id", "hour", "feature_contract_sha256"):
+        expected = (
+            task_contract.get("feature_contract_sha256")
+            if field == "feature_contract_sha256"
+            else expected_task.get(field)
+        )
+        if payload.get(field) != expected:
+            raise ValueError(f"checkpoint {field} mismatch: {path}")
+    _validate_prediction_rows(
+        payload.get("scored_rows"),
+        task=expected_task,
+        expected_prediction_keys=expected_prediction_keys,
+    )
     return payload
 
 
 def load_authoritative_checkpoint_status(
     path: str | Path,
     *,
-    run_id: str,
-    expected_tasks: int,
+    run_contract: Mapping[str, Any],
+    expected_task_ids: Sequence[str],
 ) -> dict[str, Any]:
     """Load and validate the task ledger that owns resume accounting."""
 
     status_path = Path(path)
-    try:
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid checkpoint status {status_path}: {exc}") from exc
-    expected_schema = schema_version("pool_city_checkpoint_status")
-    if status.get("schema_version") != expected_schema:
+    validate_checkpoint_run_contract(run_contract)
+    status = load_json_mapping_strict(status_path, label="checkpoint status")
+    if status.get("schema_version") != CHECKPOINT_STATUS_SCHEMA_VERSION:
         raise ValueError(
-            f"checkpoint status schema mismatch: expected={expected_schema}, "
+            f"checkpoint status schema mismatch: expected={CHECKPOINT_STATUS_SCHEMA_VERSION}, "
             f"actual={status.get('schema_version')}"
         )
-    if status.get("run_id") != run_id:
+    claimed_digest = status.get(CHECKPOINT_STATUS_DIGEST_FIELD)
+    require_sha256(claimed_digest, label="checkpoint status self-digest")
+    if claimed_digest != self_digest(
+        status,
+        digest_field=CHECKPOINT_STATUS_DIGEST_FIELD,
+    ):
+        raise ValueError(f"checkpoint status self-digest mismatch: {status_path}")
+    run_id = str(run_contract.get("run_id") or "")
+    if (
+        status.get("run_id") != run_id
+        or status.get("run_contract_sha256") != run_contract.get("run_contract_sha256")
+    ):
         raise ValueError(
-            f"checkpoint status run_id mismatch: expected={run_id}, actual={status.get('run_id')}"
+            "checkpoint status run identity mismatch: "
+            f"expected={run_id}, actual={status.get('run_id')}"
         )
-    completed = int(status.get("completed_tasks", -1))
-    total = int(status.get("total_tasks", -1))
-    resumed = int(status.get("resumed_tasks", -1))
-    if completed != int(expected_tasks) or total != int(expected_tasks):
+    expected_ids = [str(value) for value in expected_task_ids]
+    if len(expected_ids) != len(set(expected_ids)):
+        raise ValueError("expected checkpoint task inventory contains duplicates")
+    recorded_ids = status.get("completed_task_ids")
+    if not isinstance(recorded_ids, list) or any(
+        not isinstance(value, str) for value in recorded_ids
+    ):
+        raise ValueError("checkpoint status completed_task_ids is malformed")
+    if len(recorded_ids) != len(set(recorded_ids)):
+        raise ValueError("checkpoint status completed_task_ids contains duplicates")
+    if recorded_ids != expected_ids:
+        raise ValueError("checkpoint status task inventory mismatch")
+    checkpoint_digests = status.get("checkpoint_sha256_by_task")
+    if (
+        not isinstance(checkpoint_digests, Mapping)
+        or set(checkpoint_digests) != set(expected_ids)
+    ):
+        raise ValueError("checkpoint status checkpoint digest inventory is malformed")
+    for task_id, digest in checkpoint_digests.items():
+        require_sha256(digest, label=f"checkpoint status digest for {task_id}")
+    for field in ("completed_tasks", "total_tasks", "resumed_tasks"):
+        value = status.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"checkpoint status {field} is malformed")
+    completed = status["completed_tasks"]
+    total = status["total_tasks"]
+    resumed = status["resumed_tasks"]
+    if completed != len(expected_ids) or total != len(expected_ids):
         raise ValueError(
             "checkpoint status is not complete: "
-            f"completed={completed}, total={total}, expected={expected_tasks}"
+            f"completed={completed}, total={total}, expected={len(expected_ids)}"
         )
     if resumed < 0 or resumed > completed:
         raise ValueError(
@@ -1042,18 +2037,32 @@ def execute_tasks(
     grid_f: Sequence[float],
     dependencies: Mapping[str, Any],
     checkpoint_root: Path,
-    run_id: str,
+    run_contract: Mapping[str, Any],
+    task_contracts: Mapping[str, Mapping[str, Any]],
     status_path: Path,
 ) -> list[dict[str, Any]]:
+    validate_checkpoint_run_contract(run_contract)
+    normalized_tasks = [_normalized_task(task) for task in tasks]
+    task_ids = [task["task_id"] for task in normalized_tasks]
+    if task_ids != list(run_contract["task_ids"]):
+        raise ValueError("execution task inventory does not match checkpoint run contract")
+    if set(task_contracts) != set(task_ids):
+        raise ValueError("execution task contracts do not match task inventory")
     results = []
     started = time.perf_counter()
     resumed = 0
-    for index, task in enumerate(tasks, start=1):
+    completed_task_ids = []
+    checkpoint_digests: dict[str, str] = {}
+    for index, task in enumerate(normalized_tasks, start=1):
+        task_id = str(task["task_id"])
+        task_contract = task_contracts[task_id]
+        expected_keys = expected_task_prediction_keys(task, rows_by_split)
         checkpoint_path = _checkpoint_path(checkpoint_root, task)
         checkpoint = load_checkpoint(
             checkpoint_path,
-            run_id=run_id,
-            task_id=str(task["task_id"]),
+            run_contract=run_contract,
+            task_contract=task_contract,
+            expected_prediction_keys=expected_keys,
         )
         if checkpoint is None:
             result = fit_task(
@@ -1063,22 +2072,178 @@ def execute_tasks(
                 grid_f=grid_f,
                 dependencies=dependencies,
             )
-            checkpoint = {"run_id": run_id, "completed_at_utc": utc_iso(), **result}
+            checkpoint = {
+                "schema_version": CHECKPOINT_SCHEMA_VERSION,
+                "run_id": run_contract["run_id"],
+                "run_contract_sha256": run_contract["run_contract_sha256"],
+                "task_contract_sha256": task_contract["task_contract_sha256"],
+                "completed_at_utc": utc_iso(),
+                **result,
+            }
+            _validate_prediction_rows(
+                checkpoint.get("scored_rows"),
+                task=task,
+                expected_prediction_keys=expected_keys,
+            )
+            checkpoint[CHECKPOINT_DIGEST_FIELD] = self_digest(
+                checkpoint,
+                digest_field=CHECKPOINT_DIGEST_FIELD,
+            )
             write_json_atomic(checkpoint_path, checkpoint)
+            checkpoint = load_checkpoint(
+                checkpoint_path,
+                run_contract=run_contract,
+                task_contract=task_contract,
+                expected_prediction_keys=expected_keys,
+            )
+            if checkpoint is None:
+                raise ValueError(f"checkpoint disappeared after publication: {checkpoint_path}")
         else:
             resumed += 1
         results.append(checkpoint)
-        write_json_atomic(status_path, {
-            "schema_version": "pool_city_checkpoint_status_v0.1",
-            "run_id": run_id,
+        completed_task_ids.append(task_id)
+        checkpoint_digests[task_id] = str(checkpoint[CHECKPOINT_DIGEST_FIELD])
+        status = {
+            "schema_version": CHECKPOINT_STATUS_SCHEMA_VERSION,
+            "run_id": run_contract["run_id"],
+            "run_contract_sha256": run_contract["run_contract_sha256"],
             "updated_at_utc": utc_iso(),
             "completed_tasks": index,
             "total_tasks": len(tasks),
             "resumed_tasks": resumed,
-            "last_task_id": task["task_id"],
+            "completed_task_ids": list(completed_task_ids),
+            "checkpoint_sha256_by_task": dict(checkpoint_digests),
+            "last_task_id": task_id,
             "elapsed_seconds": time.perf_counter() - started,
-        })
+        }
+        status[CHECKPOINT_STATUS_DIGEST_FIELD] = self_digest(
+            status,
+            digest_field=CHECKPOINT_STATUS_DIGEST_FIELD,
+        )
+        write_json_atomic(status_path, status)
+    authoritative_status = load_authoritative_checkpoint_status(
+        status_path,
+        run_contract=run_contract,
+        expected_task_ids=task_ids,
+    )
+    validate_task_results(
+        results,
+        tasks=normalized_tasks,
+        rows_by_split=rows_by_split,
+        task_contracts=task_contracts,
+        run_contract=run_contract,
+        checkpoint_digests=authoritative_status["checkpoint_sha256_by_task"],
+    )
     return results
+
+
+def validate_exact_regime_panels(
+    scored_rows: Sequence[Mapping[str, Any]],
+) -> None:
+    """Require one exact prediction panel shared by all geographic regimes."""
+
+    if not scored_rows:
+        raise ValueError("benchmark has no scored rows")
+    seen: set[tuple[str, str, str, str, int]] = set()
+    panels: dict[
+        tuple[str, str],
+        dict[tuple[str, str, int], tuple[str, float, int, float]],
+    ] = {}
+    for row in scored_rows:
+        split, market_id, target_date, hour = _strict_prediction_key(row)
+        regime = row.get("regime")
+        if not isinstance(regime, str) or regime not in REGIMES:
+            raise ValueError(f"prediction regime is invalid: {regime!r}")
+        full_key = (split, regime, market_id, target_date, hour)
+        if full_key in seen:
+            raise ValueError(f"duplicate scored panel key: {full_key}")
+        seen.add(full_key)
+        unit = row.get("unit")
+        if unit not in {"C", "F"}:
+            raise ValueError(f"prediction unit is invalid: {unit!r}")
+        try:
+            immutable_score_contract = (
+                str(unit),
+                float(row["target_f"]),
+                int(row["market_band_rows"]),
+                float(row["market_band_weight"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("prediction outcome contract is malformed") from exc
+        if not all(
+            math.isfinite(value)
+            for value in (
+                immutable_score_contract[1],
+                immutable_score_contract[3],
+            )
+        ):
+            raise ValueError("prediction outcome contract is non-finite")
+        panels.setdefault((split, regime), {})[
+            (market_id, target_date, hour)
+        ] = immutable_score_contract
+    for split in SPLITS:
+        regime_maps = {regime: panels.get((split, regime)) for regime in REGIMES}
+        if any(value is None for value in regime_maps.values()):
+            raise ValueError(f"{split} scored panel is missing a geographic regime")
+        baseline = regime_maps["pooled"] or {}
+        for regime in ("per_city", "loco"):
+            candidate = regime_maps[regime] or {}
+            if set(candidate) != set(baseline):
+                raise ValueError(
+                    f"{split} {regime}/pooled prediction key sets differ"
+                )
+            if candidate != baseline:
+                raise ValueError(
+                    f"{split} {regime}/pooled prediction outcome contracts differ"
+                )
+
+
+def validate_task_results(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    tasks: Sequence[Mapping[str, Any]],
+    rows_by_split: Mapping[str, Sequence[Mapping[str, Any]]] | None,
+    task_contracts: Mapping[str, Mapping[str, Any]],
+    run_contract: Mapping[str, Any],
+    checkpoint_digests: Mapping[str, str] | None = None,
+    corpus: Mapping[str, Any] | None = None,
+) -> None:
+    validate_checkpoint_run_contract(run_contract)
+    normalized_tasks = [_normalized_task(task) for task in tasks]
+    expected_ids = [task["task_id"] for task in normalized_tasks]
+    actual_ids = [str(result.get("task_id") or "") for result in results]
+    if len(actual_ids) != len(set(actual_ids)):
+        raise ValueError("completed task results contain duplicate task IDs")
+    if actual_ids != expected_ids:
+        raise ValueError("completed task result inventory or order is invalid")
+    all_rows = []
+    for task, result in zip(normalized_tasks, results):
+        task_id = task["task_id"]
+        task_contract = task_contracts.get(task_id)
+        if task_contract is None:
+            raise ValueError(f"task contract is missing for {task_id}")
+        expected_keys = (
+            expected_task_prediction_keys(task, rows_by_split)
+            if rows_by_split is not None
+            else expected_task_prediction_keys_from_corpus(task, corpus or {})
+        )
+        _validate_prediction_rows(
+            result.get("scored_rows"),
+            task=task,
+            expected_prediction_keys=expected_keys,
+        )
+        if (
+            result.get("run_id") != run_contract["run_id"]
+            or result.get("run_contract_sha256") != run_contract["run_contract_sha256"]
+            or result.get("task_contract_sha256") != task_contract["task_contract_sha256"]
+        ):
+            raise ValueError(f"completed task result contract mismatch: {task_id}")
+        if checkpoint_digests is not None and (
+            result.get(CHECKPOINT_DIGEST_FIELD) != checkpoint_digests.get(task_id)
+        ):
+            raise ValueError(f"checkpoint ledger digest mismatch: {task_id}")
+        all_rows.extend(result["scored_rows"])
+    validate_exact_regime_panels(all_rows)
 
 
 def _aggregate_group(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1087,6 +2252,7 @@ def _aggregate_group(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def aggregate_benchmark(scored_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    validate_exact_regime_panels(scored_rows)
     by_market: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in scored_rows:
         by_market[(str(row["split"]), str(row["regime"]), str(row["market_id"]))].append(row)
@@ -1146,8 +2312,22 @@ def paired_cluster_summary(
     bootstrap_replicates: int = DEFAULT_BOOTSTRAP_REPLICATES,
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> dict[str, Any]:
-    dates = sorted(set(left) & set(right))
-    deltas = [float(left[value]) - float(right[value]) for value in dates]
+    left_dates = set(left)
+    right_dates = set(right)
+    if left_dates != right_dates:
+        raise ValueError(
+            "paired comparison key sets differ: "
+            f"left_only={len(left_dates - right_dates)}, "
+            f"right_only={len(right_dates - left_dates)}"
+        )
+    dates = sorted(left_dates)
+    deltas = []
+    for value in dates:
+        left_value = float(left[value])
+        right_value = float(right[value])
+        if not math.isfinite(left_value) or not math.isfinite(right_value):
+            raise ValueError(f"paired comparison contains non-finite value for {value}")
+        deltas.append(left_value - right_value)
     if not deltas:
         return {"paired_dates": 0, "status": "INSUFFICIENT"}
     negative = sum(delta < -1e-15 for delta in deltas)
@@ -1191,6 +2371,7 @@ def paired_evidence(
     bootstrap_replicates: int = DEFAULT_BOOTSTRAP_REPLICATES,
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> list[dict[str, Any]]:
+    validate_exact_regime_panels(scored_rows)
     rows = [row for row in scored_rows if row["split"] == split]
     date_scores: dict[tuple[str, str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -1370,6 +2551,34 @@ def ensure_scratch_output(
     return resolved
 
 
+def publish_benchmark_outputs(
+    out_dir: Path,
+    payload: Mapping[str, Any],
+    *,
+    scored_rows: Sequence[Mapping[str, Any]] | None = None,
+) -> None:
+    """Publish dependent leaves first and the COMPLETE marker last."""
+
+    artifact_path = out_dir / "pool_city_training_benchmark.json"
+    report_path = out_dir / "pool_city_training_benchmark.md"
+    if payload.get("status") == "COMPLETE":
+        if scored_rows is None:
+            raise ValueError("complete benchmark publication requires prediction rows")
+        if artifact_path.exists():
+            write_json_atomic(artifact_path, {
+                "schema_version": SCHEMA_VERSION,
+                "status": "FINALIZING",
+                "research_only": True,
+                "promotion_permission": "forbidden",
+                "run_id": payload.get("run_id"),
+                "serving_or_release_authorization": False,
+            })
+        write_csv_atomic(out_dir / "predictions.csv", scored_rows)
+    write_text_atomic(report_path, render_report(payload))
+    # This is the generation's only positive completion marker.
+    write_json_atomic(artifact_path, payload)
+
+
 def finalize_completed_checkpoint_run(
     *,
     data_root: str | Path,
@@ -1379,36 +2588,182 @@ def finalize_completed_checkpoint_run(
 
     out_dir = ensure_scratch_output(out_dir, data_root=data_root)
     artifact_path = out_dir / "pool_city_training_benchmark.json"
-    try:
-        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"cannot load completed benchmark artifact {artifact_path}: {exc}") from exc
+    payload = load_json_mapping_strict(
+        artifact_path,
+        label="completed benchmark artifact",
+    )
     if payload.get("status") != "COMPLETE":
         raise ValueError(f"benchmark artifact is not complete: status={payload.get('status')}")
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(
+            f"benchmark artifact schema mismatch: {payload.get('schema_version')}"
+        )
     run_id = str(payload.get("run_id") or "")
     if not run_id:
         raise ValueError("completed benchmark artifact has no run_id")
     configuration = payload.get("configuration") or {}
     corpus = payload.get("corpus") or {}
+    if (
+        not isinstance(corpus, Mapping)
+        or corpus.get("corpus_contract_sha256") != corpus_contract_sha256(corpus)
+    ):
+        raise ValueError("completed benchmark corpus contract self-digest mismatch")
+    input_manifest = load_json_mapping_strict(
+        out_dir / "input_manifest.json",
+        label="pool/city input manifest",
+    )
+    if input_manifest.get("schema_version") != schema_version("pool_city_input_manifest"):
+        raise ValueError("completed benchmark input manifest schema mismatch")
+    if input_manifest.get("manifest_sha256") != self_digest(
+        input_manifest,
+        digest_field="manifest_sha256",
+    ):
+        raise ValueError("completed benchmark input manifest self-digest mismatch")
+    try:
+        manifest_data_root = Path(str(input_manifest.get("data_root"))).resolve(
+            strict=False
+        )
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("completed benchmark input manifest data root is invalid") from exc
+    if manifest_data_root != Path(data_root).resolve(strict=False):
+        raise ValueError("completed benchmark input manifest data root mismatch")
+    if (
+        corpus.get("input_manifest_sha256") != input_manifest.get("manifest_sha256")
+        or payload.get("input_manifest")
+        != {key: value for key, value in input_manifest.items() if key != "files"}
+    ):
+        raise ValueError("completed benchmark input manifest binding mismatch")
     tasks = task_specs(corpus.get("markets") or (), configuration.get("hours") or ())
     if not tasks:
         raise ValueError("completed benchmark artifact has no task inventory")
+    checkpoint_contract = payload.get("checkpoint_contract")
+    if not isinstance(checkpoint_contract, Mapping):
+        raise ValueError(
+            "completed benchmark uses legacy unauthenticated checkpoints"
+        )
+    run_contract = checkpoint_contract.get("run_contract")
+    embedded_task_contracts = checkpoint_contract.get("task_contracts")
+    if not isinstance(run_contract, Mapping) or not isinstance(
+        embedded_task_contracts,
+        Mapping,
+    ):
+        raise ValueError(
+            "completed benchmark checkpoint execution closure is missing"
+        )
+    validate_checkpoint_run_contract(run_contract)
+    if run_contract.get("run_id") != run_id:
+        raise ValueError("completed benchmark run contract run_id mismatch")
+
+    dependencies = _dependencies()
+    current_sources = source_provenance(dependencies)
+    payload_sources = payload.get("source_provenance")
+    if not isinstance(payload_sources, Mapping):
+        raise ValueError("completed benchmark source provenance is missing")
+    if (
+        run_contract.get("source_contract_sha256")
+        != payload_sources.get("source_contract_sha256")
+        or run_contract.get("source_contract_sha256")
+        != current_sources.get("source_contract_sha256")
+        or run_contract.get("source_tree_sha256")
+        != current_sources.get("source_tree_sha256")
+        or run_contract.get("git_identity") != current_sources.get("git_identity")
+    ):
+        raise ValueError(
+            "completed benchmark code/config/Git closure does not match current execution"
+        )
+
+    trainer_contract = payload.get("trainer_contract")
+    if not isinstance(trainer_contract, Mapping):
+        raise ValueError("completed benchmark trainer contract is missing")
+    feature_rows = trainer_contract.get("feature_contracts")
+    if not isinstance(feature_rows, Mapping):
+        raise ValueError("completed benchmark feature contracts are missing")
+    contracts: dict[int, dict[str, Any]] = {}
+    for raw_hour in configuration.get("hours") or ():
+        hour = int(raw_hour)
+        row = feature_rows.get(str(hour))
+        if not isinstance(row, Mapping) or not isinstance(row.get("sha256"), str):
+            raise ValueError(f"feature contract is missing for hour {hour}")
+        contracts[hour] = {"sha256": row["sha256"]}
+    try:
+        grid_f = dependencies["canonical_grid_f"](
+            float(trainer_contract["grid_low_f"]),
+            float(trainer_contract["grid_high_f"]),
+            float(trainer_contract["grid_step_f"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("completed benchmark grid contract is malformed") from exc
+    if len(grid_f) != int(trainer_contract.get("grid_points", -1)):
+        raise ValueError("completed benchmark grid point count mismatch")
+
+    recomputed_task_contracts = {}
+    for task in tasks:
+        expected_keys = expected_task_prediction_keys_from_corpus(task, corpus)
+        task_contract = build_task_contract(
+            task,
+            feature_contract_sha256=contracts[int(task["hour"])]["sha256"],
+            expected_prediction_keys=expected_keys,
+        )
+        task_id = str(task["task_id"])
+        validate_task_contract(task_contract)
+        if embedded_task_contracts.get(task_id) != task_contract:
+            raise ValueError(f"completed benchmark task contract mismatch: {task_id}")
+        recomputed_task_contracts[task_id] = task_contract
+    contract_configuration = {
+        key: value for key, value in configuration.items() if key != "mode"
+    }
+    recomputed_run_id = benchmark_run_id(
+        corpus=corpus,
+        contracts=contracts,
+        grid_f=grid_f,
+        configuration=contract_configuration,
+        sources=current_sources,
+        task_contracts=recomputed_task_contracts,
+    )
+    if recomputed_run_id != run_id:
+        raise ValueError("completed benchmark run_id cannot be reproduced")
+    recomputed_run_contract = build_checkpoint_run_contract(
+        run_id=run_id,
+        corpus=corpus,
+        contracts=contracts,
+        grid_f=grid_f,
+        configuration=contract_configuration,
+        sources=current_sources,
+        task_contracts=recomputed_task_contracts,
+    )
+    if dict(run_contract) != recomputed_run_contract:
+        raise ValueError("completed benchmark run contract cannot be reproduced")
+
     status_path = out_dir / "checkpoint_status.json"
     checkpoint_status = load_authoritative_checkpoint_status(
         status_path,
-        run_id=run_id,
-        expected_tasks=len(tasks),
+        run_contract=run_contract,
+        expected_task_ids=[str(task["task_id"]) for task in tasks],
     )
     task_results = []
     for task in tasks:
+        task_id = str(task["task_id"])
         checkpoint = load_checkpoint(
             _checkpoint_path(out_dir / "checkpoints", task),
-            run_id=run_id,
-            task_id=str(task["task_id"]),
+            run_contract=run_contract,
+            task_contract=recomputed_task_contracts[task_id],
+            expected_prediction_keys=expected_task_prediction_keys_from_corpus(
+                task,
+                corpus,
+            ),
         )
         if checkpoint is None:
             raise ValueError(f"missing completed checkpoint for {task['task_id']}")
         task_results.append(checkpoint)
+    validate_task_results(
+        task_results,
+        tasks=tasks,
+        rows_by_split=None,
+        task_contracts=recomputed_task_contracts,
+        run_contract=run_contract,
+        checkpoint_digests=checkpoint_status["checkpoint_sha256_by_task"],
+        corpus=corpus,
+    )
 
     scored_rows = [row for result in task_results for row in result["scored_rows"]]
     results = aggregate_benchmark(scored_rows)
@@ -1467,11 +2822,10 @@ def finalize_completed_checkpoint_run(
         "reporting_corrected_at_utc": corrected_at,
         "reporting_correction": correction,
     }
-    write_csv_atomic(out_dir / "predictions.csv", scored_rows)
-    write_json_atomic(artifact_path, corrected)
-    write_text_atomic(
-        out_dir / "pool_city_training_benchmark.md",
-        render_report(corrected),
+    publish_benchmark_outputs(
+        out_dir,
+        corrected,
+        scored_rows=scored_rows,
     )
     return corrected
 
@@ -1480,6 +2834,7 @@ def run_benchmark(
     *,
     data_root: str | Path,
     out_dir: str | Path,
+    season_anchor_date: date | str | None = None,
     mode: str = "plan",
     confirm_research_only: bool = False,
     hours: Sequence[int] = DEFAULT_HOURS,
@@ -1491,17 +2846,38 @@ def run_benchmark(
     max_runtime_hours: float = DEFAULT_MAX_RUNTIME_HOURS,
     memory_budget_bytes: int = DEFAULT_MEMORY_BUDGET_BYTES,
 ) -> dict[str, Any]:
-    out_dir = ensure_scratch_output(out_dir, data_root=data_root)
     if str(mode) not in {"plan", "run", "finalize"}:
         raise ValueError("mode must be plan, run, or finalize")
     if mode in {"run", "finalize"} and not confirm_research_only:
         raise ValueError(f"{mode} execution requires confirm_research_only=True")
+    if mode != "finalize":
+        if season_anchor_date is None:
+            raise ValueError(
+                "plan/run requires an explicit season_anchor_date so the "
+                "historical panel cannot move with wall-clock date"
+            )
+        try:
+            season_anchor_date = (
+                season_anchor_date.date()
+                if isinstance(season_anchor_date, datetime)
+                else season_anchor_date
+                if isinstance(season_anchor_date, date)
+                else date.fromisoformat(str(season_anchor_date))
+            )
+        except ValueError as exc:
+            raise ValueError("season_anchor_date must be an ISO calendar date") from exc
+        if season_anchor_date.year <= int(confirmation_year):
+            raise ValueError(
+                "season_anchor_date year must be later than confirmation_year"
+            )
+    out_dir = ensure_scratch_output(out_dir, data_root=data_root)
     if mode == "finalize":
         return finalize_completed_checkpoint_run(data_root=data_root, out_dir=out_dir)
 
     total_started = time.perf_counter()
     rows_by_split, corpus, loaded = load_corpus(
         data_root=data_root,
+        season_anchor_date=season_anchor_date,
         hours=hours,
         panel_start_year=panel_start_year,
         development_year=development_year,
@@ -1521,6 +2897,7 @@ def run_benchmark(
         "panel_start_year": int(panel_start_year),
         "development_year": int(development_year),
         "confirmation_year": int(confirmation_year),
+        "season_anchor_date": season_anchor_date.isoformat(),
         "grid_step_f": 0.1,
         "bootstrap_replicates": int(bootstrap_replicates),
         "bootstrap_seed": int(bootstrap_seed),
@@ -1529,12 +2906,38 @@ def run_benchmark(
         "confirmation_use": "scoring_only",
         "loco_contract": "held_out_market_excluded_from_training_and_development_tuning",
     }
+    contract_configuration = {
+        key: value for key, value in configuration.items() if key != "mode"
+    }
+    task_contracts = {}
+    for task in tasks:
+        expected_from_rows = expected_task_prediction_keys(task, rows_by_split)
+        expected_from_corpus = expected_task_prediction_keys_from_corpus(task, corpus)
+        if expected_from_rows != expected_from_corpus:
+            raise ValueError(
+                f"task prediction closure differs from corpus metadata: {task['task_id']}"
+            )
+        task_contracts[str(task["task_id"])] = build_task_contract(
+            task,
+            feature_contract_sha256=contracts[int(task["hour"])]["sha256"],
+            expected_prediction_keys=expected_from_rows,
+        )
     run_id = benchmark_run_id(
         corpus=corpus,
         contracts=contracts,
         grid_f=grid_f,
-        configuration={key: value for key, value in configuration.items() if key != "mode"},
+        configuration=contract_configuration,
         sources=sources,
+        task_contracts=task_contracts,
+    )
+    run_contract = build_checkpoint_run_contract(
+        run_id=run_id,
+        corpus=corpus,
+        contracts=contracts,
+        grid_f=grid_f,
+        configuration=contract_configuration,
+        sources=sources,
+        task_contracts=task_contracts,
     )
     private_memory = estimate_private_memory_bytes(rows_by_split, contracts, grid_f)
     if private_memory > int(memory_budget_bytes):
@@ -1572,6 +2975,17 @@ def run_benchmark(
             key: value for key, value in manifest.items() if key != "files"
         },
         "source_provenance": sources,
+        "checkpoint_contract": {
+            "directory": str((out_dir / "checkpoints").resolve()),
+            "task_count": len(tasks),
+            "identity": (
+                "self-digest + exact run/code/config/git/corpus/manifest/"
+                "feature/grid/task/prediction-key contracts"
+            ),
+            "atomic": True,
+            "run_contract": run_contract,
+            "task_contracts": task_contracts,
+        },
         "trainer_contract": {
             "canonical_model_family": "pooled_continuous_density_hgb_v0.7",
             "feature_schema_version": dependencies["FEATURE_SCHEMA_VERSION"],
@@ -1595,11 +3009,7 @@ def run_benchmark(
             "status": "BLOCKED_RUNTIME_BOUNDARY",
             "next_action": "Operator approval is required because the pilot projects beyond the configured overnight boundary.",
         }
-        write_json_atomic(out_dir / "pool_city_training_benchmark.json", payload)
-        write_text_atomic(
-            out_dir / "pool_city_training_benchmark.md",
-            render_report(payload),
-        )
+        publish_benchmark_outputs(out_dir, payload)
         return payload
     if mode == "plan":
         payload = {
@@ -1610,11 +3020,7 @@ def run_benchmark(
                 "--confirm-research-only after explicit coordination approval."
             ),
         }
-        write_json_atomic(out_dir / "pool_city_training_benchmark.json", payload)
-        write_text_atomic(
-            out_dir / "pool_city_training_benchmark.md",
-            render_report(payload),
-        )
+        publish_benchmark_outputs(out_dir, payload)
         return payload
 
     task_results = execute_tasks(
@@ -1624,7 +3030,8 @@ def run_benchmark(
         grid_f=grid_f,
         dependencies=dependencies,
         checkpoint_root=out_dir / "checkpoints",
-        run_id=run_id,
+        run_contract=run_contract,
+        task_contracts=task_contracts,
         status_path=out_dir / "checkpoint_status.json",
     )
     scored_rows = [row for result in task_results for row in result["scored_rows"]]
@@ -1635,15 +3042,20 @@ def run_benchmark(
         bootstrap_replicates=bootstrap_replicates,
         seed=bootstrap_seed,
     )
+    completion_source_verification = verify_source_provenance_unchanged(
+        sources,
+        source_provenance(dependencies),
+    )
     runtime.update({
         "completed_tasks": len(task_results),
         "actual_total_seconds": time.perf_counter() - total_started,
         "resumed_tasks": load_authoritative_checkpoint_status(
             out_dir / "checkpoint_status.json",
-            run_id=run_id,
-            expected_tasks=len(tasks),
+            run_contract=run_contract,
+            expected_task_ids=[str(task["task_id"]) for task in tasks],
         )["resumed_tasks"],
         "resumed_tasks_source": "checkpoint_status.json",
+        "completion_source_verification": completion_source_verification,
     })
     payload = {
         **base_payload,
@@ -1652,18 +3064,11 @@ def run_benchmark(
         "runtime": runtime,
         "results": results,
         "paired_evidence": comparisons,
-        "checkpoint_contract": {
-            "directory": str((out_dir / "checkpoints").resolve()),
-            "task_count": len(tasks),
-            "identity": "run_id + task_id",
-            "atomic": True,
-        },
     }
-    write_csv_atomic(out_dir / "predictions.csv", scored_rows)
-    write_json_atomic(out_dir / "pool_city_training_benchmark.json", payload)
-    write_text_atomic(
-        out_dir / "pool_city_training_benchmark.md",
-        render_report(payload),
+    publish_benchmark_outputs(
+        out_dir,
+        payload,
+        scored_rows=scored_rows,
     )
     return payload
 
@@ -1690,6 +3095,13 @@ def main() -> None:
     parser.add_argument("--panel-start-year", type=int, default=DEFAULT_PANEL_START_YEAR)
     parser.add_argument("--development-year", type=int, default=DEFAULT_DEVELOPMENT_YEAR)
     parser.add_argument("--confirmation-year", type=int, default=DEFAULT_CONFIRMATION_YEAR)
+    parser.add_argument(
+        "--season-anchor-date",
+        help=(
+            "Required for plan/run: explicit ISO date whose month/day anchors "
+            "the historical target-season window."
+        ),
+    )
     parser.add_argument("--bootstrap-replicates", type=int, default=DEFAULT_BOOTSTRAP_REPLICATES)
     parser.add_argument("--bootstrap-seed", type=int, default=DEFAULT_BOOTSTRAP_SEED)
     parser.add_argument("--max-runtime-hours", type=float, default=DEFAULT_MAX_RUNTIME_HOURS)
@@ -1698,6 +3110,7 @@ def main() -> None:
     payload = run_benchmark(
         data_root=args.data_root,
         out_dir=args.out_dir,
+        season_anchor_date=args.season_anchor_date,
         mode=args.mode,
         confirm_research_only=args.confirm_research_only,
         hours=parse_hours(args.hours),

@@ -228,7 +228,12 @@ def test_tune_loader_accepts_only_literal_exact_panel(tmp_path, monkeypatch):
     entries = [_entry(market_id) for market_id in sorted(REGISTRY)]
     manifest = {
         "schema_version": "promotion_corpus_v0.1",
-        "corpus_hash": corpus_hash(entries),
+        "research_only": True,
+        "serving_or_release_authorization": False,
+        "corpus_hash": corpus_hash(
+            entries,
+            schema_version="promotion_corpus_v0.1",
+        ),
         "entries": entries,
         "skipped": [],
         "materialization": {
@@ -262,7 +267,10 @@ def test_tune_loader_accepts_only_literal_exact_panel(tmp_path, monkeypatch):
     forbidden["event_slug"] += "-forbidden-holdout"
     forbidden["folder_relative_to_snapshots_root"] = forbidden["event_slug"]
     manifest["entries"] = [*entries, forbidden]
-    manifest["corpus_hash"] = corpus_hash(manifest["entries"])
+    manifest["corpus_hash"] = corpus_hash(
+        manifest["entries"],
+        schema_version="promotion_corpus_v0.1",
+    )
     manifest["materialization"]["entry_count"] = len(entries)
     path = tmp_path / "relabeled-broad.json"
     path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")

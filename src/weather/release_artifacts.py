@@ -10,8 +10,11 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import math
+import os
 import platform
 import re
+import stat
 import tomllib
 from collections import Counter
 from pathlib import Path
@@ -74,6 +77,95 @@ class ReleaseArtifactVerificationError(RuntimeError):
     """An immutable release or pointer failed closed verification."""
 
 
+_FILE_ATTRIBUTE_REPARSE_POINT = int(
+    getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+)
+
+
+def _lexical_absolute_path(path: str | Path) -> Path:
+    """Return an absolute path without resolving links or reparse points."""
+
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_link_or_reparse_point(path: Path) -> bool:
+    """Detect Unix links and Windows reparse points without following them."""
+
+    try:
+        observed = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISLNK(observed.st_mode) or bool(
+        int(getattr(observed, "st_file_attributes", 0))
+        & _FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def _assert_no_link_or_reparse_ancestors(path: Path, *, label: str) -> None:
+    """Reject any existing lexical component that can redirect traversal."""
+
+    absolute = _lexical_absolute_path(path)
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            current.lstat()
+        except FileNotFoundError:
+            break
+        except OSError as exc:
+            raise ReleaseArtifactVerificationError(
+                f"{label} ancestry cannot be inspected: {current}: {exc}"
+            ) from exc
+        if _is_link_or_reparse_point(current):
+            raise ReleaseArtifactVerificationError(
+                f"{label} must not traverse a symlink or reparse point: {current}"
+            )
+
+
+def lexical_absolute_path(path: str | Path) -> Path:
+    """Return the canonical lexical absolute form without following links."""
+
+    return _lexical_absolute_path(path)
+
+
+def is_link_or_reparse_point(path: str | Path) -> bool:
+    """Return whether ``path`` itself is a symlink or Windows reparse point."""
+
+    return _is_link_or_reparse_point(Path(path))
+
+
+def assert_no_link_or_reparse_ancestors(
+    path: str | Path,
+    *,
+    label: str,
+) -> Path:
+    """Fail closed if any existing lexical path component redirects traversal."""
+
+    absolute = _lexical_absolute_path(path)
+    _assert_no_link_or_reparse_ancestors(absolute, label=label)
+    return absolute
+
+
+def trusted_active_release_paths(
+    *,
+    pointer_path: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
+    releases_root: str | Path = DEFAULT_RELEASES_ROOT,
+) -> tuple[Path, Path]:
+    """Bind the canonical pointer to one independently supplied lexical root."""
+
+    root = _lexical_absolute_path(releases_root)
+    pointer = _lexical_absolute_path(pointer_path)
+    expected_pointer = root / DEFAULT_ACTIVE_RELEASE_POINTER.name
+    if pointer != expected_pointer:
+        raise ReleaseArtifactVerificationError(
+            "active release pointer must be the canonical current_release.json "
+            "directly inside the trusted releases root"
+        )
+    _assert_no_link_or_reparse_ancestors(root, label="trusted releases root")
+    _assert_no_link_or_reparse_ancestors(pointer, label="active release pointer")
+    return pointer, root
+
+
 def canonical_payload_sha256(payload: Mapping[str, Any], *, omit: Sequence[str] = ()) -> str:
     normalized = {key: value for key, value in payload.items() if key not in set(omit)}
     try:
@@ -111,7 +203,26 @@ def strict_json_loads(text: str, *, label: str) -> Any:
     def reject_constant(value: str) -> None:
         raise ValueError(f"{label} contains non-finite JSON value: {value}")
 
-    return json.loads(text, object_pairs_hook=object_pairs, parse_constant=reject_constant)
+    payload = json.loads(
+        text,
+        object_pairs_hook=object_pairs,
+        parse_constant=reject_constant,
+    )
+
+    def reject_non_finite(value: Any, *, location: str) -> None:
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(
+                f"{label} contains non-finite JSON number at {location}"
+            )
+        if isinstance(value, Mapping):
+            for key, child in value.items():
+                reject_non_finite(child, location=f"{location}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                reject_non_finite(child, location=f"{location}[{index}]")
+
+    reject_non_finite(payload, location="$")
+    return payload
 
 
 def _direct_dependencies(repo_root: Path) -> list[tuple[str, str]]:
@@ -188,6 +299,10 @@ def validate_code_runtime_alignment(code: Mapping[str, Any], identity: Mapping[s
 
 def load_release_manifest(release_dir: str | Path) -> dict[str, Any]:
     path = Path(release_dir) / RELEASE_MANIFEST_NAME
+    _assert_no_link_or_reparse_ancestors(
+        path,
+        label="release manifest",
+    )
     try:
         payload = strict_json_loads(path.read_text(encoding="utf-8"), label="release manifest")
     except FileNotFoundError as exc:
@@ -246,6 +361,7 @@ def _verify_payload_hash(payload: Mapping[str, Any], *, label: str) -> None:
 
 
 def _load_verified_json_sidecar(path: Path, *, label: str) -> dict[str, Any]:
+    _assert_no_link_or_reparse_ancestors(path, label=label)
     try:
         payload = strict_json_loads(path.read_text(encoding="utf-8"), label=label)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -528,6 +644,38 @@ def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _point_in_time_recommendation_selection(
+    route: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Use sealed recommendations for PIT identity, not demoted serving routes."""
+
+    recommendation = route.get("recommendation_route_selection")
+    if not isinstance(recommendation, Mapping):
+        return _point_in_time_route_selection(route)
+
+    normalized: dict[str, Any] = {
+        "verdict": str(recommendation.get("verdict") or "shadow")
+    }
+    for field in ("promote_markets", "shadow_markets", "blocked_markets"):
+        raw_values = recommendation.get(field)
+        if not isinstance(raw_values, list) or any(
+            not isinstance(value, str) or not value
+            for value in raw_values
+        ):
+            raise ReleaseArtifactVerificationError(
+                "release recommendation route selection contains invalid "
+                f"{field}"
+            )
+        values = sorted(set(raw_values))
+        if values != raw_values:
+            raise ReleaseArtifactVerificationError(
+                "release recommendation route selection must contain sorted "
+                f"unique {field}"
+            )
+        normalized[field] = values
+    return normalized
+
+
 def _verify_semantic_contract_after_inventory(
     release_dir: Path,
     inventory: Sequence[Mapping[str, Any]],
@@ -749,7 +897,7 @@ def _verify_semantic_contract_after_inventory(
                 expected_routing_artifact_sha256=str(
                     frozen_candidate_artifacts["routing_sha256"]
                 ),
-                expected_route_selection=_point_in_time_route_selection(
+                expected_route_selection=_point_in_time_recommendation_selection(
                     sidecars["market_route_table"]
                 ),
                 expected_selection_stage_bindings=frozen_stage_bindings,
@@ -792,10 +940,15 @@ def verify_release(
 ) -> dict[str, Any]:
     """Verify manifest structure, every release file/hash, and runtime."""
 
-    release_input = Path(release_dir)
-    if release_input.is_symlink():
+    release_input = _lexical_absolute_path(release_dir)
+    _assert_no_link_or_reparse_ancestors(
+        release_input,
+        label="release directory",
+    )
+    if _is_link_or_reparse_point(release_input):
         raise ReleaseArtifactVerificationError(
-            f"release directory must not be a symlink: {release_input}"
+            "release directory must not be a symlink or reparse point: "
+            f"{release_input}"
         )
     release_dir = release_input.resolve()
     if not release_dir.exists() or not release_dir.is_dir():
@@ -872,7 +1025,15 @@ def verify_release(
                 f"release artifact has invalid byte count: {rel}"
             )
         path = release_dir / rel
-        if not path.exists() or not path.is_file() or path.is_symlink():
+        _assert_no_link_or_reparse_ancestors(
+            path,
+            label=f"release artifact {rel!r}",
+        )
+        if (
+            not path.exists()
+            or not path.is_file()
+            or _is_link_or_reparse_point(path)
+        ):
             raise ReleaseArtifactVerificationError(
                 f"release artifact is missing or invalid: {rel}"
             )
@@ -904,8 +1065,10 @@ def verify_release(
         for path in release_dir.rglob("*")
         if path.is_file() and path != release_dir / RELEASE_MANIFEST_NAME
     }
-    if any(path.is_symlink() for path in release_dir.rglob("*")):
-        raise ReleaseArtifactVerificationError("release contains a symlink")
+    if any(_is_link_or_reparse_point(path) for path in release_dir.rglob("*")):
+        raise ReleaseArtifactVerificationError(
+            "release contains a symlink or reparse point"
+        )
     if actual_paths != expected_paths:
         raise ReleaseArtifactVerificationError(
             "release file set does not match manifest; "
@@ -1017,10 +1180,15 @@ def _parse_utc(value: Any, *, field: str) -> None:
 def load_active_release_pointer(
     pointer_path: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
 ) -> dict[str, Any]:
-    path = Path(pointer_path)
-    if path.is_symlink():
+    path = _lexical_absolute_path(pointer_path)
+    _assert_no_link_or_reparse_ancestors(
+        path,
+        label="active release pointer",
+    )
+    if _is_link_or_reparse_point(path):
         raise ReleaseArtifactVerificationError(
-            f"active release pointer must not be a symlink: {path}"
+            "active release pointer must not be a symlink or reparse point: "
+            f"{path}"
         )
     try:
         pointer = strict_json_loads(
@@ -1183,12 +1351,10 @@ def resolve_verified_active_release(
     ``require_served_bindings=False``; serving/capture code must not.
     """
 
-    releases_root = Path(releases_root).resolve()
-    pointer_path = Path(pointer_path)
-    if pointer_path.resolve().parent != releases_root:
-        raise ReleaseArtifactVerificationError(
-            "active release pointer must be directly inside the releases root"
-        )
+    pointer_path, releases_root = trusted_active_release_paths(
+        pointer_path=pointer_path,
+        releases_root=releases_root,
+    )
     pointer = load_active_release_pointer(pointer_path)
     verified = verify_release(
         releases_root / pointer["active_release_id"],
@@ -1235,8 +1401,17 @@ def resolve_verified_active_release(
                 "actual served route metadata does not match the release manifest"
             )
         for role, row in sorted(required_roles.items()):
-            actual_path = Path(observed[role]).resolve()
-            if not actual_path.exists() or not actual_path.is_file() or actual_path.is_symlink():
+            actual_input = _lexical_absolute_path(observed[role])
+            _assert_no_link_or_reparse_ancestors(
+                actual_input,
+                label=f"actual served artifact for role {role!r}",
+            )
+            actual_path = actual_input.resolve()
+            if (
+                not actual_path.exists()
+                or not actual_path.is_file()
+                or _is_link_or_reparse_point(actual_input)
+            ):
                 raise ReleaseArtifactVerificationError(
                     f"actual served artifact for role {role!r} is missing or invalid: {actual_path}"
                 )

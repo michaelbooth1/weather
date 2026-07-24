@@ -7,6 +7,13 @@ from weather.schema_registry_types import SchemaSpec
 
 RESEARCH_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "source_family_ablation_research",
+        "source_family_ablation_v0.2",
+        "weather.backtesting.replay_ablation",
+        "active",
+        "Research-unbound source-family terminal-removal replay with exact pinned-record selection, sealed support accounting, paired Brier/log-loss inference, and no serving authorization.",
+    ),
+    SchemaSpec(
         "workstation_source_ablation_preregistration",
         "workstation_source_ablation_preregistration_v0.3",
         "weather.reporting.research.source_ablation_hardened",
@@ -267,10 +274,47 @@ RESEARCH_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "pool_city_checkpoint_status",
-        "pool_city_checkpoint_status_v0.1",
+        "pool_city_checkpoint_status_v0.2",
         "weather.reporting.research.pool_city_training_benchmark",
         "active",
-        "Resumable task-progress ledger for the scratch-only pool-versus-city density benchmark.",
+        "Self-authenticating resumable task-progress ledger bound to the exact pool-versus-city run and task inventory.",
+        supersedes=("pool_city_checkpoint_status_v0.1",),
+        migration_notes="Legacy unauthenticated status ledgers are intentionally rejected and tasks must be recomputed under the sealed v0.2 run contract.",
+    ),
+    SchemaSpec(
+        "pool_city_checkpoint_status_legacy",
+        "pool_city_checkpoint_status_v0.1",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "retired",
+        "Legacy unauthenticated task-progress ledger retained only for explicit rejection and historical interpretation.",
+    ),
+    SchemaSpec(
+        "pool_city_task_checkpoint",
+        "pool_city_task_checkpoint_v0.2",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "active",
+        "Self-authenticating research task checkpoint bound to the exact code/config, Git, corpus, manifest, feature, grid, run, task, and prediction-key contracts.",
+    ),
+    SchemaSpec(
+        "pool_city_execution_source_closure",
+        "pool_city_execution_source_closure_v0.2",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "active",
+        "Deterministic over-complete repository code, configuration, Git, callable-owner, and runtime dependency closure for pool-versus-city research.",
+    ),
+    SchemaSpec(
+        "pool_city_checkpoint_run_contract",
+        "pool_city_checkpoint_run_contract_v0.2",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "active",
+        "Shared exact execution closure binding every authenticated pool-versus-city task checkpoint.",
+    ),
+    SchemaSpec(
+        "pool_city_task_contract",
+        "pool_city_task_contract_v0.2",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "active",
+        "Per-task feature, scope, and exact prediction-key closure for pool-versus-city checkpoint validation.",
     ),
     SchemaSpec(
         "pool_city_input_manifest",
@@ -278,6 +322,13 @@ RESEARCH_REGISTERED_SCHEMAS = (
         "weather.reporting.research.pool_city_training_benchmark",
         "active",
         "Exact read-only input-file provenance manifest for the pool-versus-city density benchmark.",
+    ),
+    SchemaSpec(
+        "pool_city_read_only_guard_contract",
+        "python_open_and_common_pathname_mutation_v0.2",
+        "weather.reporting.research.pool_city_training_benchmark",
+        "active",
+        "Python-level read and common pathname-mutation guard contract applied while the pool-versus-city corpus is loaded from the mirrored data root.",
     ),
     SchemaSpec(
         "pool_city_runtime_plan",

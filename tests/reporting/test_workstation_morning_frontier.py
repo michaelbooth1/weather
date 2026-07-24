@@ -13,6 +13,7 @@ from weather.reporting.research.workstation_morning_frontier import (
     main,
     render_report,
     validate_paths,
+    write_outputs,
 )
 
 
@@ -107,6 +108,48 @@ def test_build_payload_uses_equal_fleet_dates_and_normalizes_fahrenheit(tmp_path
     assert "Tune ends `2026-06-21`" in render_report(payload)
 
 
+def test_build_payload_rejects_forecast_tracker_replaced_during_read(
+    tmp_path,
+    monkeypatch,
+):
+    market_path = tmp_path / "toronto.json"
+    _write(
+        market_path,
+        _tracker(
+            [
+                _record(
+                    "2026-06-21",
+                    model_p=0.2,
+                    market_p=0.4,
+                    reached=True,
+                    settlement=25,
+                    model_median=23,
+                    market_median=24,
+                )
+            ]
+        ),
+    )
+    original_read_bytes = Path.read_bytes
+
+    def replace_after_read(path):
+        raw = original_read_bytes(path)
+        if path == market_path:
+            path.write_bytes(raw + b" ")
+        return raw
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+
+    with pytest.raises(MorningFrontierError, match="changed during stable read"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+
 def test_city_selection_uses_tune_records_when_full_verdict_and_holdout_conflict(
     tmp_path,
 ):
@@ -170,6 +213,12 @@ def test_city_selection_uses_tune_records_when_full_verdict_and_holdout_conflict
     report = render_report(payload)
     assert "retrospective, split-respecting diagnostic" in report
     assert "not a preregistered or untouched confirmation" in report
+    assert "conflict-city reverses reach direction" in report
+
+    city["holdout"]["equal_fleet_date"]["outcome_minus_model_reach"]["mean"] = 0.4
+    no_reversal_report = render_report(payload)
+    assert "No reported city reverses reach direction" in no_reversal_report
+    assert "conflict-city reverses reach direction" not in no_reversal_report
 
 
 def test_holm_families_preserve_ties_and_expected_adjusted_values():
@@ -278,6 +327,150 @@ def test_missing_market_and_duplicate_records_fail_closed(tmp_path):
             cutoffs=(9,),
             bootstrap_replicates=10,
         )
+
+
+def test_normalized_cutoff_aliases_and_cross_cutoff_settlement_drift_fail_closed(
+    tmp_path,
+):
+    record = _record(
+        "2026-06-21",
+        model_p=0.2,
+        market_p=0.3,
+        reached=True,
+        settlement=25,
+        model_median=24,
+        market_median=25,
+    )
+    aliased = _tracker([record])
+    aliased["per_cutoff"]["09"] = {"records": [record]}
+    _write(tmp_path / "toronto.json", aliased)
+    with pytest.raises(MorningFrontierError, match="duplicate normalized cutoff"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+    drifted = _tracker([record])
+    drifted["per_cutoff"]["11"] = {
+        "records": [{**record, "settlement": 26}]
+    }
+    _write(tmp_path / "toronto.json", drifted)
+    with pytest.raises(MorningFrontierError, match="differs across cutoffs"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9, 11),
+            bootstrap_replicates=10,
+        )
+
+    excluded_drift = _tracker([record])
+    excluded_drift["per_cutoff"]["11"] = {
+        "records": [{**record, "settlement": 26, "model_median": None}]
+    }
+    _write(tmp_path / "toronto.json", excluded_drift)
+    with pytest.raises(MorningFrontierError, match="differs across cutoffs"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9, 11),
+            bootstrap_replicates=10,
+        )
+
+
+def test_date_aliases_duplicate_json_keys_and_nonfinite_json_fail_closed(tmp_path):
+    canonical = _record(
+        "2026-06-21",
+        model_p=0.2,
+        market_p=0.3,
+        reached=True,
+        settlement=25,
+        model_median=24,
+        market_median=25,
+    )
+    compact = {**canonical, "date": "20260621"}
+    _write(tmp_path / "toronto.json", _tracker([canonical, compact]))
+    with pytest.raises(MorningFrontierError, match="duplicate market/cutoff/date"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+    (tmp_path / "toronto.json").write_text(
+        '{"per_cutoff":{"9":{"records":[]}},"per_cutoff":{}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(MorningFrontierError, match="duplicate key"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+    (tmp_path / "toronto.json").write_text(
+        '{"per_cutoff":{"9":{"records":[]}},"value":NaN}',
+        encoding="utf-8",
+    )
+    with pytest.raises(MorningFrontierError, match="non-finite constant"):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+    (tmp_path / "toronto.json").write_text(
+        '{"per_cutoff":{"9":{"records":[{"metrics":{"value":1e999}}]}}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        MorningFrontierError,
+        match=r"non-finite number at \$\.per_cutoff\.9\.records\[0\]\.metrics\.value",
+    ):
+        build_payload(
+            tmp_path,
+            market_units={"toronto": "C"},
+            tune_end=date(2026, 6, 21),
+            holdout_start=date(2026, 6, 22),
+            cutoffs=(9,),
+            bootstrap_replicates=10,
+        )
+
+
+def test_json_completion_leaf_is_written_after_report(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "weather.reporting.research.workstation_morning_frontier.atomic_write_text_exclusive",
+        lambda path, text: calls.append(("report", path, text)),
+    )
+    monkeypatch.setattr(
+        "weather.reporting.research.workstation_morning_frontier.atomic_write_json_exclusive",
+        lambda path, payload: calls.append(("json", path, payload)),
+    )
+
+    write_outputs(
+        {"status": "PASS"},
+        tmp_path / "result.json",
+        tmp_path / "result.md",
+    )
+
+    assert [call[0] for call in calls] == ["report", "json"]
 
 
 def test_invalid_probability_and_overlapping_split_fail_closed(tmp_path):

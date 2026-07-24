@@ -20,6 +20,9 @@ from weather.experiment_contract import (
 from weather.io import read_json, read_jsonl
 from weather.paths import data_path
 from weather.reporting.daily import daily_rollup_freshness
+from weather.reporting.source_gates.source_family_consumer_contract import (
+    source_family_inventory_consumer_contract,
+)
 from weather.schema_registry import schema_version
 
 
@@ -58,6 +61,37 @@ ARTIFACT_FILES = {
     "june23_location_bias_repair": "june23_location_bias_repair_packet.json",
     "experiment_queue_results": "experiment_queue_results.json",
 }
+
+
+def source_family_preflight_signal(preflight):
+    """Describe either blocked families or a fail-closed artifact contract."""
+
+    blocked_families = preflight.get("blocked_families") or []
+    if blocked_families:
+        return (
+            f"Source-family promotion preflight blocked {len(blocked_families)} "
+            f"model-influencing family row(s): {', '.join(blocked_families[:8])}."
+        )
+    evidence_labels = [
+        f"{row.get('artifact') or 'artifact'}={row.get('status') or 'BLOCK'}"
+        for row in (preflight.get("blocking_evidence") or [])
+        if isinstance(row, dict)
+    ]
+    detail = [
+        *evidence_labels,
+        *[
+            str(value)
+            for value in (preflight.get("operational_contract_blockers") or [])
+            if value
+        ],
+    ]
+    return (
+        "Source-family promotion preflight rejected unsafe or stale artifact evidence"
+        + (f": {'; '.join(detail[:8])}" if detail else "")
+        + "."
+    )
+
+
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
 }
@@ -1501,6 +1535,20 @@ def _scorecard(payloads, daily_refresh_summary=None):
     settled_day = payloads.get("settled_day_freshness") or {}
     settled_barrier = payloads.get("settled_day_analysis_barrier") or {}
     source_family_inventory = payloads.get("source_family_inventory") or {}
+    source_inventory_contract = source_family_inventory_consumer_contract(
+        source_family_inventory
+    )
+    if source_inventory_contract["status"] != "PASS":
+        source_family_inventory = dict(source_family_inventory)
+        source_preflight = dict(
+            source_family_inventory.get("promotion_preflight") or {}
+        )
+        source_preflight["status"] = "BLOCK"
+        source_preflight["operational_contract_blockers"] = (
+            source_inventory_contract["blockers"]
+        )
+        source_family_inventory["status"] = "BLOCK"
+        source_family_inventory["promotion_preflight"] = source_preflight
     taker_finalization = payloads.get("taker_finalization_watchdog") or {}
     taker_tail = payloads.get("taker_tail_casebook") or {}
     proper_scoring = payloads.get("proper_scoring_reliability_scorecard") or {}
@@ -1510,6 +1558,11 @@ def _scorecard(payloads, daily_refresh_summary=None):
     backlog = snapshot_eval.get("improvement_backlog") or {}
 
     return {
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Daily scorecard is diagnostic; runtime current-input revalidation is "
+            "required before serving or release authorization."
+        ),
         "labels": label_summary,
         "label_countability": _label_countability_policy(label_summary, settled_barrier),
         "ingest_quality_gate": {
@@ -1744,6 +1797,7 @@ __all__ = [
     "DEFAULT_REPORT_OUT",
     "ARTIFACT_FILES",
     "ARTIFACT_FALLBACK_GLOBS",
+    "source_family_preflight_signal",
     "PRIORITY_ORDER",
     "IMPACT_SORT_KEYS",
     "PROMOTION_MIN_INDEPENDENT_MARKET_DAYS",

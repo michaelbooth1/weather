@@ -6,8 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from weather.reporting.source_gates.source_family_inventory import (
+    DEFAULT_JSON_OUT,
+    DEFAULT_REPORT_OUT,
     FAMILY_SPECS,
     build_source_family_inventory,
     item27_reanalysis_ablation_evidence,
@@ -26,6 +29,10 @@ from weather.sources.open_meteo_archives import (
     OpenMeteoArchiveStore,
     normalize_open_meteo_air_quality_archive,
     normalize_open_meteo_global_model_archive,
+)
+from tests.reporting.source_family_contract_fixtures import (
+    bind_candidate_replay_to_active_release,
+    operational_ablation_payload,
 )
 from weather.sources.nbm_probabilistic_tmax import NBPStationArchiveStore, parse_nbp_station_tmax
 
@@ -53,6 +60,14 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
+def write_operational_ablation(path, variants, *, slice_effects=None):
+    payload = operational_ablation_payload(variants)
+    if slice_effects is not None:
+        payload["slice_effects"] = slice_effects
+        payload["summary"]["slice_effect_count"] = len(slice_effects)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def write_payload_evidence(folder, family, payload, *, snapshot_id, source):
     canonical = json.dumps(
         payload,
@@ -77,6 +92,130 @@ def write_payload_evidence(folder, family, payload, *, snapshot_id, source):
 
 
 class TestSourceFamilyInventory(unittest.TestCase):
+    def test_default_outputs_live_outside_the_mirrored_data_tree(self):
+        self.assertIn("scratch", DEFAULT_JSON_OUT.parts)
+        self.assertIn("scratch", DEFAULT_REPORT_OUT.parts)
+
+    def test_output_publication_rejects_aliases_and_existing_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source_family_ablation.json"
+            source.write_text("{}", encoding="utf-8")
+            payload = {"ablation_json": str(source)}
+
+            with self.assertRaisesRegex(ValueError, "alias one another"):
+                write_outputs(
+                    payload,
+                    json_out=root / "same",
+                    report_out=root / "." / "same",
+                )
+            with self.assertRaisesRegex(ValueError, "aliases source input"):
+                write_outputs(
+                    payload,
+                    json_out=source,
+                    report_out=root / "report.md",
+                )
+
+            existing = root / "existing.json"
+            existing.write_text("do-not-replace", encoding="utf-8")
+            report_out = root / "not-published.md"
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                write_outputs(
+                    payload,
+                    json_out=existing,
+                    report_out=report_out,
+                )
+            self.assertEqual(
+                existing.read_text(encoding="utf-8"),
+                "do-not-replace",
+            )
+            self.assertFalse(report_out.exists())
+
+    def test_output_publication_protects_source_and_read_only_data_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            snapshots_root.mkdir()
+            payload = {"snapshots_root": str(snapshots_root)}
+            with self.assertRaisesRegex(ValueError, "snapshots_root"):
+                write_outputs(
+                    payload,
+                    json_out=snapshots_root / "inventory.json",
+                    report_out=root / "report.md",
+                )
+            backtest_root = root / "backtest-input"
+            backtest_root.mkdir()
+            with self.assertRaisesRegex(ValueError, "backtest_root"):
+                write_outputs(
+                    {"backtest_root": str(backtest_root)},
+                    json_out=root / "outside.json",
+                    report_out=backtest_root / "inventory.md",
+                )
+
+            mirrored_data = root / "mirrored-data"
+            mirrored_data.mkdir()
+            with (
+                mock.patch(
+                    "weather.reporting.source_gates.source_family_inventory.data_path",
+                    return_value=mirrored_data,
+                ),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "mirrored_read_only_data_root",
+                ),
+            ):
+                write_outputs(
+                    {},
+                    json_out=root / "outside.json",
+                    report_out=mirrored_data / "inventory.md",
+                )
+
+    def test_output_publication_serializes_before_report_then_json_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            json_out = root / "inventory.json"
+            report_out = root / "inventory.md"
+            with self.assertRaises((TypeError, ValueError)):
+                write_outputs(
+                    {"nonfinite": float("nan")},
+                    json_out=json_out,
+                    report_out=report_out,
+                )
+            self.assertFalse(json_out.exists())
+            self.assertFalse(report_out.exists())
+
+            calls = []
+
+            def publish_report(path, text):
+                calls.append(("report", Path(path), text))
+                return Path(path)
+
+            def publish_json(path, payload):
+                calls.append(("json", Path(path), payload))
+                return Path(path)
+
+            with (
+                mock.patch(
+                    "weather.reporting.source_gates.source_family_inventory."
+                    "atomic_write_text_exclusive",
+                    side_effect=publish_report,
+                ),
+                mock.patch(
+                    "weather.reporting.source_gates.source_family_inventory."
+                    "atomic_write_json_exclusive",
+                    side_effect=publish_json,
+                ),
+            ):
+                returned_json, returned_report = write_outputs(
+                    {},
+                    json_out=json_out,
+                    report_out=report_out,
+                )
+
+            self.assertEqual([row[0] for row in calls], ["report", "json"])
+            self.assertEqual(returned_json, json_out.resolve())
+            self.assertEqual(returned_report, report_out.resolve())
+
     def test_builds_inventory_with_lineage_missingness_and_preflight(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -214,17 +353,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
             write_csv(folder / "market_ws_events.csv", [{"market_id": "nyc", "event_type": "price_change"}])
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps(
-                    {
-                        "schema_version": "source_family_ablation_v0.1",
-                        "variants": [
-                            {"variant": "nws_grid", "n": 4, "days": 1, "delta": 0.02},
-                            {"variant": "open_meteo", "n": 4, "days": 1, "delta": 0.01},
-                        ],
-                    }
-                ),
-                encoding="utf-8",
+            write_operational_ablation(
+                ablation_json,
+                [
+                    {"variant": "nws_grid", "n": 4, "market_days": 1, "delta": 0.02},
+                    {"variant": "open_meteo", "n": 4, "market_days": 1, "delta": 0.01},
+                ],
             )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
@@ -240,14 +374,14 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             json_out, report_out = write_outputs(
                 payload,
-                json_out=backtest_root / "source_family_inventory.json",
-                report_out=backtest_root / "source_family_inventory_report.md",
+                json_out=root / "output" / "source_family_inventory.json",
+                report_out=root / "output" / "source_family_inventory_report.md",
             )
             rows = {row["family_id"]: row for row in payload["inventory"]}
             json_exists = Path(json_out).exists()
             report_text = Path(report_out).read_text(encoding="utf-8")
 
-        self.assertEqual(payload["schema_version"], "source_family_inventory_v0.1")
+        self.assertEqual(payload["schema_version"], "source_family_inventory_v0.2")
         self.assertEqual(payload["status"], "BLOCK")
         self.assertIn("nws_grid", rows)
         self.assertEqual(rows["nws_grid"]["lineage_status"], "PASS")
@@ -262,6 +396,64 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertGreater(payload["promotion_preflight"]["blocked_family_count"], 0)
         self.assertTrue(json_exists)
         self.assertIn("Source Family Inventory", report_text)
+
+    def test_research_only_ablation_is_globally_blocked_and_rendered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root = root / "snapshots"
+            snapshots_root.mkdir()
+            backtest_root = root / "backtest"
+            backtest_root.mkdir()
+            ablation_json = backtest_root / "source_family_ablation.json"
+            ablation_json.write_text(
+                json.dumps({
+                    "schema_version": "source_family_ablation_v0.2",
+                    "research_only": True,
+                    "promotion_preflight_evidence_authorization": False,
+                    "model_binding": {
+                        "status": "RESEARCH_UNBOUND",
+                        "serving_or_release_authorization": False,
+                    },
+                    "variants": [
+                        {"variant": "metar", "n": 100, "days": 20, "delta": 0.02},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            locations = root / "locations.json"
+            locations.write_text('{"locations": []}', encoding="utf-8")
+
+            payload = build_source_family_inventory(
+                snapshots_root=snapshots_root,
+                archive_root=root / "archive",
+                backtest_root=backtest_root,
+                ablation_json=ablation_json,
+                candidate_replay_json=backtest_root / "missing_candidate.json",
+                locations_config=locations,
+                item27_reanalysis_paths={},
+                item27_required_markets=[],
+                generated_at_utc="2026-07-23T00:00:00+00:00",
+            )
+            _, report_path = write_outputs(
+                payload,
+                json_out=root / "output" / "inventory.json",
+                report_out=root / "output" / "inventory.md",
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        metar = next(row for row in payload["inventory"] if "metar" in row["source_keys"])
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertEqual(payload["ablation_evidence_contract"]["status"], "BLOCK")
+        self.assertEqual(
+            payload["promotion_preflight"]["blocking_evidence"][0]["artifact"],
+            "source_family_ablation",
+        )
+        self.assertEqual(metar["ablation"]["status"], "BLOCKED_UNSAFE_ARTIFACT")
+        self.assertFalse(any(
+            (row.get("promotion_decision") or {}).get("status") == "PROMOTION_CANDIDATE"
+            for row in payload["inventory"]
+        ))
+        self.assertIn("research_only must be explicitly false", report)
 
     def test_open_meteo_air_quality_archive_evidence_updates_inventory_status(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -668,8 +860,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             _json_out, report_out = write_outputs(
                 payload,
-                json_out=backtest_root / "source_family_inventory.json",
-                report_out=backtest_root / "source_family_inventory_report.md",
+                json_out=root / "output" / "source_family_inventory.json",
+                report_out=root / "output" / "source_family_inventory_report.md",
             )
             report_text = Path(report_out).read_text(encoding="utf-8")
 
@@ -963,15 +1155,16 @@ class TestSourceFamilyInventory(unittest.TestCase):
             write_csv(folder / "market_ws_events.csv", [{"market_id": "nyc", "event_type": "price_change"}])
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps(
+            write_operational_ablation(
+                ablation_json,
+                [
                     {
-                        "variants": [
-                            {"variant": "clob_microstructure", "n": 2, "days": 1, "delta": 0.01},
-                        ],
-                    }
-                ),
-                encoding="utf-8",
+                        "variant": "clob_microstructure",
+                        "n": 2,
+                        "market_days": 1,
+                        "delta": 0.01,
+                    },
+                ],
             )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
@@ -993,7 +1186,10 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(clob["lineage_status"], "PASS")
         self.assertEqual(clob["train_serve_parity_status"], "PASS")
         self.assertGreater(clob["feature_missingness"]["missing_rate"], 0.5)
-        self.assertEqual(clob["promotion_decision"]["status"], "PROMOTION_CANDIDATE")
+        self.assertEqual(
+            clob["promotion_decision"]["status"],
+            "BLOCK_MISSING_ABLATION",
+        )
 
     def test_promotion_preflight_only_blocks_active_artifact_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1042,15 +1238,20 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps({"variants": [{"variant": "all_forecasts", "n": 4, "days": 1, "delta": 0.01}]}),
-                encoding="utf-8",
+            write_operational_ablation(
+                ablation_json,
+                [{"variant": "all_forecasts", "n": 4, "market_days": 1, "delta": 0.01}],
             )
             artifact = backtest_root / "artifact.pkl"
             with artifact.open("wb") as handle:
                 pickle.dump({"models": {"7": {"feature_names": ["band_value"]}}}, handle)
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1060,6 +1261,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths={},
                 item27_required_markets=[],
@@ -1072,7 +1275,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertFalse(rows["nws_grid"]["model_influence"])
         self.assertEqual(rows["nws_grid"]["active_model_usage_status"], "NOT_USED_BY_ACTIVE_ARTIFACT")
         self.assertEqual(rows["nws_grid"]["promotion_decision"]["status"], "BLOCK_LINEAGE")
-        self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
+        self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
+        self.assertEqual(payload["ablation_evidence_contract"]["status"], "BLOCK")
 
     def test_promotion_preflight_requires_only_active_artifact_feature_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1124,9 +1328,9 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps({"variants": [{"variant": "all_forecasts", "n": 4, "days": 1, "delta": 0.01}]}),
-                encoding="utf-8",
+            write_operational_ablation(
+                ablation_json,
+                [{"variant": "all_forecasts", "n": 4, "market_days": 1, "delta": 0.01}],
             )
             artifact = backtest_root / "artifact.pkl"
             with artifact.open("wb") as handle:
@@ -1146,7 +1350,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
                     handle,
                 )
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1156,6 +1365,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths={},
                 item27_required_markets=[],
@@ -1168,8 +1379,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertEqual(forecast["train_serve_parity_status"], "PASS")
         self.assertEqual(forecast["missing_required_parity_feature_columns"], [])
         self.assertIn("forecast_robust_high", forecast["missing_feature_columns"])
-        self.assertEqual(forecast["promotion_decision"]["status"], "PROMOTION_CANDIDATE")
-        self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
+        self.assertEqual(
+            forecast["promotion_decision"]["status"],
+            "BLOCK_UNSAFE_ABLATION",
+        )
+        self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
+        self.assertEqual(payload["ablation_evidence_contract"]["status"], "BLOCK")
 
     def test_promotion_preflight_blocks_missing_lineage_for_active_artifact_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1192,15 +1407,20 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps({"variants": [{"variant": "nws_grid", "n": 4, "days": 1, "delta": 0.01}]}),
-                encoding="utf-8",
+            write_operational_ablation(
+                ablation_json,
+                [{"variant": "nws_grid", "n": 4, "market_days": 1, "delta": 0.01}],
             )
             artifact = backtest_root / "artifact.pkl"
             with artifact.open("wb") as handle:
                 pickle.dump({"models": {"7": {"feature_names": ["nws_grid_high"]}}}, handle)
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1210,6 +1430,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths={},
                 item27_required_markets=[],
@@ -1270,8 +1492,27 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            ablation_json = backtest_root / "source_family_ablation.json"
+            ablation_json.parent.mkdir(parents=True, exist_ok=True)
+            write_operational_ablation(
+                ablation_json,
+                [
+                    {
+                        "variant": "reanalysis_synoptic",
+                        "n": 4,
+                        "market_days": 1,
+                        "delta": 0.01,
+                    },
+                    {
+                        "variant": "all_forecasts",
+                        "n": 4,
+                        "market_days": 1,
+                        "delta": 0.01,
+                    },
+                ],
+            )
             artifact = backtest_root / "artifact.pkl"
-            artifact.parent.mkdir(parents=True)
+            artifact.parent.mkdir(parents=True, exist_ok=True)
             with artifact.open("wb") as handle:
                 pickle.dump(
                     {
@@ -1290,7 +1531,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
                     handle,
                 )
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1299,7 +1545,10 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 archive_root=root / "archive",
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
+                ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths=ablation_paths,
                 item27_required_markets=["austin", "nyc"],
@@ -1341,9 +1590,9 @@ class TestSourceFamilyInventory(unittest.TestCase):
             )
             ablation_json = backtest_root / "source_family_ablation.json"
             ablation_json.parent.mkdir(parents=True)
-            ablation_json.write_text(
-                json.dumps({"variants": [{"variant": "nws_grid", "n": 4, "days": 1, "delta": 0.01}]}),
-                encoding="utf-8",
+            write_operational_ablation(
+                ablation_json,
+                [{"variant": "nws_grid", "n": 4, "market_days": 1, "delta": 0.01}],
             )
             artifact = backtest_root / "artifact.pkl"
             with artifact.open("wb") as handle:
@@ -1359,7 +1608,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
                     handle,
                 )
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1369,6 +1623,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 backtest_root=backtest_root,
                 ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths={},
                 item27_required_markets=[],
@@ -1379,7 +1635,8 @@ class TestSourceFamilyInventory(unittest.TestCase):
         self.assertFalse(rows["nws_grid"]["model_influence"])
         self.assertEqual(rows["nws_grid"]["active_model_feature_columns"], [])
         self.assertEqual(rows["nws_grid"]["active_model_usage_status"], "NOT_USED_BY_ACTIVE_ARTIFACT")
-        self.assertEqual(payload["promotion_preflight"]["status"], "PASS")
+        self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
+        self.assertEqual(payload["ablation_evidence_contract"]["status"], "BLOCK")
 
     def test_reanalysis_parity_missingness_uses_active_retained_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1424,8 +1681,27 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            ablation_json = backtest_root / "source_family_ablation.json"
+            ablation_json.parent.mkdir(parents=True, exist_ok=True)
+            write_operational_ablation(
+                ablation_json,
+                [
+                    {
+                        "variant": "reanalysis_synoptic",
+                        "n": 4,
+                        "market_days": 1,
+                        "delta": 0.01,
+                    },
+                    {
+                        "variant": "all_forecasts",
+                        "n": 4,
+                        "market_days": 1,
+                        "delta": 0.01,
+                    },
+                ],
+            )
             artifact = backtest_root / "artifact.pkl"
-            artifact.parent.mkdir(parents=True)
+            artifact.parent.mkdir(parents=True, exist_ok=True)
             with artifact.open("wb") as handle:
                 pickle.dump(
                     {
@@ -1438,7 +1714,12 @@ class TestSourceFamilyInventory(unittest.TestCase):
                     handle,
                 )
             candidate_replay = backtest_root / "candidate_replay.json"
-            candidate_replay.write_text(json.dumps({"artifact": {"path": str(artifact)}}), encoding="utf-8")
+            active_release_pointer = bind_candidate_replay_to_active_release(
+                root,
+                ablation_path=ablation_json,
+                candidate_replay_path=candidate_replay,
+                model_bytes=artifact.read_bytes(),
+            )
             locations_config = root / "locations.json"
             locations_config.write_text(json.dumps({"locations": []}), encoding="utf-8")
 
@@ -1447,7 +1728,10 @@ class TestSourceFamilyInventory(unittest.TestCase):
                 archive_root=root / "archive",
                 reanalysis_root=reanalysis_root,
                 backtest_root=backtest_root,
+                ablation_json=ablation_json,
                 candidate_replay_json=candidate_replay,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
                 locations_config=locations_config,
                 item27_reanalysis_paths={"nyc": ablation_path},
                 item27_required_markets=["nyc"],

@@ -1,5 +1,6 @@
 import csv
 import json
+from unittest.mock import patch
 
 from weather.reporting.research.item186_soil_antecedent_gate import (
     SCHEMA_VERSION,
@@ -8,6 +9,7 @@ from weather.reporting.research.item186_soil_antecedent_gate import (
     build_payload,
     write_outputs,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 FIELDNAMES = ["schema_version", "market_id", "local_date", *SOIL_COLUMNS, *WATER_COLUMNS]
@@ -41,9 +43,8 @@ def write_sidecar(root, station, market_id, *, water=False):
 def write_source_inventory(path):
     write_json(
         path,
-        {
-            "schema_version": "source_family_inventory_v0.1",
-            "inventory": [
+        operational_inventory(
+            [
                 {
                     "family_id": "reanalysis_synoptic",
                     "train_serve_parity_status": "PASS",
@@ -56,8 +57,8 @@ def write_source_inventory(path):
                     },
                     "feature_columns": [*SOIL_COLUMNS, *WATER_COLUMNS],
                 }
-            ],
-        },
+            ]
+        ),
     )
 
 
@@ -68,18 +69,24 @@ def test_item186_gate_blocks_missing_water_backfill_and_settlement_gate(tmp_path
     inventory = tmp_path / "source_family_inventory.json"
     write_source_inventory(inventory)
 
-    payload = build_payload(
-        reanalysis_root=root,
-        source_family_inventory=inventory,
-        settlement_gate=tmp_path / "missing_settlement.json",
-        min_markets=2,
-    )
+    with patch(
+        "weather.reporting.research.item186_soil_antecedent_gate."
+        "source_family_inventory_consumer_contract",
+        return_value={"status": "PASS", "blockers": []},
+    ):
+        payload = build_payload(
+            reanalysis_root=root,
+            source_family_inventory=inventory,
+            settlement_gate=tmp_path / "missing_settlement.json",
+            min_markets=2,
+        )
     _, report = write_outputs(payload, tmp_path / "out.json", tmp_path / "out.md")
 
     blockers = {gate["gate"] for gate in payload["blockers"]}
     passes = {gate["gate"] for gate in payload["gates"] if gate["status"] == "PASS"}
     assert payload["schema_version"] == SCHEMA_VERSION
     assert payload["status"] == "BLOCK"
+    assert payload["serving_or_release_authorization"] is False
     assert payload["disposition"] == "KEEP_SHADOW_DIAGNOSTIC"
     assert "sidecar_file_inventory" in passes
     assert "soil_anomaly_feature_coverage" in passes
@@ -88,7 +95,9 @@ def test_item186_gate_blocks_missing_water_backfill_and_settlement_gate(tmp_path
     assert "settlement_scored_family_gate" in blockers
     assert "positive_market_promotion_policy" in blockers
     assert payload["coverage"]["water_complete_rows"] == 0
-    assert "Item 186 Soil Antecedent-Water Gate" in report.read_text(encoding="utf-8")
+    report_text = report.read_text(encoding="utf-8")
+    assert "Item 186 Soil Antecedent-Water Gate" in report_text
+    assert "runtime current-input revalidation is required" in report_text
 
 
 def test_item186_gate_can_pass_with_water_coverage_and_positive_market_lane(tmp_path):
@@ -116,14 +125,20 @@ def test_item186_gate_can_pass_with_water_coverage_and_positive_market_lane(tmp_
         },
     )
 
-    payload = build_payload(
-        reanalysis_root=root,
-        source_family_inventory=inventory,
-        settlement_gate=settlement,
-        min_markets=2,
-    )
+    with patch(
+        "weather.reporting.research.item186_soil_antecedent_gate."
+        "source_family_inventory_consumer_contract",
+        return_value={"status": "PASS", "blockers": []},
+    ):
+        payload = build_payload(
+            reanalysis_root=root,
+            source_family_inventory=inventory,
+            settlement_gate=settlement,
+            min_markets=2,
+        )
 
     assert payload["status"] == "PASS"
+    assert payload["serving_or_release_authorization"] is False
     assert payload["promotion_allowed"] is True
     assert payload["disposition"] == "PROMOTION_READY"
     assert payload["coverage"]["water_complete_rows"] == 2

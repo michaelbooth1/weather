@@ -230,7 +230,10 @@ def _manifest_for_entries(
     output["entries"] = [dict(entry) for entry in entries]
     output["skipped"] = []
     output["source_corpus_hash"] = manifest.get("corpus_hash")
-    output["corpus_hash"] = corpus_hash(output["entries"])
+    output["corpus_hash"] = corpus_hash(
+        output["entries"],
+        schema_version=manifest.get("schema_version") or "promotion_corpus_v0.1",
+    )
     return output
 
 
@@ -250,7 +253,11 @@ def load_tune_only_manifest(path: Path) -> tuple[dict[str, Any], list[dict[str, 
     receipt = _input_receipt(path)
     if receipt["sha256"] != EXPECTED_TUNE_CORPUS_FILE_SHA256:
         raise Gen2ReplayError("tune-only corpus file hash differs from preregistration")
-    manifest = load_manifest(path, max_bytes=MAX_RESULT_BYTES)
+    manifest = load_manifest(
+        path,
+        max_bytes=MAX_RESULT_BYTES,
+        allow_research_materialization=True,
+    )
     manifest.pop("_path", None)
     materialization = manifest.get("materialization") or {}
     if (

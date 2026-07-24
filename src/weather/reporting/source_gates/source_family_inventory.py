@@ -8,15 +8,21 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import pickle
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.backtesting.settled_days import folder_market_id
-from weather.io import read_json, write_json_atomic
+from weather.execution_identity import (
+    atomic_write_json_exclusive,
+    atomic_write_text_exclusive,
+)
+from weather.io import read_json
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import REGISTRY
 from weather.operations.closed_market_day_archive import (
@@ -33,7 +39,25 @@ from weather.model.feature_store import (
     REANALYSIS_SYNOPTIC_FEATURE_COLUMNS,
     US_GUIDANCE_FEATURE_COLUMNS,
 )
-from weather.paths import config_path, data_path
+from weather.paths import config_path, data_path, repo_path
+from weather.release_artifacts import (
+    DEFAULT_ACTIVE_RELEASE_POINTER,
+    DEFAULT_RELEASES_ROOT,
+)
+from weather.reporting.source_gates.source_family_contracts import (
+    EXPECTED_SOURCE_FAMILY_ABLATION_VARIANTS,
+    EXPECTED_SOURCE_FAMILY_IDS,
+    source_ablation_operational_contract,
+)
+from weather.reporting.source_gates.source_artifact_binding import (
+    artifact_path_from_candidate_replay,
+    artifact_reanalysis_lane,
+    candidate_replay_model_bytes as _candidate_replay_model_bytes,
+    collect_artifact_feature_names,
+    stable_json_artifact,
+    verify_current_active_release_binding,
+    verify_current_candidate_artifact,
+)
 from weather.reporting.source_gates.source_family_inventory_report import write_report
 from weather.schema_registry import schema_version
 from weather.sources.marine_water_contrast import (
@@ -63,8 +87,9 @@ DEFAULT_REANALYSIS_ROOT = data_path() / "reanalysis"
 DEFAULT_MARINE_WATER_CONTRAST_SIDECAR_ROOT = DEFAULT_MARINE_WATER_CONTRAST_ROOT
 DEFAULT_NBM_STATION_ARCHIVE_ROOT = data_path() / "nbm_probabilistic_tmax"
 DEFAULT_OPEN_METEO_ARCHIVE_ROOT = data_path() / "open_meteo_archives"
-DEFAULT_JSON_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory.json"
-DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "source_family_inventory_report.md"
+DEFAULT_OUTPUT_ROOT = repo_path("scratch") / "research-output"
+DEFAULT_JSON_OUT = DEFAULT_OUTPUT_ROOT / "source_family_inventory.json"
+DEFAULT_REPORT_OUT = DEFAULT_OUTPUT_ROOT / "source_family_inventory_report.md"
 DEFAULT_ABLATION_JSON = DEFAULT_BACKTEST_ROOT / "source_family_ablation.json"
 DEFAULT_CANDIDATE_REPLAY_JSON = DEFAULT_BACKTEST_ROOT / "pooled_candidate_replay_latest.json"
 DEFAULT_LOCATIONS_CONFIG = config_path("locations.json")
@@ -270,6 +295,13 @@ FAMILY_SPECS = (
         "market microstructure",
     ),
 )
+
+if tuple(spec.family_id for spec in FAMILY_SPECS) != EXPECTED_SOURCE_FAMILY_IDS:
+    raise RuntimeError("source-family contract IDs do not match FAMILY_SPECS")
+if {
+    spec.family_id: spec.ablation_variants for spec in FAMILY_SPECS
+} != EXPECTED_SOURCE_FAMILY_ABLATION_VARIANTS:
+    raise RuntimeError("source-family ablation variants do not match safety contract")
 
 
 def utc_iso():
@@ -984,7 +1016,7 @@ def item27_reanalysis_ablation_evidence(paths_by_market=None, required_markets=N
     }
 
 
-def ablation_for_spec(spec, ablations):
+def ablation_for_spec(spec, ablations, unusable_artifact_contract=None):
     for variant in spec.ablation_variants:
         row = ablations.get(variant)
         if row:
@@ -993,19 +1025,34 @@ def ablation_for_spec(spec, ablations):
                 "variant": variant,
                 "settlement_scored": True,
                 "rows": row.get("n") or row.get("rows"),
-                "days": row.get("days"),
+                "days": row.get("market_days", row.get("days")),
                 "delta": row.get("delta"),
                 "base_brier": row.get("base_brier"),
                 "variant_brier": row.get("variant_brier"),
-                "days_source_helped": row.get("days_source_helped"),
-                "days_source_hurt": row.get("days_source_hurt"),
+                "days_source_helped": row.get(
+                    "market_days_source_helped", row.get("days_source_helped")
+                ),
+                "days_source_hurt": row.get(
+                    "market_days_source_hurt", row.get("days_source_hurt")
+                ),
                 "evidence_source": row.get("evidence_source"),
+                "evidence_contract": row.get("evidence_contract"),
                 "markets_scored": row.get("markets_scored"),
                 "market_gate_paths": row.get("market_gate_paths"),
                 "market_details": row.get("market_details"),
                 "positive_markets": row.get("positive_markets"),
                 "blocked_markets": row.get("blocked_markets"),
             }
+    if (unusable_artifact_contract or {}).get("status") == "BLOCK":
+        return {
+            "status": "BLOCKED_UNSAFE_ARTIFACT",
+            "variant": next(iter(spec.ablation_variants), None),
+            "settlement_scored": False,
+            "rows": 0,
+            "days": 0,
+            "delta": None,
+            "evidence_contract": unusable_artifact_contract,
+        }
     return {
         "status": "MISSING",
         "variant": next(iter(spec.ablation_variants), None),
@@ -1016,73 +1063,15 @@ def ablation_for_spec(spec, ablations):
     }
 
 
-def artifact_path_from_candidate_replay(payload):
-    artifact = (payload or {}).get("artifact") or {}
-    path = artifact.get("path") or artifact.get("artifact_path")
-    if not path:
-        return None
-    return Path(path)
-
-
-def _is_missing_imputer_stat(value):
-    try:
-        return bool(math.isnan(float(value)))
-    except (TypeError, ValueError):
-        return False
-
-
-def _retained_feature_names(bundle, names):
-    imputer = bundle.get("imputer") if isinstance(bundle, dict) else None
-    statistics = getattr(imputer, "statistics_", None)
-    if statistics is None:
-        return set(names)
-    stats = list(statistics)
-    if len(stats) != len(names):
-        return set(names)
-    return {
-        name
-        for name, stat in zip(names, stats)
-        if not _is_missing_imputer_stat(stat)
-    }
-
-
-def collect_artifact_feature_names(artifact):
-    names = set()
-    if not isinstance(artifact, dict):
-        return names
-    for key in ("feature_names", "feature_columns", "features", "numeric_features", "categorical_features"):
-        values = artifact.get(key)
-        if isinstance(values, (list, tuple, set)):
-            raw_names = [str(value) for value in values if value]
-            names.update(_retained_feature_names(artifact, raw_names))
-    models = artifact.get("models") or {}
-    if isinstance(models, dict):
-        for bundle in models.values():
-            if isinstance(bundle, dict):
-                names.update(collect_artifact_feature_names(bundle))
-    return names
-
-
-def artifact_reanalysis_lane(artifact):
-    if not isinstance(artifact, dict):
-        return None
-    direct = artifact.get("reanalysis_promotion_lane")
-    if isinstance(direct, dict):
-        return direct
-    lanes = artifact.get("source_family_lanes") or {}
-    lane = lanes.get("reanalysis_synoptic") if isinstance(lanes, dict) else None
-    if isinstance(lane, dict):
-        return lane
-    models = artifact.get("models") or {}
-    if isinstance(models, dict):
-        for bundle in models.values():
-            lane = artifact_reanalysis_lane(bundle)
-            if lane:
-                return lane
-    return None
-
-
-def active_model_usage(candidate_replay_payload):
+def active_model_usage(
+    candidate_replay_payload,
+    *,
+    candidate_replay_receipt=None,
+    ablation_payload=None,
+    active_release_verification=None,
+    active_release_pointer=DEFAULT_ACTIVE_RELEASE_POINTER,
+    active_releases_root=DEFAULT_RELEASES_ROOT,
+):
     path = artifact_path_from_candidate_replay(candidate_replay_payload)
     result = {
         "status": "MISSING",
@@ -1092,27 +1081,61 @@ def active_model_usage(candidate_replay_payload):
         "active_overlay_families": [],
         "reanalysis_promotion_lane": None,
         "error": None,
+        "verification": {
+            "status": "BLOCK",
+            "blockers": ["candidate replay/model artifact verification was not run"],
+        },
     }
-    if path and path.exists():
+    if candidate_replay_payload:
+        raw, verification = _candidate_replay_model_bytes(
+            candidate_replay_payload,
+            candidate_replay_receipt=candidate_replay_receipt,
+            ablation_payload=ablation_payload,
+            active_release_verification=active_release_verification,
+            active_release_pointer=active_release_pointer,
+            active_releases_root=active_releases_root,
+        )
+        result["verification"] = verification
+        if verification["status"] != "PASS":
+            result.update(
+                {
+                    "status": "BLOCK_UNTRUSTED",
+                    "error": "; ".join(verification.get("blockers") or []),
+                }
+            )
+        else:
+            try:
+                artifact = pickle.loads(raw)
+                names = collect_artifact_feature_names(artifact)
+                reanalysis_lane = artifact_reanalysis_lane(artifact)
+                result.update({
+                    "status": "PRESENT",
+                    "feature_count": len(names),
+                    "feature_names": sorted(names),
+                    "reanalysis_promotion_lane": reanalysis_lane,
+                })
+            except Exception as exc:  # noqa: BLE001 - verified bytes may still be malformed
+                result.update({"status": "ERROR", "error": str(exc)})
+                result["verification"] = {
+                    **verification,
+                    "status": "BLOCK",
+                    "blockers": [
+                        *(verification.get("blockers") or []),
+                        f"verified candidate artifact could not be deserialized: {exc}",
+                    ],
+                }
+    elif path:
         try:
-            with path.open("rb") as handle:
-                artifact = pickle.load(handle)
-            names = collect_artifact_feature_names(artifact)
-            reanalysis_lane = artifact_reanalysis_lane(artifact)
-            result.update({
-                "status": "PRESENT",
-                "feature_count": len(names),
-                "feature_names": sorted(names),
-                "reanalysis_promotion_lane": reanalysis_lane,
-            })
-        except Exception as exc:  # noqa: BLE001 - inventory should degrade conservatively
+            path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
             result.update({"status": "ERROR", "error": str(exc)})
 
     active_overlay_families = set()
-    micro = (candidate_replay_payload or {}).get("microstructure") or {}
-    aggregate = micro.get("aggregate") or {}
-    if aggregate.get("n"):
-        active_overlay_families.add("clob_microstructure")
+    if result["verification"].get("status") == "PASS":
+        micro = (candidate_replay_payload or {}).get("microstructure") or {}
+        aggregate = micro.get("aggregate") or {}
+        if aggregate.get("n"):
+            active_overlay_families.add("clob_microstructure")
     result["active_overlay_families"] = sorted(active_overlay_families)
     return result
 
@@ -1289,6 +1312,13 @@ def promotion_decision(spec, lineage, parity, ablation):
             "reason": parity,
             "action": "Backfill historical feature rows or keep the family diagnostic-only.",
         }
+    if ablation.get("status") == "BLOCKED_UNSAFE_ARTIFACT":
+        contract = ablation.get("evidence_contract") or {}
+        return {
+            "status": "BLOCK_UNSAFE_ABLATION",
+            "reason": "; ".join(contract.get("blockers") or ["Ablation artifact is not operationally eligible."]),
+            "action": "Keep research-only or unbound ablation evidence outside operational promotion inputs.",
+        }
     if ablation.get("status") != "PRESENT":
         return {
             "status": "BLOCK_MISSING_ABLATION",
@@ -1296,10 +1326,18 @@ def promotion_decision(spec, lineage, parity, ablation):
             "action": "Run source-family ablation and attach data/backtest/source_family_ablation.json.",
         }
     delta = ablation.get("delta")
-    if delta is not None and delta <= 0:
+    try:
+        positive_finite_lift = math.isfinite(float(delta)) and float(delta) > 0
+    except (TypeError, ValueError):
+        positive_finite_lift = False
+    if not positive_finite_lift:
         return {
             "status": "HOLD_NO_LIFT",
-            "reason": f"Knockout delta {delta:+.4f} does not show durable lift.",
+            "reason": (
+                f"Knockout delta {float(delta):+.4f} does not show durable lift."
+                if isinstance(delta, (int, float)) and math.isfinite(float(delta))
+                else "Knockout delta is missing or non-finite."
+            ),
             "action": "Keep out of promotion until a settled slice shows positive value.",
         }
     return {
@@ -1371,6 +1409,7 @@ def inventory_rows(
     model_usage=None,
     nbm_station_archive=None,
     archive_evidence=None,
+    unusable_ablation_contract=None,
 ):
     ablations = ablation_by_variant(ablation_payload)
     archive_evidence = archive_evidence or {}
@@ -1386,7 +1425,11 @@ def inventory_rows(
             family_archive=family_archive,
         )
         parity = parity_status(spec, stats, lineage, usage=usage, live_only_policy=live_only_policy)
-        ablation = ablation_for_spec(spec, ablations)
+        ablation = ablation_for_spec(
+            spec,
+            ablations,
+            unusable_artifact_contract=unusable_ablation_contract,
+        )
         decision = promotion_decision(spec, lineage, parity, ablation)
         historical_archive_status = (
             family_archive.get("historical_archive_status")
@@ -1568,25 +1611,40 @@ def promotion_preflight(
     backtest_root=DEFAULT_BACKTEST_ROOT,
     ablation_json=DEFAULT_ABLATION_JSON,
     candidate_replay_json=DEFAULT_CANDIDATE_REPLAY_JSON,
+    ablation_contract=None,
 ):
     blocked = [
         row
         for row in rows
         if row.get("model_influence")
-        and str((row.get("promotion_decision") or {}).get("status") or "").startswith("BLOCK")
+        and (
+            (row.get("promotion_decision") or {}).get("status")
+            != "PROMOTION_CANDIDATE"
+            or (
+                row.get("family_id") == "reanalysis_synoptic"
+                and str(
+                    (row.get("artifact_lane_consistency") or {}).get("status")
+                    or ""
+                ).startswith("BLOCK")
+            )
+        )
     ]
-    reanalysis_lane_blocks = [
-        row
-        for row in rows
-        if row.get("family_id") == "reanalysis_synoptic"
-        and row.get("model_influence")
-        and str((row.get("artifact_lane_consistency") or {}).get("status") or "").startswith("BLOCK")
-    ]
-    blocked = [*blocked, *reanalysis_lane_blocks]
+    artifact_blocked = (ablation_contract or {}).get("status") != "PASS"
     return {
-        "status": "BLOCK" if blocked else "PASS",
+        "status": "BLOCK" if blocked or artifact_blocked else "PASS",
         "blocked_family_count": len(blocked),
         "blocked_families": [row["family_id"] for row in blocked],
+        "ablation_evidence_contract": ablation_contract or {},
+        "blocking_evidence_count": int(artifact_blocked),
+        "blocking_evidence": (
+            [{
+                "artifact": "source_family_ablation",
+                "status": (ablation_contract or {}).get("status") or "MISSING",
+                "blockers": (ablation_contract or {}).get("blockers") or [],
+            }]
+            if artifact_blocked
+            else []
+        ),
         "blocking_rows": [
             {
                 "family_id": row["family_id"],
@@ -1612,6 +1670,10 @@ def promotion_preflight(
         ),
         "ablation_command": (
             "python -m weather.backtesting.replay_ablation "
+            "--operational-evidence "
+            "--corpus data/backtest/promotion_corpus.json "
+            "--tune-dates-file <tune-dates.txt> "
+            "--holdout-dates-file <holdout-dates.txt> "
             "--json-out data/backtest/source_family_ablation.json"
         ),
     }
@@ -1634,6 +1696,8 @@ def build_source_family_inventory(
     prefer_archive=True,
     item27_reanalysis_paths=None,
     item27_required_markets=None,
+    active_release_pointer=DEFAULT_ACTIVE_RELEASE_POINTER,
+    active_releases_root=DEFAULT_RELEASES_ROOT,
     generated_at_utc=None,
 ):
     stats_by_family = {spec.family_id: stats_template() for spec in FAMILY_SPECS}
@@ -1690,9 +1754,48 @@ def build_source_family_inventory(
         )
     scan_reanalysis_sidecars(reanalysis_root, stats_by_family)
     scan_marine_water_contrast_sidecars(marine_water_contrast_root, stats_by_family)
-    ablation_payload = read_json(ablation_json, default={}) or {}
-    candidate_replay_payload = read_json(candidate_replay_json, default={}) or {}
-    model_usage = active_model_usage(candidate_replay_payload)
+    ablation_payload, ablation_input_receipt = stable_json_artifact(ablation_json)
+    ablation_contract = source_ablation_operational_contract(ablation_payload)
+    if ablation_input_receipt["status"] != "PASS":
+        input_is_absent = not Path(ablation_json).exists()
+        ablation_contract = {
+            **ablation_contract,
+            "status": "MISSING" if input_is_absent else "BLOCK",
+            "blockers": [
+                *(ablation_contract.get("blockers") or []),
+                *(ablation_input_receipt.get("blockers") or [
+                    "source-family ablation input receipt is not PASS"
+                ]),
+            ],
+        }
+    candidate_artifact_verification = verify_current_candidate_artifact(
+        ablation_payload,
+    )
+    if candidate_artifact_verification["status"] != "PASS":
+        ablation_contract = {
+            **ablation_contract,
+            "status": "BLOCK",
+            "blockers": [
+                *(ablation_contract.get("blockers") or []),
+                *(candidate_artifact_verification.get("blockers") or []),
+            ],
+        }
+    candidate_replay_payload, candidate_replay_input_receipt = (
+        stable_json_artifact(candidate_replay_json)
+    )
+    active_release_verification = verify_current_active_release_binding(
+        ablation_payload,
+        pointer_path=active_release_pointer,
+        releases_root=active_releases_root,
+    )
+    model_usage = active_model_usage(
+        candidate_replay_payload,
+        candidate_replay_receipt=candidate_replay_input_receipt,
+        ablation_payload=ablation_payload,
+        active_release_verification=active_release_verification,
+        active_release_pointer=active_release_pointer,
+        active_releases_root=active_releases_root,
+    )
     item27_reanalysis = (
         item27_reanalysis_ablation_evidence(
             item27_reanalysis_paths,
@@ -1701,12 +1804,24 @@ def build_source_family_inventory(
         if item27_reanalysis_paths is not None
         else item27_reanalysis_ablation_evidence()
     )
-    merged_ablation_payload = {
-        "variants": list(ablation_by_variant(ablation_payload, candidate_replay_payload).values())
-    }
+    merged_ablation_rows = {}
+    if ablation_contract["status"] == "PASS":
+        merged_ablation_rows = {
+            variant: {
+                **row,
+                "source_evidence_source": row.get("evidence_source"),
+                "evidence_source": "source_family_ablation",
+                "evidence_contract": ablation_contract,
+            }
+            for variant, row in ablation_by_variant(ablation_payload).items()
+        }
+    merged_ablation_rows.update(
+        candidate_replay_evidence_by_variant(candidate_replay_payload)
+    )
     if item27_reanalysis:
-        merged_ablation_payload["variants"].append(item27_reanalysis)
-    merged_ablation_count = len(ablation_by_variant(merged_ablation_payload))
+        merged_ablation_rows[item27_reanalysis["variant"]] = item27_reanalysis
+    merged_ablation_payload = {"variants": list(merged_ablation_rows.values())}
+    merged_ablation_count = len(merged_ablation_rows)
     nbm_station_archive = nbp_station_archive_summary(nbm_station_archive_root)
     archive_evidence = archive_evidence_by_family(open_meteo_archive_root)
     rows = inventory_rows(
@@ -1715,6 +1830,9 @@ def build_source_family_inventory(
         model_usage=model_usage,
         nbm_station_archive=nbm_station_archive,
         archive_evidence=archive_evidence,
+        unusable_ablation_contract=(
+            ablation_contract if ablation_contract["status"] == "BLOCK" else None
+        ),
     )
     preflight = promotion_preflight(
         rows,
@@ -1726,12 +1844,12 @@ def build_source_family_inventory(
         backtest_root=backtest_root,
         ablation_json=ablation_json,
         candidate_replay_json=candidate_replay_json,
+        ablation_contract=ablation_contract,
     )
     expansion = market_expansion_scorecard(
         locations_config,
         location_events_config=location_events_config,
     )
-    blocked = preflight["blocked_family_count"]
     reader_summary = summarize_reader_provenance(reader_provenance_rows)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1739,21 +1857,44 @@ def build_source_family_inventory(
         "snapshots_root": str(Path(snapshots_root)),
         "archive_root": str(Path(archive_root)),
         "reanalysis_root": str(Path(reanalysis_root)),
+        "marine_water_contrast_root": str(Path(marine_water_contrast_root)),
         "nbm_station_archive_root": str(Path(nbm_station_archive_root)),
         "open_meteo_archive_root": str(Path(open_meteo_archive_root)),
         "backtest_root": str(Path(backtest_root)),
         "ablation_json": str(Path(ablation_json)),
-        "candidate_replay_json": str(Path(candidate_replay_json)),
+        "candidate_replay_json": candidate_replay_input_receipt.get("path"),
         "locations_config": str(Path(locations_config)),
         "location_events_config": str(Path(location_events_config)),
-        "status": "BLOCK" if blocked else "PASS",
+        "active_release_pointer": str(Path(active_release_pointer)),
+        "active_releases_root": str(Path(active_releases_root)),
+        "item27_reanalysis_paths": {
+            str(market_id): str(Path(path))
+            for market_id, path in sorted((item27_reanalysis_paths or {}).items())
+        },
+        "status": preflight["status"],
+        "serving_or_release_authorization": False,
+        "ablation_input_receipt": ablation_input_receipt,
+        "candidate_replay_input_receipt": candidate_replay_input_receipt,
+        "candidate_model_artifact_input_receipt": (
+            model_usage.get("verification", {}).get("artifact_receipt") or {}
+        ),
+        "scan_input_closure": {
+            "status": "BLOCK",
+            "complete": False,
+            "serving_or_release_authorization": False,
+            "blockers": [
+                "inventory scans are diagnostic until one complete consumed-input closure is published"
+            ],
+        },
+        "ablation_evidence_contract": ablation_contract,
         "summary": {
             "family_count": len(rows),
-            "blocking_family_count": blocked,
+            "blocking_family_count": preflight["blocked_family_count"],
             "snapshot_folder_count": len(folders),
             "historical_reader_modes": reader_summary["source_modes"],
             "market_folder_counts": dict(sorted(market_folder_counts.items())),
             "ablation_variant_count": merged_ablation_count,
+            "ablation_evidence_contract_status": ablation_contract["status"],
             "market_expansion_status": expansion["status"],
             "market_expansion_candidate_count": expansion["candidate_count"],
             "active_model_usage_status": model_usage["status"],
@@ -1776,10 +1917,132 @@ def build_source_family_inventory(
     }
 
 
+def _same_publication_target(left, right):
+    left = Path(left)
+    right = Path(right)
+    if left.resolve(strict=False) == right.resolve(strict=False):
+        return True
+    if left.exists() and right.exists():
+        try:
+            return left.samefile(right)
+        except OSError:
+            return True
+    return False
+
+
+def _inventory_publication_inputs(payload):
+    payload = payload if isinstance(payload, dict) else {}
+    exact_inputs = {}
+    for field in (
+        "ablation_json",
+        "candidate_replay_json",
+        "locations_config",
+        "location_events_config",
+        "active_release_pointer",
+    ):
+        if payload.get(field):
+            exact_inputs[field] = payload[field]
+    for market_id, path in (payload.get("item27_reanalysis_paths") or {}).items():
+        if path:
+            exact_inputs[f"item27_reanalysis_paths[{market_id}]"] = path
+    for label, receipt in (
+        ("ablation_input_receipt", payload.get("ablation_input_receipt")),
+        (
+            "candidate_replay_input_receipt",
+            payload.get("candidate_replay_input_receipt"),
+        ),
+        (
+            "candidate_model_artifact_input_receipt",
+            payload.get("candidate_model_artifact_input_receipt"),
+        ),
+    ):
+        if isinstance(receipt, dict) and receipt.get("path"):
+            exact_inputs[label] = receipt["path"]
+
+    protected_roots = {}
+    for field in (
+        "snapshots_root",
+        "archive_root",
+        "reanalysis_root",
+        "marine_water_contrast_root",
+        "nbm_station_archive_root",
+        "open_meteo_archive_root",
+        "backtest_root",
+        "active_releases_root",
+    ):
+        if payload.get(field):
+            protected_roots[field] = payload[field]
+    protected_roots["mirrored_read_only_data_root"] = data_path()
+    return exact_inputs, protected_roots
+
+
+def _preflight_publication_paths(payload, *, json_out, report_out):
+    outputs = {
+        "json_out": Path(json_out),
+        "report_out": Path(report_out),
+    }
+    if _same_publication_target(outputs["json_out"], outputs["report_out"]):
+        raise ValueError("json_out and report_out alias one another")
+
+    exact_inputs, protected_roots = _inventory_publication_inputs(payload)
+    resolved = {
+        label: path.resolve(strict=False)
+        for label, path in outputs.items()
+    }
+    for output_label, output_path in outputs.items():
+        for input_label, input_path in exact_inputs.items():
+            if _same_publication_target(output_path, input_path):
+                raise ValueError(
+                    f"{output_label} aliases source input {input_label}"
+                )
+    for root_label, root_path in protected_roots.items():
+        root = Path(root_path).resolve(strict=False)
+        for output_label, output_path in resolved.items():
+            try:
+                output_path.relative_to(root)
+            except ValueError:
+                continue
+            raise ValueError(
+                f"{output_label} must not write inside protected input root "
+                f"{root_label}: {root}"
+            )
+    for label, path in resolved.items():
+        if path.exists():
+            raise ValueError(
+                f"{label} already exists; inventory publication refuses overwrite: "
+                f"{path}"
+            )
+    return resolved
+
+
+def _render_report_text(payload):
+    with tempfile.TemporaryDirectory(
+        prefix="source-family-inventory-render-"
+    ) as temporary:
+        rendered_path = write_report(payload, Path(temporary) / "report.md")
+        return Path(rendered_path).read_text(encoding="utf-8")
+
+
 def write_outputs(payload, *, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPORT_OUT):
-    json_path = write_json_atomic(json_out, payload, trailing_newline=True)
-    report_path = write_report(payload, report_out)
-    return json_path, report_path
+    resolved = _preflight_publication_paths(
+        payload,
+        json_out=json_out,
+        report_out=report_out,
+    )
+    report_text = _render_report_text(payload)
+    json.dumps(payload, sort_keys=True, allow_nan=False)
+
+    resolved["report_out"].parent.mkdir(parents=True, exist_ok=True)
+    report_path = atomic_write_text_exclusive(
+        resolved["report_out"],
+        report_text,
+    )
+    resolved["json_out"].parent.mkdir(parents=True, exist_ok=True)
+    json_path = atomic_write_json_exclusive(
+        resolved["json_out"],
+        payload,
+    )
+    return Path(json_path), Path(report_path)
 
 
 def main(argv=None):

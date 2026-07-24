@@ -10,25 +10,94 @@ import argparse
 import hashlib
 import json
 import math
+import os
+import re
 from collections import Counter
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from weather.execution_identity import atomic_write_json_exclusive
 from weather.paths import data_path
 
 import pandas as pd
 
 from weather.backtesting.settlement_io import load_market_day_label
-from weather.backtesting.replay import index_records_by_snapshot, is_reconstructed, load_replay_records
+from weather.backtesting.replay import (
+    RECONSTRUCTED_FILENAME,
+    REPLAY_INPUTS_FILENAME,
+    index_records_by_snapshot,
+    is_reconstructed,
+    load_replay_records,
+)
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, discover_settled_folders
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import REGISTRY, spec_for_slug
 from weather.reporting.data_quality.feature_quality_quarantine import audit_folder_feature_quality
 
-PROMOTION_CORPUS_SCHEMA_VERSION = "promotion_corpus_v0.1"
+PROMOTION_CORPUS_SCHEMA_VERSION = "promotion_corpus_v0.2"
+PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION = "promotion_corpus_v0.1"
+ORDINAL_LITERAL_PANEL_SCHEMA_VERSION = "ordinal_smoothing_literal_panel_v0.1"
 DEFAULT_OUT = data_path() / "backtest" / "promotion_corpus.json"
 DEFAULT_QUALITY_GRADES = ("complete", "manual_override")
+GENERATION_DIRECTORY_SUFFIX = "_generations"
+MAX_GENERATION_PATH_CHARS = 240
+MAX_GENERATION_TOKEN_CHARS = 72
+MAX_GENERATION_COLLISIONS = 10_000
+
+
+def _generation_token(value):
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("promotion corpus generation ID must be non-empty")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("._-")
+    if not slug:
+        slug = "generation"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+    prefix_budget = MAX_GENERATION_TOKEN_CHARS - len(digest) - 1
+    return f"{slug[:prefix_budget].rstrip('._-') or 'generation'}-{digest}"
+
+
+def generation_scoped_manifest_path(path, generation_id):
+    """Return one fresh, deterministic immutable-manifest leaf.
+
+    The generation ID is sanitized, bounded, and hash-suffixed so long or
+    punctuation-heavy scheduler identities remain collision resistant. If a
+    retry reuses an already-published generation ID, the first absent retry
+    suffix is selected without deleting or overwriting prior evidence.
+    """
+
+    base = Path(path).expanduser().absolute()
+    suffix = base.suffix or ".json"
+    directory = base.parent / f"{base.stem}{GENERATION_DIRECTORY_SUFFIX}"
+    token = _generation_token(generation_id)
+    for collision_index in range(MAX_GENERATION_COLLISIONS):
+        collision = "" if collision_index == 0 else f"-retry-{collision_index + 1:04d}"
+        name_budget = (
+            MAX_GENERATION_PATH_CHARS
+            - len(str(directory))
+            - 1
+            - len(collision)
+            - len(suffix)
+        )
+        digest_suffix = token[-13:]
+        if name_budget < len(digest_suffix) + 1:
+            raise ValueError(
+                "promotion corpus generation path exceeds the safe Windows "
+                f"path budget ({MAX_GENERATION_PATH_CHARS} characters): {directory}"
+            )
+        fitted_token = token
+        if len(fitted_token) > name_budget:
+            prefix_budget = name_budget - len(digest_suffix)
+            fitted_prefix = token[:prefix_budget].rstrip("._-") or "g"
+            fitted_token = f"{fitted_prefix}{digest_suffix}"
+        candidate = directory / f"{fitted_token}{collision}{suffix}"
+        if not os.path.lexists(candidate):
+            return candidate
+    raise ValueError(
+        "promotion corpus generation collision budget exhausted: "
+        f"base={base}; generation_id={generation_id!r}"
+    )
 
 
 def parse_quality_grades(value):
@@ -375,9 +444,9 @@ def _hash_entry(entry):
     }
 
 
-def corpus_hash(entries):
+def corpus_hash(entries, *, schema_version=PROMOTION_CORPUS_SCHEMA_VERSION):
     payload = {
-        "schema_version": PROMOTION_CORPUS_SCHEMA_VERSION,
+        "schema_version": str(schema_version),
         "entries": [_hash_entry(entry) for entry in sorted(entries, key=lambda e: e["event_slug"])],
     }
     return _hash_json(payload)
@@ -527,16 +596,208 @@ def build_promotion_corpus(
     return manifest
 
 
+def _resolved_output_path(path):
+    """Resolve an absent output through its existing parent topology."""
+
+    path = Path(path).expanduser().absolute()
+    existing_parent = path.parent
+    missing_parts = [path.name]
+    while not os.path.lexists(existing_parent):
+        if existing_parent == existing_parent.parent:
+            break
+        missing_parts.append(existing_parent.name)
+        existing_parent = existing_parent.parent
+    resolved = existing_parent.resolve(strict=True)
+    for part in reversed(missing_parts):
+        resolved /= part
+    return resolved
+
+
+def _is_within(path, root):
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _manifest_source_input_paths(manifest):
+    candidates = []
+    entries = manifest.get("entries") or []
+    skipped = manifest.get("skipped") or []
+    for item in [*entries, *skipped]:
+        if not isinstance(item, Mapping):
+            continue
+        tape = item.get("snapshot_tape_path")
+        if tape:
+            candidates.append(Path(tape))
+        folder_text = item.get("folder")
+        if not folder_text:
+            continue
+        folder = Path(folder_text)
+        candidates.extend(
+            (
+                folder / "snapshots_long.csv",
+                folder / REPLAY_INPUTS_FILENAME,
+                folder / RECONSTRUCTED_FILENAME,
+                folder / "settlement.json",
+            )
+        )
+    return candidates
+
+
+def _validate_manifest_output_path(manifest, path):
+    """Fail closed before publishing an operational corpus output."""
+
+    output = _resolved_output_path(path)
+    source_inputs = _manifest_source_input_paths(manifest)
+    for source in source_inputs:
+        resolved_source = source.expanduser().resolve(strict=False)
+        if output == resolved_source:
+            raise ValueError(
+                "promotion corpus output aliases a source tape/replay/label "
+                f"input: {output}"
+            )
+        if os.path.lexists(output) and os.path.lexists(source):
+            try:
+                aliases_source = output.samefile(source)
+            except OSError:
+                aliases_source = False
+            if aliases_source:
+                raise ValueError(
+                    "promotion corpus output aliases a source tape/replay/label "
+                    f"input: {output}"
+                )
+
+    root_text = manifest.get("snapshots_root")
+    if root_text:
+        root = Path(root_text).expanduser().resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError(f"snapshots_root is not a directory: {root}")
+        if _is_within(output, root):
+            raise ValueError(
+                "promotion corpus output must be outside the supplied "
+                f"snapshots/read-only root: output={output}; root={root}"
+            )
+    if os.path.lexists(output):
+        raise ValueError(f"refusing to overwrite promotion corpus output: {output}")
+    return output
+
+
 def write_manifest(manifest, path=DEFAULT_OUT):
+    path = _validate_manifest_output_path(manifest, path)
+    return atomic_write_json_exclusive(path, manifest)
+
+
+def load_manifest_bytes(raw, *, path, allow_research_materialization=False):
+    """Parse and validate one already-stabilized manifest byte sequence.
+
+    Literal-panel materializations intentionally retain the legacy corpus
+    envelope for sealed research replay compatibility.  They are not
+    operational promotion corpora and therefore require an explicit research
+    opt-in at the only shared loader boundary.
+    """
+
+    if not raw:
+        raise ValueError("promotion corpus manifest is empty")
+    try:
+        text = bytes(raw).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("promotion corpus manifest is not valid UTF-8") from exc
+
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(
+                    "promotion corpus manifest contains duplicate JSON "
+                    f"key {key!r}"
+                )
+            result[key] = value
+        return result
+
+    def reject_non_finite(value):
+        raise ValueError(
+            "promotion corpus manifest contains non-finite JSON "
+            f"constant {value!r}"
+        )
+
+    try:
+        manifest = json.loads(
+            text,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_non_finite,
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError("promotion corpus manifest is not valid JSON") from exc
+
+    def reject_nested_non_finite(value, location="$"):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(
+                "promotion corpus manifest contains non-finite JSON "
+                f"number at {location}"
+            )
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                reject_nested_non_finite(nested, f"{location}.{key}")
+        elif isinstance(value, list):
+            for index, nested in enumerate(value):
+                reject_nested_non_finite(nested, f"{location}[{index}]")
+
+    reject_nested_non_finite(manifest)
+    if not isinstance(manifest, dict):
+        raise ValueError("promotion corpus manifest root must be an object")
+    observed_schema = manifest.get("schema_version")
+    materialization = manifest.get("materialization")
+    if observed_schema == PROMOTION_CORPUS_SCHEMA_VERSION:
+        if "materialization" in manifest or (
+            "research_only" in manifest
+            and manifest.get("research_only") is not False
+        ):
+            raise ValueError(
+                "research-derived corpus materialization is not an operational "
+                "promotion corpus"
+            )
+    elif allow_research_materialization and observed_schema in {
+        PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION,
+        ORDINAL_LITERAL_PANEL_SCHEMA_VERSION,
+    }:
+        if (
+            manifest.get("research_only") is not True
+            or manifest.get("serving_or_release_authorization") is not False
+            or not isinstance(materialization, dict)
+            or materialization.get("schema_version")
+            != ORDINAL_LITERAL_PANEL_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                "legacy/research corpus lacks the explicit ordinal literal-panel contract"
+            )
+    else:
+        if observed_schema in {
+            PROMOTION_CORPUS_LEGACY_SCHEMA_VERSION,
+            ORDINAL_LITERAL_PANEL_SCHEMA_VERSION,
+        }:
+            raise ValueError(
+                "research-derived or legacy corpus is not an operational "
+                "promotion corpus"
+            )
+        raise ValueError(f"unsupported promotion corpus schema {observed_schema!r}")
+    expected = corpus_hash(
+        manifest.get("entries") or [],
+        schema_version=observed_schema,
+    )
+    if manifest.get("corpus_hash") != expected:
+        raise ValueError(
+            f"promotion corpus hash mismatch: manifest={manifest.get('corpus_hash')} computed={expected}"
+        )
+    manifest["_path"] = str(path)
+    return manifest
+
+
+def load_manifest(path, *, max_bytes=None, allow_research_materialization=False):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    return path
-
-
-def load_manifest(path, *, max_bytes=None):
     if max_bytes is None:
-        manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = path.read_bytes()
     else:
         if (
             isinstance(max_bytes, bool)
@@ -546,54 +807,17 @@ def load_manifest(path, *, max_bytes=None):
             raise ValueError(
                 "promotion corpus manifest max_bytes must be a positive integer"
             )
-        with Path(path).open("rb") as handle:
+        with path.open("rb") as handle:
             raw = handle.read(max_bytes + 1)
-        if not raw:
-            raise ValueError("promotion corpus manifest is empty")
         if len(raw) > max_bytes:
             raise ValueError(
                 f"promotion corpus manifest exceeds max_bytes={max_bytes}"
             )
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("promotion corpus manifest is not valid UTF-8") from exc
-        try:
-            def reject_duplicate_keys(pairs):
-                result = {}
-                for key, value in pairs:
-                    if key in result:
-                        raise ValueError(
-                            "promotion corpus manifest contains duplicate JSON "
-                            f"key {key!r}"
-                        )
-                    result[key] = value
-                return result
-
-            def reject_non_finite(value):
-                raise ValueError(
-                    "promotion corpus manifest contains non-finite JSON "
-                    f"constant {value!r}"
-                )
-
-            manifest = json.loads(
-                text,
-                object_pairs_hook=reject_duplicate_keys,
-                parse_constant=reject_non_finite,
-            )
-        except json.JSONDecodeError as exc:
-            raise ValueError("promotion corpus manifest is not valid JSON") from exc
-    if manifest.get("schema_version") != PROMOTION_CORPUS_SCHEMA_VERSION:
-        raise ValueError(
-            f"unsupported promotion corpus schema {manifest.get('schema_version')!r}"
-        )
-    expected = corpus_hash(manifest.get("entries") or [])
-    if manifest.get("corpus_hash") != expected:
-        raise ValueError(
-            f"promotion corpus hash mismatch: manifest={manifest.get('corpus_hash')} computed={expected}"
-        )
-    manifest["_path"] = str(path)
-    return manifest
+    return load_manifest_bytes(
+        raw,
+        path=path,
+        allow_research_materialization=allow_research_materialization,
+    )
 
 
 def entries_by_slug(manifest):
@@ -605,6 +829,8 @@ def entry_for_folder(manifest, folder):
 
 
 def folders_from_manifest(manifest, snapshots_root=None):
+    if snapshots_root is not None:
+        return folders_from_manifest_strict(manifest, snapshots_root)
     root = Path(snapshots_root or manifest.get("snapshots_root") or DEFAULT_SNAPSHOTS_ROOT)
     folders = []
     for entry in manifest.get("entries") or []:
@@ -614,6 +840,48 @@ def folders_from_manifest(manifest, snapshots_root=None):
             root / (entry.get("folder_name") or ""),
         ]
         folder = next((candidate for candidate in candidates if candidate and candidate.exists()), candidates[-1])
+        folders.append(folder)
+    return folders
+
+
+def folders_from_manifest_strict(manifest, snapshots_root):
+    """Resolve every entry under one explicit root and reject path divergence."""
+
+    root = Path(snapshots_root).expanduser().resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError(f"snapshots_root is not a directory: {root}")
+    folders = []
+    for index, entry in enumerate(manifest.get("entries") or []):
+        if not isinstance(entry, dict):
+            raise ValueError(f"manifest entry {index} must be an object")
+        relative_text = (
+            entry.get("folder_relative_to_snapshots_root")
+            or entry.get("folder_name")
+            or entry.get("event_slug")
+        )
+        if not isinstance(relative_text, str) or not relative_text.strip():
+            raise ValueError(f"manifest entry {index} lacks a relative folder")
+        relative = Path(relative_text)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(
+                f"manifest entry {index} has an unsafe relative folder: {relative_text}"
+            )
+        folder = (root / relative).resolve(strict=False)
+        try:
+            folder.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"manifest entry {index} escapes snapshots_root: {folder}"
+            ) from exc
+        embedded_text = entry.get("folder")
+        if embedded_text:
+            embedded_path = Path(embedded_text).expanduser()
+            embedded = embedded_path.resolve(strict=False)
+            if embedded_path.is_absolute() and embedded != folder:
+                raise ValueError(
+                    "manifest absolute folder diverges from the explicit snapshots_root: "
+                    f"entry={embedded}; rooted={folder}"
+                )
         folders.append(folder)
     return folders
 

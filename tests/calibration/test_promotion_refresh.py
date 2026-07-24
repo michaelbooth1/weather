@@ -7,7 +7,17 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from weather.reporting.promotion.readers import _read_physical_feature_family_ratchet
+from weather.reporting.promotion.readers import (
+    _read_physical_feature_family_ratchet,
+    _read_source_family_inventory,
+)
+from weather.reporting.source_gates.physical_feature_family_ratchet import (
+    _slice_summary,
+    build_ratchet,
+)
+from weather.reporting.source_gates.source_artifact_binding import (
+    stable_json_artifact,
+)
 from weather.reporting.promotion.promotion_refresh import (  # noqa: E402
     _candidate_gap_driver_rows,
     _candidate_args,
@@ -31,6 +41,12 @@ from weather.reporting.promotion.promotion_refresh import (  # noqa: E402
     promotion_readiness,
     write_gap_experiment_artifacts,
     write_report,
+)
+from tests.reporting.source_family_contract_fixtures import (
+    operational_ablation_payload,
+    operational_inventory,
+    operational_ratchet_payload,
+    write_active_release_identity,
 )
 
 
@@ -85,6 +101,32 @@ def _clean_fleet():
             },
         },
     }
+
+
+def _bind_ratchet_to_current_inputs(root, ratchet):
+    """Write a coherent upstream chain and bind the ratchet fixture to it."""
+
+    ablation_path = root / "source_family_ablation.json"
+    inventory_path = root / "source_family_inventory.json"
+    ablation_payload = operational_ablation_payload(
+        [{"variant": "all_forecasts", "delta": 0.01}]
+    )
+    active_release_pointer = write_active_release_identity(root, ablation_payload)
+    ablation_path.write_text(json.dumps(ablation_payload), encoding="utf-8")
+    _ablation, ablation_receipt = stable_json_artifact(ablation_path)
+    inventory = operational_inventory([])
+    inventory["ablation_input_receipt"] = ablation_receipt
+    inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+    _inventory, inventory_receipt = stable_json_artifact(inventory_path)
+    ratchet["inputs"].update(
+        {
+            "source_family_inventory_receipt": inventory_receipt,
+            "source_family_ablation_receipt": ablation_receipt,
+            "inventory_source_family_ablation_receipt": ablation_receipt,
+            "input_binding_contract": {"status": "PASS", "blockers": []},
+        }
+    )
+    return active_release_pointer
 
 
 class TestPromotionRefresh(unittest.TestCase):
@@ -210,6 +252,7 @@ class TestPromotionRefresh(unittest.TestCase):
                 "candidate_shadow_variants": {"variant_id": "candidate_v1"},
                 "verdict": "SHADOW_ONLY",
             },
+            readiness={"status": "READY", "blockers": []},
             generated_at_utc="2026-06-22T12:00:00+00:00",
             path="allowlist.json",
         )
@@ -218,8 +261,9 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(allowlist["schema_version"], "promotion_allowlist_v0.1")
         self.assertEqual(allowlist["promote_markets"], ["atlanta"])
         self.assertEqual(allowlist["blocked_markets"], ["miami"])
-        self.assertTrue(rows["atlanta"]["candidate_serving_allowed"])
+        self.assertFalse(rows["atlanta"]["candidate_serving_allowed"])
         self.assertFalse(rows["miami"]["candidate_serving_allowed"])
+        self.assertFalse(allowlist["serving_or_release_authorization"])
         self.assertFalse(rows["miami"]["candidate_permission_allowed"])
         self.assertEqual(rows["miami"]["serving_behavior"], "current_or_shadow")
         self.assertIn("trails market", rows["miami"]["blocker_reason"])
@@ -258,6 +302,74 @@ class TestPromotionRefresh(unittest.TestCase):
         self.assertEqual(row["effective_promotion_state"], "SHADOW")
         self.assertEqual(row["serving_behavior"], "current_or_shadow")
         self.assertIn("DO_NOT_CUT_OVER", row["blocker_reason"])
+
+    def test_promotion_readiness_requires_source_inventory_and_physical_ratchet(self):
+        readiness = promotion_readiness(
+            {
+                "aggregate": {"delta_vs_market": -0.01},
+                "blocked_validation": {"passed": True},
+            },
+            None,
+            {
+                "family_unit": "F",
+                "shadow_markets": [],
+                "blocked_markets": [],
+                "markets": [],
+            },
+            source_family_inventory=None,
+            physical_feature_family_ratchet=None,
+        )
+
+        categories = {row["category"] for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("source_family_preflight", categories)
+        self.assertIn("physical_feature_family_ratchet", categories)
+
+    def test_allowlist_denies_candidate_permission_unless_final_readiness_is_ready(self):
+        decisions = {
+            "markets": [
+                {
+                    "market_id": "austin",
+                    "action": "PROMOTE_CANDIDATE",
+                    "verdict": "PASS",
+                    "reason": "candidate clears local metrics",
+                }
+            ]
+        }
+        candidate = {
+            "candidate_shadow_variants": {"variant_id": "candidate_v1"},
+            "verdict": "PASS",
+        }
+
+        blocked = build_promotion_allowlist(
+            decisions,
+            candidate,
+            readiness={"status": "OPEN", "blockers": [{"category": "source"}]},
+        )
+        ready = build_promotion_allowlist(
+            decisions,
+            candidate,
+            readiness={"status": "READY", "blockers": []},
+        )
+
+        self.assertFalse(blocked["candidate_permission_allowed"])
+        self.assertFalse(blocked["markets"][0]["candidate_permission_allowed"])
+        self.assertEqual(blocked["markets"][0]["effective_promotion_state"], "SHADOW")
+        self.assertFalse(ready["candidate_permission_allowed"])
+        self.assertFalse(ready["markets"][0]["candidate_permission_allowed"])
+        self.assertTrue(ready["candidate_recommendation_eligible"])
+        self.assertTrue(ready["markets"][0]["candidate_recommendation_eligible"])
+        self.assertFalse(ready["authorization_schema_supported"])
+        self.assertEqual(ready["authorization_status"], "NON_AUTHORIZING_SCHEMA")
+
+    def test_empty_cli_evidence_paths_project_as_explicit_missing_blockers(self):
+        source = _read_source_family_inventory("")
+        ratchet = _read_physical_feature_family_ratchet("")
+
+        self.assertEqual(source["status"], "MISSING")
+        self.assertEqual(ratchet["status"], "MISSING")
+        self.assertIn("path is required", source["operational_contract"]["blockers"][0])
+        self.assertIn("path is required", ratchet["operational_contract"]["blockers"][0])
 
     def test_all_family_specs_include_c_and_f_markets(self):
         specs = [
@@ -491,7 +603,7 @@ class TestPromotionRefresh(unittest.TestCase):
             },
         )
 
-        self.assertEqual(readiness["status"], "READY")
+        self.assertEqual(readiness["status"], "OPEN")
         self.assertNotIn("hourly_performance_gate", {row["category"] for row in readiness["blockers"]})
         self.assertTrue(readiness["hourly_performance_mitigation"]["applied"])
         self.assertEqual(readiness["hourly_performance_mitigation"]["candidate_hourly_status"], "PASS")
@@ -586,7 +698,7 @@ class TestPromotionRefresh(unittest.TestCase):
             },
         )
 
-        self.assertEqual(readiness["status"], "READY")
+        self.assertEqual(readiness["status"], "OPEN")
         self.assertNotIn("ten_minute_performance_gate", {row["category"] for row in readiness["blockers"]})
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["applied"])
         self.assertEqual(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_status"], "PASS")
@@ -714,48 +826,234 @@ class TestPromotionRefresh(unittest.TestCase):
 
     def test_physical_ratchet_reader_preserves_blocked_family_details(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "physical_feature_family_ratchet.json"
+            root = Path(tmp)
+            path = root / "physical_feature_family_ratchet.json"
+            ratchet = operational_ratchet_payload()
+            slices = ratchet["settlement_sliced_lift"]
+            forecast_market = next(
+                row
+                for row in slices
+                if row["family_id"] == "forecast_baseline" and row["slice"] == "market"
+            )
+            forecast_harm = dict(forecast_market, delta=-0.01)
+            slices.append(forecast_harm)
+            slices[:] = [
+                row
+                for row in slices
+                if not (
+                    row["family_id"] == "reanalysis_synoptic"
+                    and row["slice"] == "settlement_distance"
+                )
+            ]
+            reanalysis_market = next(
+                row
+                for row in slices
+                if row["family_id"] == "reanalysis_synoptic" and row["slice"] == "market"
+            )
+            slices.extend(
+                dict(reanalysis_market, delta=-0.01, market_id=f"harm-{index}")
+                for index in range(17)
+            )
+            blocked = {
+                "forecast_baseline": ["harmful_slice_count=1"],
+                "reanalysis_synoptic": [
+                    "missing required slice kinds: settlement_distance",
+                    "harmful_slice_count=17",
+                ],
+            }
+            for family in ratchet["families"]:
+                family_id = family["family_id"]
+                if family_id not in blocked:
+                    continue
+                family["status"] = "ISOLATED_REPLAY_BLOCK"
+                family["rollup_bucket"] = "evidence_blocked"
+                family["blockers"] = blocked[family_id]
+                family["settlement_slice_summary"] = _slice_summary(
+                    [row for row in slices if row["family_id"] == family_id]
+                )
+            ratchet["status"] = "BLOCK"
+            ratchet["rollup"]["ready_for_retraining"] = sorted(
+                family_id
+                for family_id in ratchet["rollup"]["ready_for_retraining"]
+                if family_id not in blocked
+            )
+            ratchet["rollup"]["evidence_blocked"] = sorted(blocked)
+            ratchet["summary"].update(
+                {
+                    "blocking_family_count": 2,
+                    "status_counts": {
+                        "ISOLATED_REPLAY_BLOCK": 2,
+                        "PROMOTION_ELIGIBLE": 8,
+                    },
+                    "rollup_bucket_counts": {
+                        "evidence_blocked": 2,
+                        "ready_for_retraining": 8,
+                    },
+                    "settlement_slice_row_count": len(slices),
+                }
+            )
+            active_release_pointer = _bind_ratchet_to_current_inputs(root, ratchet)
             path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": "physical_feature_family_ratchet_v0.1",
-                        "status": "BLOCK",
-                        "summary": {"blocking_family_count": 2},
-                        "rollup": {"evidence_blocked": ["forecast_baseline", "reanalysis_synoptic"]},
-                        "families": [
-                            {
-                                "family_id": "forecast_baseline",
-                                "status": "ISOLATED_REPLAY_BLOCK",
-                                "rollup_bucket": "evidence_blocked",
-                                "blockers": ["harmful_slice_count=1"],
-                                "settlement_slice_summary": {"harmful_slice_count": 1},
-                            },
-                            {
-                                "family_id": "reanalysis_synoptic",
-                                "status": "ISOLATED_REPLAY_BLOCK",
-                                "rollup_bucket": "evidence_blocked",
-                                "blockers": [
-                                    "missing required slice kinds: settlement_distance",
-                                    "harmful_slice_count=17",
-                                ],
-                                "settlement_slice_summary": {
-                                    "harmful_slice_count": 17,
-                                    "missing_required_slice_kinds": ["settlement_distance"],
-                                },
-                            },
-                        ],
-                    }
-                ),
+                json.dumps(ratchet),
                 encoding="utf-8",
             )
 
-            payload = _read_physical_feature_family_ratchet(path)
+            payload = _read_physical_feature_family_ratchet(
+                path,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
+            )
 
-        self.assertEqual(payload["first_blocker"]["family_id"], "forecast_baseline")
+        self.assertEqual(
+            payload["first_blocker"]["status"],
+            "BLOCK_UNAUTHORIZED_ARTIFACT",
+        )
         self.assertEqual(len(payload["blocked_family_details"]), 2)
         self.assertEqual(
             payload["blocked_family_details"][1]["detail"],
             "missing required slice kinds: settlement_distance; harmful_slice_count=17",
+        )
+
+    def test_source_inventory_reader_blocks_legacy_prefence_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "source_family_inventory.json"
+            path.write_text(
+                json.dumps({
+                    "schema_version": "source_family_inventory_v0.1",
+                    "status": "PASS",
+                    "promotion_preflight": {"status": "PASS"},
+                    "inventory": [],
+                }),
+                encoding="utf-8",
+            )
+
+            payload = _read_source_family_inventory(path)
+
+        self.assertEqual(payload["status"], "BLOCK")
+        self.assertEqual(payload["promotion_preflight"]["status"], "BLOCK")
+        self.assertEqual(payload["operational_contract"]["status"], "BLOCK")
+
+    def test_promotion_readers_block_replaced_upstream_source_ablation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ablation_path = root / "source_family_ablation.json"
+            inventory_path = root / "source_family_inventory.json"
+            ratchet_path = root / "physical_feature_family_ratchet.json"
+            ablation_payload = operational_ablation_payload(
+                [{"variant": "open_meteo", "delta": 0.01}]
+            )
+            active_release_pointer = write_active_release_identity(
+                root,
+                ablation_payload,
+            )
+            ablation_path.write_text(json.dumps(ablation_payload), encoding="utf-8")
+            _ablation, ablation_receipt = stable_json_artifact(ablation_path)
+            inventory = operational_inventory([])
+            inventory["ablation_input_receipt"] = ablation_receipt
+            inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+            ratchet = build_ratchet(
+                source_family_inventory=inventory_path,
+                source_family_ablation=ablation_path,
+                generated_at_utc="2026-07-23T00:00:00+00:00",
+            )
+            ratchet_path.write_text(json.dumps(ratchet), encoding="utf-8")
+
+            initial_inventory = _read_source_family_inventory(
+                inventory_path,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
+            )
+            initial_ratchet = _read_physical_feature_family_ratchet(
+                ratchet_path,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
+            )
+            self.assertEqual(initial_inventory["status"], "BLOCK")
+            self.assertEqual(initial_ratchet["status"], "BLOCK")
+            self.assertTrue(
+                any(
+                    "scan-input closure" in blocker
+                    for blocker in initial_inventory["current_input_verification"][
+                        "blockers"
+                    ]
+                )
+            )
+
+            ablation_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_ablation_v0.2",
+                        "research_only": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            inventory_projection = _read_source_family_inventory(
+                inventory_path,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
+            )
+            ratchet_projection = _read_physical_feature_family_ratchet(
+                ratchet_path,
+                active_release_pointer=active_release_pointer,
+                active_releases_root=active_release_pointer.parent,
+            )
+
+        self.assertEqual(inventory_projection["status"], "BLOCK")
+        self.assertEqual(ratchet_projection["status"], "BLOCK")
+        self.assertIn(
+            "sha256 differs",
+            inventory_projection["current_input_verification"]["blockers"][0],
+        )
+        self.assertEqual(
+            ratchet_projection["first_blocker"]["status"],
+            "BLOCK_UNAUTHORIZED_ARTIFACT",
+        )
+
+    def test_promotion_readiness_recomputes_and_blocks_spoofed_legacy_inventory(self):
+        legacy = {
+            "schema_version": "source_family_inventory_v0.1",
+            "status": "PASS",
+            "operational_contract": {"status": "PASS"},
+            "promotion_preflight": {"status": "PASS"},
+            "inventory": [],
+        }
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            source_family_inventory=legacy,
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("source_family_preflight", blockers)
+        self.assertEqual(
+            blockers["source_family_preflight"]["evidence"]["operational_contract"]["status"],
+            "BLOCK",
+        )
+
+    def test_promotion_readiness_blocks_spoofed_legacy_physical_ratchet(self):
+        stale = {
+            "schema_version": "physical_feature_family_ratchet_v0.1",
+            "status": "PASS",
+            "operational_contract": {"status": "PASS"},
+            "summary": {"blocking_family_count": 0},
+            "rollup": {"evidence_blocked": []},
+        }
+        readiness = promotion_readiness(
+            {"aggregate": {"delta_vs_market": -0.01}, "blocked_validation": {"passed": True}},
+            None,
+            {"family_unit": "F", "shadow_markets": [], "blocked_markets": [], "markets": []},
+            physical_feature_family_ratchet=stale,
+        )
+
+        blockers = {row["category"]: row for row in readiness["blockers"]}
+        self.assertEqual(readiness["status"], "OPEN")
+        self.assertIn("physical_feature_family_ratchet", blockers)
+        self.assertEqual(
+            blockers["physical_feature_family_ratchet"]["evidence"]["operational_contract"]["status"],
+            "BLOCK",
         )
 
     def test_evidence_freshness_blocks_location_countability(self):
@@ -836,7 +1134,7 @@ class TestPromotionRefresh(unittest.TestCase):
 
         self.assertEqual(freshness["status"], "PASS")
         self.assertTrue(freshness["counts_for_location_validation"])
-        self.assertEqual(readiness["status"], "READY")
+        self.assertEqual(readiness["status"], "OPEN")
         self.assertNotIn("location_evidence_freshness", {row["category"] for row in readiness["blockers"]})
 
     def test_per_location_artifact_quarantine_blocks_stale_active_candidates(self):

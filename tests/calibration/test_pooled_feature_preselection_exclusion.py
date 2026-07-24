@@ -17,9 +17,11 @@ def _build_records_with_locked_label(
     locked_bucket,
     *,
     middle_bucket=82,
+    source_only_future_bucket=None,
     excluded_target_dates=None,
     included_target_dates=None,
     prior_as_of_exclusive=None,
+    historical_window_target_date=None,
 ):
     first_date = date(2026, 1, 1)
     dates = [first_date + timedelta(days=offset) for offset in range(3)]
@@ -46,6 +48,11 @@ def _build_records_with_locked_label(
             for local_date, value in zip(dates, (81, 83, 85))
         },
     }
+    if source_only_future_bucket is not None:
+        indexes[assembly.PRIMARY_SOURCE]["2026-02-01"] = _source_row(80)
+        indexes["ghcnh"]["2026-02-01"] = _source_row(
+            source_only_future_bucket
+        )
     model = SimpleNamespace(
         historical_target_cache=lambda: cache,
         wind_group=lambda *_args, **_kwargs: "Other/variable",
@@ -65,7 +72,9 @@ def _build_records_with_locked_label(
 
     with (
         patch.object(assembly, "family_specs", return_value=[NYC]),
-        patch.object(assembly, "TorontoHighTempModel", return_value=model),
+        patch.object(
+            assembly, "TorontoHighTempModel", return_value=model
+        ) as model_constructor,
         patch.object(assembly, "source_daily_indexes", return_value=indexes),
         patch.object(facade, "source_daily_indexes", return_value=indexes),
         patch.object(assembly, "load_forecast_daily", return_value={}),
@@ -74,13 +83,20 @@ def _build_records_with_locked_label(
         patch.object(assembly, "load_reanalysis_synoptic_features", return_value={}),
         patch.object(assembly, "build_historical_feature_record", side_effect=build_historical),
     ):
-        return assembly.build_family_dataset(
+        result = assembly.build_family_dataset(
             unit="F",
             cutoff_hours=(12,),
             excluded_target_dates=excluded_target_dates,
             included_target_dates=included_target_dates,
             prior_as_of_exclusive=prior_as_of_exclusive,
+            historical_window_target_date=historical_window_target_date,
         )
+    if historical_window_target_date is not None:
+        model_constructor.assert_called_once_with(
+            market_id=NYC.id,
+            target_date=date.fromisoformat(str(historical_window_target_date)),
+        )
+    return result
 
 
 def test_locked_label_changes_cannot_reach_unlocked_rows_or_priors():
@@ -131,11 +147,13 @@ def test_production_static_priors_use_only_preselection_history():
     first, _ = _build_records_with_locked_label(
         84,
         middle_bucket=82,
+        source_only_future_bucket=81,
         **kwargs,
     )
     changed, _ = _build_records_with_locked_label(
         84,
         middle_bucket=100,
+        source_only_future_bucket=40,
         **kwargs,
     )
 
@@ -143,3 +161,13 @@ def test_production_static_priors_use_only_preselection_history():
     assert [row["target_date"] for row in changed] == ["2026-01-02"]
     assert first[0]["climate_normal"] == changed[0]["climate_normal"] == 80.0
     assert first[0]["source_overlap_days"] == changed[0]["source_overlap_days"] == 1.0
+
+
+def test_historical_window_uses_explicit_research_anchor():
+    records, counts = _build_records_with_locked_label(
+        84,
+        historical_window_target_date="2026-07-22",
+    )
+
+    assert len(records) == 3
+    assert counts == {NYC.id: 3}

@@ -259,7 +259,7 @@ class CandidateVariantReplaySummaryTests(unittest.TestCase):
             payload["candidate_shadow_variants"]["active_registry_contract"]["variant_id"],
             "candidate_v1",
         )
-        self.assertEqual(readiness["status"], "READY")
+        self.assertEqual(readiness["status"], "OPEN")
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["applied"])
         self.assertTrue(readiness["ten_minute_performance_mitigation"]["candidate_ten_minute_matches"])
         self.assertNotIn("ten_minute_performance_gate", {row["category"] for row in readiness["blockers"]})

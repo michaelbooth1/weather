@@ -34,7 +34,14 @@ def write_report(path, payload, min_free_bytes=0):
             ["Blocked validation", (candidate.get("blocked_validation") or {}).get("verdict") or "-"],
             ["Readiness status", readiness.get("status") or "-"],
             ["Promotion allowlist", allowlist.get("path") or "-"],
-            ["Promote", ", ".join(decisions.get("promote_markets") or []) or "-"],
+            [
+                "Promote recommendation (non-authorizing unless allowlist says otherwise)",
+                ", ".join(decisions.get("promote_markets") or []) or "-",
+            ],
+            [
+                "Serving/release authorization",
+                allowlist.get("serving_or_release_authorization"),
+            ],
             ["Shadow", ", ".join(decisions.get("shadow_markets") or []) or "-"],
             ["Blocked", ", ".join(decisions.get("blocked_markets") or []) or "-"],
         ],
@@ -726,4 +733,3 @@ def write_report(path, payload, min_free_bytes=0):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-

@@ -32,6 +32,7 @@ from weather.market.info_event_calendar import (
 )
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.market.market_registry import REGISTRY, spec_for_id, spec_for_slug
+from weather.market.mm_paper_constants import KNOWN_EDGE_SCHEMA_VERSION
 from weather.market.mm_risk import correlated_exposure_state
 from weather.market.live_observation_normalization import (
     current_high_probability_summary,
@@ -621,10 +622,10 @@ def age_seconds(timestamp, now):
 def promotion_state_from_action(action, verdict=None):
     action = str(action or "").upper()
     verdict = str(verdict or "").upper()
-    if action == "PROMOTE_CANDIDATE" or verdict == "PASS":
-        return "PASS"
     if action == "BLOCK_CANDIDATE" or verdict == "BLOCK":
         return "BLOCK"
+    if action == "PROMOTE_CANDIDATE" and verdict == "PASS":
+        return "PASS"
     if action == "KEEP_SHADOW" or verdict == "SHADOW":
         return "SHADOW"
     return "BLOCK"
@@ -656,20 +657,113 @@ def normalize_known_edge_field(field, value):
     return token
 
 
+def _strict_json_object(pairs):
+    output = {}
+    for key, value in pairs:
+        if key in output:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        output[key] = value
+    return output
+
+
+def _reject_non_finite_json_constant(value):
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _reject_nested_non_finite_json(value, location="$"):
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"non-finite JSON number at {location}")
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            _reject_nested_non_finite_json(nested, f"{location}.{key}")
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            _reject_nested_non_finite_json(nested, f"{location}[{index}]")
+
+
+def _load_strict_json_object(path):
+    raw = Path(path).read_text(encoding="utf-8-sig")
+    payload = json.loads(
+        raw,
+        object_pairs_hook=_strict_json_object,
+        parse_constant=_reject_non_finite_json_constant,
+    )
+    _reject_nested_non_finite_json(payload)
+    if not isinstance(payload, dict):
+        raise ValueError("JSON root must be an object")
+    return payload
+
+
 def load_known_edge_map(path=DEFAULT_KNOWN_EDGE_MAP):
     path = Path(path) if path else None
     if path is None:
         return [], {"path": None, "exists": False, "record_count": 0}
     if not path.exists():
         return [], {"path": str(path), "exists": False, "record_count": 0}
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    records = payload.get("records") or []
+    try:
+        payload = _load_strict_json_object(path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return [], {
+            "path": str(path),
+            "exists": True,
+            "status": "BLOCK",
+            "record_count": 0,
+            "blockers": [f"known-edge map is malformed: {exc}"],
+        }
+    raw_records = payload.get("records")
+    blockers = []
+    if payload.get("schema_version") != KNOWN_EDGE_SCHEMA_VERSION:
+        blockers.append(
+            "known-edge map schema is not current: "
+            + str(payload.get("schema_version") or "MISSING")
+        )
+    if not isinstance(raw_records, list):
+        blockers.append("known-edge map records must be a list")
+        raw_records = []
+    records = []
+    record_keys = set()
+    sanitized_edge_allowed = 0
+    for index, source in enumerate(raw_records):
+        if not isinstance(source, dict):
+            blockers.append(f"known-edge record {index} must be an object")
+            continue
+        record = dict(source)
+        key = known_edge_record_key(record)
+        if key in record_keys:
+            blockers.append(f"duplicate known-edge record key: {key}")
+            continue
+        record_keys.add(key)
+        permission = normalize_token(record.get("permission"))
+        if permission not in {
+            "no_quote",
+            "harvest_only",
+            "edge_research",
+            "edge_allowed",
+        }:
+            blockers.append(
+                f"known-edge record {index} has invalid permission: {permission or 'MISSING'}"
+            )
+            record["permission"] = "no_quote"
+        elif permission == "edge_allowed":
+            # v0.2 is an evidence map, not a runtime authorization envelope.
+            # Preserve the research signal without granting the edge lane.
+            record["permission"] = "edge_research"
+            record["reason"] = (
+                "edge_allowed suppressed: mm_known_edge_map_v0.2 is "
+                "detached, non-authorizing evidence"
+            )
+            sanitized_edge_allowed += 1
+        records.append(record)
     return records, {
         "path": str(path),
         "exists": True,
+        "status": "BLOCK" if blockers else "PASS",
         "schema_version": payload.get("schema_version"),
         "diagnostic_only": bool(payload.get("diagnostic_only", False)),
         "record_count": len(records),
+        "edge_allowed_authorization_supported": False,
+        "sanitized_edge_allowed_count": sanitized_edge_allowed,
+        "blockers": blockers,
         "summary": payload.get("summary") or {},
     }
 
@@ -918,33 +1012,92 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
     path = Path(path)
     if not path.exists():
         return {}, {"path": str(path), "exists": False}
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        payload = _load_strict_json_object(path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return {}, {
+            "path": str(path),
+            "exists": True,
+            "authorization_status": "BLOCK_MALFORMED",
+            "readiness_bound": False,
+            "blockers": [f"promotion refresh is malformed: {exc}"],
+        }
     states = {}
     allowlist = payload.get("promotion_allowlist") or {}
+    allowlist = allowlist if isinstance(allowlist, dict) else {}
     allowlist_rows = allowlist.get("markets") or []
-    decision_rows = ((payload.get("decisions") or {}).get("markets") or [])
+    allowlist_rows = allowlist_rows if isinstance(allowlist_rows, list) else []
+    decisions = payload.get("decisions") or {}
+    decisions = decisions if isinstance(decisions, dict) else {}
+    decision_rows = decisions.get("markets") or []
+    decision_rows = decision_rows if isinstance(decision_rows, list) else []
     rows = allowlist_rows or decision_rows
+    readiness_status = (payload.get("readiness") or {}).get("status")
+    allowlist_readiness_status = allowlist.get("readiness_status")
+    readiness_claims_match = bool(
+        allowlist_rows
+        and readiness_status == "READY"
+        and allowlist_readiness_status == "READY"
+        and allowlist.get("readiness_permission_allowed") is True
+    )
+    # promotion_allowlist_v0.1 is a detached reporting projection.  It does not
+    # embed a runtime-verifiable, current-input authorization envelope, and the
+    # source-family scan closure is intentionally still non-authorizing.  Never
+    # turn its cached READY/permission booleans into runtime candidate access.
+    # A future authorizing lane must use a new schema with independently
+    # verified evidence bindings and expiry semantics.
+    authorization_schema_supported = False
+    readiness_bound = False
+    duplicate_markets = set()
+    seen_markets = set()
     for row in rows:
+        if not isinstance(row, dict):
+            continue
         market_id = row.get("market_id")
         if not market_id:
             continue
+        if market_id in seen_markets:
+            duplicate_markets.add(market_id)
+            states[market_id] = {
+                "promotion_state": "BLOCK",
+                "action": None,
+                "verdict": None,
+                "reason": "duplicate market rows in promotion evidence",
+                "candidate_id": None,
+                "candidate_serving_allowed": False,
+                "candidate_permission_allowed": False,
+                "readiness_bound": False,
+                "promotion_allowlist_enforced": bool(allowlist_rows),
+            }
+            continue
+        seen_markets.add(market_id)
         action = row.get("action")
         verdict = row.get("verdict")
-        promotion_state = row.get("effective_promotion_state")
-        if not promotion_state:
-            promotion_state = promotion_state_from_action(action, verdict)
-            if allowlist_rows and row.get("candidate_permission_allowed") is False and promotion_state == "PASS":
-                promotion_state = "SHADOW"
+        derived_state = promotion_state_from_action(action, verdict)
+        promotion_state = "BLOCK" if derived_state == "BLOCK" else "SHADOW"
+        row_readiness_bound = False
+        candidate_permission_allowed = False
+        candidate_serving_allowed = False
+        reason = row.get("blocker_reason") or row.get("reason")
+        reason = (
+            "candidate permission denied: promotion_allowlist_v0.1 and "
+            "decisions-only refreshes are detached, non-authorizing evidence; "
+            "a runtime-verifiable authorization envelope is required"
+        )
         states[market_id] = {
             "promotion_state": promotion_state,
             "action": action,
             "verdict": verdict,
-            "reason": row.get("blocker_reason") or row.get("reason"),
+            "reason": reason,
             "candidate_id": row.get("candidate_id") or allowlist.get("candidate_id"),
-            "candidate_serving_allowed": row.get("candidate_serving_allowed"),
-            "candidate_permission_allowed": row.get("candidate_permission_allowed"),
+            "candidate_serving_allowed": candidate_serving_allowed,
+            "candidate_permission_allowed": candidate_permission_allowed,
+            "readiness_bound": row_readiness_bound,
             "promotion_allowlist_enforced": bool(allowlist_rows),
         }
+    for market_id in duplicate_markets:
+        states[market_id]["promotion_state"] = "BLOCK"
+        states[market_id]["reason"] = "duplicate market rows in promotion evidence"
     micro_gate = (((payload.get("candidate") or {}).get("microstructure") or {}).get("gate") or {})
     return states, {
         "path": str(path),
@@ -953,6 +1106,13 @@ def load_promotion_states(path=DEFAULT_PROMOTION_REFRESH):
         "promotion_allowlist_enforced": bool(allowlist_rows),
         "promotion_allowlist_schema_version": allowlist.get("schema_version"),
         "promotion_allowlist_path": allowlist.get("path"),
+        "readiness_status": readiness_status,
+        "promotion_allowlist_readiness_status": allowlist_readiness_status,
+        "readiness_bound": readiness_bound,
+        "readiness_claims_match": readiness_claims_match,
+        "authorization_schema_supported": authorization_schema_supported,
+        "authorization_status": "NON_AUTHORIZING_SCHEMA",
+        "duplicate_market_ids": sorted(duplicate_markets),
         "microstructure_gate": micro_gate,
     }
 

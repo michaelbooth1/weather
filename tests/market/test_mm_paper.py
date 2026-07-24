@@ -1173,6 +1173,77 @@ class TestMMPaper(unittest.TestCase):
         self.assertTrue(record["promotion"]["promotion_allowlist_enforced"])
         self.assertEqual(record["promotion"]["candidate_id"], "candidate_v1")
 
+    def test_v01_ready_claims_cannot_emit_edge_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            promotion = root / "promotion.json"
+            promotion.write_text(
+                json.dumps(
+                    {
+                        "readiness": {"status": "READY"},
+                        "promotion_allowlist": {
+                            "schema_version": "promotion_allowlist_v0.1",
+                            "readiness_status": "READY",
+                            "readiness_permission_allowed": True,
+                            "candidate_permission_allowed": True,
+                            "markets": [
+                                {
+                                    "market_id": "atlanta",
+                                    "action": "PROMOTE_CANDIDATE",
+                                    "verdict": "PASS",
+                                    "effective_promotion_state": "PASS",
+                                    "candidate_permission_allowed": True,
+                                    "candidate_serving_allowed": True,
+                                    "delta_vs_market": -0.01,
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paper_payload = {
+                "schema_version": "mm_paper_v0.1",
+                "summary": {
+                    "anti_overfit": {
+                        "live_forward_days": [
+                            f"2026-06-{day:02d}" for day in range(1, 15)
+                        ]
+                    }
+                },
+                "markout_slices": [
+                    {
+                        "market_id": "atlanta",
+                        "hour_utc": "15",
+                        "band_distance_bucket": "edge_3c_8c",
+                        "band_type": "eq",
+                        "casebook_taxonomy": "market_lead",
+                        "regime": "daytime",
+                        "source_fresh": "true",
+                        "book_imbalance_bucket": "balanced",
+                        "fill_count": 20,
+                        "markout_30m_ci_low": 0.02,
+                        "net_pnl_after_fees_incentives_usdc": 3.0,
+                    }
+                ],
+            }
+
+            known_edge = build_known_edge_map(
+                paper_payload,
+                promotion_refresh=promotion,
+            )
+            record = next(
+                row
+                for row in known_edge["records"]
+                if row.get("cutoff") == "paper_slice"
+            )
+
+        self.assertEqual(record["base_permission"], "SHADOW")
+        self.assertEqual(record["permission"], "harvest_only")
+        self.assertEqual(record["reason"], "promotion_shadow")
+        self.assertFalse(record["promotion"]["authorization_schema_supported"])
+        self.assertFalse(record["promotion"]["candidate_permission_allowed"])
+
     def test_conservative_fills_queue_markouts_incentives_and_known_edge_map(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1299,9 +1370,17 @@ class TestMMPaper(unittest.TestCase):
             self.assertNotIn("| Variant | Policy | Quote rows |", report)
 
             permissions = {(row["market_id"], row["permission"]) for row in known_edge["records"]}
-            self.assertIn(("atlanta", "edge_research"), permissions)
+            self.assertIn(("atlanta", "no_quote"), permissions)
+            self.assertNotIn(("atlanta", "edge_research"), permissions)
             self.assertIn(("chicago", "harvest_only"), permissions)
             self.assertIn(("san-francisco", "no_quote"), permissions)
+            self.assertFalse(known_edge["serving_or_release_authorization"])
+            self.assertTrue(
+                all(
+                    row["serving_or_release_authorization"] is False
+                    for row in known_edge["records"]
+                )
+            )
 
     def test_streamed_multi_run_scoring_matches_materialized_reference(self):
         with tempfile.TemporaryDirectory() as tmp:

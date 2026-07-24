@@ -42,7 +42,7 @@ from weather.execution_identity import (
 from weather.market.market_registry import REGISTRY
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.release_serving import STATUS_RESEARCH_UNBOUND, VerifiedServingBundle
-from weather.reporting.promotion.promotion_corpus import folders_from_manifest
+from weather.reporting.promotion.promotion_corpus import folders_from_manifest_strict
 from weather.reporting.research.research_generation import ResearchGeneration
 from weather.reporting.research.source_ablation_runtime_correction import (
     RETRY_GENERATION_LEAF,
@@ -573,7 +573,7 @@ def run_hardened(args) -> tuple[dict[str, Any], dict[str, Any]]:
     TorontoHighTempModel._historical_target_cache.clear()
     folders = [
         str(path)
-        for path in folders_from_manifest(corpus_manifest, snapshots_root)
+        for path in folders_from_manifest_strict(corpus_manifest, snapshots_root)
     ]
     if len(folders) != len(corpus_manifest.get("entries") or ()):
         raise HardenedSourceAblationError("corpus folder expansion is not one-to-one")
@@ -692,6 +692,7 @@ def run_hardened(args) -> tuple[dict[str, Any], dict[str, Any]]:
             "completion": completion.to_dict(),
             "full_manifest_equality": True,
         },
+        evidence_mode="research",
     )
     report = render_report(
         summaries,

@@ -930,7 +930,6 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
 
     source_preflight = source_family_inventory.get("promotion_preflight") or {}
     if source_preflight.get("status") == "BLOCK":
-        blocked_families = source_preflight.get("blocked_families") or []
         command = source_preflight.get("inventory_command") or "python -m weather.reporting.source_gates.source_family_inventory"
         ablation_command = source_preflight.get("ablation_command")
         action = command
@@ -940,10 +939,7 @@ def _build_learnings(payloads, scorecard, artifacts=None, truncated_sources=None
             "P0",
             "source_family_preflight",
             "source_family_inventory",
-            (
-                f"Source-family promotion preflight blocked {len(blocked_families)} "
-                f"model-influencing family row(s): {', '.join(blocked_families[:8]) or '-'}."
-            ),
+            source_family_preflight_signal(source_preflight),  # noqa: F405
             action,
             evidence=source_preflight,
             blocker=True,
@@ -1930,6 +1926,11 @@ def build_learning_payload(
         "generated_at_utc": generated,
         "run_date": effective_run_date,
         "status": status,
+        "serving_or_release_authorization": False,
+        "authorization_note": (
+            "Detached daily-learning evidence cannot authorize serving or release; "
+            "runtime current-input revalidation is required."
+        ),
         "backtest_root": str(Path(backtest_root)),
         "snapshots_root": str(Path(snapshots_root)),
         "summary": summary,

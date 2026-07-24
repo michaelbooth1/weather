@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.source_gates.weak_input_family_disposition import (
     build_report_payload,
@@ -10,6 +11,7 @@ from weather.reporting.source_gates.weak_input_family_disposition import (
     weak_input_training_preflight,
     write_markdown_report,
 )
+from tests.reporting.source_family_contract_fixtures import operational_inventory
 
 
 def write_family_permutation(path):
@@ -139,8 +141,8 @@ def write_coverage(path):
 
 
 def write_inventory(path):
-    payload = {
-        "inventory": [
+    payload = operational_inventory(
+        [
             {
                 "family_id": "settlement_observation",
                 "lineage_status": "PASS",
@@ -170,11 +172,24 @@ def write_inventory(path):
                 "promotion_decision": {"status": "BLOCK_LINEAGE"},
             },
         ]
-    }
+    )
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 class WeakInputFamilyDispositionTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.source_gates.weak_input_family_disposition."
+            "source_family_inventory_consumer_contract",
+            return_value={
+                "status": "PASS",
+                "serving_or_release_authorization": False,
+                "blockers": [],
+            },
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _payload(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -189,6 +204,7 @@ class WeakInputFamilyDispositionTests(unittest.TestCase):
     def test_classifies_weak_and_sparse_families(self):
         payload = self._payload()
         self.assertEqual(payload["schema_version"], "weak_input_family_disposition_v0.1")
+        self.assertFalse(payload["serving_or_release_authorization"])
         rows = {row["family"]: row for row in payload["families"]}
 
         self.assertEqual(rows["observed_temp_path"]["disposition"], "served")
@@ -206,11 +222,27 @@ class WeakInputFamilyDispositionTests(unittest.TestCase):
             payload,
         )
 
-        self.assertEqual(preflight["status"], "WARN")
+        self.assertEqual(preflight["status"], "BLOCK")
         self.assertEqual(preflight["diagnostic_only_families"], ["surface_weather"])
-        surface = preflight["warnings"][0]
+        surface = next(
+            row for row in preflight["warnings"] if row["family"] == "surface_weather"
+        )
         self.assertEqual(surface["family"], "surface_weather")
         self.assertIn("no positive broad family permutation result", surface["reasons"])
+        self.assertIn(
+            "no disposition row for referenced feature family open_meteo_forecast_profile",
+            preflight["authorization_blockers"],
+        )
+
+    def test_training_preflight_blocks_empty_synthetic_policy(self):
+        preflight = weak_input_training_preflight(
+            ["forecast_high"],
+            {"families": []},
+        )
+
+        self.assertEqual(preflight["status"], "BLOCK")
+        self.assertFalse(preflight["serving_or_release_authorization"])
+        self.assertTrue(preflight["authorization_blockers"])
 
     def test_feature_family_mapping_and_markdown(self):
         self.assertEqual(input_family_for_model_feature("cloud_group_Fair/clear"), "surface_weather")
@@ -226,6 +258,7 @@ class WeakInputFamilyDispositionTests(unittest.TestCase):
         self.assertIn("Disposition Table", text)
         self.assertIn("Training Preflight Warnings", text)
         self.assertIn("Regime Backfill Plans", text)
+        self.assertIn("runtime current-input revalidation is required", text)
 
 
 if __name__ == "__main__":

@@ -27,12 +27,15 @@ import argparse
 import hashlib
 import json
 import math
-import random
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from weather.paths import data_path
+from weather.execution_identity import (
+    atomic_write_json_exclusive,
+    atomic_write_text_exclusive,
+)
+from weather.paths import data_path, repo_path
 from weather.io import write_json_atomic, write_text_atomic
 from weather.schema_registry import schema_version
 
@@ -67,48 +70,136 @@ from weather.backtesting.source_ablation_contract import (
     variant_has_support,
     variant_names_for_spec as contract_variant_names_for_spec,
 )
+from weather.backtesting.source_ablation_evidence import (
+    audit_model_bindings,
+    market_from_day,
+    paired_day_inference,
+    paired_inference_sensitivities,
+    paired_market_inference,
+    target_date_from_day,
+    validate_operational_evidence_inputs,
+)
 from weather.backtesting.settled_days import folder_market_id
 from weather.model.toronto_model import TorontoHighTempModel
-from weather.release_serving import STATUS_RESEARCH_UNBOUND, VerifiedServingBundle
+from weather.release_serving import (
+    STATUS_RESEARCH_UNBOUND,
+    VerifiedServingBundle,
+)
 from weather.reporting.promotion.promotion_corpus import (
     entry_for_folder,
-    folders_from_manifest,
+    folders_from_manifest_strict,
     load_manifest,
+    load_manifest_bytes,
     verify_entry_inputs,
 )
 
 DEFAULT_OUT = data_path() / "backtest" / "replay_ablation_report.md"
 DEFAULT_JSON_OUT = data_path() / "backtest" / "source_family_ablation.json"
+DEFAULT_RESEARCH_OUT = (
+    repo_path("scratch") / "research-output" / "source-family-ablation" / "replay_ablation_report.md"
+)
+DEFAULT_RESEARCH_JSON_OUT = (
+    repo_path("scratch")
+    / "research-output"
+    / "source-family-ablation"
+    / "source_family_ablation_research.json"
+)
 SINGLE_SOURCES = SINGLE_SOURCE_VARIANTS
 COMBINED_VARIANTS = dict(GROUP_VARIANTS)
-INFERENCE_BOOTSTRAP_REPLICATES = 10_000
-INFERENCE_BOOTSTRAP_SEED = 20260722
+EVIDENCE_MODE_RESEARCH = "research"
+EVIDENCE_MODE_OPERATIONAL = "operational"
+EVIDENCE_MODES = {EVIDENCE_MODE_RESEARCH, EVIDENCE_MODE_OPERATIONAL}
 
 
-def _stable_json_file(path, *, max_bytes=64 * 1024 * 1024):
+def _stable_file_identity(stat_result):
+    return (
+        int(getattr(stat_result, "st_dev", 0)),
+        int(getattr(stat_result, "st_ino", 0)),
+        int(stat_result.st_size),
+        int(stat_result.st_mtime_ns),
+        int(getattr(stat_result, "st_ctime_ns", 0)),
+    )
+
+
+def _stable_json_bytes(path, *, max_bytes=64 * 1024 * 1024):
     resolved = Path(path).expanduser().resolve(strict=True)
     before = resolved.stat()
     if not resolved.is_file() or before.st_size > int(max_bytes):
         raise ValueError(f"sealed JSON input is missing, non-file, or too large: {resolved}")
     raw = resolved.read_bytes()
     after = resolved.stat()
-    if (
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    ) != (
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ):
+    if _stable_file_identity(before) != _stable_file_identity(after) or len(
+        raw
+    ) != after.st_size:
         raise ValueError(f"sealed JSON input changed while reading: {resolved}")
+    return resolved, raw, hashlib.sha256(raw).hexdigest(), len(raw)
+
+
+def _strict_json_object_from_bytes(raw, *, path):
+    """Decode one JSON object without duplicate or non-finite values."""
+
     try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"sealed JSON input is invalid: {resolved}: {exc}") from exc
+        text = bytes(raw).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"sealed JSON input is not valid UTF-8: {path}") from exc
+
+    def reject_duplicate_keys(pairs):
+        output = {}
+        for key, value in pairs:
+            if key in output:
+                raise ValueError(f"sealed JSON input contains duplicate key {key!r}: {path}")
+            output[key] = value
+        return output
+
+    def reject_non_finite(value):
+        raise ValueError(
+            f"sealed JSON input contains non-finite constant {value!r}: {path}"
+        )
+
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_non_finite,
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"sealed JSON input is not valid JSON: {path}") from exc
+
+    def require_finite(value, location="$"):
+        if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"sealed JSON input contains non-finite number at {location}: {path}"
+                )
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                require_finite(item, f"{location}[{index}]")
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                require_finite(item, f"{location}.{key}")
+
     if not isinstance(payload, dict):
-        raise ValueError(f"sealed JSON input root is not an object: {resolved}")
-    return resolved, payload, hashlib.sha256(raw).hexdigest()
+        raise ValueError(f"sealed JSON input root must be an object: {path}")
+    require_finite(payload)
+    return payload
+
+
+def _load_manifest_with_receipt(path):
+    """Load and validate one stable promotion-corpus byte sequence."""
+
+    resolved, raw, file_sha256, size_bytes = _stable_json_bytes(path)
+    manifest = load_manifest_bytes(raw, path=resolved)
+    return manifest, {
+        "path": str(resolved),
+        "status": "PASS",
+        "sha256": file_sha256,
+        "size_bytes": size_bytes,
+        "blockers": [],
+    }
 
 
 def ablate_sources(sources, names):
@@ -443,6 +534,23 @@ def run_ablation(
                 )
             records = index_records_by_pinned_hash(loaded_records, expected_hashes)
             df = df[df["snapshot_id"].astype(str).isin(pinned_ids)].copy()
+            scoring_warnings = verify_entry_inputs(
+                corpus_entry,
+                folder,
+                df,
+                records,
+            )
+            if scoring_warnings:
+                preview = "; ".join(scoring_warnings[:5])
+                suffix = (
+                    ""
+                    if len(scoring_warnings) <= 5
+                    else f"; +{len(scoring_warnings) - 5} more"
+                )
+                raise ValueError(
+                    "exact scoring-frame input verification failed: "
+                    f"{preview}{suffix}"
+                )
         else:
             records = index_records_by_snapshot(loaded_records)
             records = {
@@ -618,18 +726,9 @@ def run_ablation(
             support_audit.update(audit)
         if len(research_bundle_ids) != 1:
             raise ValueError("hardened source replay models do not share one explicit bundle")
-        if model_binding_audit is not None:
-            model_binding_audit.clear()
-            model_binding_audit.update(
-                {
-                    "status": STATUS_RESEARCH_UNBOUND,
-                    "pointer_present": False,
-                    "market_ids": sorted(models),
-                    "model_count": len(models),
-                    "shared_explicit_bundle": True,
-                    "serving_or_release_authorization": False,
-                }
-            )
+    if model_binding_audit is not None:
+        model_binding_audit.clear()
+        model_binding_audit.update(audit_model_bindings(models))
     return pd.DataFrame(rows), day_meta
 
 
@@ -704,303 +803,52 @@ def summarize(data):
     return summaries, day_tables
 
 
-def _mean(values):
-    values = list(values)
-    return sum(values) / len(values) if values else None
-
-
-def _percentile(values, quantile):
-    if not values:
-        return None
-    values = sorted(values)
-    position = (len(values) - 1) * quantile
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return values[lower]
-    fraction = position - lower
-    return values[lower] * (1.0 - fraction) + values[upper] * fraction
-
-
-def _cluster_bootstrap(values, *, seed, replicates=INFERENCE_BOOTSTRAP_REPLICATES):
-    values = [float(value) for value in values]
-    if not values:
-        return {"low": None, "high": None, "replicates": replicates, "seed": seed}
-    rng = random.Random(int(seed))
-    n = len(values)
-    estimates = [
-        sum(values[rng.randrange(n)] for _ in range(n)) / n
-        for _ in range(int(replicates))
-    ]
-    return {
-        "low": _percentile(estimates, 0.025),
-        "high": _percentile(estimates, 0.975),
-        "replicates": int(replicates),
-        "seed": int(seed),
-    }
-
-
-def _sign_test(values):
-    values = [float(value) for value in values]
-    improvements = sum(value < 0.0 for value in values)
-    regressions = sum(value > 0.0 for value in values)
-    ties = len(values) - improvements - regressions
-    n = improvements + regressions
-    if n:
-        tail = min(improvements, regressions)
-        p_value = min(
-            1.0,
-            2.0 * sum(math.comb(n, k) for k in range(tail + 1)) / (2.0 ** n),
-        )
-    else:
-        p_value = 1.0
-    return {
-        "improvements": improvements,
-        "regressions": regressions,
-        "ties": ties,
-        "non_ties": n,
-        "two_sided_p": p_value,
-    }
-
-
-def paired_day_inference(day_tables, split_dates=None):
-    """Equal-fleet-date paired inference from per-market-day ablation deltas."""
-    requested_splits = {"all": None, **(split_dates or {})}
-    output = []
-    for variant, rows in sorted(day_tables.items()):
-        by_date = defaultdict(list)
-        for row in rows:
-            target_date = str(row.get("market_day") or row.get("day") or "").rsplit(" ", 1)[-1]
-            by_date[target_date].append(row)
-        for split, date_values in requested_splits.items():
-            allowed = set(date_values) if date_values is not None else None
-            selected = {
-                target_date: market_days
-                for target_date, market_days in by_date.items()
-                if allowed is None or target_date in allowed
-            }
-            fleet_rows = []
-            for target_date, market_days in sorted(selected.items()):
-                fleet_rows.append({
-                    "target_date": target_date,
-                    "market_days": len(market_days),
-                    "brier_delta": _mean(row["brier_delta"] for row in market_days),
-                    "logloss_delta": _mean(row["logloss_delta"] for row in market_days),
-                    "no_op_market_days": sum(
-                        abs(float(row["brier_delta"])) <= 1e-15
-                        and abs(float(row["logloss_delta"])) <= 1e-15
-                        for row in market_days
-                    ),
-                })
-            metric_payload = {}
-            for metric in ("brier_delta", "logloss_delta"):
-                values = [row[metric] for row in fleet_rows]
-                digest = hashlib.sha256(
-                    f"{variant}|{split}|{metric}".encode("utf-8")
-                ).digest()
-                seed = INFERENCE_BOOTSTRAP_SEED + int.from_bytes(digest[:4], "big")
-                metric_payload[metric] = {
-                    "mean": _mean(values),
-                    "cluster_bootstrap_95ci": _cluster_bootstrap(values, seed=seed),
-                    "sign_test": _sign_test(values),
-                }
-            output.append({
-                "variant": variant,
-                "split": split,
-                "fleet_dates": len(fleet_rows),
-                "market_days": sum(row["market_days"] for row in fleet_rows),
-                "no_op_market_days": sum(row["no_op_market_days"] for row in fleet_rows),
-                **metric_payload,
-                "daily": fleet_rows,
-            })
-    return output
-
-
-def target_date_from_day(day):
-    return str(day or "").strip().rsplit(" ", 1)[-1]
-
-
-def paired_inference_sensitivities(
-    day_tables,
-    day_meta,
+def resolve_outputs_outside_read_only_root(
+    data_root,
+    outputs,
     *,
-    split_dates=None,
-    required_market_count=12,
-    required_market_ids=None,
+    protected_inputs=(),
+    protected_roots=(),
 ):
-    """Repeat paired inference under settlement and panel-completeness scopes.
-
-    Completeness is defined from the pinned corpus metadata, before looking at
-    any ablation outcome.  A source that is not configured for all built-in
-    markets can therefore have zero rows in the strict 12-market scope; that is
-    an explicit support limitation, not an imputed result.
-    """
-
-    meta_by_day = {
-        str(row.get("market_day") or row.get("day") or ""): row
-        for row in day_meta
-    }
-    markets_by_date = defaultdict(set)
-    daily_markets_by_date = defaultdict(set)
-    for day, row in meta_by_day.items():
-        target_date = target_date_from_day(day)
-        market_id = market_from_day(day)
-        markets_by_date[target_date].add(market_id)
-        source = str(row.get("settlement_source") or "")
-        if source == "daily_summary":
-            daily_markets_by_date[target_date].add(market_id)
-
-    exact_markets = (
-        {str(value) for value in required_market_ids}
-        if required_market_ids is not None
-        else None
-    )
-
-    def complete(markets):
-        if exact_markets is not None:
-            return markets == exact_markets
-        return len(markets) == int(required_market_count)
-
-    complete_dates = {
-        target_date
-        for target_date, markets in markets_by_date.items()
-        if complete(markets)
-    }
-    daily_complete_dates = {
-        target_date
-        for target_date, markets in daily_markets_by_date.items()
-        if complete(markets)
-    }
-    all_days = set(meta_by_day)
-    daily_days = {
-        day
-        for day, row in meta_by_day.items()
-        if str(row.get("settlement_source") or "") == "daily_summary"
-    }
-    output = []
-    for variant, rows in day_tables.items():
-        variant_markets_by_date = defaultdict(set)
-        for row in rows:
-            day = str(row.get("market_day") or row.get("day") or "")
-            variant_markets_by_date[target_date_from_day(day)].add(
-                market_from_day(day)
-            )
-        variant_complete_dates = {
-            target_date
-            for target_date, markets in variant_markets_by_date.items()
-            if complete(markets)
-            and target_date in complete_dates
-        }
-        variant_daily_complete_dates = (
-            variant_complete_dates & daily_complete_dates
-        )
-        scopes = {
-            "all_pinned": all_days,
-            "configured_daily_summary_only": daily_days,
-            "complete_12_market_panel": {
-                day
-                for day in all_days
-                if target_date_from_day(day) in variant_complete_dates
-            },
-            "daily_summary_complete_exact_market_panel": {
-                day
-                for day in all_days
-                if target_date_from_day(day) in variant_daily_complete_dates
-            },
-        }
-        for scope, allowed_days in scopes.items():
-            scoped_rows = [
-                row
-                for row in rows
-                if str(row.get("market_day") or row.get("day") or "") in allowed_days
-            ]
-            for inference_row in paired_day_inference(
-                {variant: scoped_rows}, split_dates
-            ):
-                output.append({"scope": scope, **inference_row})
-    return output
-
-
-def paired_market_inference(day_tables, split_dates=None, *, day_meta=None):
-    """Equal-date paired source effects within each market and split."""
-
-    requested_splits = {"all": None, **(split_dates or {})}
-    eligible_days = None
-    if day_meta is not None:
-        eligible_days = {
-            str(row.get("market_day") or row.get("day") or "")
-            for row in day_meta
-            if str(row.get("settlement_source") or "") == "daily_summary"
-        }
-    output = []
-    for variant, rows in sorted(day_tables.items()):
-        for split, date_values in requested_splits.items():
-            allowed = set(date_values) if date_values is not None else None
-            by_market = defaultdict(list)
-            for row in rows:
-                if eligible_days is not None and str(row.get("market_day") or row.get("day") or "") not in eligible_days:
-                    continue
-                market_day = row.get("market_day") or row.get("day")
-                target_date = target_date_from_day(market_day)
-                if allowed is not None and target_date not in allowed:
-                    continue
-                by_market[market_from_day(market_day)].append(row)
-            for market_id, market_rows in sorted(by_market.items()):
-                metric_payload = {}
-                for metric in ("brier_delta", "logloss_delta"):
-                    values = [float(row[metric]) for row in market_rows]
-                    digest = hashlib.sha256(
-                        f"{variant}|{split}|{market_id}|{metric}".encode("utf-8")
-                    ).digest()
-                    seed = INFERENCE_BOOTSTRAP_SEED + int.from_bytes(
-                        digest[:4], "big"
-                    )
-                    metric_payload[metric] = {
-                        "mean": _mean(values),
-                        "date_bootstrap_95ci": _cluster_bootstrap(
-                            values, seed=seed
-                        ),
-                        "sign_test": _sign_test(values),
-                    }
-                output.append(
-                    {
-                        "variant": variant,
-                        "split": split,
-                        "scope": (
-                            "configured_daily_summary_only"
-                            if eligible_days is not None
-                            else "all_pinned"
-                        ),
-                        "market_id": market_id,
-                        "market_days": len(market_rows),
-                        "no_op_market_days": sum(
-                            abs(float(row["brier_delta"])) <= 1e-15
-                            and abs(float(row["logloss_delta"])) <= 1e-15
-                            for row in market_rows
-                        ),
-                        **metric_payload,
-                    }
-                )
-    return output
-
-
-def resolve_outputs_outside_read_only_root(data_root, outputs):
-    """Resolve outputs and reject junction/symlink aliases into ``data_root``."""
+    """Resolve outputs and reject aliases into read-only inputs or roots."""
 
     root = Path(data_root).expanduser().resolve(strict=True)
     if not root.is_dir():
         raise ValueError(f"read-only data root is not a directory: {root}")
+    protected_files = {
+        Path(value).expanduser().resolve(strict=False)
+        for value in protected_inputs
+        if value is not None
+    }
+    protected_trees = [("supplied read-only data root", root)]
+    for value in protected_roots:
+        if value is None:
+            continue
+        candidate = Path(value).expanduser().resolve(strict=False)
+        if all(candidate != existing for _, existing in protected_trees):
+            protected_trees.append(("protected read-only root", candidate))
     resolved = {}
     for label, raw_path in outputs.items():
         target = Path(raw_path).expanduser().resolve(strict=False)
-        try:
-            target.relative_to(root)
-        except ValueError:
-            pass
-        else:
+        for protected_label, protected_root in protected_trees:
+            try:
+                target.relative_to(protected_root)
+            except ValueError:
+                continue
             raise ValueError(
-                f"{label} resolves inside the supplied read-only data root: {target}"
+                f"{label} resolves inside the {protected_label}: {target}"
             )
+        for protected_file in protected_files:
+            aliases_input = target == protected_file
+            if not aliases_input and target.exists() and protected_file.exists():
+                try:
+                    aliases_input = target.samefile(protected_file)
+                except OSError:
+                    aliases_input = False
+            if aliases_input:
+                raise ValueError(
+                    f"{label} output aliases a protected input: {target}"
+                )
         for other_label, other_target in resolved.items():
             aliases_other = target == other_target
             if not aliases_other and target.exists() and other_target.exists():
@@ -1016,23 +864,45 @@ def resolve_outputs_outside_read_only_root(data_root, outputs):
     return root, resolved
 
 
-def read_date_manifest(path):
+def _parse_date_manifest(text, path):
     values = []
-    if not path:
-        return values
-    with Path(path).open("r", encoding="utf-8") as handle:
-        for raw in handle:
-            value = raw.split("#", 1)[0].strip()
-            if value:
-                values.append(value)
+    for raw in text.splitlines():
+        value = raw.split("#", 1)[0].strip()
+        if value:
+            values.append(value)
     if values != sorted(set(values)):
         raise ValueError(f"date manifest must be unique and sorted: {path}")
     return values
 
 
-def market_from_day(day):
-    text = str(day or "").strip()
-    return text.split()[0] if text else "unknown"
+def read_date_manifest_with_receipt(path):
+    resolved = Path(path).expanduser().resolve(strict=True)
+    before = resolved.stat()
+    raw = resolved.read_bytes()
+    after = resolved.stat()
+    if _stable_file_identity(before) != _stable_file_identity(after) or len(
+        raw
+    ) != after.st_size:
+        raise ValueError(f"date manifest changed while reading: {resolved}")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"date manifest is not valid UTF-8: {resolved}") from exc
+    values = _parse_date_manifest(text, resolved)
+    return values, {
+        "path": str(resolved),
+        "status": "PASS",
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+        "blockers": [],
+    }
+
+
+def read_date_manifest(path):
+    if not path:
+        return []
+    values, _receipt = read_date_manifest_with_receipt(path)
+    return values
 
 
 def summarize_slice_effects(data):
@@ -1259,7 +1129,15 @@ def build_payload(
     sealed_contracts=None,
     model_binding=None,
     execution_identity=None,
+    input_receipts=None,
+    evidence_mode=EVIDENCE_MODE_RESEARCH,
 ):
+    if evidence_mode not in EVIDENCE_MODES:
+        raise ValueError(
+            "source-ablation evidence_mode must be one of: "
+            + ", ".join(sorted(EVIDENCE_MODES))
+        )
+    research_only = evidence_mode == EVIDENCE_MODE_RESEARCH
     variants = []
     for summary in summaries:
         variant = summary.get("variant")
@@ -1267,11 +1145,19 @@ def build_payload(
             **json_ready(summary),
             "ablated_sources": list(COMBINED_VARIANTS.get(variant, (variant,))),
         })
-    return {
-        "schema_version": schema_version("source_family_ablation"),
+    corpus_summary = (corpus_manifest or {}).get("summary") or {}
+    corpus_entries = (corpus_manifest or {}).get("entries") or []
+    corpus_receipt = (input_receipts or {}).get("corpus") or {}
+    payload = {
+        "schema_version": schema_version(
+            "source_family_ablation_research" if research_only else "source_family_ablation"
+        ),
         "generated_at_utc": datetime.utcnow().isoformat() + "Z",
+        "evidence_mode": evidence_mode,
         "include_reconstructed": bool(include_reconstructed),
-        "research_only": True,
+        "research_only": bool(research_only),
+        "promotion_preflight_evidence_authorization": not bool(research_only),
+        "serving_or_release_authorization": False,
         "model_binding": json_ready(model_binding or {}),
         "source_semantics": (
             "terminal removal after captured collector fallback/cache resolution; "
@@ -1279,12 +1165,29 @@ def build_payload(
         ),
         "corpus": ({
             "path": corpus_manifest.get("_path"),
+            "manifest_sha256": corpus_receipt.get("sha256"),
+            "schema_version": corpus_manifest.get("schema_version"),
             "corpus_hash": corpus_manifest.get("corpus_hash"),
             "as_of": corpus_manifest.get("as_of"),
-            "market_day_count": (corpus_manifest.get("summary") or {}).get("market_day_count"),
-            "snapshot_count": (corpus_manifest.get("summary") or {}).get("snapshot_count"),
+            "market_day_count": corpus_summary.get("market_day_count"),
+            "snapshot_count": corpus_summary.get("snapshot_count"),
+            "target_dates": sorted(
+                {
+                    str(entry.get("target_date"))
+                    for entry in corpus_entries
+                    if isinstance(entry, dict) and entry.get("target_date")
+                }
+            ),
+            "market_ids": sorted(
+                {
+                    str(entry.get("market_id"))
+                    for entry in corpus_entries
+                    if isinstance(entry, dict) and entry.get("market_id")
+                }
+            ),
             "input_verification": "PASS",
         } if corpus_manifest is not None else None),
+        "input_receipts": json_ready(input_receipts or {}),
         "requested_variants": list(requested_sources),
         "split_dates": {
             str(split): list(values)
@@ -1315,6 +1218,24 @@ def build_payload(
         "slice_effects": json_ready(slice_effects or []),
         "market_days": json_ready(day_meta),
     }
+    if not research_only:
+        validate_operational_evidence_inputs(
+            variants,
+            day_tables,
+            day_meta,
+            include_reconstructed,
+            corpus_manifest,
+            paired_inference,
+            robustness_inference,
+            market_inference,
+            split_dates,
+            model_binding,
+            input_receipts,
+            requested_sources,
+            slice_effects or [],
+            normalize=json_ready,
+        )
+    return payload
 
 
 def write_json_report(out_path, payload):
@@ -1326,26 +1247,53 @@ def add_robustness_to_existing_artifact(
     *,
     read_only_data_root,
     split_dates=None,
+    expected_sha256=None,
+    output_json_path=None,
     report_path=None,
 ):
-    """Add outcome-independent sensitivity scopes without rerunning replay."""
+    """Publish a receipted, exclusive robustness augmentation generation."""
 
     if set(split_dates or {}) != {"tune", "holdout"}:
         raise ValueError(
             "split_dates must explicitly provide tune and holdout allocations"
         )
 
-    requested_outputs = {"json_path": json_path}
-    if report_path is not None:
-        requested_outputs["report_path"] = report_path
+    expected_sha256 = str(expected_sha256 or "").strip().lower()
+    if (
+        len(expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha256)
+    ):
+        raise ValueError("expected_sha256 must be a trusted 64-character hex digest")
+    if output_json_path is None or report_path is None:
+        raise ValueError(
+            "output_json_path and report_path are required; in-place augmentation is retired"
+        )
+
+    resolved_input, raw, observed_sha256, input_size = _stable_json_bytes(json_path)
+    if observed_sha256 != expected_sha256:
+        raise ValueError(
+            "source-ablation artifact differs from its trusted receipt: "
+            f"expected={expected_sha256}; observed={observed_sha256}"
+        )
+    payload = _strict_json_object_from_bytes(raw, path=resolved_input)
+
+    requested_outputs = {
+        "output_json_path": output_json_path,
+        "report_path": report_path,
+    }
     _, guarded_outputs = resolve_outputs_outside_read_only_root(
         read_only_data_root,
         requested_outputs,
+        protected_inputs=(resolved_input,),
     )
-    json_path = guarded_outputs["json_path"]
-    if report_path is not None:
-        report_path = guarded_outputs["report_path"]
-    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    output_json_path = guarded_outputs["output_json_path"]
+    report_path = guarded_outputs["report_path"]
+    existing = [path for path in (output_json_path, report_path) if path.exists()]
+    if existing:
+        raise ValueError(
+            "robustness augmentation refuses existing outputs: "
+            + ", ".join(str(path) for path in existing)
+        )
     robustness = paired_inference_sensitivities(
         payload.get("day_effects") or {},
         payload.get("market_days") or [],
@@ -1371,18 +1319,74 @@ def add_robustness_to_existing_artifact(
         day_meta=payload.get("market_days") or [],
     )
     payload["market_inference"] = json_ready(market_inference)
-    write_json_report(json_path, payload)
-    if report_path is not None:
-        write_report(
-            report_path,
-            payload.get("variants") or [],
-            payload.get("day_effects") or {},
-            payload.get("market_days") or [],
-            payload.get("include_reconstructed", False),
-            robustness,
-            market_inference,
-        )
+    payload["augmentation_input_receipt"] = {
+        "path": str(resolved_input),
+        "status": "PASS",
+        "sha256": observed_sha256,
+        "size_bytes": input_size,
+        "blockers": [],
+    }
+    rendered_report = render_report(
+        payload.get("variants") or [],
+        payload.get("day_effects") or {},
+        payload.get("market_days") or [],
+        payload.get("include_reconstructed", False),
+        robustness,
+        market_inference,
+    )
+    json.dumps(payload, sort_keys=True, allow_nan=False)
+    atomic_write_text_exclusive(report_path, rendered_report)
+    # The JSON is the completion leaf and appears only after the companion report.
+    atomic_write_json_exclusive(output_json_path, payload)
     return payload
+
+
+def resolve_evidence_output_paths(*, operational_evidence, out=None, json_out=None):
+    default_out = DEFAULT_OUT if operational_evidence else DEFAULT_RESEARCH_OUT
+    default_json = (
+        DEFAULT_JSON_OUT if operational_evidence else DEFAULT_RESEARCH_JSON_OUT
+    )
+    resolved_out = Path(out) if out is not None else default_out
+    resolved_json = Path(json_out) if json_out is not None else default_json
+    if not operational_evidence:
+        forbidden = []
+        if (
+            resolved_out.expanduser().resolve(strict=False)
+            == DEFAULT_OUT.expanduser().resolve(strict=False)
+        ):
+            forbidden.append("report")
+        if (
+            resolved_json.expanduser().resolve(strict=False)
+            == DEFAULT_JSON_OUT.expanduser().resolve(strict=False)
+        ):
+            forbidden.append("JSON")
+        if forbidden:
+            raise ValueError(
+                "the canonical operational "
+                + " and ".join(forbidden)
+                + " path requires --operational-evidence"
+            )
+    return resolved_out, resolved_json
+
+
+def validate_operational_cli_args(args, *, requested_sources=None):
+    required = {
+        "corpus": args.corpus,
+        "tune_dates_file": args.tune_dates_file,
+        "holdout_dates_file": args.holdout_dates_file,
+    }
+    missing = sorted(name for name, value in required.items() if not value)
+    if missing:
+        raise ValueError(
+            "Operational source replay requires: " + ", ".join(missing)
+        )
+    if args.folders or args.market or args.include_reconstructed:
+        raise ValueError(
+            "Operational source replay forbids folder/market subsets and "
+            "reconstructed inputs"
+        )
+    if requested_sources is not None:
+        exact_requested_variants(requested_sources)
 
 
 def main():
@@ -1406,6 +1410,15 @@ def main():
     parser.add_argument("--tune-dates-file", default=None)
     parser.add_argument("--holdout-dates-file", default=None)
     parser.add_argument("--hardened", action="store_true")
+    parser.add_argument(
+        "--operational-evidence",
+        action="store_true",
+        help=(
+            "Explicitly request promotion-preflight evidence. Requires a full "
+            "pinned corpus, tune/holdout manifests, and a verified active-release "
+            "model binding."
+        ),
+    )
     parser.add_argument("--repo-root", default=None)
     parser.add_argument("--preregistration", default=None)
     parser.add_argument("--support-seal", default=None)
@@ -1414,9 +1427,12 @@ def main():
     parser.add_argument("--sources", default=",".join(list(SINGLE_SOURCES) + list(COMBINED_VARIANTS)),
                         help="Comma list of sources/combined variants to ablate.")
     parser.add_argument("--include-reconstructed", action="store_true")
-    parser.add_argument("--out", default=str(DEFAULT_OUT))
-    parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT),
-                        help="Machine-readable source-family ablation artifact.")
+    parser.add_argument("--out", default=None)
+    parser.add_argument(
+        "--json-out",
+        default=None,
+        help="Machine-readable source-family ablation artifact.",
+    )
     args = parser.parse_args()
 
     requested = [item.strip() for item in args.sources.split(",") if item.strip()]
@@ -1427,6 +1443,11 @@ def main():
     if unknown:
         raise SystemExit(f"Unknown ablation sources: {', '.join(unknown)}")
     if args.hardened:
+        if args.operational_evidence:
+            raise SystemExit(
+                "Hardened workstation replay is research-only and forbids "
+                "--operational-evidence"
+            )
         required = {
             "repo_root": args.repo_root,
             "data_root": args.data_root,
@@ -1447,7 +1468,7 @@ def main():
             raise SystemExit(
                 "Hardened source replay forbids folder/market subsets and reconstructed inputs"
             )
-        if str(args.out) != str(DEFAULT_OUT) or str(args.json_out) != str(DEFAULT_JSON_OUT):
+        if args.out is not None or args.json_out is not None:
             raise SystemExit(
                 "Hardened source replay publishes only through --generation-dir; --out/--json-out are forbidden"
             )
@@ -1457,10 +1478,90 @@ def main():
         run_hardened(args)
         return
 
-    corpus_manifest = load_manifest(args.corpus, max_bytes=64 * 1024 * 1024) if args.corpus else None
+    try:
+        if args.operational_evidence:
+            validate_operational_cli_args(args, requested_sources=requested)
+        args.out, args.json_out = resolve_evidence_output_paths(
+            operational_evidence=args.operational_evidence,
+            out=args.out,
+            json_out=args.json_out,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    try:
+        protected_input_paths = tuple(
+            value
+            for value in (
+                args.corpus,
+                args.tune_dates_file,
+                args.holdout_dates_file,
+            )
+            if value
+        )
+        protected_roots = (args.snapshots_root, *args.folders)
+        resolved_data_root, output_paths = resolve_outputs_outside_read_only_root(
+            args.data_root or data_path(),
+            {"out": args.out, "json_out": args.json_out},
+            protected_inputs=protected_input_paths,
+            protected_roots=protected_roots,
+        )
+        args.out = output_paths["out"]
+        args.json_out = output_paths["json_out"]
+        existing_outputs = [
+            path
+            for path in (args.out, args.json_out)
+            if Path(path).exists()
+        ]
+        if existing_outputs:
+            raise ValueError(
+                "source replay generations refuse existing outputs: "
+                + ", ".join(str(path) for path in existing_outputs)
+            )
+    except (OSError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if args.data_root:
+        import weather.paths as weather_paths
+
+        weather_paths.DATA_ROOT = resolved_data_root
+        TorontoHighTempModel._historical_target_cache.clear()
+
+    input_receipts = {}
+    if args.corpus and args.operational_evidence:
+        corpus_manifest, input_receipts["corpus"] = _load_manifest_with_receipt(
+            args.corpus
+        )
+    else:
+        corpus_manifest = (
+            load_manifest(args.corpus, max_bytes=64 * 1024 * 1024)
+            if args.corpus
+            else None
+        )
+    split_dates = {}
+    if args.tune_dates_file:
+        if args.operational_evidence:
+            split_dates["tune"], input_receipts["tune_dates"] = (
+                read_date_manifest_with_receipt(args.tune_dates_file)
+            )
+        else:
+            split_dates["tune"] = read_date_manifest(args.tune_dates_file)
+    if args.holdout_dates_file:
+        if args.operational_evidence:
+            split_dates["holdout"], input_receipts["holdout_dates"] = (
+                read_date_manifest_with_receipt(args.holdout_dates_file)
+            )
+        else:
+            split_dates["holdout"] = read_date_manifest(args.holdout_dates_file)
     folders = args.folders
     if corpus_manifest is not None and not folders:
-        folders = [str(path) for path in folders_from_manifest(corpus_manifest, args.snapshots_root)]
+        folders = [
+            str(path)
+            for path in folders_from_manifest_strict(
+                corpus_manifest,
+                args.snapshots_root,
+            )
+        ]
     if not folders:
         root = Path(args.snapshots_root)
         folders = sorted(str(p.parent) for p in root.glob("*/snapshots_long.csv"))
@@ -1471,32 +1572,18 @@ def main():
         return
 
     print(f"Ablating {len(requested)} variant(s) over {len(folders)} folder(s)...")
-    if args.data_root:
-        import weather.paths as weather_paths
-
-        resolved_data_root, output_paths = resolve_outputs_outside_read_only_root(
-            args.data_root,
-            {"out": args.out, "json_out": args.json_out},
-        )
-        args.out = output_paths["out"]
-        args.json_out = output_paths["json_out"]
-        weather_paths.DATA_ROOT = resolved_data_root
-        TorontoHighTempModel._historical_target_cache.clear()
+    model_binding = {}
     data, day_meta = run_ablation(
         folders,
         requested,
         include_reconstructed=args.include_reconstructed,
         corpus_manifest=corpus_manifest,
+        model_binding_audit=model_binding,
     )
     if data.empty:
         print("No rows scored (no captured replay inputs?).")
         return
     summaries, day_tables = summarize(data)
-    split_dates = {}
-    if args.tune_dates_file:
-        split_dates["tune"] = read_date_manifest(args.tune_dates_file)
-    if args.holdout_dates_file:
-        split_dates["holdout"] = read_date_manifest(args.holdout_dates_file)
     inference = paired_day_inference(day_tables, split_dates)
     robustness_inference = paired_inference_sensitivities(
         day_tables,
@@ -1519,9 +1606,15 @@ def main():
         robustness_inference,
         market_inference,
         split_dates,
+        model_binding=model_binding,
+        input_receipts=input_receipts,
+        evidence_mode=(
+            EVIDENCE_MODE_OPERATIONAL
+            if args.operational_evidence
+            else EVIDENCE_MODE_RESEARCH
+        ),
     )
-    write_report(
-        args.out,
+    rendered_report = render_report(
         summaries,
         day_tables,
         day_meta,
@@ -1529,7 +1622,9 @@ def main():
         robustness_inference,
         market_inference,
     )
-    write_json_report(args.json_out, json_payload)
+    json.dumps(json_payload, sort_keys=True, allow_nan=False)
+    atomic_write_text_exclusive(args.out, rendered_report)
+    atomic_write_json_exclusive(args.json_out, json_payload)
     print(f"\nReport written to {args.out}\n")
     print(f"JSON written to {args.json_out}\n")
     print(f"{'variant':18s} {'rows':>7s} {'base':>8s} {'ablated':>8s} {'delta':>9s}  (positive = source helps)")

@@ -14,6 +14,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from weather.paths import data_path
+from weather.release_artifacts import (
+    DEFAULT_ACTIVE_RELEASE_POINTER,
+    DEFAULT_RELEASES_ROOT,
+)
 
 from types import SimpleNamespace
 
@@ -23,6 +27,22 @@ from weather.reporting.formatting import (
     markdown_table,
 )
 from weather.reporting.data_quality.artifact_disk_budget import ensure_artifact_disk_headroom
+from weather.reporting.source_gates.physical_feature_family_ratchet import (
+    build_ratchet,
+    physical_feature_family_ratchet_derived_contract,
+    physical_feature_family_ratchet_operational_contract,
+)
+from weather.reporting.source_gates.source_family_contracts import (
+    source_family_inventory_operational_contract,
+)
+from weather.reporting.source_gates.source_artifact_binding import (
+    load_verified_current_json_artifact,
+    stable_json_artifact,
+)
+from weather.reporting.source_gates.source_family_current_inputs import (
+    evaluate_source_family_inventory_current_inputs,
+    load_source_family_inventory_current_inputs,
+)
 from weather.reporting.location_analysis.location_trust import DEFAULT_OUT as DEFAULT_TRUST_OUT
 from weather.reporting.location_analysis.location_trust import score_all_markets
 from weather.market.market_registry import all_specs
@@ -466,9 +486,30 @@ def _read_candidate_ten_minute_performance_report(path):
     return payload
 
 
-def _read_source_family_inventory(path):
+def _read_source_family_inventory(
+    path,
+    *,
+    active_release_pointer=DEFAULT_ACTIVE_RELEASE_POINTER,
+    active_releases_root=DEFAULT_RELEASES_ROOT,
+):
     if not path:
-        return None
+        return {
+            "path": None,
+            "exists": False,
+            "status": "MISSING",
+            "promotion_preflight": {
+                "status": "MISSING",
+                "blocked_families": [],
+                "blocking_rows": [],
+                "blocked_family_count": None,
+            },
+            "operational_contract": {
+                "status": "MISSING",
+                "blockers": [
+                    "source-family inventory path is required for promotion readiness"
+                ],
+            },
+        }
     path = Path(path)
     if not path.exists():
         return {
@@ -482,22 +523,89 @@ def _read_source_family_inventory(path):
                 "blocked_family_count": None,
             },
         }
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    preflight = payload.get("promotion_preflight") or {}
+    payload, inventory_receipt = stable_json_artifact(path)
+    _current_ablation, current_input_verification = (
+        load_source_family_inventory_current_inputs(
+            payload,
+            active_release_pointer=active_release_pointer,
+            active_releases_root=active_releases_root,
+        )
+    )
+    payload = {
+        **payload,
+        "current_input_verification": current_input_verification,
+    }
+    operational_contract = source_family_inventory_operational_contract(payload)
+    current_input_blockers = [
+        *(inventory_receipt.get("blockers") or []),
+        *(current_input_verification.get("blockers") or []),
+    ]
+    if current_input_blockers:
+        operational_contract = {
+            **operational_contract,
+            "status": "BLOCK",
+            "blockers": [
+                *(operational_contract.get("blockers") or []),
+                *current_input_blockers,
+            ],
+        }
+    preflight = dict(payload.get("promotion_preflight") or {})
+    if operational_contract["status"] != "PASS":
+        preflight["status"] = "BLOCK"
+        preflight["operational_contract_blockers"] = operational_contract["blockers"]
     return {
         "path": str(path),
         "exists": True,
         "schema_version": payload.get("schema_version"),
         "generated_at_utc": payload.get("generated_at_utc"),
-        "status": payload.get("status"),
+        "status": (
+            payload.get("status")
+            if operational_contract["status"] == "PASS"
+            else "BLOCK"
+        ),
         "summary": payload.get("summary") or {},
+        "ablation_evidence_contract": payload.get("ablation_evidence_contract") or {},
+        "ablation_input_receipt": payload.get("ablation_input_receipt") or {},
+        "current_input_verification": current_input_verification,
+        "inventory": payload.get("inventory") or [],
         "promotion_preflight": preflight,
+        "operational_contract": operational_contract,
     }
 
 
-def _read_physical_feature_family_ratchet(path):
+def _read_physical_feature_family_ratchet(
+    path,
+    *,
+    active_release_pointer=DEFAULT_ACTIVE_RELEASE_POINTER,
+    active_releases_root=DEFAULT_RELEASES_ROOT,
+):
     if not path:
-        return None
+        return {
+            "path": None,
+            "exists": False,
+            "status": "MISSING",
+            "summary": {
+                "blocking_family_count": None,
+                "status_counts": {},
+            },
+            "rollup": {
+                "evidence_blocked": [],
+                "diagnostic_only": [],
+                "ready_for_retraining": [],
+            },
+            "first_blocker": {
+                "detail": (
+                    "physical feature-family ratchet path is required for "
+                    "promotion readiness"
+                ),
+            },
+            "operational_contract": {
+                "status": "MISSING",
+                "blockers": [
+                    "physical feature-family ratchet path is required for promotion readiness"
+                ],
+            },
+        }
     path = Path(path)
     if not path.exists():
         return {
@@ -517,7 +625,81 @@ def _read_physical_feature_family_ratchet(path):
                 "detail": "physical feature-family ratchet artifact is missing",
             },
         }
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload, ratchet_receipt = stable_json_artifact(path)
+    inputs = dict(payload.get("inputs") or {})
+    current_inventory, inventory_verification = (
+        load_verified_current_json_artifact(
+        inputs.get("source_family_inventory_receipt"),
+        label="source-family inventory",
+        )
+    )
+    current_ablation, ablation_verification = (
+        load_verified_current_json_artifact(
+        inputs.get("source_family_ablation_receipt"),
+        label="source-family ablation",
+        )
+    )
+    inventory_current_inputs = evaluate_source_family_inventory_current_inputs(
+        current_inventory,
+        current_ablation,
+        ablation_verification,
+        active_release_pointer=active_release_pointer,
+        active_releases_root=active_releases_root,
+    )
+    current_input_blockers = [
+        *(ratchet_receipt.get("blockers") or []),
+        *(inventory_verification.get("blockers") or []),
+        *(inventory_current_inputs.get("blockers") or []),
+    ]
+    expected_inventory_ablation = inputs.get(
+        "inventory_source_family_ablation_receipt"
+    )
+    if current_inventory.get("ablation_input_receipt") != expected_inventory_ablation:
+        current_input_blockers.append(
+            "current source-family inventory ablation receipt differs from the ratchet binding"
+        )
+    inputs["current_input_verification"] = {
+        "status": "BLOCK" if current_input_blockers else "PASS",
+        "source_family_inventory": inventory_verification,
+        "source_family_ablation": ablation_verification,
+        "inventory_current_inputs": inventory_current_inputs,
+        "blockers": current_input_blockers,
+    }
+    payload = {**payload, "inputs": inputs}
+    expected_payload = build_ratchet(
+        source_family_inventory=inputs.get("source_family_inventory")
+        or (inputs.get("source_family_inventory_receipt") or {}).get("path"),
+        source_family_ablation=inputs.get("source_family_ablation")
+        or (inputs.get("source_family_ablation_receipt") or {}).get("path"),
+        generated_at_utc=payload.get("generated_at_utc"),
+        loaded_inventory_payload=current_inventory,
+        loaded_inventory_receipt=inputs.get("source_family_inventory_receipt"),
+        loaded_ablation_payload=current_ablation,
+        loaded_ablation_receipt=inputs.get("source_family_ablation_receipt"),
+    )
+    derived_contract = physical_feature_family_ratchet_derived_contract(
+        payload,
+        expected_payload,
+    )
+    current_input_blockers.extend(derived_contract.get("blockers") or [])
+    inputs["derived_rebuild_contract"] = derived_contract
+    inputs["current_input_verification"]["status"] = (
+        "BLOCK" if current_input_blockers else "PASS"
+    )
+    inputs["current_input_verification"]["blockers"] = current_input_blockers
+    payload = {**payload, "inputs": inputs}
+    operational_contract = physical_feature_family_ratchet_operational_contract(
+        payload
+    )
+    if current_input_blockers:
+        operational_contract = {
+            **operational_contract,
+            "status": "BLOCK",
+            "blockers": [
+                *(operational_contract.get("blockers") or []),
+                *current_input_blockers,
+            ],
+        }
     families = payload.get("families") or []
     blocked_family_details = [
         {
@@ -540,16 +722,37 @@ def _read_physical_feature_family_ratchet(path):
         ),
         {},
     )
+    authorization_blockers = [
+        blocker
+        for blocker in operational_contract["blockers"]
+        if blocker != "physical feature-family ratchet status is not PASS"
+    ]
+    if authorization_blockers:
+        first_blocker = {
+            "status": "BLOCK_UNAUTHORIZED_ARTIFACT",
+            "detail": "; ".join(authorization_blockers),
+        }
     return {
         "path": str(path),
         "exists": True,
         "schema_version": payload.get("schema_version"),
         "generated_at_utc": payload.get("generated_at_utc"),
-        "status": payload.get("status"),
+        "status": (
+            payload.get("status")
+            if operational_contract["status"] == "PASS"
+            else "BLOCK"
+        ),
         "summary": payload.get("summary") or {},
+        "inputs": inputs,
+        "families": families,
         "rollup": payload.get("rollup") or {},
+        "settlement_sliced_lift": payload.get("settlement_sliced_lift") or [],
+        "excluded_market_overlay_families": (
+            payload.get("excluded_market_overlay_families") or []
+        ),
         "blocked_family_details": blocked_family_details,
         "first_blocker": first_blocker,
+        "operational_contract": operational_contract,
     }
 
 
@@ -775,4 +978,3 @@ def _market_scope_phrase(family_unit):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-

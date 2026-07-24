@@ -491,6 +491,11 @@ def render_report(payload):
         f"Generated: {payload.get('generated_at_utc')}",
         f"Run date: {payload.get('run_date')}",
         f"Status: **{payload.get('status')}**",
+        "Serving/release authorization: **false**",
+        (
+            "This detached daily-learning report cannot authorize serving or "
+            "release; runtime current-input revalidation is required."
+        ),
         "",
         "## Summary",
         "",
@@ -937,4 +942,3 @@ def render_report(payload):
     )
     lines.append("")
     return "\n".join(lines)
-

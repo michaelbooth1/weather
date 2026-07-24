@@ -61,6 +61,10 @@ from weather.operations.capture_resource_gate import (
     DEFAULT_MIN_FREE_MEMORY_BYTES as DEFAULT_CAPTURE_MIN_FREE_MEMORY_BYTES,
     persist_pipeline_admission,
 )
+from weather.operations.daily_refresh_corpus_binding import (
+    DAILY_REFRESH_RESUME_SOURCE_SCHEMA_VERSION,
+    read_resume_source_status,
+)
 from weather.reporting.candidate_lifecycle import shadow_ab_monitor
 from weather.reporting.scorecards import snapshot_evaluation
 from weather.reporting.scorecards import distribution_stage_attribution
@@ -209,6 +213,8 @@ from weather.operations.daily_refresh_steps import (
     write_ingest_quality_report,
 )
 from weather.operations.daily_refresh_report import render_report, write_report
+
+
 def run_daily_refresh(args, runners=None):
     guard_enabled = (
         not getattr(args, "dry_run", False)
@@ -1073,6 +1079,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     started = time.time()
     started_at = utc_iso()
     run_id = f"{started_at.replace(':', '').replace('+', '_')}-{os.getpid()}"
+    setattr(args, "_daily_refresh_run_id", run_id)
     invocation = build_invocation_proof(
         args,
         module_name="weather.operations.daily_refresh",
@@ -1230,11 +1237,32 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             return _write_stage_skip(args, started=started, started_at=started_at, gate=gate)
     resume_from = getattr(args, "resume_from_step", "")
     if resume_from and not args.dry_run:
-        try:
-            prior = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            prior = {}
+        prior, resume_provenance = read_resume_source_status(
+            args.status_out,
+            expected_schema_version=SCHEMA_VERSION,
+        )
+        setattr(args, "_daily_refresh_resume_provenance", resume_provenance)
         carried = carried_forward_steps(prior.get("steps"), resume_from)
+        carried_source = {
+            "schema_version": DAILY_REFRESH_RESUME_SOURCE_SCHEMA_VERSION,
+            "run_id": resume_provenance.get("run_id"),
+            "ledger_path": resume_provenance.get("ledger_path"),
+            "ledger_sha256": resume_provenance.get("ledger_sha256"),
+        }
+        for step in carried:
+            prior_sources = step.get("carried_forward_sources")
+            if isinstance(prior_sources, list):
+                carried_sources = list(prior_sources)
+            elif prior_sources is None:
+                carried_sources = []
+            else:
+                carried_sources = [prior_sources]
+            prior_source = step.get("carried_forward_source")
+            if not carried_sources and isinstance(prior_source, dict):
+                carried_sources.append(dict(prior_source))
+            carried_sources.append(dict(carried_source))
+            step["carried_forward_source"] = carried_source
+            step["carried_forward_sources"] = carried_sources
         payload["steps"] = carried
         payload["resource_steps"] = list(prior.get("resource_steps") or [])
         payload["config"]["carried_forward_step_count"] = len(carried)
@@ -1242,6 +1270,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             payload["resource_steps"]
         )
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+        payload["config"]["carried_forward_source"] = resume_provenance
     elif stage == STAGE_EVIDENCE and not args.dry_run:
         prior = _read_json_payload(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
         carried = carried_forward_stage_head(prior.get("steps"), stage)
@@ -1311,6 +1340,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 "market_day_labels_finalize",
                 "settled_day_analysis_barrier",
                 "promotion_refresh",
+                "active_variant_shadow",
                 "daily_learning",
                 "daily_flow_analysis",
             }:

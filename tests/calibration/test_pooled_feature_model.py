@@ -999,6 +999,57 @@ class TestPooledFeatureModel(unittest.TestCase):
         self.assertAlmostEqual(reliability["source_best_bucket_match"], 0.5)
         self.assertAlmostEqual(reliability["source_best_mae"], 1.0)
 
+    def test_market_source_reliability_excludes_every_post_cutoff_overlap(self):
+        indexes = {
+            "wu": {
+                "2023-12-31": {"high": 80.0, "bucket": 80},
+                "2024-02-01": {"high": 100.0, "bucket": 100},
+            },
+            "ghcnh": {
+                "2023-12-31": {"high": 81.0, "bucket": 81},
+                "2024-02-01": {"high": 40.0, "bucket": 40},
+            },
+        }
+
+        with patch(
+            "weather.calibration.pooled_feature_model.source_daily_indexes",
+            return_value=indexes,
+        ):
+            reliability = market_source_reliability(
+                NYC,
+                prior_as_of_exclusive="2024-01-01",
+            )
+
+        self.assertEqual(reliability["source_redundant_streams"], 1.0)
+        self.assertEqual(reliability["source_overlap_days"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_bias"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_mae"], 1.0)
+
+    def test_market_source_reliability_excludes_the_exclusive_boundary(self):
+        indexes = {
+            "wu": {
+                "2023-12-31": {"high": 80.0, "bucket": 80},
+                "2024-01-01": {"high": 100.0, "bucket": 100},
+            },
+            "ghcnh": {
+                "2023-12-31": {"high": 81.0, "bucket": 81},
+                "2024-01-01": {"high": 40.0, "bucket": 40},
+            },
+        }
+
+        with patch(
+            "weather.calibration.pooled_feature_model.source_daily_indexes",
+            return_value=indexes,
+        ):
+            reliability = market_source_reliability(
+                NYC,
+                prior_as_of_exclusive="2024-01-01",
+            )
+
+        self.assertEqual(reliability["source_overlap_days"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_bias"], 1.0)
+        self.assertAlmostEqual(reliability["source_ghcnh_mae"], 1.0)
+
     def test_supplemental_reliability_columns_are_historical_only_opt_in(self):
         indexes = {
             "wu": {
@@ -1775,6 +1826,16 @@ class TestPooledFeatureModel(unittest.TestCase):
                 "climate_std": 5.0,
             }))
         weak_policy = {
+            "schema_version": "weak_input_family_disposition_v0.1",
+            "serving_or_release_authorization": False,
+            "inputs": {
+                "source_family_inventory_contract": {
+                    "status": "PASS",
+                    "serving_or_release_authorization": False,
+                    "blockers": [],
+                }
+            },
+            "summary": {"status": "PASS"},
             "families": [
                 {
                     "family": "surface_weather",
@@ -1795,9 +1856,10 @@ class TestPooledFeatureModel(unittest.TestCase):
         )
         preflight = artifact["weak_input_family_preflight"]
 
-        self.assertEqual(preflight["status"], "WARN")
+        self.assertEqual(preflight["status"], "BLOCK")
         self.assertEqual(preflight["diagnostic_only_families"], ["surface_weather"])
         self.assertTrue(any(row["family"] == "surface_weather" for row in preflight["warnings"]))
+        self.assertTrue(preflight["authorization_blockers"])
 
 
 class TestVariantPredictionRuntimeExports(unittest.TestCase):

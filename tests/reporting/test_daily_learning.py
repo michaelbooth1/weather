@@ -2,13 +2,37 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.daily.daily_learning import build_learning_payload, render_report, write_outputs
+from tests.reporting.source_family_contract_fixtures import operational_inventory
+from weather.reporting.source_gates.source_family_contracts import (
+    source_family_inventory_integrity_contract,
+)
+from weather.schema_registry import schema_version
+
+
+def verified_current_inventory_contract(payload):
+    """Stub only the current-input layer for unrelated daily-learning tests."""
+
+    integrity = source_family_inventory_integrity_contract(payload)
+    if payload.get("schema_version") == schema_version("source_family_inventory"):
+        return {
+            **integrity,
+            "status": "PASS",
+            "serving_or_release_authorization": False,
+            "blockers": [],
+        }
+    return integrity
 
 
 def write_daily_artifacts(root, *, blocked=False):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    (root / "source_family_inventory.json").write_text(
+        json.dumps(operational_inventory([])),
+        encoding="utf-8",
+    )
     ingest_status = "FAIL" if blocked else "PASS"
     data_status = "FAIL" if blocked else "WARN"
     (root / "daily_refresh_status.json").write_text(
@@ -289,6 +313,15 @@ def rewrite_json(path, mutator):
 
 
 class TestDailyLearning(unittest.TestCase):
+    def setUp(self):
+        patcher = patch(
+            "weather.reporting.daily.daily_learning_scorecard."
+            "source_family_inventory_consumer_contract",
+            side_effect=verified_current_inventory_contract,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_build_learning_payload_distills_daily_artifacts_into_retrain_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
@@ -311,6 +344,10 @@ class TestDailyLearning(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "daily_learning_v0.1")
         self.assertEqual(payload["status"], "ACTIONABLE")
+        self.assertFalse(payload["serving_or_release_authorization"])
+        self.assertFalse(
+            payload["scorecard"]["serving_or_release_authorization"]
+        )
         self.assertTrue(payload["retrain_plan"]["training_ready"])
         self.assertFalse(payload["retrain_plan"]["promotion_ready"])
         self.assertEqual(payload["retrain_plan"]["promotion_confidence"]["status"], "BLOCK")
@@ -323,6 +360,7 @@ class TestDailyLearning(unittest.TestCase):
         self.assertIn("experiment_evidence", categories)
         self.assertTrue(json_exists)
         self.assertIn("Daily Log Learning", report)
+        self.assertIn("runtime current-input revalidation is required", report)
         self.assertIn("## Input Gate", report)
         self.assertIn("miami", report)
 
@@ -1153,21 +1191,24 @@ class TestDailyLearning(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"
             write_daily_artifacts(backtest_root)
-            (backtest_root / "source_family_inventory.json").write_text(
-                json.dumps(
+            source_inventory = operational_inventory(
+                [
                     {
-                        "schema_version": "source_family_inventory_v0.1",
-                        "status": "BLOCK",
-                        "summary": {"blocking_family_count": 2},
-                        "promotion_preflight": {
-                            "status": "BLOCK",
-                            "blocked_family_count": 2,
-                            "blocked_families": ["nws_grid", "clob_microstructure"],
-                            "inventory_command": "python -m weather.reporting.source_gates.source_family_inventory",
-                            "ablation_command": "python -m weather.backtesting.replay_ablation --json-out data/backtest/source_family_ablation.json",
-                        },
+                        "family_id": family_id,
+                        "active_model_feature_columns": [f"{family_id}_feature"],
+                        "lineage_status": "PARTIAL_SOURCE_STATUS",
                     }
-                ),
+                    for family_id in ("nws_grid", "clob_microstructure")
+                ]
+            )
+            source_inventory["promotion_preflight"].update(
+                {
+                    "inventory_command": "python -m weather.reporting.source_gates.source_family_inventory",
+                    "ablation_command": "python -m weather.backtesting.replay_ablation --json-out data/backtest/source_family_ablation.json",
+                }
+            )
+            (backtest_root / "source_family_inventory.json").write_text(
+                json.dumps(source_inventory),
                 encoding="utf-8",
             )
 
@@ -1182,6 +1223,36 @@ class TestDailyLearning(unittest.TestCase):
         self.assertTrue(learning["blocker"])
         self.assertIn("nws_grid", learning["signal"])
         self.assertIn("replay_ablation", learning["action"])
+
+    def test_build_learning_payload_names_unsafe_stale_source_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest_root = Path(tmp) / "backtest"
+            write_daily_artifacts(backtest_root)
+            (backtest_root / "source_family_inventory.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "source_family_inventory_v0.1",
+                        "status": "PASS",
+                        "promotion_preflight": {
+                            "status": "PASS",
+                            "blocked_families": [],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_learning_payload(backtest_root=backtest_root)
+            learning = next(
+                row
+                for row in payload["learnings"]
+                if row["source"] == "source_family_inventory"
+            )
+
+        self.assertTrue(learning["blocker"])
+        self.assertIn("unsafe or stale artifact evidence", learning["signal"])
+        self.assertIn("schema_version must equal source_family_inventory_v0.2", learning["signal"])
+        self.assertNotIn("blocked 0", learning["signal"])
 
     def test_build_learning_payload_surfaces_first_data_layer_p0_remediation(self):
         with tempfile.TemporaryDirectory() as tmp:
