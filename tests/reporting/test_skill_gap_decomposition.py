@@ -182,6 +182,8 @@ def test_isotonic_murphy_decomposition_separates_resolution_and_miscalibration()
     assert inverted["reliability"] == pytest.approx(0.75)
     assert inverted["resolution"] == pytest.approx(0.0)
     assert inverted["identity_residual"] == pytest.approx(0.0, abs=1e-15)
+    with pytest.raises(ValueError, match=r"within \[0, 1\]"):
+        isotonic_murphy_decomposition([(-0.1, 0), (1.0, 1)])
 
 
 def test_build_decomposition_reports_named_cuts_taxonomy_and_exact_gap(tmp_path):
@@ -293,6 +295,108 @@ def test_hour_slices_use_earliest_capture_per_market_day_hour(tmp_path):
     assert payload["population"]["hourly_normalized_partition_count"] == 4
 
 
+def test_hour_slices_use_market_local_feature_clock(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+    rows = list(csv.DictReader(rows_path.open("r", encoding="utf-8", newline="")))
+    rows.extend(
+        _partition(
+            market_id="alpha",
+            target_date="2026-07-01",
+            snapshot_id="s23local",
+            captured_at_local="2026-07-02T00:30:00-04:00",
+        )
+    )
+    _write_csv(rows_path, rows)
+    feature_path = snapshots_root / "alpha-event" / "features_long.csv"
+    feature_rows = list(
+        csv.DictReader(feature_path.open("r", encoding="utf-8", newline=""))
+    )
+    for row in feature_rows:
+        if row["snapshot_id"] == "s09":
+            row["captured_at_local"] = "2026-07-01T08:10:00-05:00"
+    feature_rows.append(
+        {
+            **feature_rows[-1],
+            "snapshot_id": "s23local",
+            "captured_at_local": "2026-07-01T23:30:00-05:00",
+        }
+    )
+    _write_csv(feature_path, feature_rows)
+
+    payload = build_decomposition(
+        variant_rows=rows_path,
+        corpus_manifest=manifest_path,
+        snapshots_root=snapshots_root,
+    )
+    hours = {row["label"] for row in payload["hour_slices"]}
+    named = {row["label"]: row for row in payload["named_hour_slices"]}
+    leads = {row["label"] for row in payload["lead_time_slices"]}
+
+    assert "08:00" in hours
+    assert "09:00" not in hours
+    assert "primary_09_14" not in named
+    assert "23:00" in hours
+    assert named["lock_in_20_23"]["n"] == 6
+    assert "after_target_day" not in leads
+    assert payload["population"]["capture_alignment_max_abs_seconds"] == pytest.approx(0.0)
+
+
+def test_target_day_hour_cuts_exclude_next_day_capture(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+    rows = list(csv.DictReader(rows_path.open("r", encoding="utf-8", newline="")))
+    rows.extend(
+        _partition(
+            market_id="alpha",
+            target_date="2026-07-01",
+            snapshot_id="s03next",
+            captured_at_local="2026-07-02T03:10:00-04:00",
+        )
+    )
+    _write_csv(rows_path, rows)
+    feature_path = snapshots_root / "alpha-event" / "features_long.csv"
+    feature_rows = list(
+        csv.DictReader(feature_path.open("r", encoding="utf-8", newline=""))
+    )
+    feature_rows.append(
+        {
+            **feature_rows[0],
+            "snapshot_id": "s03next",
+            "captured_at_local": "2026-07-02T03:10:00-04:00",
+        }
+    )
+    _write_csv(feature_path, feature_rows)
+
+    payload = build_decomposition(
+        variant_rows=rows_path,
+        corpus_manifest=manifest_path,
+        snapshots_root=snapshots_root,
+    )
+    named = {row["label"]: row for row in payload["named_hour_slices"]}
+    leads = {row["label"]: row for row in payload["lead_time_slices"]}
+
+    assert named["predawn_03_05"]["n"] == 6
+    assert leads["after_target_day"]["n"] == 3
+    assert payload["population"]["hourly_normalized_partition_count"] == 5
+    assert payload["population"]["target_day_hourly_normalized_partition_count"] == 4
+
+
+def test_feature_context_cannot_postdate_scored_export(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+    feature_path = snapshots_root / "alpha-event" / "features_long.csv"
+    feature_rows = list(
+        csv.DictReader(feature_path.open("r", encoding="utf-8", newline=""))
+    )
+    feature_rows[0]["captured_at_local"] = "2026-07-01T03:10:01-04:00"
+    _write_csv(feature_path, feature_rows)
+
+    with pytest.raises(ValueError, match="later than the scored export"):
+        build_decomposition(
+            variant_rows=rows_path,
+            corpus_manifest=manifest_path,
+            snapshots_root=snapshots_root,
+        )
+
+
 def test_build_decomposition_fails_closed_on_probability_mass_violation(tmp_path):
     rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
     rows = list(csv.DictReader(rows_path.open("r", encoding="utf-8", newline="")))
@@ -304,6 +408,32 @@ def test_build_decomposition_fails_closed_on_probability_mass_violation(tmp_path
             variant_rows=rows_path,
             corpus_manifest=manifest_path,
             snapshots_root=snapshots_root,
+        )
+
+
+def test_build_decomposition_fails_closed_on_probability_range_violation(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+    rows = list(csv.DictReader(rows_path.open("r", encoding="utf-8", newline="")))
+    rows[0]["probability"] = "-0.1"
+    rows[1]["probability"] = "0.8"
+    _write_csv(rows_path, rows)
+
+    with pytest.raises(ValueError, match=r"candidate probability outside \[0, 1\]"):
+        build_decomposition(
+            variant_rows=rows_path,
+            corpus_manifest=manifest_path,
+            snapshots_root=snapshots_root,
+        )
+
+
+def test_build_decomposition_requires_complete_feature_context(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="feature context is required"):
+        build_decomposition(
+            variant_rows=rows_path,
+            corpus_manifest=manifest_path,
+            snapshots_root=snapshots_root / "missing",
         )
 
 
@@ -327,7 +457,7 @@ def test_build_decomposition_preserves_timestamp_collision_in_scoring(tmp_path):
         market_id="alpha",
         target_date="2026-07-01",
         snapshot_id="s03",
-        captured_at_local="2026-07-01T03:10:00-04:00",
+        captured_at_local="2026-07-01T03:10:00.100000-04:00",
         model_probabilities=(0.15, 0.2, 0.15),
         market_probabilities=(0.025, 0.45, 0.025),
     )
@@ -335,7 +465,7 @@ def test_build_decomposition_preserves_timestamp_collision_in_scoring(tmp_path):
         market_id="alpha",
         target_date="2026-07-01",
         snapshot_id="s03",
-        captured_at_local="2026-07-01T03:10:00-04:00",
+        captured_at_local="2026-07-01T03:10:00.900000-04:00",
         model_probabilities=(0.15, 0.2, 0.15),
         market_probabilities=(0.025, 0.45, 0.025),
     )
@@ -353,3 +483,17 @@ def test_build_decomposition_preserves_timestamp_collision_in_scoring(tmp_path):
     assert payload["population"]["non_single_winner_partition_count"] == 1
     assert payload["population"]["candidate_mass_violation_count"] == 0
     assert payload["decomposition"][0]["sharpness"]["partition_count"] == 0
+
+
+def test_build_decomposition_rejects_unverified_multiwinner_partition(tmp_path):
+    rows_path, manifest_path, snapshots_root = _fixture(tmp_path)
+    rows = list(csv.DictReader(rows_path.open("r", encoding="utf-8", newline="")))
+    rows[0]["outcome"] = "1"
+    _write_csv(rows_path, rows)
+
+    with pytest.raises(ValueError, match="not a verified"):
+        build_decomposition(
+            variant_rows=rows_path,
+            corpus_manifest=manifest_path,
+            snapshots_root=snapshots_root,
+        )

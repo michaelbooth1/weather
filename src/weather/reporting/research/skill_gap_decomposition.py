@@ -19,6 +19,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 from collections import Counter, defaultdict, deque
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ from statistics import median
 from typing import Any, Iterable
 
 from weather.paths import data_path
+from weather.market.market_registry import REGISTRY
 from weather.reporting.formatting import markdown_table
 from weather.schema_registry import schema_version
 
@@ -40,6 +42,7 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "skill_gap_decomposition.md"
 DEFAULT_WORST_CASES_OUT = DEFAULT_BACKTEST_ROOT / "skill_gap_decomposition_worst_cases.csv"
 MASS_TOLERANCE = 1e-9
 RECENT_OBSERVATION_WINDOW_HOURS = 2.0
+CAPTURE_ALIGNMENT_TOLERANCE_SECONDS = 30.0 * 60.0
 
 
 def _utc_iso() -> str:
@@ -177,11 +180,14 @@ def isotonic_murphy_decomposition(pairs: Iterable[tuple[float, int]]) -> dict[st
     diagnostic only; it is not returned as or used to create a calibrator.
     """
 
-    cleaned = [
-        (min(1.0, max(0.0, float(probability))), int(outcome))
-        for probability, outcome in pairs
-        if probability is not None and outcome in (0, 1)
-    ]
+    cleaned = []
+    for probability, outcome in pairs:
+        if probability is None or outcome not in (0, 1):
+            continue
+        probability = float(probability)
+        if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError("Murphy decomposition probability must be finite and within [0, 1]")
+        cleaned.append((probability, int(outcome)))
     if not cleaned:
         return {
             "n": 0,
@@ -331,11 +337,18 @@ def _band_interval(row: dict[str, Any]) -> tuple[float | None, float | None]:
         value = _float(row.get("bin_value"))
         return value, value
     kind, payload = key.split(":", 1)
-    numbers = []
-    for part in payload.split("-"):
-        number = _float(part)
-        if number is not None:
-            numbers.append(number)
+    match = re.fullmatch(
+        r"\s*([+-]?\d+(?:\.\d+)?)\s*(?:-\s*([+-]?\d+(?:\.\d+)?))?\s*",
+        payload,
+    )
+    numbers = [
+        number
+        for number in (
+            _float(match.group(1)) if match else None,
+            _float(match.group(2)) if match and match.group(2) else None,
+        )
+        if number is not None
+    ]
     if kind == "lte" and numbers:
         return None, numbers[-1]
     if kind == "gte" and numbers:
@@ -412,6 +425,7 @@ def load_feature_context(
     feature_rows: dict[tuple[str, str, str], dict[str, Any]] = {}
     missing_files = []
     feature_inputs = []
+    duplicate_feature_key_count = 0
     for entry in entries:
         market_id = str(entry.get("market_id") or "")
         target_date = str(entry.get("target_date") or "")
@@ -431,7 +445,7 @@ def load_feature_context(
                 key = (market_id, row_target_date, snapshot_id)
                 if not all(key):
                     continue
-                feature_rows[key] = {
+                feature_row = {
                     "captured_at_local": _parse_datetime(row.get("captured_at_local")),
                     "forecast_disagreement": _float(row.get("forecast_disagreement")),
                     "forecast_high": _float(row.get("forecast_high")),
@@ -440,6 +454,27 @@ def load_feature_context(
                     "warming_rate_2h": _float(row.get("warming_rate_2h")),
                     "high_so_far": _float(row.get("high_so_far")),
                 }
+                existing = feature_rows.get(key)
+                if existing is not None:
+                    duplicate_feature_key_count += 1
+                    context_fields = set(feature_row) - {"captured_at_local"}
+                    if any(existing.get(field) != feature_row.get(field) for field in context_fields):
+                        raise ValueError(
+                            "duplicate feature snapshot_id has conflicting prediction-time "
+                            f"context: {key}"
+                        )
+                    existing_capture = existing.get("captured_at_local")
+                    duplicate_capture = feature_row.get("captured_at_local")
+                    if (
+                        duplicate_capture is not None
+                        and (
+                            existing_capture is None
+                            or duplicate_capture < existing_capture
+                        )
+                    ):
+                        existing["captured_at_local"] = duplicate_capture
+                    continue
+                feature_rows[key] = feature_row
         feature_inputs.append(
             {
                 "path": str(path),
@@ -480,9 +515,15 @@ def load_feature_context(
             temperatures = [value for _, value in recent]
             row["recent_observation_count_2h"] = len(temperatures)
             row["recent_observation_range_2h"] = (
-                max(temperatures) - min(temperatures) if temperatures else None
+                max(temperatures) - min(temperatures)
+                if len(temperatures) >= 2
+                else None
             )
-            row["recent_observation_stddev_2h"] = _population_stddev(temperatures)
+            row["recent_observation_stddev_2h"] = (
+                _population_stddev(temperatures)
+                if len(temperatures) >= 2
+                else None
+            )
             row["recent_observation_change_2h"] = (
                 temperatures[-1] - temperatures[0] if len(temperatures) >= 2 else None
             )
@@ -494,9 +535,48 @@ def load_feature_context(
         "feature_input_set_sha256": feature_input_set_sha256,
         "feature_inputs": feature_inputs,
         "feature_snapshot_count": len(feature_rows),
+        "equivalent_duplicate_feature_key_count": duplicate_feature_key_count,
         "missing_feature_file_count": len(missing_files),
         "first_missing_feature_files": missing_files[:10],
     }
+
+
+def _is_verified_same_second_collision(rows: list[dict[str, Any]]) -> bool:
+    """Recognize the frozen scorer's same-second duplicate-capture shape."""
+
+    if len(rows) < 2 or len(rows) % 2 or sum(row["outcome"] for row in rows) != 2:
+        return False
+    by_capture: dict[datetime | None, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_capture[row.get("captured_at_local")].append(row)
+    if None in by_capture or len(by_capture) != 2:
+        return False
+    captures = sorted(by_capture)
+    if captures[0].replace(microsecond=0) != captures[1].replace(microsecond=0):
+        return False
+
+    def indexed(capture_rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
+        return {
+            (
+                str(row.get("band_key") or ""),
+                str(row.get("bin_type") or ""),
+                str(row.get("bin_value") or ""),
+            ): row
+            for row in capture_rows
+        }
+
+    left = indexed(by_capture[captures[0]])
+    right = indexed(by_capture[captures[1]])
+    if len(left) * 2 != len(rows) or left.keys() != right.keys():
+        return False
+    comparison_fields = ("model_probability", "market_probability", "outcome")
+    if any(
+        left[key].get(field) != right[key].get(field)
+        for key in left
+        for field in comparison_fields
+    ):
+        return False
+    return sum(row["outcome"] for row in left.values()) == 1
 
 
 def _market_weighted_decomposition(
@@ -828,10 +908,38 @@ def build_decomposition(
     code_identity: str | None = None,
 ) -> dict[str, Any]:
     variant_path = Path(variant_rows)
+    variant_input_bytes = variant_path.stat().st_size
+    variant_input_sha256 = _sha256(variant_path)
+    manifest_path = Path(corpus_manifest) if corpus_manifest else None
+    manifest_input_bytes = (
+        manifest_path.stat().st_size
+        if manifest_path is not None and manifest_path.exists()
+        else None
+    )
+    manifest_input_sha256 = _sha256(manifest_path) if manifest_path else None
+    manifest_payload = _read_json(manifest_path) if manifest_path else {}
+    expected_band_counts = {
+        (str(entry.get("market_id") or ""), str(entry.get("target_date") or "")): int(
+            entry["band_count"]
+        )
+        for entry in (manifest_payload.get("entries") or [])
+        if entry.get("market_id")
+        and entry.get("target_date")
+        and entry.get("band_count") not in (None, "")
+    }
     feature_context, feature_receipt = load_feature_context(
         corpus_manifest=corpus_manifest,
         snapshots_root=snapshots_root,
     )
+    if corpus_manifest and (
+        feature_receipt.get("status") != "PASS"
+        or feature_receipt.get("missing_feature_file_count") != 0
+    ):
+        raise ValueError(
+            "corpus feature context is required for loss taxonomy: "
+            f"status={feature_receipt.get('status')} "
+            f"missing_files={feature_receipt.get('missing_feature_file_count')}"
+        )
 
     pairs_by_market: dict[str, dict[str, list[tuple[float, int]]]] = defaultdict(
         lambda: {"model": [], "market": []}
@@ -857,14 +965,19 @@ def build_decomposition(
     complete_partition_count = 0
     incomplete_market_partition_count = 0
     invalid_partition_count = 0
+    keyless_row_count = 0
     non_single_winner_partition_count = 0
     mass_violation_count = 0
     max_mass_residual = 0.0
     matched_feature_partition_count = 0
     hourly_normalized_partition_count = 0
+    target_day_hourly_normalized_partition_count = 0
+    capture_alignment_max_abs_seconds = 0.0
+    capture_feature_lag_min_seconds: float | None = None
+    capture_feature_lag_max_seconds: float | None = None
     observed_variant_ids: set[str] = set()
     seen_partition_keys: set[tuple[str, str, str]] = set()
-    seen_hour_keys: set[tuple[str, str, int]] = set()
+    seen_hour_keys: set[tuple[str, str, str, int]] = set()
     last_capture_by_market_day: dict[tuple[str, str], datetime] = {}
 
     current_key: tuple[str, str, str] | None = None
@@ -879,38 +992,145 @@ def build_decomposition(
         nonlocal max_mass_residual
         nonlocal matched_feature_partition_count
         nonlocal hourly_normalized_partition_count
+        nonlocal target_day_hourly_normalized_partition_count
+        nonlocal capture_alignment_max_abs_seconds
+        nonlocal capture_feature_lag_min_seconds
+        nonlocal capture_feature_lag_max_seconds
         if not rows:
             return
         model_values = [row.get("model_probability") for row in rows]
         if any(value is None for value in model_values):
             invalid_partition_count += 1
             return
+        if any(not 0.0 <= float(value) <= 1.0 for value in model_values):
+            raise ValueError("candidate probability outside [0, 1]")
         model_mass = sum(float(value) for value in model_values)
-        if model_mass > 0:
-            residual = abs(model_mass - 1.0)
-            max_mass_residual = max(max_mass_residual, residual)
-            if residual > MASS_TOLERANCE:
-                mass_violation_count += 1
+        residual = abs(model_mass - 1.0)
+        max_mass_residual = max(max_mass_residual, residual)
+        if residual > MASS_TOLERANCE:
+            mass_violation_count += 1
 
         if any(row.get("market_probability") is None for row in rows):
             incomplete_market_partition_count += 1
             return
+        if any(
+            not 0.0 <= float(row["market_probability"]) <= 1.0
+            for row in rows
+        ):
+            raise ValueError("market probability outside [0, 1]")
         if any(row.get("outcome") not in (0, 1) for row in rows):
             invalid_partition_count += 1
             return
         winner_count = sum(1 for row in rows if row.get("outcome") == 1)
+        band_signatures = [
+            (
+                str(row.get("band_key") or ""),
+                str(row.get("bin_type") or ""),
+                str(row.get("bin_value") or ""),
+            )
+            for row in rows
+        ]
+        expected_band_count = expected_band_counts.get(
+            (rows[0]["market_id"], rows[0]["target_date"])
+        )
+        if winner_count == 1 and len(set(band_signatures)) != len(rows):
+            raise ValueError("ordinary categorical partition contains duplicate band keys")
+        if (
+            winner_count == 1
+            and expected_band_count is not None
+            and len(rows) != expected_band_count
+        ):
+            raise ValueError(
+                "categorical partition band count does not match frozen manifest: "
+                f"{len(rows)} != {expected_band_count}"
+            )
         if winner_count != 1:
             # Snapshot ids are second-resolution identifiers. The frozen corpus
             # contains two same-second capture collisions that the accepted
             # scorer treats as one probability partition with duplicated band
             # outcomes. Keep every binary row in the Brier population, but do
             # not pretend such a multihit partition is a one-hot sharpness row.
+            if not _is_verified_same_second_collision(rows):
+                raise ValueError(
+                    "partition does not have exactly one winner and is not a verified "
+                    "same-second duplicate-capture collision"
+                )
+            if (
+                expected_band_count is not None
+                and len(rows) != 2 * expected_band_count
+            ):
+                raise ValueError(
+                    "collision partition band count does not match twice the frozen "
+                    f"manifest count: {len(rows)} != {2 * expected_band_count}"
+                )
             non_single_winner_partition_count += 1
 
         market_id = rows[0]["market_id"]
         target_date = rows[0]["target_date"]
         snapshot_id = rows[0]["snapshot_id"]
-        captured = rows[0].get("captured_at_local")
+        export_captured = rows[0].get("captured_at_local")
+        feature = feature_context.get((market_id, target_date, snapshot_id)) or {}
+        feature_captured = feature.get("captured_at_local")
+        if corpus_manifest and feature_captured is None:
+            raise ValueError(
+                "matched feature context lacks a timezone-aware captured_at_local: "
+                f"{(market_id, target_date, snapshot_id)}"
+            )
+        if corpus_manifest and export_captured is None:
+            raise ValueError(
+                "variant row lacks captured_at_local required for capture-time cuts: "
+                f"{(market_id, target_date, snapshot_id)}"
+            )
+        spec = REGISTRY.get(market_id)
+        market_timezone = (
+            spec.tz
+            if spec is not None
+            else (feature_captured.tzinfo if feature_captured is not None else None)
+        )
+        captured = (
+            export_captured.astimezone(market_timezone)
+            if export_captured is not None and market_timezone is not None
+            else feature_captured or export_captured
+        )
+        if export_captured is not None and feature.get("captured_at_local") is not None:
+            if (
+                export_captured.tzinfo is None
+                or feature["captured_at_local"].tzinfo is None
+            ):
+                raise ValueError(
+                    "capture timestamps must include UTC offsets for market-local alignment"
+                )
+            feature_lag_seconds = (
+                export_captured.astimezone(timezone.utc)
+                - feature["captured_at_local"].astimezone(timezone.utc)
+            ).total_seconds()
+            alignment_seconds = abs(feature_lag_seconds)
+            capture_feature_lag_min_seconds = (
+                feature_lag_seconds
+                if capture_feature_lag_min_seconds is None
+                else min(capture_feature_lag_min_seconds, feature_lag_seconds)
+            )
+            capture_feature_lag_max_seconds = (
+                feature_lag_seconds
+                if capture_feature_lag_max_seconds is None
+                else max(capture_feature_lag_max_seconds, feature_lag_seconds)
+            )
+            capture_alignment_max_abs_seconds = max(
+                capture_alignment_max_abs_seconds,
+                alignment_seconds,
+            )
+            if feature_lag_seconds < 0:
+                raise ValueError(
+                    "matched feature context is later than the scored export instant: "
+                    f"{(market_id, target_date, snapshot_id)} "
+                    f"feature_lag_seconds={feature_lag_seconds:.6f}"
+                )
+            if feature_lag_seconds > CAPTURE_ALIGNMENT_TOLERANCE_SECONDS:
+                raise ValueError(
+                    "export and market-local feature capture timestamps do not identify "
+                    f"the same instant: {(market_id, target_date, snapshot_id)} "
+                    f"delta_seconds={alignment_seconds:.6f}"
+                )
         hour = captured.hour if captured is not None else rows[0].get("capture_hour")
         if hour is None:
             invalid_partition_count += 1
@@ -918,7 +1138,13 @@ def build_decomposition(
         hour = int(hour)
         lead_hours = _lead_hours(captured, target_date)
         lead_bucket = _lead_bucket(lead_hours)
-        feature = feature_context.get((market_id, target_date, snapshot_id)) or {}
+        try:
+            is_target_day_capture = (
+                captured is not None
+                and captured.date() == date.fromisoformat(target_date)
+            )
+        except ValueError:
+            is_target_day_capture = False
         if feature:
             matched_feature_partition_count += 1
 
@@ -931,11 +1157,14 @@ def build_decomposition(
             )
         if captured is not None:
             last_capture_by_market_day[market_day_key] = captured
-        hour_key = (market_id, target_date, hour)
-        is_hourly_representative = hour_key not in seen_hour_keys
+        capture_date = captured.date().isoformat() if captured is not None else "unknown"
+        normalization_key = (market_id, target_date, capture_date, hour)
+        is_hourly_representative = normalization_key not in seen_hour_keys
         if is_hourly_representative:
-            seen_hour_keys.add(hour_key)
+            seen_hour_keys.add(normalization_key)
             hourly_normalized_partition_count += 1
+            if is_target_day_capture:
+                target_day_hourly_normalized_partition_count += 1
 
         boundaries, band_width = _partition_boundaries(rows)
         forecast_high = feature.get("forecast_high")
@@ -967,7 +1196,8 @@ def build_decomposition(
             )
 
         day_hour = None
-        if is_hourly_representative:
+        hour_key = (market_id, target_date, hour)
+        if is_hourly_representative and is_target_day_capture:
             day_hour = day_hour_groups[hour_key]
             day_hour["partition_count"] += 1
             day_hour["lead_hours"].append(lead_hours)
@@ -1004,16 +1234,17 @@ def build_decomposition(
             pairs_by_market[market_id]["market"].append((market_probability, outcome))
             score_targets = [score_slices["named_cut"]["all_hours"]]
             if is_hourly_representative:
-                score_targets.extend(
-                    [
-                        score_slices["hour"][f"{hour:02d}"],
-                        score_slices["lead_time"][lead_bucket],
-                        day_hour["score"],
-                    ]
-                )
-                for name, predicate in named_cut_predicates.items():
-                    if name != "all_hours" and predicate(hour):
-                        score_targets.append(score_slices["named_cut"][name])
+                score_targets.append(score_slices["lead_time"][lead_bucket])
+                if is_target_day_capture:
+                    score_targets.extend(
+                        [
+                            score_slices["hour"][f"{hour:02d}"],
+                            day_hour["score"],
+                        ]
+                    )
+                    for name, predicate in named_cut_predicates.items():
+                        if name != "all_hours" and predicate(hour):
+                            score_targets.append(score_slices["named_cut"][name])
             for accumulator in score_targets:
                 _add_score(
                     accumulator,
@@ -1038,6 +1269,7 @@ def build_decomposition(
                 )
             key = _partition_key(raw)
             if not all(key):
+                keyless_row_count += 1
                 continue
             if current_key is not None and key != current_key:
                 consume_partition(partition_rows)
@@ -1082,6 +1314,22 @@ def build_decomposition(
         )
     if complete_partition_count == 0:
         raise ValueError("no complete model/market categorical partitions were found")
+    if (
+        keyless_row_count
+        or incomplete_market_partition_count
+        or invalid_partition_count
+    ):
+        raise ValueError(
+            "input population contains unscored rows or partitions: "
+            f"keyless_rows={keyless_row_count} "
+            f"incomplete_market_partitions={incomplete_market_partition_count} "
+            f"invalid_partitions={invalid_partition_count}"
+        )
+    if corpus_manifest and matched_feature_partition_count != complete_partition_count:
+        raise ValueError(
+            "feature context did not match every scored partition: "
+            f"{matched_feature_partition_count}/{complete_partition_count}"
+        )
 
     decomposition_rows = []
     pooled_pairs = {"model": [], "market": []}
@@ -1164,7 +1412,11 @@ def build_decomposition(
     worst_cases = sorted(
         day_hours,
         key=lambda row: (
-            -(row.get("brier_gap") or -math.inf),
+            -(
+                row["brier_gap"]
+                if row.get("brier_gap") is not None
+                else -math.inf
+            ),
             row["market_id"],
             row["target_date"],
             row["hour"],
@@ -1173,7 +1425,11 @@ def build_decomposition(
     worst_relative_cases = sorted(
         day_hours,
         key=lambda row: (
-            -(row.get("gap_over_uncertainty") or -math.inf),
+            -(
+                row["gap_over_uncertainty"]
+                if row.get("gap_over_uncertainty") is not None
+                else -math.inf
+            ),
             row["market_id"],
             row["target_date"],
             row["hour"],
@@ -1191,7 +1447,17 @@ def build_decomposition(
         key=lambda row: row["gap_over_uncertainty"],
     )
 
-    manifest_path = Path(corpus_manifest) if corpus_manifest else None
+    if (
+        variant_path.stat().st_size != variant_input_bytes
+        or _sha256(variant_path) != variant_input_sha256
+    ):
+        raise RuntimeError(f"variant input changed while being scored: {variant_path}")
+    if manifest_path is not None and (
+        not manifest_path.exists()
+        or manifest_path.stat().st_size != manifest_input_bytes
+        or _sha256(manifest_path) != manifest_input_sha256
+    ):
+        raise RuntimeError(f"corpus manifest changed while being read: {manifest_path}")
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or _utc_iso(),
@@ -1209,15 +1475,21 @@ def build_decomposition(
             ),
             "categorical_scoring": (
                 "Complete model/market partitions with binary outcomes are scored on identical "
-                "rows. Two disclosed same-second collision partitions with duplicated winners "
-                "remain in the accepted Brier population but are excluded from one-hot sharpness. "
+                f"rows. {non_single_winner_partition_count} verified same-second collision "
+                "partitions with duplicated winners remain in the accepted Brier population but "
+                "are excluded from one-hot sharpness. "
                 "Market prices remain raw for Brier comparability; categorical entropy normalizes "
                 "each unambiguous partition."
             ),
             "hour_definition": (
-                "local capture hour from captured_at_local; hour, lead, named-hour, and taxonomy "
-                "cuts use the earliest capture per market-day/hour to prevent polling-cadence "
-                "weighting. all_hours retains the canonical all-snapshot comparator population."
+                "market-local capture hour from the variant export instant converted with the "
+                "canonical market-registry timezone. The matched features_long timestamp is a "
+                "bounded same-snapshot alignment check, not the analysis clock, because feature "
+                "materialization can lag the exported capture. Target-day hour, named-hour, and "
+                "taxonomy cuts use the earliest capture per market-day/hour and exclude captures "
+                "after target-day midnight. Lead cuts retain a separate earliest capture per "
+                "capture-date/hour. all_hours retains the canonical all-snapshot comparator "
+                "population."
             ),
             "lead_time_definition": (
                 "hours from local capture timestamp to midnight ending target_date; this is a "
@@ -1239,10 +1511,11 @@ def build_decomposition(
         },
         "inputs": {
             "variant_rows": str(variant_path),
-            "variant_rows_bytes": variant_path.stat().st_size,
-            "variant_rows_sha256": _sha256(variant_path),
+            "variant_rows_bytes": variant_input_bytes,
+            "variant_rows_sha256": variant_input_sha256,
             "corpus_manifest": str(manifest_path) if manifest_path else None,
-            "corpus_manifest_sha256": _sha256(manifest_path) if manifest_path else None,
+            "corpus_manifest_bytes": manifest_input_bytes,
+            "corpus_manifest_sha256": manifest_input_sha256,
             "snapshots_root": str(snapshots_root),
             "requested_variant_id": variant_id,
             "observed_variant_ids": sorted(observed_variant_ids),
@@ -1255,16 +1528,26 @@ def build_decomposition(
             "selected_row_count": selected_row_count,
             "complete_partition_count": complete_partition_count,
             "hourly_normalized_partition_count": hourly_normalized_partition_count,
+            "target_day_hourly_normalized_partition_count": (
+                target_day_hourly_normalized_partition_count
+            ),
             "scored_row_count": pooled_model["n"],
             "market_count": len(pairs_by_market),
             "incomplete_market_partition_count": incomplete_market_partition_count,
             "invalid_partition_count": invalid_partition_count,
+            "keyless_row_count": keyless_row_count,
             "non_single_winner_partition_count": non_single_winner_partition_count,
             "candidate_mass_violation_count": mass_violation_count,
             "candidate_max_abs_mass_residual": max_mass_residual,
             "matched_feature_partition_count": matched_feature_partition_count,
             "matched_feature_partition_ratio": (
                 matched_feature_partition_count / complete_partition_count
+            ),
+            "capture_alignment_max_abs_seconds": capture_alignment_max_abs_seconds,
+            "capture_feature_lag_min_seconds": capture_feature_lag_min_seconds,
+            "capture_feature_lag_max_seconds": capture_feature_lag_max_seconds,
+            "capture_alignment_tolerance_seconds": (
+                CAPTURE_ALIGNMENT_TOLERANCE_SECONDS
             ),
             "feature_context": feature_receipt,
         },
@@ -1277,6 +1560,10 @@ def build_decomposition(
             ),
             "model_top_probability": pooled_row["sharpness"].get("model_top_probability"),
             "market_top_probability": pooled_row["sharpness"].get("market_top_probability"),
+            "model_mean_probability_mass": pooled_row["sharpness"].get("model_mass"),
+            "market_mean_raw_probability_mass": pooled_row["sharpness"].get(
+                "market_mass"
+            ),
         },
         "decomposition": decomposition_rows,
         "global_pool_sensitivity": global_pool_sensitivity,
@@ -1337,6 +1624,14 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Effective-band gap", _fmt(verdict.get("effective_band_gap_model_minus_market"), 4)],
             ["Model top probability", _fmt(verdict.get("model_top_probability"), 4)],
             ["Market top probability", _fmt(verdict.get("market_top_probability"), 4)],
+            [
+                "Model mean categorical mass",
+                _fmt(verdict.get("model_mean_probability_mass"), 6),
+            ],
+            [
+                "Market mean raw categorical mass",
+                _fmt(verdict.get("market_mean_raw_probability_mass"), 6),
+            ],
         ],
     )
     lines += [
@@ -1357,6 +1652,10 @@ def render_report(payload: dict[str, Any]) -> str:
                 "Hourly-normalized partitions",
                 population.get("hourly_normalized_partition_count"),
             ],
+            [
+                "Target-day hourly-normalized partitions",
+                population.get("target_day_hourly_normalized_partition_count"),
+            ],
             ["Markets", population.get("market_count")],
             ["Incomplete market partitions", population.get("incomplete_market_partition_count")],
             ["Invalid partitions", population.get("invalid_partition_count")],
@@ -1373,6 +1672,10 @@ def render_report(payload: dict[str, Any]) -> str:
             [
                 "Feature-context match ratio",
                 _fmt(population.get("matched_feature_partition_ratio"), 4),
+            ],
+            [
+                "Max export/feature snapshot delta (seconds)",
+                _fmt(population.get("capture_alignment_max_abs_seconds"), 6),
             ],
             [
                 "Hashed feature inputs",
@@ -1469,8 +1772,8 @@ def render_report(payload: dict[str, Any]) -> str:
         "## Named reporting cuts",
         "",
         "`all_hours` preserves every accepted comparator snapshot. The named hour cuts below",
-        "use the earliest capture in each market-day/hour so polling bursts receive no extra",
-        "weight.",
+        "use the earliest market-local target-day capture in each market-day/hour, so polling",
+        "bursts receive no extra weight and post-midnight evidence cannot enter a target-day cut.",
         "",
     ]
     lines += markdown_table(
@@ -1531,6 +1834,12 @@ def render_report(payload: dict[str, Any]) -> str:
         ],
     )
     lines += ["", "## Worst market-day/hour losses", ""]
+    lines += [
+        "Observation volatility requires at least two captured temperatures in the trailing",
+        "two-hour window. `unknown` is retained as an explicit coverage limitation and must not",
+        "be interpreted as low volatility.",
+        "",
+    ]
     lines += markdown_table(
         [
             "Market",
