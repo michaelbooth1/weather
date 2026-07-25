@@ -819,4 +819,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Hash-linked fail-closed parent gate classifying the highest permitted immutable-release production stage.",
     ),
+    SchemaSpec(
+        "skill_gap_decomposition",
+        "skill_gap_decomposition_v0.1",
+        "weather.reporting.research.skill_gap_decomposition",
+        "active",
+        "Read-only exact CORP/Murphy model-versus-market Brier decomposition, hour and lead-time cuts, and worst-loss taxonomy.",
+    ),
 )
