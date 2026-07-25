@@ -587,6 +587,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 "bin_value_c": "82",
                 "candidate_cutoff_hour": 14,
                 "candidate_p": 0.80,
+                "candidate_preblend_p": 0.85,
                 "replayed_p": 0.20,
                 "recorded_p": 0.25,
                 "market_yes": 0.75,
@@ -642,6 +643,7 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(row["band_key"], "82-83 F")
         self.assertEqual(row["postprocess_config_hash"], "pooled_feature_band_hgb_v0.4")
         self.assertAlmostEqual(row["probability"], 0.80)
+        self.assertAlmostEqual(row["candidate_preblend_probability"], 0.85)
         self.assertAlmostEqual(row["current_probability"], 0.20)
 
     def test_source_state_ablation_report_scores_control_and_dynamic_candidate(self):

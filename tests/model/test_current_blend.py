@@ -323,7 +323,7 @@ def test_contextual_band_blend_restores_simplex_with_live_replay_parity():
         "models": {"12": {"feature_names": ["placeholder"]}},
         "postprocess": {
             "partition_normalization_enabled": True,
-            "partition_normalization_gamma": 1.0,
+            "partition_normalization_gamma": 1.25,
             "current_blend_enabled": True,
             "current_blend_default_alpha": 1.0,
             "current_blend_context_alpha": [
@@ -369,9 +369,19 @@ def test_contextual_band_blend_restores_simplex_with_live_replay_parity():
         )
 
     replay = [row["candidate_p"] for row in replay_rows]
-    raw_blended = [0.60, 0.30, (0.35 * 0.10) + (0.65 * 0.50)]
+    powered = [value**1.25 for value in raw_candidate]
+    preblend = [value / sum(powered) for value in powered]
+    raw_blended = [
+        preblend[0],
+        preblend[1],
+        (0.35 * preblend[2]) + (0.65 * 0.50),
+    ]
     expected = [value / sum(raw_blended) for value in raw_blended]
     assert coverage["candidate_rows"] == 3
+    assert [row["candidate_preblend_p"] for row in replay_rows] == pytest.approx(
+        preblend
+    )
+    assert sum(raw_blended) != pytest.approx(1.0, abs=1e-6)
     assert sum(replay) == pytest.approx(1.0, abs=1e-12)
     assert sum(live.values()) == pytest.approx(1.0, abs=1e-12)
     assert replay == pytest.approx(expected)

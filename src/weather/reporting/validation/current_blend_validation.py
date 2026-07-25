@@ -156,6 +156,9 @@ def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[d
             market_id = source.get("market_id") or ""
             target_date = source.get("target_date") or ""
             probability = _safe_float(source.get("probability"))
+            candidate_preblend_probability = _safe_float(
+                source.get("candidate_preblend_probability")
+            )
             current_probability = _safe_float(source.get("current_probability"))
             market_probability = _safe_float(source.get("market_yes"))
             outcome = _safe_int(source.get("outcome"))
@@ -188,10 +191,19 @@ def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[d
                 "market_probability": _clamp_probability(market_probability),
                 "outcome": int(outcome),
                 "base_alpha": base_alpha,
-                "raw_probability": reconstruct_raw_probability(
-                    probability,
-                    current_probability,
-                    base_alpha,
+                "raw_probability": (
+                    _clamp_probability(candidate_preblend_probability)
+                    if candidate_preblend_probability is not None
+                    else reconstruct_raw_probability(
+                        probability,
+                        current_probability,
+                        base_alpha,
+                    )
+                ),
+                "raw_probability_source": (
+                    "explicit_preblend_candidate"
+                    if candidate_preblend_probability is not None
+                    else "legacy_rowwise_reconstruction"
                 ),
             })
     return rows

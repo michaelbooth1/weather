@@ -1220,6 +1220,12 @@ def attach_band_candidate_probabilities(
             rows,
             gamma=float(postprocess.get("partition_normalization_gamma", 1.25)),
         )
+    for row in rows:
+        if _valid_probability(row.get("candidate_p")):
+            # Preserve the candidate partition before incumbent blending.  The
+            # time-split blend validator needs this value directly because a
+            # later partition-wide mass restoration is not row-wise invertible.
+            row["candidate_preblend_p"] = float(row["candidate_p"])
     if postprocess.get("current_blend_enabled", False):
         apply_current_blend_guardrail(rows, postprocess)
         if partition_normalization_enabled:
@@ -3809,6 +3815,17 @@ def run_pooled_candidate_replay(args):
                 postprocess.get("current_blend_source_freshness_alpha") or {}
             ),
             "current_blend_context_alpha": postprocess.get("current_blend_context_alpha") or [],
+            "partition_normalization_enabled": bool(
+                postprocess.get("partition_normalization_enabled", True)
+            ),
+            "partition_normalization_gamma": postprocess.get(
+                "partition_normalization_gamma",
+                1.25,
+            ),
+            "current_blend_partition_mass_restoration_enabled": bool(
+                postprocess.get("current_blend_enabled", False)
+                and postprocess.get("partition_normalization_enabled", True)
+            ),
             "market_bias_calibration_enabled": bool(postprocess.get("market_bias_calibration_enabled")),
             "market_bias_calibration_contexts": market_bias_calibration.get("context_count", 0),
             "market_bias_baseline_brier": market_bias_selection.get("baseline_brier"),

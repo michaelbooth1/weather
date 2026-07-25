@@ -8,6 +8,7 @@ from weather.reporting.validation.current_blend_validation import (
     base_alpha_for_row,
     build_payload,
     candidate_probability,
+    read_variant_rows,
     reconstruct_raw_probability,
     write_markdown_report,
 )
@@ -80,6 +81,69 @@ class CurrentBlendValidationTests(unittest.TestCase):
         probability = candidate_probability({"raw_probability": None, "current_probability": 0.33}, 1.0)
 
         self.assertAlmostEqual(probability, 0.33)
+
+    def test_explicit_preblend_candidate_survives_partition_mass_restoration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows_path = Path(tmp) / "rows.csv"
+            preblend = [0.60, 0.30, 0.10]
+            current = [0.20, 0.30, 0.50]
+            alphas = [1.0, 1.0, 0.35]
+            blended = [
+                (alpha * candidate) + ((1.0 - alpha) * incumbent)
+                for candidate, incumbent, alpha in zip(
+                    preblend,
+                    current,
+                    alphas,
+                )
+            ]
+            final = [value / sum(blended) for value in blended]
+            rows = [
+                {
+                    "market_id": "austin",
+                    "target_date": "2026-06-01",
+                    "snapshot_id": "s1",
+                    "band_key": f"band-{index}",
+                    "probability": repr(final[index]),
+                    "candidate_preblend_probability": repr(preblend[index]),
+                    "current_probability": repr(current[index]),
+                    "market_yes": repr(current[index]),
+                    "outcome": str(int(index == 1)),
+                    "forecast_bucket_pressure": (
+                        "warm_side" if index == 2 else "near_forecast"
+                    ),
+                }
+                for index in range(3)
+            ]
+            with rows_path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+
+            parsed = read_variant_rows(
+                rows_path,
+                {
+                    "default_alpha": 1.0,
+                    "market_alpha": {},
+                    "source_freshness_alpha": {},
+                    "context_alpha": [
+                        {
+                            "forecast_bucket_pressure": "warm_side",
+                            "alpha": 0.35,
+                        }
+                    ],
+                },
+            )
+
+        self.assertAlmostEqual(sum(final), 1.0)
+        self.assertNotAlmostEqual(sum(blended), 1.0)
+        self.assertEqual(
+            {row["raw_probability_source"] for row in parsed},
+            {"explicit_preblend_candidate"},
+        )
+        self.assertEqual(
+            [row["raw_probability"] for row in parsed],
+            preblend,
+        )
 
     def test_context_alpha_reconstructs_raw_rows_when_market_default_is_current(self):
         schedule = {
