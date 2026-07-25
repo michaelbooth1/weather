@@ -3774,6 +3774,7 @@ def run_pooled_candidate_replay(args):
         "artifact": {
             "path": str(args.artifact),
             "artifact_hash": artifact_hash,
+            "postprocess_config_hash": postprocess_config_hash,
             "schema_version": artifact.get("schema_version"),
             "feature_schema_version": artifact.get("feature_schema_version"),
             "family_unit": family_unit,

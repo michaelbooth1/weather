@@ -426,6 +426,8 @@ def write_report(report, out_path, min_free_bytes=0):
         ["Field", "Value"],
         [
             ["Path", artifact.get("path") or "-"],
+            ["Artifact hash", artifact.get("artifact_hash") or "-"],
+            ["Postprocess config hash", artifact.get("postprocess_config_hash") or "-"],
             ["Schema", artifact.get("schema_version") or "-"],
             ["Feature schema", artifact.get("feature_schema_version") or "-"],
             ["Family unit", artifact.get("family_unit") or "-"],
