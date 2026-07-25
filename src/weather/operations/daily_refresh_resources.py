@@ -84,7 +84,13 @@ STAGE_A_STEP_RESOURCE_POLICIES = {
     "closed_day_parquet_incremental": _budget(90, 3072, 2048, "incremental closed-day columnar conversion"),
     "hourly_model_performance": _budget(60, 3072, 2048, "hourly probability-row scoring"),
     "ten_minute_model_performance": _budget(60, 3072, 2048, "ten-minute probability-row scoring"),
-    "price_free_model_learning": _budget(60, 3072, 2048, "settled-corpus learning summary"),
+    # 2026-07-25: the child died with MemoryError at 3072 MB. This step aggregates the
+    # whole settled corpus, which grows every day, so the ceiling is a moving target and
+    # this raise buys weeks, not a fix -- the durable answer is a bounded/streaming
+    # aggregation (the module already accepts --start-date/--end-date). Kept modest
+    # deliberately: memory pressure is this host's primary streak risk, and the step is
+    # a learning summary whose gates BLOCK pre-release anyway.
+    "price_free_model_learning": _budget(60, 4096, 2560, "settled-corpus learning summary"),
     "model_market_disagreement_rehydration": _budget(60, 3072, 2048, "disagreement corpus rehydration"),
     "settled_day_analysis_barrier": {"isolation": "in_process", "rationale": "status-only dependency barrier"},
     "runtime_identity_reconciliation": {"isolation": "in_process", "rationale": "manifest identity reconciliation"},
