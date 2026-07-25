@@ -52,6 +52,47 @@ It also answers the questions that previously required a manual dig:
 - a **capture alert raised in the last 24h** is promoted to a FLAG — alerts are appended
   to `data/alerts/streak_capture_alerts.jsonl`, which nothing otherwise reads.
 
+## Overnight alerting (WeatherHostHealthWatchdog)
+
+`status.ps1` answers "what is wrong right now" for a human who is looking.
+`scripts/ops/health_watchdog.ps1` asks what nobody is awake to ask: **does this need
+someone, and can it even be acted on at this hour?** It runs every 15 minutes (S4U, so it
+survives a reboot with nobody logged on) and grades the same conditions differently
+depending on the clock:
+
+| Window (host local) | Meaning |
+| --- | --- |
+| 12:00–18:00 | graded capture window — the streak day is being decided; capture/memory faults are `CRITICAL` |
+| 09:30–11:00 | daily chain — settlement and grading of yesterday |
+| 01:00–04:00 | quiet window — the only safe slot for code merges and heavy steps |
+| 23:30–00:45 | day rollover — stale location config here blacks out capture |
+
+Outputs, all under `data/alerts/`:
+
+- `host_health_latest.json` — current state, always rewritten;
+- `host_health_alerts.jsonl` — append-only, written on **state change**, on any `CRITICAL`,
+  or every 6h as a heartbeat, so a standing condition does not spam the log and silence is
+  distinguishable from a dead watchdog;
+- `MORNING_BRIEFING.md` — regenerated every run: what is open now, each item's severity *and the
+  window in which it can be acted on*, standing notes, and a 24h timeline. **Read this first
+  after being away.**
+
+Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
+
+## Why every task is S4U
+
+Scheduled tasks with `LogonType=Interactive` run **only while a user session exists**. On
+2026-07-24 all but one `Weather*` task was Interactive with no auto-logon, so a reboot with
+nobody logged in would have left the host dark and silent — capture, chain, streak monitor
+and the alerting itself — until someone logged in. Everything unattended-critical is now
+`S4U` (runs whether or not anyone is logged on, no stored password), verified by
+post-conversion runs.
+
+`WeatherOneShotPush` is the deliberate exception: pushing needs the Windows credential
+vault, which an S4U task in session 0 cannot reach. It is not unattended-critical — commits
+simply queue until someone is logged on — so it stays Interactive and is excluded from the
+reboot-exposure check.
+
 ## Where the truth lives (read this before trusting any number)
 
 - **Authoritative grade source:** `data/settlements/toronto/ledger.jsonl` — an

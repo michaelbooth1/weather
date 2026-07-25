@@ -96,8 +96,15 @@ if ($chain -and $chain.steps) {
         if (-not $why) { $why = [string]$f.error }
         if (-not $why) { $why = [string]$f.result.status }
         if (-not $why) { $why = [string]$f.status }
-        $chainFail = "{0} -> {1}" -f $f.name, $why
-        $warns.Add("chain step $chainFail")
+        # A deferral is the resource gates working as designed (heavy steps refusing to run
+        # beside live capture), not a fault. Say so, or every quiet-window-bound run looks broken.
+        if ([string]$f.status -eq "deferred") {
+            $chainFail = "deferred at {0} ({1}) - heavy steps wait for a quieter host" -f $f.name, $why
+        }
+        else {
+            $chainFail = "FAILING {0} -> {1}" -f $f.name, $why
+            $warns.Add("chain step $chainFail")
+        }
     }
 }
 # `terminal` describes the LAST completed run and goes stale the moment a resume starts,
@@ -135,7 +142,12 @@ $taskCount = 0
 $interactiveTasks = 0
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
-    if ([string]$_.Principal.LogonType -eq "Interactive") { $interactiveTasks++ }
+    # WeatherOneShotPush is deliberately left Interactive: pushing needs the credential
+    # vault, which an S4U task in session 0 cannot reach. It is not unattended-critical
+    # (commits simply queue), so it must not keep the reboot-exposure flag lit forever.
+    if ([string]$_.Principal.LogonType -eq "Interactive" -and $_.TaskName -ne "WeatherOneShotPush") {
+        $interactiveTasks++
+    }
     $ti = $_ | Get-ScheduledTaskInfo
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
@@ -176,6 +188,11 @@ if ($interactiveTasks -gt 0 -and $autoLogon -ne "1") {
     else {
         $warns.Add("$interactiveTasks Weather tasks are LogonType=Interactive with no auto-logon - none of them run after an unattended reboot")
     }
+}
+elseif ($rebootPending) {
+    # The fleet is S4U now, so a restart self-recovers; still worth knowing one is queued
+    # because it costs a short capture gap whenever it happens.
+    $warns.Add("reboot pending - fleet is S4U so it self-recovers, but expect a brief capture gap; avoid restarting inside 12:00-18:00")
 }
 
 # ---- off-host mirror (the only copy of data\ that is not on this disk) ----
@@ -254,7 +271,7 @@ Write-Output ("              lock ~{0} if all clean   |  settled -> {1}" -f $str
 Write-Output ("  CAPTURE   : {0}" -f $capSummary)
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free" -f $freeRamGB, $totRamGB, $freeDiskGB)
 Write-Output ("  CHAIN     : {0} / {1}   (0x2 = gates BLOCK, expected pre-release)" -f $chainStatus, $chainTerm)
-if ($chainFail) { Write-Output ("              failing step -> {0}" -f $chainFail) }
+if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
