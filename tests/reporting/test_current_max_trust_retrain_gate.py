@@ -1,17 +1,16 @@
 import csv
+import gc
+import inspect
 import json
+import tracemalloc
 
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION
 from weather.reporting.candidate_lifecycle.current_max_trust_retrain_gate import (
     SCHEMA_VERSION,
+    _iter_csv_rows,
     build_payload,
+    current_max_summary,
     write_outputs,
-)
-from weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence import (
-    artifact_trust_field_summary,
-    current_max_trust_ablation_decision,
-    raw_current_max_value,
-    transform_current_max_row,
 )
 
 
@@ -53,6 +52,123 @@ def write_current_max(path):
                 "gap_to_current_temp": "0",
             },
         ])
+
+
+def test_current_max_csv_summary_streams_in_source_order_with_equivalent_payload(tmp_path):
+    current_max = tmp_path / "current_max.csv"
+    rows = [
+        {
+            "market_id": "nyc",
+            "target_date": "2026-06-21",
+            "snapshot_id": "s3",
+            "cutoff_hour": "8",
+            "current_max_state": "wu_history_validated_current_max",
+            "feature_disposition": "validated",
+            "pre_reset": "False",
+            "gap_to_current_temp": "0",
+        },
+        {
+            "market_id": "nyc",
+            "target_date": "2026-06-20",
+            "snapshot_id": "s1",
+            "cutoff_hour": "6",
+            "current_max_state": "pre_reset_current_max_null",
+            "feature_disposition": "null_before_reset",
+            "pre_reset": "TRUE",
+            "gap_to_current_temp": "11",
+        },
+        {
+            "market_id": "toronto",
+            "target_date": "2026-06-20",
+            "snapshot_id": "s2",
+            "cutoff_hour": "",
+            "current_max_state": "",
+            "feature_disposition": "",
+            "pre_reset": "",
+            "gap_to_current_temp": "not-a-number",
+        },
+    ]
+    with current_max.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CURRENT_MAX_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    assert inspect.isgeneratorfunction(_iter_csv_rows)
+    assert [
+        row["snapshot_id"]
+        for row in _iter_csv_rows(current_max)
+    ] == ["s3", "s1", "s2"]
+
+    summary = current_max_summary(
+        _iter_csv_rows(current_max),
+        spill_directory=tmp_path,
+    )
+
+    assert summary == {
+        "row_count": 3,
+        "market_count": 2,
+        "target_date_count": 2,
+        "state_counts": {
+            "pre_reset_current_max_null": 1,
+            "unknown": 1,
+            "wu_history_validated_current_max": 1,
+        },
+        "disposition_counts": {
+            "null_before_reset": 1,
+            "unknown": 1,
+            "validated": 1,
+        },
+        "cutoff_hour_counts": {"": 1, "6": 1, "8": 1},
+        "pre_reset_count": 1,
+        "risky_or_guarded_count": 1,
+        "max_gap_to_current_temp": 11.0,
+    }
+    assert not list(tmp_path.glob("current-max-trust-summary-*"))
+
+
+def _write_memory_fixture(path, row_count):
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CURRENT_MAX_FIELDS)
+        writer.writeheader()
+        for index in range(row_count):
+            writer.writerow({
+                "market_id": "nyc",
+                "target_date": f"unique-target-date-{index:08d}",
+                "snapshot_id": f"snapshot-{index:08d}",
+                "cutoff_hour": "8",
+                "current_max_state": "wu_history_validated_current_max",
+                "feature_disposition": "validated",
+                "pre_reset": "False",
+                "gap_to_current_temp": "0",
+            })
+
+
+def _streamed_summary_peak(root, row_count):
+    root.mkdir()
+    current_max = root / "current_max.csv"
+    _write_memory_fixture(current_max, row_count)
+    gc.collect()
+    tracemalloc.start()
+    try:
+        summary = current_max_summary(
+            _iter_csv_rows(current_max),
+            spill_directory=root,
+        )
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak, summary
+
+
+def test_current_max_summary_peak_memory_stays_bounded_as_distinct_dates_grow(tmp_path):
+    small_peak, small_summary = _streamed_summary_peak(tmp_path / "small", 1_000)
+    large_peak, large_summary = _streamed_summary_peak(tmp_path / "large", 25_000)
+
+    assert small_summary["row_count"] == 1_000
+    assert small_summary["target_date_count"] == 1_000
+    assert large_summary["row_count"] == 25_000
+    assert large_summary["target_date_count"] == 25_000
+    assert large_peak <= small_peak + 1024 * 1024
 
 
 def write_feature_quality(path):
@@ -152,6 +268,11 @@ def test_gate_passes_with_matching_retrain_and_ablation_report(tmp_path):
 
 
 def test_current_max_treatments_remove_or_promote_raw_values():
+    from weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence import (
+        raw_current_max_value,
+        transform_current_max_row,
+    )
+
     row = {
         "trusted_current_max": None,
         "support_only_current_max": 84.0,
@@ -189,6 +310,10 @@ def test_current_max_treatments_remove_or_promote_raw_values():
 
 
 def test_artifact_trust_field_summary_requires_trainable_trust_values():
+    from weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence import (
+        artifact_trust_field_summary,
+    )
+
     class FakeImputer:
         statistics_ = [
             float("nan"),
@@ -247,6 +372,10 @@ def _score(candidate_brier, candidate_logloss=None, current_brier=None, current_
 
 
 def test_current_max_ablation_decision_requires_no_regression():
+    from weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence import (
+        current_max_trust_ablation_decision,
+    )
+
     mode_scores = {
         "trust_weighted": {
             "risky_current_max": _score(0.05),
@@ -276,6 +405,10 @@ def test_current_max_ablation_decision_requires_no_regression():
 
 
 def test_current_max_ablation_decision_blocks_flat_or_warm_tail_regression():
+    from weather.reporting.candidate_lifecycle.current_max_trust_retrain_evidence import (
+        current_max_trust_ablation_decision,
+    )
+
     flat_score = _score(0.05)
     mode_scores = {
         "trust_weighted": {

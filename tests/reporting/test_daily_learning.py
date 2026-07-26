@@ -2,8 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from weather.reporting.daily.daily_learning import build_learning_payload, render_report, write_outputs
+from weather.reporting.daily.daily_learning_scorecard import (
+    _load_price_free_model_learning,
+)
 
 
 def write_daily_artifacts(root, *, blocked=False):
@@ -1115,6 +1119,90 @@ class TestDailyLearning(unittest.TestCase):
                 "retrain_input"
             ]
         )
+
+    def test_price_free_input_reader_skips_growing_current_max_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "price_free_model_learning.json"
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write("{\n")
+                handle.write('  "corpus": {\n')
+                handle.write('    "all_snapshot_rows": 2000,\n')
+                handle.write('    "date_max": "2026-07-03",\n')
+                handle.write('    "hourly_checkpoint_rows": 2,\n')
+                handle.write('    "score_errors": [\n')
+                for index in range(1_000):
+                    comma = "," if index < 999 else ""
+                    handle.write(
+                        f'      {{"folder": "folder-{index}", "error": "bad tape"}}{comma}\n'
+                    )
+                handle.write('    ],\n')
+                handle.write('    "scored_market_days": 1,\n')
+                handle.write('    "selected_label_count": 1001\n')
+                handle.write('  },\n')
+                handle.write('  "current_max_carryover": {\n')
+                handle.write('    "by_market_hour": [{"market_id": "austin"}],\n')
+                handle.write('    "examples": [{"snapshot_id": "example"}],\n')
+                handle.write('    "focus_definition": "bounded summary",\n')
+                handle.write('    "focused_row_count": 1,\n')
+                handle.write('    "rows": [\n')
+                for index in range(1_000):
+                    comma = "," if index < 999 else ""
+                    handle.write(f'      {{"snapshot_id": "s-{index}"}}{comma}\n')
+                handle.write('    ],\n')
+                handle.write('    "summary": {"snapshot_rows": 1000}\n')
+                handle.write("  },\n")
+                handle.write('  "daily_summary": {"status": "OK"},\n')
+                handle.write('  "evidence_classification": {"uses_market_prices": false},\n')
+                handle.write('  "generated_at_utc": "2026-07-25T12:00:00+00:00",\n')
+                handle.write('  "overall": {"hourly_checkpoint": {"n": 2}},\n')
+                handle.write('  "schema_version": "price_free_model_learning_v0.1",\n')
+                handle.write('  "status": "OK"\n')
+                handle.write("}\n")
+
+            with patch(
+                "weather.reporting.daily.daily_learning_scorecard.read_json",
+                side_effect=AssertionError("canonical reader must not materialize the artifact"),
+            ):
+                payload = _load_price_free_model_learning(path)
+
+        current_max = payload["current_max_carryover"]
+        self.assertNotIn("rows", current_max)
+        self.assertEqual(current_max["summary"]["snapshot_rows"], 1000)
+        self.assertEqual(current_max["examples"], [{"snapshot_id": "example"}])
+        self.assertEqual(payload["corpus"]["date_max"], "2026-07-03")
+        self.assertNotIn("score_errors", payload["corpus"])
+
+    def test_price_free_input_reader_rejects_truncated_canonical_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "price_free_model_learning.json"
+            path.write_text(
+                '{\n'
+                '  "corpus": {"date_max": "2026-07-03"},\n'
+                '  "current_max_carryover": {\n'
+                '    "summary": {"snapshot_rows": 1}\n',
+                encoding="utf-8",
+            )
+            self.assertIsNone(_load_price_free_model_learning(path))
+
+    def test_price_free_input_reader_rejects_nested_close_as_root_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "price_free_model_learning.json"
+            path.write_text(
+                '{\n'
+                '  "corpus": {\n'
+                '    "hourly_checkpoint_rows": 1,\n'
+                '    "scored_market_days": 1\n'
+                '  },\n'
+                '  "daily_summary": {"status": "OK"},\n'
+                '  "schema_version": "price_free_model_learning_v0.1",\n'
+                '  "status": "OK",\n'
+                '  "current_max_carryover": {\n'
+                '    "summary": {"snapshot_rows": 1}\n'
+                '  }\n',
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(_load_price_free_model_learning(path))
 
     def test_build_learning_payload_blocks_on_settled_day_freshness_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

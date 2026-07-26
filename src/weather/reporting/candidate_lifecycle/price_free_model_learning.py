@@ -10,19 +10,28 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from weather.backtesting.settlement_io import row_band_value_hi, resolve_outcome
+from weather.io import iter_csv_rows, write_json_streaming_atomic
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.paths import data_path, relative_to_repo
+from weather.reporting.candidate_lifecycle.price_free_model_aggregation import (
+    CurrentMaxSummaryAccumulator,
+    ModelScoreAccumulator,
+    PriceFreeLearningPayload,
+    PriceFreeScratch,
+)
 from weather.reporting.formatting import markdown_table
 from weather.reporting.hourly.hourly_model_performance import (
     DEFAULT_LABELS_CSV,
     DEFAULT_QUALITY_GRADES,
     DEFAULT_SNAPSHOTS_ROOT,
     HOUR_REGIME_LABELS,
-    discover_labeled_folders,
+    label_folder,
+    label_from_folder,
     label_quality_metadata,
     parse_csv_values,
     parse_quality_grades,
+    truthy,
 )
 from weather.reporting.serving_gates.model_scoring_liveness import attach_scoring_liveness, build_rerun_command
 from weather.schema_registry import schema_version
@@ -37,6 +46,18 @@ DEFAULT_HOURLY_CSV_OUT = DEFAULT_BACKTEST_ROOT / "price_free_model_learning_by_h
 DEFAULT_CURRENT_MAX_CSV_OUT = DEFAULT_BACKTEST_ROOT / "price_free_model_learning_current_max_carryover.csv"
 EARLY_GAP_HOUR_MAX = 12
 CURRENT_MAX_GAP_THRESHOLD = 10.0
+DAILY_REFRESH_SCORE_ERROR_EXAMPLE_LIMIT = 20
+DAILY_REFRESH_CORPUS_FIELDS = (
+    "selected_label_count",
+    "scored_market_days",
+    "markets",
+    "date_min",
+    "date_max",
+    "all_snapshot_rows",
+    "hourly_checkpoint_rows",
+    "price_free_reason_counts",
+    "skipped_labels",
+)
 
 RAW_DRIVER_COLUMNS = (
     "wu_history_high_native",
@@ -109,6 +130,78 @@ def read_csv_rows(path):
         return []
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def discover_labeled_folders_bounded(
+    scratch,
+    *,
+    labels_csv=DEFAULT_LABELS_CSV,
+    snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
+    quality_grades=DEFAULT_QUALITY_GRADES,
+    include_promotion_countable_labels=True,
+    markets=None,
+    start_date=None,
+    end_date=None,
+):
+    """Stream label discovery into the build scratch, preserving legacy order."""
+
+    labels_csv = Path(labels_csv)
+    snapshots_root = Path(snapshots_root)
+    allowed_quality = set(quality_grades or [])
+    allowed_markets = set(markets or [])
+    start = parse_iso_date(start_date)
+    end = parse_iso_date(end_date)
+    skipped = Counter()
+
+    if labels_csv.exists():
+        candidates = ((row, "") for row in iter_csv_rows(labels_csv))
+    else:
+        candidates = (
+            (label_from_folder(tape.parent), str(tape))
+            for tape in snapshots_root.glob("*/snapshots_long.csv")
+        )
+
+    for row, tie_sort in candidates:
+        if not row:
+            continue
+        slug = row.get("event_slug")
+        market_id = row.get("market_id")
+        if not slug:
+            skipped["missing_slug"] += 1
+            continue
+        if allowed_markets and market_id not in allowed_markets:
+            skipped["market"] += 1
+            continue
+        quality = row.get("quality_grade")
+        quality_allowed = not allowed_quality or quality in allowed_quality
+        promotion_countable = truthy(row.get("promotion_countable"))
+        if not quality_allowed and not (include_promotion_countable_labels and promotion_countable):
+            skipped["quality"] += 1
+            continue
+        if row.get("settlement_bucket") in (None, ""):
+            skipped["missing_settlement"] += 1
+            continue
+        target_date = row_date(row)
+        if start and (target_date is None or target_date < start):
+            skipped["start_date"] += 1
+            continue
+        if end and (target_date is None or target_date > end):
+            skipped["end_date"] += 1
+            continue
+        folder = label_folder(row, snapshots_root)
+        tape = folder / "snapshots_long.csv" if folder else None
+        if tape is None or not tape.exists():
+            skipped["missing_tape"] += 1
+            continue
+        if not scratch.add_selected_label(
+            tape_key=str(tape.resolve()),
+            folder=folder,
+            label=row,
+            tie_sort=tie_sort,
+        ):
+            skipped["duplicate"] += 1
+    scratch.commit()
+    return dict(skipped)
 
 
 def row_date(row):
@@ -633,6 +726,63 @@ def build_current_max_payload(rows):
     }
 
 
+def current_max_row_is_focused(row):
+    return bool(
+        row.get("pre_reset")
+        or row.get("current_max_state") == "early_current_max_history_gap"
+        or (
+            row.get("cutoff_hour") is not None
+            and int(row.get("cutoff_hour")) <= EARLY_GAP_HOUR_MAX
+            and (row.get("gap_to_wu_history") or 0.0) >= CURRENT_MAX_GAP_THRESHOLD
+        )
+    )
+
+
+def current_max_example_sort_key(row):
+    return (
+        row.get("gap_to_wu_history") is None,
+        -(row.get("gap_to_wu_history") or -9999.0),
+        str(row.get("market_id") or ""),
+        str(row.get("captured_at_local") or ""),
+    )
+
+
+def finalize_score_rows_by_hour(accumulators):
+    output = []
+    for hour, accumulator in sorted(accumulators.items()):
+        summary = accumulator.finalize()
+        if not summary:
+            continue
+        summary["hour"] = int(hour)
+        summary["hour_label"] = f"{int(hour):02d}:00"
+        summary["hour_regime"] = hour_regime(hour)
+        output.append(summary)
+    return output
+
+
+def bounded_daily_refresh_corpus(corpus, *, score_error_example_limit=DAILY_REFRESH_SCORE_ERROR_EXAMPLE_LIMIT):
+    """Project the growing artifact corpus into a bounded chain-status summary."""
+
+    limit = int(score_error_example_limit)
+    if limit < 0:
+        raise ValueError("score_error_example_limit must be nonnegative")
+    corpus = corpus or {}
+    projected = {
+        field: corpus.get(field)
+        for field in DAILY_REFRESH_CORPUS_FIELDS
+        if field in corpus
+    }
+    error_count = 0
+    examples = []
+    for error in corpus.get("score_errors") or ():
+        error_count += 1
+        if len(examples) < limit:
+            examples.append(error)
+    projected["score_error_count"] = error_count
+    projected["score_error_examples"] = examples
+    return projected
+
+
 def build_price_free_learning(
     labels_csv=DEFAULT_LABELS_CSV,
     snapshots_root=DEFAULT_SNAPSHOTS_ROOT,
@@ -642,108 +792,261 @@ def build_price_free_learning(
     start_date=None,
     end_date=None,
 ):
-    labels, skipped = discover_labeled_folders(
-        labels_csv=labels_csv,
-        snapshots_root=snapshots_root,
-        quality_grades=quality_grades,
-        include_promotion_countable_labels=include_promotion_countable_labels,
-        markets=markets,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    all_rows = []
-    all_current_max_rows = []
-    days = []
-    score_errors = []
-    reason_counts = Counter()
-    for item in labels:
-        try:
-            rows, current_max_rows, day = score_folder(item["folder"], item["label"])
-        except Exception as exc:  # pragma: no cover - durable report surface
-            score_errors.append({"folder": str(item["folder"]), "error": str(exc)})
-            continue
-        all_rows.extend(rows)
-        all_current_max_rows.extend(current_max_rows)
-        days.append(day)
-        reason_counts.update(day.get("price_free_reasons") or [])
+    quality_grades = tuple(quality_grades or ())
+    markets = tuple(markets or ())
+    scratch = PriceFreeScratch()
+    try:
+        skipped = discover_labeled_folders_bounded(
+            scratch,
+            labels_csv=labels_csv,
+            snapshots_root=snapshots_root,
+            quality_grades=quality_grades,
+            include_promotion_countable_labels=include_promotion_countable_labels,
+            markets=markets,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        days = scratch.rows("days")
+        score_errors = scratch.rows("score_errors")
+        snapshot_partitions = scratch.rows("snapshot_partitions")
+        current_max_rows_out = scratch.rows("current_max_rows")
+        overall_checkpoint_acc = ModelScoreAccumulator(scratch, "checkpoint:overall")
+        overall_all_snapshot_acc = ModelScoreAccumulator(scratch, "all_snapshot:overall")
+        checkpoint_by_hour = {}
+        all_snapshot_by_hour_acc = {}
+        checkpoint_by_market = {}
+        current_max_summary_acc = CurrentMaxSummaryAccumulator()
+        current_max_by_market_hour = {}
+        current_max_examples = []
+        current_max_sequence = 0
+        focused_row_count = 0
+        reason_counts = Counter()
+        corpus_markets = set()
+        date_min = None
+        date_max = None
+        scored_market_days = 0
+        all_snapshot_row_count = 0
+        checkpoint_row_count = 0
 
-    checkpoint_rows = hourly_checkpoint_rows(all_rows)
-    by_hour = summarize_by_hour(checkpoint_rows)
-    all_snapshot_by_hour = summarize_by_hour(all_rows)
-    overall_checkpoint = model_score_rows(checkpoint_rows) or {}
-    overall_all_snapshots = model_score_rows(all_rows) or {}
-    current_max = build_current_max_payload(all_current_max_rows)
-    status = "OK" if all_rows else "NO_SCORED_ROWS"
+        for item in scratch.iter_selected_labels():
+            try:
+                rows, current_max_rows, day = score_folder(item["folder"], item["label"])
+            except Exception as exc:  # pragma: no cover - durable report surface
+                score_errors.append({"folder": str(item["folder"]), "error": str(exc)})
+                continue
+            days.append(day)
+            reason_counts.update(day.get("price_free_reasons") or [])
+            if day.get("rows"):
+                scored_market_days += 1
+            if day.get("market_id"):
+                corpus_markets.add(day.get("market_id"))
+            target_date = day.get("target_date")
+            if target_date:
+                date_min = target_date if date_min is None else min(date_min, target_date)
+                date_max = target_date if date_max is None else max(date_max, target_date)
 
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": utc_now().isoformat(),
-        "status": status,
-        "evidence_classification": {
-            "lane": "diagnostic_price_free_not_promotion_evidence",
-            "uses_market_prices": False,
-            "counts_toward_polymarket_benchmark": False,
-            "counts_toward_retrain_input": bool(all_rows),
-        },
-        "inputs": {
-            "labels_csv": str(Path(labels_csv)),
-            "snapshots_root": str(Path(snapshots_root)),
-            "quality_grades": list(quality_grades or []),
-            "include_promotion_countable_labels": bool(include_promotion_countable_labels),
-            "markets": list(markets or []),
-            "start_date": str(start_date) if start_date else None,
-            "end_date": str(end_date) if end_date else None,
-        },
-        "corpus": {
-            "selected_label_count": len(labels),
-            "scored_market_days": sum(1 for day in days if day.get("rows")),
-            "markets": sorted({day.get("market_id") for day in days if day.get("market_id")}),
-            "date_min": min((day.get("target_date") for day in days if day.get("target_date")), default=None),
-            "date_max": max((day.get("target_date") for day in days if day.get("target_date")), default=None),
-            "all_snapshot_rows": len(all_rows),
-            "hourly_checkpoint_rows": len(checkpoint_rows),
-            "price_free_reason_counts": dict(sorted(reason_counts.items())),
-            "skipped_labels": skipped,
-            "score_errors": score_errors,
-        },
-        "days": days,
-        "overall": {
-            "hourly_checkpoint": overall_checkpoint,
-            "all_snapshots": overall_all_snapshots,
-        },
-        "by_hour": by_hour,
-        "by_market": summarize_by_market(checkpoint_rows),
-        "all_snapshot_by_hour": all_snapshot_by_hour,
-        "snapshot_partitions": snapshot_partition_stats(checkpoint_rows),
-        "current_max_carryover": current_max,
-        "daily_summary": {
+            all_snapshot_row_count += len(rows)
+            scratch.extend_partition_rows("all_snapshot", rows)
+            for row in rows:
+                overall_all_snapshot_acc.update_row(row)
+                hour = row.get("cutoff_hour")
+                if hour is not None:
+                    hour = int(hour)
+                    if hour not in all_snapshot_by_hour_acc:
+                        all_snapshot_by_hour_acc[hour] = ModelScoreAccumulator(
+                            scratch,
+                            f"all_snapshot:hour:{hour}",
+                        )
+                    all_snapshot_by_hour_acc[hour].update_row(row)
+
+            for row in hourly_checkpoint_rows(rows):
+                scratch.add_hourly_checkpoint(
+                    row,
+                    timestamp_sort=timestamp_key(row),
+                )
+
+            for current_row in current_max_rows:
+                current_max_rows_out.append(current_row)
+                current_max_summary_acc.update(current_row)
+                if current_max_row_is_focused(current_row):
+                    focused_row_count += 1
+                    group_key = (current_row.get("market_id"), current_row.get("cutoff_hour"))
+                    current_max_by_market_hour.setdefault(
+                        group_key,
+                        CurrentMaxSummaryAccumulator(),
+                    ).update(current_row)
+                    current_max_examples.append(
+                        (
+                            current_max_example_sort_key(current_row),
+                            current_max_sequence,
+                            current_row,
+                        )
+                    )
+                    current_max_examples.sort(key=lambda item: (item[0], item[1]))
+                    if len(current_max_examples) > 30:
+                        current_max_examples.pop()
+                current_max_sequence += 1
+            scratch.commit()
+
+        scratch.materialize_hourly_checkpoint_partitions()
+        for row in scratch.iter_hourly_checkpoints():
+            checkpoint_row_count += 1
+            overall_checkpoint_acc.update_row(row)
+            hour = row.get("cutoff_hour")
+            if hour is not None:
+                hour = int(hour)
+                if hour not in checkpoint_by_hour:
+                    checkpoint_by_hour[hour] = ModelScoreAccumulator(
+                        scratch,
+                        f"checkpoint:hour:{hour}",
+                    )
+                checkpoint_by_hour[hour].update_row(row)
+            market_id = row.get("market_id")
+            if market_id not in checkpoint_by_market:
+                checkpoint_by_market[market_id] = ModelScoreAccumulator(
+                    scratch,
+                    f"checkpoint:market:{market_id!r}",
+                )
+            checkpoint_by_market[market_id].update_row(row)
+
+        for group_rows in scratch.iter_partition_groups("all_snapshot"):
+            partition_rows = snapshot_partition_stats(group_rows)
+            if not partition_rows:
+                continue
+            partition = partition_rows[0]
+            overall_all_snapshot_acc.add_partition(partition)
+            hour = partition.get("cutoff_hour")
+            if hour is not None:
+                all_snapshot_by_hour_acc[int(hour)].add_partition(partition)
+
+        for group_rows in scratch.iter_partition_groups("checkpoint"):
+            partition_rows = snapshot_partition_stats(group_rows)
+            if not partition_rows:
+                continue
+            partition = partition_rows[0]
+            snapshot_partitions.append(partition)
+            overall_checkpoint_acc.add_partition(partition)
+            hour = partition.get("cutoff_hour")
+            if hour is not None:
+                checkpoint_by_hour[int(hour)].add_partition(partition)
+            market_id = partition.get("market_id")
+            checkpoint_by_market[market_id].add_partition(partition)
+
+        by_hour = finalize_score_rows_by_hour(checkpoint_by_hour)
+        all_snapshot_by_hour = finalize_score_rows_by_hour(all_snapshot_by_hour_acc)
+        by_market = []
+        for market_id, accumulator in sorted(
+            checkpoint_by_market.items(),
+            key=lambda item: str(item[0]),
+        ):
+            summary = accumulator.finalize()
+            if summary:
+                summary["market_id"] = market_id
+                by_market.append(summary)
+        overall_checkpoint = overall_checkpoint_acc.finalize() or {}
+        overall_all_snapshots = overall_all_snapshot_acc.finalize() or {}
+        current_summary = current_max_summary_acc.finalize()
+        by_market_hour = []
+        for key, accumulator in current_max_by_market_hour.items():
+            item = accumulator.finalize()
+            item["market_id"], item["cutoff_hour"] = key
+            by_market_hour.append(item)
+        by_market_hour.sort(
+            key=lambda row: (
+                str(row.get("market_id") or ""),
+                str(row.get("cutoff_hour") or ""),
+            )
+        )
+        current_max = {
+            "summary": current_summary,
+            "by_market_hour": by_market_hour,
+            "examples": [item[2] for item in current_max_examples],
+            "rows": current_max_rows_out,
+            "focused_row_count": focused_row_count,
+            "focus_definition": (
+                "pre-reset current max rows plus early snapshots with current max at least "
+                f"{CURRENT_MAX_GAP_THRESHOLD:g} degrees above WU history high"
+            ),
+        }
+        status = "OK" if all_snapshot_row_count else "NO_SCORED_ROWS"
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "generated_at_utc": utc_now().isoformat(),
             "status": status,
-            "scored_market_days": sum(1 for day in days if day.get("rows")),
-            "hourly_checkpoint_rows": len(checkpoint_rows),
-            "final_top_hit_rate": overall_checkpoint.get("partition_model_top_is_winner_rate"),
-            "final_winner_probability": overall_checkpoint.get("partition_model_winner_probability"),
-            "current_max_guarded_count": (current_max.get("summary") or {}).get("risky_or_guarded_count", 0),
-        },
-    }
-    rerun_command = build_rerun_command(
-        "weather.reporting.candidate_lifecycle.price_free_model_learning",
-        labels_csv=labels_csv,
-        snapshots_root=snapshots_root,
-        quality_grades=quality_grades,
-        include_promotion_countable_labels=include_promotion_countable_labels,
-        markets=markets,
-        start_date=start_date,
-        end_date=end_date,
-    )
-    return attach_scoring_liveness(
-        payload,
-        artifact_name="price_free_model_learning",
-        labels_csv=labels_csv,
-        quality_grades=quality_grades,
-        include_promotion_countable_labels=include_promotion_countable_labels,
-        last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
-        rerun_command=rerun_command,
-    )
+            "evidence_classification": {
+                "lane": "diagnostic_price_free_not_promotion_evidence",
+                "uses_market_prices": False,
+                "counts_toward_polymarket_benchmark": False,
+                "counts_toward_retrain_input": bool(all_snapshot_row_count),
+            },
+            "inputs": {
+                "labels_csv": str(Path(labels_csv)),
+                "snapshots_root": str(Path(snapshots_root)),
+                "quality_grades": list(quality_grades),
+                "include_promotion_countable_labels": bool(include_promotion_countable_labels),
+                "markets": list(markets),
+                "start_date": str(start_date) if start_date else None,
+                "end_date": str(end_date) if end_date else None,
+            },
+            "corpus": {
+                "selected_label_count": scratch.selected_label_count(),
+                "scored_market_days": scored_market_days,
+                "markets": sorted(corpus_markets),
+                "date_min": date_min,
+                "date_max": date_max,
+                "all_snapshot_rows": all_snapshot_row_count,
+                "hourly_checkpoint_rows": checkpoint_row_count,
+                "price_free_reason_counts": dict(sorted(reason_counts.items())),
+                "skipped_labels": skipped,
+                "score_errors": score_errors,
+            },
+            "days": days,
+            "overall": {
+                "hourly_checkpoint": overall_checkpoint,
+                "all_snapshots": overall_all_snapshots,
+            },
+            "by_hour": by_hour,
+            "by_market": by_market,
+            "all_snapshot_by_hour": all_snapshot_by_hour,
+            "snapshot_partitions": snapshot_partitions,
+            "current_max_carryover": current_max,
+            "daily_summary": {
+                "status": status,
+                "scored_market_days": scored_market_days,
+                "hourly_checkpoint_rows": checkpoint_row_count,
+                "final_top_hit_rate": overall_checkpoint.get(
+                    "partition_model_top_is_winner_rate"
+                ),
+                "final_winner_probability": overall_checkpoint.get(
+                    "partition_model_winner_probability"
+                ),
+                "current_max_guarded_count": current_summary.get("risky_or_guarded_count", 0),
+            },
+        }
+        rerun_command = build_rerun_command(
+            "weather.reporting.candidate_lifecycle.price_free_model_learning",
+            labels_csv=labels_csv,
+            snapshots_root=snapshots_root,
+            quality_grades=quality_grades,
+            include_promotion_countable_labels=include_promotion_countable_labels,
+            markets=markets,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        attach_scoring_liveness(
+            payload,
+            artifact_name="price_free_model_learning",
+            labels_csv=labels_csv,
+            quality_grades=quality_grades,
+            include_promotion_countable_labels=include_promotion_countable_labels,
+            last_scored_target_date=(payload.get("corpus") or {}).get("date_max"),
+            rerun_command=rerun_command,
+        )
+        scratch.commit()
+        return PriceFreeLearningPayload(payload, scratch)
+    except BaseException:
+        scratch.close()
+        raise
 
 
 def fmt_num(value, decimals=4):
@@ -1029,7 +1332,7 @@ def write_outputs(
     report_out = Path(report_out)
     json_out.parent.mkdir(parents=True, exist_ok=True)
     report_out.parent.mkdir(parents=True, exist_ok=True)
-    json_out.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    write_json_streaming_atomic(json_out, payload, trailing_newline=True, newline=None)
     report_out.write_text(render_report(payload), encoding="utf-8")
     hourly_csv = write_csv_dicts(hourly_csv_out, payload.get("by_hour") or [], HOURLY_CSV_COLUMNS)
     current_max_csv = write_csv_dicts(
@@ -1076,21 +1379,27 @@ def main(argv=None):
         start_date=args.start_date,
         end_date=args.end_date,
     )
-    json_out, report_out, hourly_csv, current_max_csv = write_outputs(
-        payload,
-        json_out=args.json_out,
-        report_out=args.report_out,
-        hourly_csv_out=args.hourly_csv_out,
-        current_max_csv_out=args.current_max_csv_out,
-    )
+    try:
+        json_out, report_out, hourly_csv, current_max_csv = write_outputs(
+            payload,
+            json_out=args.json_out,
+            report_out=args.report_out,
+            hourly_csv_out=args.hourly_csv_out,
+            current_max_csv_out=args.current_max_csv_out,
+        )
+        summary = dict(payload.get("daily_summary") or {})
+        status = payload.get("status")
+    finally:
+        close_payload = getattr(payload, "close", None)
+        if callable(close_payload):
+            close_payload()
     print(f"Wrote {relative_to_repo(json_out)}")
     print(f"Wrote {relative_to_repo(report_out)}")
     print(f"Wrote {relative_to_repo(hourly_csv)}")
     print(f"Wrote {relative_to_repo(current_max_csv)}")
-    summary = payload.get("daily_summary") or {}
     print(
         "price_free_status={status} scored_market_days={days} hourly_checkpoint_rows={rows}".format(
-            status=payload.get("status"),
+            status=status,
             days=summary.get("scored_market_days", 0),
             rows=summary.get("hourly_checkpoint_rows", 0),
         )

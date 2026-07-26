@@ -17,7 +17,13 @@ from weather.experiment_contract import (
     verify_experiment_result,
     verify_materialized_experiment_manifest,
 )
-from weather.io import read_json, read_jsonl
+from weather.io import (
+    pretty_json_root_is_closed,
+    read_json,
+    read_jsonl,
+    read_pretty_json_object_values,
+    read_pretty_json_top_level_values,
+)
 from weather.paths import data_path
 from weather.reporting.daily import daily_rollup_freshness
 from weather.schema_registry import schema_version
@@ -61,6 +67,36 @@ ARTIFACT_FILES = {
 ARTIFACT_FALLBACK_GLOBS = {
     "settled_day_root_cause": ("settled_day_root_cause_*.json",),
 }
+PRICE_FREE_SUMMARY_FIELDS = (
+    "schema_version",
+    "generated_at_utc",
+    "status",
+    "evidence_classification",
+    "overall",
+    "daily_summary",
+    "last_scored_target_date",
+    "latest_settled_label_date",
+    "scoring_liveness",
+)
+PRICE_FREE_CORPUS_FIELDS = (
+    "selected_label_count",
+    "scored_market_days",
+    "markets",
+    "date_min",
+    "date_max",
+    "all_snapshot_rows",
+    "hourly_checkpoint_rows",
+    "price_free_reason_counts",
+    "skipped_labels",
+)
+PRICE_FREE_CURRENT_MAX_FIELDS = (
+    "summary",
+    "by_market_hour",
+    "examples",
+    "focused_row_count",
+    "focus_definition",
+)
+PRICE_FREE_LEGACY_FALLBACK_MAX_BYTES = 16 * 1024 * 1024
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 IMPACT_SORT_KEYS = (
     "estimated_impact",
@@ -656,7 +692,10 @@ def _latest_matching_artifact(root, pattern):
 
 def _load_artifact(root, name, filename):
     path = Path(root) / filename
-    payload = read_json(path, default=None)
+    if name == "price_free_model_learning":
+        payload = _load_price_free_model_learning(path)
+    else:
+        payload = read_json(path, default=None)
     if payload is not None:
         return path, payload
     for pattern in ARTIFACT_FALLBACK_GLOBS.get(name, ()):
@@ -667,6 +706,52 @@ def _load_artifact(root, name, filename):
         if payload is not None:
             return fallback_path, payload
     return path, None
+
+
+def _load_price_free_model_learning(path):
+    """Read only bounded scorecard fields from the growing v0.1 artifact."""
+
+    path = Path(path)
+    if not path.exists():
+        return None
+    payload = read_pretty_json_top_level_values(path, PRICE_FREE_SUMMARY_FIELDS)
+    required = {"schema_version", "status", "daily_summary"}
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if (
+        pretty_json_root_is_closed(path)
+        and required <= payload.keys()
+        and payload.get("schema_version") == "price_free_model_learning_v0.1"
+    ):
+        corpus = read_pretty_json_object_values(
+            path,
+            "corpus",
+            PRICE_FREE_CORPUS_FIELDS,
+        )
+        current_max = read_pretty_json_object_values(
+            path,
+            "current_max_carryover",
+            PRICE_FREE_CURRENT_MAX_FIELDS,
+        )
+        if (
+            {"scored_market_days", "hourly_checkpoint_rows"} <= corpus.keys()
+            and current_max
+        ):
+            payload["corpus"] = corpus
+            payload["current_max_carryover"] = current_max
+            return payload
+    # Small historical/unit-test artifacts may be compact JSON rather than the
+    # canonical pretty format. Preserve that compatibility without permitting
+    # an unbounded whole-file fallback for a growing production artifact.
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if size <= PRICE_FREE_LEGACY_FALLBACK_MAX_BYTES:
+        return read_json(path, default=None)
+    return None
 
 
 def _market_day_labels_summary(path):

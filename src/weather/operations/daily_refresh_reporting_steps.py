@@ -504,25 +504,43 @@ def run_price_free_model_learning_step(args):
         ),
         markets=price_free_model_learning.parse_csv_values(getattr(args, "markets", "")),
     )
-    json_out, report_out, hourly_csv_out, current_max_csv_out = price_free_model_learning.write_outputs(
-        payload,
-        json_out=backtest_path(args, "price_free_model_learning.json"),
-        report_out=backtest_path(args, "price_free_model_learning_report.md"),
-        hourly_csv_out=backtest_path(args, "price_free_model_learning_by_hour.csv"),
-        current_max_csv_out=backtest_path(args, "price_free_model_learning_current_max_carryover.csv"),
-    )
-    current_max = payload.get("current_max_carryover") or {}
-    liveness = payload.get("scoring_liveness") or {}
+    try:
+        json_out, report_out, hourly_csv_out, current_max_csv_out = (
+            price_free_model_learning.write_outputs(
+                payload,
+                json_out=backtest_path(args, "price_free_model_learning.json"),
+                report_out=backtest_path(args, "price_free_model_learning_report.md"),
+                hourly_csv_out=backtest_path(args, "price_free_model_learning_by_hour.csv"),
+                current_max_csv_out=backtest_path(
+                    args,
+                    "price_free_model_learning_current_max_carryover.csv",
+                ),
+            )
+        )
+        current_max_summary = dict(
+            ((payload.get("current_max_carryover") or {}).get("summary") or {})
+        )
+        liveness = dict(payload.get("scoring_liveness") or {})
+        daily_summary = dict(payload.get("daily_summary") or {})
+        corpus = price_free_model_learning.bounded_daily_refresh_corpus(
+            payload.get("corpus") or {}
+        )
+        status = payload.get("status")
+        liveness_fields = scoring_liveness_fields(payload)
+    finally:
+        close_payload = getattr(payload, "close", None)
+        if callable(close_payload):
+            close_payload()
     return {
-        "status": "BLOCK" if liveness.get("status") == "BLOCK" else payload.get("status"),
+        "status": "BLOCK" if liveness.get("status") == "BLOCK" else status,
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
         "hourly_csv_out": as_path(hourly_csv_out),
         "current_max_csv_out": as_path(current_max_csv_out),
-        "daily_summary": payload.get("daily_summary") or {},
-        "corpus": payload.get("corpus") or {},
-        "current_max_carryover_summary": current_max.get("summary") or {},
-        **scoring_liveness_fields(payload),
+        "daily_summary": daily_summary,
+        "corpus": corpus,
+        "current_max_carryover_summary": current_max_summary,
+        **liveness_fields,
     }
 
 
