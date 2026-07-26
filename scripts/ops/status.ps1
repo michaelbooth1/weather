@@ -194,7 +194,10 @@ $interactiveTasks = 0
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
 # one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
 # nothing would say so until the morning it fails to have run. Surface the queue instead.
-$upcoming = New-Object System.Collections.Generic.List[object]
+# List[psobject], not List[object]: `@($list)` throws "Argument types do not match" for a
+# generic List[object] on this host. The -Json path only survives it because a pipeline
+# enumerates the list first, which is luck rather than design.
+$upcoming = New-Object System.Collections.Generic.List[psobject]
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
     # WeatherOneShotPush is deliberately left Interactive: pushing needs the credential
@@ -280,6 +283,24 @@ if (Test-Path $mf) {
 if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy unverified") }
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
+
+# robocopy's exit code says a copy RAN, not that what landed can be restored. With the tape
+# backup's restore drill disabled since 2026-06-30, nothing proved the mirror readable until
+# verify_mirror_restore.ps1 pulled files back and hashed them. Surface that separately from
+# mirror freshness -- "copied recently" and "restorable" are different claims.
+$restore = $null
+$restoreAgeH = $null
+$rf = Join-Path $repo "data\alerts\mirror_restore_verify.json"
+if (Test-Path $rf) {
+    try {
+        $restore = Get-Content $rf -Raw | ConvertFrom-Json
+        $restoreAgeH = [math]::Round(((Get-Date) - [datetime]$restore.ts).TotalHours, 1)
+    }
+    catch {}
+}
+if ($null -eq $restore) { $warns.Add("mirror has never been restore-verified - run scripts\ops\verify_mirror_restore.ps1") }
+elseif (-not $restore.ok) { $flags.Add("MIRROR RESTORE VERIFY FAILED: $($restore.problems) problem file(s) - the off-host copy may not be restorable") }
+elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restoreAgeH}h) - restorability unproven since then") }
 
 # ---- host stability (this machine loses power) ----
 # Event-log forensics on 2026-07-25 found five unexpected shutdowns in 90 days, four of them
@@ -389,7 +410,11 @@ if ($Json) {
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
-        mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH }
+        mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
+            restore_verified = $(if ($restore) { [bool]$restore.ok } else { $null })
+            restore_verify_age_hours = $restoreAgeH
+            restore_identical = $(if ($restore) { $restore.verified_identical } else { $null })
+        }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
         upcoming = @($upcoming | Sort-Object at | ForEach-Object {
@@ -421,6 +446,11 @@ if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
+if ($restore) {
+    $mirrorStr += if ($restore.ok) { " [restore-verified {0}/{1} {2}h ago]" -f $restore.verified_identical, $restore.checked, $restoreAgeH }
+    else { " [RESTORE VERIFY FAILED]" }
+}
+else { $mirrorStr += " [never restore-verified]" }
 Write-Output ("  OFF-HOST  : mirror {0}    |  reboot pending: {1}   logon-dependent tasks: {2}" -f $mirrorStr, $rebootPending, $interactiveTasks)
 $crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d, last {1:MM-dd HH:mm}" -f $crashes90, $lastCrash } else { "no unexpected shutdowns in 90d" }
 Write-Output ("  STABILITY : up {0}h   |  {1}" -f $uptimeH, $crashStr)
