@@ -52,14 +52,36 @@ if ($h -ge 12 -and $h -lt 18) { Fail "inside the 12:00-18:00 graded capture wind
 
 # ---- preconditions ----
 Set-Location $repo
+# WeatherLocationConfigRefresh rewrites these tracked files every 6 hours, including once
+# just before this window, so the tree is dirty here most nights. Refusing on that would
+# make this tool abort almost every time it ran (caught 2026-07-25, before the first real
+# merge). The guard exists so a rollback cannot destroy WORK -- regenerated config is not
+# work: the fleet rebuilds it from live data within 6h. So commit it rather than ignore it,
+# which both cleans the tree and preserves the drift, and only then take the rollback point.
+$autoRefreshed = @("config/locations.json", "config/location_market_events.json")
 $dirtyTracked = @(& git status --porcelain | Where-Object { $_ -and $_ -notmatch '^\?\?' })
-if ($dirtyTracked.Count -gt 0) {
-    Fail "tracked files are modified; commit or stash first so rollback cannot lose work:`n$($dirtyTracked -join "`n")"
+$unexpected = @($dirtyTracked | Where-Object {
+        $p = ($_ -replace '^..\s*', '').Trim()
+        $autoRefreshed -notcontains $p
+    })
+if ($unexpected.Count -gt 0) {
+    Fail "tracked files are modified outside the auto-refreshed config set; commit or stash first so rollback cannot lose work:`n$($unexpected -join "`n")"
 }
+
 & git fetch origin --prune | Out-Null
-$preMerge = (& git rev-parse HEAD).Trim()
+$head = (& git rev-parse HEAD).Trim()
 $originMaster = (& git rev-parse origin/master).Trim()
-if ($preMerge -ne $originMaster) { Fail "local master ($preMerge) != origin/master ($originMaster); reconcile first" }
+if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($originMaster); reconcile first" }
+
+if ($dirtyTracked.Count -gt 0 -and -not $DryRun) {
+    Note "committing $($dirtyTracked.Count) auto-refreshed config file(s) so the merge starts clean"
+    & git add -- $autoRefreshed
+    & git commit -m "config: scheduled location refresh drift (pre-merge, automated)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "failed to commit auto-refreshed config drift" }
+}
+# Take the rollback point AFTER the drift commit: resetting to origin/master would throw the
+# drift away, and a rollback must undo only the merge.
+$preMerge = (& git rev-parse HEAD).Trim()
 & git rev-parse --verify "$Branch" *>$null
 if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
 Note "pre-merge HEAD $preMerge; merging $Branch ($(& git rev-parse --short $Branch))"
