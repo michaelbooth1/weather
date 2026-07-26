@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from weather.backtesting.backtest import (
@@ -269,7 +270,18 @@ class TestSettlementAndTape(unittest.TestCase):
                  "wu_history_high_c": 25.0},
             ]).to_csv(tape, index=False)
             out = root / "report.md"
-            results = run_backtest([str(folder)], root / "missing_daily.csv", {}, [0.10], out, fixed_cutoffs=[12, 18])
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(root / "settlements")},
+            ):
+                results = run_backtest(
+                    [str(folder)],
+                    root / "missing_daily.csv",
+                    {},
+                    [0.10],
+                    out,
+                    fixed_cutoffs=[12, 18],
+                )
             text = out.read_text(encoding="utf-8")
             self.assertIn("## Model Card", text)
             self.assertIn("## Run Inputs And Settlement", text)
@@ -299,14 +311,18 @@ class TestSettlementAndTape(unittest.TestCase):
                 )
             out = root / "report.md"
 
-            results = run_backtest(
-                [str(folder) for folder in folders],
-                root / "missing_daily.csv",
-                {},
-                [0.10],
-                out,
-                quality_grades=["complete"],
-            )
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(root / "settlements")},
+            ):
+                results = run_backtest(
+                    [str(folder) for folder in folders],
+                    root / "missing_daily.csv",
+                    {},
+                    [0.10],
+                    out,
+                    quality_grades=["complete"],
+                )
 
             self.assertEqual([day["date"] for day in results["days"]], ["2026-05-27"])
             self.assertEqual(results["quality_filter"], ["complete"])
@@ -340,7 +356,17 @@ class TestSettlementAndTape(unittest.TestCase):
             ], columns=FEATURE_AUDIT_COLUMNS).to_csv(folder / "features_long.csv", index=False)
             out = root / "report.md"
 
-            results = run_backtest([str(folder)], root / "missing_daily.csv", {}, [0.10], out)
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(root / "settlements")},
+            ):
+                results = run_backtest(
+                    [str(folder)],
+                    root / "missing_daily.csv",
+                    {},
+                    [0.10],
+                    out,
+                )
 
             self.assertEqual(results["feature_vector_coverage"]["rows_with_features"], 1)
             self.assertEqual(results["all_rows"][0]["feature_forecast_gap_bucket"], ">2C")

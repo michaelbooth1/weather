@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, write_manifest  # noqa: E402
 from weather.reporting.validation.wu_max_since_7_validation import (  # noqa: E402
     build_validation_payload,
@@ -120,10 +121,25 @@ class TestWuMaxSince7Validation(unittest.TestCase):
     def test_builds_payload_from_pinned_corpus_and_writes_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = write_test_folder(tmp)
-            manifest = build_promotion_corpus([folder], snapshots_root=tmp, as_of="2026-06-04")
-            corpus_path = write_manifest(manifest, Path(tmp) / "promotion_corpus.json")
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(Path(tmp) / "settlements")},
+            ):
+                manifest = build_promotion_corpus(
+                    [folder],
+                    snapshots_root=tmp,
+                    as_of="2026-06-04",
+                )
+                corpus_path = write_manifest(
+                    manifest,
+                    Path(tmp) / "promotion_corpus.json",
+                )
 
-            payload = build_validation_payload(corpus_path, snapshots_root=tmp, focus_market="toronto")
+                payload = build_validation_payload(
+                    corpus_path,
+                    snapshots_root=tmp,
+                    focus_market="toronto",
+                )
 
             self.assertEqual(payload["summary"]["snapshots"], 3)
             self.assertEqual(payload["summary"]["state_counts"]["above_final_wu_high"], 1)

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from weather.calibration.model_ensemble import (  # noqa: E402
@@ -98,7 +99,15 @@ class TestModelEnsemble(unittest.TestCase):
             daily = root / "daily.csv"
             daily.write_text("local_date,row_count,max_temp_bucket_c\n", encoding="utf-8")
 
-            rows, metadata = load_scored_rows([folder], daily_summary_path=daily, quality_grades=["complete"])
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(root / "settlements")},
+            ):
+                rows, metadata = load_scored_rows(
+                    [folder],
+                    daily_summary_path=daily,
+                    quality_grades=["complete"],
+                )
 
             self.assertEqual(len(rows), 2)
             self.assertTrue(metadata[0]["included"])

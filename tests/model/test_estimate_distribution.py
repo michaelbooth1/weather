@@ -1,7 +1,10 @@
 import os
 import sys
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import patch
 from weather.model.toronto_model import TorontoHighTempModel, TORONTO_TZ, _UNLOADED
 from weather.model.model_distribution import (
     DistributionPipelineState,
@@ -521,7 +524,15 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertLess(after_tail, before_tail)
 
     def test_afternoon_residual_centering_stage_shifts_distribution(self):
-        model = TorontoHighTempModel(target_date="2026-06-22", market_id="nyc")
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(Path(tmp) / "settlements")},
+            ):
+                model = TorontoHighTempModel(
+                    target_date="2026-06-22",
+                    market_id="nyc",
+                )
         model.afternoon_residual_centering = {
             "component": {
                 "enabled": True,
