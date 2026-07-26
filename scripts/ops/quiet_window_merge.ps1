@@ -52,6 +52,12 @@ if ($h -ge 12 -and $h -lt 18) { Fail "inside the 12:00-18:00 graded capture wind
 
 # ---- preconditions ----
 Set-Location $repo
+# Never start on top of a merge that is already in progress. WeatherBootRecovery cleans one
+# up after a power loss, but if that has not run yet the tree still holds unreviewed merged
+# code, and merging again on top of it would bury the problem instead of surfacing it.
+if (Test-Path (Join-Path $repo ".git\MERGE_HEAD")) {
+    Fail "a merge is already in progress (.git/MERGE_HEAD exists) - resolve or abort it first; see data/alerts/boot_events.jsonl for an interrupted-merge record"
+}
 # WeatherLocationConfigRefresh rewrites these tracked files every 6 hours, including once
 # just before this window, so the tree is dirty here most nights. Refusing on that would
 # make this tool abort almost every time it ran (caught 2026-07-25, before the first real

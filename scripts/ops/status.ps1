@@ -281,6 +281,29 @@ if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy un
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
 
+# ---- host stability (this machine loses power) ----
+# Event-log forensics on 2026-07-25 found five unexpected shutdowns in 90 days, four of them
+# bugcheck=0 / powerButton=0 -- abrupt power loss, not a crash. That is roughly one every
+# three weeks against a 14-day contiguous streak, and none of them were ever visible here:
+# the digest reported a healthy host either side of a 29-minute outage on 2026-07-21, which
+# was day 1 of the current streak. An outage inside 12:00-18:00 ends the streak, so a recent
+# one is a FLAG -- it means today's grade needs checking, not just today's process list.
+$uptimeH = [math]::Round(((Get-Date) - $os.LastBootUpTime).TotalHours, 1)
+$lastCrash = $null
+$crashes90 = 0
+try {
+    $ev = @(Get-WinEvent -FilterHashtable @{LogName = 'System'; Id = 41; StartTime = (Get-Date).AddDays(-90) } -MaxEvents 20 -EA SilentlyContinue)
+    $crashes90 = $ev.Count
+    if ($ev.Count -gt 0) { $lastCrash = $ev[0].TimeCreated }
+}
+catch {}
+if ($lastCrash -and ((Get-Date) - $lastCrash).TotalHours -lt 24) {
+    $flags.Add("UNEXPECTED SHUTDOWN $lastCrash - verify today's capture grade; an outage inside 12:00-18:00 ends the streak")
+}
+elseif ($crashes90 -ge 3) {
+    $warns.Add("$crashes90 unexpected shutdowns in 90d (most recent $lastCrash) - power loss is the top uncontrolled streak risk; a UPS would remove it")
+}
+
 # ---- the watchdog itself (who watches the watcher) ----
 # health_watchdog.ps1 is what alerts overnight while nobody is awake. If IT dies, every
 # window-aware alert silently stops and the first symptom is a morning with no briefing.
@@ -373,7 +396,9 @@ if ($Json) {
                 @{ name = $_.name; at = $_.at.ToString("yyyy-MM-dd HH:mm"); in_hours = $_.in_hours }
             })
         resilience = @{ reboot_pending = $rebootPending; auto_logon = ($autoLogon -eq "1");
-            interactive_tasks = $interactiveTasks
+            interactive_tasks = $interactiveTasks; uptime_hours = $uptimeH
+            unexpected_shutdowns_90d = $crashes90
+            last_unexpected_shutdown = $(if ($lastCrash) { $lastCrash.ToString("o") } else { $null })
         }
         tasks_scanned = $taskCount; alert_last = $alertStr
     } | ConvertTo-Json -Depth 6
@@ -397,6 +422,8 @@ $mirrorStr = if ($null -eq $mirror) { "unreadable" }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
 Write-Output ("  OFF-HOST  : mirror {0}    |  reboot pending: {1}   logon-dependent tasks: {2}" -f $mirrorStr, $rebootPending, $interactiveTasks)
+$crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d, last {1:MM-dd HH:mm}" -f $crashes90, $lastCrash } else { "no unexpected shutdowns in 90d" }
+Write-Output ("  STABILITY : up {0}h   |  {1}" -f $uptimeH, $crashStr)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
