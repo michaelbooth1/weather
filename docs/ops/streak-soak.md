@@ -52,6 +52,30 @@ It also answers the questions that previously required a manual dig:
 - a **capture alert raised in the last 24h** is promoted to a FLAG — alerts are appended
   to `data/alerts/streak_capture_alerts.jsonl`, which nothing otherwise reads.
 
+Four more were added on 2026-07-25, each because a status review needed something the
+digest could not answer:
+
+- **`WATCHDOG`** — the health watchdog's own heartbeat, flagged past 45 min (it runs every
+  15). It is what alerts overnight while nobody is awake, so if *it* dies every window-aware
+  alert stops silently and the first symptom is a morning with no briefing. Nothing else
+  watched the watcher. The same line reports the last guarded merge attempt, and a
+  `rolled_back` stage is a FLAG — that means capture did not survive a code roll.
+- **`ARMED`** — tasks that have never run and are due within 16h, i.e. one-shot work
+  scheduled for tonight. Such a task can be deleted, disabled or mis-scheduled and nothing
+  would notice until the morning it failed to have run; one that is armed *and* disabled is
+  a FLAG, because silence is its failure mode.
+- **failure age** on the failing chain step. `daily_refresh_status.json` holds the last run
+  until the next one, so a step that broke in the morning and was fixed that afternoon still
+  reads as live breakage — on 2026-07-25 the reported `MemoryError` predated its own budget
+  fix by 4.5h.
+- **disk trend** — free space is point-in-time and says nothing about how long we have.
+  A sample trail in `data/alerts/disk_free_trail.jsonl` gives a 24h burn rate and an
+  estimated days-left. It samples `Get-PSDrive` only: a monitor must **never** recursively
+  walk `data\`, which has starved capture before.
+
+Alert lines also carry their age, since a two-day-old `AT_RISK` was rendering as a current
+alarm.
+
 ## Overnight alerting (WeatherHostHealthWatchdog)
 
 `status.ps1` answers "what is wrong right now" for a human who is looking.
@@ -78,6 +102,42 @@ Outputs, all under `data/alerts/`:
   after being away.**
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
+
+## Merging code at a scheduled time (quiet_window_merge.ps1)
+
+Merging a branch whose modules a capture loop has imported makes the supervisors readopt
+the new code (a `STALE_CODE` restart). If the code is bad, capture dies — and inside
+12:00–18:00 that costs the streak day. `scripts/ops/quiet_window_merge.ps1` makes that a
+guarded operation:
+
+```powershell
+.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... [-DryRun] [-Force]
+```
+
+It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, proves the loop
+count did not fall and the snapshot heartbeat advanced, and **only then** pushes. If capture
+does not recover it resets to the pre-merge commit — nothing published, no history to
+rewrite, and the supervisors readopt the previous code. It refuses to run outside 01:00–04:00
+without `-Force` and never inside 12:00–18:00. The outcome lands in
+`data/alerts/quiet_window_merge_last.json` and is surfaced by `status.ps1`.
+
+Two behaviours that are easy to get wrong, both found by testing it before its first real run:
+
+- **The tracked tree is dirty most nights.** `WeatherLocationConfigRefresh` rewrites
+  `config/locations.json` and `config/location_market_events.json` every 6h, including at
+  ~00:00 — so a naive "refuse if dirty" guard aborts almost every run. That named pair is
+  committed automatically before the merge (regenerated config is not *work*; the fleet
+  rebuilds it within 6h), and the rollback point is taken **after** that commit so a rollback
+  undoes only the merge. Anything modified outside that pair still aborts.
+- **Never redirect git's stderr** (`*>$null`, `2>&1`). Under `$ErrorActionPreference='Stop'`,
+  PowerShell 5.1 wraps each redirected stderr line in a `NativeCommandError` and terminates —
+  and git writes routine notices there, so a `CRLF will be replaced by LF` warning is enough
+  to kill the script *between* `git merge` and `git merge --abort`, leaving a half-merged
+  tree that rolls the fleet with no rollback in flight.
+
+Expect `stage: merged_unpushed`: the task is S4U, so its `git push` (and `git fetch`) cannot
+reach the credential vault. The merge and the capture verification still happen; the commit
+simply waits for `WeatherOneShotPush`, and `status.ps1` says so.
 
 ## Why every task is S4U
 
