@@ -36,6 +36,10 @@ from weather.operations.long_job_guard import (
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
     long_job_guard,
 )
+from weather.operations.point_in_time_staging_receipt import (
+    StagingReceiptError,
+    verify_staging_receipt,
+)
 from weather.operations.release_candidate_build import (
     prepare_candidate_outputs,
     run_candidate_release_step,
@@ -539,14 +543,53 @@ def prepare_production_point_in_time_outputs(args, candidate_guard):
     )
     candidate_guard["candidate_mode"] = mode
     candidate_guard["production_capable"] = mode == PRODUCTION_CANDIDATE_MODE
+    args.point_in_time_source_receipt_sha256 = ""
+
+    candidate_dir = Path(candidate_guard["candidate_dir"]).resolve()
+    work_dir = candidate_dir / "qualification" / "point_in_time" / "work"
+    promotion_root = (candidate_dir / "qualification" / "promotion").resolve()
+    args.promotion_output_root = str(promotion_root)
+    args.promotion_out = str(promotion_root / "promotion_refresh.json")
+    args.promotion_report = str(promotion_root / "promotion_refresh_report.md")
+    promotion_rows = [
+        {
+            "role": "promotion_output_root",
+            "path": str(promotion_root),
+            "relative_path": "qualification/promotion",
+        },
+        {
+            "role": "promotion_out",
+            "path": args.promotion_out,
+            "relative_path": "qualification/promotion/promotion_refresh.json",
+        },
+        {
+            "role": "promotion_report",
+            "path": args.promotion_report,
+            "relative_path": (
+                "qualification/promotion/promotion_refresh_report.md"
+            ),
+        },
+    ]
+    try:
+        promotion_root.relative_to(candidate_dir)
+    except ValueError:
+        candidate_guard.setdefault("failures", []).append(
+            {
+                "attribute": "promotion_output_root",
+                "path": str(promotion_root),
+                "error": (
+                    "production promotion output root must stay inside the "
+                    "candidate directory"
+                ),
+            }
+        )
+    candidate_guard["promotion_outputs"] = promotion_rows
     if mode != PRODUCTION_CANDIDATE_MODE:
         for role in PRODUCTION_POINT_IN_TIME_ROLE_KINDS:
             setattr(args, role, "")
         candidate_guard["point_in_time_outputs"] = []
         return candidate_guard
 
-    candidate_dir = Path(candidate_guard["candidate_dir"]).resolve()
-    work_dir = candidate_dir / "qualification" / "point_in_time" / "work"
     auxiliary_defaults = {
         "point_in_time_preselection_lock": work_dir / "preselection_lock.json",
         "point_in_time_source_materialized_corpus": work_dir / "source_corpus.parquet",
@@ -612,6 +655,12 @@ def prepare_production_point_in_time_outputs(args, candidate_guard):
     source_manifest = str(
         getattr(args, "point_in_time_source_manifest", "") or ""
     ).strip()
+    source_replay_manifest = str(
+        getattr(args, "point_in_time_source_replay_manifest", "") or ""
+    ).strip()
+    source_receipt = str(
+        getattr(args, "point_in_time_source_receipt", "") or ""
+    ).strip()
     folders = [
         str(path).strip()
         for path in getattr(args, "point_in_time_folder", []) or ()
@@ -633,6 +682,42 @@ def prepare_production_point_in_time_outputs(args, candidate_guard):
                 "error": "source corpus cannot be combined with point-in-time folders",
             }
         )
+    if source_corpus:
+        if not source_replay_manifest or not source_receipt:
+            failures.append(
+                {
+                    "attribute": "point_in_time_source_receipt",
+                    "path": source_receipt,
+                    "error": (
+                        "a staged production source trio requires its replay "
+                        "manifest and Toronto-lock receipt"
+                    ),
+                }
+            )
+        else:
+            try:
+                receipt_verification = verify_staging_receipt(
+                    receipt_path=source_receipt,
+                    corpus_path=source_corpus,
+                    manifest_path=source_manifest,
+                    replay_manifest_path=source_replay_manifest,
+                    ledger_root=args.ledger_root,
+                )
+            except (OSError, StagingReceiptError, TypeError, ValueError) as exc:
+                failures.append(
+                    {
+                        "attribute": "point_in_time_source_receipt",
+                        "path": source_receipt,
+                        "error": f"staged production source receipt rejected: {exc}",
+                    }
+                )
+            else:
+                candidate_guard["point_in_time_source_receipt"] = (
+                    receipt_verification
+                )
+                args.point_in_time_source_receipt_sha256 = str(
+                    receipt_verification["receipt_sha256"]
+                )
     if not source_corpus and not folders:
         failures.append(
             {
@@ -642,11 +727,61 @@ def prepare_production_point_in_time_outputs(args, candidate_guard):
             }
         )
     candidate_guard["point_in_time_outputs"] = rows
+    candidate_guard["promotion_outputs"] = promotion_rows
     candidate_guard["failures"] = failures
     if failures:
         candidate_guard["status"] = "BLOCK"
         candidate_guard["release_eligible"] = False
     return candidate_guard
+
+
+def preflight_production_staging_receipt(args):
+    """Reject a configured staged source before resource/parity output work."""
+
+    mode = str(
+        getattr(args, "release_candidate_mode", RESEARCH_ONLY_CANDIDATE_MODE)
+        or RESEARCH_ONLY_CANDIDATE_MODE
+    ).strip()
+    if mode != PRODUCTION_CANDIDATE_MODE:
+        return None
+    configured = {
+        "corpus": str(
+            getattr(args, "point_in_time_source_corpus", "") or ""
+        ).strip(),
+        "manifest": str(
+            getattr(args, "point_in_time_source_manifest", "") or ""
+        ).strip(),
+        "replay_manifest": str(
+            getattr(args, "point_in_time_source_replay_manifest", "") or ""
+        ).strip(),
+        "receipt": str(
+            getattr(args, "point_in_time_source_receipt", "") or ""
+        ).strip(),
+    }
+    if not any(configured.values()):
+        return None
+    missing = sorted(key for key, value in configured.items() if not value)
+    if missing:
+        return {
+            "status": "BLOCK",
+            "error": (
+                "configured staged production source is incomplete: "
+                + ", ".join(missing)
+            ),
+        }
+    try:
+        return verify_staging_receipt(
+            receipt_path=configured["receipt"],
+            corpus_path=configured["corpus"],
+            manifest_path=configured["manifest"],
+            replay_manifest_path=configured["replay_manifest"],
+            ledger_root=args.ledger_root,
+        )
+    except (OSError, StagingReceiptError, TypeError, ValueError) as exc:
+        return {
+            "status": "BLOCK",
+            "error": f"staged production source receipt rejected: {exc}",
+        }
 
 
 def point_in_time_preselection_command(args):
@@ -692,6 +827,12 @@ def point_in_time_preselection_command(args):
                 source_corpus,
                 "--source-manifest",
                 str(args.point_in_time_source_manifest),
+                "--source-receipt",
+                str(args.point_in_time_source_receipt),
+                "--expected-source-receipt-sha256",
+                str(args.point_in_time_source_receipt_sha256),
+                "--ledger-root",
+                str(args.ledger_root),
             ]
         )
     else:
@@ -790,13 +931,29 @@ def point_in_time_qualification_command(args):
     return command
 
 
-def promotion_refresh_command(args, *, folders=()):
+def promotion_refresh_command(
+    args,
+    *,
+    folders=(),
+    frozen_corpus=None,
+    frozen_corpus_sha256=None,
+    frozen_corpus_hash=None,
+):
+    if folders and frozen_corpus:
+        raise ValueError(
+            "promotion refresh cannot combine frozen corpus and live folders"
+        )
+    output_root = str(getattr(args, "promotion_output_root", "") or "").strip()
+    if not output_root:
+        raise ValueError("promotion refresh requires a candidate-contained output root")
     command = [
         sys.executable,
         "-m",
         "weather.reporting.promotion.promotion_refresh",
         "--family-unit",
         args.family_unit,
+        "--output-root",
+        output_root,
         "--snapshots-root",
         args.snapshots_root,
         "--quality-grades",
@@ -814,6 +971,25 @@ def promotion_refresh_command(args, *, folders=()):
         "--long-job-priority",
         args.long_job_priority,
     ]
+    if frozen_corpus:
+        identities = (
+            str(frozen_corpus_sha256 or "").strip(),
+            str(frozen_corpus_hash or "").strip(),
+        )
+        if not all(identities):
+            raise ValueError(
+                "frozen promotion refresh requires exact file and corpus identities"
+            )
+        command.extend(
+            [
+                "--frozen-corpus",
+                str(frozen_corpus),
+                "--frozen-corpus-sha256",
+                identities[0],
+                "--frozen-corpus-hash",
+                identities[1],
+            ]
+        )
     if args.include_reconstructed:
         command.append("--include-reconstructed")
     if args.allow_unsettled:
@@ -851,50 +1027,84 @@ def _sha256_file(path, *, chunk_bytes=1024 * 1024):
 
 
 def production_promotion_selection(args):
-    """Resolve the exact unlocked promotion folders from the prelock manifest."""
+    """Freeze the exact unlocked promotion population from the prelock manifest."""
 
     from weather.calibration.pooled_training import (
         load_production_point_in_time_preselection,
     )
     from weather.reporting.promotion.promotion_corpus import (
-        folders_from_manifest,
+        corpus_hash,
         load_manifest,
+        summarize_entries,
     )
 
     preselection = load_production_point_in_time_preselection(
         args.point_in_time_preselection_lock
     )
     replay_manifest_path = Path(args.point_in_time_replay_manifest).resolve()
-    manifest = load_manifest(replay_manifest_path)
     source = preselection.get("source") or {}
-    replay_manifest_sha256 = _sha256_file(replay_manifest_path)
+    expected_replay_sha256 = str(source.get("replay_manifest_sha256") or "")
+    replay_manifest_sha256_before = _sha256_file(replay_manifest_path)
+    if (
+        not expected_replay_sha256
+        or replay_manifest_sha256_before != expected_replay_sha256
+    ):
+        raise ValueError(
+            "production promotion replay manifest differs from the prelocked source"
+        )
+    manifest = load_manifest(replay_manifest_path)
+    replay_manifest_sha256_after = _sha256_file(replay_manifest_path)
+    if (
+        replay_manifest_sha256_after != replay_manifest_sha256_before
+        or replay_manifest_sha256_after != expected_replay_sha256
+    ):
+        raise ValueError(
+            "production promotion replay manifest changed while it was being read"
+        )
     replay_corpus_hash = str(manifest.get("corpus_hash") or "")
     if (
-        replay_manifest_sha256 != source.get("replay_manifest_sha256")
-        or replay_corpus_hash != source.get("replay_corpus_hash")
+        replay_corpus_hash != source.get("replay_corpus_hash")
     ):
         raise ValueError(
             "production promotion replay manifest differs from the prelocked source"
         )
     entries = list(manifest.get("entries") or ())
-    folders = list(folders_from_manifest(manifest, args.snapshots_root))
-    if not entries or len(entries) != len(folders):
+    if not entries:
         raise ValueError("production promotion replay manifest is incomplete")
+    if manifest.get("admit_promotion_countable") is not False:
+        raise ValueError(
+            "production promotion replay manifest must preserve grade-only admission"
+        )
     locked = set(preselection["window_lock"]["target_dates"])
     universe_dates = set(preselection["selection_universe"]["fleet_dates"])
-    selected = []
+    selected_entries = []
     inventory = []
     manifest_dates = set()
-    for entry, folder in zip(entries, folders):
+    event_slugs = set()
+    for entry in entries:
         target_date = str(entry.get("target_date") or "")
+        event_slug = str(entry.get("event_slug") or "")
+        if not target_date or not event_slug or event_slug in event_slugs:
+            raise ValueError(
+                "production promotion replay manifest has incomplete or duplicate entries"
+            )
+        event_slugs.add(event_slug)
         manifest_dates.add(target_date)
         if target_date in locked:
             continue
-        selected.append(Path(folder).resolve())
+        selected_entries.append(dict(entry))
+        folder = str(entry.get("folder") or "").strip()
+        if not folder:
+            relative = str(
+                entry.get("folder_relative_to_snapshots_root")
+                or entry.get("folder_name")
+                or ""
+            ).strip()
+            folder = str((Path(args.snapshots_root) / relative).resolve())
         inventory.append(
             {
-                "folder": str(Path(folder).resolve()),
-                "event_slug": str(entry.get("event_slug") or ""),
+                "folder": folder,
+                "event_slug": event_slug,
                 "target_date": target_date,
                 "market_id": str(entry.get("market_id") or ""),
             }
@@ -904,8 +1114,8 @@ def production_promotion_selection(args):
     if (
         manifest_dates != universe_dates
         or selected_dates != expected_dates
-        or not selected
-        or len(selected) > int(args.point_in_time_max_market_days)
+        or not selected_entries
+        or len(selected_entries) > int(args.point_in_time_max_market_days)
     ):
         raise ValueError(
             "production promotion population differs from the bounded unlocked preselection"
@@ -913,14 +1123,95 @@ def production_promotion_selection(args):
     inventory.sort(
         key=lambda row: (row["target_date"], row["market_id"], row["event_slug"])
     )
-    return preselection, selected, inventory
+    frozen_manifest = {
+        key: value
+        for key, value in manifest.items()
+        if key not in {"_path", "entries", "skipped", "summary", "corpus_hash"}
+    }
+    frozen_manifest["admit_promotion_countable"] = False
+    frozen_manifest["entries"] = selected_entries
+    frozen_manifest["summary"] = summarize_entries(selected_entries)
+    frozen_manifest["skipped"] = []
+    frozen_manifest["corpus_hash"] = corpus_hash(selected_entries)
+    return preselection, frozen_manifest, inventory
 
 
-def bind_production_promotion_selection(args, preselection, inventory):
+def bind_production_promotion_selection(
+    args,
+    preselection,
+    inventory,
+    *,
+    frozen_corpus_sha256=None,
+    frozen_corpus_hash=None,
+):
     """Attach a self-hashed no-reuse proof to the just-written routing artifact."""
+
+    from weather.reporting.promotion.promotion_corpus import (
+        load_manifest_pinned,
+    )
 
     path = Path(args.promotion_out).resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
+    expected_source_sha256 = str(frozen_corpus_sha256 or "").strip()
+    expected_corpus_hash = str(frozen_corpus_hash or "").strip()
+    promotion_corpus = payload.get("corpus") or {}
+    contained_expected_sha256 = str(
+        promotion_corpus.get("file_sha256") or ""
+    ).strip()
+    candidate_corpus = (payload.get("candidate") or {}).get("corpus") or {}
+    candidate_hashes = {
+        str(candidate_corpus.get("corpus_hash") or ""),
+        str(candidate_corpus.get("source_candidate_corpus_hash") or ""),
+    }
+    serving = payload.get("serving_gauntlet")
+    serving_identity = (
+        (serving or {}).get("corpus_identity") if serving is not None else None
+    )
+    if (
+        not expected_corpus_hash
+        or not expected_source_sha256
+        or not contained_expected_sha256
+        or str(promotion_corpus.get("corpus_hash") or "")
+        != expected_corpus_hash
+        or expected_corpus_hash not in candidate_hashes
+        or str(candidate_corpus.get("file_sha256") or "")
+        != contained_expected_sha256
+        or (
+            serving is not None
+            and (
+                str((serving_identity or {}).get("corpus_hash") or "")
+                != expected_corpus_hash
+                or str((serving_identity or {}).get("sha256") or "")
+                != contained_expected_sha256
+            )
+        )
+    ):
+        raise ValueError(
+            "promotion routing artifact does not bind every consumer to the "
+            "frozen selection corpus"
+        )
+    load_manifest_pinned(
+        args.point_in_time_promotion_selection_corpus,
+        expected_sha256=expected_source_sha256,
+        expected_corpus_hash=expected_corpus_hash,
+        max_bytes=16 * 1024**2,
+    )
+    contained_corpus_path = Path(
+        str(promotion_corpus.get("path") or "")
+    ).resolve()
+    promotion_root = Path(args.promotion_output_root).resolve()
+    try:
+        contained_corpus_path.relative_to(promotion_root)
+    except ValueError as exc:
+        raise ValueError(
+            "promotion routing artifact corpus escaped the candidate output root"
+        ) from exc
+    load_manifest_pinned(
+        contained_corpus_path,
+        expected_sha256=contained_expected_sha256,
+        expected_corpus_hash=expected_corpus_hash,
+        max_bytes=16 * 1024**2,
+    )
     source_inventory = {
         "entries": inventory,
         "entry_count": len(inventory),
@@ -928,6 +1219,8 @@ def bind_production_promotion_selection(args, preselection, inventory):
             "replay_manifest_sha256"
         ],
         "replay_corpus_hash": preselection["source"]["replay_corpus_hash"],
+        "frozen_selection_sha256": str(frozen_corpus_sha256 or ""),
+        "frozen_selection_corpus_hash": str(frozen_corpus_hash or ""),
     }
     source_inventory["sha256"] = _canonical_sha256(source_inventory)
     binding = {
@@ -1068,6 +1361,9 @@ def promotion_summary(path):
         "blocked_markets": blocked,
         "market_count": len((decisions.get("markets") or [])),
         "serving_gauntlet_verdict": (payload.get("serving_gauntlet") or {}).get("verdict"),
+        "settlement_label_authority": (
+            (payload.get("corpus") or {}).get("settlement_label_authority") or {}
+        ),
     }
 
 
@@ -1083,6 +1379,7 @@ def promotion_not_run_summary(path, reason):
         "blocked_markets": [],
         "market_count": 0,
         "serving_gauntlet_verdict": None,
+        "settlement_label_authority": {},
     }
 
 
@@ -1757,7 +2054,12 @@ def _run_nightly_retrain_guarded(
     steps = []
     capture_resource_admission = None
     captured_input_parity = None
-    if not args.dry_run:
+    staging_receipt_preflight = preflight_production_staging_receipt(args)
+    staging_receipt_denied = bool(
+        staging_receipt_preflight
+        and staging_receipt_preflight.get("status") != "PASS"
+    )
+    if not args.dry_run and not staging_receipt_denied:
         capture_resource_admission, _proof_path, _proof_report = (
             _capture_resource_preflight(args)
         )
@@ -1767,6 +2069,7 @@ def _run_nightly_retrain_guarded(
     )
     if (
         not args.dry_run
+        and not staging_receipt_denied
         and not resource_denied
         and not bootstrap_requested
         and not getattr(args, "skip_captured_input_replay_parity", False)
@@ -1778,7 +2081,24 @@ def _run_nightly_retrain_guarded(
         captured_input_parity
         and captured_input_parity.get("status") != "PASS"
     )
-    if resource_denied or parity_denied or bootstrap_denied:
+    if staging_receipt_denied:
+        candidate_guard = prepare_candidate_outputs(args)
+        candidate_guard = prepare_production_point_in_time_outputs(
+            args, candidate_guard
+        )
+        if candidate_guard["status"] != "BLOCK":
+            candidate_guard.setdefault("failures", []).append(
+                {
+                    "attribute": "point_in_time_source_receipt",
+                    "path": str(
+                        getattr(args, "point_in_time_source_receipt", "") or ""
+                    ),
+                    "error": staging_receipt_preflight["error"],
+                }
+            )
+            candidate_guard["status"] = "BLOCK"
+            candidate_guard["release_eligible"] = False
+    elif resource_denied or parity_denied or bootstrap_denied:
         candidate_guard = {
             "status": "DEFERRED",
             "candidate_id": args.candidate_id,
@@ -1830,6 +2150,7 @@ def _run_nightly_retrain_guarded(
         ),
         "capture_resource_admission": capture_resource_admission,
         "captured_input_replay_parity": captured_input_parity,
+        "point_in_time_staging_receipt_preflight": staging_receipt_preflight,
         "config": {
             "family_unit": args.family_unit,
             "snapshots_root": args.snapshots_root,
@@ -2066,16 +2387,31 @@ def _run_nightly_retrain_guarded(
                     and args.release_candidate_mode == PRODUCTION_CANDIDATE_MODE
                 ):
                     try:
-                        preselection, folders, inventory = (
+                        preselection, frozen_manifest, inventory = (
                             production_promotion_selection(args)
                         )
-                        command = promotion_refresh_command(args, folders=folders)
-                        corpus_option = command.index("--out")
-                        command[corpus_option:corpus_option] = [
-                            "--corpus-out",
-                            args.point_in_time_promotion_selection_corpus,
-                        ]
-                        promotion_selection_context = (preselection, inventory)
+                        frozen_path = Path(
+                            args.point_in_time_promotion_selection_corpus
+                        ).resolve()
+                        write_json_atomic(
+                            frozen_path,
+                            frozen_manifest,
+                            trailing_newline=True,
+                        )
+                        frozen_sha256 = _sha256_file(frozen_path)
+                        frozen_hash = str(frozen_manifest["corpus_hash"])
+                        command = promotion_refresh_command(
+                            args,
+                            frozen_corpus=frozen_path,
+                            frozen_corpus_sha256=frozen_sha256,
+                            frozen_corpus_hash=frozen_hash,
+                        )
+                        promotion_selection_context = (
+                            preselection,
+                            inventory,
+                            frozen_sha256,
+                            frozen_hash,
+                        )
                     except Exception as exc:  # noqa: BLE001 - fail closed before replay
                         step = {
                             "name": name,
@@ -2097,11 +2433,18 @@ def _run_nightly_retrain_guarded(
                     and promotion_selection_context is not None
                 ):
                     try:
-                        preselection, inventory = promotion_selection_context
+                        (
+                            preselection,
+                            inventory,
+                            frozen_sha256,
+                            frozen_hash,
+                        ) = promotion_selection_context
                         binding = bind_production_promotion_selection(
                             args,
                             preselection,
                             inventory,
+                            frozen_corpus_sha256=frozen_sha256,
+                            frozen_corpus_hash=frozen_hash,
                         )
                         step["point_in_time_selection_binding"] = binding
                     except Exception as exc:  # noqa: BLE001 - unbound route is unusable
@@ -2374,6 +2717,7 @@ def build_run_parser(parser):
     parser.add_argument("--point-in-time-source-corpus", default="")
     parser.add_argument("--point-in-time-source-manifest", default="")
     parser.add_argument("--point-in-time-source-replay-manifest", default="")
+    parser.add_argument("--point-in-time-source-receipt", default="")
     parser.add_argument("--point-in-time-archive-root", default="")
     parser.add_argument("--point-in-time-as-of", default="")
     parser.add_argument("--point-in-time-window-end", default="")

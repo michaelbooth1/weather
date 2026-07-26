@@ -31,11 +31,12 @@ from weather.backtesting.replay_backtest import (
 )
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT
 from weather.market.market_registry import REGISTRY
-from weather.reporting.location_analysis.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import score_replay_rows
 from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     folders_from_manifest,
     load_manifest,
+    load_manifest_pinned,
 )
 
 DEFAULT_OUT = data_path() / "backtest" / "promotion_gauntlet_report.md"
@@ -80,6 +81,13 @@ def _rows_by_market(rows):
     for row in rows:
         grouped[row.get("market_id")].append(row)
     return grouped
+
+
+def _frozen_trust_by_market(rows):
+    return {
+        row["market"]: row
+        for row in score_replay_rows(rows)
+    }
 
 
 def _days_by_market(days):
@@ -296,7 +304,20 @@ def _decomposition(results, market_rows):
 
 
 def run_promotion_gauntlet(args):
-    manifest = load_manifest(args.corpus)
+    expected_corpus_sha256 = str(
+        getattr(args, "expected_corpus_sha256", "") or ""
+    ).strip()
+    expected_corpus_hash = str(
+        getattr(args, "expected_corpus_hash", "") or ""
+    ).strip()
+    if expected_corpus_sha256 or expected_corpus_hash:
+        manifest = load_manifest_pinned(
+            args.corpus,
+            expected_sha256=expected_corpus_sha256,
+            expected_corpus_hash=expected_corpus_hash,
+        )
+    else:
+        manifest = load_manifest(args.corpus)
     folders = [str(folder) for folder in folders_from_manifest(manifest, args.snapshots_root)]
     results = run_replay_backtest(
         folders,
@@ -308,11 +329,7 @@ def run_promotion_gauntlet(args):
         corpus_manifest=manifest,
     )
 
-    trust_rows = score_all_markets(
-        root=args.snapshots_root,
-        as_of=manifest.get("as_of"),
-    )
-    trust_by_market = {row["market"]: row for row in trust_rows}
+    trust_by_market = _frozen_trust_by_market(results.get("all_rows") or [])
     market_rows = _per_market(results, trust_by_market, args)
     decomposition = _decomposition(results, market_rows)
 

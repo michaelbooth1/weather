@@ -721,6 +721,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Narrow manifest-pinned population source created before any candidate model or release identity exists.",
     ),
     SchemaSpec(
+        "point_in_time_staging_receipt",
+        "point_in_time_staging_receipt_v0.1",
+        "weather.operations.point_in_time_staging_receipt",
+        "active",
+        "Self-hashed staged-source trio binding to the exact latest complete-grade Toronto ledger revisions.",
+    ),
+    SchemaSpec(
         "point_in_time_candidate_training_graph",
         "point_in_time_candidate_training_graph_v1",
         "weather.reporting.validation.point_in_time_evaluation",

@@ -11,7 +11,13 @@ from unittest.mock import patch
 import pandas as pd
 
 from weather.backtesting.replay import index_records_by_snapshot, load_replay_records
-from weather.reporting.promotion.promotion_corpus import build_promotion_corpus, load_manifest, write_manifest
+from weather.reporting.promotion.promotion_corpus import (
+    build_promotion_corpus,
+    load_manifest,
+    load_manifest_pinned,
+    manifest_file_sha256,
+    write_manifest,
+)
 from weather.reporting.promotion.promotion_gauntlet import _baseline_gate_status, _decomposition, _overall_verdict, run_promotion_gauntlet
 from weather.backtesting.replay_backtest import run_replay_backtest
 from tests.backtesting.test_replay import SLUG, _build_corpus_day
@@ -104,6 +110,20 @@ def _write_raw_observation_payload(folder, snapshot_id="snap1"):
 
 
 class TestPromotionCorpus(unittest.TestCase):
+    def setUp(self):
+        self._ledger_root_before = os.environ.get("SETTLEMENT_LEDGER_ROOT")
+        self._ledger_root = tempfile.TemporaryDirectory()
+        os.environ["SETTLEMENT_LEDGER_ROOT"] = str(
+            Path(self._ledger_root.name) / "settlements"
+        )
+
+    def tearDown(self):
+        if self._ledger_root_before is None:
+            os.environ.pop("SETTLEMENT_LEDGER_ROOT", None)
+        else:
+            os.environ["SETTLEMENT_LEDGER_ROOT"] = self._ledger_root_before
+        self._ledger_root.cleanup()
+
     def test_manifest_pins_settlement_snapshot_ids_and_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / SLUG
@@ -203,7 +223,7 @@ class TestPromotionCorpus(unittest.TestCase):
 
             with (
                 patch(
-                    "weather.reporting.promotion.promotion_corpus.load_market_day_label",
+                    "weather.reporting.promotion.promotion_corpus.resolve_market_day_label",
                     side_effect=AssertionError("legacy label reader called"),
                 ),
                 patch(
@@ -489,6 +509,39 @@ class TestPromotionCorpus(unittest.TestCase):
             self.assertEqual(report["verdict"], "PASS")
             self.assertTrue(Path(args.out).exists())
             self.assertTrue(Path(args.replay_report).exists())
+
+    def test_pinned_manifest_detects_replacement_during_consumer_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            _write_label(folder)
+            manifest = build_promotion_corpus(
+                [folder],
+                snapshots_root=tmp,
+                as_of="2026-06-04",
+            )
+            path = write_manifest(
+                manifest,
+                Path(tmp) / "promotion_corpus.json",
+            )
+            expected_sha256 = manifest_file_sha256(path)
+            original_load = load_manifest
+
+            def mutate_after_load(candidate, **kwargs):
+                loaded = original_load(candidate, **kwargs)
+                Path(candidate).write_bytes(Path(candidate).read_bytes() + b" ")
+                return loaded
+
+            with patch(
+                "weather.reporting.promotion.promotion_corpus.load_manifest",
+                side_effect=mutate_after_load,
+            ):
+                with self.assertRaisesRegex(ValueError, "changed while"):
+                    load_manifest_pinned(
+                        path,
+                        expected_sha256=expected_sha256,
+                        expected_corpus_hash=manifest["corpus_hash"],
+                    )
 
     def test_gauntlet_supports_partial_per_market_promotion(self):
         rows = [

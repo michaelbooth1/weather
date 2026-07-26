@@ -395,7 +395,7 @@ def _settlement_distance_value(row):
 def _band_validation_partition_key(row):
     return (
         row.get("market_id") or "unknown",
-        row.get("target_date") or row.get("date") or "unknown",
+        row.get("target_date") or "unknown",
         row.get("cutoff_hour") or row.get("candidate_cutoff_hour") or "unknown",
     )
 

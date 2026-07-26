@@ -2538,6 +2538,10 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(captured["kwargs"]["working_set_max_bytes"], 512 * 1024 * 1024)
         self.assertIn("-m", captured["command"])
         self.assertIn("weather.reporting.promotion.promotion_refresh", captured["command"])
+        self.assertEqual(
+            captured["command"][captured["command"].index("--output-root") + 1],
+            str((Path(tmp) / "backtest").resolve()),
+        )
         self.assertIn("--out", captured["command"])
 
     def test_resume_from_step_skips_upstream_steps(self):

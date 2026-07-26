@@ -38,6 +38,7 @@ from weather.reporting.promotion.promotion_corpus import (
     DEFAULT_OUT as DEFAULT_CORPUS,
     DEFAULT_QUALITY_GRADES,
     build_promotion_corpus,
+    load_manifest,
     parse_quality_grades,
     write_manifest,
 )
@@ -115,6 +116,9 @@ def _manifest_summary(manifest, corpus_path):
         "quality_grades": manifest.get("quality_grades") or [],
         "admit_promotion_countable": bool(manifest.get("admit_promotion_countable")),
         "admitted_by": summary.get("admitted_by") or {},
+        "settlement_label_authority": (
+            summary.get("settlement_label_authority") or {}
+        ),
         "skipped_count": len(manifest.get("skipped") or []),
         "skipped_by_reason": dict(sorted(
             Counter(item.get("reason") or "unknown" for item in manifest.get("skipped") or []).items()
@@ -318,6 +322,7 @@ def _serving_gauntlet_summary(report, report_path, replay_report_path):
         "forecast_tracker": report.get("forecast_tracker") or {},
         "market_rows": report.get("market_rows") or [],
         "decomposition": report.get("decomposition") or {},
+        "corpus_identity": report.get("corpus_identity") or {},
         "carried_forward": bool(report.get("carried_forward")),
         "carried_from_utc": report.get("carried_from_utc"),
         "carry_age_days": report.get("carry_age_days"),
@@ -775,4 +780,3 @@ def _market_scope_phrase(family_unit):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
-
