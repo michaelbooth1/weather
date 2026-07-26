@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-17
+Last updated: 2026-07-25
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 18 modules.
+- Current warning count: 19 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -19,8 +19,9 @@ Current module-size audit status:
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
-  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`, and
-  `weather.collection.snapshot_tracker`.
+  `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`,
+  `weather.collection.snapshot_tracker`, and
+  `weather.market.taker_bot_bakeoff`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
@@ -69,7 +70,7 @@ Current module-size audit status:
 | `weather.schema_registry_types` | Shared | Dependency-free schema registry dataclasses and registry schema version constant. | Owner module for item 318; shared by registry data shards and the public facade. |
 | `weather.collection.snapshot_store` | Collection | Snapshot schema constants, readers, writers, compatibility exports, and the feature-component, observation-payload, and explanation backfill method implementations. | WARN in the 2026-07-03 audit. Next split should extract payload persistence, explanation sidecar, replay-input helpers, or the remaining backfill methods while preserving `SnapshotStore`'s public surface. |
 | `weather.collection.snapshot_store_backfill` | Collection | Snapshot cadence backfill implementation, wrappers around `SnapshotStore` backfill methods, and snapshot-store utility CLI wiring. | Owner module for item 318; imports `SnapshotStore` lazily to avoid cycles. |
-| `weather.market.taker_bot_bakeoff` | Market | Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers. Replay input, profitability verification, and model-variant scoring helpers live in `weather.market.taker_bot_bakeoff_scoring`. | Item 318 slice complete; owner module is back below the 2,000-line warning threshold. |
+| `weather.market.taker_bot_bakeoff` | Market | Taker bakeoff orchestration, report rendering, champion/challenger ledger, and compatibility exports for replay/scoring helpers. Replay input, profitability verification, and model-variant scoring helpers live in `weather.market.taker_bot_bakeoff_scoring`. | WARN again after post-item-318 growth. Preserve the extracted scoring boundary and move report rendering or champion/challenger ledger ownership behind another stable module. |
 | `weather.market.taker_bot_bakeoff_scoring` | Market | Replay input normalization, current replay profitability verification, and model-variant bakeoff row expansion. | Owner module for item 318; must not import the `taker_bot_bakeoff` facade. |
 | `weather.market.taker_bot_aggregation` | Market | One-run-at-a-time SQLite scratch stores, replay deduplication/tick ordering, scored-row views, and explicit deferred-payload lifecycle for taker bakeoff and finalization. | Bounded owner module added 2026-07-17; scratch state is rebuildable and must not become canonical evidence. |
 | `weather.market.taker_bot_artifact_projection` | Market | Compact source-bound bakeoff and settled-finalization projections plus bounded canonical-schema inspection. | Bounded reader/publisher owner added 2026-07-17; canonical bakeoff and finalization artifacts retain their existing schemas. |
