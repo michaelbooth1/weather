@@ -187,8 +187,7 @@ $expNonZero = @{
     # is the unpushed-commit count below, not this exit code.
     "WeatherOneShotPush"                     = @("0x1", "0x0", "0x41306")
 }
-$expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
-    "WeatherTapeBackupAndRestoreDrill")
+$expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow")
 $taskCount = 0
 $interactiveTasks = 0
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
@@ -225,9 +224,6 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     if ($st -eq "Disabled") {
         if ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
-        elseif ($name -eq "WeatherTapeBackupAndRestoreDrill") {
-            $warns.Add("tape backup DISABLED ($res) - broken since Jun 30, backups stale")
-        }
     }
     else {
         $ok = ($res -eq "0x0")
@@ -298,6 +294,13 @@ if (Test-Path $rf) {
     }
     catch {}
 }
+# The tape backup subsystem was DELETED from the codebase on 2026-07-07 (commit 3ebca26e
+# removed tape_backup*.py, its tests, register script and runbook), so the long-standing
+# "tape backup broken, backups stale" note was wrong: there is nothing to repair, and the
+# nightly mirror is the ONLY off-host copy. It is a robocopy /MIR replica, not a backup --
+# a corruption or accidental deletion propagates to it within 24h and there is no
+# point-in-time recovery. Say so continuously; it is a standing decision, not an incident.
+$warns.Add("no versioned backup exists (tape subsystem removed 2026-07-07); the /MIR mirror is a replica, so deletions and corruption propagate within 24h with no point-in-time recovery")
 if ($null -eq $restore) { $warns.Add("mirror has never been restore-verified - run scripts\ops\verify_mirror_restore.ps1") }
 elseif (-not $restore.ok) { $flags.Add("MIRROR RESTORE VERIFY FAILED: $($restore.problems) problem file(s) - the off-host copy may not be restorable") }
 elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restoreAgeH}h) - restorability unproven since then") }
