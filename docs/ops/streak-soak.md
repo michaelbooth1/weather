@@ -103,6 +103,65 @@ Outputs, all under `data/alerts/`:
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
 
+## This host loses power (WeatherBootRecovery)
+
+Event-log forensics on 2026-07-25 found **five unexpected shutdowns in 90 days**. Four had
+`bugcheck=0`, `powerButton=0` and no BSOD — the signature of abrupt power loss rather than a
+crash. That is roughly one every three weeks against a **14-day contiguous** streak
+requirement, and none of them were ever visible: the digest reported a healthy host either
+side of a 29-minute outage on 2026-07-21, which was day 1 of the current streak. It came back
+37 minutes before the graded window opened.
+
+An outage inside 12:00–18:00 ends the streak. **Power loss is the top uncontrolled risk to
+the soak, and a UPS is the thing that removes it** — no amount of software makes an
+unplanned outage free.
+
+What software can do, and now does:
+
+- `scripts/ops/boot_recovery.ps1` runs at every boot (`WeatherBootRecovery`, AtStartup, S4U,
+  2-minute delay). It records *why* we rebooted — distinguishing power loss from a bugcheck
+  from a held power button — and verifies the capture loops came back **unattended**, which
+  is the one failure mode that silences every other check. Appends to
+  `data/alerts/boot_events.jsonl`.
+- It **heals an interrupted merge**. `quiet_window_merge.ps1` merges locally and waits five
+  minutes before deciding, so a power cut inside that window leaves `MERGE_HEAD` and a merged
+  working tree — and the supervisors would readopt unreviewed half-merged code on the way
+  back up, with no rollback in flight. An interrupted merge was never approved, so it is
+  undone. The merge tool also refuses to start while `MERGE_HEAD` exists.
+- `status.ps1` carries a `STABILITY` line: uptime and unexpected shutdowns in 90 days. One in
+  the last 24h is a **FLAG**, because it means today's capture *grade* needs checking, not
+  just today's process list.
+
+Recovery itself is sound and was verified: every supervisor is S4U with a repeating 1–2
+minute time trigger and `StartWhenAvailable`, so the loops restart with nobody logged on.
+Windows Update active hours are 08:00–01:00, so its automatic restarts cannot land inside the
+graded window.
+
+## Is the off-host copy actually restorable? (WeatherMirrorRestoreVerify)
+
+`WeatherDataMirror` reports robocopy's exit code, which says a copy **ran** — not that what
+landed is readable, complete or correct. With the tape backup's restore drill disabled since
+2026-06-30, that exit code was the *only* durability signal for 25 days, on a host that loses
+power every few weeks.
+
+`scripts/ops/verify_mirror_restore.ps1` (daily 05:20, after the 04:30 mirror) pulls files
+**back** from `\\DESKTOP-RFCD2GH\weather-mirror` into a scratch directory and compares SHA256
+against local. First run: 11 of 14 identical, zero problems. `status.ps1` reports it
+separately from mirror freshness, because *copied recently* and *restorable* are different
+claims and only one of them was ever checked.
+
+Two things that decide whether the check is worth anything:
+
+- It samples files that **predate** the last mirror run. Sampling the newest files is nearly
+  worthless — capture rewrites the hot ones constantly, so every comparison returns "newer
+  locally"; the first cut verified exactly one file out of nineteen. A file last written
+  before the mirror ran must be byte-identical off-host, so each such comparison is a real
+  test. For the same reason a file created *after* the run is `not_yet_mirrored`, not missing.
+- It **skips entirely if the mirror is still running** (checked via the mirror's own lock
+  file), because its `net use /delete` would otherwise tear the share out from under an
+  in-progress robocopy. A skip leaves the previous result standing rather than writing a
+  failure.
+
 ## Merging code at a scheduled time (quiet_window_merge.ps1)
 
 Merging a branch whose modules a capture loop has imported makes the supervisors readopt
