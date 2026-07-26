@@ -56,7 +56,7 @@ from weather.model.variant_prediction_runtime import (
     density_projection_probability,
     pooled_band_regime_route,
 )
-from weather.reporting.location_analysis.location_trust import score_all_markets
+from weather.reporting.location_analysis.location_trust import score_replay_rows
 from weather.market.market_microstructure_features import (
     CLOB_MODEL_FEATURE_COLUMNS,
     feature_index_for_folder,
@@ -102,6 +102,7 @@ from weather.reporting.promotion.promotion_corpus import (
     entry_for_folder,
     folders_from_manifest,
     load_manifest,
+    load_manifest_pinned,
     summarize_entries,
     verify_entry_inputs,
 )
@@ -109,11 +110,13 @@ from weather.reporting.data_quality.feature_quality_quarantine import (
     audit_folder_feature_quality_from_rows,
 )
 from weather.backtesting.settlement_io import (
+    LEDGER_AUTHORITY_STATUS,
+    SIDECAR_FALLBACK_STATUS,
+    authoritative_ledger_label,
     band_value_hi,
-    ledger_label_matches_folder,
+    canonical_winning_band,
     resolve_outcome,
 )
-from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.backtesting.replay import (
     index_records_by_snapshot,
     is_reconstructed,
@@ -246,6 +249,14 @@ DEFAULT_JSON_OUT = data_path() / "backtest" / "pooled_candidate_replay.json"
 DEFAULT_REPLAY_REPORT = data_path() / "backtest" / "pooled_candidate_current_replay_report.md"
 DEFAULT_DATA_LAYER_AUDIT = data_path() / "backtest" / "data_layer_audit.json"
 DEFAULT_MICROSTRUCTURE_ARTIFACT = writable_artifact_path("feature_model_hgb_f_pooled_clob_overlay_v0_2.pkl")
+
+
+def _frozen_trust_by_market(rows):
+    return {
+        row["market"]: row
+        for row in score_replay_rows(rows)
+    }
+
 
 BOUNDED_CANDIDATE_REPLAY_SCHEMA_VERSION = "pooled_candidate_replay_day_rows_v0.1"
 _SETTLEMENT_LABEL_FIELDS = frozenset({
@@ -1200,13 +1211,28 @@ def attach_band_candidate_probabilities(
                 )
             rows[row_index]["candidate_p"] = probability
 
-    if postprocess.get("partition_normalization_enabled", True):
+    partition_normalization_enabled = postprocess.get(
+        "partition_normalization_enabled",
+        True,
+    )
+    if partition_normalization_enabled:
         normalize_partition_probabilities(
             rows,
             gamma=float(postprocess.get("partition_normalization_gamma", 1.25)),
         )
+    for row in rows:
+        if _valid_probability(row.get("candidate_p")):
+            # Preserve the candidate partition before incumbent blending.  The
+            # time-split blend validator needs this value directly because a
+            # later partition-wide mass restoration is not row-wise invertible.
+            row["candidate_preblend_p"] = float(row["candidate_p"])
     if postprocess.get("current_blend_enabled", False):
         apply_current_blend_guardrail(rows, postprocess)
+        if partition_normalization_enabled:
+            # Contextual blend weights can differ by band.  Even when both the
+            # candidate and incumbent are simplexes, mixing their rows with
+            # different alphas does not preserve total probability mass.
+            normalize_partition_probabilities(rows, gamma=1.0)
     for row in rows:
         row.pop("_band_postprocess_row", None)
 
@@ -2394,8 +2420,11 @@ def load_bounded_preselection_folder_inputs(
         _require_preselection_folder_file(features_binding[0], folder=folder)
     if settlement_binding is not None:
         _require_preselection_folder_file(settlement_binding[0], folder=folder)
-    label = ledger_label_for_slug(folder.name)
-    if not (isinstance(label, dict) and ledger_label_matches_folder(label, folder)):
+    label = authoritative_ledger_label(
+        folder,
+        snapshot_tape_sha256=tape_sha256,
+    )
+    if label is None:
         label = (
             _bounded_json_object(
                 settlement_binding[2],
@@ -2404,6 +2433,17 @@ def load_bounded_preselection_folder_inputs(
             if settlement_binding is not None
             else None
         )
+        settlement_authority = {
+            "status": SIDECAR_FALLBACK_STATUS,
+            "ledger_row_exists": False,
+            "sidecar_fallback": True,
+        }
+    else:
+        settlement_authority = {
+            "status": LEDGER_AUTHORITY_STATUS,
+            "ledger_row_exists": True,
+            "sidecar_fallback": False,
+        }
     if not isinstance(label, dict):
         raise BoundedCandidateReplayError(
             f"preselection folder has no readable settlement label: {folder}"
@@ -2467,6 +2507,7 @@ def load_bounded_preselection_folder_inputs(
         "frame": frame,
         "records": records,
         "feature_quality": feature_quality,
+        "settlement_label_authority": settlement_authority,
     }
 
 
@@ -2547,7 +2588,9 @@ def _bounded_preselection_source_row(
         raise BoundedCandidateReplayError(
             f"preselection replay snapshot {snapshot_id!r} is not manifest-pinned"
         )
-    band = _bounded_required_identity(row.get("band"), "row band")
+    band = canonical_winning_band(
+        _bounded_required_identity(row.get("band"), "row band")
+    )
     label = _bounded_optional_float(row.get("outcome"), "outcome")
     if label not in {0.0, 1.0}:
         raise BoundedCandidateReplayError(
@@ -2876,7 +2919,9 @@ def _bounded_canonical_candidate_row(
         raise BoundedCandidateReplayError(
             f"candidate replay snapshot {snapshot_id!r} is not manifest-pinned"
         )
-    band = _bounded_required_identity(row.get("band"), "row band")
+    band = canonical_winning_band(
+        _bounded_required_identity(row.get("band"), "row band")
+    )
     probability = _bounded_optional_float(row.get("candidate_p"), "candidate_p")
     if probability is None or not 0.0 <= probability <= 1.0:
         raise BoundedCandidateReplayError(
@@ -3355,6 +3400,7 @@ def _run_replay_cache_sentinel(
             cached_rows=cached_rows,
             fresh_rows=fresh_rows,
             cached_path=selected["payload"].get("path"),
+            output_root=getattr(args, "sentinel_forensics_root", None),
         ))
     except OSError:
         pass
@@ -3386,7 +3432,15 @@ def _run_replay_cache_sentinel(
     )
 
 
-def _write_sentinel_forensics(*, consumer, key, cached_rows, fresh_rows, cached_path):
+def _write_sentinel_forensics(
+    *,
+    consumer,
+    key,
+    cached_rows,
+    fresh_rows,
+    cached_path,
+    output_root=None,
+):
     from weather.io import write_json_atomic
     from weather.paths import data_path
 
@@ -3407,9 +3461,13 @@ def _write_sentinel_forensics(*, consumer, key, cached_rows, fresh_rows, cached_
             })
         if len(differing) >= 20:
             break
+    root = Path(output_root).resolve() if output_root else data_path() / "logs"
     out_path = (
-        data_path() / "logs"
-        / f"replay_cache_sentinel_mismatch_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        root
+        / (
+            "replay_cache_sentinel_mismatch_"
+            f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+        )
     )
     write_json_atomic(out_path, {
         "consumer": consumer,
@@ -3423,7 +3481,20 @@ def _write_sentinel_forensics(*, consumer, key, cached_rows, fresh_rows, cached_
 
 
 def run_pooled_candidate_replay(args):
-    manifest = load_manifest(args.corpus)
+    expected_corpus_sha256 = str(
+        getattr(args, "expected_corpus_sha256", "") or ""
+    ).strip()
+    expected_corpus_hash = str(
+        getattr(args, "expected_corpus_hash", "") or ""
+    ).strip()
+    if expected_corpus_sha256 or expected_corpus_hash:
+        manifest = load_manifest_pinned(
+            args.corpus,
+            expected_sha256=expected_corpus_sha256,
+            expected_corpus_hash=expected_corpus_hash,
+        )
+    else:
+        manifest = load_manifest(args.corpus)
     artifact = load_artifact(args.artifact)
     variant_registry = load_variant_registry(getattr(args, "variant_registry", DEFAULT_VARIANT_REGISTRY_PATH))
     registry_contract = variant_contract_for_artifact(
@@ -3597,11 +3668,7 @@ def run_pooled_candidate_replay(args):
         row.setdefault("current_max_boundary_slice", "unknown")
         row.setdefault("marine_breeze_slice", "missing_marine_context")
 
-    trust_rows = score_all_markets(
-        root=args.snapshots_root,
-        as_of=manifest.get("as_of"),
-    )
-    trust_by_market = {row["market"]: row for row in trust_rows}
+    trust_by_market = _frozen_trust_by_market(candidate_rows)
     blocked_validation = blocked_candidate_validation_gate(
         candidate_rows,
         current_tol=args.current_tol,
@@ -3707,6 +3774,7 @@ def run_pooled_candidate_replay(args):
         "artifact": {
             "path": str(args.artifact),
             "artifact_hash": artifact_hash,
+            "postprocess_config_hash": postprocess_config_hash,
             "schema_version": artifact.get("schema_version"),
             "feature_schema_version": artifact.get("feature_schema_version"),
             "family_unit": family_unit,
@@ -3748,6 +3816,17 @@ def run_pooled_candidate_replay(args):
                 postprocess.get("current_blend_source_freshness_alpha") or {}
             ),
             "current_blend_context_alpha": postprocess.get("current_blend_context_alpha") or [],
+            "partition_normalization_enabled": bool(
+                postprocess.get("partition_normalization_enabled", True)
+            ),
+            "partition_normalization_gamma": postprocess.get(
+                "partition_normalization_gamma",
+                1.25,
+            ),
+            "current_blend_partition_mass_restoration_enabled": bool(
+                postprocess.get("current_blend_enabled", False)
+                and postprocess.get("partition_normalization_enabled", True)
+            ),
             "market_bias_calibration_enabled": bool(postprocess.get("market_bias_calibration_enabled")),
             "market_bias_calibration_contexts": market_bias_calibration.get("context_count", 0),
             "market_bias_baseline_brier": market_bias_selection.get("baseline_brier"),
@@ -3804,6 +3883,8 @@ def run_pooled_candidate_replay(args):
         },
         "long_job_guard": getattr(args, "long_job_guard_info", None) or {},
     }
+    if expected_corpus_sha256:
+        report["corpus"]["file_sha256"] = expected_corpus_sha256
     write_report(
         report,
         args.out,

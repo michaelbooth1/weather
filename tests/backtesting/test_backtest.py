@@ -148,10 +148,15 @@ class TestSettlementAndTape(unittest.TestCase):
                 ledger.write_text(
                     json.dumps({
                         "event_slug": slug,
+                        "market_id": "toronto",
+                        "target_date": "2026-05-27",
                         "quality_grade": "complete",
                         "settlement_bucket": 20,
                         "settlement_source": "daily_summary",
                         "reconciliation_status": "match",
+                        "snapshot_tape_repo_relative_path": (
+                            f"snapshots/{slug}/snapshots_long.csv"
+                        ),
                     }) + "\n",
                     encoding="utf-8",
                 )

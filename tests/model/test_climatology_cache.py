@@ -1,5 +1,9 @@
 import csv
+import json
+from datetime import date, timedelta
 from types import SimpleNamespace
+
+import pytest
 
 from weather.model.toronto_model import TorontoHighTempModel
 
@@ -65,6 +69,75 @@ def test_historical_target_cache_is_bounded_lru(tmp_path):
         assert keys == ["toronto:2026-06-01", "toronto:2026-06-03"]
     finally:
         TorontoHighTempModel._historical_target_cache_max_entries = old_max_entries
+        TorontoHighTempModel.clear_historical_cache()
+
+
+def test_explicit_cache_coverage_is_exact_and_rejects_future_dates(tmp_path):
+    target_date = date(2026, 7, 24)
+    coverage_dates = [
+        date(2026, 1, 1) + timedelta(days=offset)
+        for offset in range(14)
+    ]
+    unrequested_date = date(2026, 2, 1)
+    model = model_with_data_root(tmp_path, target_date.isoformat())
+    summary_path = model.spec.data_root / "daily" / "daily_summary.csv"
+    summary_path.parent.mkdir(parents=True)
+    with summary_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=(
+                "schema_version",
+                "local_date",
+                "temperature_unit",
+                "row_count",
+                "max_temp_native",
+                "max_temp_bucket_native",
+            ),
+        )
+        writer.writeheader()
+        for index, local_date in enumerate([*coverage_dates, unrequested_date]):
+            writer.writerow({
+                "schema_version": "wu_daily_native_v2",
+                "local_date": local_date.isoformat(),
+                "temperature_unit": "C",
+                "row_count": 24,
+                "max_temp_native": 20 + index % 3,
+                "max_temp_bucket_native": 20 + index % 3,
+            })
+    hourly_path = (
+        model.spec.data_root
+        / "hourly"
+        / "year=2026"
+        / "month=01"
+        / "observations.jsonl"
+    )
+    hourly_path.parent.mkdir(parents=True)
+    with hourly_path.open("w", encoding="utf-8") as handle:
+        for local_date in coverage_dates:
+            handle.write(json.dumps({
+                "local_date": local_date.isoformat(),
+                "local_time": "12:00",
+                "temp_native": 20.0,
+            }) + "\n")
+
+    try:
+        TorontoHighTempModel.clear_historical_cache()
+        default_cache = model.historical_target_cache()
+        coverage_cache = model.historical_target_cache(
+            coverage_target_dates=coverage_dates
+        )
+
+        assert default_cache["daily"] == {}
+        assert set(coverage_cache["daily"]) == set(coverage_dates)
+        assert unrequested_date not in coverage_cache["daily"]
+        with pytest.raises(
+            ValueError,
+            match="coverage dates must be earlier than target_date: 2026-07-24",
+        ):
+            model.historical_target_cache(
+                coverage_target_dates=[target_date]
+            )
+    finally:
         TorontoHighTempModel.clear_historical_cache()
 
 

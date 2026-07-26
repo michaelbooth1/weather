@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pyarrow as pa
 import pyarrow.parquet as pq
+from weather.backtesting.settlement_ledger import upsert_ledger_record
 from weather.operations.nightly_retrain import (  # noqa: E402
     build_parser,
     default_settled_day_target_date,
@@ -16,13 +17,20 @@ from weather.operations.nightly_retrain import (  # noqa: E402
     point_in_time_qualification_command,
     prepare_candidate_outputs,
     prepare_production_point_in_time_outputs,
+    point_in_time_preselection_command,
+    promotion_refresh_command,
+    promotion_summary,
     production_promotion_selection,
     run_nightly_retrain,
     settled_day_freshness_command,
 )
+from weather.operations.point_in_time_staging_receipt import (
+    write_staging_receipt,
+)
 from tests.operations.test_experiment_contract import materialized_manifest
 from weather.operations.release_candidate_contract import verify_candidate_semantic_contract
 from weather.reporting.validation.point_in_time_evaluation import (
+    ContractViolation,
     PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
     PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
     canonical_json,
@@ -45,6 +53,7 @@ from weather.market.market_registry import NYC
 from weather.reporting.promotion.promotion_corpus import (
     PROMOTION_CORPUS_SCHEMA_VERSION,
     corpus_hash as promotion_corpus_hash,
+    load_manifest as load_promotion_manifest,
 )
 
 
@@ -198,7 +207,7 @@ def _write_promotion(path, *, promote=None, shadow=None, blocked=None):
 
 def _write_point_in_time_source(
     root: Path, *, candidate_id: str
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     del candidate_id
     source = root / "point-in-time-source"
     source.mkdir(parents=True, exist_ok=True)
@@ -281,6 +290,10 @@ def _write_point_in_time_source(
                 "label_hash": hashlib.sha256(
                     f"label:{target_date}".encode("utf-8")
                 ).hexdigest(),
+                "settlement_label_authority": {
+                    "status": "sidecar_fallback_no_ledger_row",
+                    "sidecar_fallback": True,
+                },
             }
         )
     replay_manifest = {
@@ -346,6 +359,11 @@ def _write_point_in_time_source(
             "market_days_read": len(fleet_dates),
             "accepted_rows": len(rows),
         },
+        "summary": {
+            "settlement_label_authority": {
+                "sidecar_fallback_no_ledger_row": len(replay_entries)
+            },
+        },
         "inputs": [
             {
                 "event_slug": entry["event_slug"],
@@ -360,7 +378,35 @@ def _write_point_in_time_source(
     }
     manifest["manifest_hash"] = sha256_text(canonical_json(manifest))
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    return corpus, manifest_path, replay_manifest_path
+    ledger_root = root / "settlements"
+    for offset, target_date in enumerate(fleet_dates[-14:]):
+        upsert_ledger_record(
+            {
+                "schema_version": "settlement_ledger_v2",
+                "event_slug": f"toronto-lock-{target_date}",
+                "market_id": "toronto",
+                "target_date": target_date,
+                "settlement_bucket": 20 + offset,
+                "settlement_source": "wu_history",
+                "quality_grade": "complete",
+                "finalized_at_utc": f"{target_date}T23:59:00+00:00",
+                "evidence": {
+                    "five_time_provenance": {},
+                    "raw_resolution_hashes": {"wu": target_date},
+                    "override_provenance": {},
+                },
+            },
+            ledger_root,
+        )
+    receipt = source / "staging-receipt.json"
+    write_staging_receipt(
+        receipt_path=receipt,
+        corpus_path=corpus,
+        manifest_path=manifest_path,
+        replay_manifest_path=replay_manifest_path,
+        ledger_root=ledger_root,
+    )
+    return corpus, manifest_path, replay_manifest_path, receipt
 
 
 def _materializing_runner(command, *, promotion="promote", **_kwargs):
@@ -424,6 +470,39 @@ def _materializing_runner(command, *, promotion="promote", **_kwargs):
             _write_promotion(out, shadow=["nyc"])
         else:
             _write_promotion(out, blocked=["nyc"])
+        if "--frozen-corpus" in command:
+            frozen = Path(command[command.index("--frozen-corpus") + 1])
+            corpus_hash = command[
+                command.index("--frozen-corpus-hash") + 1
+            ]
+            output_root = Path(command[command.index("--output-root") + 1])
+            contained = output_root / "corpus" / "promotion_corpus.json"
+            contained.parent.mkdir(parents=True, exist_ok=True)
+            contained.write_bytes(frozen.read_bytes())
+            contained_sha256 = point_in_time_sha256_file(contained)
+            payload = json.loads(Path(out).read_text(encoding="utf-8"))
+            payload["corpus"] = {
+                "path": str(contained.resolve()),
+                "corpus_hash": corpus_hash,
+                "file_sha256": contained_sha256,
+            }
+            payload["candidate"] = {
+                "corpus": {
+                    "corpus_hash": corpus_hash,
+                    "file_sha256": contained_sha256,
+                }
+            }
+            if "--skip-serving-gauntlet" not in command:
+                payload["serving_gauntlet"] = {
+                    **(payload.get("serving_gauntlet") or {}),
+                    "corpus_identity": {
+                        "sha256": contained_sha256,
+                        "corpus_hash": corpus_hash,
+                    },
+                }
+            else:
+                payload["serving_gauntlet"] = None
+            Path(out).write_text(json.dumps(payload), encoding="utf-8")
     return {"returncode": 0, "stdout": "ok", "stderr": ""}
 
 
@@ -804,7 +883,7 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(manifest["release_id"], "test-nightly")
         self.assertEqual(manifest["state"], "IMMUTABLE_CANDIDATE")
         self.assertEqual(manifest["code"]["git_dirty"], False)
-        self.assertEqual(manifest["artifacts"]["file_count"], 25)
+        self.assertEqual(manifest["artifacts"]["file_count"], 26)
         self.assertEqual(
             {
                 row["role"]: row["kind"]
@@ -819,7 +898,12 @@ class TestNightlyRetrain(unittest.TestCase):
     def test_production_mode_materializes_real_receipts_and_locked_candidate_packet(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source_corpus, source_manifest, source_replay_manifest = (
+            (
+                source_corpus,
+                source_manifest,
+                source_replay_manifest,
+                source_receipt,
+            ) = (
                 _write_point_in_time_source(
                 root, candidate_id="test-nightly"
                 )
@@ -835,6 +919,8 @@ class TestNightlyRetrain(unittest.TestCase):
                 str(source_manifest),
                 "--point-in-time-source-replay-manifest",
                 str(source_replay_manifest),
+                "--point-in-time-source-receipt",
+                str(source_receipt),
                 "--point-in-time-bootstrap-iterations",
                 "10",
             )
@@ -1171,8 +1257,11 @@ class TestNightlyRetrain(unittest.TestCase):
     def test_production_promotion_selection_rejects_changed_prelocked_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            corpus, manifest, replay_manifest = _write_point_in_time_source(
-                root, candidate_id="test-nightly"
+            corpus, manifest, replay_manifest, _receipt = (
+                _write_point_in_time_source(
+                    root,
+                    candidate_id="test-nightly",
+                )
             )
             preselection_path = root / "preselection.json"
             prepare_production_preselection(
@@ -1187,12 +1276,66 @@ class TestNightlyRetrain(unittest.TestCase):
             args.snapshots_root = str(root / "snapshots")
             args.point_in_time_max_market_days = 60
 
-            preselection, folders, inventory = production_promotion_selection(args)
-            self.assertEqual(len(folders), len(inventory))
+            preselection, frozen_manifest, inventory = (
+                production_promotion_selection(args)
+            )
+            self.assertEqual(len(frozen_manifest["entries"]), len(inventory))
+            self.assertIs(frozen_manifest["admit_promotion_countable"], False)
+            self.assertEqual(
+                frozen_manifest["summary"]["market_day_count"],
+                len(inventory),
+            )
+            self.assertFalse(
+                set(preselection["window_lock"]["target_dates"])
+                & {
+                    entry["target_date"]
+                    for entry in frozen_manifest["entries"]
+                }
+            )
             self.assertEqual(
                 preselection["source"]["replay_manifest_sha256"],
                 point_in_time_sha256_file(replay_manifest),
             )
+            self.assertEqual(
+                preselection["source"]["settlement_label_authority"],
+                {"sidecar_fallback_no_ledger_row": 36},
+            )
+            frozen_path = root / "frozen-selection.json"
+            frozen_path.write_text(
+                json.dumps(frozen_manifest, sort_keys=True),
+                encoding="utf-8",
+            )
+            args.promotion_output_root = str(root / "candidate-promotion")
+            command = promotion_refresh_command(
+                args,
+                frozen_corpus=frozen_path,
+                frozen_corpus_sha256=point_in_time_sha256_file(frozen_path),
+                frozen_corpus_hash=frozen_manifest["corpus_hash"],
+            )
+            self.assertNotIn(str(root / "snapshots" / inventory[0]["event_slug"]), command)
+            self.assertEqual(
+                command[command.index("--frozen-corpus") + 1],
+                str(frozen_path),
+            )
+            self.assertEqual(
+                command[command.index("--output-root") + 1],
+                args.promotion_output_root,
+            )
+
+            original_replay = replay_manifest.read_bytes()
+
+            def mutate_while_loading(path):
+                loaded = load_promotion_manifest(path)
+                Path(path).write_bytes(Path(path).read_bytes() + b" ")
+                return loaded
+
+            with patch(
+                "weather.reporting.promotion.promotion_corpus.load_manifest",
+                side_effect=mutate_while_loading,
+            ):
+                with self.assertRaisesRegex(ValueError, "changed while"):
+                    production_promotion_selection(args)
+            replay_manifest.write_bytes(original_replay)
 
             changed = json.loads(replay_manifest.read_text(encoding="utf-8"))
             changed["summary"]["tampered_after_prelock"] = True
@@ -1201,6 +1344,119 @@ class TestNightlyRetrain(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "prelocked source"):
                 production_promotion_selection(args)
+
+    def test_staged_prelock_rechecks_receipt_before_publishing_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            corpus, manifest, replay_manifest, receipt = (
+                _write_point_in_time_source(root, candidate_id="test-nightly")
+            )
+            args = _args(
+                tmp,
+                "--release-candidate-mode",
+                "production",
+                "--point-in-time-source-corpus",
+                str(corpus),
+                "--point-in-time-source-manifest",
+                str(manifest),
+                "--point-in-time-source-replay-manifest",
+                str(replay_manifest),
+                "--point-in-time-source-receipt",
+                str(receipt),
+            )
+            guard = prepare_candidate_outputs(args)
+            prepare_production_point_in_time_outputs(args, guard)
+            command = point_in_time_preselection_command(args)
+            from weather.reporting.validation import point_in_time_evaluation
+
+            original_prepare = point_in_time_evaluation._prepare_replay_manifest
+            original_verify = (
+                point_in_time_evaluation._verify_prelock_staging_receipt
+            )
+
+            def mismatched_receipt_dates(namespace):
+                verified = original_verify(namespace)
+                verified["target_dates"] = [
+                    "1900-01-01",
+                    *verified["target_dates"][1:],
+                ]
+                return verified
+
+            with patch(
+                "weather.reporting.validation.point_in_time_evaluation."
+                "_verify_prelock_staging_receipt",
+                side_effect=mismatched_receipt_dates,
+            ):
+                with self.assertRaisesRegex(
+                    ContractViolation,
+                    "does not match the receipt",
+                ):
+                    point_in_time_main(command[3:])
+            self.assertFalse(Path(args.point_in_time_preselection_lock).exists())
+
+            def copy_then_mutate(**kwargs):
+                copied = original_prepare(**kwargs)
+                replay_manifest.write_bytes(replay_manifest.read_bytes() + b" ")
+                return copied
+
+            with patch(
+                "weather.reporting.validation.point_in_time_evaluation."
+                "_prepare_replay_manifest",
+                side_effect=copy_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    ContractViolation,
+                    "staged production source receipt rejected",
+                ):
+                    point_in_time_main(command[3:])
+
+            self.assertFalse(Path(args.point_in_time_preselection_lock).exists())
+
+    def test_invalid_staging_receipt_blocks_before_resource_or_parity_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            corpus, manifest, replay_manifest, receipt = (
+                _write_point_in_time_source(root, candidate_id="test-nightly")
+            )
+            replay_manifest.write_bytes(replay_manifest.read_bytes() + b" ")
+            args = _args(
+                tmp,
+                "--release-candidate-mode",
+                "production",
+                "--point-in-time-source-corpus",
+                str(corpus),
+                "--point-in-time-source-manifest",
+                str(manifest),
+                "--point-in-time-source-replay-manifest",
+                str(replay_manifest),
+                "--point-in-time-source-receipt",
+                str(receipt),
+            )
+            args.skip_captured_input_replay_parity = False
+            with patch(
+                "weather.operations.nightly_retrain._capture_resource_preflight"
+            ) as resource, patch(
+                "weather.operations.nightly_retrain._captured_input_parity_preflight"
+            ) as parity:
+                payload, _status, _report = run_nightly_retrain(
+                    args,
+                    runner=lambda *_args, **_kwargs: self.fail(
+                        "invalid receipt started child work"
+                    ),
+                )
+
+        resource.assert_not_called()
+        parity.assert_not_called()
+        self.assertEqual(
+            payload["point_in_time_staging_receipt_preflight"]["status"],
+            "BLOCK",
+        )
+        self.assertEqual(
+            payload["config"]["candidate_output_guard"]["status"],
+            "BLOCK",
+        )
+        self.assertIsNone(payload["capture_resource_admission"])
+        self.assertIsNone(payload["captured_input_replay_parity"])
 
     def test_research_mode_remains_default_and_plans_no_point_in_time_step(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1213,6 +1469,51 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertNotIn(
             "point_in_time_production_qualification",
             {row["name"] for row in payload["steps"]},
+        )
+        promotion_step = next(
+            row for row in payload["steps"] if row["name"] == "promotion_refresh"
+        )
+        output_root = Path(
+            promotion_step["command"][
+                promotion_step["command"].index("--output-root") + 1
+            ]
+        ).resolve()
+        candidate_dir = Path(
+            payload["config"]["candidate_output_guard"]["candidate_dir"]
+        ).resolve()
+        output_root.relative_to(candidate_dir)
+        for row in payload["config"]["candidate_output_guard"][
+            "promotion_outputs"
+        ]:
+            Path(row["path"]).resolve().relative_to(candidate_dir)
+
+    def test_promotion_summary_preserves_sidecar_fallback_authority_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "promotion.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "corpus": {
+                            "settlement_label_authority": {
+                                "sidecar_fallback_no_ledger_row": 3
+                            }
+                        },
+                        "decisions": {
+                            "promote_markets": [],
+                            "shadow_markets": ["nyc"],
+                            "blocked_markets": [],
+                            "markets": [{"market_id": "nyc"}],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            summary = promotion_summary(path)
+
+        self.assertEqual(
+            summary["settlement_label_authority"],
+            {"sidecar_fallback_no_ledger_row": 3},
         )
 
     def test_shadow_gate_keeps_candidate_mutable_and_does_not_build_release(self):

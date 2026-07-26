@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from collections import Counter
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
@@ -19,7 +20,10 @@ from weather.paths import data_path
 
 import pandas as pd
 
-from weather.backtesting.settlement_io import load_market_day_label
+from weather.backtesting.settlement_io import (
+    canonical_winning_band,
+    resolve_market_day_label,
+)
 from weather.backtesting.replay import index_records_by_snapshot, is_reconstructed, load_replay_records
 from weather.backtesting.settled_days import DEFAULT_SNAPSHOTS_ROOT, discover_settled_folders
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
@@ -172,8 +176,11 @@ def _entry_for_folder(
     if spec is None or target_date is None:
         return None, "unregistered_market"
 
+    settlement_authority = None
     if input_loader is None:
-        label = load_market_day_label(folder)
+        resolved_label = resolve_market_day_label(folder)
+        label = resolved_label["label"]
+        settlement_authority = resolved_label["authority"]
     else:
         loaded = input_loader(folder)
         if isinstance(loaded, Mapping):
@@ -188,6 +195,7 @@ def _entry_for_folder(
             frame = loaded["frame"]
             records = loaded["records"]
             feature_quality = loaded["feature_quality"]
+            settlement_authority = loaded.get("settlement_label_authority")
         elif isinstance(loaded, tuple):
             if len(loaded) != 4:
                 raise ValueError(
@@ -228,6 +236,12 @@ def _entry_for_folder(
             raise TypeError(
                 "promotion corpus input_loader feature_quality summary must be a mapping"
             )
+    if not isinstance(settlement_authority, Mapping):
+        settlement_authority = {
+            "status": "prevalidated_input_loader_unreported",
+            "ledger_row_exists": None,
+            "sidecar_fallback": None,
+        }
 
     if not label or label.get("settlement_bucket") is None:
         return None, "missing_settlement_label"
@@ -306,12 +320,13 @@ def _entry_for_folder(
         "settlement_high": _safe_float(label.get("settlement_high")),
         "settlement_unit": label.get("settlement_unit") or spec.display_unit,
         "settlement_source": label.get("settlement_source"),
-        "winning_band": label.get("winning_band"),
+        "winning_band": canonical_winning_band(label.get("winning_band")),
         "winning_band_kind": label.get("winning_band_kind"),
         "winning_band_value": _safe_int(label.get("winning_band_value")),
         "winning_band_value_hi": _safe_int(label.get("winning_band_value_hi")),
         "quality_grade": grade,
         "quality_reason": label.get("quality_reason"),
+        "settlement_label_authority": dict(settlement_authority),
         "admitted_by": "quality_grade" if grade_admitted else "promotion_countable",
         "promotion_countable": bool(label.get("promotion_countable")),
         "promotion_countable_reason": label.get("promotion_countable_reason"),
@@ -343,7 +358,11 @@ def _entry_for_folder(
         "replay_record_hashes": _record_hashes(record_subset, pinned_snapshot_ids),
         "tape_row_hashes": _snapshot_tape_hashes(frame, pinned_snapshot_ids),
         "label_hash": _hash_json({
-            key: label.get(key)
+            key: (
+                canonical_winning_band(label.get(key))
+                if key == "winning_band"
+                else label.get(key)
+            )
             for key in (
                 "event_slug",
                 "market_id",
@@ -386,10 +405,15 @@ def corpus_hash(entries):
 def summarize_entries(entries):
     by_market = Counter(entry["market_id"] for entry in entries)
     admitted_by = Counter(entry.get("admitted_by") or "quality_grade" for entry in entries)
+    settlement_authority = Counter(
+        str((entry.get("settlement_label_authority") or {}).get("status") or "unreported")
+        for entry in entries
+    )
     return {
         "market_count": len(by_market),
         "market_day_count": len(entries),
         "admitted_by": dict(sorted(admitted_by.items())),
+        "settlement_label_authority": dict(sorted(settlement_authority.items())),
         "snapshot_count": sum(int(entry.get("snapshot_count") or 0) for entry in entries),
         "band_row_count": sum(int(entry.get("row_count") or 0) for entry in entries),
         "feature_quality_excluded_snapshot_count": sum(
@@ -534,6 +558,14 @@ def write_manifest(manifest, path=DEFAULT_OUT):
     return path
 
 
+def manifest_file_sha256(path, *, chunk_bytes=1024 * 1024):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(chunk_bytes):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def load_manifest(path, *, max_bytes=None):
     if max_bytes is None:
         manifest = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -593,6 +625,33 @@ def load_manifest(path, *, max_bytes=None):
             f"promotion corpus hash mismatch: manifest={manifest.get('corpus_hash')} computed={expected}"
         )
     manifest["_path"] = str(path)
+    return manifest
+
+
+def load_manifest_pinned(
+    path,
+    *,
+    expected_sha256,
+    expected_corpus_hash,
+    max_bytes=None,
+):
+    """Load one exact corpus generation and detect replacement during parsing."""
+
+    expected_sha256 = str(expected_sha256 or "").strip().lower()
+    expected_corpus_hash = str(expected_corpus_hash or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise ValueError("pinned promotion corpus requires a valid file SHA-256")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_corpus_hash):
+        raise ValueError("pinned promotion corpus requires a valid semantic hash")
+    before = manifest_file_sha256(path)
+    if before != expected_sha256:
+        raise ValueError("pinned promotion corpus file identity mismatch")
+    manifest = load_manifest(path, max_bytes=max_bytes)
+    after = manifest_file_sha256(path)
+    if after != before or after != expected_sha256:
+        raise ValueError("pinned promotion corpus changed while it was being read")
+    if str(manifest.get("corpus_hash") or "").lower() != expected_corpus_hash:
+        raise ValueError("pinned promotion corpus semantic identity mismatch")
     return manifest
 
 

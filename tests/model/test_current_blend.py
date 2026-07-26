@@ -6,7 +6,10 @@ from weather.calibration.pooled_candidate_replay import (
     apply_current_blend_guardrail,
     attach_band_candidate_probabilities,
 )
-from weather.collection.live_variant_predictions import _apply_current_blend
+from weather.collection.live_variant_predictions import (
+    _apply_current_blend,
+    _band_binary_probabilities,
+)
 from weather.market.market_registry import REGISTRY
 from weather.model.current_blend import (
     resolve_current_blend_alpha,
@@ -278,3 +281,108 @@ def test_replay_attachment_retains_band_context_until_shared_blend_runs():
     assert coverage["candidate_rows"] == 1
     assert rows[0]["candidate_p"] == pytest.approx(_expected(0.35))
     assert "_band_postprocess_row" not in rows[0]
+
+
+def test_contextual_band_blend_restores_simplex_with_live_replay_parity():
+    band_rows = [
+        {
+            "snapshot_id": "s1",
+            "range_label": "19 F or below",
+            "bin_kind": "lte",
+            "bin_type": "lte",
+            "bin_value_c": 19,
+            "bin_value_hi_c": 19,
+            "model_probability": 0.20,
+        },
+        {
+            "snapshot_id": "s1",
+            "range_label": "20-21 F",
+            "bin_kind": "eq",
+            "bin_type": "eq",
+            "bin_value_c": 20,
+            "bin_value_hi_c": 21,
+            "model_probability": 0.30,
+        },
+        {
+            "snapshot_id": "s1",
+            "range_label": "22 F or higher",
+            "bin_kind": "gte",
+            "bin_type": "gte",
+            "bin_value_c": 22,
+            "bin_value_hi_c": 22,
+            "model_probability": 0.50,
+        },
+    ]
+    feature_vector = {
+        "market_id": "austin",
+        "cutoff_hour": 12,
+        "forecast_high": 20.0,
+        "high_so_far": 19.0,
+    }
+    artifact = {
+        "models": {"12": {"feature_names": ["placeholder"]}},
+        "postprocess": {
+            "partition_normalization_enabled": True,
+            "partition_normalization_gamma": 1.25,
+            "current_blend_enabled": True,
+            "current_blend_default_alpha": 1.0,
+            "current_blend_context_alpha": [
+                {"forecast_bucket_pressure": "warm_side", "alpha": 0.35},
+            ],
+        },
+    }
+    raw_candidate = [0.60, 0.30, 0.10]
+    replay_results = {
+        "all_rows": [
+            {
+                **band,
+                "market_id": "austin",
+                "replayed_p": band["model_probability"],
+                "outcome": int(index == 1),
+            }
+            for index, band in enumerate(band_rows)
+        ]
+    }
+
+    with (
+        patch(
+            "weather.calibration.pooled_candidate_replay.predict_band_rows_for_bundle",
+            return_value=raw_candidate,
+        ),
+        patch(
+            "weather.model.variant_prediction_runtime.predict_band_rows_for_bundle",
+            return_value=raw_candidate,
+        ),
+    ):
+        replay_rows, coverage = attach_band_candidate_probabilities(
+            replay_results,
+            {("austin", "s1"): feature_vector},
+            artifact,
+            "F",
+            source_freshness={("austin", "s1"): "all_fresh"},
+        )
+        live = _band_binary_probabilities(
+            artifact,
+            feature_vector,
+            band_rows,
+            {"market_id": "austin", "model": {}},
+        )
+
+    replay = [row["candidate_p"] for row in replay_rows]
+    powered = [value**1.25 for value in raw_candidate]
+    preblend = [value / sum(powered) for value in powered]
+    raw_blended = [
+        preblend[0],
+        preblend[1],
+        (0.35 * preblend[2]) + (0.65 * 0.50),
+    ]
+    expected = [value / sum(raw_blended) for value in raw_blended]
+    assert coverage["candidate_rows"] == 3
+    assert [row["candidate_preblend_p"] for row in replay_rows] == pytest.approx(
+        preblend
+    )
+    assert sum(raw_blended) != pytest.approx(1.0, abs=1e-6)
+    assert sum(replay) == pytest.approx(1.0, abs=1e-12)
+    assert sum(live.values()) == pytest.approx(1.0, abs=1e-12)
+    assert replay == pytest.approx(expected)
+    assert list(live.values()) == pytest.approx(replay)

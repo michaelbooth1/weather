@@ -75,6 +75,9 @@ def load_base_alpha_schedule(path: str | Path) -> dict[str, Any]:
         "context_alpha": list(artifact.get("current_blend_context_alpha") or []),
         "artifact_hash": artifact.get("artifact_hash"),
         "postprocess_config_hash": artifact.get("postprocess_config_hash"),
+        "partition_mass_restoration_enabled": artifact.get(
+            "current_blend_partition_mass_restoration_enabled"
+        ),
     }
 
 
@@ -151,11 +154,28 @@ def reconstruct_raw_probability(probability: float, current_probability: float, 
 
 def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    require_exact_preblend = (
+        base_schedule.get("partition_mass_restoration_enabled") is True
+    )
+    expected_artifact_hash = str(base_schedule.get("artifact_hash") or "").strip()
+    expected_postprocess_hash = str(
+        base_schedule.get("postprocess_config_hash") or ""
+    ).strip()
+    if require_exact_preblend and (
+        not expected_artifact_hash or not expected_postprocess_hash
+    ):
+        raise ValueError(
+            "mass-restored current-blend validation requires base artifact "
+            "and postprocess hashes"
+        )
     with Path(path).open("r", encoding="utf-8", newline="") as handle:
-        for source in csv.DictReader(handle):
+        for index, source in enumerate(csv.DictReader(handle)):
             market_id = source.get("market_id") or ""
             target_date = source.get("target_date") or ""
             probability = _safe_float(source.get("probability"))
+            candidate_preblend_probability = _safe_float(
+                source.get("candidate_preblend_probability")
+            )
             current_probability = _safe_float(source.get("current_probability"))
             market_probability = _safe_float(source.get("market_yes"))
             outcome = _safe_int(source.get("outcome"))
@@ -168,6 +188,27 @@ def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[d
                 or outcome is None
             ):
                 continue
+            if require_exact_preblend:
+                if (
+                    candidate_preblend_probability is None
+                    or not 0.0 <= candidate_preblend_probability <= 1.0
+                ):
+                    raise ValueError(
+                        "mass-restored current-blend row "
+                        f"{index} requires candidate_preblend_probability"
+                    )
+                row_artifact_hash = str(source.get("artifact_hash") or "").strip()
+                row_postprocess_hash = str(
+                    source.get("postprocess_config_hash") or ""
+                ).strip()
+                if row_artifact_hash != expected_artifact_hash:
+                    raise ValueError(
+                        "current-blend row artifact hash does not match base replay"
+                    )
+                if row_postprocess_hash != expected_postprocess_hash:
+                    raise ValueError(
+                        "current-blend row postprocess hash does not match base replay"
+                    )
             context = {
                 "market_id": market_id,
                 "source_freshness_state": source.get("source_freshness_state") or "",
@@ -188,10 +229,19 @@ def read_variant_rows(path: str | Path, base_schedule: dict[str, Any]) -> list[d
                 "market_probability": _clamp_probability(market_probability),
                 "outcome": int(outcome),
                 "base_alpha": base_alpha,
-                "raw_probability": reconstruct_raw_probability(
-                    probability,
-                    current_probability,
-                    base_alpha,
+                "raw_probability": (
+                    _clamp_probability(candidate_preblend_probability)
+                    if candidate_preblend_probability is not None
+                    else reconstruct_raw_probability(
+                        probability,
+                        current_probability,
+                        base_alpha,
+                    )
+                ),
+                "raw_probability_source": (
+                    "explicit_preblend_candidate"
+                    if candidate_preblend_probability is not None
+                    else "legacy_rowwise_reconstruction"
                 ),
             })
     return rows
@@ -370,6 +420,14 @@ def build_payload(
 ) -> dict[str, Any]:
     base_schedule = load_base_alpha_schedule(base_replay_path)
     rows = read_variant_rows(rows_path, base_schedule)
+    explicit_preblend_rows = sum(
+        row.get("raw_probability_source") == "explicit_preblend_candidate"
+        for row in rows
+    )
+    legacy_reconstruction_rows = sum(
+        row.get("raw_probability_source") == "legacy_rowwise_reconstruction"
+        for row in rows
+    )
     split = split_market_dates(rows)
     grid = alpha_grid_values(alpha_grid)
     selections = [
@@ -450,6 +508,17 @@ def build_payload(
         "alpha_grid": grid,
         "market_tol": float(market_tol),
         "evidence_classification": "development_time_split_not_promotion_evidence",
+        "raw_probability_provenance": {
+            "status": "PASS",
+            "partition_mass_restoration_enabled": (
+                base_schedule.get("partition_mass_restoration_enabled") is True
+            ),
+            "artifact_hash_binding_required": (
+                base_schedule.get("partition_mass_restoration_enabled") is True
+            ),
+            "explicit_preblend_rows": explicit_preblend_rows,
+            "legacy_rowwise_reconstruction_rows": legacy_reconstruction_rows,
+        },
         "no_leakage_audit": {
             "primary_evidence_unit": "market_day",
             "status": "PASS" if eval_rows else "WARN",
@@ -500,6 +569,7 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     selected = payload.get("selected") or {}
     baseline = payload.get("baseline") or {}
+    provenance = payload.get("raw_probability_provenance") or {}
     lines = [
         "# Current-Blend Time-Split Validation",
         "",
@@ -519,6 +589,16 @@ def write_markdown_report(path: str | Path, payload: dict[str, Any]) -> Path:
             ["Rows", (payload.get("row_counts") or {}).get("total")],
             ["Train rows", (payload.get("row_counts") or {}).get("train")],
             ["Eval rows", (payload.get("row_counts") or {}).get("eval")],
+            ["Raw-probability provenance", provenance.get("status")],
+            [
+                "Partition mass restoration",
+                provenance.get("partition_mass_restoration_enabled"),
+            ],
+            ["Explicit preblend rows", provenance.get("explicit_preblend_rows")],
+            [
+                "Legacy reconstructed rows",
+                provenance.get("legacy_rowwise_reconstruction_rows"),
+            ],
             ["Selected alpha", json.dumps(payload.get("selected_alpha") or {}, sort_keys=True)],
         ],
     )
