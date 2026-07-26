@@ -12,8 +12,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.operations.windows_process_lifetime import (
+    WindowsProcessLifetimeTracker,
+)
 from weather.paths import data_path
-
 from weather.schema_registry import schema_version
 
 
@@ -619,6 +621,9 @@ class _WindowsJobObject:
         if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
             self._raise_last_error("AssignProcessToJobObject")
 
+    def native_handle(self):
+        return self._handle
+
     def terminate(self, exit_code=1):
         if self._closed or not self._handle:
             return False
@@ -1048,6 +1053,7 @@ def run_isolated_subprocess(
     command_row = [str(item) for item in command]
     process = None
     job = None
+    process_lifetime_tracker = None
     output_capture = None
     stdout = ""
     stderr = ""
@@ -1096,10 +1102,12 @@ def run_isolated_subprocess(
         memory_limits["reason"] = "no_limit"
     resource_peaks = {
         "sample_count": 0,
+        "sampled_working_set_peak_bytes": 0,
         "working_set_peak_bytes": 0,
         "private_memory_peak_bytes": 0,
         "max_process_count": 0,
         "last_sample": {},
+        "process_lifetime": {},
     }
     resource_io = {
         "read_operation_count": 0,
@@ -1146,6 +1154,8 @@ def run_isolated_subprocess(
                 private_memory_limit_bytes=private_limit,
                 working_set_limit_bytes=working_set_limit,
             )
+            process_lifetime_tracker = WindowsProcessLifetimeTracker()
+            process_lifetime_tracker.attach(job)
             memory_limits = job.memory_limit
             containment.update({
                 "method": "windows_job_object",
@@ -1174,6 +1184,13 @@ def run_isolated_subprocess(
         )
         if os.name == "nt":
             job.assign(process._handle)  # noqa: SLF001 - Win32 handle is required for Job assignment
+            process_lifetime_tracker.capture(job)
+            if not process_lifetime_tracker.has_retained_process(
+                process.pid
+            ):
+                raise RuntimeError(
+                    "suspended root process handle was not retained"
+                )
             containment.update({
                 "status": "PENDING",
                 "process_tree_contained": True,
@@ -1244,6 +1261,8 @@ def run_isolated_subprocess(
                 stdout, stderr, capture_error = output_capture.finish(timeout=5)
                 if capture_error:
                     containment["output_capture_error"] = capture_error
+        if process_lifetime_tracker is not None:
+            process_lifetime_tracker.close()
         if job is not None:
             job.close()
         tail = max(0, int(output_tail_chars or 0))
@@ -1273,6 +1292,8 @@ def run_isolated_subprocess(
             )
             sample_interval = max(0.02, float(resource_sample_interval_seconds or 0.2))
             while True:
+                if process_lifetime_tracker is not None:
+                    process_lifetime_tracker.capture(job)
                 sample = _contained_process_memory_metrics(job, process.pid)
                 io_sample_available = bool(
                     sample.get("available")
@@ -1285,6 +1306,10 @@ def run_isolated_subprocess(
                     resource_peaks["sample_count"] += 1
                     resource_peaks["working_set_peak_bytes"] = max(
                         resource_peaks["working_set_peak_bytes"],
+                        int(sample.get("working_set_bytes") or 0),
+                    )
+                    resource_peaks["sampled_working_set_peak_bytes"] = max(
+                        resource_peaks["sampled_working_set_peak_bytes"],
                         int(sample.get("working_set_bytes") or 0),
                     )
                     resource_peaks["private_memory_peak_bytes"] = max(
@@ -1538,9 +1563,72 @@ def run_isolated_subprocess(
                 ):
                     time.sleep(0.02)
                     accounting = job.accounting()
+                if int(accounting.get("active_processes") or 0) > 0:
+                    if not termination.get("triggered"):
+                        job.terminate(exit_code=0)
+                        termination = {
+                            "triggered": True,
+                            "reason": "descendant_cleanup",
+                            "method": "TerminateJobObject",
+                            "tree_termination_requested": True,
+                            "active_processes_before_termination": int(
+                                accounting["active_processes"]
+                            ),
+                        }
+                    cleanup_deadline = time.time() + 5
+                    while (
+                        int(accounting.get("active_processes") or 0) > 0
+                        and time.time() < cleanup_deadline
+                    ):
+                        time.sleep(0.02)
+                        accounting = job.accounting()
                 io_lifetime_accounting_verified = (
                     int(accounting.get("active_processes") or 0) == 0
                 )
+                if process_lifetime_tracker is not None:
+                    lifetime = process_lifetime_tracker.finalize(accounting)
+                    resource_peaks["process_lifetime"] = lifetime
+                    accounting = dict(
+                        lifetime.get("final_job_accounting") or accounting
+                    )
+                    if lifetime.get("status") == "PASS":
+                        lifetime_working_set = int(
+                            lifetime.get(
+                                "lifetime_working_set_upper_bound_bytes"
+                            )
+                            or 0
+                        )
+                        resource_peaks["working_set_peak_bytes"] = max(
+                            int(resource_peaks["working_set_peak_bytes"]),
+                            lifetime_working_set,
+                        )
+                        resource_peaks["max_process_count"] = max(
+                            int(resource_peaks["max_process_count"]),
+                            int(lifetime.get("tracked_process_count") or 0),
+                        )
+                        if (
+                            resource_limit_exceeded is None
+                            and working_set_limit
+                            and lifetime_working_set > working_set_limit
+                        ):
+                            resource_limit_exceeded = {
+                                "resource": "working_set_bytes",
+                                "observed_bytes": lifetime_working_set,
+                                "limit_bytes": int(working_set_limit),
+                                "detected_from": (
+                                    "windows_terminal_process_lifetime_peaks"
+                                ),
+                            }
+                    else:
+                        runner_error = (
+                            runner_error
+                            or "Windows process-lifetime accounting failed"
+                        )
+                        containment.update({
+                            "status": "BLOCK",
+                            "error": runner_error,
+                            "process_lifetime_accounting": "FAIL",
+                        })
                 containment["accounting"] = accounting
                 resource_io.update({
                     "read_operation_count": int(accounting.get("read_operation_count") or 0),
@@ -1590,6 +1678,21 @@ def run_isolated_subprocess(
                         "process_exited_over_limit": True,
                     }
                 if (
+                    resource_limit_exceeded is not None
+                    and resource_limit_exceeded.get("detected_from")
+                    == "windows_terminal_process_lifetime_peaks"
+                    and not termination.get("triggered")
+                ):
+                    termination = {
+                        "triggered": False,
+                        "reason": "resource_budget_exceeded",
+                        "method": (
+                            "windows_terminal_process_lifetime_peaks"
+                        ),
+                        "tree_termination_requested": False,
+                        "process_exited_over_limit": True,
+                    }
+                if (
                     resource_limit_exceeded is None
                     and private_limit
                     and process.returncode not in {None, 0}
@@ -1619,22 +1722,22 @@ def run_isolated_subprocess(
                             "tree_termination_requested": False,
                             "process_exited_under_limit": True,
                         }
-                if accounting.get("active_processes", 0) > 0 and not termination.get("triggered"):
-                    job.terminate(exit_code=0)
-                    termination = {
-                        "triggered": True,
-                        "reason": "descendant_cleanup",
-                        "method": "TerminateJobObject",
-                        "tree_termination_requested": True,
-                        "active_processes_before_termination": accounting["active_processes"],
-                    }
                 termination["tree_scope"] = "windows_job_object"
                 termination["tree_terminated"] = (
                     accounting.get("active_processes", 0) == 0
                     or bool(termination.get("triggered"))
                 )
             except Exception as exc:  # noqa: BLE001 - close still enforces kill-on-close
-                containment["accounting_error"] = f"{type(exc).__name__}: {exc}"
+                detail = f"{type(exc).__name__}: {exc}"
+                containment.update({
+                    "status": "BLOCK",
+                    "accounting_error": detail,
+                    "error": detail,
+                })
+                runner_error = (
+                    runner_error
+                    or f"Windows Job lifetime accounting failed: {detail}"
+                )
                 termination["tree_terminated_on_container_close"] = True
         else:
             termination = _finish_posix_process_group(process.pid, termination)
@@ -1656,12 +1759,23 @@ def run_isolated_subprocess(
                 "io_enforcement": "unverified",
             })
     finally:
+        if process_lifetime_tracker is not None:
+            process_lifetime_tracker.close()
         if job is not None:
             job.close()
 
     memory_limits["working_set_enforcement_verified"] = bool(
         not working_set_limit
-        or resource_peaks["sample_count"] > 0
+        or (
+            resource_peaks["sample_count"] > 0
+            and (
+                os.name != "nt"
+                or (
+                    resource_peaks.get("process_lifetime") or {}
+                ).get("status")
+                == "PASS"
+            )
+        )
     )
     resource_io["enforcement_verified"] = bool(
         not io_sampling_enforcement_required

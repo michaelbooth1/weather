@@ -279,6 +279,34 @@ class TestLongJobGuard(unittest.TestCase):
             )
             self.assertTrue(result["containment"]["assigned_before_resume"])
             self.assertGreaterEqual(result["containment"]["accounting"]["total_processes"], 2)
+            lifetime = result["resource_peaks"]["process_lifetime"]
+            self.assertEqual(lifetime["status"], "PASS", lifetime)
+            self.assertEqual(
+                lifetime["tracked_process_count"],
+                result["containment"]["accounting"]["total_processes"],
+            )
+            self.assertEqual(
+                lifetime["closed_handle_count"],
+                lifetime["retained_handle_count"],
+            )
+            self.assertTrue(
+                lifetime["checks"][
+                    "completion_port_associated_before_assignment"
+                ]
+            )
+            self.assertTrue(
+                lifetime["checks"]["completion_queue_flushed"]
+            )
+            self.assertTrue(
+                all(
+                    row["job_membership_verified"]
+                    for row in lifetime["processes"]
+                )
+            )
+            self.assertGreaterEqual(
+                result["resource_peaks"]["working_set_peak_bytes"],
+                result["resource_peaks"]["sampled_working_set_peak_bytes"],
+            )
         else:
             self.assertEqual(result["working_set_limit"]["reason"], "non_windows")
 
@@ -331,6 +359,57 @@ class TestLongJobGuard(unittest.TestCase):
         )
         self.assertTrue(result["resource_io"]["enforcement_verified"])
 
+    @unittest.skipUnless(os.name == "nt", "Windows terminal lifetime peaks")
+    def test_terminal_handle_captures_late_descendant_peak_between_samples(self):
+        descendant = (
+            "import time;"
+            "time.sleep(0.8);"
+            "payload=bytearray(64*1024*1024);"
+            "sum(payload[::4096]);"
+            "time.sleep(0.05)"
+        )
+        launcher = (
+            "import subprocess,sys;"
+            f"child=subprocess.Popen([sys.executable,'-c',{descendant!r}]);"
+            "raise SystemExit(child.wait())"
+        )
+        result = run_isolated_subprocess(
+            [sys.executable, "-c", launcher],
+            timeout_seconds=30,
+            working_set_max_bytes=512 * 1024 * 1024,
+            private_memory_max_bytes=512 * 1024 * 1024,
+            resource_sample_interval_seconds=0.5,
+        )
+
+        self.assertEqual(result["returncode"], 0, result)
+        lifetime = result["resource_peaks"]["process_lifetime"]
+        self.assertEqual(lifetime["status"], "PASS", lifetime)
+        self.assertTrue(
+            lifetime["checks"][
+                "completion_port_associated_before_assignment"
+            ]
+        )
+        self.assertTrue(lifetime["checks"]["completion_queue_flushed"])
+        self.assertTrue(
+            all(
+                row["job_membership_verified"]
+                for row in lifetime["processes"]
+            )
+        )
+        self.assertGreaterEqual(lifetime["tracked_process_count"], 2)
+        self.assertGreaterEqual(
+            lifetime["lifetime_working_set_upper_bound_bytes"],
+            48 * 1024 * 1024,
+        )
+        self.assertGreater(
+            lifetime["lifetime_working_set_upper_bound_bytes"],
+            result["resource_peaks"]["sampled_working_set_peak_bytes"],
+        )
+        self.assertEqual(
+            result["resource_peaks"]["working_set_peak_bytes"],
+            lifetime["lifetime_working_set_upper_bound_bytes"],
+        )
+
     def test_timeout_kills_launcher_descendants_without_touching_unrelated_process(self):
         base_python = getattr(sys, "_base_executable", sys.executable)
         sentinel = subprocess.Popen([base_python, "-c", "import time; time.sleep(60)"])
@@ -353,7 +432,7 @@ class TestLongJobGuard(unittest.TestCase):
                 child_pid = int(child_pid_path.read_text(encoding="utf-8"))
 
             self.assertTrue(result["timed_out"], result)
-            self.assertEqual(result["containment"]["status"], "PASS")
+            self.assertEqual(result["containment"]["status"], "PASS", result)
             self.assertTrue(result["termination"]["triggered"])
             self.assertEqual(result["termination"]["reason"], "timeout")
             self.assertTrue(self.wait_for_process_exit(result["pid"]))
@@ -391,7 +470,7 @@ class TestLongJobGuard(unittest.TestCase):
 
         self.assertEqual(result["returncode"], 7)
         self.assertFalse(result["timed_out"])
-        self.assertEqual(result["containment"]["status"], "PASS")
+        self.assertEqual(result["containment"]["status"], "PASS", result)
         self.assertTrue(result["termination"]["triggered"])
         self.assertEqual(result["termination"]["reason"], "descendant_cleanup")
         self.assertTrue(self.wait_for_process_exit(child_pid))
