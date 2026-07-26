@@ -174,9 +174,29 @@ if (-not $ok) {
 Note "capture healthy after the roll; pushing"
 & git push origin master
 if ($LASTEXITCODE -ne 0) {
-    Note "push failed (pushes need an interactive logon session). Merge is committed locally and will go out on the next successful push; capture is healthy."
-    Save-Report -ok $true -stage "merged_unpushed" -detail "push failed; commit $mergeCommit is local"
-    exit 3
+    # Expected under S4U: session 0 cannot reach the credential vault. Do NOT stop here --
+    # a merge that lands locally but never reaches origin blocks the workstation agent until
+    # somebody logs in, which overnight means hours of idle. WeatherOneShotPush is
+    # deliberately Interactive and runs in the operator's logon session (which survives an
+    # RDP disconnect), so hand the push to it rather than deferring to morning.
+    Note "direct push failed (no credential vault under S4U); handing off to WeatherOneShotPush"
+    try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
+    catch { Note "could not start WeatherOneShotPush: $($_.Exception.Message)" }
+    # A successful push updates refs/remotes/origin/master locally, so this verifies the
+    # push landed without needing a fetch -- which would need the same credentials.
+    $pushed = $false
+    for ($i = 0; $i -lt 18; $i++) {
+        Start-Sleep -Seconds 10
+        if ((& git rev-parse origin/master).Trim() -eq $mergeCommit) { $pushed = $true; break }
+    }
+    if (-not $pushed) {
+        Note "handoff did not publish within 3 min. Merge is committed locally and capture is healthy; run WeatherOneShotPush once a session is available."
+        Save-Report -ok $true -stage "merged_unpushed" -detail "push failed; commit $mergeCommit is local"
+        exit 3
+    }
+    Note "pushed $mergeCommit via WeatherOneShotPush"
+    Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush handoff)"
+    exit 0
 }
 Note "pushed $mergeCommit"
 Save-Report -ok $true -stage "pushed" -detail $mergeCommit
