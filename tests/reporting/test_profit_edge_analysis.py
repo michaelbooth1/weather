@@ -185,6 +185,19 @@ def test_build_analysis_stratifies_all_rows_but_debursts_hourly_trades(tmp_path)
     assert buckets["low_top_0.80_to_0.95"]["partitions"] == 1
     assert buckets["moderate_top_0.60_to_0.80"]["partitions"] == 1
     assert payload["evening_18_23_naive_taker_liability"]["trades"] == 2
+    assert (
+        payload["evening_18_23_naive_taker_liability"][
+            "total_gross_pnl_per_share_positions"
+        ]
+        is not None
+    )
+    assert (
+        payload["evening_18_23_naive_taker_liability"][
+            "total_maker_rebate_sensitivity_per_share_positions"
+        ]
+        is not None
+    )
+    assert payload["evening_18_23_uncertainty_pnl_attribution"]
     ranked_totals = [
         row["total_taker_net_pnl_per_share_positions"]
         for row in payload["profit_ranking"]
@@ -280,6 +293,8 @@ def test_exploitability_rule_uses_market_day_means_and_fixed_support():
     assert summary["market_days"] == 30
     assert summary["market_day_mean_taker_net_pnl_per_share_ci95_low"] > 0
     assert summary["positive_market_day_rate"] == 1.0
+    assert summary["yes_side_trade_count"] == 120
+    assert summary["no_side_trade_count"] == 0
     assert summary["meets_exploitability_rule"] is True
 
 

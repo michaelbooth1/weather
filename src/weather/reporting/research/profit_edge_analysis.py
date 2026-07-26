@@ -327,6 +327,7 @@ def summarize_trades(
             "market_day_mean_taker_net_pnl_per_share_ci95_low": None,
             "market_day_mean_taker_net_pnl_per_share_ci95_high": None,
             "positive_market_day_rate": None,
+            "mean_taker_net_cents_per_share": None,
             "meets_exploitability_rule": False,
         }
     by_day: dict[str, list[float]] = defaultdict(list)
@@ -405,7 +406,11 @@ def summarize_trades(
             float(row["taker_fee_per_share"]) for row in trades
         ),
         "mean_gross_pnl_per_share": mean("gross_pnl_per_share"),
+        "total_gross_pnl_per_share_positions": sum(
+            float(row["gross_pnl_per_share"]) for row in trades
+        ),
         "mean_taker_net_pnl_per_share": mean_taker,
+        "mean_taker_net_cents_per_share": 100.0 * mean_taker,
         "total_taker_net_pnl_per_share_positions": sum(
             float(row["taker_net_pnl_per_share"]) for row in trades
         ),
@@ -417,6 +422,9 @@ def summarize_trades(
         ),
         "mean_maker_rebate_sensitivity_per_share": mean(
             "maker_rebate_sensitivity_per_share"
+        ),
+        "total_maker_rebate_sensitivity_per_share_positions": sum(
+            float(row["maker_rebate_sensitivity_per_share"]) for row in trades
         ),
         "mean_gross_pnl_per_dollar_notional": mean("gross_pnl_per_dollar_notional"),
         "mean_taker_net_pnl_per_dollar_notional": mean(
@@ -447,8 +455,8 @@ def summarize_trades(
         "worst_trade_taker_net_pnl_per_share": min(
             float(row["taker_net_pnl_per_share"]) for row in trades
         ),
-        "yes_trade_count": sum(str(row.get("side")) == "YES" for row in trades),
-        "no_trade_count": sum(str(row.get("side")) == "NO" for row in trades),
+        "yes_side_trade_count": sum(str(row.get("side")) == "YES" for row in trades),
+        "no_side_trade_count": sum(str(row.get("side")) == "NO" for row in trades),
         "meets_exploitability_rule": meets,
     }
 
@@ -858,6 +866,17 @@ def build_profit_edge_analysis(
 
     trades = trade_sets["symmetric_tau_0.00"]
     trade_slices = _trade_slices(trades, opportunities)
+    trade_slices_by_label = {str(row["label"]): row for row in trade_slices}
+    evening_uncertainty_pnl = [
+        trade_slices_by_label[f"evening_18_23__{bucket}"]
+        for bucket in (
+            "near_resolved_top_ge_0.95",
+            "low_top_0.80_to_0.95",
+            "moderate_top_0.60_to_0.80",
+            "high_top_lt_0.60",
+        )
+        if f"evening_18_23__{bucket}" in trade_slices_by_label
+    ]
     pnl_ranking = sorted(
         trade_slices,
         key=lambda row: (
@@ -1028,6 +1047,7 @@ def build_profit_edge_analysis(
         "fixed_rule_sensitivities": sensitivity_rows,
         "evening_18_23_naive_taker_liability": evening_trade,
         "evening_18_23_first_trade_per_market_day_liability": evening_event_day_liability,
+        "evening_18_23_uncertainty_pnl_attribution": evening_uncertainty_pnl,
         "exploitable_subsets": exploitable,
         "exploitable_subset_verdict": (
             f"{len(exploitable)} preregistered slice(s) pass the historical screen."
@@ -1079,7 +1099,8 @@ def render_report(payload: dict[str, Any]) -> str:
         [
             "Bucket",
             "Partitions",
-            "Weight",
+            "Partition weight",
+            "Row weight",
             "Entropy",
             "1 - top",
             "Raw mass",
@@ -1092,6 +1113,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 row.get("label"),
                 row.get("partitions"),
                 _fmt(row.get("partition_population_weight"), 4),
+                _fmt(row.get("row_population_weight"), 4),
                 _fmt(row.get("mean_normalized_entropy"), 4),
                 _fmt(row.get("mean_distance_from_resolution"), 4),
                 _fmt(row.get("mean_raw_market_mass"), 4),
@@ -1133,9 +1155,12 @@ def render_report(payload: dict[str, Any]) -> str:
         [
             "Counting",
             "Trades",
-            "Days",
+            "Market-days",
+            "Gross total",
+            "Fee total",
             "Total unit-share net",
-            "Mean net/share",
+            "Maker sensitivity total",
+            "Mean cents/share",
             "CI95 low",
             "Date-bootstrap low",
             "Positive days",
@@ -1145,8 +1170,15 @@ def render_report(payload: dict[str, Any]) -> str:
                 "hourly opportunities",
                 liability.get("trades"),
                 liability.get("market_days"),
+                _fmt(liability.get("total_gross_pnl_per_share_positions")),
+                _fmt(liability.get("total_taker_fees_per_share_positions")),
                 _fmt(liability.get("total_taker_net_pnl_per_share_positions")),
-                _fmt(liability.get("mean_taker_net_pnl_per_share")),
+                _fmt(
+                    liability.get(
+                        "total_maker_rebate_sensitivity_per_share_positions"
+                    )
+                ),
+                _fmt(liability.get("mean_taker_net_cents_per_share")),
                 _fmt(
                     liability.get(
                         "market_day_mean_taker_net_pnl_per_share_ci95_low"
@@ -1165,10 +1197,27 @@ def render_report(payload: dict[str, Any]) -> str:
                 event_day_liability.get("market_days"),
                 _fmt(
                     event_day_liability.get(
+                        "total_gross_pnl_per_share_positions"
+                    )
+                ),
+                _fmt(
+                    event_day_liability.get(
+                        "total_taker_fees_per_share_positions"
+                    )
+                ),
+                _fmt(
+                    event_day_liability.get(
                         "total_taker_net_pnl_per_share_positions"
                     )
                 ),
-                _fmt(event_day_liability.get("mean_taker_net_pnl_per_share")),
+                _fmt(
+                    event_day_liability.get(
+                        "total_maker_rebate_sensitivity_per_share_positions"
+                    )
+                ),
+                _fmt(
+                    event_day_liability.get("mean_taker_net_cents_per_share")
+                ),
                 _fmt(
                     event_day_liability.get(
                         "market_day_mean_taker_net_pnl_per_share_ci95_low"
@@ -1183,11 +1232,42 @@ def render_report(payload: dict[str, Any]) -> str:
             ],
         ],
     )
+    lines += ["", "### Evening P&L attribution by uncertainty", ""]
+    lines += markdown_table(
+        [
+            "Bucket",
+            "Eligible",
+            "Trades",
+            "Gross total",
+            "Fee total",
+            "Net total",
+            "Maker sensitivity total",
+            "Mean cents/share",
+        ],
+        [
+            [
+                str(row.get("label") or "").removeprefix("evening_18_23__"),
+                row.get("eligible_partitions"),
+                row.get("trades"),
+                _fmt(row.get("total_gross_pnl_per_share_positions")),
+                _fmt(row.get("total_taker_fees_per_share_positions")),
+                _fmt(row.get("total_taker_net_pnl_per_share_positions")),
+                _fmt(
+                    row.get(
+                        "total_maker_rebate_sensitivity_per_share_positions"
+                    )
+                ),
+                _fmt(row.get("mean_taker_net_cents_per_share")),
+            ]
+            for row in payload.get("evening_18_23_uncertainty_pnl_attribution")
+            or []
+        ],
+    )
     lines += [
         "",
         "## Historical slices",
         "",
-        "The maker column is a favorable rebate sensitivity, not a claimed strategy return.",
+        "Maker values are a favorable rebate sensitivity, not a claimed strategy return.",
         "",
     ]
     lines += markdown_table(
@@ -1201,6 +1281,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "CI95 low",
             "Date-bootstrap low",
             "Positive days",
+            "Maker total",
             "Pass",
         ],
         [
@@ -1220,6 +1301,11 @@ def render_report(payload: dict[str, Any]) -> str:
                     )
                 ),
                 _fmt(row.get("positive_market_day_rate"), 4),
+                _fmt(
+                    row.get(
+                        "total_maker_rebate_sensitivity_per_share_positions"
+                    )
+                ),
                 row.get("meets_exploitability_rule"),
             ]
             for row in payload.get("profit_ranking") or []
