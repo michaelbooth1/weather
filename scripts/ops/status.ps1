@@ -122,6 +122,17 @@ $cf = Join-Path $repo "data\backtest\daily_refresh_status.json"
 if (Test-Path $cf) { try { $chain = Get-Content $cf -Raw | ConvertFrom-Json } catch {} }
 $chainStatus = if ($chain) { [string]$chain.status } else { "?" }
 $chainTerm = if ($chain -and $chain.terminal) { "terminal" } else { "running/unknown" }
+# A `critical` run with every step OK is NOT a broken chain: it is the production-readiness
+# gate correctly reporting that no release pointer exists yet, which is the standing
+# pre-release state (2026-07-26: 24/24 steps ok, SLA pass, 69 blockers led by
+# active_release_verification_failed). Reporting that as breakage is the same false-positive
+# trap as the old 0x2 exit code, so name what it actually means.
+$chainGate = $null
+if ($chain -and $chain.production_readiness) {
+    $pr = $chain.production_readiness
+    $chainGate = "readiness {0}/{1}, {2} blockers -> {3}" -f [string]$pr.status, [string]$pr.stage,
+    [int]$pr.blocker_count, [string]$pr.first_blocker.code
+}
 # Name the failing STEP and its reason. A bare "error" costs a manual dig through
 # daily_refresh_status.json every single time, which is exactly what this script exists
 # to avoid (2026-07-24: "error" was maker_paper_input_budget_exceeded, 20 min to find).
@@ -294,13 +305,10 @@ if (Test-Path $rf) {
     }
     catch {}
 }
-# The tape backup subsystem was DELETED from the codebase on 2026-07-07 (commit 3ebca26e
-# removed tape_backup*.py, its tests, register script and runbook), so the long-standing
-# "tape backup broken, backups stale" note was wrong: there is nothing to repair, and the
-# nightly mirror is the ONLY off-host copy. It is a robocopy /MIR replica, not a backup --
-# a corruption or accidental deletion propagates to it within 24h and there is no
-# point-in-time recovery. Say so continuously; it is a standing decision, not an incident.
-$warns.Add("no versioned backup exists (tape subsystem removed 2026-07-07); the /MIR mirror is a replica, so deletions and corruption propagate within 24h with no point-in-time recovery")
+# No versioned backup exists (the tape subsystem was deleted 2026-07-07, commit 3ebca26e) and
+# the nightly /MIR mirror is a replica rather than a backup. That is an ACCEPTED operator
+# decision as of 2026-07-26 -- durability work waits until the model is profitable -- so it is
+# deliberately NOT reported here. The cheap checks below stay because they already run.
 if ($null -eq $restore) { $warns.Add("mirror has never been restore-verified - run scripts\ops\verify_mirror_restore.ps1") }
 elseif (-not $restore.ok) { $flags.Add("MIRROR RESTORE VERIFY FAILED: $($restore.problems) problem file(s) - the off-host copy may not be restorable") }
 elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restoreAgeH}h) - restorability unproven since then") }
@@ -444,8 +452,11 @@ $diskTrend = if ($null -eq $diskDelta) { "" }
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
-Write-Output ("  CHAIN     : {0} / {1}   (0x2 = gates BLOCK, expected pre-release)" -f $chainStatus, $chainTerm)
+$chainNote = if ($chainStatus -eq "critical" -and -not $chainFail) { "all steps OK - 'critical' is the readiness gate, expected pre-release" }
+else { "0x2 = gates BLOCK, expected pre-release" }
+Write-Output ("  CHAIN     : {0} / {1}   ({2})" -f $chainStatus, $chainTerm, $chainNote)
 if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
+if ($chainGate) { Write-Output ("              gate: {0}" -f $chainGate) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
