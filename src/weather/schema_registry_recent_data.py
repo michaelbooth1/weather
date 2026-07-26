@@ -826,4 +826,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Read-only exact CORP/Murphy model-versus-market Brier decomposition, hour and lead-time cuts, and worst-loss taxonomy.",
     ),
+    SchemaSpec(
+        "profit_edge_analysis",
+        "profit_edge_analysis_v0.1",
+        "weather.reporting.research.profit_edge_analysis",
+        "active",
+        "Read-only settled market-uncertainty, realistic-fee, naive-taker liability, and historical exploitability diagnostic.",
+    ),
 )
