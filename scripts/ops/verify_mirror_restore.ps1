@@ -53,6 +53,21 @@ function Add-Result($rel, $state, $detail) {
     $results.Add([PSCustomObject]@{ file = $rel; state = $state; detail = $detail })
 }
 
+# Never run while the mirror itself is copying. This is scheduled 12 minutes after the mirror
+# typically finishes, but run length varies with churn -- and if it overran, the
+# `net use /delete` below would tear the share out from under an in-progress robocopy.
+# Skipping a day of verification is free; breaking the only off-host copy is not. Exit
+# WITHOUT rewriting the status file, so a skip leaves the last real result standing and
+# ages out through status.ps1's staleness check rather than looking like a failure.
+$mirrorLock = "C:\Users\micha\ops\mirror.lock"
+if (Test-Path $mirrorLock) {
+    $lockAgeH = ((Get-Date) - (Get-Item $mirrorLock).LastWriteTime).TotalHours
+    if ($lockAgeH -lt 12) {
+        Write-Output ("skipped: mirror still running (lock {0:N1}h old); not touching its share" -f $lockAgeH)
+        exit 0
+    }
+}
+
 try {
     $pw = (Get-Content $credF -Raw).Trim()
     net use $share $pw /user:DESKTOP-RFCD2GH\weathersync | Out-Null
