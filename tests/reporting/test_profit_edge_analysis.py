@@ -185,6 +185,12 @@ def test_build_analysis_stratifies_all_rows_but_debursts_hourly_trades(tmp_path)
     assert buckets["low_top_0.80_to_0.95"]["partitions"] == 1
     assert buckets["moderate_top_0.60_to_0.80"]["partitions"] == 1
     assert payload["evening_18_23_naive_taker_liability"]["trades"] == 2
+    ranked_totals = [
+        row["total_taker_net_pnl_per_share_positions"]
+        for row in payload["profit_ranking"]
+        if row.get("total_taker_net_pnl_per_share_positions") is not None
+    ]
+    assert ranked_totals == sorted(ranked_totals, reverse=True)
     assert "favorable rebate sensitivity" in report
     assert all(path.exists() for path in outputs)
 
@@ -275,3 +281,49 @@ def test_exploitability_rule_uses_market_day_means_and_fixed_support():
     assert summary["market_day_mean_taker_net_pnl_per_share_ci95_low"] > 0
     assert summary["positive_market_day_rate"] == 1.0
     assert summary["meets_exploitability_rule"] is True
+
+
+def test_date_sensitivities_retain_equal_market_day_estimand():
+    trades = []
+    date_specs = (
+        ("2026-07-01", 10, 0.1),
+        ("2026-07-02", 5, -0.2),
+        ("2026-07-03", 1, 0.5),
+    )
+    for target_date, market_days, pnl in date_specs:
+        for index in range(market_days):
+            trades.append(
+                {
+                    "market_day": f"market-{index}|{target_date}",
+                    "market_id": f"market-{index}",
+                    "target_date": target_date,
+                    "side": "YES",
+                    "contract_price": 0.5,
+                    "predicted_gross_edge_per_share": 0.1,
+                    "predicted_net_edge_per_share": 0.0875,
+                    "taker_fee_per_share": 0.0125,
+                    "gross_pnl_per_share": pnl + 0.0125,
+                    "taker_net_pnl_per_share": pnl,
+                    "maker_rebate_sensitivity_per_share": pnl + 0.015625,
+                    "gross_pnl_per_dollar_notional": (pnl + 0.0125) / 0.5,
+                    "taker_net_pnl_per_dollar_notional": pnl / 0.5,
+                    "maker_rebate_sensitivity_per_dollar_notional": (
+                        pnl + 0.015625
+                    )
+                    / 0.5,
+                }
+            )
+
+    first = summarize_trades("date-block-test", trades)
+    second = summarize_trades("date-block-test", trades)
+
+    assert first["market_day_mean_taker_net_pnl_per_share"] == pytest.approx(
+        0.5 / 16
+    )
+    assert first["leave_one_date_out_min_mean_taker_net_pnl_per_share"] == pytest.approx(
+        -0.5 / 6
+    )
+    assert (
+        first["date_block_bootstrap_mean_taker_net_pnl_per_share_ci95_low"]
+        == second["date_block_bootstrap_mean_taker_net_pnl_per_share_ci95_low"]
+    )

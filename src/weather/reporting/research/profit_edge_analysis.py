@@ -282,22 +282,26 @@ def _complete_trade(
     }
 
 
-def _bootstrap_day_mean_ci(
-    day_means: list[float],
+def _bootstrap_target_date_blocks_ci(
+    date_blocks: dict[str, list[float]],
     *,
     label: str,
     repetitions: int = BOOTSTRAP_REPETITIONS,
 ) -> tuple[float | None, float | None]:
-    if len(day_means) < 2 or repetitions <= 0:
+    if len(date_blocks) < 2 or repetitions <= 0:
         return None, None
     seed_material = hashlib.sha256(
         f"profit-edge-v0.1|{label}|20260726".encode("utf-8")
     ).digest()
     rng = random.Random(int.from_bytes(seed_material[:8], "big"))
-    count = len(day_means)
+    target_dates = sorted(date_blocks)
+    count = len(target_dates)
     samples = []
     for _ in range(repetitions):
-        samples.append(sum(day_means[rng.randrange(count)] for _ in range(count)) / count)
+        sampled_market_days = []
+        for _ in range(count):
+            sampled_market_days.extend(date_blocks[target_dates[rng.randrange(count)]])
+        samples.append(sum(sampled_market_days) / len(sampled_market_days))
     return _quantile(samples, 0.025), _quantile(samples, 0.975)
 
 
@@ -326,30 +330,45 @@ def summarize_trades(
             "meets_exploitability_rule": False,
         }
     by_day: dict[str, list[float]] = defaultdict(list)
+    market_day_target_dates: dict[str, str] = {}
     for trade in trades:
         by_day[trade["market_day"]].append(float(trade["taker_net_pnl_per_share"]))
-    day_means = [sum(values) / len(values) for _, values in sorted(by_day.items())]
+        existing_target_date = market_day_target_dates.setdefault(
+            str(trade["market_day"]),
+            str(trade["target_date"]),
+        )
+        if existing_target_date != str(trade["target_date"]):
+            raise ValueError("market-day trade group spans multiple target dates")
+    day_mean_by_key = {
+        market_day: sum(values) / len(values)
+        for market_day, values in sorted(by_day.items())
+    }
+    day_means = list(day_mean_by_key.values())
+    date_blocks: dict[str, list[float]] = defaultdict(list)
+    for market_day, market_day_mean in day_mean_by_key.items():
+        date_blocks[market_day_target_dates[market_day]].append(market_day_mean)
     day_mean = sum(day_means) / len(day_means)
     standard_error = (
         stdev(day_means) / math.sqrt(len(day_means)) if len(day_means) >= 2 else None
     )
     ci_low = day_mean - NORMAL_CI_Z * standard_error if standard_error is not None else None
     ci_high = day_mean + NORMAL_CI_Z * standard_error if standard_error is not None else None
-    bootstrap_low, bootstrap_high = _bootstrap_day_mean_ci(day_means, label=label)
+    bootstrap_low, bootstrap_high = _bootstrap_target_date_blocks_ci(
+        date_blocks,
+        label=label,
+    )
     leave_one_date_out_means = []
-    by_date: dict[str, list[float]] = defaultdict(list)
-    for trade in trades:
-        by_date[str(trade["target_date"])].append(
-            float(trade["taker_net_pnl_per_share"])
-        )
     date_means = {
         target_date: sum(values) / len(values)
-        for target_date, values in by_date.items()
+        for target_date, values in date_blocks.items()
     }
     if len(date_means) >= 2:
         for omitted_date in sorted(date_means):
             retained = [
-                value for target_date, value in date_means.items() if target_date != omitted_date
+                value
+                for target_date, values in date_blocks.items()
+                if target_date != omitted_date
+                for value in values
             ]
             leave_one_date_out_means.append(sum(retained) / len(retained))
     positive_day_rate = sum(value > 0.0 for value in day_means) / len(day_means)
@@ -377,7 +396,7 @@ def summarize_trades(
         ),
         "market_days": len(day_means),
         "markets": len({str(row["market_id"]) for row in trades if "market_id" in row}),
-        "target_dates": len(by_date),
+        "target_dates": len(date_blocks),
         "mean_contract_price": mean("contract_price"),
         "mean_predicted_gross_edge_per_share": mean("predicted_gross_edge_per_share"),
         "mean_predicted_net_edge_per_share": mean("predicted_net_edge_per_share"),
@@ -843,9 +862,8 @@ def build_profit_edge_analysis(
         trade_slices,
         key=lambda row: (
             -(
-                float(row["population_taker_net_contribution_per_eligible_partition"])
-                if row.get("population_taker_net_contribution_per_eligible_partition")
-                is not None
+                float(row["total_taker_net_pnl_per_share_positions"])
+                if row.get("total_taker_net_pnl_per_share_positions") is not None
                 else -math.inf
             ),
             -int(row.get("eligible_partitions") or 0),
@@ -875,8 +893,6 @@ def build_profit_edge_analysis(
     )
     sensitivity_rows = []
     for label, sensitivity_trades in sorted(trade_sets.items()):
-        symmetric = label.startswith("symmetric_")
-        eligible = opportunities if symmetric else opportunities
         sensitivity_evening = [
             row
             for row in sensitivity_trades
@@ -888,7 +904,7 @@ def build_profit_edge_analysis(
                 "all_target_day_hours": summarize_trades(
                     f"{label}__all_target_day_hours",
                     sensitivity_trades,
-                    eligible_partitions=len(eligible),
+                    eligible_partitions=len(opportunities),
                 ),
                 "evening_18_23_opportunities": summarize_trades(
                     f"{label}__evening_18_23_opportunities",
@@ -1180,7 +1196,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "Eligible",
             "Trades",
             "Days",
-            "Population net",
+            "Total unit-share net",
             "Taker/share",
             "CI95 low",
             "Date-bootstrap low",
@@ -1194,9 +1210,7 @@ def render_report(payload: dict[str, Any]) -> str:
                 row.get("trades"),
                 row.get("market_days"),
                 _fmt(
-                    row.get(
-                        "population_taker_net_contribution_per_eligible_partition"
-                    )
+                    row.get("total_taker_net_pnl_per_share_positions")
                 ),
                 _fmt(row.get("mean_taker_net_pnl_per_share")),
                 _fmt(row.get("market_day_mean_taker_net_pnl_per_share_ci95_low")),
