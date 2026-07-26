@@ -78,6 +78,44 @@ elseif ($freeRamGB -lt 2.5) { $warns.Add("RAM tightening: $freeRamGB GB free") }
 if ($freeDiskGB -lt 25) { $flags.Add("LOW DISK: $freeDiskGB GB free") }
 elseif ($freeDiskGB -lt 60) { $warns.Add("disk headroom low: $freeDiskGB GB free") }
 
+# Free space is a point-in-time number and tells me nothing about how long I have. The
+# tape/CLOB history means "195 GB free" can be comfortable or two weeks from an outage
+# depending on the slope, so keep a cheap sample trail and report the 24h burn. Sampling
+# Get-PSDrive costs nothing -- deliberately NOT a recursive size walk of data\, which has
+# starved capture before (see the codex-scan hazard) and must never run from a monitor.
+$diskDelta = $null
+$diskDaysLeft = $null
+try {
+    $trail = Join-Path $repo "data\alerts\disk_free_trail.jsonl"
+    $old = @()
+    if (Test-Path $trail) { $old = @(Get-Content $trail -Tail 400 | Where-Object { $_ }) }
+    $cut = (Get-Date).AddHours(-24)
+    $ref = $null
+    foreach ($line in $old) {
+        try {
+            $s = $line | ConvertFrom-Json
+            if ([datetime]$s.ts -le $cut) { $ref = $s }   # newest sample at least 24h old
+        }
+        catch {}
+    }
+    if ($ref) {
+        $hrs = ((Get-Date) - [datetime]$ref.ts).TotalHours
+        if ($hrs -gt 0) {
+            $diskDelta = [math]::Round((($freeDiskGB - $ref.free_gb) / $hrs) * 24, 1)   # GB/day, negative = filling
+            if ($diskDelta -lt 0) { $diskDaysLeft = [math]::Round($freeDiskGB / [math]::Abs($diskDelta), 0) }
+        }
+    }
+    $new = @($old) + @(([ordered]@{ ts = (Get-Date).ToString("o"); free_gb = $freeDiskGB } | ConvertTo-Json -Compress))
+    Set-Content -Path $trail -Value ($new | Select-Object -Last 400) -Encoding utf8
+}
+catch {}
+if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) {
+    $flags.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days of headroom left")
+}
+elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
+    $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
+}
+
 # ---- daily chain ----
 $chain = $null
 $cf = Join-Path $repo "data\backtest\daily_refresh_status.json"
@@ -98,11 +136,24 @@ if ($chain -and $chain.steps) {
         if (-not $why) { $why = [string]$f.status }
         # A deferral is the resource gates working as designed (heavy steps refusing to run
         # beside live capture), not a fault. Say so, or every quiet-window-bound run looks broken.
+        # WHEN it failed matters as much as what failed: a step that broke this morning and
+        # was fixed this afternoon still sits in this file until the next run, so an ageless
+        # "FAILING" reads as live breakage (2026-07-25: the MemoryError shown here predated
+        # its own budget fix by 4.5h). Always say how old the failure is.
+        $failAge = ""
+        $stepFin = $null
+        try {
+            if ($f.finished_at_utc) {
+                $stepFin = ([datetime]$f.finished_at_utc).ToLocalTime()
+                $failAge = " [{0:HH:mm}, {1:N1}h ago]" -f $stepFin, ((Get-Date) - $stepFin).TotalHours
+            }
+        }
+        catch {}
         if ([string]$f.status -eq "deferred") {
             $chainFail = "deferred at {0} ({1}) - heavy steps wait for a quieter host" -f $f.name, $why
         }
         else {
-            $chainFail = "FAILING {0} -> {1}" -f $f.name, $why
+            $chainFail = "FAILING {0}{1} -> {2}" -f $f.name, $failAge, $why
             $warns.Add("chain step $chainFail")
         }
     }
@@ -140,6 +191,10 @@ $expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindo
     "WeatherTapeBackupAndRestoreDrill")
 $taskCount = 0
 $interactiveTasks = 0
+# Work that is ARMED but has not happened yet is invisible to every other check here: a
+# one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
+# nothing would say so until the morning it fails to have run. Surface the queue instead.
+$upcoming = New-Object System.Collections.Generic.List[object]
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
     # WeatherOneShotPush is deliberately left Interactive: pushing needs the credential
@@ -152,6 +207,19 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
+    # A task that has NEVER run (0x41303) and is due soon is armed one-shot work -- the
+    # quiet-window merge, a measured backup run. That is exactly what I want to see queued.
+    if ($res -eq "0x41303" -and $ti.NextRunTime) {
+        $hrs = ([datetime]$ti.NextRunTime - (Get-Date)).TotalHours
+        if ($hrs -gt 0 -and $hrs -lt 16) {
+            $upcoming.Add([PSCustomObject]@{
+                    name = $name; at = ([datetime]$ti.NextRunTime); in_hours = [math]::Round($hrs, 1)
+                    state = $st
+                })
+            # Armed work that is disabled will never fire, and silence is the failure mode.
+            if ($st -eq "Disabled") { $flags.Add("$name is armed for $($ti.NextRunTime) but DISABLED - it will not fire") }
+        }
+    }
     if ($st -eq "Disabled") {
         if ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
         elseif ($name -eq "WeatherTapeBackupAndRestoreDrill") {
@@ -213,6 +281,43 @@ if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy un
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
 
+# ---- the watchdog itself (who watches the watcher) ----
+# health_watchdog.ps1 is what alerts overnight while nobody is awake. If IT dies, every
+# window-aware alert silently stops and the first symptom is a morning with no briefing.
+# Nothing else here would notice, so check its heartbeat explicitly. It runs every 15 min.
+$wd = $null
+$wdAgeMin = $null
+$wdf = Join-Path $repo "data\alerts\host_health_latest.json"
+if (Test-Path $wdf) {
+    try {
+        $wd = Get-Content $wdf -Raw | ConvertFrom-Json
+        $wdAgeMin = [math]::Round(((Get-Date) - [datetime]$wd.ts).TotalMinutes, 0)
+    }
+    catch {}
+}
+if ($null -eq $wd) { $flags.Add("health watchdog has never reported - overnight alerting is NOT running") }
+elseif ($wdAgeMin -gt 45) { $flags.Add("health watchdog stale by ${wdAgeMin} min (runs every 15) - overnight alerting may be dead") }
+
+# ---- last guarded quiet-window merge ----
+# Merges happen at 01:30 while I am not watching; the outcome must be waiting in the morning.
+$qw = $null
+$qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
+if (Test-Path $qwf) {
+    try {
+        $qw = Get-Content $qwf -Raw | ConvertFrom-Json
+        $qwAgeH = ((Get-Date) - [datetime]$qw.ts).TotalHours
+        # A rollback means capture did not survive the code roll -- streak-critical, and the
+        # branch still needs a human decision. Never let that scroll past in a log file.
+        if ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
+            $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
+        }
+        elseif ($qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
+            $warns.Add("quiet-window merge committed locally but NOT pushed - run WeatherOneShotPush")
+        }
+    }
+    catch {}
+}
+
 # ---- alerts ----
 $alertLast = $null
 $af = Join-Path $repo "data\alerts\streak_capture_alerts.jsonl"
@@ -221,9 +326,13 @@ if (Test-Path $af) {
     if ($l) {
         try {
             $j = $l | ConvertFrom-Json
-            $alertLast = "$($j.ts)  $($j.level)"
+            # Show the AGE. Without it a two-day-old AT_RISK reads as current alarm, which is
+            # both frightening and wrong -- the entry is historical the moment the day recovers.
+            $ageH = ((Get-Date) - [datetime]$j.ts).TotalHours
+            $alertLast = "{0}  {1}  ({2:N0}h ago{3})" -f $j.ts, $j.level, $ageH,
+                $(if ($ageH -ge 24) { ", historical" } else { "" })
             # Alerts are written to a file nobody watches; a fresh one must reach the digest.
-            if (((Get-Date) - [datetime]$j.ts).TotalHours -lt 24) {
+            if ($ageH -lt 24) {
                 $flags.Add("capture alert raised in the last 24h: $alertLast")
             }
         }
@@ -254,9 +363,15 @@ if ($Json) {
             settled = $streak.most_recent_settled
         }
         capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
+        disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH }
+        watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
+        merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
+        upcoming = @($upcoming | Sort-Object at | ForEach-Object {
+                @{ name = $_.name; at = $_.at.ToString("yyyy-MM-dd HH:mm"); in_hours = $_.in_hours }
+            })
         resilience = @{ reboot_pending = $rebootPending; auto_logon = ($autoLogon -eq "1");
             interactive_tasks = $interactiveTasks
         }
@@ -272,7 +387,10 @@ Write-Output $bar
 Write-Output ("  STREAK    : {0}/{1}  day1 {2}    TODAY: {3}" -f $streak.streak_days, $streak.target, $streak.streak_start, $todayStr)
 Write-Output ("              lock ~{0} if all clean   |  settled -> {1}" -f $streak.projected_lock_date_if_all_clean, $streak.most_recent_settled)
 Write-Output ("  CAPTURE   : {0}" -f $capSummary)
-Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free" -f $freeRamGB, $totRamGB, $freeDiskGB)
+$diskTrend = if ($null -eq $diskDelta) { "" }
+elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
+else { "  (+{0} GB/day)" -f $diskDelta }
+Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
 Write-Output ("  CHAIN     : {0} / {1}   (0x2 = gates BLOCK, expected pre-release)" -f $chainStatus, $chainTerm)
 if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
@@ -281,7 +399,16 @@ else { "FAILED (exit $($mirror.robocopy_exit))" }
 Write-Output ("  OFF-HOST  : mirror {0}    |  reboot pending: {1}   logon-dependent tasks: {2}" -f $mirrorStr, $rebootPending, $interactiveTasks)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
+$wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
+$qwStr = if ($null -eq $qw) { "none" } else { "{0} ({1:yyyy-MM-dd HH:mm})" -f $qw.stage, ([datetime]$qw.ts) }
+Write-Output ("  WATCHDOG  : {0}    |  last merge attempt: {1}" -f $wdStr, $qwStr)
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
+if ($upcoming.Count -gt 0) {
+    Write-Output "  ARMED     : (scheduled, not yet run)"
+    foreach ($u in ($upcoming | Sort-Object at)) {
+        Write-Output ("              {0:HH:mm} (+{1}h)  {2}" -f $u.at, $u.in_hours, $u.name)
+    }
+}
 if ($flags.Count -gt 0) {
     Write-Output ("  " + ("-" * 74))
     Write-Output "  FLAGS (need attention):"
