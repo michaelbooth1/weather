@@ -68,7 +68,12 @@ if ($unexpected.Count -gt 0) {
     Fail "tracked files are modified outside the auto-refreshed config set; commit or stash first so rollback cannot lose work:`n$($unexpected -join "`n")"
 }
 
+# This runs S4U in session 0, which cannot reach the credential vault, so fetch can fail
+# exactly the way push does. That is survivable -- the local refs are what we merge -- but
+# it means merging whatever copy of the branch was last fetched, so say so rather than
+# letting a stale merge look like a fresh one.
 & git fetch origin --prune | Out-Null
+if ($LASTEXITCODE -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
 $head = (& git rev-parse HEAD).Trim()
 $originMaster = (& git rev-parse origin/master).Trim()
 if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($originMaster); reconcile first" }
