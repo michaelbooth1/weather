@@ -82,7 +82,12 @@ if ($dirtyTracked.Count -gt 0 -and -not $DryRun) {
 # Take the rollback point AFTER the drift commit: resetting to origin/master would throw the
 # drift away, and a rollback must undo only the merge.
 $preMerge = (& git rev-parse HEAD).Trim()
-& git rev-parse --verify "$Branch" *>$null
+# NEVER redirect a native command's stderr here (no *>$null, no 2>&1). Under
+# $ErrorActionPreference='Stop', PowerShell 5.1 wraps each redirected stderr line in a
+# NativeCommandError and terminates -- and git writes routine notices to stderr, so a
+# harmless "CRLF will be replaced by LF" warning killed a dry run mid-merge and left the
+# tree in a half-merged state (2026-07-25). Send stdout to Out-Null and let stderr print.
+& git rev-parse --verify "$Branch" | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
 Note "pre-merge HEAD $preMerge; merging $Branch ($(& git rev-parse --short $Branch))"
 
@@ -108,9 +113,12 @@ Note "capture before: $($before.loops) loops, heartbeat $($before.heartbeat)"
 if ($before.loops -lt 1) { Fail "no capture loops running before the merge; fix that first" }
 
 if ($DryRun) {
-    & git merge --no-commit --no-ff $Branch *>$null
+    & git merge --no-commit --no-ff $Branch | Out-Null
     $conflicts = @(& git diff --name-only --diff-filter=U | Where-Object { $_ })
-    & git merge --abort 2>$null
+    # Always unwind: leaving a half-merged tree changes loop-loaded modules on disk and
+    # provokes a STALE_CODE readoption roll. `merge --abort` restores the pre-merge state
+    # including uncommitted config drift -- do NOT reset --hard here, that would delete it.
+    & git merge --abort | Out-Null
     Note "DRY RUN: conflicts=$($conflicts.Count)"
     Save-Report -ok $true -stage "dry_run" -detail "conflicts=$($conflicts.Count)"
     exit 0
@@ -119,7 +127,7 @@ if ($DryRun) {
 # ---- merge locally (this is what triggers the readoption roll) ----
 & git merge --no-ff $Branch -m "Merge $Branch into master"
 if ($LASTEXITCODE -ne 0) {
-    & git merge --abort 2>$null
+    & git merge --abort | Out-Null
     Fail "merge failed or conflicted; working tree restored"
 }
 $mergeCommit = (& git rev-parse HEAD).Trim()
