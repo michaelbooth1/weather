@@ -25,9 +25,6 @@ CLI:
 """
 import argparse
 import json
-import math
-from collections import defaultdict
-from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
@@ -167,10 +164,31 @@ def _rationale(n_settled, ece, components):
             f"Maturity {components['maturity_subscore']:.2f} of 1.0 -- more days raise confidence.")
 
 
-def _trust_row(market_id, rows, n_settled):
+def score_market(
+    market_id,
+    root=DEFAULT_SNAPSHOTS_ROOT,
+    daily_summary=DEFAULT_DAILY_SUMMARY,
+    as_of=None,
+    *,
+    included_target_dates=None,
+):
+    spec = next((item for item in all_specs() if item.id == market_id), None)
+    if spec and Path(daily_summary) == DEFAULT_DAILY_SUMMARY:
+        daily_index = load_daily_summary(spec.data_root / "daily" / "daily_summary.csv")
+    else:
+        daily_index = load_daily_summary(daily_summary)
+    folders = market_settled_folders(
+        market_id,
+        root,
+        as_of,
+        included_target_dates=included_target_dates,
+    )
+    n_settled = len(folders)
+    rows = collect_scored_rows(folders, daily_index)
     ece = expected_calibration_error(rows, "model_probability") if rows else None
     scored = score_rows(rows) if rows else None
     catchup = winner_band_catchup(rows)
+
     components = trust_from_components(n_settled, ece)
     return {
         "market": market_id,
@@ -208,94 +226,6 @@ def _trust_row(market_id, rows, n_settled):
         ),
         "rationale": _rationale(n_settled, ece, components),
     }
-
-
-def _replay_probability(row, key, index):
-    try:
-        value = float(row[key])
-    except (KeyError, TypeError, ValueError):
-        raise ValueError(
-            f"replay trust row {index} requires numeric {key}"
-        ) from None
-    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
-        raise ValueError(
-            f"replay trust row {index} has invalid {key}: {row.get(key)!r}"
-        )
-    return value
-
-
-def _replay_outcome(row, index):
-    try:
-        value = float(row["outcome"])
-    except (KeyError, TypeError, ValueError):
-        raise ValueError(
-            f"replay trust row {index} requires binary outcome"
-        ) from None
-    if not math.isfinite(value) or value not in {0.0, 1.0}:
-        raise ValueError(
-            f"replay trust row {index} has invalid outcome: {row.get('outcome')!r}"
-        )
-    return int(value)
-
-
-def score_replay_rows(rows):
-    """Compute trust solely from already-verified frozen replay rows.
-
-    The replay's recorded probability is the historical model probability.
-    Settled-day maturity is the number of distinct target dates represented for
-    each market; no folders, ledgers, registry entries, or live files are read.
-    """
-    grouped = defaultdict(list)
-    target_dates = defaultdict(set)
-    for index, row in enumerate(rows):
-        if not isinstance(row, Mapping):
-            raise ValueError(f"replay trust row {index} must be a mapping")
-        market_id = str(row.get("market_id") or "").strip()
-        if not market_id:
-            raise ValueError(f"replay trust row {index} requires market_id")
-        try:
-            target_date = date.fromisoformat(
-                str(row["target_date"])
-            ).isoformat()
-        except (KeyError, TypeError, ValueError):
-            raise ValueError(
-                f"replay trust row {index} requires YYYY-MM-DD target_date"
-            ) from None
-        grouped[market_id].append({
-            "model_probability": _replay_probability(row, "recorded_p", index),
-            "market_yes": _replay_probability(row, "market_yes", index),
-            "outcome": _replay_outcome(row, index),
-        })
-        target_dates[market_id].add(target_date)
-
-    return [
-        _trust_row(market_id, grouped[market_id], len(target_dates[market_id]))
-        for market_id in sorted(grouped)
-    ]
-
-
-def score_market(
-    market_id,
-    root=DEFAULT_SNAPSHOTS_ROOT,
-    daily_summary=DEFAULT_DAILY_SUMMARY,
-    as_of=None,
-    *,
-    included_target_dates=None,
-):
-    spec = next((item for item in all_specs() if item.id == market_id), None)
-    if spec and Path(daily_summary) == DEFAULT_DAILY_SUMMARY:
-        daily_index = load_daily_summary(spec.data_root / "daily" / "daily_summary.csv")
-    else:
-        daily_index = load_daily_summary(daily_summary)
-    folders = market_settled_folders(
-        market_id,
-        root,
-        as_of,
-        included_target_dates=included_target_dates,
-    )
-    n_settled = len(folders)
-    rows = collect_scored_rows(folders, daily_index)
-    return _trust_row(market_id, rows, n_settled)
 
 
 def score_all_markets(

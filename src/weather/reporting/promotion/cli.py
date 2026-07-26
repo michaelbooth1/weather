@@ -10,30 +10,6 @@ def build_parser():
         description="Refresh promotion corpus, trust, pooled replay, and family promotion decisions."
     )
     parser.add_argument("folders", nargs="*", help="Optional snapshot folders; defaults to discovered settled folders.")
-    parser.add_argument(
-        "--output-root",
-        default="",
-        help=(
-            "Canonical root for every promotion-derived output. When set, "
-            "configured output paths are replaced with paths below this root "
-            "before any promotion work starts."
-        ),
-    )
-    parser.add_argument(
-        "--frozen-corpus",
-        default="",
-        help="Identity-pinned promotion corpus to consume without rebuilding live folders.",
-    )
-    parser.add_argument(
-        "--frozen-corpus-sha256",
-        default="",
-        help="Required exact file SHA-256 for --frozen-corpus.",
-    )
-    parser.add_argument(
-        "--frozen-corpus-hash",
-        default="",
-        help="Required exact semantic corpus hash for --frozen-corpus.",
-    )
     parser.add_argument("--family-unit", default=DEFAULT_FAMILY_UNIT, choices=["F", "all"])
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--as-of", default=None)
@@ -189,3 +165,4 @@ if __name__ == "__main__":
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
+

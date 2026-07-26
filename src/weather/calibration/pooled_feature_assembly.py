@@ -783,13 +783,7 @@ def build_market_records(
         else None
     )
     model = TorontoHighTempModel(market_id=spec.id)
-    # Serving keeps its prior-year +/- seasonal-window cache. Production PIT
-    # extraction names its exact prelocked universe here so current-year days
-    # are addressable for coverage checks; locked rows and post-cutoff priors
-    # remain excluded below.
-    cache = model.historical_target_cache(
-        coverage_target_dates=excluded_target_dates | included_target_dates
-    )
+    cache = model.historical_target_cache()
     daily = cache.get("daily") or {}
     by_date = cache.get("by_date") or {}
     dates = sorted(daily.keys())

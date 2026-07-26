@@ -106,7 +106,7 @@ class TestFeatureModelAblation(unittest.TestCase):
             for day in range(1, 5):
                 outcome = day % 2
                 records.append({
-                    "target_date": date(year, 6, day),
+                    "date": date(year, 6, day),
                     "final_bucket": outcome,
                 })
                 values.append({
@@ -256,7 +256,7 @@ class TestFeatureModelAblation(unittest.TestCase):
             warm_signal = float(i % 2)
             final_bucket = 26 if warm_signal else 24
             records.append({
-                "target_date": local_date,
+                "date": local_date,
                 "final_bucket": final_bucket,
                 "high_so_far": 23.0 + warm_signal,
                 "current_temp": 22.0 + warm_signal,
@@ -307,7 +307,7 @@ class TestFeatureModelAblation(unittest.TestCase):
         for year in (2024, 2025):
             for day in range(1, 4):
                 records.append({
-                    "target_date": date(year, 6, day),
+                    "date": date(year, 6, day),
                     "final_bucket": 24 + (day % 2),
                 })
 
@@ -316,9 +316,9 @@ class TestFeatureModelAblation(unittest.TestCase):
         assert plan["mode"] == "holdout_year"
         assert plan["audit"]["schema_version"] == "blocked_validation_v0.1"
         for validation_index, train_indices in plan["train_indices_by_validation_index"].items():
-            validation_year = records[validation_index]["target_date"].year
+            validation_year = records[validation_index]["date"].year
             assert train_indices
-            assert {records[index]["target_date"].year for index in train_indices} == (
+            assert {records[index]["date"].year for index in train_indices} == (
                 {2025} if validation_year == 2024 else {2024}
             )
 

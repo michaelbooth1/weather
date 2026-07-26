@@ -123,8 +123,6 @@ class TestFeatureStore(unittest.TestCase):
             unit="C",
         )
 
-        self.assertEqual(historical["target_date"], "2026-06-07")
-        self.assertNotIn("date", historical)
         self.assertEqual(historical["trusted_current_max"], 21.0)
         self.assertEqual(historical["current_max_trusted_flag"], 1.0)
         self.assertEqual(historical["current_max_state"], "wu_history_validated_current_max")

@@ -1408,7 +1408,7 @@ class TestPooledFeatureModel(unittest.TestCase):
         rows = [
             {
                 **exact_context,
-                "target_date": "2025-06-01",
+                "date": "2025-06-01",
                 "settlement_distance": 0,
                 "outcome": 1,
             },
@@ -1416,13 +1416,13 @@ class TestPooledFeatureModel(unittest.TestCase):
                 "band_kind": "gte",
                 "market_id": "nyc",
                 "cutoff_hour": 12,
-                "target_date": "2025-06-01",
+                "date": "2025-06-01",
                 "settlement_distance": 3,
                 "outcome": 0,
             },
             {
                 **exact_context,
-                "target_date": "2025-06-02",
+                "date": "2025-06-02",
                 "settlement_distance": 1,
                 "outcome": 0,
             },
@@ -1430,7 +1430,7 @@ class TestPooledFeatureModel(unittest.TestCase):
                 "band_kind": "gte",
                 "market_id": "nyc",
                 "cutoff_hour": 12,
-                "target_date": "2025-06-02",
+                "date": "2025-06-02",
                 "settlement_distance": 3,
                 "outcome": 0,
             },
@@ -1462,9 +1462,9 @@ class TestPooledFeatureModel(unittest.TestCase):
 
     def test_normalize_band_probabilities_for_rows_uses_market_date_hour_partition(self):
         rows = [
-            {"market_id": "nyc", "target_date": "2025-06-01", "cutoff_hour": 12},
-            {"market_id": "nyc", "target_date": "2025-06-01", "cutoff_hour": 12},
-            {"market_id": "nyc", "target_date": "2025-06-01", "cutoff_hour": 13},
+            {"market_id": "nyc", "date": "2025-06-01", "cutoff_hour": 12},
+            {"market_id": "nyc", "date": "2025-06-01", "cutoff_hour": 12},
+            {"market_id": "nyc", "date": "2025-06-01", "cutoff_hour": 13},
         ]
 
         normalized = normalize_band_probabilities_for_rows(rows, [0.25, 0.75, 0.40], gamma=1.0)

@@ -155,7 +155,6 @@ def promotion_args(args):
     refresh_args.skip_serving_gauntlet = args.skip_serving_gauntlet
     refresh_args.require_exact_identity = args.require_exact_identity
     refresh_args.require_all_markets = args.require_all_markets
-    refresh_args.output_root = str(Path(args.backtest_root).resolve())
     refresh_args.corpus_out = backtest_path(args, "promotion_corpus.json")
     refresh_args.trust_out = backtest_path(args, "location_trust.json")
     refresh_args.candidate_report = backtest_path(args, "pooled_candidate_replay_latest_report.md")
@@ -188,8 +187,6 @@ def _promotion_refresh_command(args, refresh_args):
         "weather.reporting.promotion.promotion_refresh",
         "--family-unit",
         refresh_args.family_unit,
-        "--output-root",
-        refresh_args.output_root,
         "--snapshots-root",
         refresh_args.snapshots_root,
         "--quality-grades",

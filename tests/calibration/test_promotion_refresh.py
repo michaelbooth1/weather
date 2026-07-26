@@ -296,19 +296,13 @@ class TestPromotionRefresh(unittest.TestCase):
             require_all_markets=False,
         )
 
-        replay_args = _candidate_args(
-            args,
-            "corpus.json",
-            {"sha256": "a" * 64, "corpus_hash": "b" * 64},
-        )
+        replay_args = _candidate_args(args, "corpus.json")
 
         self.assertEqual(replay_args.candidate_variant_out, "density_variants.csv")
         self.assertEqual(replay_args.candidate_variant_id, "pooled_continuous_density_hgb_v0_1")
         self.assertEqual(replay_args.candidate_variant_family, "pooled_continuous_density")
         self.assertEqual(replay_args.min_artifact_free_bytes, 123456789)
         self.assertIsNone(replay_args.microstructure_artifact)
-        self.assertEqual(replay_args.expected_corpus_sha256, "a" * 64)
-        self.assertEqual(replay_args.expected_corpus_hash, "b" * 64)
 
     def test_candidate_summary_exposes_independent_evidence_accounting(self):
         candidate_report = {
@@ -1858,79 +1852,37 @@ class TestPromotionRefresh(unittest.TestCase):
             "forecast_tracker": {},
             "results": {"all_rows": ["should", "not", "persist"]},
         }
-        corpus_identity = {
-            "sha256": "c" * 64,
-            "corpus_hash": "d" * 64,
-        }
         with tempfile.TemporaryDirectory() as tmp:
             args = SimpleNamespace(
                 serving_gauntlet_report=str(Path(tmp) / "gauntlet.md"),
                 heavy_analysis_max_age_days=7.0,
                 force_heavy_analysis=False,
             )
-            manifest_path = _write_gauntlet_manifest(
-                args,
-                "hash-a",
-                report,
-                corpus_identity,
-            )
+            manifest_path = _write_gauntlet_manifest(args, "hash-a", report)
             stored = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
             self.assertNotIn("results", stored["report"])
 
-            carried = _carry_forward_gauntlet(
-                args,
-                "hash-a",
-                corpus_identity,
-            )
+            carried = _carry_forward_gauntlet(args, "hash-a")
             self.assertTrue(carried["carried_forward"])
             self.assertEqual(carried["verdict"], "PASS")
             self.assertEqual(carried["market_rows"], [{"market_id": "nyc"}])
 
-            self.assertIsNone(
-                _carry_forward_gauntlet(args, "hash-b", corpus_identity)
-            )
-            self.assertIsNone(
-                _carry_forward_gauntlet(
-                    args,
-                    "hash-a",
-                    {**corpus_identity, "corpus_hash": "e" * 64},
-                )
-            )
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-b"))
             args.force_heavy_analysis = True
-            self.assertIsNone(
-                _carry_forward_gauntlet(args, "hash-a", corpus_identity)
-            )
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
             args.force_heavy_analysis = False
             args.heavy_analysis_max_age_days = 0.0
-            self.assertIsNone(
-                _carry_forward_gauntlet(args, "hash-a", corpus_identity)
-            )
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
 
             args.heavy_analysis_max_age_days = 7.0
             shadows = dict(report, verdict="PASS_WITH_SHADOWS")
-            _write_gauntlet_manifest(
-                args,
-                "hash-a",
-                shadows,
-                corpus_identity,
-            )
-            carried_shadows = _carry_forward_gauntlet(
-                args,
-                "hash-a",
-                corpus_identity,
-            )
+            _write_gauntlet_manifest(args, "hash-a", shadows)
+            carried_shadows = _carry_forward_gauntlet(args, "hash-a")
             self.assertEqual(carried_shadows["verdict"], "PASS_WITH_SHADOWS")
 
             failed = dict(report, verdict="FAIL")
-            _write_gauntlet_manifest(
-                args,
-                "hash-a",
-                failed,
-                corpus_identity,
-            )
-            self.assertIsNone(
-                _carry_forward_gauntlet(args, "hash-a", corpus_identity)
-            )
+            _write_gauntlet_manifest(args, "hash-a", failed)
+            self.assertIsNone(_carry_forward_gauntlet(args, "hash-a"))
 
     def test_heavy_diagnostics_carry_disabled_by_default_and_keyed_on_hash(self):
         from weather.calibration.pooled_candidate_replay import (

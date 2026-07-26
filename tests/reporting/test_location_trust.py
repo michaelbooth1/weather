@@ -4,18 +4,12 @@ import csv
 import json
 import tempfile
 import unittest
-from copy import deepcopy
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 import weather.reporting.location_analysis.location_trust as location_trust
-from weather.reporting.location_analysis.location_trust import (
-    grade_for,
-    score_market,
-    score_replay_rows,
-    trust_from_components,
-)
+from weather.reporting.location_analysis.location_trust import grade_for, score_market, trust_from_components
 
 
 SLUG = "highest-temperature-in-toronto-on-july-1-2026"
@@ -167,87 +161,6 @@ class TestTrustFormula(unittest.TestCase):
             self.assertAlmostEqual(row["winner_market_probability"], 0.55)
             self.assertAlmostEqual(row["winner_catchup_gap"], 0.0)
             self.assertAlmostEqual(row["winner_catchup_rate"], 0.5)
-
-    def test_replay_trust_uses_recorded_probabilities_and_unique_target_dates(self):
-        rows = [
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-01",
-                "recorded_p": 0.8,
-                "replayed_p": 0.1,
-                "market_yes": 0.6,
-                "outcome": 1,
-            },
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-01",
-                "recorded_p": 0.2,
-                "replayed_p": 0.9,
-                "market_yes": 0.4,
-                "outcome": 0,
-            },
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-02",
-                "recorded_p": 0.7,
-                "replayed_p": 0.1,
-                "market_yes": 0.5,
-                "outcome": 1,
-            },
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-02",
-                "recorded_p": 0.3,
-                "replayed_p": 0.9,
-                "market_yes": 0.5,
-                "outcome": 0,
-            },
-        ]
-        original = deepcopy(rows)
-
-        with patch.object(
-            location_trust,
-            "discover_settled_folders",
-            side_effect=AssertionError("live discovery is forbidden"),
-        ) as discover:
-            result = score_replay_rows(rows)
-
-        discover.assert_not_called()
-        self.assertEqual(rows, original)
-        self.assertEqual(len(result), 1)
-        trust = result[0]
-        self.assertEqual(
-            set(trust),
-            {
-                "market",
-                "trust_score",
-                "grade",
-                "maturity_subscore",
-                "calibration_subscore",
-                "settled_days",
-                "band_rows",
-                "model_ece",
-                "model_brier",
-                "market_brier",
-                "brier_skill_vs_market",
-                "winner_rows",
-                "winner_model_probability",
-                "winner_market_probability",
-                "winner_catchup_gap",
-                "winner_catchup_rate",
-                "winner_model_over_50_rate",
-                "winner_market_over_50_rate",
-                "rationale",
-            },
-        )
-        self.assertEqual(trust["market"], "toronto")
-        self.assertEqual(trust["settled_days"], 2)
-        self.assertEqual(trust["band_rows"], 4)
-        self.assertEqual(trust["model_brier"], 0.065)
-        self.assertEqual(trust["winner_rows"], 2)
-        self.assertEqual(trust["winner_model_probability"], 0.75)
-        self.assertEqual(trust["winner_market_probability"], 0.55)
-        self.assertEqual(trust["winner_catchup_gap"], 0.2)
 
     def test_trust_target_date_whitelist_is_exact_and_default_is_unchanged(self):
         first = Path(

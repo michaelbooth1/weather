@@ -445,11 +445,9 @@ def feature_model_frame(records, all_wind_groups, all_cloud_groups):
 
 
 def feature_validation_folds(df, n_splits=5):
-    if "target_date" not in df or len(df) < 2:
+    if "date" not in df or len(df) < 2:
         return [np.arange(len(df))]
-    ordinals = np.array(
-        [_as_date(value).toordinal() for value in df["target_date"]]
-    )
+    ordinals = np.array([_as_date(value).toordinal() for value in df["date"]])
     max_splits = max(2, min(int(n_splits), len(set(ordinals))))
     folds = []
     for fold in range(max_splits):
@@ -569,9 +567,9 @@ def inner_hgb_calibration_rows(
         return []
     inner_records = [records[index] for index in outer_train_indices]
     years = {
-        _as_date(record.get("target_date")).year
+        _as_date(record.get("date") or record.get("target_date")).year
         for record in inner_records
-        if record.get("target_date") is not None
+        if record.get("date") is not None or record.get("target_date") is not None
     }
     inner_mode = "holdout_year" if len(years) >= 2 else "leave_one_market_day"
     splits = validation_splits(
@@ -790,7 +788,7 @@ def evaluate_feature_family_segments(
                 ablated_probs = hgb.predict_proba(x_val_ablated)
                 for row_offset, probs_raw in enumerate(ablated_probs):
                     val_actual = int(y.iloc[val_idx[row_offset]])
-                    val_date = df.iloc[val_idx[row_offset]]["target_date"]
+                    val_date = df.iloc[val_idx[row_offset]]["date"]
                     prob_dict = {
                         int(cls): float(prob)
                         for cls, prob in zip(hgb_classes, probs_raw)
@@ -1299,7 +1297,7 @@ def main(market_id="toronto"):
             train_indices = blocked_train_by_validation.get(val_idx) or []
 
             # Validation date
-            val_date = df.iloc[val_idx]["target_date"]
+            val_date = df.iloc[val_idx]["date"]
             val_actual = df.iloc[val_idx]["final_bucket"]
             if not train_indices or len(set(y.iloc[train_indices])) < 2:
                 skipped_loo += 1

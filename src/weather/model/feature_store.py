@@ -1366,7 +1366,7 @@ def build_historical_feature_record(
             wall_minute=wall_minute,
         ))
     return {
-        "target_date": local_date,
+        "date": local_date,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "high_so_far": high_so_far,
         "current_temp": current_temp,

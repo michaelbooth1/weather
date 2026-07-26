@@ -5,10 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-import weather.calibration.pooled_candidate_replay as pooled_candidate_replay
-import weather.reporting.location_analysis.location_trust as location_trust
 from weather.calibration.pooled_candidate_replay import (
-    _frozen_trust_by_market,
     attach_band_candidate_probabilities,
     attach_density_candidate_probabilities,
     annotate_casebook_rows,
@@ -55,69 +52,6 @@ from weather.market.market_registry import NYC
 
 
 class TestPooledCandidateReplay(unittest.TestCase):
-    def test_frozen_trust_ignores_unrelated_bad_ledger_and_live_folders(self):
-        rows = [
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-01",
-                "recorded_p": 0.8,
-                "market_yes": 0.6,
-                "outcome": 1,
-            },
-            {
-                "market_id": "toronto",
-                "target_date": "2026-07-01",
-                "recorded_p": 0.2,
-                "market_yes": 0.4,
-                "outcome": 0,
-            },
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            bad_folder = (
-                root
-                / "snapshots"
-                / "highest-temperature-in-toronto-on-july-3-2025"
-            )
-            bad_folder.mkdir(parents=True)
-            (bad_folder / "snapshots_long.csv").write_text(
-                "recorded_p,market_yes,outcome\n",
-                encoding="utf-8",
-            )
-            (bad_folder / "settlement.json").write_text(
-                "{not valid json",
-                encoding="utf-8",
-            )
-            bad_ledger = root / "settlement-ledger" / "toronto"
-            bad_ledger.mkdir(parents=True)
-            (bad_ledger / "ledger.jsonl").write_text(
-                "{also not valid json",
-                encoding="utf-8",
-            )
-            with (
-                patch.dict(
-                    os.environ,
-                    {"SETTLEMENT_LEDGER_ROOT": str(bad_ledger.parent)},
-                ),
-                patch.object(
-                    location_trust,
-                    "discover_settled_folders",
-                    side_effect=AssertionError("live discovery is forbidden"),
-                ) as discover,
-                patch.object(
-                    pooled_candidate_replay,
-                    "score_replay_rows",
-                    wraps=location_trust.score_replay_rows,
-                ) as score,
-            ):
-                trust = _frozen_trust_by_market(rows)
-
-        discover.assert_not_called()
-        score.assert_called_once_with(rows)
-        self.assertFalse(hasattr(pooled_candidate_replay, "score_all_markets"))
-        self.assertEqual(trust["toronto"]["settled_days"], 1)
-        self.assertEqual(trust["toronto"]["band_rows"], 2)
-
     def test_record_feature_row_applies_reanalysis_sidecar_and_lane_mask(self):
         class FakeModel:
             def set_target_date(self, _target_date):
@@ -587,7 +521,6 @@ class TestPooledCandidateReplay(unittest.TestCase):
                 "bin_value_c": "82",
                 "candidate_cutoff_hour": 14,
                 "candidate_p": 0.80,
-                "candidate_preblend_p": 0.85,
                 "replayed_p": 0.20,
                 "recorded_p": 0.25,
                 "market_yes": 0.75,
@@ -643,7 +576,6 @@ class TestPooledCandidateReplay(unittest.TestCase):
         self.assertEqual(row["band_key"], "82-83 F")
         self.assertEqual(row["postprocess_config_hash"], "pooled_feature_band_hgb_v0.4")
         self.assertAlmostEqual(row["probability"], 0.80)
-        self.assertAlmostEqual(row["candidate_preblend_probability"], 0.85)
         self.assertAlmostEqual(row["current_probability"], 0.20)
 
     def test_source_state_ablation_report_scores_control_and_dynamic_candidate(self):

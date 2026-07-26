@@ -103,14 +103,6 @@ Production ordering is fail-closed:
 5. Reverify the complete model/calibration/routing/route hash graph while
    freezing the immutable candidate release. The release stays inactive.
 
-When partition normalization and contextual current blending are enabled,
-serving and replay restore categorical probability mass after the row-specific
-blend. Candidate shadow rows may carry `candidate_preblend_probability`, the
-normalized candidate value captured immediately before that blend. Validation
-of a mass-restored replay requires that exact value on every scoreable row plus
-artifact and postprocess hashes matching the base replay report; reconstruction
-is reserved for explicitly legacy reports that predate mass restoration.
-
 Each outer and inner training scope carries chained, self-hashed receipts for
 `feature_selection`, `scaling_imputation`, `model`, `calibration`,
 `postprocessing`, and `regime_router`. A separate final-refit receipt binds the

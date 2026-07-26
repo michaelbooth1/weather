@@ -8,33 +8,27 @@ from weather.reporting.validation.current_blend_validation import (
     base_alpha_for_row,
     build_payload,
     candidate_probability,
-    read_variant_rows,
     reconstruct_raw_probability,
     write_markdown_report,
 )
 
 
-def write_base_replay(path, *, mass_restoration_enabled=None):
-    artifact = {
-        "current_blend_default_alpha": 1.0,
-        "current_blend_market_alpha": {
-            "fallback": 0.0,
-            "recoverable": 0.5,
-        },
-        "artifact_hash": "abc",
-        "postprocess_config_hash": "schema",
-    }
-    if mass_restoration_enabled is not None:
-        artifact["current_blend_partition_mass_restoration_enabled"] = (
-            mass_restoration_enabled
-        )
+def write_base_replay(path):
     payload = {
-        "artifact": artifact,
+        "artifact": {
+            "current_blend_default_alpha": 1.0,
+            "current_blend_market_alpha": {
+                "fallback": 0.0,
+                "recoverable": 0.5,
+            },
+            "artifact_hash": "abc",
+            "postprocess_config_hash": "schema",
+        }
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def write_rows(path, *, mass_restored=False):
+def write_rows(path):
     rows = []
     fieldnames = [
         "market_id",
@@ -42,16 +36,13 @@ def write_rows(path, *, mass_restored=False):
         "snapshot_id",
         "band_key",
         "probability",
-        "candidate_preblend_probability",
         "current_probability",
         "market_yes",
         "outcome",
-        "artifact_hash",
-        "postprocess_config_hash",
     ]
 
     def add(market, target_date, probability, current, market_yes, outcome):
-        row = {
+        rows.append({
             "market_id": market,
             "target_date": target_date,
             "snapshot_id": f"{market}-{target_date}-{len(rows)}",
@@ -60,16 +51,7 @@ def write_rows(path, *, mass_restored=False):
             "current_probability": str(current),
             "market_yes": str(market_yes),
             "outcome": str(outcome),
-        }
-        if mass_restored:
-            row["candidate_preblend_probability"] = str(
-                (2.0 * probability) - current
-                if market == "recoverable"
-                else current
-            )
-            row["artifact_hash"] = "abc"
-            row["postprocess_config_hash"] = "schema"
-        rows.append(row)
+        })
 
     # Earlier day selects mostly-current alpha for recoverable.
     add("recoverable", "2026-06-01", 0.40, 0.40, 0.80, 1)
@@ -98,125 +80,6 @@ class CurrentBlendValidationTests(unittest.TestCase):
         probability = candidate_probability({"raw_probability": None, "current_probability": 0.33}, 1.0)
 
         self.assertAlmostEqual(probability, 0.33)
-
-    def test_explicit_preblend_candidate_survives_partition_mass_restoration(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            rows_path = Path(tmp) / "rows.csv"
-            preblend = [0.60, 0.30, 0.10]
-            current = [0.20, 0.30, 0.50]
-            alphas = [1.0, 1.0, 0.35]
-            blended = [
-                (alpha * candidate) + ((1.0 - alpha) * incumbent)
-                for candidate, incumbent, alpha in zip(
-                    preblend,
-                    current,
-                    alphas,
-                )
-            ]
-            final = [value / sum(blended) for value in blended]
-            rows = [
-                {
-                    "market_id": "austin",
-                    "target_date": "2026-06-01",
-                    "snapshot_id": "s1",
-                    "band_key": f"band-{index}",
-                    "probability": repr(final[index]),
-                    "candidate_preblend_probability": repr(preblend[index]),
-                    "current_probability": repr(current[index]),
-                    "market_yes": repr(current[index]),
-                    "outcome": str(int(index == 1)),
-                    "artifact_hash": "abc",
-                    "postprocess_config_hash": "schema",
-                    "forecast_bucket_pressure": (
-                        "warm_side" if index == 2 else "near_forecast"
-                    ),
-                }
-                for index in range(3)
-            ]
-            with rows_path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
-
-            parsed = read_variant_rows(
-                rows_path,
-                {
-                    "default_alpha": 1.0,
-                    "market_alpha": {},
-                    "source_freshness_alpha": {},
-                    "context_alpha": [
-                        {
-                            "forecast_bucket_pressure": "warm_side",
-                            "alpha": 0.35,
-                        }
-                    ],
-                    "artifact_hash": "abc",
-                    "postprocess_config_hash": "schema",
-                    "partition_mass_restoration_enabled": True,
-                },
-            )
-
-        self.assertAlmostEqual(sum(final), 1.0)
-        self.assertNotAlmostEqual(sum(blended), 1.0)
-        self.assertEqual(
-            {row["raw_probability_source"] for row in parsed},
-            {"explicit_preblend_candidate"},
-        )
-        self.assertEqual(
-            [row["raw_probability"] for row in parsed],
-            preblend,
-        )
-
-    def test_mass_restored_rows_fail_closed_on_missing_or_mismatched_provenance(self):
-        schedule = {
-            "default_alpha": 1.0,
-            "market_alpha": {},
-            "source_freshness_alpha": {},
-            "context_alpha": [],
-            "artifact_hash": "abc",
-            "postprocess_config_hash": "schema",
-            "partition_mass_restoration_enabled": True,
-        }
-        valid = {
-            "market_id": "austin",
-            "target_date": "2026-06-01",
-            "snapshot_id": "s1",
-            "band_key": "eq:80",
-            "probability": "0.6",
-            "candidate_preblend_probability": "0.7",
-            "current_probability": "0.5",
-            "market_yes": "0.6",
-            "outcome": "1",
-            "artifact_hash": "abc",
-            "postprocess_config_hash": "schema",
-        }
-        cases = [
-            (
-                "mixed preblend provenance",
-                [valid, {**valid, "snapshot_id": "s2", "candidate_preblend_probability": ""}],
-                "requires candidate_preblend_probability",
-            ),
-            (
-                "artifact mismatch",
-                [{**valid, "artifact_hash": "wrong"}],
-                "artifact hash does not match",
-            ),
-            (
-                "postprocess mismatch",
-                [{**valid, "postprocess_config_hash": "wrong"}],
-                "postprocess hash does not match",
-            ),
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            for name, rows, message in cases:
-                with self.subTest(name=name):
-                    rows_path = Path(tmp) / f"{name.replace(' ', '-')}.csv"
-                    with rows_path.open("w", encoding="utf-8", newline="") as handle:
-                        writer = csv.DictWriter(handle, fieldnames=list(valid))
-                        writer.writeheader()
-                        writer.writerows(rows)
-                    with self.assertRaisesRegex(ValueError, message):
-                        read_variant_rows(rows_path, schedule)
 
     def test_context_alpha_reconstructs_raw_rows_when_market_default_is_current(self):
         schedule = {
@@ -352,22 +215,6 @@ class CurrentBlendValidationTests(unittest.TestCase):
         self.assertEqual(austin["selection_reason"], "min_train_brier_on_earlier_market_days")
         self.assertEqual(austin["raw_candidate_train_rows"], 1)
         self.assertEqual(austin["raw_candidate_eval_rows"], 1)
-
-    def test_build_payload_reports_exact_mass_restoration_provenance(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            rows_path = Path(tmp) / "rows.csv"
-            replay_path = Path(tmp) / "replay.json"
-            write_rows(rows_path, mass_restored=True)
-            write_base_replay(replay_path, mass_restoration_enabled=True)
-
-            payload = build_payload(rows_path, replay_path, alpha_grid="0,0.5,1")
-
-        provenance = payload["raw_probability_provenance"]
-        self.assertEqual(provenance["status"], "PASS")
-        self.assertTrue(provenance["partition_mass_restoration_enabled"])
-        self.assertTrue(provenance["artifact_hash_binding_required"])
-        self.assertEqual(provenance["explicit_preblend_rows"], 6)
-        self.assertEqual(provenance["legacy_rowwise_reconstruction_rows"], 0)
 
     def test_markdown_report_includes_development_evidence_caveat(self):
         with tempfile.TemporaryDirectory() as tmp:

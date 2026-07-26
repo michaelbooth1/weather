@@ -96,7 +96,6 @@ MICROSTRUCTURE_SHADOW_VARIANT_COLUMNS = [
     "snapshot_id",
     "band_key",
     "probability",
-    "candidate_preblend_probability",
     "current_probability",
     "recorded_probability",
     "market_yes",
@@ -571,11 +570,6 @@ def _shadow_variant_row(row, variant, experiment_start_date):
         "snapshot_id": row.get("snapshot_id"),
         "band_key": _shadow_band_key(row),
         "probability": _clamp_probability(probability),
-        "candidate_preblend_probability": (
-            row.get("candidate_preblend_p")
-            if variant.get("probability_field") == "candidate_p"
-            else None
-        ),
         "current_probability": row.get("replayed_p"),
         "recorded_probability": row.get("recorded_p"),
         "market_yes": row.get("market_yes"),

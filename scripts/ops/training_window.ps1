@@ -235,43 +235,20 @@ try {
     $pitCorpus = Join-Path $pitSourceRoot "preselection-source.parquet"
     $pitManifest = Join-Path $pitSourceRoot "preselection-source-manifest.json"
     $pitReplay = Join-Path $pitSourceRoot "replay_manifest.json"
-    $pitReceipt = Join-Path $pitSourceRoot "staging-receipt.json"
-    $pitLedgerRoot = Join-Path $RepoRoot "data\settlements"
     $releasesRoot = Join-Path $RepoRoot "artifacts\releases"
     $activePointer = Join-Path $releasesRoot "current_release.json"
     $releaseStoreEmpty = (-not (Test-Path $releasesRoot)) -or
         (@(Get-ChildItem $releasesRoot -Force -ErrorAction SilentlyContinue).Count -eq 0)
-    $pitReceiptValid = $false
-    if ((Test-Path -LiteralPath $pitCorpus -PathType Leaf) -and
-        (Test-Path -LiteralPath $pitManifest -PathType Leaf) -and
-        (Test-Path -LiteralPath $pitReplay -PathType Leaf) -and
-        (Test-Path -LiteralPath $pitReceipt -PathType Leaf)) {
-        & $python -m weather.operations.point_in_time_staging_receipt verify `
-            --receipt $pitReceipt `
-            --corpus $pitCorpus `
-            --manifest $pitManifest `
-            --replay-manifest $pitReplay `
-            --ledger-root $pitLedgerRoot
-        $pitReceiptValid = ($LASTEXITCODE -eq 0)
-        if (-not $pitReceiptValid) {
-            Write-WindowLog "RETRAIN" "staged PIT source receipt is stale or mismatched; production bootstrap refused"
-        }
-    } elseif ((Test-Path -LiteralPath $pitCorpus) -or
-        (Test-Path -LiteralPath $pitManifest) -or
-        (Test-Path -LiteralPath $pitReplay)) {
-        Write-WindowLog "RETRAIN" "staged PIT source is incomplete or unreceipted; production bootstrap refused"
-    }
-    if ($pitReceiptValid -and
+    if ((Test-Path $pitCorpus) -and (Test-Path $pitManifest) -and (Test-Path $pitReplay) -and
         $releaseStoreEmpty -and (-not (Test-Path $activePointer))) {
         $childArgs += @(
             "--release-candidate-mode", "production",
             "--bootstrap-first-inactive-release",
             "--point-in-time-source-corpus", $pitCorpus,
             "--point-in-time-source-manifest", $pitManifest,
-            "--point-in-time-source-replay-manifest", $pitReplay,
-            "--point-in-time-source-receipt", $pitReceipt
+            "--point-in-time-source-replay-manifest", $pitReplay
         )
-        Write-WindowLog "RETRAIN" "receipted staged PIT source + empty release store: production mode with first-inactive-release bootstrap"
+        Write-WindowLog "RETRAIN" "staged PIT source + empty release store: production mode with first-inactive-release bootstrap"
     }
     $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
     $child = Start-Process -FilePath $python `

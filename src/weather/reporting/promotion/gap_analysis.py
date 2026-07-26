@@ -452,24 +452,13 @@ def model_skill_claims(candidate, gap_owner_table=None):
     }
 
 
-def write_gap_experiment_artifacts(rows, min_free_bytes=0, output_root=None):
+def write_gap_experiment_artifacts(rows, min_free_bytes=0):
     written = []
     seen = set()
-    root = Path(output_root).resolve() if output_root else None
     for row in rows or []:
         artifact = row.get("experiment_artifact")
         if not artifact:
             continue
-        if root is not None:
-            artifact = (root / "experiments" / Path(artifact).name).resolve()
-            try:
-                artifact.relative_to(root)
-            except ValueError as exc:
-                raise ValueError(
-                    f"promotion gap experiment output must stay under {root}: "
-                    f"{artifact}"
-                ) from exc
-            row["experiment_artifact"] = str(artifact)
         if artifact in seen:
             continue
         seen.add(artifact)
@@ -641,3 +630,4 @@ def _serving_blocking_source_freshness_rows(serving):
 # Re-export imported dependency names as well because later slices intentionally
 # share the original module global namespace while the public facade remains stable.
 __all__ = [name for name in globals() if not name.startswith("__")]
+

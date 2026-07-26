@@ -914,10 +914,6 @@ def test_existing_source_outputs_are_immutable(tmp_path):
 
 def test_materialized_source_physically_excludes_all_candidate_fields(tmp_path):
     entry = _entry("2026-06-01")
-    entry["settlement_label_authority"] = {
-        "status": "sidecar_fallback_no_ledger_row",
-        "sidecar_fallback": True,
-    }
     replay = tmp_path / "replay.json"
     _write_replay_manifest(replay, [entry], snapshots_root=tmp_path / "snapshots")
     corpus = tmp_path / "source.parquet"
@@ -941,9 +937,6 @@ def test_materialized_source_physically_excludes_all_candidate_fields(tmp_path):
     assert schema_names.isdisjoint(FORBIDDEN_SOURCE_FIELDS)
     assert all(set(row).isdisjoint(FORBIDDEN_SOURCE_FIELDS) for row in persisted_rows)
     assert manifest["candidate_dependent_fields_included"] == []
-    assert manifest["summary"]["settlement_label_authority"] == {
-        "sidecar_fallback_no_ledger_row": 1
-    }
 
 
 def test_selection_universe_is_probability_independent_but_not_population_blind(

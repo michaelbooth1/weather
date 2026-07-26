@@ -426,8 +426,6 @@ def write_report(report, out_path, min_free_bytes=0):
         ["Field", "Value"],
         [
             ["Path", artifact.get("path") or "-"],
-            ["Artifact hash", artifact.get("artifact_hash") or "-"],
-            ["Postprocess config hash", artifact.get("postprocess_config_hash") or "-"],
             ["Schema", artifact.get("schema_version") or "-"],
             ["Feature schema", artifact.get("feature_schema_version") or "-"],
             ["Family unit", artifact.get("family_unit") or "-"],
@@ -465,11 +463,6 @@ def write_report(report, out_path, min_free_bytes=0):
                 "Current blend context alpha",
                 json.dumps(artifact.get("current_blend_context_alpha") or [], sort_keys=True),
             ],
-            [
-                "Current blend partition mass restoration",
-                bool(artifact.get("current_blend_partition_mass_restoration_enabled")),
-            ],
-            ["Partition normalization gamma", fmt_num(artifact.get("partition_normalization_gamma"))],
             ["Market bias calibration enabled", bool(artifact.get("market_bias_calibration_enabled"))],
             ["Market bias calibration contexts", artifact.get("market_bias_calibration_contexts") or 0],
             [

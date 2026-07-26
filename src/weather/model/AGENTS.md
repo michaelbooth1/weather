@@ -12,10 +12,6 @@ Scope: serving-time model code under `src/weather/model/`. Inherits
   combining observations; a support signal cannot silently change roles.
 - Align intraday features to the effective WU printed cutoff, not wall-clock
   hour alone. WU publication lag is a modeled behavior.
-- `historical_target_cache()` defaults to the serving-safe prior-year,
-  target-season window. Calibration may request exact PIT coverage dates only
-  to make the verified prelocked universe addressable; that does not relax
-  per-row cutoff alignment, locked-date exclusion, or prior-as-of boundaries.
 - Runtime model code must load calibration through
   `weather.model.calibration_runtime`, not import `weather.calibration`.
 - When an active release pointer exists, serving must use its completely

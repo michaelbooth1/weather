@@ -68,33 +68,10 @@ class ClimatologyMixin:
             cache.popitem(last=False)
         return payload
 
-    def historical_target_cache(self, coverage_target_dates=None):
-        """Load serving climatology plus any explicitly named PIT coverage dates.
-
-        The default remains the prior-year, target-season cache used by serving.
-        ``coverage_target_dates`` only makes the named historical market days
-        addressable to calibration; downstream PIT exclusions and as-of cutoffs
-        still decide whether those rows may enter training or static priors.
-        """
-        coverage_dates = frozenset(
-            value if isinstance(value, date) else date.fromisoformat(str(value))
-            for value in (coverage_target_dates or ())
-        )
-        invalid_coverage_dates = sorted(
-            value for value in coverage_dates if value >= self.target_date
-        )
-        if invalid_coverage_dates:
-            raise ValueError(
-                "historical cache coverage dates must be earlier than target_date: "
-                + ", ".join(value.isoformat() for value in invalid_coverage_dates)
-            )
+    def historical_target_cache(self):
         # Keyed by market so Toronto and NYC caches never collide, and read from
         # the market's own data root (NYC analogs/transitions use NYC history).
         cache_key = f"{self.spec.id}:{self.target_date.isoformat()}"
-        if coverage_dates:
-            cache_key += ":coverage=" + ",".join(
-                value.isoformat() for value in sorted(coverage_dates)
-            )
         cached = self._historical_cache_get(cache_key)
         if cached is not None:
             return cached
@@ -116,17 +93,15 @@ class ClimatologyMixin:
         with summary_path.open("r", encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle):
                 local_date = date.fromisoformat(row["local_date"])
-                explicit_coverage = local_date in coverage_dates
-                if not explicit_coverage:
-                    if local_date.year >= self.target_date.year:
-                        continue
-                    reference_date = local_date.replace(year=reference_year)
-                    if abs((reference_date - target_reference).days) > HISTORY_WINDOW_DAYS:
-                        continue
+                if local_date.year >= self.target_date.year:
+                    continue
                 if int(row.get("row_count") or 0) < HISTORY_MIN_ROW_COUNT:
                     continue
                 bucket = native_bucket(row)
                 if bucket is None:
+                    continue
+                reference_date = local_date.replace(year=reference_year)
+                if abs((reference_date - target_reference).days) > HISTORY_WINDOW_DAYS:
                     continue
                 daily[local_date] = {
                     "bucket": bucket,

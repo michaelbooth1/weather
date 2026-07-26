@@ -63,18 +63,6 @@ def test_training_window_carries_exact_delegated_scheduler_contract():
     assert '"--producer-sla-seconds", ([string]$producerSlaSeconds)' in window
 
 
-def test_training_window_refuses_hardcoded_staged_source_without_matching_receipt():
-    window = SCRIPT.read_text(encoding="utf-8-sig")
-
-    assert "production_source_2026-07-16" in window
-    assert '$pitReceipt = Join-Path $pitSourceRoot "staging-receipt.json"' in window
-    assert "weather.operations.point_in_time_staging_receipt verify" in window
-    assert "$pitReceiptValid = ($LASTEXITCODE -eq 0)" in window
-    assert "if ($pitReceiptValid -and" in window
-    assert '"--point-in-time-source-receipt", $pitReceipt' in window
-    assert "incomplete or unreceipted; production bootstrap refused" in window
-
-
 def test_training_window_action_tokens_round_trip_with_windows_semantics():
     if os.name != "nt":
         return
