@@ -14,6 +14,7 @@ from weather.market.market_making_run_constants import RUN_QUOTE_COLUMNS
 from weather.market.mm_paper import (
     build_known_edge_map,
     build_paper_payload,
+    fill_evidence_completeness_summary,
     maker_paper_score_freshness_from_report,
     model_variant_clustered_promotion_gate,
     quote_blocker_diagnostics,
@@ -29,6 +30,61 @@ from weather.market.mm_scoring_projection import (
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
 TARGET_DATE = "2026-06-14"
+
+
+def test_fill_evidence_blocks_unsafe_execution_rejections_but_not_expected_nonexecutions():
+    legs = [
+        {
+            "leg_id": "leg-1",
+            "quote_time": None,
+            "market_id": "atlanta",
+            "range_label": "80-81 F",
+            "clob_token_id": "token-80",
+            "side": "YES_BID",
+            "quote_size": 1.0,
+        }
+    ]
+    queue_rows = [
+        {
+            "leg_id": "leg-1",
+            "status": "no_touch",
+            "estimated_fill_size": 0.0,
+        }
+    ]
+    shared = {
+        "legs": legs,
+        "fill_rows": [],
+        "queue_rows": queue_rows,
+        "decisive_resting": {"unresolved_resting_quote_count": 0},
+        "clob_recon": {"summary": {}},
+        "config": {"fill_evidence_require_clob_recon_coverage": False},
+    }
+
+    blocked = fill_evidence_completeness_summary(
+        diagnostics={
+            EVENT: {
+                "trade_rows": 0,
+                "rejected_missing_identity_rows": 1,
+                "rejected_non_execution_rows": 100,
+            }
+        },
+        **shared,
+    )
+    assert blocked["status"] == "BLOCK"
+    assert blocked["rejected_execution_evidence_rows"] == 1
+    assert "rejected_execution_evidence_rows" in blocked["blockers"]
+
+    expected_filtering = fill_evidence_completeness_summary(
+        diagnostics={
+            EVENT: {
+                "trade_rows": 0,
+                "rejected_non_execution_rows": 100,
+            }
+        },
+        **shared,
+    )
+    assert expected_filtering["status"] == "PASS"
+    assert expected_filtering["rejected_execution_evidence_rows"] == 0
 
 
 def write_csv(path, fieldnames, rows):
@@ -435,22 +491,37 @@ def write_snapshot_fixture(root):
     folder.mkdir(parents=True)
     trades = [
         {
+            "execution_id": "fixture-execution-1",
             "trade_time_utc": "2026-06-14T16:00:10+00:00",
+            "received_at_utc": "2026-06-14T16:00:11+00:00",
+            "transaction_hash": "0xfixture1",
+            "raw_sha1": "1111111111111111111111111111111111111111",
             "clob_token_id": "token-80",
+            "condition_id": "condition-80",
             "price": "0.49",
             "size": "10",
             "side": "SELL",
         },
         {
+            "execution_id": "fixture-execution-2",
             "trade_time_utc": "2026-06-14T16:00:20+00:00",
+            "received_at_utc": "2026-06-14T16:00:21+00:00",
+            "transaction_hash": "0xfixture2",
+            "raw_sha1": "2222222222222222222222222222222222222222",
             "clob_token_id": "token-80",
+            "condition_id": "condition-80",
             "price": "0.48",
             "size": "3",
             "side": "SELL",
         },
         {
+            "execution_id": "fixture-execution-3",
             "trade_time_utc": "2026-06-14T16:00:30+00:00",
+            "received_at_utc": "2026-06-14T16:00:31+00:00",
+            "transaction_hash": "0xfixture3",
+            "raw_sha1": "3333333333333333333333333333333333333333",
             "clob_token_id": "token-80",
+            "condition_id": "condition-80",
             "price": "0.47",
             "size": "",
             "side": "SELL",
@@ -1267,6 +1338,38 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(float(fill["fill_price"]), 0.49)
             self.assertEqual(float(fill["fill_size"]), 3.0)
             self.assertEqual(float(fill["through_trade_price"]), 0.48)
+            self.assertEqual(
+                fill["execution_evidence_schema_version"],
+                "mm_execution_evidence_v0.1",
+            )
+            self.assertTrue(fill["execution_id"].startswith("execution_"))
+            self.assertEqual(fill["canonical_execution_id"], fill["execution_id"])
+            self.assertEqual(fill["supplied_canonical_execution_id"], "")
+            self.assertEqual(fill["native_execution_id"], "fixture-execution-2")
+            self.assertEqual(fill["transaction_hash"], "0xfixture2")
+            self.assertEqual(
+                fill["execution_exchange_time_utc"],
+                "2026-06-14T16:00:20+00:00",
+            )
+            self.assertEqual(
+                fill["execution_received_time_utc"],
+                "2026-06-14T16:00:21+00:00",
+            )
+            self.assertEqual(
+                fill["execution_time_source"],
+                "trades_long.csv:trade_time_utc",
+            )
+            self.assertEqual(float(fill["execution_time_precision_seconds"]), 1.0)
+            self.assertEqual(fill["execution_side"], "SELL")
+            self.assertEqual(fill["execution_condition_id"], "condition-80")
+            self.assertEqual(
+                fill["execution_raw_sha1"],
+                "2222222222222222222222222222222222222222",
+            )
+            self.assertEqual(
+                fill["execution_source_representations"],
+                "trades_long.csv",
+            )
             self.assertGreater(float(fill["markout_30m_per_share"]), 0.0)
             self.assertEqual(float(fill["settlement_outcome"]), 1.0)
             self.assertEqual(fill["casebook_taxonomy"], "market_lead")
@@ -1286,6 +1389,11 @@ class TestMMPaper(unittest.TestCase):
             self.assertTrue(Path(files["known_edge_json"]).exists())
             csv_rows = read_csv(files["fills_csv"])
             self.assertEqual(len(csv_rows), 1)
+            self.assertEqual(csv_rows[0]["canonical_execution_id"], fill["execution_id"])
+            self.assertEqual(
+                csv_rows[0]["execution_evidence_schema_version"],
+                "mm_execution_evidence_v0.1",
+            )
             report = Path(files["report"]).read_text(encoding="utf-8")
             self.assertIn("## Model-Variant Bakeoff", report)
             self.assertIn("Model-variant quote-intent rows / quoted legs", report)
@@ -1665,8 +1773,13 @@ class TestMMPaper(unittest.TestCase):
             folder.mkdir(parents=True)
             trades = [
                 {
+                    "execution_id": "fixture-early-execution",
                     "trade_time_utc": "2026-06-14T09:00:10+00:00",
+                    "received_at_utc": "2026-06-14T09:00:11+00:00",
+                    "transaction_hash": "0xfixtureearly",
+                    "raw_sha1": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "clob_token_id": "token-early",
+                    "condition_id": "condition-early",
                     "price": "0.48",
                     "size": "5",
                     "side": "SELL",

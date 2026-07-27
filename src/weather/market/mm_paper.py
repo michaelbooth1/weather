@@ -66,6 +66,7 @@ from weather.market.mm_paper_constants import (  # noqa: E402
     DEFAULT_RUNS_ROOT,
     DEFAULT_SNAPSHOTS_ROOT,
     EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION,
+    EXECUTION_EVIDENCE_SCHEMA_VERSION,
     FILL_COLUMNS,
     KNOWN_EDGE_SCHEMA_VERSION,
     MARKOUT_HORIZONS,
@@ -1985,6 +1986,7 @@ def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
     quote_leg_count = len(legs or [])
     return {
         "schema_version": "mm_fill_evidence_completeness_v0.1",
+        "execution_evidence_schema_version": EXECUTION_EVIDENCE_SCHEMA_VERSION,
         "status": "SKIPPED",
         "reason": reason,
         "promotion_grade": False,
@@ -1995,6 +1997,8 @@ def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
         "strict_trade_through_filled_shares": 0.0,
         "queue_status_counts": {},
         "missing_size_trade_rows": 0,
+        "rejected_execution_evidence_rows": 0,
+        "conflicting_execution_evidence_rows": 0,
         "missing_book_queue_legs": 0,
         "missing_trade_size_queue_legs": 0,
         "unresolved_resting_quote_count": len(legs or []),
@@ -2011,6 +2015,8 @@ def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
                 "reason": reason,
                 "trade_rows": 0,
                 "missing_size_trade_rows": 0,
+                "rejected_execution_evidence_rows": 0,
+                "conflicting_execution_evidence_rows": 0,
                 "book_rows": 0,
                 "mark_rows": 0,
                 "settlement_available": False,
@@ -2072,6 +2078,22 @@ def load_or_build_clob_recon(clob_recon_path, snapshots_root, event_slugs, now=N
     return built
 
 
+BLOCKING_EXECUTION_REJECTION_KEYS = (
+    "rejected_invalid_execution_rows",
+    "rejected_missing_condition_rows",
+    "rejected_invalid_size_rows",
+    "rejected_invalid_side_rows",
+    "rejected_missing_exchange_time_rows",
+    "rejected_negative_latency_rows",
+    "rejected_missing_identity_rows",
+    "rejected_ambiguous_raw_link_rows",
+    "rejected_conflicting_raw_link_rows",
+    "rejected_conflicting_raw_link_identity_rows",
+    "rejected_invalid_raw_link_exchange_time_rows",
+    "rejected_conflicting_raw_link_exchange_time_rows",
+)
+
+
 def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics, decisive_resting, clob_recon, config):
     config = {**DEFAULT_CONFIG, **(config or {})}
     quote_leg_count = len(legs or [])
@@ -2083,6 +2105,15 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         else {row.get("leg_id"): row for row in queue_rows or []}
     )
     missing_size_trade_rows = sum(int(row.get("missing_size_trade_rows") or 0) for row in diagnostics.values())
+    rejected_execution_evidence_rows = sum(
+        int(row.get(key) or 0)
+        for row in diagnostics.values()
+        for key in BLOCKING_EXECUTION_REJECTION_KEYS
+    )
+    conflicting_execution_evidence_rows = sum(
+        int(row.get("conflicting_representation_rows") or 0)
+        for row in diagnostics.values()
+    )
     missing_book_queue_legs = queue_counts.get("missing_book", 0)
     missing_trade_size_queue_legs = queue_counts.get("missed_missing_trade_size", 0)
     clob_summary = (clob_recon or {}).get("summary") or {}
@@ -2182,10 +2213,18 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
 
     event_rows = []
     for event_slug, row in sorted((diagnostics or {}).items()):
+        rejected_rows = sum(
+            int(row.get(key) or 0)
+            for key in BLOCKING_EXECUTION_REJECTION_KEYS
+        )
         event_rows.append({
             "event_slug": event_slug,
             "trade_rows": int(row.get("trade_rows") or 0),
             "missing_size_trade_rows": int(row.get("missing_size_trade_rows") or 0),
+            "rejected_execution_evidence_rows": rejected_rows,
+            "conflicting_execution_evidence_rows": int(
+                row.get("conflicting_representation_rows") or 0
+            ),
             "book_rows": int(row.get("book_rows") or 0),
             "mark_rows": int(row.get("mark_rows") or 0),
             "settlement_available": bool(row.get("settlement_available")),
@@ -2205,6 +2244,10 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         blockers.append("no_quote_legs")
     if missing_size_trade_rows > int(config.get("fill_evidence_max_missing_size_trade_rows", 0)):
         blockers.append("missing_size_trade_rows")
+    if rejected_execution_evidence_rows > 0:
+        blockers.append("rejected_execution_evidence_rows")
+    if conflicting_execution_evidence_rows > 0:
+        blockers.append("conflicting_execution_evidence_rows")
     if missing_book_queue_legs > int(config.get("fill_evidence_max_missing_book_queue_legs", 0)):
         blockers.append("missing_book_queue_legs")
     if missing_trade_size_queue_legs > int(config.get("fill_evidence_max_missing_trade_size_queue_legs", 0)):
@@ -2223,6 +2266,7 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
 
     return {
         "schema_version": "mm_fill_evidence_completeness_v0.1",
+        "execution_evidence_schema_version": EXECUTION_EVIDENCE_SCHEMA_VERSION,
         "status": "PASS" if not blockers else "BLOCK",
         "promotion_grade": not blockers,
         "blockers": blockers,
@@ -2233,6 +2277,8 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         "strict_trade_through_filled_shares": compact_float(sum_field(fill_rows or [], "fill_size")),
         "queue_status_counts": dict(sorted(queue_counts.items())),
         "missing_size_trade_rows": missing_size_trade_rows,
+        "rejected_execution_evidence_rows": rejected_execution_evidence_rows,
+        "conflicting_execution_evidence_rows": conflicting_execution_evidence_rows,
         "missing_book_queue_legs": missing_book_queue_legs,
         "missing_trade_size_queue_legs": missing_trade_size_queue_legs,
         "unresolved_resting_quote_count": unresolved_count,
@@ -2624,6 +2670,14 @@ def _build_paper_payload(
         "queue_status_counts": dict(sorted(queue_summary.items())),
         "trade_evidence_gaps": {
             "missing_size_trade_rows": sum(row.get("missing_size_trade_rows", 0) for row in diagnostics.values()),
+            "rejected_execution_evidence_rows": fill_evidence_completeness.get(
+                "rejected_execution_evidence_rows",
+                0,
+            ),
+            "conflicting_execution_evidence_rows": fill_evidence_completeness.get(
+                "conflicting_execution_evidence_rows",
+                0,
+            ),
             "events_without_trade_rows": sorted(
                 key for key, row in diagnostics.items() if row.get("trade_rows", 0) == 0
             ),
@@ -2634,6 +2688,14 @@ def _build_paper_payload(
         "fill_evidence_vacuous": fill_evidence_completeness.get("vacuous"),
         "fill_evidence_reason": fill_evidence_completeness.get("reason"),
         "missing_size_trade_rows": fill_evidence_completeness.get("missing_size_trade_rows", 0),
+        "rejected_execution_evidence_rows": fill_evidence_completeness.get(
+            "rejected_execution_evidence_rows",
+            0,
+        ),
+        "conflicting_execution_evidence_rows": fill_evidence_completeness.get(
+            "conflicting_execution_evidence_rows",
+            0,
+        ),
         "missing_book_queue_legs": fill_evidence_completeness.get("missing_book_queue_legs", 0),
         "unresolved_resting_quote_count": fill_evidence_completeness.get(
             "unresolved_resting_quote_count",
@@ -2646,6 +2708,14 @@ def _build_paper_payload(
             "vacuous": fill_evidence_completeness.get("vacuous"),
             "reason": fill_evidence_completeness.get("reason"),
             "missing_size_trade_rows": fill_evidence_completeness.get("missing_size_trade_rows", 0),
+            "rejected_execution_evidence_rows": fill_evidence_completeness.get(
+                "rejected_execution_evidence_rows",
+                0,
+            ),
+            "conflicting_execution_evidence_rows": fill_evidence_completeness.get(
+                "conflicting_execution_evidence_rows",
+                0,
+            ),
             "missing_book_queue_legs": fill_evidence_completeness.get("missing_book_queue_legs", 0),
             "missing_trade_size_queue_legs": fill_evidence_completeness.get(
                 "missing_trade_size_queue_legs",
