@@ -245,8 +245,8 @@ leave-one-date-out tables are retained in `observed_max_audit.json`.
 
 ### Mission 2 decision
 
-The proxy differs from the manifest-bound captured feature in 37/347
-comparable uncertain partitions, and ten cross a displayed band. That is a
+The proxy exceeds the manifest-bound captured feature in 37/347 comparable
+uncertain partitions, and ten cross a displayed band. That is a
 captured-feature discrepancy, not proof of unconsumed runtime information and
 not a profit finding:
 
