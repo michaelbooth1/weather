@@ -130,6 +130,9 @@ def read_json(path: str | Path, default=None):
 _PRETTY_TOP_LEVEL_FIELD = re.compile(
     rb'^  (?P<key>"(?:\\.|[^"\\])*")\s*:\s*(?P<value>.*?)(?:\r?\n)?$'
 )
+_PRETTY_SECOND_LEVEL_FIELD = re.compile(
+    rb'^    (?P<key>"(?:\\.|[^"\\])*")\s*:\s*(?P<value>.*?)(?:\r?\n)?$'
+)
 
 
 def read_pretty_json_top_level_values(
@@ -216,6 +219,128 @@ def read_pretty_json_top_level_values(
     except OSError:
         return {}
     return result
+
+
+def read_pretty_json_object_values(
+    path: str | Path,
+    object_field: str,
+    fields: Iterable[str],
+    *,
+    max_line_bytes: int = 64 * 1024,
+    max_value_bytes: int = 16 * 1024 * 1024,
+) -> dict[str, Any]:
+    """Read selected direct children of one canonical pretty-JSON object.
+
+    This complements :func:`read_pretty_json_top_level_values` for artifacts
+    where a bounded summary and a growing row array share a top-level object.
+    Unselected children are scanned line by line and never decoded.
+    """
+
+    wanted = {str(field) for field in fields}
+    if not wanted:
+        return {}
+    if max_line_bytes <= 0 or max_value_bytes <= 0:
+        raise ValueError("pretty JSON read limits must be positive")
+    result: dict[str, Any] = {}
+    inside_object = False
+    object_closed = False
+    capture_key: str | None = None
+    capture = bytearray()
+    capture_valid = True
+
+    def finish_capture() -> None:
+        nonlocal capture_key, capture, capture_valid
+        if capture_key is not None and capture_valid:
+            raw = bytes(capture).strip()
+            if raw.endswith(b","):
+                raw = raw[:-1].rstrip()
+            try:
+                value = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                pass
+            else:
+                result[capture_key] = value
+        capture_key = None
+        capture = bytearray()
+        capture_valid = True
+
+    try:
+        with Path(path).open("rb") as handle:
+            while True:
+                line = handle.readline(max_line_bytes + 1)
+                if not line:
+                    finish_capture()
+                    break
+                oversized = len(line) > max_line_bytes
+                if oversized:
+                    fragment = line
+                    while fragment and not fragment.endswith((b"\n", b"\r")):
+                        fragment = handle.readline(max_line_bytes + 1)
+                    if capture_key is not None:
+                        capture_valid = False
+                    continue
+                if not inside_object:
+                    match = _PRETTY_TOP_LEVEL_FIELD.fullmatch(line)
+                    if not match:
+                        continue
+                    try:
+                        key = json.loads(match.group("key").decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    raw_value = match.group("value").lstrip()
+                    if key == str(object_field) and raw_value.startswith(b"{"):
+                        inside_object = True
+                    continue
+                if line.startswith(b"  }"):
+                    finish_capture()
+                    object_closed = True
+                    break
+                match = _PRETTY_SECOND_LEVEL_FIELD.fullmatch(line)
+                if match:
+                    finish_capture()
+                    try:
+                        key = json.loads(match.group("key").decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    if key in wanted:
+                        capture_key = key
+                        raw_value = match.group("value")
+                        if len(raw_value) > max_value_bytes:
+                            capture_valid = False
+                        else:
+                            capture.extend(raw_value)
+                    continue
+                if capture_key is not None:
+                    if len(capture) + len(line) > max_value_bytes:
+                        capture_valid = False
+                    elif capture_valid:
+                        capture.extend(line)
+    except OSError:
+        return {}
+    return result if object_closed else {}
+
+
+def pretty_json_root_is_closed(
+    path: str | Path,
+    *,
+    max_tail_bytes: int = 4096,
+) -> bool:
+    """Return whether canonical pretty JSON ends with a column-zero root close."""
+
+    if max_tail_bytes <= 0:
+        raise ValueError("max_tail_bytes must be positive")
+    try:
+        with Path(path).open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - max_tail_bytes))
+            lines = handle.read().splitlines()
+    except OSError:
+        return False
+    for line in reversed(lines):
+        if line.strip():
+            return line.rstrip() == b"}"
+    return False
 
 
 def write_json_atomic(
@@ -314,6 +439,7 @@ def write_json_streaming_atomic(
     retry_sleep_seconds: float = 0.05,
     sleep_fn: SleepFn = time.sleep,
     trailing_newline: bool = False,
+    newline: str | None = "\n",
 ) -> Path:
     """Atomically stream JSON, including SQLite-backed row-array views."""
 
@@ -321,7 +447,7 @@ def write_json_streaming_atomic(
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     try:
-        with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        with tmp.open("w", encoding="utf-8", newline=newline) as handle:
             _write_json_streaming_value(handle, payload, level=0)
             if trailing_newline:
                 handle.write("\n")

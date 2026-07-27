@@ -220,6 +220,7 @@ REPORTING_CANDIDATE_LIFECYCLE_MODULES = [
     Path("src/weather/reporting/candidate_lifecycle/model_market_disagreement_analysis.py"),
     Path("src/weather/reporting/candidate_lifecycle/model_market_disagreement_audit.py"),
     Path("src/weather/reporting/candidate_lifecycle/multi_variant_shadow.py"),
+    Path("src/weather/reporting/candidate_lifecycle/price_free_model_aggregation.py"),
     Path("src/weather/reporting/candidate_lifecycle/price_free_model_learning.py"),
     Path("src/weather/reporting/candidate_lifecycle/repair_integration.py"),
     Path("src/weather/reporting/candidate_lifecycle/shadow_ab_monitor.py"),

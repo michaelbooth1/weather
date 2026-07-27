@@ -101,6 +101,16 @@ loosen the ceilings to force a scheduled run through; Item 324 remains partial
 until a representative scheduled soak supplies measured per-step peaks, I/O,
 and cardinality evidence.
 
+On Windows, the guard associates a dedicated Job completion port before the
+suspended root is assigned, retains one exact Job-verified handle per
+`(process ID, creation time)` instance, and terminally queries every retained
+handle after the Job becomes inactive. The reported process-tree working-set
+peak is the conservative sum of those complete-lifetime per-process peaks;
+the private/commit peak remains the Job Object's exact `PeakJobMemoryUsed`.
+Missing process notifications are not trusted: the retained instance count
+must reconcile exactly to the Job lifetime `TotalProcesses`, all terminal
+queries and handle closes must succeed, and any mismatch blocks the receipt.
+
 These ceilings authorize containment, not completion claims. A child that
 reaches a ceiling must terminate inside its container and leave an exact safe
 resume point; the first isolated WU and watchdog receipts must be reviewed at

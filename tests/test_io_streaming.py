@@ -11,7 +11,9 @@ from tempfile import TemporaryDirectory
 
 from weather.io import (
     iter_csv_rows,
+    pretty_json_root_is_closed,
     read_csv_rows,
+    read_pretty_json_object_values,
     read_pretty_json_top_level_values,
 )
 
@@ -124,6 +126,67 @@ class TestIterCsvRows(unittest.TestCase):
                 ),
                 {},
             )
+
+    def test_pretty_json_object_values_skip_growing_sibling_array(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "price-free.json"
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write('{\n  "current_max_carryover": {\n')
+                handle.write('    "by_market_hour": [{"market_id": "toronto"}],\n')
+                handle.write('    "examples": [{"snapshot_id": "example"}],\n')
+                handle.write('    "rows": [\n')
+                for index in range(50_000):
+                    comma = "," if index < 49_999 else ""
+                    handle.write(f'      {{"snapshot_id": "s-{index}"}}{comma}\n')
+                handle.write('    ],\n')
+                handle.write('    "summary": {"snapshot_rows": 50000}\n')
+                handle.write('  },\n  "status": "OK"\n}\n')
+
+            tracemalloc.start()
+            values = read_pretty_json_object_values(
+                path,
+                "current_max_carryover",
+                ("by_market_hour", "examples", "summary"),
+            )
+            _current, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+
+            self.assertEqual(
+                values,
+                {
+                    "by_market_hour": [{"market_id": "toronto"}],
+                    "examples": [{"snapshot_id": "example"}],
+                    "summary": {"snapshot_rows": 50000},
+                },
+            )
+            self.assertLess(peak, 512 * 1024)
+
+    def test_pretty_json_object_values_reject_truncated_object(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "truncated.json"
+            path.write_text(
+                '{\n  "current_max_carryover": {\n'
+                '    "summary": {"snapshot_rows": 1}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_pretty_json_object_values(
+                    path,
+                    "current_max_carryover",
+                    ("summary",),
+                ),
+                {},
+            )
+
+    def test_pretty_json_root_close_must_be_at_column_zero(self):
+        with TemporaryDirectory() as tmp:
+            valid = Path(tmp) / "valid.json"
+            nested_only = Path(tmp) / "nested-only.json"
+            valid.write_bytes(b'{\n  "value": {}\n}\n')
+            nested_only.write_bytes(b'{\n  "value": {\n  }\n')
+
+            self.assertTrue(pretty_json_root_is_closed(valid))
+            self.assertFalse(pretty_json_root_is_closed(nested_only))
 
 
 if __name__ == "__main__":

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import sqlite3
+import tempfile
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from weather.market.market_config import date_from_event_slug
+from weather.io import iter_csv_rows
 
 
 DEFAULT_QUALITY_GRADES = ("complete", "manual_override")
@@ -74,43 +77,74 @@ def latest_settled_label_summary(
     *,
     quality_grades: Any = DEFAULT_QUALITY_GRADES,
     include_promotion_countable_labels: bool = True,
+    include_date_counts: bool = True,
 ) -> dict[str, Any]:
     grades = parse_quality_grades(quality_grades)
     allowed = {grade.lower() for grade in grades}
     allow_all = "all" in allowed
-    rows = read_label_rows(labels_csv)
-    selected: list[dict[str, Any]] = []
     quality_counts = Counter()
     selected_quality_counts = Counter()
     selected_promotion_countable_count = 0
     selected_by_reason = Counter()
-    by_date = Counter()
-    for row in rows:
-        quality = str(row.get("quality_grade") or "unknown")
-        quality_counts[quality] += 1
-        quality_allowed = allow_all or quality.lower() in allowed
-        promotion_countable = truthy(row.get("promotion_countable"))
-        if not quality_allowed and not (include_promotion_countable_labels and promotion_countable):
-            continue
-        target = row_target_date(row)
-        if not target:
-            continue
-        selected.append(row)
-        selected_quality_counts[quality] += 1
-        if promotion_countable:
-            selected_promotion_countable_count += 1
-            selected_by_reason[str(row.get("promotion_countable_reason") or "-")] += 1
-        by_date[target] += 1
-    latest = max(by_date, default=None)
+    selected_label_count = 0
+    with tempfile.TemporaryDirectory(prefix="weather-scoring-liveness-") as scratch:
+        connection = sqlite3.connect(str(Path(scratch) / "date_counts.sqlite3"))
+        try:
+            connection.execute("PRAGMA journal_mode=OFF")
+            connection.execute("PRAGMA synchronous=OFF")
+            connection.execute("PRAGMA temp_store=FILE")
+            connection.execute("PRAGMA cache_size=-1024")
+            connection.execute(
+                "CREATE TABLE date_counts (target_date TEXT PRIMARY KEY, n INTEGER NOT NULL)"
+            )
+            for row in iter_csv_rows(labels_csv):
+                quality = str(row.get("quality_grade") or "unknown")
+                quality_counts[quality] += 1
+                quality_allowed = allow_all or quality.lower() in allowed
+                promotion_countable = truthy(row.get("promotion_countable"))
+                if not quality_allowed and not (
+                    include_promotion_countable_labels and promotion_countable
+                ):
+                    continue
+                target = row_target_date(row)
+                if not target:
+                    continue
+                selected_label_count += 1
+                selected_quality_counts[quality] += 1
+                if promotion_countable:
+                    selected_promotion_countable_count += 1
+                    selected_by_reason[str(row.get("promotion_countable_reason") or "-")] += 1
+                connection.execute(
+                    "INSERT INTO date_counts (target_date, n) VALUES (?, 1) "
+                    "ON CONFLICT(target_date) DO UPDATE SET n = n + 1",
+                    (target,),
+                )
+            latest_row = connection.execute(
+                "SELECT target_date, n FROM date_counts ORDER BY target_date DESC LIMIT 1"
+            ).fetchone()
+            latest = latest_row[0] if latest_row else None
+            latest_count = int(latest_row[1]) if latest_row else 0
+            by_date = (
+                {
+                    str(target): int(count)
+                    for target, count in connection.execute(
+                        "SELECT target_date, n FROM date_counts ORDER BY target_date"
+                    )
+                }
+                if include_date_counts
+                else {}
+            )
+        finally:
+            connection.close()
     return {
         "labels_csv": str(Path(labels_csv)),
         "labels_csv_exists": Path(labels_csv).exists(),
         "quality_grades": list(grades),
         "include_promotion_countable_labels": bool(include_promotion_countable_labels),
-        "selected_label_count": len(selected),
+        "selected_label_count": selected_label_count,
         "latest_settled_label_date": latest,
-        "latest_label_count": by_date.get(latest, 0) if latest else 0,
-        "date_counts": dict(sorted(by_date.items())),
+        "latest_label_count": latest_count,
+        "date_counts": by_date,
         "quality_counts": dict(sorted(quality_counts.items())),
         "selected_quality_counts": dict(sorted(selected_quality_counts.items())),
         "selected_promotion_countable_label_count": selected_promotion_countable_count,
@@ -208,6 +242,7 @@ def build_scoring_liveness(
         labels_csv,
         quality_grades=quality_grades,
         include_promotion_countable_labels=include_promotion_countable_labels,
+        include_date_counts=False,
     )
     latest = label_summary.get("latest_settled_label_date")
     last_scored = date_text(last_scored_target_date)

@@ -13,10 +13,13 @@ WRAPPER_MODULE_NAMES = sorted(
     if path.name != "__init__.py"
 )
 
+LEGACY_IMPORT_PATTERN = "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES)
 LEGACY_IMPORT_RE = re.compile(
-    r"^(?:from|import)\s+("
-    + "|".join(re.escape(name) for name in WRAPPER_MODULE_NAMES)
-    + r")\b",
+    (
+        r"^(?:from|import)\s+(" + LEGACY_IMPORT_PATTERN + r")\b"
+        if LEGACY_IMPORT_PATTERN
+        else r"(?!x)x"
+    ),
     re.MULTILINE,
 )
 

@@ -11,7 +11,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from weather.io import read_json, read_jsonl, write_json_atomic
+from weather.io import (
+    pretty_json_root_is_closed,
+    read_json,
+    read_jsonl,
+    read_pretty_json_top_level_values,
+    write_json_atomic,
+)
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, fmt_signed, markdown_table
 from weather.schema_registry import schema_version
@@ -164,7 +170,10 @@ def _latest_matching_artifact(root: Path, pattern: str) -> Path | None:
 
 def _load_artifact(root: Path, name: str, filename: str) -> tuple[Path, Any]:
     path = root / filename
-    payload = read_json(path, default=None)
+    if name == "price_free_model_learning":
+        payload = _load_price_free_metadata(path)
+    else:
+        payload = read_json(path, default=None)
     if payload is not None:
         return path, payload
     for pattern in ARTIFACT_FALLBACK_GLOBS.get(name, ()):
@@ -175,6 +184,42 @@ def _load_artifact(root: Path, name: str, filename: str) -> tuple[Path, Any]:
         if payload is not None:
             return fallback_path, payload
     return path, None
+
+
+def _load_price_free_metadata(path: Path) -> dict[str, Any] | None:
+    """Bounded metadata projection for a growing price-free artifact."""
+
+    if not path.exists():
+        return None
+    payload = read_pretty_json_top_level_values(
+        path,
+        ("schema_version", "generated_at_utc", "status"),
+        max_value_bytes=64 * 1024,
+    )
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if (
+        pretty_json_root_is_closed(path)
+        and payload.get("schema_version") == "price_free_model_learning_v0.1"
+        and payload.get("status") not in (None, "")
+    ):
+        return payload
+    # Preserve compact historical/test JSON compatibility while refusing to
+    # materialize a corpus-sized noncanonical artifact.
+    if size <= 1024 * 1024:
+        compact = read_json(path, default=None)
+        if (
+            isinstance(compact, dict)
+            and compact.get("schema_version") == "price_free_model_learning_v0.1"
+            and compact.get("status") not in (None, "")
+        ):
+            return {
+                key: compact.get(key)
+                for key in ("schema_version", "generated_at_utc", "status")
+            }
+    return None
 
 
 def load_inputs(backtest_root=DEFAULT_BACKTEST_ROOT) -> tuple[dict[str, Any], dict[str, Any]]:

@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sqlite3
+import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator, Mapping
 
 from weather.model.feature_store import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
 from weather.paths import data_path
@@ -51,14 +53,17 @@ def _read_json(path: str | Path | None) -> dict[str, Any] | None:
         return None
 
 
-def _read_csv_rows(path: str | Path | None) -> list[dict[str, Any]]:
+def _iter_csv_rows(path: str | Path | None) -> Iterator[dict[str, str]]:
+    """Yield CSV rows in source order without retaining the corpus."""
+
     if not path:
-        return []
+        return
     path = Path(path)
     if not path.exists():
-        return []
+        return
     with path.open("r", encoding="utf-8", newline="") as handle:
-        return [dict(row) for row in csv.DictReader(handle)]
+        for row in csv.DictReader(handle):
+            yield dict(row)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -75,34 +80,98 @@ def _safe_int(value: Any) -> int | None:
     return int(value) if value is not None else None
 
 
-def current_max_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    state_counts = Counter(row.get("current_max_state") or "unknown" for row in rows)
-    disposition_counts = Counter(row.get("feature_disposition") or "unknown" for row in rows)
-    cutoff_counts = Counter(str(row.get("cutoff_hour") or "") for row in rows)
-    pre_reset_count = sum(1 for row in rows if str(row.get("pre_reset")).lower() == "true")
-    risky_count = sum(
-        1 for row in rows
-        if (row.get("current_max_state") or "") in {
-            "pre_reset_current_max_null",
-            "early_current_max_history_gap",
-            "current_max_history_gap",
-            "current_max_current_temp_gap",
-        }
-    )
-    gap_to_current = [
-        value for value in (_safe_float(row.get("gap_to_current_temp")) for row in rows)
-        if value is not None
-    ]
+def current_max_summary(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    spill_directory: str | Path | None = None,
+) -> dict[str, Any]:
+    """Summarize current-max rows with memory bounded by fixed dimensions.
+
+    The target-date cardinality grows with corpus age, so exact distinct dates
+    are kept in a temporary SQLite table instead of a Python set. Market IDs and
+    the categorical counters are bounded registry/schema dimensions.
+    """
+
+    state_counts: Counter[str] = Counter()
+    disposition_counts: Counter[str] = Counter()
+    cutoff_counts: Counter[str] = Counter()
+    markets: set[Any] = set()
+    row_count = 0
+    pre_reset_count = 0
+    risky_count = 0
+    max_gap_to_current_temp: float | None = None
+    risky_states = {
+        "pre_reset_current_max_null",
+        "early_current_max_history_gap",
+        "current_max_history_gap",
+        "current_max_current_temp_gap",
+    }
+    spill_root = str(Path(spill_directory)) if spill_directory is not None else None
+
+    with tempfile.TemporaryDirectory(
+        prefix="current-max-trust-summary-",
+        dir=spill_root,
+    ) as temporary_directory:
+        database_path = Path(temporary_directory) / "distinct-target-dates.sqlite3"
+        connection = sqlite3.connect(str(database_path))
+        try:
+            connection.execute("PRAGMA journal_mode=OFF")
+            connection.execute("PRAGMA synchronous=OFF")
+            connection.execute("PRAGMA temp_store=FILE")
+            connection.execute("PRAGMA cache_size=-512")
+            connection.execute(
+                "CREATE TABLE target_dates (value TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+
+            for row in rows:
+                row_count += 1
+                state = row.get("current_max_state") or "unknown"
+                state_counts[state] += 1
+                disposition_counts[row.get("feature_disposition") or "unknown"] += 1
+                cutoff_counts[str(row.get("cutoff_hour") or "")] += 1
+
+                market_id = row.get("market_id")
+                if market_id:
+                    markets.add(market_id)
+
+                target_date = row.get("target_date")
+                if target_date:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO target_dates(value) VALUES (?)",
+                        (str(target_date),),
+                    )
+
+                if str(row.get("pre_reset")).lower() == "true":
+                    pre_reset_count += 1
+                if (row.get("current_max_state") or "") in risky_states:
+                    risky_count += 1
+
+                gap_to_current = _safe_float(row.get("gap_to_current_temp"))
+                if (
+                    gap_to_current is not None
+                    and (
+                        max_gap_to_current_temp is None
+                        or gap_to_current > max_gap_to_current_temp
+                    )
+                ):
+                    max_gap_to_current_temp = gap_to_current
+
+            target_date_count = int(
+                connection.execute("SELECT COUNT(*) FROM target_dates").fetchone()[0]
+            )
+        finally:
+            connection.close()
+
     return {
-        "row_count": len(rows),
-        "market_count": len({row.get("market_id") for row in rows if row.get("market_id")}),
-        "target_date_count": len({row.get("target_date") for row in rows if row.get("target_date")}),
+        "row_count": row_count,
+        "market_count": len(markets),
+        "target_date_count": target_date_count,
         "state_counts": dict(sorted(state_counts.items())),
         "disposition_counts": dict(sorted(disposition_counts.items())),
         "cutoff_hour_counts": dict(sorted(cutoff_counts.items())),
         "pre_reset_count": pre_reset_count,
         "risky_or_guarded_count": risky_count,
-        "max_gap_to_current_temp": max(gap_to_current) if gap_to_current else None,
+        "max_gap_to_current_temp": max_gap_to_current_temp,
     }
 
 
@@ -247,7 +316,7 @@ def build_payload(
     root_cause_json: str | Path = DEFAULT_ROOT_CAUSE_JSON,
     retrain_report_json: str | Path | None = None,
 ) -> dict[str, Any]:
-    current_max = current_max_summary(_read_csv_rows(current_max_csv))
+    current_max = current_max_summary(_iter_csv_rows(current_max_csv))
     feature_quality = feature_quality_summary(_read_json(feature_quality_json))
     root_cause = root_cause_summary(_read_json(root_cause_json))
     retrain = retrain_evidence_summary(retrain_report_json)

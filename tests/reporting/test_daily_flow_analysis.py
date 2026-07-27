@@ -2,8 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from weather.reporting.daily.daily_flow_analysis import build_flow_analysis, render_report, write_outputs
+from weather.reporting.daily.daily_flow_analysis import (
+    _load_artifact,
+    build_flow_analysis,
+    render_report,
+    write_outputs,
+)
 
 
 def write_flow_artifacts(root, *, blocked=True):
@@ -178,6 +184,65 @@ def write_flow_artifacts(root, *, blocked=True):
 
 
 class TestDailyFlowAnalysis(unittest.TestCase):
+    def test_price_free_artifact_load_is_bounded_metadata_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "price_free_model_learning.json"
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write("{\n")
+                handle.write('  "current_max_carryover": {"rows": [\n')
+                for index in range(10_000):
+                    comma = "," if index < 9_999 else ""
+                    handle.write(f'    {{"snapshot_id": "s-{index}"}}{comma}\n')
+                handle.write("  ]},\n")
+                handle.write('  "generated_at_utc": "2026-07-25T12:00:00+00:00",\n')
+                handle.write('  "schema_version": "price_free_model_learning_v0.1",\n')
+                handle.write('  "status": "OK"\n')
+                handle.write("}\n")
+            with patch(
+                "weather.reporting.daily.daily_flow_analysis.read_json",
+                side_effect=AssertionError("whole-file fallback must not run"),
+            ):
+                loaded_path, payload = _load_artifact(
+                    root,
+                    "price_free_model_learning",
+                    "price_free_model_learning.json",
+                )
+
+        self.assertEqual(loaded_path, path)
+        self.assertEqual(
+            payload,
+            {
+                "generated_at_utc": "2026-07-25T12:00:00+00:00",
+                "schema_version": "price_free_model_learning_v0.1",
+                "status": "OK",
+            },
+        )
+
+    def test_price_free_metadata_rejects_nested_close_as_root_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "price_free_model_learning.json"
+            path.write_text(
+                '{\n'
+                '  "generated_at_utc": "2026-07-25T12:00:00+00:00",\n'
+                '  "schema_version": "price_free_model_learning_v0.1",\n'
+                '  "status": "OK",\n'
+                '  "current_max_carryover": {\n'
+                '    "summary": {"snapshot_rows": 1}\n'
+                '  }\n',
+                encoding="utf-8",
+            )
+
+            loaded_path, payload = _load_artifact(
+                root,
+                "price_free_model_learning",
+                "price_free_model_learning.json",
+            )
+
+        self.assertEqual(loaded_path, path)
+        self.assertIsNone(payload)
+
     def test_build_flow_analysis_prioritizes_blockers_and_root_cause_actions(self):
         with tempfile.TemporaryDirectory() as tmp:
             backtest_root = Path(tmp) / "backtest"

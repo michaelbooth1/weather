@@ -4554,7 +4554,11 @@ class TestDailyRefresh(unittest.TestCase):
             other.mkdir(parents=True)
             (other / "variant_predictions_long.csv").write_text("not,read\n", encoding="utf-8")
 
-            result = run_live_variant_settlement_scorecard_step(args)
+            with patch.dict(
+                os.environ,
+                {"SETTLEMENT_LEDGER_ROOT": str(Path(tmp) / "settlements")},
+            ):
+                result = run_live_variant_settlement_scorecard_step(args)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
 
         self.assertEqual(result["status"], "PASS")
