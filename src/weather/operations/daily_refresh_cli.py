@@ -722,6 +722,21 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--wu-settlement-restore-sleep", type=float, default=0.2)
     parser.add_argument("--wu-settlement-restore-timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--wu-settlement-restore-retries",
+        type=int,
+        default=2,
+        help=(
+            "Extra attempts per range when the failure classifies as transient; 0 disables. "
+            "A single timeout here blocks label finalization for every market."
+        ),
+    )
+    parser.add_argument(
+        "--wu-settlement-restore-retry-backoff",
+        type=float,
+        default=5.0,
+        help="Seconds before the first transient retry; doubles each further attempt.",
+    )
     parser.set_defaults(wu_settlement_restore_skip_existing=True)
     parser.add_argument(
         "--wu-settlement-restore-skip-existing",

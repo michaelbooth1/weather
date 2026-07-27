@@ -88,8 +88,10 @@ from weather.schema_registry import schema_version
 from weather.sources.reanalysis_history import ReanalysisClient, ReanalysisStore
 from weather.sources.wu_history import (
     PUBLIC_WU_HISTORY_SOURCE,
+    TRANSIENT_FAILURE,
     PublicWundergroundHistoryClient,
     WundergroundHistoryStore,
+    failure_class_for_exception,
 )
 
 
@@ -170,12 +172,15 @@ def run_public_wu_settlement_restore_step(args):
     timeout = getattr(args, "wu_settlement_restore_timeout", 30)
     skip_existing = getattr(args, "wu_settlement_restore_skip_existing", True)
     continue_on_error = getattr(args, "wu_settlement_restore_continue_on_error", True)
+    retries = max(0, int(getattr(args, "wu_settlement_restore_retries", 2) or 0))
+    retry_backoff = max(0.0, float(getattr(args, "wu_settlement_restore_retry_backoff", 5.0) or 0.0))
 
     rows = []
     fetched_range_count = 0
     error_count = 0
     restored_count = 0
     reused_raw_count = 0
+    transient_retry_count = 0
     for spec in market_specs:
         store = _store_for_wu_restore(spec)
         had_raw_before = target in store.raw_dates()
@@ -186,6 +191,7 @@ def run_public_wu_settlement_restore_step(args):
         )
         market_errors = []
         fetched_ranges = []
+        market_retries = 0
         if ranges:
             client = PublicWundergroundHistoryClient(
                 sleep_seconds=sleep_seconds,
@@ -195,27 +201,41 @@ def run_public_wu_settlement_restore_step(args):
                 units=spec.wu_units,
             )
             for chunk_start, chunk_end in ranges:
-                try:
-                    payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
-                except Exception as exc:  # noqa: BLE001 - record source failures and continue by default.
-                    error_count += 1
-                    error = store.write_fetch_error(
-                        chunk_start,
-                        chunk_end,
-                        exc,
-                        source=PUBLIC_WU_HISTORY_SOURCE,
-                    )
-                    market_errors.append(error)
-                    if not continue_on_error:
-                        raise
-                    continue
-                store.write_payload(chunk_start, chunk_end, payload)
-                fetched_range_count += 1
-                fetched_ranges.append({
-                    "start": chunk_start.isoformat(),
-                    "end": chunk_end.isoformat(),
-                    "observation_count": len(payload.get("observations", []) or []),
-                })
+                # One transient read timeout on one market used to BLOCK this whole step,
+                # which refuses label finalization for every market and hard-stops the
+                # pipeline at the settled-day barrier: on 2026-07-27 a single 30s timeout
+                # on denver/KBKF cost the 23 downstream steps, including the learning and
+                # model-vs-market scoring passes. "Transient" means try again, so try again
+                # before recording a failure; anything else still fails on the first look.
+                for attempt in range(retries + 1):
+                    try:
+                        payload = client.fetch_range(chunk_start, chunk_end, units=spec.wu_units)
+                    except Exception as exc:  # noqa: BLE001 - record source failures and continue by default.
+                        transient = failure_class_for_exception(exc) == TRANSIENT_FAILURE
+                        if transient and attempt < retries:
+                            market_retries += 1
+                            transient_retry_count += 1
+                            time.sleep(retry_backoff * (2 ** attempt))
+                            continue
+                        error_count += 1
+                        error = store.write_fetch_error(
+                            chunk_start,
+                            chunk_end,
+                            exc,
+                            source=PUBLIC_WU_HISTORY_SOURCE,
+                        )
+                        market_errors.append(error)
+                        if not continue_on_error:
+                            raise
+                        break
+                    store.write_payload(chunk_start, chunk_end, payload)
+                    fetched_range_count += 1
+                    fetched_ranges.append({
+                        "start": chunk_start.isoformat(),
+                        "end": chunk_end.isoformat(),
+                        "observation_count": len(payload.get("observations", []) or []),
+                    })
+                    break
 
         hourly_rows, daily_rows = store.rebuild_normalized_files()
         daily_row = _daily_row_for_target(daily_rows, target)
@@ -252,6 +272,7 @@ def run_public_wu_settlement_restore_step(args):
             ),
             "error_count": len(market_errors),
             "errors": market_errors,
+            "transient_retry_count": market_retries,
         })
 
     blocked = [row for row in rows if row.get("status") != "PASS"]
@@ -266,6 +287,7 @@ def run_public_wu_settlement_restore_step(args):
         "reused_raw_market_count": reused_raw_count,
         "fetched_range_count": fetched_range_count,
         "error_count": error_count,
+        "transient_retry_count": transient_retry_count,
         "blocked_market_count": len(blocked),
         "blocked_markets": [row.get("market_id") for row in blocked],
         "skip_existing": bool(skip_existing),
@@ -287,6 +309,9 @@ def run_public_wu_settlement_restore_step(args):
         "reused_raw_market_count": payload.get("reused_raw_market_count"),
         "fetched_range_count": payload.get("fetched_range_count"),
         "error_count": payload.get("error_count"),
+        # Surfaced so a fetch that only succeeded on retry is visible in the chain status
+        # rather than looking indistinguishable from a clean first-try run.
+        "transient_retry_count": payload.get("transient_retry_count"),
         "blocked_market_count": payload.get("blocked_market_count"),
         "blocked_markets": payload.get("blocked_markets") or [],
     }
