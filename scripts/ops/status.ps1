@@ -220,9 +220,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
-    # A task that has NEVER run (0x41303) and is due soon is armed one-shot work -- the
-    # quiet-window merge, a measured backup run. That is exactly what I want to see queued.
-    if ($res -eq "0x41303" -and $ti.NextRunTime) {
+    # A task due soon on a one-shot trigger is armed work -- the quiet-window merge, a
+    # chain recovery run. That is exactly what I want to see queued.
+    #
+    # Keying this on "never run" (0x41303) alone was wrong and hid real armed work: RE-ARMING
+    # an existing one-shot leaves its last result 0x0, so it vanished from this list. Caught
+    # 2026-07-27, when the merge task was re-pointed at a new branch for 01:15 and did not
+    # appear. MSFT_TaskTimeTrigger is a `-Once` trigger; recurring work uses Daily/Weekly/
+    # Logon/Boot classes, so this stays quiet about the routine fleet.
+    # Repetition.Interval must be excluded too: the loop supervisors and guards are all
+    # registered as a time trigger that then repeats every couple of minutes, so matching
+    # the trigger class alone flagged nine recurring tasks as armed one-shot work.
+    $oneShot = @($_.Triggers | Where-Object {
+            $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+        }).Count -gt 0
+    if ($ti.NextRunTime -and ($res -eq "0x41303" -or $oneShot)) {
         $hrs = ([datetime]$ti.NextRunTime - (Get-Date)).TotalHours
         if ($hrs -gt 0 -and $hrs -lt 16) {
             $upcoming.Add([PSCustomObject]@{
@@ -231,6 +243,13 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                 })
             # Armed work that is disabled will never fire, and silence is the failure mode.
             if ($st -eq "Disabled") { $flags.Add("$name is armed for $($ti.NextRunTime) but DISABLED - it will not fire") }
+            # Armed work landing inside 12:00-18:00 would roll the fleet in the graded window.
+            # quiet_window_merge and chain_recovery_run both refuse there, but a mis-scheduled
+            # trigger should be visible here rather than relying on the callee to save us.
+            $atHour = ([datetime]$ti.NextRunTime).Hour
+            if ($atHour -ge 12 -and $atHour -lt 18) {
+                $flags.Add("$name is armed for $($ti.NextRunTime), inside the 12:00-18:00 graded window")
+            }
         }
     }
     if ($st -eq "Disabled") {
