@@ -68,18 +68,32 @@ def parse_date(value: str | date | None) -> date | None:
 
 
 def default_settled_before() -> date:
-    # One full day of margin behind the host's LOCAL date, not the UTC date.
+    # The host's LOCAL date, not the UTC date.
     #
-    # The UTC date rolls at 20:00 local (EDT), so between 20:00 and the 00:05 daily roll the
-    # old default marked *today's* events settled while the CLOB loop was still appending to
-    # their order_books_long.csv -- compressing a file under active write. Caught 2026-07-27
-    # at 22:00 local, when a plan run offered all 12 of that day's live markets as candidates.
+    # UTC rolls at 20:00 local (EDT), so between 20:00 and the 00:05 daily roll the old
+    # default marked *today's* events settled while the CLOB loop was still appending to
+    # their order_books_long.csv. Caught 2026-07-27 at 22:00 local, when a plan run offered
+    # all 12 of that day's live markets as candidates.
     #
-    # The local date alone is still not enough: a Pacific market's day ends at 03:00 ET the
-    # next morning, so it is live during the 01:00-04:00 quiet window when this work runs. A
-    # full day of margin covers every market timezone we capture. Tiering has no backlog, so
-    # the extra day costs nothing.
-    return datetime.now().date() - timedelta(days=1)
+    # A local-date cutoff still is not sufficient on its own -- a Pacific market's day ends
+    # at 03:00 ET the next morning, so it is live during part of the quiet window. That is
+    # handled directly by MIN_QUIET_SECONDS below rather than by padding this date, because
+    # a blanket extra day delays roughly 13 GiB of reclaim and disk headroom is the reason
+    # this work exists.
+    return datetime.now().date()
+
+
+# A source still being appended to is never eligible, whatever the date arithmetic says.
+# This is the actual invariant; the date cutoff is only a cheap pre-filter.
+MIN_QUIET_SECONDS = 7200.0
+
+
+def source_is_quiet(source: Path, *, now: float | None = None) -> bool:
+    try:
+        age = (now if now is not None else datetime.now().timestamp()) - source.stat().st_mtime
+    except OSError:
+        return False
+    return age >= MIN_QUIET_SECONDS
 
 
 def event_date_from_slug(slug: str) -> date | None:
@@ -174,6 +188,9 @@ def discover_rows(
         elif not settled:
             status = "blocked_active_or_unsettled"
             action = "wait_for_settlement_cutoff"
+        elif not source_is_quiet(source):
+            status = "blocked_recently_written"
+            action = "wait_for_writer_to_finish"
         else:
             status = "candidate"
             action = "compress_to_order_books_long_csv_gz"
@@ -302,6 +319,10 @@ def apply_tiering(
             action["status"] = "skipped_missing_source"
         elif gzip_path.exists():
             action["status"] = "skipped_gzip_exists"
+        elif not source_is_quiet(source):
+            # Re-checked here, not just at plan time: a plan can be minutes or hours old, and
+            # compressing a file a writer still holds is the one unrecoverable mistake here.
+            action["status"] = "skipped_recently_written"
         elif int(usage.free) < required_free:
             action["status"] = "skipped_insufficient_headroom"
             action["insufficient_bytes"] = required_free - int(usage.free)

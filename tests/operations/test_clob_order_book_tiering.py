@@ -1,11 +1,13 @@
 import gzip
+import os
 import tempfile
+import time
 import unittest
 from collections import namedtuple
 from pathlib import Path
 from unittest.mock import patch
 
-from weather.operations.clob_order_book_tiering import build_payload, run
+from weather.operations.clob_order_book_tiering import MIN_QUIET_SECONDS, build_payload, run
 
 
 DiskUsage = namedtuple("DiskUsage", "total used free")
@@ -18,11 +20,17 @@ def write(path, text):
     return path
 
 
-def write_long_book(folder, text="capture_id,side,level_index,price,size\nb1,bid,1,0.40,10\n"):
+def write_long_book(folder, text="capture_id,side,level_index,price,size\nb1,bid,1,0.40,10\n", *, quiet=True):
     write(folder / "order_books_summary.csv", "capture_id,best_bid,best_ask\nb1,0.40,0.45\n")
     write(folder / "order_books.jsonl", "{}\n")
     write(folder / "clob_tokens.csv", "token\n")
-    return write(folder / "order_books_long.csv", text)
+    source = write(folder / "order_books_long.csv", text)
+    if quiet:
+        # These fixtures stand in for closed days, so age them past MIN_QUIET_SECONDS.
+        # A freshly written file is deliberately ineligible: the writer may still hold it.
+        old = time.time() - (MIN_QUIET_SECONDS + 60)
+        os.utime(source, (old, old))
+    return source
 
 
 class ClobOrderBookTieringTests(unittest.TestCase):
@@ -44,6 +52,44 @@ class ClobOrderBookTieringTests(unittest.TestCase):
         self.assertEqual(counts["blocked_active_or_unsettled"], 1)
         self.assertEqual(counts["blocked_unknown_event_date"], 1)
         self.assertGreater(payload["summary"]["candidate_bytes"], 0)
+
+    def test_settled_day_still_being_written_is_not_a_candidate(self):
+        # The UTC-vs-local cutoff once marked the current day settled from 20:00 local while
+        # the CLOB loop was still appending (2026-07-27). The date arithmetic is only a cheap
+        # pre-filter; recent writer activity is the invariant that actually protects the file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            write_long_book(folder, quiet=False)
+
+            payload = build_payload(root, settled_before="2026-06-19", min_free_bytes=0)
+
+        counts = payload["summary"]["status_counts"]
+        self.assertEqual(counts.get("candidate", 0), 0)
+        self.assertEqual(counts["blocked_recently_written"], 1)
+
+    def test_apply_refuses_a_source_written_since_the_plan(self):
+        # Apply re-checks rather than trusting the plan: a plan can be hours old.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            source = write_long_book(folder)
+
+            payload = build_payload(root, settled_before="2026-06-19", min_free_bytes=0)
+            self.assertEqual(payload["summary"]["status_counts"]["candidate"], 1)
+
+            # A writer touches the file between plan and apply.
+            source.write_text("capture_id,side,level_index,price,size\nb2,ask,1,0.55,4\n", encoding="utf-8")
+
+            from weather.operations.clob_order_book_tiering import apply_tiering
+
+            result = apply_tiering(payload, delete_source=True)
+
+            self.assertTrue(source.exists(), "source must survive a refused apply")
+            self.assertFalse(folder.joinpath("order_books_long.csv.gz").exists())
+
+        self.assertEqual(result["actions"][0]["status"], "skipped_recently_written")
+        self.assertEqual(result["summary"]["deleted_sources"], 0)
 
     def test_apply_compresses_and_deletes_source_after_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
