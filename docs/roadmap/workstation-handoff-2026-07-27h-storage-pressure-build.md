@@ -7,8 +7,17 @@ how it runs. This supersedes the version written for the production host.
 `/MIR` source — I confirmed that: `$src = c:\Users\micha\Desktop\github\weather\data`,
 destination `\\DESKTOP-RFCD2GH\weather-mirror\data`. Your side stays measurement and code.
 
-Missions 3+ of `-28c` and the floor mission `-27g` are unaffected — but see the conflict
-warning at the bottom, because this work can break your own MM corpus read.
+**Do this LAST.** The operator confirmed the workstation is not critically full, and this host
+has 174.6 GB free with a positive standing trend, so nothing here is time-pressured. Order:
+
+1. `-27g` who-breaks-the-floor — the current profitability lead, and cheap.
+2. Missions 3+ of `-28c` — the scaled-MM corpus, in the morning window. This is the actual
+   profit question and it has been deferred repeatedly; it should not slip again.
+3. This queue.
+
+That ordering also dissolves the conflict described at the bottom: if the MM corpus work runs
+before any compression exists, there is nothing for it to collide with, and it will have told
+us empirically which tape representation that work needs.
 
 ## Why the original could not run as written
 
