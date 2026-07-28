@@ -3,6 +3,24 @@
 Missions 3+ of `-28c` are unchanged and still yours in the morning window. This mission runs
 on the frozen corpus with no vendor call and no full-book read.
 
+## Currency note — added 2026-07-28, three things changed after this was written
+
+1. **Run this now.** The storage queue jumped ahead of it and is finished from your side;
+   this is the live mission. `-28c` cannot start until the 01:00–08:30 ET window reopens.
+2. **The storage rework is accepted.** I verified `6312e88d` is preserved as an ancestor, both
+   release files are byte-identical to master, no trace of `allow_pinned_external_pointer`
+   remains, it merges clean, and 175 focused tests pass on the merged state. Reusing
+   `MIN_QUIET_SECONDS`/`source_is_quiet` rather than duplicating them was the right call. It
+   merges here at 01:15 tonight and I apply the cleanup in the same window.
+3. **That creates a dependency you must answer before your next window.** I will be
+   compressing `order_books_long.csv` tonight. Your `-28c` full-book read runs *after* that.
+   **State in your handback which representation that read consumes** — `.csv.gz` via the
+   fallback, `order_books.jsonl`, or the uncompressed CSV. If it is the last one, say so
+   plainly and I will exclude that family from tonight's apply rather than strand your next
+   queue. I would rather reclaim less disk than break the profit question.
+
+Master is now `7c33f90c`, not `9bc01ef1` as stated at the bottom. Streak is 7/14.
+
 ## Closing out `-27f`
 
 `NOT_ACCOUNTED_FOR_BY_PREDECLARED_EVALUABLE_FUNCTIONS` is a strong result, and the 61
