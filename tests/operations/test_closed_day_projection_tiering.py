@@ -4,6 +4,8 @@ import copy
 import csv
 import gzip
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -149,8 +151,11 @@ def _make_fixture(
         captured_at,
         raw_record["capture_id"],
     )
-    _write_csv(folder / tiering.ORDER_BOOK_LONG, expected_rows)
+    source = folder / tiering.ORDER_BOOK_LONG
+    _write_csv(source, expected_rows)
     _write_manifest(folder, snapshots_root)
+    quiet_timestamp = time.time() - tiering.MIN_QUIET_SECONDS - 60.0
+    os.utime(source, (quiet_timestamp, quiet_timestamp))
     return snapshots_root, folder, raw_record
 
 
@@ -305,6 +310,10 @@ def test_plan_is_read_only_and_requires_closed_finalized_raw_proof(tmp_path):
     assert closed_proof["closed_before_as_of"] is True
     assert closed_proof["event_manifest_current_validation"] == "PASS"
     assert closed_proof["writer_locks_absent"] is True
+    assert closed_proof["source_quiescence"] == {
+        "status": "PASS",
+        "minimum_quiet_seconds": tiering.MIN_QUIET_SECONDS,
+    }
     assert closed_proof["finalization"]["state"] == "closed_unlabeled"
     assert (
         closed_proof["finalization"]["closed_unlabeled_contract"]["status"]
@@ -324,6 +333,7 @@ def test_plan_is_read_only_and_requires_closed_finalized_raw_proof(tmp_path):
         ("missing_raw", "canonical_order_books_jsonl_missing"),
         ("manifest_not_pass", "event_day_manifest_not_finalized_pass"),
         ("writer_lock", "event_folder_writer_lock_present"),
+        ("recently_written", "order_books_long_recently_written"),
     ],
 )
 def test_plan_fails_closed_without_each_required_proof(
@@ -344,6 +354,8 @@ def test_plan_fails_closed_without_each_required_proof(
             "synthetic lock\n",
             encoding="utf-8",
         )
+    elif mutation == "recently_written":
+        os.utime(folder / tiering.ORDER_BOOK_LONG, None)
 
     plan = tiering.build_plan(
         snapshots_root,
@@ -442,6 +454,11 @@ def test_apply_retains_deterministic_gzip_and_raw_then_unlinks_exact_csv(tmp_pat
     assert gzip_path.read_bytes()[4:8] == b"\x00\x00\x00\x00"
     action = receipt["actions"][0]
     assert action["cleanup_preflight"]["status"] == "PASS"
+    assert action["source_quiescence"] == {
+        "status": "PASS",
+        "minimum_quiet_seconds": tiering.MIN_QUIET_SECONDS,
+        "checked_under_raw_tape_writer_lock": True,
+    }
     assert action["final_reverification"]["status"] == "PASS"
     assert action["deletion"] == {
         "status": "PASS",
@@ -543,6 +560,45 @@ def test_apply_cannot_mutate_without_acquiring_shared_raw_tape_lock(
     assert (folder / tiering.ORDER_BOOK_LONG).exists()
     assert not (folder / tiering.ORDER_BOOK_LONG_GZIP).exists()
     assert (folder / tiering.ORDER_BOOK_RAW).exists()
+
+
+def test_apply_rechecks_quiescence_under_shared_writer_lock(
+    tmp_path,
+    monkeypatch,
+):
+    snapshots_root, folder, _ = _make_fixture(tmp_path)
+    approved = _approve(_build_plan(snapshots_root, folder.name))
+    approved_identity = _approved_identity(tmp_path, approved)
+    source = folder / tiering.ORDER_BOOK_LONG
+    raw = folder / tiering.ORDER_BOOK_RAW
+    observed_under_lock = False
+
+    def no_longer_quiet(path):
+        nonlocal observed_under_lock
+        assert Path(path) == source
+        observed_under_lock = (
+            folder / tiering.RAW_TAPE_WRITER_LOCK
+        ).is_file()
+        return False
+
+    monkeypatch.setattr(tiering, "source_is_quiet", no_longer_quiet)
+
+    receipt = tiering.apply_approved_plan(
+        approved,
+        manifest_validator=_pass_manifest_validator,
+        manifest_refresher=_refresh_fixture_manifest,
+        persist_receipt=_persist_in_memory,
+        approved_manifest_identity=approved_identity,
+    )
+
+    assert receipt["status"] == "BLOCK"
+    assert observed_under_lock is True
+    assert source.is_file()
+    assert raw.is_file()
+    assert not (folder / tiering.ORDER_BOOK_LONG_GZIP).exists()
+    assert "no longer writer-quiescent" in (
+        receipt["actions"][0]["failure"]["detail"]
+    )
 
 
 def test_settlement_evidence_hash_is_reverified_before_mutation(tmp_path):

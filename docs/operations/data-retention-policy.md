@@ -73,10 +73,12 @@ ceiling, not an eviction policy; reachable entries are never selected even
 when reachable bytes exceed the quota. Rebuildable candidates must use a
 verified `production_static_context`; legacy artifacts that could consult
 mutable climate, source-reliability, reanalysis, or marine sidecars are
-retained. The plan also pins the active pointer, embeds its validated payload,
-and pins the complete retained release manifest and declared artifact
-inventory. Apply loads that exact release graph from the embedded pointer
-rather than inheriting whichever release is active later.
+retained. The plan also pins the genuine active pointer's exact identity plus
+the complete retained release manifest and declared artifact inventory. Apply
+resolves that same pointer through the strict
+release-root-contained serving path. The resolved `release_id`,
+`manifest_sha256`, and `release_dir` must match the approved plan; any active
+release drift aborts cleanup and requires a new plan.
 
 Apply also performs the real
 `_compute_pooled_candidate_day` cache-off computation for every exact
@@ -112,7 +114,8 @@ python -m weather.operations.closed_day_projection_tiering rebuild-one --folder 
 The projection registry names every closed-day archive family, its canonical
 rebuild source, accepted reader representations, and its current blocker.
 Only `order_books_long` is eligible. It requires finalized closed-day evidence,
-a current event-day manifest, no writer lock, canonical `order_books.jsonl`,
+a current event-day manifest, no writer lock, at least
+`MIN_QUIET_SECONDS` of source-write quiescence, canonical `order_books.jsonl`,
 and an exact byte-parity rebuild proof. Apply retains
 `order_books_long.csv.gz` and removes only the verified same-folder
 `order_books_long.csv`; it never treats the raw JSONL as disposable.

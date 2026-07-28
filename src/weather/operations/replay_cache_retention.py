@@ -1465,7 +1465,6 @@ def apply_retention_manifest(
                 active_release_pointer=active_release_pointer,
                 releases_root=releases_root,
                 expected_serving_binding=serving_binding,
-                output_root=output_root,
             )
             action["cache_off_rebuild_parity"] = parity
             if parity["status"] != "PASS":
@@ -1502,7 +1501,6 @@ def apply_retention_manifest(
                 active_release_pointer=active_release_pointer,
                 releases_root=releases_root,
                 expected_serving_binding=serving_binding,
-                output_root=output_root,
             )
             action["immediate_pre_unlink_cache_off_rebuild_parity"] = (
                 immediate_parity
@@ -1573,7 +1571,6 @@ def _cache_off_rebuild_candidate(
     active_release_pointer: Path,
     releases_root: Path,
     expected_serving_binding: dict[str, Any],
-    output_root: Path,
     abs_tolerance: float = replay_cache.SENTINEL_NUMERIC_ABS_TOLERANCE,
 ) -> dict[str, Any]:
     """Recompute one exact cache entry without consulting the cache.
@@ -1625,10 +1622,7 @@ def _cache_off_rebuild_candidate(
     source_rows = rebuildable.get(key_tuple) or []
     if not source_rows:
         raise ValueError("candidate full cache key has no rebuild source")
-    serving_bundle = _load_pinned_serving_bundle(
-        expected_serving_binding,
-        output_root=output_root,
-    )
+    serving_bundle = _load_pinned_serving_bundle(expected_serving_binding)
 
     corpus_by_path = {
         str(root["path"]): root

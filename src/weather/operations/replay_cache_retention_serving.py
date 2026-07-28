@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from weather.backtesting.replay_cache import fingerprint
-from weather.io import sha256_file, write_json_atomic
+from weather.io import sha256_file
 from weather.release_artifacts import RELEASE_MANIFEST_NAME
 from weather.release_serving import (
     STATUS_BOUND,
@@ -211,7 +210,6 @@ def load_serving_rebuild_context(
         pointer_path,
         kind="active_release_pointer",
     )
-    pointer_payload = _strict_json(pointer_path)
     bundle = load_verified_active_serving_bundle(
         pointer_path=pointer_path,
         releases_root=releases_root,
@@ -285,7 +283,6 @@ def load_serving_rebuild_context(
     binding = {
         "active_pointer_path": str(pointer_path),
         "active_pointer_file_sha256": pointer_file_sha256,
-        "pointer_payload": pointer_payload,
         "releases_root": str(releases_root),
         "release_dir": str(release_dir),
         "release_id": bundle.release_id,
@@ -309,7 +306,7 @@ def load_serving_rebuild_context(
                 )
             ]
         ),
-        "binding": "embedded_pointer_payload_plus_retained_release_inventory",
+        "binding": "genuine_active_pointer_plus_retained_release_inventory",
     }
     binding["identity"] = fingerprint(binding)
     return binding, sources
@@ -349,42 +346,39 @@ def verify_serving_market_coverage(
 
 def load_pinned_serving_bundle(
     binding: dict[str, Any],
-    *,
-    output_root: Path,
 ):
-    """Load a plan-bound release without consulting the active pointer."""
+    """Resolve the genuine active pointer and require the approved plan binding."""
 
     serving_binding_identity(binding)
     releases_root = _assert_no_reparse_components(
         str(binding.get("releases_root") or ""),
-        label="pinned releases root",
+        label="approved releases root",
     ).resolve(strict=True)
-    output_root = _assert_no_reparse_components(
-        output_root,
-        label="receipt output root",
+    pointer_path = _assert_no_reparse_components(
+        str(binding.get("active_pointer_path") or ""),
+        label="genuine active release pointer",
     ).resolve(strict=True)
-    pointer_payload = binding.get("pointer_payload")
-    if not isinstance(pointer_payload, dict):
-        raise ValueError("pinned serving binding has no pointer payload")
-    with tempfile.TemporaryDirectory(
-        prefix=".replay-cache-release-",
-        dir=output_root,
-    ) as temporary:
-        pointer_path = Path(temporary) / "current_release.json"
-        write_json_atomic(pointer_path, pointer_payload, trailing_newline=True)
-        bundle = load_verified_active_serving_bundle(
-            pointer_path=pointer_path,
-            releases_root=releases_root,
-            allow_pinned_external_pointer=True,
+    if pointer_path.parent != releases_root:
+        raise ValueError(
+            "genuine active release pointer must be directly inside the "
+            "approved releases root"
         )
+    bundle = load_verified_active_serving_bundle(
+        pointer_path=pointer_path,
+        releases_root=releases_root,
+    )
     if (
         bundle.status != STATUS_BOUND
         or not bundle.base_model_bound
+        or bundle.pointer_file_sha256
+        != str(binding.get("active_pointer_file_sha256") or "")
         or bundle.release_id != str(binding.get("release_id") or "")
         or bundle.manifest_sha256
         != str(binding.get("manifest_sha256") or "")
         or Path(bundle.release_dir).resolve()
         != Path(str(binding.get("release_dir") or "")).resolve()
     ):
-        raise ValueError("pinned serving release no longer matches the approved plan")
+        raise ValueError(
+            "genuine active serving release no longer matches the approved plan"
+        )
     return bundle

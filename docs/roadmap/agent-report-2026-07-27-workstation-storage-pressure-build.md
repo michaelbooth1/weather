@@ -7,6 +7,14 @@ The three storage-pressure mechanisms requested by
 `codex/production-storage-pressure-2026-07-28` from exact
 `origin/master` commit `c83b034ce98ca224f4d34b31c84100ba16005584`.
 
+On 2026-07-28 the accepted build was merged forward to exact `origin/master`
+`7c33f90cf9e4c55f348615606e981b5e8d02b4b9`, including the operator's
+`2d4c2811` CLOB writer-quiescence fix. The release-binding rework restores
+`release_artifacts.py` and `release_serving.py` exactly to master. Replay-cache
+apply now resolves only the genuine active pointer through that strict path
+and aborts if its release ID, manifest SHA-256, or release directory differs
+from the approved plan. No temporary or external pointer is used.
+
 This is a **build-only** handback. No repository command read, compressed,
 rewrote, or deleted production `data/`; no mirror path was accessed. All
 mutation tests used pytest temporary fixtures. The checked-in capture policy
@@ -22,8 +30,9 @@ still preserves current behavior.
   an explicit bundle and corpus-pinned settlement, but this is not production
   model parity.
 - No 85 GiB full-book corpus read.
-- No change to `WeatherDataMirror`, `/MIR`, the existing scheduled
-  `clob_order_book_tiering` lane, or any other scheduler.
+- No change to `WeatherDataMirror`, `/MIR`, or any scheduler. The existing
+  `clob_order_book_tiering` implementation changed only through the required
+  merge of upstream `2d4c2811`; this branch does not alter that merged code.
 - No capture restart, supervisor action, deployment, config activation,
   modelling, training, promotion, release, or live trading.
 - No restore drill and no completion claim for roadmap Item 325's broader
@@ -39,7 +48,8 @@ rollback.
 
 | Field | Value |
 | --- | --- |
-| Base | `origin/master` at `c83b034ce98ca224f4d34b31c84100ba16005584` |
+| Original build base | `origin/master` at `c83b034ce98ca224f4d34b31c84100ba16005584` |
+| Rework merge base | `origin/master` at `7c33f90cf9e4c55f348615606e981b5e8d02b4b9`, including `2d4c2811` |
 | Topic branch | `codex/production-storage-pressure-2026-07-28` |
 | Build worktree | `scratch/worktrees/weather-production-storage-pressure-2026-07-28` |
 | Production/runtime data | Not present in the isolated worktree and not accessed |
@@ -173,7 +183,7 @@ change, links, reparse points, or any other ambiguity retain all provisional
 candidates and block apply.
 
 The plan pins corpus, registry, candidate artifacts, semantic snapshot/replay
-hashes, the validated active pointer payload, the complete retained release
+hashes, the genuine active pointer's exact identity, the complete release
 manifest and declared artifact inventory, and the presence or absence of
 event-side inputs used by replay:
 `features_long.csv`, reconstructed replay input, `settlement.json`,
@@ -207,10 +217,12 @@ Apply requires:
 For each candidate, apply calls the real
 `weather.calibration.pooled_candidate_replay._compute_pooled_candidate_day`
 directly, bypassing cache reads. It loads the exact retained serving graph from
-the manifest's embedded, hash-bound pointer payload rather than consulting the
-then-active release. It computes every exact source binding, requires zero
-corpus warnings, and compares `rows`, `replay_results`, `coverage`,
-`diagnostics`, and the full key under the established numeric tolerance.
+the genuine active pointer through the unmodified strict release-containment
+path. The resolved `release_id`, `manifest_sha256`, and `release_dir` must
+match the approved plan or cleanup aborts and retains the candidate. It
+computes every exact source binding, requires zero corpus warnings, and
+compares `rows`, `replay_results`, `coverage`, `diagnostics`, and the full key
+under the established numeric tolerance.
 
 This cache-off proof runs once before the durable `PRE_UNLINK` write and again
 after it. The second proof is durably recorded; then live reachability and all
@@ -234,16 +246,18 @@ selected to force the number down.
 `weather.operations.closed_day_projection_tiering` is manual, plan-by-default,
 and not connected to a scheduler. Planning requires a closed/finalized event,
 current PASS event-day manifest, canonical rebuild source, no competing writer
-lock, exact identities, and the complete family registry below.
+lock, at least 7,200 seconds since the long projection's last write, exact
+identities, and the complete family registry below.
 
 Apply requires a separately edited approval bound to the immutable plan hash
 and to the exact approved-manifest file bytes/stat identity. `cleanup_preflight`
 runs before compression. The tool then acquires the shared raw-tape writer
-lock, writes deterministic gzip (`mtime=0`), proves uncompressed byte,
-SHA-256, and line parity, rechecks finalization/manifests/identities, writes a
-durable unlink-pending receipt, rechecks immediately, and unlinks only the exact
-plain CSV. Raw JSONL and gzip remain. The writer lock stays held through
-event-day-manifest rebuild and PASS validation.
+lock, rechecks writer quiescence under that lock, writes deterministic gzip
+(`mtime=0`), proves uncompressed byte, SHA-256, and line parity, rechecks
+finalization/manifests/identities, writes a durable unlink-pending receipt,
+rechecks immediately, and unlinks only the exact plain CSV. Raw JSONL and gzip
+remain. The writer lock stays held through event-day-manifest rebuild and PASS
+validation.
 
 Every CLI operation requires repeated `--protected-root` values. The source
 data root is independently derived and protected, and output is rejected if it
@@ -290,14 +304,15 @@ operations only there.
 | Full-book rebuild/fallback | Raw JSONL rebuild byte-equals writer projection; raw then gzip fallback yields same rows | PASS |
 | MM live preflight | Summary-only and gzip-only raw-book presence | PASS |
 | Replay dry-run | One reachable key retained; one exact unreachable/rebuildable key selected; no age/LRU evidence | PASS |
-| Replay retained-input graph | Real synthetic release manifest and every declared artifact are pinned; its embedded pointer reloads that same release independently | PASS |
+| Replay retained-input graph | Real synthetic release manifest and every declared artifact are pinned; the genuine active pointer resolves through strict containment and exact plan matching | PASS |
+| Replay active-release drift | Release ID, manifest SHA-256, or release-directory drift from the approved plan | All abort |
 | Replay compute dependency path | Explicit serving bundle reaches replay/model construction; a corpus-pinned settlement does not read mutable daily history | PASS |
 | Replay apply orchestration | Durable JSON/Markdown, two cache-off parity proofs, post-receipt source recheck, exact candidate removed, reachable entry retained | PASS with stubbed expensive candidate scorer |
 | Replay adversarial cases | Ambiguity, source/candidate replacement, optional input appearance, reparse path, parity drift, receipt failure, stale schemas, legacy static context, and reachable-key injection | All block and retain |
 | Replay folder alias | External manifest alias is neutralized; compute uses the verified canonical folder below `snapshots_root` | PASS |
-| Projection dry-run | Closed/finalized fixture yields one exact action; active/invalid/locked fixtures remain blocked | PASS |
+| Projection dry-run | Closed/finalized and writer-quiet fixture yields one exact action; active/invalid/locked/recently-written fixtures remain blocked | PASS |
 | Projection apply | Deterministic gzip retained, exact CSV removed, raw JSONL retained, event manifest rebuilt PASS | PASS on synthetic fixture |
-| Projection adversarial cases | Changed identity, stale manifest/finalization, reparse, lock, receipt failure, malformed approval, and first-action failure | All stop before unsafe continuation |
+| Projection adversarial cases | Changed identity, stale manifest/finalization, reparse, lock, lost quiescence, receipt failure, malformed approval, and first-action failure | All stop before unsafe continuation |
 
 The destructive replay-apply tests intentionally monkeypatch the expensive
 candidate scorer; therefore they prove orchestration and fail-closed behavior,
@@ -320,7 +335,7 @@ walked transitively from:
 The known-loaded control `weather.paths` appeared by a direct import in all
 three roots, so an empty/broken graph could not report false safety.
 
-| Changed/new module | Snapshot tracker | Market microstructure | Observation trigger | Classification |
+| Audited module | Snapshot tracker | Market microstructure | Observation trigger | Classification |
 | --- | --- | --- | --- | --- |
 | `backtesting/replay_backtest.py` | Yes | Yes | Yes | Loop-loaded |
 | `calibration/pooled_candidate_replay.py` | Yes | Yes | Yes | Loop-loaded |
@@ -328,8 +343,8 @@ three roots, so an empty/broken graph could not report false safety.
 | `market/storage_pressure_policy.py` | No | Yes | No | Loop-loaded |
 | `operations/closed_market_day_archive.py` | Yes | Yes | Yes | Loop-loaded |
 | `operations/storage_classes.py` | Yes | Yes | Yes | Loop-loaded |
-| `release_artifacts.py` | Yes | Yes | Yes | Loop-loaded |
-| `release_serving.py` | Yes | Yes | Yes | Loop-loaded |
+| `release_artifacts.py` | Yes | Yes | Yes | Master-identical after release-binding rework; no final topic-branch diff |
+| `release_serving.py` | Yes | Yes | Yes | Master-identical after release-binding rework; no final topic-branch diff |
 | `schema_registry_recent_data.py` | Yes | Yes | Yes | Loop-loaded |
 | `market/order_book_tape.py` | No | No | No | Outside all three |
 | `operations/closed_day_projection_registry.py` | No | No | No | Outside all three |
@@ -347,22 +362,23 @@ archive/storage path is recovered through release/corpus imports into
 `event_day_manifest` and `storage_classes`. `event_day_manifest.py` itself was
 not edited in this build.
 
-This confirms why the build belongs on the workstation. Merging the nine
-loop-loaded modules on the production host can roll loaded identities even
-without a scheduler edit.
+This confirms why the build belongs on the workstation. Merging the seven
+final topic-branch-different loop-loaded modules on the production host can
+roll loaded identities even without a scheduler edit.
 
 ## Verification
 
 | Command/scope | Result |
 | --- | --- |
 | Final focused storage-pressure, replay/release, tiering, schema, and module-size suite | 324 passed, 1 Windows symlink skip, 45 subtests passed |
+| 2026-07-28 strict-release and writer-quiescence rework suite | 122 passed, 1 Windows symlink skip |
 | Tracked-file import architecture ratchet | 21 passed |
-| Strict schema-registry audit over `src` | 503 registered schemas, 835 discovered literals, 0 unregistered versions |
+| Strict schema-registry audit over merged `src` | 504 registered schemas, 839 discovered literals, 0 unregistered versions |
 | AST loop-closure audit | 422 modules parsed, zero errors; counts 142 / 139 / 145 |
-| Full repository suite | 3,212 passed, 4 skipped, 820 subtests passed; 12 unchanged `test_experiment_executor.py` cases hit legacy Windows `MAX_PATH` even with `C:\w` as pytest's temp root |
+| Full merged repository suite | 3,230 passed, 4 skipped, 820 subtests passed; 12 unchanged `test_experiment_executor.py` cases hit legacy Windows `MAX_PATH` even with `C:\w` as pytest's temp root |
 | Full-suite path-limit diagnosis | `LongPathsEnabled=0`; neither `experiment_executor.py` nor its tests changed in this build |
 | `compileall -q app src tests` | PASS |
-| `weather.operations.agent_docs_audit` | PASS: 18 agent files, 509 Markdown files |
+| `weather.operations.agent_docs_audit` | PASS: 18 agent files, 495 Markdown files |
 
 ## Operator handoff
 
@@ -373,7 +389,8 @@ single output root outside all of them.
 
 Recommended order remains:
 
-1. merge in a quiet window, accounting for the nine loop-loaded modules;
+1. merge in a quiet window, accounting for the seven final
+   topic-branch-different loop-loaded modules;
 2. leave `capture.write_order_books_long_csv=true`;
 3. run and review production dry-runs during the day;
 4. perform rebuild-one checks and inspect every exact path/identity/reason;

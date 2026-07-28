@@ -397,14 +397,8 @@ def load_verified_active_serving_bundle(
     check_runtime: bool = True,
     current_runtime_versions: Mapping[str, Any] | None = None,
     current_runtime_identity: Mapping[str, Any] | None = None,
-    allow_pinned_external_pointer: bool = False,
 ) -> VerifiedServingBundle:
-    """Load exact manifest roles only after all outer bindings pass.
-
-    An external pointer is rejected by default. The explicit pinned-pointer
-    opt-in exists for reviewed rebuild manifests whose embedded pointer
-    payload and complete retained release inventory are independently bound.
-    """
+    """Load exact manifest roles only after all outer bindings pass."""
 
     pointer_path = Path(pointer_path).resolve()
     releases_root = Path(releases_root).resolve()
@@ -474,7 +468,6 @@ def load_verified_active_serving_bundle(
         served_artifact_paths=served_paths,
         served_route=route,
         require_served_bindings=True,
-        allow_pinned_external_pointer=allow_pinned_external_pointer,
     )
     # The resolver above re-hashes every serving binding. JSON contracts can
     # now be read and cross-checked before the model pickle is opened.

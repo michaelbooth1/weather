@@ -41,6 +41,10 @@ from weather.operations.cleanup_preflight import (
     CLEANUP_MANIFEST_SCHEMA_VERSION,
     build_cleanup_preflight,
 )
+from weather.operations.clob_order_book_tiering import (
+    MIN_QUIET_SECONDS,
+    source_is_quiet,
+)
 from weather.operations.closed_market_day_archive import (
     ELIGIBLE_FINALIZATION_STATES,
     _finalization_for_folder,
@@ -515,6 +519,13 @@ def _plan_folder(
         not gzip_path.is_file() or _is_reparse_point(gzip_path)
     ):
         blockers.append("order_books_long_gzip_not_regular_file")
+    if (
+        source.exists()
+        and source.is_file()
+        and not _is_reparse_point(source)
+        and not source_is_quiet(source)
+    ):
+        blockers.append("order_books_long_recently_written")
 
     if blockers or manifest is None or finalization_proof is None:
         return _blocked_folder(folder, blockers), None
@@ -597,6 +608,10 @@ def _plan_folder(
             "event_manifest_embedded_validation": "PASS",
             "writer_lock_paths": [],
             "writer_locks_absent": True,
+            "source_quiescence": {
+                "status": "PASS",
+                "minimum_quiet_seconds": MIN_QUIET_SECONDS,
+            },
             "finalization": finalization_proof,
         },
         "cleanup_candidate": {
@@ -1215,6 +1230,16 @@ def _apply_one(
     }
     persist_receipt()
     try:
+        if not source_is_quiet(paths["source"]):
+            raise ProjectionTieringError(
+                "order_books_long is no longer writer-quiescent for the "
+                f"required {MIN_QUIET_SECONDS:g} seconds"
+            )
+        action_receipt["source_quiescence"] = {
+            "status": "PASS",
+            "minimum_quiet_seconds": MIN_QUIET_SECONDS,
+            "checked_under_raw_tape_writer_lock": True,
+        }
         gzip_proof = _prepare_gzip(action, snapshots_root=snapshots_root)
         action_receipt["compression"] = gzip_proof
         persist_receipt()

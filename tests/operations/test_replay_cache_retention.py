@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import pickle
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,6 @@ def _stub_cache_off_compute(monkeypatch):
         binding = {
             "active_pointer_path": str(Path(pointer_path).resolve()),
             "active_pointer_file_sha256": "a" * 64,
-            "pointer_payload": {"fixture": True},
             "releases_root": str(Path(releases_root).resolve()),
             "release_dir": str(Path(releases_root).resolve() / "r1"),
             "release_id": "r1",
@@ -38,7 +38,7 @@ def _stub_cache_off_compute(monkeypatch):
             "market_ids": ["nyc"],
             "source_contract_sha256": replay_cache.fingerprint([]),
             "binding": (
-                "embedded_pointer_payload_plus_retained_release_inventory"
+                "genuine_active_pointer_plus_retained_release_inventory"
             ),
         }
         binding["identity"] = replay_cache.fingerprint(binding)
@@ -88,7 +88,7 @@ def _stub_cache_off_compute(monkeypatch):
     monkeypatch.setattr(
         replay_cache_retention,
         "_load_pinned_serving_bundle",
-        lambda _binding, *, output_root: pinned_serving_bundle,
+        lambda _binding: pinned_serving_bundle,
     )
 
 
@@ -372,7 +372,7 @@ def test_plan_selects_only_exact_unreachable_rebuildable_key(tmp_path):
         "production_static_context_sha256"
     ]
     assert plan["serving_rebuild"]["binding"] == (
-        "embedded_pointer_payload_plus_retained_release_inventory"
+        "genuine_active_pointer_plus_retained_release_inventory"
     )
     assert all("modified" not in row["reason"] for row in plan["candidates"])
 
@@ -388,19 +388,21 @@ def test_serving_rebuild_context_pins_and_reloads_exact_release_graph(
         tmp_path,
         functional=True,
     )
+    strict_loads = []
 
     def load_fixture_bundle(
         *,
         pointer_path,
         releases_root,
-        allow_pinned_external_pointer=False,
     ):
+        strict_loads.append(
+            (Path(pointer_path).resolve(), Path(releases_root).resolve())
+        )
         return load_verified_active_serving_bundle(
             pointer_path=pointer_path,
             releases_root=releases_root,
             repo_root=paths["repo"],
             check_runtime=False,
-            allow_pinned_external_pointer=allow_pinned_external_pointer,
         )
 
     monkeypatch.setattr(
@@ -415,11 +417,8 @@ def test_serving_rebuild_context_pins_and_reloads_exact_release_graph(
             releases,
         )
     )
-    output_root = tmp_path / "receipts"
-    output_root.mkdir()
     bundle = replay_cache_retention_serving.load_pinned_serving_bundle(
         binding,
-        output_root=output_root,
     )
 
     source_kinds = {row["kind"] for row in sources}
@@ -431,7 +430,27 @@ def test_serving_rebuild_context_pins_and_reloads_exact_release_graph(
     }.issubset(source_kinds)
     assert bundle.release_id == binding["release_id"]
     assert bundle.manifest_sha256 == binding["manifest_sha256"]
-    assert not any(output_root.iterdir())
+    assert "pointer_payload" not in binding
+    assert strict_loads == [
+        (pointer.resolve(), releases.resolve()),
+        (pointer.resolve(), releases.resolve()),
+    ]
+
+    for drift in (
+        {"release_id": "new-active-release"},
+        {"manifest_sha256": "f" * 64},
+        {"release_dir": str(releases / "new-active-release")},
+    ):
+        monkeypatch.setattr(
+            replay_cache_retention_serving,
+            "load_verified_active_serving_bundle",
+            lambda _drift=drift, **_kwargs: replace(bundle, **_drift),
+        )
+        with pytest.raises(
+            ValueError,
+            match="genuine active serving release no longer matches",
+        ):
+            replay_cache_retention_serving.load_pinned_serving_bundle(binding)
 
 
 def test_legacy_artifact_without_frozen_static_context_is_retained(tmp_path):
