@@ -2096,6 +2096,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "execution_depth_model_id",
         "Strategy registry execution-depth model identifier, not a durable artifact schema.",
     ),
+    SchemaLiteralExclusion(
+        "mm_execution_v2",
+        "weather.market.mm_paper_scoring",
+        "execution_identity_algorithm_id",
+        "Canonical execution-identity hash domain separator, not a serialized artifact schema.",
+    ),
 )
 EXCLUDED_SCHEMA_LITERAL_BY_VERSION = {
     item.version: item for item in EXCLUDED_SCHEMA_LITERALS

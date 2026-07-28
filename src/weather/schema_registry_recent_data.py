@@ -391,6 +391,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Per-row market-making quote intent and no-quote decision schema.",
     ),
     SchemaSpec(
+        "mm_execution_evidence",
+        "mm_execution_evidence_v0.1",
+        "weather.market.mm_paper_scoring",
+        "active",
+        "Normalized genuine-execution provenance embedded in admitted trades, fill-evidence diagnostics, and persisted maker-paper fill rows.",
+    ),
+    SchemaSpec(
         "mm_scoring_projection",
         "mm_scoring_projection_v0.1",
         "weather.market.mm_scoring_projection",

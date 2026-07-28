@@ -5,6 +5,7 @@ from pathlib import Path
 from weather.paths import data_path
 
 SCHEMA_VERSION = "mm_paper_v0.1"
+EXECUTION_EVIDENCE_SCHEMA_VERSION = "mm_execution_evidence_v0.1"
 KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
 EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION = "early_hour_market_guardrail_shadow_v0.1"
 
@@ -55,6 +56,7 @@ DEFAULT_CONFIG = {
 
 FILL_COLUMNS = [
     "paper_schema_version",
+    "execution_evidence_schema_version",
     "run_id",
     "run_folder",
     "run_mode",
@@ -89,6 +91,19 @@ FILL_COLUMNS = [
     "through_trade_price",
     "through_trade_size",
     "trade_source",
+    "execution_id",
+    "canonical_execution_id",
+    "supplied_canonical_execution_id",
+    "native_execution_id",
+    "transaction_hash",
+    "execution_exchange_time_utc",
+    "execution_received_time_utc",
+    "execution_time_source",
+    "execution_time_precision_seconds",
+    "execution_side",
+    "execution_condition_id",
+    "execution_raw_sha1",
+    "execution_source_representations",
     "conservative_fill_rule",
     "queue_status",
     "queue_fill_size",

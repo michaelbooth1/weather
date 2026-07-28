@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,11 +8,12 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 19 modules.
+- Current warning count: 20 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
   `weather.collection.snapshot_store`, `weather.market.mm_paper`,
+  `weather.market.mm_paper_scoring`,
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
   `weather.operations.event_day_manifest`, `weather.market.market_microstructure`,
@@ -62,7 +63,7 @@ Current module-size audit status:
 | `weather.reporting.daily.daily_learning_scorecard` | Reporting | Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly. | Owner module for item 318; must not import the `daily_learning` facade. |
 | `weather.market.mm_paper` | Market | Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers. Tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in `weather.market.mm_paper_scoring`; bounded run-row retention lives in `weather.market.mm_paper_aggregation`. | WARN in the 2026-07-03 audit. Next split should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade. |
 | `weather.market.mm_paper_aggregation` | Market | One-run-at-a-time quote/variant folding, SQLite row/leg/output spools, exact quote-to-leg membership views, and disk-backed queue ordering for maker-paper scoring. | Bounded owner module added 2026-07-16; must not import the `mm_paper` facade. |
-| `weather.market.mm_paper_scoring` | Market | Active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries. | Owner module for item 318; must not import the `mm_paper` facade. |
+| `weather.market.mm_paper_scoring` | Market | Genuine-execution admission and provenance-preserving trade normalization/deduplication, active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries. | WARN after the 2026-07-27 execution-evidence growth. Extract execution-evidence parsing, normalization, identity, and cross-source deduplication into a dedicated owner module that does not import the `mm_paper` facade; keep side-aware fill and P&L scoring in `mm_paper_scoring`. |
 | `weather.market.mm_scoring_projection` | Market | Source-bound compact base and model-variant quote projections, validation, canonical fallback resolution, and idempotent backfill CLI for bounded maker-paper scoring. | Canonical projection owner; canonical quote tapes remain immutable provenance. |
 | `weather.schema_registry` | Shared | Compatibility facade for schema version lookup, literal audit/check behavior, CLI rendering, and public registry-data exports. Static registry records live in `weather.schema_registry_data` and `weather.schema_registry_recent_data`; shared record types live in `weather.schema_registry_types`. | Item 318 slice complete; facade is back below the 2,000-line warning threshold. |
 | `weather.schema_registry_data` | Shared | Static registered schema records, exclusion records, and lookup maps for the schema registry facade. | WARN in the 2026-07-03 audit. Acceptable as static registry data for now, but the next growth slice should move another schema family into `weather.schema_registry_recent_data` or a new static shard without importing producer modules. |
