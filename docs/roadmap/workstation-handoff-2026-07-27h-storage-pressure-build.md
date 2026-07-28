@@ -7,17 +7,15 @@ how it runs. This supersedes the version written for the production host.
 `/MIR` source — I confirmed that: `$src = c:\Users\micha\Desktop\github\weather\data`,
 destination `\\DESKTOP-RFCD2GH\weather-mirror\data`. Your side stays measurement and code.
 
-**Do this LAST.** The operator confirmed the workstation is not critically full, and this host
-has 174.6 GB free with a positive standing trend, so nothing here is time-pressured. Order:
+**Do this FIRST — operator decision, 2026-07-27.** Ahead of `-27g` (floor) and ahead of
+Missions 3+ of `-28c`. Build it tonight so I can merge, dry-run, and apply in the next quiet
+window rather than the one after.
 
-1. `-27g` who-breaks-the-floor — the current profitability lead, and cheap.
-2. Missions 3+ of `-28c` — the scaled-MM corpus, in the morning window. This is the actual
-   profit question and it has been deferred repeatedly; it should not slip again.
-3. This queue.
-
-That ordering also dissolves the conflict described at the bottom: if the MM corpus work runs
-before any compression exists, there is nothing for it to collide with, and it will have told
-us empirically which tape representation that work needs.
+Because it now lands *before* the scaled-MM corpus work, the tape collision at the bottom of
+this document is **live and blocking**, not hypothetical. Treat the reader-fallback requirement
+there as a gate on Mission 3, not a nice-to-have: if `.csv.gz` (or JSONL) cannot serve the
+85 GiB full-book read, Mission 3 must exclude that family and say so, rather than shipping
+compression that strands your own next queue.
 
 ## Why the original could not run as written
 
