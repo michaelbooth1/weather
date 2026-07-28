@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import shutil
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +68,18 @@ def parse_date(value: str | date | None) -> date | None:
 
 
 def default_settled_before() -> date:
-    return datetime.now(timezone.utc).date()
+    # One full day of margin behind the host's LOCAL date, not the UTC date.
+    #
+    # The UTC date rolls at 20:00 local (EDT), so between 20:00 and the 00:05 daily roll the
+    # old default marked *today's* events settled while the CLOB loop was still appending to
+    # their order_books_long.csv -- compressing a file under active write. Caught 2026-07-27
+    # at 22:00 local, when a plan run offered all 12 of that day's live markets as candidates.
+    #
+    # The local date alone is still not enough: a Pacific market's day ends at 03:00 ET the
+    # next morning, so it is live during the 01:00-04:00 quiet window when this work runs. A
+    # full day of margin covers every market timezone we capture. Tiering has no backlog, so
+    # the extra day costs nothing.
+    return datetime.now().date() - timedelta(days=1)
 
 
 def event_date_from_slug(slug: str) -> date | None:
