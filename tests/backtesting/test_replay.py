@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 from weather.model.toronto_model import TORONTO_TZ, TorontoHighTempModel
 from weather.backtesting.replay import (
     as_int_distribution,
@@ -230,6 +231,59 @@ def _build_corpus_day(folder):
 
 
 class TestReplayBacktest(unittest.TestCase):
+    def test_pinned_corpus_uses_explicit_serving_bundle_without_daily_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / SLUG
+            _build_corpus_day(folder)
+            model = TorontoHighTempModel()
+            serving_bundle = object()
+            corpus_entry = {
+                "event_slug": SLUG,
+                "snapshot_ids": ["snap1"],
+                "settlement_bucket": 25,
+                "settlement_source": "fixture",
+            }
+            with (
+                patch(
+                    "weather.backtesting.replay_backtest.TorontoHighTempModel",
+                    return_value=model,
+                ) as constructor,
+                patch(
+                    "weather.backtesting.replay_backtest.entry_for_folder",
+                    return_value=corpus_entry,
+                ),
+                patch(
+                    "weather.backtesting.replay_backtest.verify_entry_inputs",
+                    return_value=[],
+                ),
+                patch(
+                    "weather.backtesting.replay_backtest.load_daily_summary",
+                    side_effect=AssertionError(
+                        "pinned settlement must not read mutable daily history"
+                    ),
+                ),
+            ):
+                results = run_replay_backtest(
+                    [str(folder)],
+                    daily_summary_path=None,
+                    overrides={},
+                    out_path=None,
+                    write=False,
+                    corpus_manifest={
+                        "include_reconstructed": False,
+                        "entries": [corpus_entry],
+                    },
+                    serving_bundle=serving_bundle,
+                )
+
+        constructor.assert_called_once_with(
+            market_id="toronto",
+            serving_bundle=serving_bundle,
+        )
+        self.assertEqual(results["snaps_scored"], 1)
+        self.assertEqual(results["total_rows"], 3)
+        self.assertEqual(results["days"][0]["source"], "promotion_corpus:fixture")
+
     def test_unchanged_code_has_zero_effect_and_faithful_fidelity(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / SLUG

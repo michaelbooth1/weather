@@ -12,6 +12,7 @@ Checked-in files under `config/` are classified by owner and freshness policy:
 | `model_variant_registry.json` | Hand-authored registry | Validate before promotion; active promoted artifacts must not point at ignored `data/` paths. |
 | `supplemental_stations.json` | Hand-authored registry | Review when station provenance changes. |
 | `no_market_extra_locations.json` | Local shadow registry | Active entries must be backfilled before training eligibility; evidence-free diagnostic entries are retained under `archived_locations`. |
+| `storage_pressure.json` | Operator activation policy | `capture.write_order_books_long_csv=true` preserves current capture. Set it to `false` only in an operator-approved quiet window after the production dry-run; missing or invalid policy fails safe to writing the projection. |
 
 Generate the current inventory:
 

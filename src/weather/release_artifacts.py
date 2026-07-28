@@ -1173,6 +1173,7 @@ def resolve_verified_active_release(
     served_artifact_paths: Mapping[str, str | Path] | None = None,
     served_route: Mapping[str, Any] | None = None,
     require_served_bindings: bool = True,
+    allow_pinned_external_pointer: bool = False,
 ) -> dict[str, Any]:
     """Resolve identity only after immutable and actual served bindings pass.
 
@@ -1181,11 +1182,19 @@ def resolve_verified_active_release(
     prevents a valid pointer from laundering identity onto legacy global model
     paths. Read-only inspection tools may explicitly set
     ``require_served_bindings=False``; serving/capture code must not.
+
+    ``allow_pinned_external_pointer`` is reserved for a caller that already
+    hash-binds an immutable pointer payload (for example, a reviewed rebuild
+    manifest). Release IDs remain constrained to ``releases_root`` and every
+    served artifact binding is still reverified.
     """
 
     releases_root = Path(releases_root).resolve()
     pointer_path = Path(pointer_path)
-    if pointer_path.resolve().parent != releases_root:
+    if (
+        pointer_path.resolve().parent != releases_root
+        and not allow_pinned_external_pointer
+    ):
         raise ReleaseArtifactVerificationError(
             "active release pointer must be directly inside the releases root"
         )

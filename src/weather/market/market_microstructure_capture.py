@@ -44,6 +44,10 @@ from weather.market.market_microstructure_constants import (
     WS_EVENT_COLUMNS,
 )
 from weather.market.market_microstructure_features import write_clob_feature_rows
+from weather.market.storage_pressure_policy import (
+    StoragePressurePolicy,
+    load_storage_pressure_policy,
+)
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
 from weather.io import request_with_retries
@@ -743,9 +747,21 @@ def chunked(values, size):
 
 
 class MarketMicrostructureStore:
-    def __init__(self, root=None, event_slug=None):
+    def __init__(
+        self,
+        root=None,
+        event_slug=None,
+        *,
+        storage_pressure_policy: StoragePressurePolicy | None = None,
+    ):
         self.event_slug = event_slug
         self.root = Path(root) if root is not None else data_path() / "snapshots" / str(event_slug)
+        self.storage_pressure_policy = (
+            storage_pressure_policy or load_storage_pressure_policy()
+        )
+        self.write_order_books_long_csv = bool(
+            self.storage_pressure_policy.write_order_books_long_csv
+        )
         self.capture_status_path = self.root / "clob_capture_status.jsonl"
         self.enrichment_status_path = self.root / "clob_enrichment_status.jsonl"
         self.token_path = self.root / "clob_tokens.csv"
@@ -816,9 +832,17 @@ class MarketMicrostructureStore:
 
     def write_books(self, summaries, level_rows, raw_records):
         self.append_csv(self.books_summary_path, BOOK_SUMMARY_COLUMNS, summaries)
-        self.append_csv(self.books_long_path, BOOK_LEVEL_COLUMNS, level_rows)
+        if self.write_order_books_long_csv:
+            self.append_csv(self.books_long_path, BOOK_LEVEL_COLUMNS, level_rows)
         for record in raw_records:
             self.append_jsonl(self.books_jsonl_path, record)
+        return {
+            "order_books_long_csv_enabled": self.write_order_books_long_csv,
+            "order_books_long_rows_written": (
+                len(level_rows) if self.write_order_books_long_csv else 0
+            ),
+            "storage_pressure_policy": self.storage_pressure_policy.payload(),
+        }
 
     def write_price_history(self, rows, raw_records):
         point_stats = _upsert_price_history_rows(self.price_history_path, rows)
@@ -896,6 +920,19 @@ def capture_status_from_result(
         "captured_tokens": captured_tokens,
         "books": books,
         "levels": int(result.get("levels") or 0),
+        "order_books_long_csv_enabled": bool(
+            result.get(
+                "order_books_long_csv_enabled",
+                store.write_order_books_long_csv,
+            )
+        ),
+        "order_books_long_rows_written": int(
+            result.get("order_books_long_rows_written") or 0
+        ),
+        "storage_pressure_policy": (
+            result.get("storage_pressure_policy")
+            or store.storage_pressure_policy.payload()
+        ),
         "price_history_rows": int(result.get("price_history_rows") or 0),
         "price_history_existing_points": int(result.get("price_history_existing_points") or 0),
         "price_history_new_points": int(result.get("price_history_new_points") or 0),
@@ -1028,6 +1065,7 @@ def capture_event_books(
     token_rows = []
     summaries = []
     level_rows = []
+    book_write_result = {}
     history_rows = []
     history_write_result = {}
     ws_result = {"messages": 0}
@@ -1062,7 +1100,11 @@ def capture_event_books(
         stage = "raw_tape_write"
         with store.raw_tape_guard("raw_token_book_append"):
             store.write_token_rows(all_token_rows)
-            store.write_books(summaries, level_rows, raw_records)
+            book_write_result = store.write_books(
+                summaries,
+                level_rows,
+                raw_records,
+            )
 
         history_raw = []
         if include_price_history:
@@ -1132,6 +1174,7 @@ def capture_event_books(
             "captured_tokens": len(token_rows),
             "books": len(summaries),
             "levels": len(level_rows),
+            **book_write_result,
             "price_history_rows": len(history_rows),
             **history_write_result,
             "ws_messages": ws_result.get("messages", 0),
@@ -1169,6 +1212,7 @@ def capture_event_books(
         "captured_tokens": len(token_rows),
         "books": len(summaries),
         "levels": len(level_rows),
+        **book_write_result,
         "price_history_rows": len(history_rows),
         **history_write_result,
         "ws_messages": ws_result.get("messages", 0),

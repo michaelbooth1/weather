@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import gzip
 import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.io import csv_encoding_issue, read_csv_rows_with_diagnostics, write_csv_rows
+from weather.io import (
+    LEGACY_CSV_ENCODINGS,
+    attach_csv_encoding_provenance,
+    csv_encoding_issue,
+    read_csv_rows_with_diagnostics,
+    write_csv_rows,
+)
 from weather.market.market_making_run_constants import DEFAULT_RUNS_ROOT
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
@@ -23,6 +31,7 @@ DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "market_making_tape_encoding.md"
 DEFAULT_FILENAMES = (
     "order_books_summary.csv",
     "order_books_long.csv",
+    "order_books_long.csv.gz",
     "clob_tokens.csv",
     "clob_features_long.csv",
     "price_history.csv",
@@ -34,6 +43,107 @@ DEFAULT_FILENAMES = (
 
 def utc_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_gzip_csv(path):
+    return str(Path(path).name).lower().endswith(".csv.gz")
+
+
+def _decode_error_payload(exc):
+    return {
+        "encoding": exc.encoding,
+        "reason": exc.reason,
+        "start": exc.start,
+        "end": exc.end,
+        "object_length": len(exc.object or b""),
+    }
+
+
+def _read_gzip_csv_with_encoding(path, encoding, *, collect_rows):
+    rows = []
+    row_count = 0
+    with gzip.open(path, "rt", encoding=encoding, newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            row_count += 1
+            if collect_rows:
+                rows.append(dict(row))
+        return rows, list(reader.fieldnames or []), row_count
+
+
+def _read_gzip_csv_with_diagnostics(path, *, attach_diagnostics=False):
+    """Audit a gzip CSV without materializing its rows unless explicitly requested."""
+
+    path = Path(path)
+    diagnostics = {
+        "path": str(path),
+        "exists": path.exists(),
+        "status": "missing",
+        "encoding": None,
+        "compression": "gzip",
+        "row_count": 0,
+        "fieldnames": [],
+        "legacy_encoding": False,
+        "quarantined_row_count": 0,
+        "utf8_decode_error": None,
+        "error": None,
+    }
+    if not path.exists():
+        return [], diagnostics
+    try:
+        rows, fieldnames, row_count = _read_gzip_csv_with_encoding(
+            path,
+            "utf-8-sig",
+            collect_rows=attach_diagnostics,
+        )
+        diagnostics.update({
+            "status": "ok",
+            "encoding": "utf-8-sig",
+            "row_count": row_count,
+            "fieldnames": fieldnames,
+        })
+        return rows, diagnostics
+    except UnicodeDecodeError as exc:
+        diagnostics["utf8_decode_error"] = _decode_error_payload(exc)
+    except (OSError, csv.Error, EOFError) as exc:
+        diagnostics.update({"status": "read_error", "error": f"{type(exc).__name__}: {exc}"})
+        return [], diagnostics
+
+    for encoding in LEGACY_CSV_ENCODINGS:
+        try:
+            rows, fieldnames, row_count = _read_gzip_csv_with_encoding(
+                path,
+                encoding,
+                collect_rows=attach_diagnostics,
+            )
+        except (UnicodeDecodeError, OSError, csv.Error, EOFError) as exc:
+            diagnostics["error"] = f"{type(exc).__name__}: {exc}"
+            continue
+        diagnostics.update({
+            "status": "legacy_encoding",
+            "encoding": encoding,
+            "row_count": row_count,
+            "fieldnames": fieldnames,
+            "legacy_encoding": True,
+            "quarantined_row_count": row_count,
+            "error": None,
+        })
+        if attach_diagnostics:
+            rows = attach_csv_encoding_provenance(rows, diagnostics)
+        return rows, diagnostics
+
+    diagnostics["status"] = "decode_error"
+    return [], diagnostics
+
+
+def read_tape_with_diagnostics(path, *, attach_diagnostics=False):
+    path = Path(path)
+    if _is_gzip_csv(path):
+        return _read_gzip_csv_with_diagnostics(
+            path,
+            attach_diagnostics=attach_diagnostics,
+        )
+    return read_csv_rows_with_diagnostics(path, attach_diagnostics=attach_diagnostics)
 
 
 def discover_files(paths=None, roots=None, filenames=None, all_csv=False):
@@ -48,6 +158,7 @@ def discover_files(paths=None, roots=None, filenames=None, all_csv=False):
             continue
         if all_csv:
             discovered.update(path for path in root.rglob("*.csv") if path.is_file())
+            discovered.update(path for path in root.rglob("*.csv.gz") if path.is_file())
         else:
             for filename in filenames:
                 discovered.update(path for path in root.rglob(filename) if path.is_file())
@@ -67,7 +178,7 @@ def status_for_diagnostics(rows):
 def audit_paths(paths):
     files = []
     for path in paths:
-        _rows, diagnostics = read_csv_rows_with_diagnostics(path, attach_diagnostics=False)
+        _rows, diagnostics = read_tape_with_diagnostics(path, attach_diagnostics=False)
         files.append(diagnostics)
     summary = {
         "file_count": len(files),
@@ -90,6 +201,14 @@ def repair_paths(paths, *, backup=True):
     repaired = []
     skipped = []
     for path in paths:
+        path = Path(path)
+        if _is_gzip_csv(path):
+            skipped.append({
+                "path": str(path),
+                "status": "refused_compressed_input",
+                "reason": "compressed CSV inputs are read-only audit artifacts and cannot be repaired in place",
+            })
+            continue
         rows, diagnostics = read_csv_rows_with_diagnostics(path, attach_diagnostics=True)
         if diagnostics.get("status") != "legacy_encoding":
             if csv_encoding_issue(diagnostics):
@@ -99,7 +218,6 @@ def repair_paths(paths, *, backup=True):
                     "reason": diagnostics.get("error") or diagnostics.get("utf8_decode_error"),
                 })
             continue
-        path = Path(path)
         backup_path = None
         if backup:
             backup_path = path.with_suffix(path.suffix + ".legacy-encoding.bak")

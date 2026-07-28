@@ -242,6 +242,17 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
         self.assertTrue(required.issubset(ARTIFACT_FAMILIES_BY_NAME))
         order_books = ARTIFACT_FAMILIES_BY_NAME["order_books_long"]
         self.assertIn("order_books_long.csv", order_books.source_patterns)
+        variant_predictions = ARTIFACT_FAMILIES_BY_NAME[
+            "variant_predictions_long"
+        ]
+        self.assertIn(
+            "variant_predictions.jsonl",
+            variant_predictions.raw_evidence_patterns,
+        )
+        self.assertIn(
+            "live_variant_predictions.jsonl",
+            variant_predictions.raw_evidence_patterns,
+        )
         self.assertIn("order_books.jsonl", order_books.raw_evidence_patterns)
         self.assertTrue(order_books.parquet_default_for_closed_days)
         self.assertTrue(order_books.raw_evidence_permanent)

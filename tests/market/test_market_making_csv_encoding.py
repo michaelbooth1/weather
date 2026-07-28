@@ -1,11 +1,12 @@
 import csv
+import gzip
 import tempfile
 import unittest
 from pathlib import Path
 
 from weather.io import read_csv_rows_with_diagnostics
 from weather.market.market_making_run_support import latest_book_rows, preflight_csv_encoding_diagnostics
-from weather.operations.market_making_tape_encoding import build_payload
+from weather.operations.market_making_tape_encoding import build_payload, discover_files
 
 
 def write_legacy_book(path):
@@ -17,6 +18,44 @@ def write_legacy_book(path):
 
 
 class TestMarketMakingCsvEncoding(unittest.TestCase):
+    def test_encoding_audit_discovers_and_reads_gzip_long_tape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "event" / "order_books_long.csv.gz"
+            path.parent.mkdir(parents=True)
+            with gzip.open(path, "wt", encoding="utf-8", newline="") as handle:
+                handle.write("capture_id,price,size\nbook-1,0.49,12\n")
+
+            discovered = discover_files(roots=[root])
+            payload = build_payload(discovered, repair=False)
+
+        self.assertEqual(discovered, [path])
+        self.assertEqual(payload["status"], "PASS")
+        self.assertEqual(payload["summary"]["file_count"], 1)
+        self.assertEqual(payload["files"][0]["status"], "ok")
+        self.assertEqual(payload["files"][0]["compression"], "gzip")
+        self.assertEqual(payload["files"][0]["row_count"], 1)
+        self.assertEqual(payload["files"][0]["fieldnames"], ["capture_id", "price", "size"])
+
+    def test_encoding_repair_refuses_compressed_input_without_changing_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "order_books_long.csv.gz"
+            with gzip.open(path, "wt", encoding="utf-8", newline="") as handle:
+                handle.write("capture_id,price,size\nbook-1,0.49,12\n")
+            before = path.read_bytes()
+
+            payload = build_payload([path], repair=True, backup=True)
+            after = path.read_bytes()
+
+        self.assertEqual(before, after)
+        self.assertEqual(payload["repair"]["repaired"], [])
+        self.assertEqual(len(payload["repair"]["skipped"]), 1)
+        self.assertEqual(
+            payload["repair"]["skipped"][0]["status"],
+            "refused_compressed_input",
+        )
+        self.assertIn("read-only audit", payload["repair"]["skipped"][0]["reason"])
+
     def test_shared_reader_reports_legacy_degree_byte_without_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "order_books_summary.csv"
