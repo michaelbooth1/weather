@@ -145,8 +145,8 @@ OWNERSHIP_NOTES = {
     },
     "src/weather/market/mm_paper_scoring.py": {
         "owner": "market",
-        "boundary": "Active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries.",
-        "next_split": "Owner module for item 318; must not import the mm_paper facade.",
+        "boundary": "Genuine-execution admission and provenance-preserving trade normalization/deduplication, active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries.",
+        "next_split": "WARN after the 2026-07-27 execution-evidence growth. Extract execution-evidence parsing, normalization, identity, and cross-source deduplication into a dedicated owner module that does not import the mm_paper facade; keep side-aware fill and P&L scoring in mm_paper_scoring.",
     },
     "src/weather/schema_registry.py": {
         "owner": "shared",

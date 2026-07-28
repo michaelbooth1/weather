@@ -12,6 +12,7 @@ import statistics
 import tempfile
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
@@ -25,6 +26,7 @@ from weather.market.mm_paper_constants import (
     DEFAULT_CONFIG,
     DEFAULT_JSON_OUT,
     DEFAULT_RUNS_ROOT,
+    EXECUTION_EVIDENCE_SCHEMA_VERSION,
     MARKOUT_HORIZONS,
     SCHEMA_VERSION,
 )
@@ -756,106 +758,714 @@ def attach_reward_estimates(legs, config):
             leg["reward_formula"] = "q_min=max(min(q_one,q_two),max(q_one/c,q_two/c)); normalized=q_min/(q_min+competition_q)"
 
 
+GENUINE_WS_EXECUTION_TYPE = "last_trade_price"
+DEDICATED_EXECUTION_TYPES = {"execution", "trade", GENUINE_WS_EXECUTION_TYPE}
+
+
+def _first_value(row, *keys):
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _canonical_decimal(value):
+    if value in (None, ""):
+        return None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not number.is_finite():
+        return None
+    if number == 0:
+        return "0"
+    return format(number.normalize(), "f")
+
+
+def _timestamp_precision_seconds(value, *, numeric_unit_seconds):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "T" in text or "-" in text:
+        fraction = text.split(".", 1)[1] if "." in text else ""
+        fraction = fraction.rstrip("Zz")
+        if "+" in fraction:
+            fraction = fraction.split("+", 1)[0]
+        if "-" in fraction:
+            fraction = fraction.split("-", 1)[0]
+        return 10.0 ** (-len(fraction)) if fraction else 1.0
+    fraction = text.split(".", 1)[1] if "." in text else ""
+    return float(numeric_unit_seconds) * (10.0 ** (-len(fraction)) if fraction else 1.0)
+
+
+def _parse_execution_timestamp(value, *, numeric_unit_seconds):
+    parsed = parse_time(value)
+    if parsed is not None:
+        return parsed, _timestamp_precision_seconds(
+            value,
+            numeric_unit_seconds=numeric_unit_seconds,
+        )
+    if value in (None, ""):
+        return None, None
+    try:
+        epoch = Decimal(str(value)) * Decimal(str(numeric_unit_seconds))
+        parsed = datetime.fromtimestamp(float(epoch), timezone.utc)
+    except (InvalidOperation, OSError, OverflowError, TypeError, ValueError):
+        return None, None
+    return parsed, _timestamp_precision_seconds(
+        value,
+        numeric_unit_seconds=numeric_unit_seconds,
+    )
+
+
+def _declared_timestamp_precision_seconds(value):
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not text:
+        return None
+    units = {
+        "s": 1.0,
+        "sec": 1.0,
+        "second": 1.0,
+        "seconds": 1.0,
+        "epoch_second": 1.0,
+        "epoch_seconds": 1.0,
+        "ms": 0.001,
+        "millisecond": 0.001,
+        "milliseconds": 0.001,
+        "epoch_millisecond": 0.001,
+        "epoch_milliseconds": 0.001,
+        "us": 0.000001,
+        "microsecond": 0.000001,
+        "microseconds": 0.000001,
+        "ns": 0.000000001,
+        "nanosecond": 0.000000001,
+        "nanoseconds": 0.000000001,
+    }
+    if text in units:
+        return units[text]
+    try:
+        precision = float(text)
+    except ValueError:
+        return None
+    return precision if math.isfinite(precision) and precision > 0 else None
+
+
+def _execution_time(raw, source_kind):
+    numeric_unit = 0.001 if source_kind == "ws" else 1.0
+    declared_precision = _declared_timestamp_precision_seconds(
+        _first_value(
+            raw,
+            "timestamp_precision_seconds",
+            "timestamp_precision",
+            "exchange_timestamp_precision",
+        )
+    )
+    for key in (
+        "exchange_time_utc",
+        "trade_time_utc",
+        "timestamp_utc",
+        "exchange_timestamp",
+        "timestamp",
+        "time",
+    ):
+        value = raw.get(key)
+        if value in (None, ""):
+            continue
+        parsed, precision = _parse_execution_timestamp(
+            value,
+            numeric_unit_seconds=numeric_unit,
+        )
+        if parsed is not None:
+            if declared_precision is not None:
+                precision = declared_precision
+            return parsed, precision, key, value
+    return None, None, "", None
+
+
+def _received_time(raw):
+    for key in ("received_at_utc", "fetched_at_utc", "captured_at_utc"):
+        parsed = parse_time(raw.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _normalized_execution_side(value):
+    side = str(value or "").strip().upper()
+    return side if side in {"BUY", "SELL"} else ""
+
+
+def _ws_execution_candidates(raw):
+    """Yield typed WS events without treating book deltas as executions."""
+
+    if not isinstance(raw, dict):
+        return
+    envelope = raw
+    vendor_payload = raw
+    if not (_first_value(raw, "event_type", "type")) and isinstance(
+        raw.get("payload"),
+        (dict, list),
+    ):
+        vendor_payload = raw["payload"]
+    events = vendor_payload if isinstance(vendor_payload, list) else [vendor_payload]
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = str(_first_value(event, "event_type", "type") or "").strip().lower()
+        body = (
+            event.get("payload")
+            if event_type and isinstance(event.get("payload"), dict)
+            else event
+        )
+        candidate = dict(body)
+        candidate["_event_type"] = event_type
+        for key in (
+            "received_at_utc",
+            "fetched_at_utc",
+            "captured_at_utc",
+            "raw_sha1",
+            "event_slug",
+            "market_id",
+        ):
+            if candidate.get(key) in (None, "") and envelope.get(key) not in (None, ""):
+                candidate[key] = envelope[key]
+        yield candidate
+
+
+def _execution_components(raw):
+    token = _first_value(
+        raw,
+        "clob_token_id",
+        "asset",
+        "asset_id",
+        "token_id",
+        "tokenId",
+        "assetId",
+    )
+    price_text = _canonical_decimal(
+        _first_value(raw, "price", "trade_price", "last_trade_price")
+    )
+    size_value = _first_value(
+        raw,
+        "size",
+        "trade_size",
+        "shares",
+        "amount",
+        "matched_amount",
+        "maker_amount",
+        "matched_size",
+        "size_matched",
+        "quantity",
+    )
+    size_text = _canonical_decimal(size_value)
+    size_state = "valid"
+    if size_value in (None, ""):
+        size_state = "missing"
+    elif size_text is None or Decimal(size_text) <= 0:
+        size_state = "invalid"
+        size_text = None
+    side = _normalized_execution_side(_first_value(raw, "side", "taker_side"))
+    return {
+        "token": str(token or "").strip(),
+        "price_text": price_text,
+        "size_text": size_text,
+        "size_state": size_state,
+        "side": side,
+        "condition_id": str(
+            _first_value(raw, "condition_id", "conditionId", "market") or ""
+        ).strip(),
+        "raw_sha1": str(_first_value(raw, "raw_sha1", "raw_payload_sha1") or "").strip(),
+    }
+
+
+def _execution_identity_values(raw):
+    supplied_canonical_id = str(
+        _first_value(raw, "canonical_execution_id") or ""
+    ).strip()
+    native_id = str(
+        _first_value(
+            raw,
+            "native_execution_id",
+            "execution_id",
+            "exchange_execution_id",
+            "trade_id",
+        )
+        or ""
+    ).strip()
+    transaction_hash = str(
+        _first_value(raw, "transaction_hash", "transactionHash") or ""
+    ).strip().lower()
+    aliases = []
+    if supplied_canonical_id:
+        aliases.append(("supplied_canonical", supplied_canonical_id))
+    if native_id:
+        aliases.append(("native", native_id))
+    if transaction_hash:
+        aliases.append(("transaction", transaction_hash))
+    return supplied_canonical_id, native_id, transaction_hash, tuple(aliases)
+
+
+def _execution_identity(raw, components, exchange_time, precision):
+    (
+        supplied_canonical_id,
+        native_id,
+        transaction_hash,
+        aliases,
+    ) = _execution_identity_values(raw)
+    if not aliases:
+        return None
+    if transaction_hash:
+        identity_kind, identity_value = "transaction", transaction_hash
+    elif native_id:
+        identity_kind, identity_value = "native", native_id
+    else:
+        identity_kind, identity_value = "supplied_canonical", supplied_canonical_id
+    basis = (
+        "mm_execution_v2",
+        identity_kind,
+        identity_value,
+        components["condition_id"],
+        components["token"],
+        exchange_time.astimezone(timezone.utc).isoformat(timespec="microseconds"),
+        _canonical_decimal(precision) or "",
+        components["price_text"],
+        components["size_text"] or "<missing>",
+        components["side"],
+    )
+    encoded = json.dumps(basis, ensure_ascii=True, separators=(",", ":"))
+    execution_id = "execution_" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:32]
+    return {
+        "execution_id": execution_id,
+        "canonical_execution_id": execution_id,
+        "supplied_canonical_execution_id": supplied_canonical_id,
+        "native_execution_id": native_id,
+        "transaction_hash": transaction_hash,
+        "aliases": aliases,
+    }
+
+
+def _execution_intervals_overlap(left, right):
+    left_precision = float(left.get("exchange_time_precision_seconds") or 0.0)
+    right_precision = float(right.get("exchange_time_precision_seconds") or 0.0)
+    left_end = left["time"] + timedelta(seconds=max(0.0, left_precision))
+    right_end = right["time"] + timedelta(seconds=max(0.0, right_precision))
+    return left["time"] < right_end and right["time"] < left_end
+
+
+def _execution_core_compatible(left, right, *, require_time=True):
+    for key in (
+        "clob_token_id",
+        "condition_id",
+        "_price_text",
+        "_size_text",
+        "side",
+    ):
+        if left.get(key) != right.get(key):
+            return False
+    return not require_time or _execution_intervals_overlap(left, right)
+
+
+def _execution_identity_compatible(left, right):
+    if (
+        left.get("transaction_hash")
+        and right.get("transaction_hash")
+        and left["transaction_hash"] != right["transaction_hash"]
+    ):
+        return False
+    if (
+        left.get("supplied_canonical_execution_id")
+        and right.get("supplied_canonical_execution_id")
+        and left["supplied_canonical_execution_id"]
+        != right["supplied_canonical_execution_id"]
+    ):
+        return False
+    left_native = left.get("native_execution_id") or ""
+    right_native = right.get("native_execution_id") or ""
+    if left_native and right_native and left_native != right_native:
+        return False
+    return True
+
+
+def _representations_compatible(left, right):
+    return _execution_core_compatible(
+        left,
+        right,
+    ) and _execution_identity_compatible(left, right)
+
+
+def _merge_execution_representation(existing, candidate):
+    sources = set(str(existing.get("source_representations") or "").split(";"))
+    sources.update(str(candidate.get("source_representations") or "").split(";"))
+    existing["source_representations"] = ";".join(sorted(source for source in sources if source))
+    raw_hashes = set(str(existing.get("raw_sha1") or "").split(";"))
+    raw_hashes.update(str(candidate.get("raw_sha1") or "").split(";"))
+    existing["raw_sha1"] = ";".join(sorted(value for value in raw_hashes if value))
+    received = [
+        value
+        for value in (existing.get("received_time"), candidate.get("received_time"))
+        if value is not None
+    ]
+    existing["received_time"] = min(received) if received else None
+    existing_precision = float(existing.get("exchange_time_precision_seconds") or math.inf)
+    candidate_precision = float(candidate.get("exchange_time_precision_seconds") or math.inf)
+    if candidate_precision < existing_precision:
+        existing["time"] = candidate["time"]
+        existing["exchange_time_precision_seconds"] = candidate_precision
+        existing["exchange_time_source"] = candidate["exchange_time_source"]
+        existing["exchange_timestamp_raw"] = candidate["exchange_timestamp_raw"]
+    if not existing.get("transaction_hash"):
+        existing["transaction_hash"] = candidate.get("transaction_hash") or ""
+    if not existing.get("supplied_canonical_execution_id"):
+        existing["supplied_canonical_execution_id"] = (
+            candidate.get("supplied_canonical_execution_id") or ""
+        )
+    if not existing.get("native_execution_id"):
+        existing["native_execution_id"] = candidate.get("native_execution_id") or ""
+    existing["_identity_aliases"] = tuple(
+        sorted(
+            {
+                *existing.get("_identity_aliases", ()),
+                *candidate.get("_identity_aliases", ()),
+            }
+        )
+    )
+    return existing
+
+
 def load_trade_rows(folder):
     folder = Path(folder)
-    rows = []
-    missing_size_count = 0
+    diagnostics = Counter()
+    accepted = {}
+    conflicted = set()
+    alias_index = defaultdict(set)
+    raw_hash_index = defaultdict(set)
 
-    def add_trade(raw, source, index):
-        nonlocal missing_size_count
-        trade = raw.get("trade") if isinstance(raw.get("trade"), dict) else {}
-        payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
-        ts = parse_time(
-            raw.get("trade_time_utc")
-            or raw.get("timestamp_utc")
-            or raw.get("received_at_utc")
-            or raw.get("captured_at_utc")
-            or raw.get("time")
-            or trade.get("trade_time_utc")
-            or trade.get("timestamp")
-            or payload.get("timestamp_utc")
+    def reject(reason):
+        diagnostics[f"rejected_{reason}_rows"] += 1
+
+    def active_rows(ids):
+        return {
+            execution_id: accepted[execution_id]
+            for execution_id in ids
+            if execution_id in accepted
+        }
+
+    def register_aliases(execution_id, aliases):
+        for alias in aliases:
+            alias_index[alias].add(execution_id)
+
+    def mark_conflict(execution_ids):
+        conflict_ids = {str(value) for value in execution_ids if value}
+        for execution_id in conflict_ids:
+            accepted.pop(execution_id, None)
+        conflicted.update(conflict_ids)
+        diagnostics["conflicting_representation_rows"] += 1
+
+    def raw_link_candidate(raw, source, source_kind, components):
+        raw_sha1 = components.get("raw_sha1") or ""
+        if not raw_sha1:
+            return False
+        raw_rows = active_rows(raw_hash_index.get(raw_sha1) or ())
+        if not raw_rows:
+            return False
+        partial = {
+            "clob_token_id": components["token"],
+            "condition_id": components["condition_id"],
+            "_price_text": components["price_text"],
+            "_size_text": components["size_text"],
+            "side": components["side"],
+        }
+        matches = {
+            execution_id: row
+            for execution_id, row in raw_rows.items()
+            if _execution_core_compatible(row, partial, require_time=False)
+        }
+        if len(matches) != 1:
+            reject("ambiguous_raw_link" if matches else "conflicting_raw_link")
+            return True
+        execution_id, existing = next(iter(matches.items()))
+
+        supplied_id, native_id, transaction_hash, aliases = _execution_identity_values(raw)
+        identity_partial = {
+            "supplied_canonical_execution_id": supplied_id,
+            "native_execution_id": native_id,
+            "transaction_hash": transaction_hash,
+        }
+        if not _execution_identity_compatible(existing, identity_partial):
+            reject("conflicting_raw_link_identity")
+            return True
+
+        has_exchange_time = any(
+            raw.get(key) not in (None, "")
+            for key in (
+                "exchange_time_utc",
+                "trade_time_utc",
+                "timestamp_utc",
+                "exchange_timestamp",
+                "timestamp",
+                "time",
+            )
         )
-        token = (
-            raw.get("clob_token_id")
-            or raw.get("asset_id")
-            or raw.get("token_id")
-            or raw.get("assetId")
-            or trade.get("asset_id")
-            or trade.get("token_id")
-            or payload.get("asset_id")
+        exchange_time, precision, _time_key, _timestamp_raw = _execution_time(
+            raw,
+            source_kind,
         )
-        price = clamp01(
-            raw.get("price")
-            or raw.get("trade_price")
-            or raw.get("last_trade_price")
-            or trade.get("price")
-            or payload.get("price")
-        )
-        size = finite_float(
-            raw.get("size")
-            or raw.get("trade_size")
-            or raw.get("shares")
-            or raw.get("amount")
-            or raw.get("matched_amount")
-            or raw.get("maker_amount")
-            or raw.get("matched_size")
-            or raw.get("size_matched")
-            or raw.get("quantity")
-            or trade.get("size")
-            or trade.get("trade_size")
-            or trade.get("shares")
-            or trade.get("amount")
-            or payload.get("size")
-            or payload.get("trade_size")
-        )
-        if ts is None or not token or price is None:
+        if has_exchange_time:
+            if exchange_time is None:
+                reject("invalid_raw_link_exchange_time")
+                return True
+            time_partial = {
+                "time": exchange_time,
+                "exchange_time_precision_seconds": precision,
+            }
+            if not _execution_intervals_overlap(existing, time_partial):
+                reject("conflicting_raw_link_exchange_time")
+                return True
+
+        received_time = _received_time(raw)
+        if (
+            received_time is not None
+            and received_time < existing["time"] - timedelta(seconds=1)
+        ):
+            reject("negative_latency")
+            return True
+        candidate = dict(existing)
+        candidate["source_representations"] = source
+        candidate["raw_sha1"] = raw_sha1
+        candidate["received_time"] = received_time
+        candidate["_identity_aliases"] = aliases
+        candidate["supplied_canonical_execution_id"] = supplied_id
+        candidate["native_execution_id"] = native_id
+        candidate["transaction_hash"] = transaction_hash
+        _merge_execution_representation(existing, candidate)
+        register_aliases(execution_id, aliases)
+        diagnostics["duplicate_representation_rows"] += 1
+        return True
+
+    def add_trade(raw, source, source_kind, *, allow_raw_link=False):
+        diagnostics["candidate_rows"] += 1
+        event_type = str(raw.get("_event_type") or raw.get("event_type") or "").strip().lower()
+        if source_kind == "ws" and event_type != GENUINE_WS_EXECUTION_TYPE:
+            reject("non_execution")
             return
-        if size is None or size <= 0:
-            missing_size_count += 1
-            size = None
-        rows.append({
-            "trade_id": f"{source}:{index}",
-            "time": ts,
-            "clob_token_id": str(token),
+        if source_kind != "ws" and event_type and event_type not in DEDICATED_EXECUTION_TYPES:
+            reject("non_execution")
+            return
+
+        components = _execution_components(raw)
+        if not components["token"] or components["price_text"] is None:
+            reject("invalid_execution")
+            return
+        if not components["condition_id"]:
+            reject("missing_condition")
+            return
+        if components["size_state"] == "invalid":
+            reject("invalid_size")
+            return
+        price = Decimal(components["price_text"])
+        if price < 0 or price > 1:
+            reject("invalid_execution")
+            return
+        if not components["side"]:
+            reject("invalid_side")
+            return
+
+        if allow_raw_link and raw_link_candidate(
+            raw,
+            source,
+            source_kind,
+            components,
+        ):
+            return
+
+        exchange_time, precision, time_key, timestamp_raw = _execution_time(
+            raw,
+            source_kind,
+        )
+        if exchange_time is None:
+            reject("missing_exchange_time")
+            return
+        received_time = _received_time(raw)
+        if (
+            received_time is not None
+            and received_time < exchange_time - timedelta(seconds=1)
+        ):
+            reject("negative_latency")
+            return
+        identity = _execution_identity(raw, components, exchange_time, precision)
+        if identity is None:
+            reject("missing_identity")
+            return
+        execution_id = identity["execution_id"]
+        if execution_id in conflicted:
+            diagnostics["conflicting_representation_rows"] += 1
+            return
+
+        candidate = {
+            "execution_evidence_schema_version": EXECUTION_EVIDENCE_SCHEMA_VERSION,
+            "trade_id": execution_id,
+            "execution_id": execution_id,
+            "canonical_execution_id": identity["canonical_execution_id"],
+            "supplied_canonical_execution_id": (
+                identity["supplied_canonical_execution_id"]
+            ),
+            "native_execution_id": identity["native_execution_id"],
+            "transaction_hash": identity["transaction_hash"],
+            "time": exchange_time,
+            "exchange_time_source": f"{source}:{time_key}",
+            "exchange_time_precision_seconds": precision,
+            "exchange_timestamp_raw": str(timestamp_raw),
+            "received_time": received_time,
+            "clob_token_id": components["token"],
+            "condition_id": components["condition_id"],
             "price": float(price),
-            "size": float(size) if size is not None else None,
-            "side": raw.get("side") or raw.get("taker_side") or "",
+            "size": (
+                float(Decimal(components["size_text"]))
+                if components["size_text"] is not None
+                else None
+            ),
+            "side": components["side"],
+            "raw_sha1": components["raw_sha1"],
             "source": source,
-        })
+            "source_representations": source,
+            "_price_text": components["price_text"],
+            "_size_text": components["size_text"],
+            "_identity_aliases": identity["aliases"],
+        }
 
-    for filename in ("trades_long.csv", "market_trades.csv", "market_ws_events.csv"):
-        for index, row in enumerate(iter_csv_rows(folder / filename)):
-            add_trade(row, filename, index)
+        linked_by_alias = {}
+        for alias in identity["aliases"]:
+            for linked_id, linked_row in active_rows(alias_index.get(alias) or ()).items():
+                linked_by_alias[linked_id] = linked_row
+        identity_conflicts = {
+            linked_id
+            for linked_id, linked_row in linked_by_alias.items()
+            if _execution_core_compatible(linked_row, candidate)
+            and not _execution_identity_compatible(linked_row, candidate)
+        }
+        native_conflicts = {
+            linked_id
+            for linked_id, linked_row in linked_by_alias.items()
+            if ("native", identity["native_execution_id"]) in identity["aliases"]
+            and ("native", identity["native_execution_id"])
+            in linked_row.get("_identity_aliases", ())
+            and not _execution_core_compatible(linked_row, candidate)
+        }
+        if identity_conflicts or native_conflicts:
+            mark_conflict({execution_id, *identity_conflicts, *native_conflicts})
+            return
 
-    jsonl_index = 0
+        compatible = {
+            linked_id: linked_row
+            for linked_id, linked_row in linked_by_alias.items()
+            if _representations_compatible(linked_row, candidate)
+        }
+        if len(compatible) > 1:
+            mark_conflict({execution_id, *compatible})
+            diagnostics["ambiguous_identity_alias_rows"] += 1
+            return
+        if len(compatible) == 1:
+            target_id, existing = next(iter(compatible.items()))
+            diagnostics["duplicate_representation_rows"] += 1
+            _merge_execution_representation(existing, candidate)
+            register_aliases(target_id, identity["aliases"])
+            accepted_id = target_id
+        else:
+            existing = accepted.get(execution_id)
+            if existing is not None:
+                if not _representations_compatible(existing, candidate):
+                    mark_conflict({execution_id})
+                    return
+                diagnostics["duplicate_representation_rows"] += 1
+                _merge_execution_representation(existing, candidate)
+            else:
+                for alias, linked_ids in (
+                    (alias, active_rows(alias_index.get(alias) or ()))
+                    for alias in identity["aliases"]
+                ):
+                    if linked_ids:
+                        diagnostics[f"{alias[0]}_alias_collision_rows"] += 1
+                accepted[execution_id] = candidate
+            register_aliases(execution_id, identity["aliases"])
+            accepted_id = execution_id
+        if source == "market_ws.jsonl" and components["raw_sha1"]:
+            raw_hash_index[components["raw_sha1"]].add(accepted_id)
+
+    for filename, source_kind in (
+        ("trades_long.csv", "dedicated"),
+        ("market_trades.csv", "data_api"),
+    ):
+        for row in iter_csv_rows(folder / filename):
+            add_trade(row, filename, source_kind)
+
     for raw in iter_jsonl(folder / "market_ws.jsonl") or []:
-        candidates = [raw]
-        payload = raw.get("payload") if isinstance(raw, dict) else None
-        if isinstance(payload, dict):
-            candidates.append(payload)
-            for key in ("price_changes", "trades", "fills"):
-                values = payload.get(key)
-                if isinstance(values, list):
-                    candidates.extend(item for item in values if isinstance(item, dict))
-        for key in ("price_changes", "trades", "fills"):
-            values = raw.get(key) if isinstance(raw, dict) else None
-            if isinstance(values, list):
-                candidates.extend(item for item in values if isinstance(item, dict))
-        for candidate in candidates:
-            if "received_at_utc" not in candidate and isinstance(raw, dict):
-                candidate = {**candidate, "received_at_utc": raw.get("received_at_utc")}
-            add_trade(candidate, "market_ws.jsonl", jsonl_index)
-            jsonl_index += 1
+        for candidate in _ws_execution_candidates(raw) or []:
+            add_trade(candidate, "market_ws.jsonl", "ws")
 
+    for row in iter_csv_rows(folder / "market_ws_events.csv"):
+        candidate = dict(row)
+        candidate["_event_type"] = str(row.get("event_type") or "").strip().lower()
+        add_trade(
+            candidate,
+            "market_ws_events.csv",
+            "ws",
+            allow_raw_link=True,
+        )
+
+    rows = []
+    for row in accepted.values():
+        row.pop("_price_text", None)
+        row.pop("_size_text", None)
+        row.pop("_identity_aliases", None)
+        rows.append(row)
     rows.sort(key=lambda row: (row["time"], row["trade_id"]))
-    return rows, {"trade_rows": len(rows), "missing_size_trade_rows": missing_size_count}
+    diagnostics["trade_rows"] = len(rows)
+    diagnostics["accepted_unique_execution_rows"] = len(rows)
+    diagnostics["missing_size_trade_rows"] = sum(
+        1 for row in rows if row.get("size") is None
+    )
+    diagnostics["conflicting_execution_ids"] = len(conflicted)
+    diagnostics["execution_evidence_schema_version"] = (
+        EXECUTION_EVIDENCE_SCHEMA_VERSION
+    )
+    for key in (
+        "candidate_rows",
+        "rejected_non_execution_rows",
+        "rejected_invalid_execution_rows",
+        "rejected_missing_condition_rows",
+        "rejected_invalid_size_rows",
+        "rejected_invalid_side_rows",
+        "rejected_missing_exchange_time_rows",
+        "rejected_negative_latency_rows",
+        "rejected_missing_identity_rows",
+        "rejected_ambiguous_raw_link_rows",
+        "rejected_conflicting_raw_link_rows",
+        "rejected_conflicting_raw_link_identity_rows",
+        "rejected_invalid_raw_link_exchange_time_rows",
+        "rejected_conflicting_raw_link_exchange_time_rows",
+        "duplicate_representation_rows",
+        "conflicting_representation_rows",
+        "ambiguous_identity_alias_rows",
+        "supplied_canonical_alias_collision_rows",
+        "native_alias_collision_rows",
+        "transaction_alias_collision_rows",
+        "trade_rows",
+        "accepted_unique_execution_rows",
+        "missing_size_trade_rows",
+        "conflicting_execution_ids",
+    ):
+        diagnostics.setdefault(key, 0)
+    return rows, dict(diagnostics)
 
 
-def strict_trade_through(side, trade_price, quote_price):
+def strict_trade_through(side, trade_price, quote_price, trade_side=None):
+    trade_side = _normalized_execution_side(trade_side)
     if side == "YES_BID":
-        return trade_price < quote_price
+        return trade_side == "SELL" and trade_price < quote_price
     if side == "YES_ASK":
-        return trade_price > quote_price
+        return trade_side == "BUY" and trade_price > quote_price
     return False
 
 
@@ -997,7 +1607,13 @@ def queue_simulate_leg(leg, book_by_token, trades_by_token):
                 through = True
                 max_depletion = max(max_depletion, ahead + leg["quote_size"])
     missing_size_through = any(
-        strict_trade_through(leg["side"], trade["price"], leg["quote_price"]) and trade.get("size") is None
+        strict_trade_through(
+            leg["side"],
+            trade["price"],
+            leg["quote_price"],
+            trade.get("side"),
+        )
+        and trade.get("size") is None
         for trade in rows_between(trades_by_token.get(leg["clob_token_id"]) or [], leg["quote_time"], leg["quote_expires_at"])
     )
     if through:
@@ -1061,7 +1677,13 @@ def load_mark_rows(folder):
     for row in iter_csv_rows(folder / "order_books_summary.csv"):
         add_mark(row, "order_books_summary.csv", time_keys=("captured_at_utc", "book_time_utc", "captured_at_local"))
     for row in iter_csv_rows(folder / "market_ws_events.csv"):
-        add_mark(row, "market_ws_events.csv", time_keys=("received_at_utc", "timestamp_utc", "captured_at_utc"))
+        if str(row.get("event_type") or "").strip().lower() != GENUINE_WS_EXECUTION_TYPE:
+            continue
+        add_mark(
+            row,
+            "market_ws_events.csv",
+            time_keys=("trade_time_utc", "timestamp_utc"),
+        )
     marks.sort(key=lambda row: (row["clob_token_id"], row["time"]))
     return marks
 
@@ -1273,6 +1895,7 @@ def conservative_fill_row(
         "through_trade_price": trade["price"],
         "through_trade_size": trade["size"],
         "trade_source": trade["source"],
+        "execution_id": trade.get("execution_id") or trade.get("trade_id") or "",
     }
     financials = compute_fill_financials(
         leg,
@@ -1294,6 +1917,7 @@ def conservative_fill_row(
     )
     row = {
         "paper_schema_version": SCHEMA_VERSION,
+        "execution_evidence_schema_version": EXECUTION_EVIDENCE_SCHEMA_VERSION,
         "run_id": leg["run_id"],
         "run_folder": leg["run_folder"],
         "run_mode": leg["run_mode"],
@@ -1328,6 +1952,35 @@ def conservative_fill_row(
         "through_trade_price": compact_float(trade["price"]),
         "through_trade_size": compact_float(trade.get("size")),
         "trade_source": trade["source"],
+        "execution_id": trade.get("execution_id") or trade.get("trade_id") or "",
+        "canonical_execution_id": (
+            trade.get("canonical_execution_id")
+            or trade.get("execution_id")
+            or trade.get("trade_id")
+            or ""
+        ),
+        "supplied_canonical_execution_id": (
+            trade.get("supplied_canonical_execution_id") or ""
+        ),
+        "native_execution_id": trade.get("native_execution_id") or "",
+        "transaction_hash": trade.get("transaction_hash") or "",
+        "execution_exchange_time_utc": trade["time"].isoformat(),
+        "execution_received_time_utc": (
+            trade["received_time"].isoformat()
+            if trade.get("received_time") is not None
+            else ""
+        ),
+        "execution_time_source": trade.get("exchange_time_source") or "",
+        "execution_time_precision_seconds": compact_float(
+            trade.get("exchange_time_precision_seconds"),
+            digits=9,
+        ),
+        "execution_side": trade.get("side") or "",
+        "execution_condition_id": trade.get("condition_id") or "",
+        "execution_raw_sha1": trade.get("raw_sha1") or "",
+        "execution_source_representations": (
+            trade.get("source_representations") or trade.get("source") or ""
+        ),
         "conservative_fill_rule": "strict_trade_through_price_and_recorded_size",
         "queue_status": queue.get("status"),
         "queue_fill_size": compact_float(queue.get("estimated_fill_size")),
@@ -1453,7 +2106,12 @@ def _simulate_spilled_conservative_fills(
         for trade in trade_rows:
             if remaining_leg <= 1e-9:
                 break
-            if not strict_trade_through(leg["side"], trade["price"], leg["quote_price"]):
+            if not strict_trade_through(
+                leg["side"],
+                trade["price"],
+                leg["quote_price"],
+                trade.get("side"),
+            ):
                 continue
             if trade.get("size") is None:
                 continue
@@ -1567,7 +2225,12 @@ def simulate_conservative_fills(legs, snapshots_root, casebook_index, config, le
         for trade in trade_rows:
             if remaining_leg <= 1e-9:
                 break
-            if not strict_trade_through(leg["side"], trade["price"], leg["quote_price"]):
+            if not strict_trade_through(
+                leg["side"],
+                trade["price"],
+                leg["quote_price"],
+                trade.get("side"),
+            ):
                 continue
             if trade.get("size") is None:
                 continue

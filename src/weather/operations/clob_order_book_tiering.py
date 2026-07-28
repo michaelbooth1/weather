@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import shutil
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -68,7 +68,32 @@ def parse_date(value: str | date | None) -> date | None:
 
 
 def default_settled_before() -> date:
-    return datetime.now(timezone.utc).date()
+    # The host's LOCAL date, not the UTC date.
+    #
+    # UTC rolls at 20:00 local (EDT), so between 20:00 and the 00:05 daily roll the old
+    # default marked *today's* events settled while the CLOB loop was still appending to
+    # their order_books_long.csv. Caught 2026-07-27 at 22:00 local, when a plan run offered
+    # all 12 of that day's live markets as candidates.
+    #
+    # A local-date cutoff still is not sufficient on its own -- a Pacific market's day ends
+    # at 03:00 ET the next morning, so it is live during part of the quiet window. That is
+    # handled directly by MIN_QUIET_SECONDS below rather than by padding this date, because
+    # a blanket extra day delays roughly 13 GiB of reclaim and disk headroom is the reason
+    # this work exists.
+    return datetime.now().date()
+
+
+# A source still being appended to is never eligible, whatever the date arithmetic says.
+# This is the actual invariant; the date cutoff is only a cheap pre-filter.
+MIN_QUIET_SECONDS = 7200.0
+
+
+def source_is_quiet(source: Path, *, now: float | None = None) -> bool:
+    try:
+        age = (now if now is not None else datetime.now().timestamp()) - source.stat().st_mtime
+    except OSError:
+        return False
+    return age >= MIN_QUIET_SECONDS
 
 
 def event_date_from_slug(slug: str) -> date | None:
@@ -163,6 +188,9 @@ def discover_rows(
         elif not settled:
             status = "blocked_active_or_unsettled"
             action = "wait_for_settlement_cutoff"
+        elif not source_is_quiet(source):
+            status = "blocked_recently_written"
+            action = "wait_for_writer_to_finish"
         else:
             status = "candidate"
             action = "compress_to_order_books_long_csv_gz"
@@ -291,6 +319,10 @@ def apply_tiering(
             action["status"] = "skipped_missing_source"
         elif gzip_path.exists():
             action["status"] = "skipped_gzip_exists"
+        elif not source_is_quiet(source):
+            # Re-checked here, not just at plan time: a plan can be minutes or hours old, and
+            # compressing a file a writer still holds is the one unrecoverable mistake here.
+            action["status"] = "skipped_recently_written"
         elif int(usage.free) < required_free:
             action["status"] = "skipped_insufficient_headroom"
             action["insufficient_bytes"] = required_free - int(usage.free)
