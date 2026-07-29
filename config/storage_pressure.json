@@ -1,0 +1,6 @@
+{
+  "schema_version": "storage_pressure_policy_v0.1",
+  "capture": {
+    "write_order_books_long_csv": true
+  }
+}

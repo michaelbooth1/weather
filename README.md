@@ -435,8 +435,9 @@ data/
       components_long.csv
       clob_tokens.csv
       order_books_summary.csv
-      order_books_long.csv
-      order_books.jsonl
+      order_books_long.csv       # optional rebuildable full-depth projection
+      order_books_long.csv.gz    # closed-day serving fallback when tiered
+      order_books.jsonl          # canonical raw full-depth tape
       price_history.csv
       market_ws_events.csv
       market_ws.jsonl
@@ -464,6 +465,10 @@ Artifact growth is guarded by:
 ```
 
 See [docs/operations/artifact-storage-policy.md](docs/operations/artifact-storage-policy.md).
+The checked-in `config/storage_pressure.json` preserves long-CSV capture by
+default. Storage-pressure cleanup and activation remain explicit operator
+workflows; see
+[docs/operations/data-retention-policy.md](docs/operations/data-retention-policy.md).
 
 ## Source Layout
 

@@ -47,6 +47,13 @@ def test_config_inventory_classifies_stale_location_events_and_deprecated_market
         config / "no_market_extra_locations.json",
         {"schema_version": "no_market_extra_location_registry_v0.1", "locations": []},
     )
+    write_json(
+        config / "storage_pressure.json",
+        {
+            "schema_version": "storage_pressure_policy_v0.1",
+            "capture": {"write_order_books_long_csv": True},
+        },
+    )
 
     payload = build_config_inventory(
         config,
@@ -62,6 +69,7 @@ def test_config_inventory_classifies_stale_location_events_and_deprecated_market
     assert rows["location_market_events.json"]["freshness"] == "STALE"
     assert rows["markets.json"]["classification"] == "deprecated_compatibility_shell"
     assert rows["markets.json"]["status"] == "PASS"
+    assert rows["storage_pressure.json"]["classification"] == "operator_activation_policy"
     assert payload["status"] == "WARN"
 
 
@@ -78,6 +86,10 @@ def test_config_inventory_flags_active_variant_data_artifact_path(tmp_path):
         "markets.json": {"schema_version": "market_registry_v0.1", "status": "deprecated_compatibility_shell", "markets": []},
         "supplemental_stations.json": {"schema_version": "supplemental_station_registry_v0.1", "sources": []},
         "no_market_extra_locations.json": {"schema_version": "no_market_extra_location_registry_v0.1", "locations": []},
+        "storage_pressure.json": {
+            "schema_version": "storage_pressure_policy_v0.1",
+            "capture": {"write_order_books_long_csv": True},
+        },
     }.items():
         write_json(config / name, payload)
     write_json(
@@ -121,6 +133,10 @@ def test_config_inventory_accepts_archived_no_market_extra_locations(tmp_path):
         "markets.json": {"schema_version": "market_registry_v0.1", "status": "deprecated_compatibility_shell", "markets": []},
         "model_variant_registry.json": {"schema_version": "model_variant_registry_v0.1", "variants": []},
         "supplemental_stations.json": {"schema_version": "supplemental_station_registry_v0.1", "sources": []},
+        "storage_pressure.json": {
+            "schema_version": "storage_pressure_policy_v0.1",
+            "capture": {"write_order_books_long_csv": True},
+        },
     }.items():
         write_json(config / name, payload)
     write_json(

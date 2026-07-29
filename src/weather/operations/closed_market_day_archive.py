@@ -235,7 +235,7 @@ ARTIFACT_FAMILIES = (
         "variant_predictions_long",
         DATASET_FILENAME,
         ("variant_predictions_long.csv", "variant_predictions_long.csv.gz"),
-        ("live_variant_predictions.jsonl",),
+        ("variant_predictions.jsonl", "live_variant_predictions.jsonl"),
         notes="Variant probability shadow rows when present.",
     ),
 )

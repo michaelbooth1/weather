@@ -463,8 +463,19 @@ def write_live_readiness(path):
     return path
 
 
-def write_data_layer_audit(path, ok=True, raw_clob_artifacts=None):
+def write_data_layer_audit(
+    path,
+    ok=True,
+    raw_clob_artifacts=None,
+    raw_book_artifact="order_books_summary",
+):
     raw_ok = ok if raw_clob_artifacts is None else raw_clob_artifacts
+    artifact_presence = {
+        "clob_features": ok,
+        "clob_tokens": raw_ok,
+    }
+    if raw_book_artifact:
+        artifact_presence[raw_book_artifact] = raw_ok
     path.write_text(json.dumps({
         "schema_version": "data_layer_audit_v0.3",
         "generated_at_utc": NOW,
@@ -478,11 +489,7 @@ def write_data_layer_audit(path, ok=True, raw_clob_artifacts=None):
             "folders": [{
                 "target_date": TARGET_DATE,
                 "rows_with_market_token_ids": 2 if ok else 0,
-                "artifact_presence": {
-                    "clob_features": ok,
-                    "clob_tokens": raw_ok,
-                    "order_books_summary": raw_ok,
-                },
+                "artifact_presence": artifact_presence,
                 "clob_features": {"book_available_rows": 2 if ok else 0},
             }],
         },
@@ -975,6 +982,23 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertFalse(bad_gate["ok"])
         self.assertIn("has_market_token_ids", bad_gate["missing"])
         self.assertFalse(load_data_layer_live_gate(bad, TARGET_DATE, "shadow")["required"])
+
+    def test_data_layer_live_gate_accepts_summary_or_gzip_raw_book_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for artifact_key in ("order_books_summary", "order_books_long_gzip"):
+                with self.subTest(artifact_key=artifact_key):
+                    path = write_data_layer_audit(
+                        root / f"{artifact_key}.json",
+                        ok=True,
+                        raw_book_artifact=artifact_key,
+                    )
+
+                    gate = load_data_layer_live_gate(path, TARGET_DATE, "live-pilot")
+
+                    self.assertTrue(gate["ok"])
+                    self.assertTrue(gate["checks"]["target_date_raw_book_artifact"])
+                    self.assertEqual(gate["target_date_raw_book_artifact_days"], 1)
 
     def test_data_layer_live_gate_rejects_derived_clob_without_raw_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -47,6 +47,8 @@ class TestStorageClassRegistry(unittest.TestCase):
             "artifacts/models/hgb/feature_model_hgb.pkl": ANALYSIS_PROJECTION,
             "data/backtest/data_retention_inventory_report.md": OPERATOR_CACHE,
             "data/backtest/fleet_observability.json": OPERATOR_CACHE,
+            "data/backtest/replay_cache/event/key.json": OPERATOR_CACHE,
+            "data/backtest/cache/replay/event/key.json": OPERATOR_CACHE,
             "data/logs/daily_refresh.log": OPERATOR_CACHE,
             "data/snapshots/observation_source_cache/toronto.json": OPERATOR_CACHE,
         }
@@ -56,6 +58,38 @@ class TestStorageClassRegistry(unittest.TestCase):
                 classification = classify_storage_path(path)
                 self.assertEqual(classification.storage_class, expected)
                 self.assertNotEqual(classification.artifact_family, "unclassified")
+
+    def test_replay_cache_layouts_have_exact_rebuildable_cache_contract(self):
+        for path in (
+            "data/backtest/replay_cache/event/key.json",
+            "data/backtest/cache/replay/event/key.json",
+        ):
+            with self.subTest(path=path):
+                classification = classify_storage_path(path)
+                self.assertEqual(classification.artifact_family, "replay_cache")
+                self.assertEqual(classification.storage_class, OPERATOR_CACHE)
+                self.assertIn("exact pinned promotion corpus", classification.rebuild_source)
+                self.assertIn("reachability", classification.notes)
+
+    def test_order_book_long_projection_has_specific_rebuild_contract(self):
+        for path in (
+            "data/snapshots/event/order_books_long.csv",
+            "data/snapshots/event/order_books_long.csv.gz",
+        ):
+            with self.subTest(path=path):
+                classification = classify_storage_path(path)
+                self.assertEqual(
+                    classification.artifact_family,
+                    "clob_order_book_long_projection",
+                )
+                self.assertEqual(
+                    classification.rebuild_source,
+                    "snapshots/<event>/order_books.jsonl",
+                )
+                self.assertEqual(
+                    classification.delete_gate,
+                    "projection_rebuild_source_and_reader_fallback_gate",
+                )
 
     def test_closed_archive_families_have_projection_or_canonical_registry_coverage(self):
         missing = []

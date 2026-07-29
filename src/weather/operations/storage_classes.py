@@ -334,6 +334,28 @@ ARTIFACT_FAMILIES = (
         examples=("data/snapshots/<event>/observation_payloads_long.csv",),
     ),
     ArtifactFamilyClassification(
+        "clob_order_book_long_projection",
+        "market",
+        ANALYSIS_PROJECTION,
+        (
+            "snapshots/*/order_books_long.csv",
+            "snapshots/*/order_books_long.csv.gz",
+        ),
+        "rebuildable_clob_full_book_projection",
+        "snapshots/<event>/order_books.jsonl",
+        "projection_rebuild_source_and_reader_fallback_gate",
+        False,
+        examples=(
+            "data/snapshots/<event>/order_books_long.csv",
+            "data/snapshots/<event>/order_books_long.csv.gz",
+        ),
+        notes=(
+            "Eligible for closed-day tiering only when the canonical JSONL "
+            "rebuild source is pinned and every full-book reader proves the "
+            "accepted CSV-or-CSV.GZ fallback."
+        ),
+    ),
+    ArtifactFamilyClassification(
         "snapshot_csv_long_tables",
         "collection/model/market",
         ANALYSIS_PROJECTION,
@@ -461,6 +483,24 @@ ARTIFACT_FAMILIES = (
         "ttl_or_reviewed_cleanup_manifest",
         False,
         examples=("data/backtest/data_retention_inventory_report.md",),
+    ),
+    ArtifactFamilyClassification(
+        "replay_cache",
+        "backtesting/calibration",
+        OPERATOR_CACHE,
+        (
+            "backtest/replay_cache/**",
+            "backtest/cache/replay/**",
+        ),
+        "reachability_bounded_rebuildable_replay_cache",
+        "exact pinned promotion corpus, retained replay/snapshot/settlement inputs, exact model artifact, and row-affecting replay config",
+        "reviewed_exact_path_reachability_manifest",
+        False,
+        examples=(
+            "data/backtest/replay_cache/<event>/<key>.json",
+            "data/backtest/cache/replay/<event>/<key>.json",
+        ),
+        notes="Retention is exact-key reachability based; age and LRU are never deletion evidence.",
     ),
     ArtifactFamilyClassification(
         "provider_and_runtime_cache",

@@ -37,6 +37,7 @@ from weather.market.market_microstructure import (  # noqa: E402
 )
 from weather.market.market_microstructure_features import snapshot_band_key  # noqa: E402
 from weather.market.market_config import config_for_date  # noqa: E402
+from weather.market.storage_pressure_policy import StoragePressurePolicy  # noqa: E402
 from weather.io import writer_lock_path  # noqa: E402
 from weather.operations.supervisor import acquire_writer_lock, release_writer_lock  # noqa: E402
 
@@ -271,6 +272,73 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertTrue(raw_manifest_exists)
         self.assertEqual(fake.book_requests[0][0], ["yes-token"])
         self.assertEqual(fake.history_requests[0][0], "yes-token")
+
+    def test_capture_flag_skips_only_long_projection_and_is_status_visible(self):
+        policy = StoragePressurePolicy(
+            write_order_books_long_csv=False,
+            status="configured",
+            path="fixture-policy.json",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "weather.market.market_microstructure_capture.load_storage_pressure_policy",
+            return_value=policy,
+        ):
+            root = Path(tmp)
+            result = capture_event_books(
+                sample_event(),
+                market_id="toronto",
+                clob_client=FakeClobClient(),
+                root=root,
+                outcomes="yes",
+                include_price_history=False,
+                include_ws_events=False,
+                include_clob_features=False,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+            status = json.loads(
+                (root / "clob_capture_status.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()[0]
+            )
+
+            self.assertTrue((root / "order_books_summary.csv").exists())
+            self.assertTrue((root / "order_books.jsonl").exists())
+            self.assertFalse((root / "order_books_long.csv").exists())
+            self.assertFalse(result["order_books_long_csv_enabled"])
+            self.assertEqual(result["order_books_long_rows_written"], 0)
+            self.assertFalse(status["order_books_long_csv_enabled"])
+            self.assertEqual(status["storage_pressure_policy"]["status"], "configured")
+
+    def test_capture_flag_leaves_historical_long_projection_unchanged(self):
+        policy = StoragePressurePolicy(
+            write_order_books_long_csv=False,
+            status="configured",
+            path="fixture-policy.json",
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "weather.market.market_microstructure_capture.load_storage_pressure_policy",
+            return_value=policy,
+        ):
+            root = Path(tmp)
+            historical = root / "order_books_long.csv"
+            historical.write_bytes(b"historical,long,projection\r\n")
+
+            capture_event_books(
+                sample_event(),
+                market_id="toronto",
+                clob_client=FakeClobClient(),
+                root=root,
+                outcomes="yes",
+                include_price_history=False,
+                include_ws_events=False,
+                include_clob_features=False,
+                now=datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(
+                historical.read_bytes(),
+                b"historical,long,projection\r\n",
+            )
 
     def test_capture_market_books_uses_explicit_target_date(self):
         calls = {}

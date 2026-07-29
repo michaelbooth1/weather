@@ -109,6 +109,28 @@ has never been restored is an assumption, not a backup.
   `docs/roadmap/agent-work-order-2026-07-20b.md` (duplicate and regenerable
   artifacts) as the immediate, no-new-mechanism reclaim.
 
+## 2026-07-27 workstation storage-pressure build
+
+The build-only slice in
+[the workstation storage-pressure report](../agent-report-2026-07-27-workstation-storage-pressure-build.md)
+adds three guarded mechanisms without authorizing production mutation:
+
+- future full-book long-CSV capture is controlled by a checked-in policy whose
+  default remains `true`; malformed or missing policy preserves current
+  capture;
+- replay-cache cleanup is full-key reachability based, retains ambiguity, and
+  requires frozen candidate static context, an exact retained serving-release
+  graph, two cache-off rebuild parity checks, and a durable write-ahead receipt
+  before an exact-file unlink; and
+- closed-day projection tiering has a complete family registry but permits only
+  `order_books_long.csv`, whose canonical source and gzip/JSONL reader fallback
+  are fixture-proven.
+
+All production dry-runs, approvals, compression, deletion, deployment, mirror
+topology changes, and restore drills remain operator-owned and not done. This
+does not close the broader archive-offload item or change any scope checkbox
+below.
+
 Acceptance:
 
 - Free space on the production volume trends flat or upward across a full week
