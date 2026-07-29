@@ -1,9 +1,14 @@
 name: Nightly Candidate Build
 
 on:
-  schedule:
-    - cron: '0 8 * * *' # 8 AM UTC daily
-  workflow_dispatch: # Allow manual trigger
+  # Daily schedule disabled 2026-07-29. This job duplicated training that the
+  # production host now owns (WeatherTrainingWindow, 01:00 local), and its
+  # nightly LFS checkout of ~382 MB was the dominant consumer of the account's
+  # metered Git LFS bandwidth (~11.5 GB/month against a 1 GB quota).
+  # Re-enable deliberately if the hosted candidate build is wanted again.
+  #  schedule:
+  #    - cron: '0 8 * * *' # 8 AM UTC daily
+  workflow_dispatch: # Manual trigger only
 
 permissions:
   contents: read
@@ -20,7 +25,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          lfs: true
+          # See ci.yml: LFS checkout is metered. If a manual run of this job
+          # genuinely needs model bytes, pull only the artifacts it uses:
+          #   git lfs pull --include="artifacts/models/hgb/<name>.pkl"
+          lfs: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
