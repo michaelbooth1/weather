@@ -20,7 +20,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          lfs: true
+          # Do NOT set lfs: true. The hgb model artifacts are ~382 MB and every
+          # checkout of them is metered against the account's LFS bandwidth
+          # quota (1 GB/month included); this workflow alone exhausted it.
+          # The test suite stubs these artifacts and does not read their bytes.
+          lfs: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
