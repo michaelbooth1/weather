@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.io import TieredTextConflictError, resolve_tiered_text
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
 
@@ -22,6 +23,7 @@ DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "clob_coverage_audit_report.md"
 RAW_BOOK_FILES = (
     "order_books_summary.csv",
     "order_books.jsonl",
+    "order_books.jsonl.gz",
     "order_books_long.csv",
     "order_books_long.csv.gz",
 )
@@ -186,6 +188,8 @@ def classify_folder(summary: dict[str, Any]) -> str:
     midpoint_rows = int(features.get("midpoint_rows") or 0)
     available_rows = int(features.get("feature_available_rows") or 0)
     one_sided = int(features.get("one_sided_quote_rows") or 0)
+    if summary.get("raw_book_conflicts"):
+        return "blocked_conflicting_raw_book_pair"
     if feature_rows == 0:
         return "missing_clob_feature_export"
     if not raw_book_present and not token_file_present:
@@ -205,6 +209,17 @@ def audit_folder(folder: str | Path) -> dict[str, Any]:
     folder = Path(folder)
     snapshot_rows, _sample = read_csv_count(folder / "snapshots_long.csv")
     raw_book_files = file_info(folder, RAW_BOOK_FILES)
+    raw_book_conflicts = {}
+    for family, path in (
+        ("order_books_raw", folder / "order_books.jsonl"),
+        ("order_books_long", folder / "order_books_long.csv"),
+    ):
+        try:
+            resolve_tiered_text(path)
+        except FileNotFoundError:
+            continue
+        except TieredTextConflictError as exc:
+            raw_book_conflicts[family] = str(exc)
     token_files = file_info(folder, TOKEN_FILES)
     features = feature_summary(folder)
     summary = {
@@ -214,7 +229,10 @@ def audit_folder(folder: str | Path) -> dict[str, Any]:
         "snapshot_rows": snapshot_rows,
         "raw_book_files": raw_book_files,
         "token_files": token_files,
-        "raw_book_present": has_any_file(raw_book_files),
+        "raw_book_present": bool(
+            has_any_file(raw_book_files) and not raw_book_conflicts
+        ),
+        "raw_book_conflicts": raw_book_conflicts,
         "token_file_present": has_any_file(token_files),
         "features": features,
     }

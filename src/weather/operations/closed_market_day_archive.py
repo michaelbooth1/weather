@@ -23,7 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
-from weather.io import sha256_file
+from weather.io import resolve_tiered_text, sha256_file
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations.closed_market_day_archive_manifest_contract import (
     validate_manifest_shape as validate_manifest_shape_contract,
@@ -192,14 +192,14 @@ ARTIFACT_FAMILIES = (
         "order_books_summary",
         DATASET_FILENAME,
         ("order_books_summary.csv", "order_books_summary.csv.gz"),
-        ("order_books.jsonl",),
+        ("order_books.jsonl", "order_books.jsonl.gz"),
         notes="Book summary analysis table backed by raw book payloads.",
     ),
     ArtifactFamilyContract(
         "order_books_long",
         DATASET_FILENAME,
         ("order_books_long.csv", "order_books_long.csv.gz"),
-        ("order_books.jsonl",),
+        ("order_books.jsonl", "order_books.jsonl.gz"),
         notes="Full-depth CLOB book long table and highest-byte archive target.",
     ),
     ArtifactFamilyContract(
@@ -223,6 +223,7 @@ ARTIFACT_FAMILIES = (
         (
             "clob_features.jsonl",
             "order_books.jsonl",
+            "order_books.jsonl.gz",
             "price_history.jsonl",
             "price_history_raw_manifest.jsonl",
             "price_history_raw/*.json",
@@ -346,6 +347,23 @@ def _analysis_source_record(family_manifest: dict[str, Any] | None) -> dict[str,
 
 def _source_paths_for_family(folder: Path, family: ArtifactFamilyContract) -> tuple[list[Path], list[Path]]:
     paths = _find_paths(folder, family.source_patterns)
+    resolved_paths: list[Path] = []
+    seen_logical_paths: set[Path] = set()
+    for path in paths:
+        name = path.name.lower()
+        if name.endswith(".csv.gz"):
+            logical_path = path.with_name(path.name[:-3])
+        elif name.endswith(".csv"):
+            logical_path = path
+        else:
+            resolved_paths.append(path)
+            continue
+        if logical_path in seen_logical_paths:
+            continue
+        seen_logical_paths.add(logical_path)
+        resolution = resolve_tiered_text(logical_path)
+        resolved_paths.append(resolution.selected_path)
+    paths = resolved_paths
     gzip_paths = [path for path in paths if path.name.lower().endswith(".csv.gz")]
     text_paths = [path for path in paths if path not in gzip_paths]
     return gzip_paths, text_paths

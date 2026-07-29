@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import gzip
 import hashlib
 import json
 import os
@@ -16,7 +15,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from weather.io import sha256_file
+from weather.io import TieredTextError, open_tiered_text, sha256_file
 from weather.forecast_payload_contracts import (
     NBM_NBP_ENCODING,
     NBM_NBP_MEDIA_TYPE,
@@ -131,7 +130,13 @@ EVENT_DAY_ARTIFACT_FAMILIES = (
     EventDayArtifactFamily("clob_tokens", ("clob_tokens.csv", "clob_tokens.jsonl")),
     EventDayArtifactFamily(
         "order_books",
-        ("order_books.jsonl", "order_books_summary.csv", "order_books_long.csv", "order_books_long.csv.gz"),
+        (
+            "order_books.jsonl",
+            "order_books.jsonl.gz",
+            "order_books_summary.csv",
+            "order_books_long.csv",
+            "order_books_long.csv.gz",
+        ),
     ),
     EventDayArtifactFamily(
         "price_history",
@@ -387,9 +392,9 @@ def _inspect_file(path: Path) -> dict[str, Any]:
     name = path.name.lower()
     suffix = path.suffix.lower()
     try:
-        if suffix == ".jsonl":
+        if suffix == ".jsonl" or name.endswith(".jsonl.gz"):
             row_count = 0
-            with path.open("r", encoding="utf-8") as handle:
+            with open_tiered_text(path, encoding="utf-8") as handle:
                 for line_number, line in enumerate(handle, start=1):
                     text = line.strip()
                     if not text:
@@ -415,9 +420,12 @@ def _inspect_file(path: Path) -> dict[str, Any]:
                 row_count = 1 if payload else 0
             return _inspection_payload(accumulator, row_count=row_count, validation_status="PASS")
         if suffix == ".csv" or name.endswith(".csv.gz"):
-            opener = gzip.open if name.endswith(".csv.gz") else open
             row_count = 0
-            with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
+            with open_tiered_text(
+                path,
+                encoding="utf-8-sig",
+                newline="",
+            ) as handle:
                 reader = csv.DictReader(handle)
                 if reader.fieldnames is None:
                     return _inspection_payload(
@@ -440,6 +448,13 @@ def _inspect_file(path: Path) -> dict[str, Any]:
                 validation_status="PASS",
                 schema_applicable=False,
             )
+    except TieredTextError as exc:
+        return _inspection_payload(
+            accumulator,
+            row_count=0,
+            validation_status="BLOCK",
+            validation_detail=f"{type(exc).__name__}: {exc}",
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, csv.Error, ValueError) as exc:
         return _inspection_payload(
             accumulator,
@@ -459,8 +474,8 @@ def _row_count(path: Path) -> int | None:
     name = path.name.lower()
     suffix = path.suffix.lower()
     try:
-        if suffix == ".jsonl":
-            with path.open("r", encoding="utf-8") as handle:
+        if suffix == ".jsonl" or name.endswith(".jsonl.gz"):
+            with open_tiered_text(path, encoding="utf-8") as handle:
                 return sum(1 for line in handle if line.strip())
         if suffix == ".json":
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -468,15 +483,24 @@ def _row_count(path: Path) -> int | None:
                 return len(payload)
             return 1 if payload else 0
         if suffix == ".csv" or name.endswith(".csv.gz"):
-            opener = gzip.open if name.endswith(".csv.gz") else open
-            with opener(path, "rt", encoding="utf-8", newline="") as handle:
+            with open_tiered_text(
+                path,
+                encoding="utf-8",
+                newline="",
+            ) as handle:
                 rows = sum(1 for _ in csv.reader(handle))
             return max(0, rows - 1)
         if suffix == ".parquet":
             import pyarrow.parquet as pq
 
             return int(pq.ParquetFile(path).metadata.num_rows)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, csv.Error):
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        csv.Error,
+        TieredTextError,
+    ):
         return None
     return None
 

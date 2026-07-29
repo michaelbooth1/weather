@@ -4,17 +4,23 @@ legacy-encoding fallback parity, and flat peak memory as tape size grows."""
 from __future__ import annotations
 
 import csv
+import gzip
 import tracemalloc
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from weather.io import (
+    TIERED_TEXT_COMPARE_CHUNK_BYTES,
+    TieredTextConflictError,
+    TieredTextGzipError,
     iter_csv_rows,
+    open_tiered_text,
     pretty_json_root_is_closed,
     read_csv_rows,
     read_pretty_json_object_values,
     read_pretty_json_top_level_values,
+    resolve_tiered_text,
 )
 
 
@@ -30,6 +36,106 @@ def _write_csv(path: Path, row_count: int, *, encoding: str = "utf-8") -> None:
                     "note": "x" * 64,
                 }
             )
+
+
+def _write_gzip(path: Path, payload: bytes) -> None:
+    with path.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as handle:
+            handle.write(payload)
+
+
+class TestTieredText(unittest.TestCase):
+    def test_plain_only_streams_transparently(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            path.write_bytes(b'{"row":1}\n{"row":2}\n')
+
+            resolution = resolve_tiered_text(path)
+            with open_tiered_text(path) as handle:
+                rows = list(handle)
+
+            self.assertEqual(resolution.selected_path, path)
+            self.assertEqual(resolution.representation, "plain")
+            self.assertFalse(resolution.compressed)
+            self.assertFalse(resolution.transitional_pair)
+            self.assertEqual(rows, ['{"row":1}\n', '{"row":2}\n'])
+
+    def test_gzip_only_streams_when_plain_path_is_requested(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            gzip_path = Path(f"{path}.gz")
+            _write_gzip(gzip_path, b'{"row":1}\n{"row":2}\n')
+
+            resolution = resolve_tiered_text(path)
+            with open_tiered_text(path) as handle:
+                first = handle.readline()
+                remaining = list(handle)
+
+            self.assertEqual(resolution.selected_path, gzip_path)
+            self.assertEqual(resolution.representation, "gzip")
+            self.assertTrue(resolution.compressed)
+            self.assertFalse(resolution.transitional_pair)
+            self.assertEqual(first, '{"row":1}\n')
+            self.assertEqual(remaining, ['{"row":2}\n'])
+
+    def test_identical_transitional_pair_is_accepted_and_selects_plain(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            gzip_path = Path(f"{path}.gz")
+            payload = b'{"row":1}\n{"row":2}\n'
+            path.write_bytes(payload)
+            _write_gzip(gzip_path, payload)
+
+            resolution = resolve_tiered_text(gzip_path)
+            with open_tiered_text(path) as handle:
+                restored = handle.read()
+
+            self.assertEqual(resolution.selected_path, path)
+            self.assertEqual(resolution.representation, "plain")
+            self.assertTrue(resolution.transitional_pair)
+            self.assertEqual(restored.encode("utf-8"), payload)
+
+    def test_pair_mismatch_after_first_chunk_fails_before_handle_is_returned(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            gzip_path = Path(f"{path}.gz")
+            prefix = b"x" * (TIERED_TEXT_COMPARE_CHUNK_BYTES + 17)
+            path.write_bytes(prefix + b"plain-tail\n")
+            _write_gzip(gzip_path, prefix + b"gzip-tail\n")
+            entered = False
+
+            with self.assertRaises(TieredTextConflictError):
+                with open_tiered_text(path):
+                    entered = True
+
+            self.assertFalse(entered)
+
+    def test_truncated_transitional_gzip_fails_before_handle_is_returned(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            gzip_path = Path(f"{path}.gz")
+            payload = b'{"row":1}\n{"row":2}\n'
+            path.write_bytes(payload)
+            _write_gzip(gzip_path, payload)
+            gzip_path.write_bytes(gzip_path.read_bytes()[:-8])
+            entered = False
+
+            with self.assertRaises(TieredTextGzipError):
+                with open_tiered_text(path):
+                    entered = True
+
+            self.assertFalse(entered)
+
+    def test_truncated_gzip_only_fails_loudly_while_streaming(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "records.jsonl"
+            gzip_path = Path(f"{path}.gz")
+            _write_gzip(gzip_path, b'{"row":1}\n{"row":2}\n')
+            gzip_path.write_bytes(gzip_path.read_bytes()[:-8])
+
+            with self.assertRaises(TieredTextGzipError):
+                with open_tiered_text(path) as handle:
+                    handle.read()
 
 
 class TestIterCsvRows(unittest.TestCase):

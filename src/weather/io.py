@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import codecs
 import csv
+import gzip
 import hashlib
 import json
 import os
 import re
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator, TextIO
 
 import requests
 
@@ -25,6 +28,185 @@ CSV_DIAGNOSTIC_COLUMNS = {
 }
 LEGACY_CSV_ENCODINGS = ("cp1252", "latin-1")
 MAX_RETRY_DELAY_SECONDS = 10.0
+TIERED_TEXT_COMPARE_CHUNK_BYTES = 1024 * 1024
+
+
+class TieredTextError(RuntimeError):
+    """A plain/gzip text representation could not be read safely."""
+
+
+class TieredTextConflictError(TieredTextError):
+    """Plain and gzip representations do not contain identical bytes."""
+
+
+class TieredTextGzipError(TieredTextError):
+    """A gzip representation is malformed or incomplete."""
+
+
+@dataclass(frozen=True)
+class TieredTextResolution:
+    """Selected representation and provenance for one tiered text artifact."""
+
+    plain_path: Path
+    gzip_path: Path
+    selected_path: Path
+    representation: str
+    transitional_pair: bool
+
+    @property
+    def compressed(self) -> bool:
+        return self.representation == "gzip"
+
+
+def _tiered_text_paths(path: str | Path) -> tuple[Path, Path]:
+    requested = Path(path)
+    if requested.name.lower().endswith(".gz"):
+        plain_name = requested.name[:-3]
+        if not plain_name:
+            raise ValueError("gzip path must name a plain-text peer before .gz")
+        return requested.with_name(plain_name), requested
+    return requested, requested.with_name(f"{requested.name}.gz")
+
+
+def _read_binary_chunk(handle, chunk_bytes: int) -> bytes:
+    """Read up to ``chunk_bytes`` even when a stream returns short reads."""
+
+    chunks: list[bytes] = []
+    remaining = chunk_bytes
+    while remaining:
+        chunk = handle.read(remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _first_mismatch_offset(left: bytes, right: bytes) -> int:
+    for index, (left_byte, right_byte) in enumerate(zip(left, right)):
+        if left_byte != right_byte:
+            return index
+    return min(len(left), len(right))
+
+
+def _assert_tiered_text_pair_identical(
+    plain_path: Path,
+    gzip_path: Path,
+) -> None:
+    offset = 0
+    try:
+        with plain_path.open("rb") as plain_handle, gzip.open(
+            gzip_path,
+            "rb",
+        ) as gzip_handle:
+            while True:
+                plain_chunk = _read_binary_chunk(
+                    plain_handle,
+                    TIERED_TEXT_COMPARE_CHUNK_BYTES,
+                )
+                gzip_chunk = _read_binary_chunk(
+                    gzip_handle,
+                    TIERED_TEXT_COMPARE_CHUNK_BYTES,
+                )
+                if plain_chunk != gzip_chunk:
+                    mismatch = offset + _first_mismatch_offset(
+                        plain_chunk,
+                        gzip_chunk,
+                    )
+                    raise TieredTextConflictError(
+                        "plain and gzip text representations disagree at "
+                        f"decompressed byte {mismatch}: "
+                        f"plain={plain_path}, gzip={gzip_path}"
+                    )
+                if not plain_chunk:
+                    return
+                offset += len(plain_chunk)
+    except TieredTextConflictError:
+        raise
+    except (EOFError, gzip.BadGzipFile) as exc:
+        raise TieredTextGzipError(
+            f"invalid gzip text representation: {gzip_path}: {exc}"
+        ) from exc
+
+
+def resolve_tiered_text(path: str | Path) -> TieredTextResolution:
+    """Resolve a plain/gzip text pair without silently accepting divergence.
+
+    ``path`` may name either the plain artifact or its ``.gz`` peer. When both
+    representations exist, their complete byte streams are compared before a
+    resolution is returned. An identical transitional pair selects the plain
+    artifact to avoid unnecessary decompression; a gzip-only artifact remains
+    transparently readable.
+    """
+
+    plain_path, gzip_path = _tiered_text_paths(path)
+    plain_exists = plain_path.exists()
+    gzip_exists = gzip_path.exists()
+    for candidate, exists in (
+        (plain_path, plain_exists),
+        (gzip_path, gzip_exists),
+    ):
+        if exists and not candidate.is_file():
+            raise OSError(f"tiered text representation is not a file: {candidate}")
+    if not plain_exists and not gzip_exists:
+        raise FileNotFoundError(
+            "neither plain nor gzip text representation exists: "
+            f"{plain_path}, {gzip_path}"
+        )
+    if plain_exists and gzip_exists:
+        _assert_tiered_text_pair_identical(plain_path, gzip_path)
+        return TieredTextResolution(
+            plain_path=plain_path,
+            gzip_path=gzip_path,
+            selected_path=plain_path,
+            representation="plain",
+            transitional_pair=True,
+        )
+    selected_path = plain_path if plain_exists else gzip_path
+    representation = "plain" if plain_exists else "gzip"
+    return TieredTextResolution(
+        plain_path=plain_path,
+        gzip_path=gzip_path,
+        selected_path=selected_path,
+        representation=representation,
+        transitional_pair=False,
+    )
+
+
+@contextmanager
+def open_tiered_text(
+    path: str | Path,
+    *,
+    encoding: str = "utf-8",
+    errors: str | None = None,
+    newline: str | None = None,
+) -> Iterator[TextIO]:
+    """Open plain or gzip text after validating any transitional pair."""
+
+    resolution = resolve_tiered_text(path)
+    if resolution.compressed:
+        try:
+            with gzip.open(
+                resolution.selected_path,
+                "rt",
+                encoding=encoding,
+                errors=errors,
+                newline=newline,
+            ) as handle:
+                yield handle
+        except (EOFError, gzip.BadGzipFile) as exc:
+            raise TieredTextGzipError(
+                "invalid gzip text representation: "
+                f"{resolution.selected_path}: {exc}"
+            ) from exc
+        return
+    with resolution.selected_path.open(
+        "r",
+        encoding=encoding,
+        errors=errors,
+        newline=newline,
+    ) as handle:
+        yield handle
 
 
 def sha256_file(path: str | Path) -> str:

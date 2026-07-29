@@ -1,4 +1,5 @@
 import csv
+import gzip
 import json
 import os
 import sys
@@ -563,6 +564,89 @@ class TestDataLayerAudit(unittest.TestCase):
         self.assertTrue(folder_row["artifact_presence"]["order_books_long_gzip"])
         self.assertEqual(audit["artifact_day_counts"]["order_books_long_gzip"], 1)
         self.assertEqual(audit["clob_raw_artifacts"]["raw_book_artifact_days"], 1)
+
+    def test_snapshot_audit_resolves_canonical_gzip_and_blocks_conflicting_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = (
+                Path(tmp)
+                / "highest-temperature-in-nyc-on-june-16-2026"
+            )
+            folder.mkdir(parents=True)
+            (folder / "snapshots_long.csv").write_text(
+                "snapshot_id,captured_at_local,event_slug,market_yes\n"
+                f"snap-1,2026-06-16T14:00:00-04:00,{folder.name},0.5\n",
+                encoding="utf-8",
+            )
+            with gzip.open(
+                folder / "order_books.jsonl.gz",
+                "wt",
+                encoding="utf-8",
+            ) as handle:
+                handle.write('{"snapshot_id":"snap-1"}\n')
+
+            gzip_only = snapshot_audit(snapshots_root=tmp)
+
+            (folder / "order_books.jsonl").write_text(
+                '{"snapshot_id":"different"}\n',
+                encoding="utf-8",
+            )
+            conflicting = snapshot_audit(snapshots_root=tmp)
+
+        self.assertTrue(
+            gzip_only["folders"][0]["artifact_presence"]["order_books_raw"]
+        )
+        self.assertFalse(
+            conflicting["folders"][0]["artifact_presence"]["order_books_raw"]
+        )
+        self.assertIn(
+            "order_books_raw",
+            conflicting["folders"][0]["artifact_conflicts"],
+        )
+        self.assertEqual(
+            conflicting["artifact_conflict_day_counts"]["order_books_raw"],
+            1,
+        )
+
+    def test_snapshot_audit_blocks_conflicting_order_book_long_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = (
+                Path(tmp)
+                / "highest-temperature-in-nyc-on-june-16-2026"
+            )
+            folder.mkdir(parents=True)
+            (folder / "snapshots_long.csv").write_text(
+                "snapshot_id,captured_at_local,event_slug,market_yes\n"
+                f"snap-1,2026-06-16T14:00:00-04:00,{folder.name},0.5\n",
+                encoding="utf-8",
+            )
+            (folder / "order_books_long.csv").write_text(
+                "capture_id\nplain-half\n",
+                encoding="utf-8",
+            )
+            with gzip.open(
+                folder / "order_books_long.csv.gz",
+                "wt",
+                encoding="utf-8",
+            ) as handle:
+                handle.write("capture_id\ngzip-half\n")
+
+            audit = snapshot_audit(snapshots_root=tmp)
+
+        folder_row = audit["folders"][0]
+        self.assertFalse(
+            folder_row["artifact_presence"]["order_books_long"]
+        )
+        self.assertFalse(
+            folder_row["artifact_presence"]["order_books_long_gzip"]
+        )
+        self.assertIn(
+            "order_books_long",
+            folder_row["artifact_conflicts"],
+        )
+        self.assertEqual(
+            audit["artifact_conflict_day_counts"]["order_books_long"],
+            1,
+        )
 
     def test_snapshot_audit_excludes_evaluation_only_replay_status_from_training_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

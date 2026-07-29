@@ -116,8 +116,8 @@ and schema-safe. Raw evidence references remain permanent.
 | `replay_inputs` | `replay_inputs.jsonl`, `replay_inputs_reconstructed.jsonl` | replay-input JSONL and `replay_input_status.json` |
 | `replay_input_status` | `replay_input_status_long.csv`, `replay_input_status_long.csv.gz` | `replay_input_status.json` |
 | `clob_tokens` | `clob_tokens.csv`, `clob_tokens.csv.gz` | `clob_tokens.jsonl` |
-| `order_books_summary` | `order_books_summary.csv`, `order_books_summary.csv.gz` | `order_books.jsonl` |
-| `order_books_long` | `order_books_long.csv`, `order_books_long.csv.gz` | `order_books.jsonl` |
+| `order_books_summary` | `order_books_summary.csv`, `order_books_summary.csv.gz` | `order_books.jsonl`, `order_books.jsonl.gz` |
+| `order_books_long` | `order_books_long.csv`, `order_books_long.csv.gz` | `order_books.jsonl`, `order_books.jsonl.gz` |
 | `price_history` | `price_history.csv`, `price_history.csv.gz` | `price_history.jsonl`, `price_history_raw_manifest.jsonl`, `price_history_raw/*.json` |
 | `market_ws_events` | `market_ws_events.csv`, `market_ws_events.csv.gz` | `market_ws.jsonl` |
 | `clob_features_long` | `clob_features_long.csv`, `clob_features_long.csv.gz` | `clob_features.jsonl`, raw CLOB tapes |
@@ -127,16 +127,13 @@ If a family is missing, the manifest records `status=missing_source`. If a
 family is retained only as raw evidence because the JSONL shape is unstable,
 the manifest records `status=raw_reference_only`.
 
-Projection cleanup eligibility is stricter than archive readability. The
-complete cleanup registry lives in
-`weather.operations.closed_day_projection_registry`; it records exact
-canonical rebuild sources, accepted canonical/Parquet/gzip/text
-representations, and an explicit blocker for every ineligible family. At
-present only
-`order_books_long.csv` is eligible for verified gzip tiering. Every other
-family remains blocked until its exact rebuild and every direct gzip reader
-have fixture proof. The retained `order_books_long.csv.gz` is a serving
-projection; `order_books.jsonl` remains canonical evidence.
+Projection cleanup and canonical warm compression have separate registries in
+`weather.operations.closed_day_projection_registry`. The cleanup registry
+records exact rebuild sources and still permits only
+`order_books_long.csv`. The payoff-ordered warm registry permits
+`order_books.jsonl` first; its deterministic gzip peer remains the same
+protected canonical evidence. Every other warm family stays blocked until
+every direct reader has fixture proof.
 
 ## Validation
 
@@ -172,6 +169,13 @@ Live, active, current-day, missing-manifest, invalid-manifest, and unknown
 artifact-family reads must fall back to the existing text layout. Reader
 summaries should expose `source_mode`, manifest path or hash, source hash,
 row count, and fallback reason.
+
+Plain and gzip peers use the shared tiered-text boundary. A simultaneous pair
+is compared completely before a handle is returned. Identical transitional
+pairs are accepted; divergent or malformed pairs fail loudly. Canonical
+full-book reads accept `order_books.jsonl.gz` transparently, while a split
+`order_books_long.csv`/`.csv.gz` pair blocks even when canonical raw evidence
+is also present.
 
 The shared reader entry points live in
 `weather.operations.closed_market_day_archive`:
@@ -259,7 +263,8 @@ and must stay protected by reviewed cleanup manifests:
 - `snapshots.jsonl`, `features.jsonl`, `components.jsonl`, `forecasts.jsonl`,
   `forecast_payloads.jsonl`, `source_status.jsonl`, `replay_inputs.jsonl`, and
   `replay_inputs_reconstructed.jsonl`.
-- Raw CLOB tapes: `clob_tokens.jsonl`, `order_books.jsonl`,
+- Raw CLOB tapes: `clob_tokens.jsonl`, `order_books.jsonl` or its
+  byte-identical `order_books.jsonl.gz` representation,
   `price_history.jsonl`, `price_history_raw_manifest.jsonl`,
   `price_history_raw/*.json`, `market_ws.jsonl`, and capture status rows.
 - Settlement labels, per-market ledgers, resolution specs, and reconciliation

@@ -58,6 +58,10 @@ from weather.operations.point_in_time_staging_receipt import (
     verify_staging_receipt,
 )
 from weather.paths import data_path
+from weather.point_in_time_contract import (
+    PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
+    PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS,
+)
 from weather.reporting.promotion.promotion_corpus import (
     build_promotion_corpus,
     load_manifest as load_promotion_corpus_manifest,
@@ -2303,8 +2307,8 @@ def verify_validation_plan_payload(
         locked_set = set(locked_selection_dates)
         if (
             selection_contract.get("status") != "PASS"
-            or len(locked_selection_dates) != 14
-            or len(locked_set) != 14
+            or len(locked_selection_dates) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(locked_set) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             or selection_contract.get("locked_dates_used_for_selection") is not False
             or selection_contract.get("candidate_selection_permission") != "forbidden"
             or not str(selection_contract.get("window_lock_id") or "")
@@ -3145,7 +3149,7 @@ def build_window_lock(
     *,
     input_sha256: str,
     input_kind: str = "corpus_sha256",
-    window_days: int = 14,
+    window_days: int = PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
     window_end: str | date | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
@@ -3191,7 +3195,7 @@ def evaluate_point_in_time_parquet(
     parquet_path: str | Path,
     *,
     manifest_path: str | Path,
-    window_days: int = 14,
+    window_days: int = PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
     window_end: str | date | None = None,
     batch_rows: int = 65_536,
     bootstrap_iterations: int = 2_000,
@@ -3412,9 +3416,9 @@ def verify_streaming_evaluation_payload(
         if (
             lock.get("schema_version") != EVALUATION_SCHEMA_VERSION
             or lock.get("status") != "PASS"
-            or lock.get("window_days") != 14
-            or len(target_dates) != 14
-            or len(set(target_dates)) != 14
+            or lock.get("window_days") != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(target_dates) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(set(target_dates)) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             or lock.get("missing_calendar_dates") != []
             or lock.get("candidate_selection_permission") != "forbidden"
             or lock.get("locked_before_scoring") is not True
@@ -3423,7 +3427,10 @@ def verify_streaming_evaluation_payload(
                 "invalid_evaluation_window_lock", "production window lock is incomplete"
             )
         parsed_dates = [_parse_date(value, "window_lock.target_date") for value in target_dates]
-        expected_dates = [parsed_dates[0] + timedelta(days=offset) for offset in range(14)]
+        expected_dates = [
+            parsed_dates[0] + timedelta(days=offset)
+            for offset in range(PRODUCTION_CONTIGUOUS_WINDOW_DAYS)
+        ]
         if parsed_dates != expected_dates:
             raise ContractViolation(
                 "invalid_evaluation_window_lock", "production window is not contiguous"
@@ -3484,7 +3491,8 @@ def verify_streaming_evaluation_payload(
         weather_summaries = lanes.get("weather_only") or []
         if not weather_summaries or any(
             summary.get("release_id") != expected_release_id
-            or int(summary.get("fleet_dates") or 0) != 14
+            or int(summary.get("fleet_dates") or 0)
+            != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             for summary in weather_summaries
         ):
             raise ContractViolation(
@@ -3919,7 +3927,6 @@ PRODUCTION_MAX_FOLD_SCOPES = 128
 PRODUCTION_MAX_MARKET_DAYS = 60
 PRODUCTION_MAX_ROWS_PER_MARKET_DAY = 250_000
 PRODUCTION_MAX_ARROW_BATCH_ROWS = 65_536
-PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS = 7
 PRODUCTION_MAX_REPLAY_MANIFEST_BYTES = 16 * 1024**2
 PRODUCTION_MAX_SOURCE_MANIFEST_BYTES = 4 * 1024**2
 PRODUCTION_MAX_SOURCE_PARQUET_BYTES = 1024**3
@@ -4082,14 +4089,15 @@ def prepare_production_preselection(
         universe["fleet_dates"],
         input_sha256=universe["sha256"],
         input_kind="selection_universe_sha256",
-        window_days=14,
+        window_days=PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
         window_end=window_end,
         generated_at_utc=generated_at_utc,
     )
     if lock["status"] != "PASS":
         raise ContractViolation(
             "invalid_evaluation_window_lock",
-            "production preselection requires a contiguous 14-day window",
+            "production preselection requires a contiguous "
+            f"{PRODUCTION_CONTIGUOUS_WINDOW_DAYS}-day window",
         )
     if lock["window_end"] != universe["fleet_dates"][-1]:
         raise ContractViolation(
@@ -4229,7 +4237,7 @@ def verify_production_preselection(
         universe["fleet_dates"],
         input_sha256=universe["sha256"],
         input_kind="selection_universe_sha256",
-        window_days=14,
+        window_days=PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
         window_end=lock.get("window_end"),
         generated_at_utc=lock.get("generated_at_utc"),
     )
@@ -4961,7 +4969,7 @@ def materialize_production_candidate_packet(
     evaluation = evaluate_point_in_time_parquet(
         corpus_out,
         manifest_path=manifest_out,
-        window_days=14,
+        window_days=PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
         window_end=lock["window_end"],
         batch_rows=batch_rows,
         bootstrap_iterations=bootstrap_iterations,
@@ -5409,7 +5417,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument("--input", default=str(DEFAULT_PARQUET_OUT))
     evaluate.add_argument("--manifest", default=str(DEFAULT_MANIFEST_OUT))
-    evaluate.add_argument("--window-days", type=int, default=14)
+    evaluate.add_argument(
+        "--window-days",
+        type=int,
+        default=PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
+    )
     evaluate.add_argument("--window-end", default="")
     evaluate.add_argument("--batch-rows", type=int, default=65_536)
     evaluate.add_argument("--bootstrap-iterations", type=int, default=2_000)
@@ -5419,7 +5431,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     prelock = subparsers.add_parser(
         "prelock-production",
-        help="freeze a candidate-independent 14-day window before training",
+        help=(
+            "freeze a candidate-independent "
+            f"{PRODUCTION_CONTIGUOUS_WINDOW_DAYS}-day window before training"
+        ),
     )
     prelock.add_argument("--folder", action="append", default=[])
     prelock.add_argument("--source-corpus", default="")

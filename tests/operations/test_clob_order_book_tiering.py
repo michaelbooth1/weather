@@ -34,6 +34,82 @@ def write_long_book(folder, text="capture_id,side,level_index,price,size\nb1,bid
 
 
 class ClobOrderBookTieringTests(unittest.TestCase):
+    def test_plan_recognizes_gzip_only_canonical_raw_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            write_long_book(folder)
+            raw = folder / "order_books.jsonl"
+            with (folder / "order_books.jsonl.gz").open("wb") as raw_target:
+                with gzip.GzipFile(
+                    filename="",
+                    mode="wb",
+                    fileobj=raw_target,
+                    mtime=0,
+                ) as target:
+                    target.write(raw.read_bytes())
+            raw.unlink()
+
+            payload = build_payload(
+                root,
+                settled_before="2026-06-19",
+                min_free_bytes=0,
+            )
+
+        self.assertTrue(payload["rows"][0]["raw_jsonl_present"])
+
+    def test_plan_blocks_divergent_plain_and_gzip_long_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            write_long_book(folder, "plain-half\n")
+            with (folder / "order_books_long.csv.gz").open("wb") as raw_target:
+                with gzip.GzipFile(
+                    filename="",
+                    mode="wb",
+                    fileobj=raw_target,
+                    mtime=0,
+                ) as target:
+                    target.write(b"gzip-half\n")
+
+            payload = build_payload(
+                root,
+                settled_before="2026-06-19",
+                min_free_bytes=0,
+            )
+
+        row = payload["rows"][0]
+        self.assertEqual(row["status"], "blocked_conflicting_tiered_pair")
+        self.assertTrue(row["tiered_pair_conflict"])
+
+    def test_plan_blocks_divergent_canonical_raw_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "highest-temperature-in-nyc-on-june-16-2026"
+            write_long_book(folder)
+            with (folder / "order_books.jsonl.gz").open("wb") as raw_target:
+                with gzip.GzipFile(
+                    filename="",
+                    mode="wb",
+                    fileobj=raw_target,
+                    mtime=0,
+                ) as target:
+                    target.write(b'{"different":true}\n')
+
+            payload = build_payload(
+                root,
+                settled_before="2026-06-19",
+                min_free_bytes=0,
+            )
+
+        row = payload["rows"][0]
+        self.assertEqual(
+            row["status"],
+            "blocked_conflicting_canonical_raw_pair",
+        )
+        self.assertTrue(row["canonical_raw_pair_conflict"])
+        self.assertFalse(row["raw_jsonl_present"])
+
     def test_plan_identifies_settled_candidates_and_blocks_active_days(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

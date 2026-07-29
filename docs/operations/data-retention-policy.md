@@ -129,21 +129,71 @@ After reviewing the tiering plan, edit only
 python -m weather.operations.closed_day_projection_tiering apply --approved-manifest <review-output-outside-data>\closed_day_projection_tiering_plan.json --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
 ```
 
+Plan canonical warm representation through a separate registry and plan kind:
+
+```powershell
+python -m weather.operations.closed_day_projection_tiering warm-plan --snapshots-root <data\snapshots> --as-of-date <YYYY-MM-DD> --hot-window-days 30 --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+The production point-in-time contract needs 14 contiguous target dates whose
+latest target may be at most 7 days old. Its oldest possible target is
+therefore 20 days old, making 21 the minimum warm age. The default 30-day hot
+window adds 9 recovery days. The planner rejects a shorter window, a future
+as-of date, any event inside the configured hot window, a non-final or stale
+event-day manifest, a writer lock, insufficient write quiescence, and every
+plain/gzip conflict.
+
+The warm registry records all reader, delegated-reader, discovery, manifest,
+and writer surfaces for the six measured high-payoff families. Only canonical
+`order_books.jsonl` is currently eligible. `clob_tokens.jsonl`,
+`replay_inputs.jsonl`, `variant_predictions.jsonl`,
+`order_books_summary.csv`, and `clob_tokens.csv` remain blocked on specifically
+named plain-file consumers.
+
+After reviewing the warm plan, edit only the same five `operator_review`
+fields described above and bind `approved_plan_hash` to the unchanged
+top-level `plan_hash`. Apply is a representation replacement: it retains
+byte-identical `order_books.jsonl.gz`, then physically removes only the
+approved plain peer after the durable checkpoint and immediate re-verification.
+Run it only in an operator-owned quiet window:
+
+```powershell
+python -m weather.operations.closed_day_projection_tiering warm-apply --approved-manifest <review-output-outside-data>\closed_day_warm_tiering_plan.json --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+Warm apply reruns `cleanup_preflight`, exact file and manifest identities,
+finalization, hot-window, lock, and quiescence gates; holds the raw-tape writer
+lock; writes deterministic gzip with `mtime=0`; verifies decompressed byte
+length and SHA-256; and persists and re-reads both
+`closed_day_warm_tiering_apply_receipt.json` and its Markdown peer before the
+exact-file unlink. It refreshes the event-day manifest to PASS afterward and
+supports receipt-bound recovery for an exactly staged deterministic gzip and
+for interruption between unlink and manifest refresh. A normal failure before
+unlink removes only a receipt-bound gzip created by that attempt and retains
+the approved plain source. A retry re-verifies completed actions rather than
+trusting receipt status. It stops on the first failure and never removes a
+directory.
+
 Current market-making runtime consumes `order_books_summary.csv`, which remains
 untouched. Future full-depth corpus readers must use
-`weather.market.order_book_tape`: canonical JSONL first, then gzip CSV, then
-plain CSV. The long-table column contract has been unchanged since its
-introduction, and gzip fallback is covered by fixture tests. Production
-85-GiB replay remains an operator rehearsal and is not implied by unit tests.
+`weather.market.order_book_tape`: tiered canonical JSONL first, then the
+tiered long CSV. Either plain or gzip is accepted when it is the only
+representation. When both peers exist, their complete decompressed bytes must
+match before any rows are returned; a malformed or divergent pair fails
+loudly. Gzip is streamed directly and does not require a restored plain working
+copy. The long-table column contract has been unchanged since its introduction,
+and gzip fallback is covered by fixture tests. Production 85-GiB replay remains
+an operator rehearsal and is not implied by unit tests.
 
-For either tool, apply requires an externally reviewed exact manifest,
-`cleanup_preflight`, immediate identity/byte/SHA/key re-verification, and
-durable per-action JSON and Markdown receipts. The tools stop on the first
-failure and never remove directories. Every production data or mirror boundary
-must be supplied with a repeated `--protected-root`; output is rejected if it
-overlaps any one of them, while the source data root is independently derived
-and protected as well. Do not use these commands against production data until
-the operator has reviewed the dry run and scheduled the quiet window.
+Every apply workflow requires an externally reviewed exact manifest,
+`cleanup_preflight`, immediate identity/byte/SHA/key re-verification as
+applicable to its artifact, and durable per-action JSON and Markdown receipts.
+The tools stop on the first failure and never remove directories. Every
+production data or mirror boundary must be supplied with a repeated
+`--protected-root`; output is rejected if it overlaps any one of them, while
+the source data root is independently derived and protected as well. Do not use
+these commands against production data until the operator has reviewed the dry
+run and scheduled the quiet window.
 
 ## Shared Forecast Payload CAS
 
@@ -178,3 +228,9 @@ only a complete bounded scan returns zero.
 Event-day manifests enumerate referenced shared blobs as external canonical
 dependencies and remain blocked until both backup and restore evidence includes
 their exact digests. Legacy market-local blobs remain canonical evidence.
+
+## Update when
+
+Update when retention CLI entry points, code-backed family eligibility,
+hot-window bindings, approval/apply gates, protected-root requirements, or
+shared-CAS deletion policy changes.

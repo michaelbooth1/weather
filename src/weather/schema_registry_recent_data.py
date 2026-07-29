@@ -897,6 +897,20 @@ RECENT_REGISTERED_SCHEMAS = (
         "Per-action compression, preflight, re-verification, and deletion receipt.",
     ),
     SchemaSpec(
+        "closed_day_warm_tiering_plan",
+        "closed_day_warm_tiering_plan_v0.1",
+        "weather.operations.closed_day_projection_tiering",
+        "active",
+        "Dry-run exact-file manifest for closed-day canonical-evidence warm compression.",
+    ),
+    SchemaSpec(
+        "closed_day_warm_tiering_receipt",
+        "closed_day_warm_tiering_receipt_v0.1",
+        "weather.operations.closed_day_projection_tiering",
+        "active",
+        "Per-action deterministic warm compression and source-replacement receipt.",
+    ),
+    SchemaSpec(
         "closed_day_projection_rebuild",
         "closed_day_projection_rebuild_v0.1",
         "weather.operations.closed_day_projection_tiering",

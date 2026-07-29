@@ -8,6 +8,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from pandas.testing import assert_frame_equal
 
+from weather.io import TieredTextConflictError
 from weather.operations.closed_market_day_archive import (
     ARCHIVE_ROOT_VERSION,
     ARTIFACT_FAMILIES_BY_NAME,
@@ -254,6 +255,7 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
             variant_predictions.raw_evidence_patterns,
         )
         self.assertIn("order_books.jsonl", order_books.raw_evidence_patterns)
+        self.assertIn("order_books.jsonl.gz", order_books.raw_evidence_patterns)
         self.assertTrue(order_books.parquet_default_for_closed_days)
         self.assertTrue(order_books.raw_evidence_permanent)
         price_history = ARTIFACT_FAMILIES_BY_NAME["price_history"]
@@ -626,6 +628,32 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
             self.assertEqual(result.provenance.fallback_reason, "missing_archive_manifest")
             self.assertEqual(result.provenance.row_count, 2)
             assert_frame_equal(result.frame, expected, check_dtype=False)
+
+    def test_reader_blocks_a_divergent_plain_gzip_pair(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            with gzip.open(
+                folder / "order_books_long.csv.gz",
+                "wt",
+                encoding="utf-8",
+                newline="",
+            ) as handle:
+                handle.write(
+                    "snapshot_id,market_id,token_id,bid,ask\n"
+                    "old-prefix,austin,t0,0.40,0.42\n"
+                )
+
+            with self.assertRaises(TieredTextConflictError):
+                read_market_day_artifact(
+                    folder,
+                    "order_books_long",
+                    snapshots_root=root / "snapshots",
+                    archive_root=root / "archive",
+                    as_of_date="2026-06-23",
+                )
 
     def test_reader_tolerates_legacy_csv_rows_with_extra_fields(self):
         from tempfile import TemporaryDirectory

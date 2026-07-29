@@ -1,8 +1,109 @@
-# Workstation handback — 2026-07-29: cleanup landed, MM queue still storage-blocked
+# Workstation handback — 2026-07-29: MM floor decomposed; warm-tier build started
 
-## Headline
+## 2026-07-29d headline
 
-**NOT DONE / STOPPED AS DIRECTED.** I merged `origin/master` at
+**THE 66 GiB FLOOR IS NOT A CORPUS-COPY REQUIREMENT.** I merged
+`origin/master` at `d2d7da082984aac5f24144dd8b0f3ae0fab77cce` and inspected
+the frozen v7 analyzer before doing any more cleanup. It already streams one
+primary event at a time from the existing read-only mirror binding. It does
+not materialize a second corpus and it releases each event result after
+writing compact per-event summaries, fills, coverage, and completion state.
+The later reduction reads those compact results, not the raw corpus again.
+
+The workload-only admission floor is **54.53 GiB** under the conservative
+remaining-work stress case. The operational floor is still approximately
+**63.41–68.53 GiB** because the MM workload and live capture share the same
+volume and a rewards window needs another 11–14 GiB of capture headroom. The
+existing 66 GiB gate is therefore a reasonable midpoint rather than an
+80-GiB corpus-copy artifact. Free space was only 56.07 GiB at the Mission 1
+decision, so the restructure could not clear the floor quickly and I switched
+directly to the item-325 warm-tier build as instructed. No fetch, scoring,
+amendment, or further disk cleanup ran.
+
+## What the frozen analyzer reads and retains
+
+The 419-event primary input binding totals 100,704,002,065 bytes
+(93.788 GiB). Those bytes are read over time from the existing source and do
+not become a new run-root allocation:
+
+| Existing source artifact | Bound bytes | GiB | Mean working input |
+| --- | ---: | ---: | ---: |
+| `order_books.jsonl` | 73,740,519,894 | 68.676 | 167.839 MiB per primary event |
+| price history | 13,707,708,282 | 12.766 | 65.038 MiB per 201 bound events |
+| `order_books_summary.csv` | 12,513,716,674 | 11.654 | 28.482 MiB per primary event |
+| long snapshots | 734,623,189 | 0.684 | 1.672 MiB per primary event |
+| settlement | 7,434,026 | 0.007 | compact |
+| **Total** | **100,704,002,065** | **93.788** | **one event at a time** |
+
+The largest single primary-event input is Toronto 2026-06-22 at 871,990,665
+bytes (831.595 MiB), almost entirely an already-present 830,084,768-byte
+price-history binding. That event plus small accumulators is the peak pipeline
+shape already implemented.
+
+The current v7 run root occupies 5,065,384,050 bytes (4.717 GiB), principally
+retained provider evidence rather than a corpus copy:
+
+| Retained v7 output | Bytes |
+| --- | ---: |
+| raw provider API evidence | 2,670,511,420 |
+| normalized raw trades | 2,367,090,980 |
+| catalogs | 25,661,360 |
+| program, receipts, and remaining compact state | 2,120,290 |
+
+The accepted six-event analysis pilot wrote 967,063 bytes for 617 fills. A
+straight 419-event projection is 67,533,233 bytes; the admission calculation
+reserves 0.75 GiB for analysis even after an 8x JSON/horizon inflation.
+
+## Revised admission calculation
+
+| Reserve component | Normal | Stress |
+| --- | ---: | ---: |
+| remaining 147-event backfill | about 0.38 GiB | 2.780 GiB |
+| analysis outputs | 0.75 GiB | 0.75 GiB |
+| frozen rewards raw-page allowance | 0.576 GiB | 0.576 GiB |
+| metadata, receipts, manifest variance, and calculation margin | included below | included below |
+| **workload reserve** | **about 2.41 GiB** | **about 4.53 GiB** |
+| invariant free-space floor | 50.00 GiB | 50.00 GiB |
+| concurrent capture during rewards | 11.00 GiB | 14.00 GiB |
+| **operational start floor** | **63.41 GiB** | **68.53 GiB** |
+
+The combined rows deliberately retain the admission calculation's rounding
+and output-variance margin rather than pretending the point estimates are an
+exact allocation. The stress workload alone implies a 54.53 GiB floor. It was
+below the 56.07 GiB decision-time reading, but starting there would violate the
+50 GiB invariant while live capture continues through the frozen 5:14:45
+minimum rewards cadence. The streaming finding therefore does not authorize
+an MM resume.
+
+## Volume layout and item-325 switch
+
+The v7 run root, canonical `data`, frozen MM worktree, cool-bias packet, and
+this report worktree all resolve to the same NTFS volume:
+`\\?\Volume{7fa9b4d0-06a2-48a0-8afa-c02c57cb3bf0}\` (serial
+`AAD0-AB1D`, 999,126,200,320 bytes total). There is no second volume on which
+a working corpus could be materialized or from which item 325 would provide
+an indirect shortcut:
+
+| Volume | Mission 1 free | Latest pre-handback free |
+| --- | ---: | ---: |
+| `C:` / volume serial `AAD0-AB1D` | 60,199,936,000 bytes (56.07 GiB) | 54,551,932,928 bytes (50.805 GiB) |
+
+The latest reading, observed at `2026-07-29T15:55:17.7817814+00:00`, is
+15.195 GiB below the 66 GiB admission floor. The decline occurred while the
+build was running and no additional disk cleanup was attempted.
+
+I therefore began `workstation-handoff-2026-07-29c-item-325-warm-tier.md`.
+That work is build-only and uses synthetic fixtures. Production `data`, the
+mirror, and every frozen MM packet remain unchanged. Its separate handback is
+`agent-report-2026-07-29-workstation-item-325-warm-tier.md`.
+
+The exact-empty `eventSlug: ""` amendment remains approved only in principle.
+It was not landed because the required 1,619-result equivalence gate still
+cannot run inside the operational floor.
+
+## Earlier `-29b` stop
+
+**EARLIER STATE / STOPPED AS DIRECTED.** I merged `origin/master` at
 `7417f433fb57a37a9b5740be981ac52cb8fd8266` into the topic branch, kept the
 accepted scaled-MM implementation frozen at
 `c6319fa12788ab68fd83154205185ae3def695fc`, and executed the `-29b` cleanup
@@ -250,7 +351,7 @@ report-bound evidence, unpushed work, `data/`, or production-data junctions.
 The handoff explicitly says to stop in that state, so no fetch or score was
 started.
 
-## Resume and queue order
+## MM resume order
 
 Do not resume until a fresh quiet-window host admission proves at least
 66 GiB free. Then:
@@ -271,7 +372,10 @@ Continue in this order:
    complete-subset verdict-change bound;
 4. admit and run the 37,770-variant rewards probe;
 5. score and verify the cool-bias packet, with held-out/no-op first;
-6. only after completed `-29b`, begin `-29c` item 325 warm-tier work.
+
+Item-325 work is no longer behind this queue. The `-29d` handoff explicitly
+moved its build ahead when the streaming check did not clear the operational
+floor, so it began without running any MM fetch or score.
 
 The cool-bias packet is already predeclared and self-tested, but unscored:
 

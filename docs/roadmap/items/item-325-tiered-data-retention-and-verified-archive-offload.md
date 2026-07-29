@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]
+# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - FIRST WARM FAMILY BUILT; NO APPLY OR DELETION AUTHORIZED]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -145,10 +145,13 @@ Gzip level 6 over the uncompressed files >5 MB of one closed market-day
 3.2 GB/day and the top two families are 55% of the win.
 
 This reorders the scope above. **The warm tier is not gated on the sync split**:
-compressing closed market-days in place is not a deletion, so it needs no archive
-verification, no prune ledger, and no `/MIR` topology change, and it is reversible.
-It should take retained snapshots to roughly 1.3 GB/day and is a large one-time
-retroactive reclaim. The sync split still gates every *deletion* and remains the
+replacing a reviewed plain peer with byte-identical compressed evidence does
+not discard decompressed evidence, so it needs no archive verification, prune
+ledger, or `/MIR` topology change. It does physically unlink that exact plain
+representation, however, so apply still requires explicit operator approval
+and durable checkpoints. It should take retained snapshots to roughly
+1.3 GB/day and is a large one-time retroactive reclaim. The sync split still
+gates deletion of the retained canonical representation and remains the
 prerequisite for the archive tier.
 
 The real blocker for the warm tier is reader coverage: the projection-family
@@ -167,6 +170,39 @@ Two corrections to earlier assumptions, both from measurement:
   `reviewed_exact_path_reachability_manifest` and states *"age and LRU are never
   deletion evidence"*. That manifest needs the active release pointer, and
   `artifacts/releases` does not exist on this host.
+
+## 2026-07-29 workstation build: first warm family only
+
+The build-only result in
+[the workstation Item 325 report](../agent-report-2026-07-29-workstation-item-325-warm-tier.md)
+confirms the six-family payoff order on 84 market-days and inventories 130
+role-tagged content, delegated, discovery, manifest, and writer surfaces.
+Canonical `order_books.jsonl` is the only newly eligible warm-compression
+family. Its 23 surfaces are covered by a transparent plain/gzip boundary;
+gzip-only reads work, identical transitional pairs are verified, and a
+malformed or divergent pair fails before rows are returned.
+
+The other five families remain explicitly blocked:
+
+| Family | Inventoried surfaces | Blocking plain-file consumers |
+| --- | ---: | --- |
+| `clob_tokens.jsonl` | 11 | CLOB coverage and data-layer audits |
+| `replay_inputs.jsonl` | 40 | Replay/snapshot tracking and pooled-candidate replay |
+| `variant_predictions.jsonl` | 13 | Density parity, residual corpus, and captured-input parity |
+| `order_books_summary.csv` | 28 | Latest inputs, microstructure features, and MM scoring |
+| `clob_tokens.csv` | 15 | Latest inputs, MM support, and taker-strategy evaluation |
+
+The hot-window requirement is now code-derived. A valid production
+point-in-time selection uses 14 contiguous dates whose latest target may be at
+most 7 days old, so its oldest possible target is 20 days old and the first
+safe warm age is 21 days. The default 30-day hot window adds 9 recovery days.
+
+The planner/apply build is manual, fail-closed, deterministic (`gzip mtime=0`),
+exact-manifest bound, and receipt/checksum protected. Apply would physically
+remove only the verified plain peer after a durable retained-gzip checkpoint
+and immediate parity recheck. No real-data plan was applied; no real file was
+compressed, removed, moved, or rewritten. No archive, mirror, scheduler, or
+capture setting changed, and no broader scope checkbox is complete.
 
 Acceptance:
 

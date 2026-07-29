@@ -8,7 +8,6 @@ tiering an old ``order_books_long.csv`` cannot strand a full-book corpus read.
 from __future__ import annotations
 
 import csv
-import gzip
 import json
 import os
 from dataclasses import dataclass
@@ -16,14 +15,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-from weather.io import normalize_csv_row
+from weather.io import normalize_csv_row, open_tiered_text, resolve_tiered_text
 from weather.market.market_microstructure_constants import BOOK_LEVEL_COLUMNS
 
 
 RAW_BOOK_FILENAME = "order_books.jsonl"
+GZIP_RAW_BOOK_FILENAME = "order_books.jsonl.gz"
 GZIP_LONG_FILENAME = "order_books_long.csv.gz"
 LONG_FILENAME = "order_books_long.csv"
-ACCEPTED_REPRESENTATIONS = ("raw_jsonl", "gzip_csv", "csv")
+ACCEPTED_REPRESENTATIONS = (
+    "raw_jsonl",
+    "raw_jsonl_gzip",
+    "gzip_csv",
+    "csv",
+)
 
 
 @dataclass(frozen=True)
@@ -61,7 +66,7 @@ def level_rows_from_raw_record(record: dict[str, Any]) -> list[dict[str, Any]]:
 
 def iter_raw_jsonl_level_rows(path: str | Path) -> Iterator[dict[str, Any]]:
     path = Path(path)
-    with path.open("r", encoding="utf-8") as handle:
+    with open_tiered_text(path, encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             text = line.strip()
             if not text:
@@ -77,9 +82,11 @@ def iter_raw_jsonl_level_rows(path: str | Path) -> Iterator[dict[str, Any]]:
 
 
 def _csv_handle(path: Path):
-    if path.name.lower().endswith(".gz"):
-        return gzip.open(path, "rt", encoding="utf-8-sig", newline="")
-    return path.open("r", encoding="utf-8-sig", newline="")
+    return open_tiered_text(
+        path,
+        encoding="utf-8-sig",
+        newline="",
+    )
 
 
 def iter_long_csv_rows(path: str | Path) -> Iterator[dict[str, Any]]:
@@ -102,6 +109,7 @@ def resolve_full_book_representation(
     folder = Path(folder)
     paths = {
         "raw_jsonl": folder / RAW_BOOK_FILENAME,
+        "raw_jsonl_gzip": folder / GZIP_RAW_BOOK_FILENAME,
         "gzip_csv": folder / GZIP_LONG_FILENAME,
         "csv": folder / LONG_FILENAME,
     }
@@ -109,13 +117,28 @@ def resolve_full_book_representation(
     unknown = [value for value in preference if value not in paths]
     if unknown:
         raise ValueError(f"unknown full-book representations: {unknown}")
+
+    # Historical capture could recreate the plain long projection after an
+    # older prefix had already been tiered. A simultaneous pair therefore has
+    # to prove byte equality even when the canonical raw tape is preferred;
+    # otherwise silently selecting either half can exclude settlement.
+    if paths["gzip_csv"].exists() or paths["csv"].exists():
+        resolve_tiered_text(paths["csv"])
+
+    # Do the same for the canonical warm representation. The resolver consumes
+    # and compares a transitional plain+gzip pair before any iterator is
+    # returned, so a caller cannot observe rows from divergent evidence.
+    if paths["raw_jsonl"].exists() or paths["raw_jsonl_gzip"].exists():
+        resolve_tiered_text(paths["raw_jsonl"])
+
     for index, representation in enumerate(preference):
         path = paths[representation]
         if path.is_file():
             return FullBookReadProvenance(
                 representation=representation,
                 path=str(path),
-                canonical=representation == "raw_jsonl",
+                canonical=representation
+                in {"raw_jsonl", "raw_jsonl_gzip"},
                 fallback_reason=(
                     None
                     if index == 0
@@ -134,7 +157,7 @@ def iter_full_book_rows(
     preference: Iterable[str] = ACCEPTED_REPRESENTATIONS,
 ) -> tuple[Iterator[dict[str, Any]], FullBookReadProvenance]:
     provenance = resolve_full_book_representation(folder, preference=preference)
-    if provenance.representation == "raw_jsonl":
+    if provenance.representation in {"raw_jsonl", "raw_jsonl_gzip"}:
         rows = iter_raw_jsonl_level_rows(provenance.path)
     else:
         rows = iter_long_csv_rows(provenance.path)

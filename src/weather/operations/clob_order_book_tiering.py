@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.io import TieredTextConflictError, resolve_tiered_text
 from weather.operations.cleanup_preflight import build_cleanup_preflight, cleanup_manifest_for_paths
 from weather.paths import data_path
 from weather.reporting.formatting import markdown_table
@@ -26,6 +27,8 @@ DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "clob_order_book_tiering_report.md"
 DEFAULT_MIN_FREE_BYTES = 1024 * 1024 * 1024
 ORDER_BOOK_LONG = "order_books_long.csv"
 ORDER_BOOK_LONG_GZIP = "order_books_long.csv.gz"
+ORDER_BOOK_RAW = "order_books.jsonl"
+ORDER_BOOK_RAW_GZIP = "order_books.jsonl.gz"
 EVENT_DATE_RE = re.compile(r"\bon-([a-z]+)-(\d{1,2})-(\d{4})$")
 MONTHS = {
     "jan": 1,
@@ -176,7 +179,27 @@ def discover_rows(
             continue
         event_date = event_date_from_slug(folder.name)
         settled = bool(event_date and event_date < cutoff)
+        pair_conflict = None
+        raw_pair_conflict = None
         if source.exists() and gzip_path.exists():
+            try:
+                resolve_tiered_text(source)
+            except TieredTextConflictError as exc:
+                pair_conflict = str(exc)
+        raw_path = folder / ORDER_BOOK_RAW
+        raw_gzip_path = folder / ORDER_BOOK_RAW_GZIP
+        if raw_path.exists() or raw_gzip_path.exists():
+            try:
+                resolve_tiered_text(raw_path)
+            except TieredTextConflictError as exc:
+                raw_pair_conflict = str(exc)
+        if raw_pair_conflict:
+            status = "blocked_conflicting_canonical_raw_pair"
+            action = "operator_repair_canonical_raw_pair"
+        elif pair_conflict:
+            status = "blocked_conflicting_tiered_pair"
+            action = "repair_from_canonical_raw_before_tiering"
+        elif source.exists() and gzip_path.exists():
             status = "already_tiered_source_present"
             action = "review_delete_uncompressed_after_manifest"
         elif gzip_path.exists():
@@ -209,8 +232,13 @@ def discover_rows(
             "gzip_rel": _relative_text(gzip_path, root),
             "gzip_exists": gzip_path.exists(),
             "gzip_bytes": gzip_path.stat().st_size if gzip_path.exists() else 0,
+            "tiered_pair_conflict": pair_conflict,
+            "canonical_raw_pair_conflict": raw_pair_conflict,
             "summary_present": (folder / "order_books_summary.csv").exists(),
-            "raw_jsonl_present": (folder / "order_books.jsonl").exists(),
+            "raw_jsonl_present": bool(
+                (raw_path.exists() or raw_gzip_path.exists())
+                and not raw_pair_conflict
+            ),
             "token_map_present": (folder / "clob_tokens.csv").exists()
             or (folder / "clob_tokens.jsonl").exists(),
             "status": status,

@@ -91,6 +91,30 @@ class TestStorageClassRegistry(unittest.TestCase):
                     "projection_rebuild_source_and_reader_fallback_gate",
                 )
 
+    def test_gzip_order_book_uses_same_protected_canonical_contract(self):
+        plain = classify_storage_path(
+            "data/snapshots/event/order_books.jsonl"
+        )
+        compressed = classify_storage_path(
+            "data/snapshots/event/order_books.jsonl.gz"
+        )
+        contracts = {
+            row["name"]: row for row in storage_class_contracts_payload()
+        }
+
+        self.assertIs(compressed, plain)
+        self.assertEqual(compressed.artifact_family, "clob_raw_evidence")
+        self.assertEqual(compressed.storage_class, CANONICAL_EVIDENCE)
+        self.assertTrue(compressed.protected)
+        self.assertEqual(
+            compressed.delete_gate,
+            "canonical_evidence_review_gate",
+        )
+        self.assertIn(
+            "jsonl.gz",
+            contracts[CANONICAL_EVIDENCE]["allowed_formats"],
+        )
+
     def test_closed_archive_families_have_projection_or_canonical_registry_coverage(self):
         missing = []
         for family in ARTIFACT_FAMILY_NAMES:

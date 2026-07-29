@@ -1,4 +1,5 @@
 import csv
+import gzip
 import hashlib
 import json
 import pickle
@@ -7,9 +8,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from weather.io import TieredTextConflictError
 from weather.reporting.source_gates.source_family_inventory import (
     FAMILY_SPECS,
     build_source_family_inventory,
+    clob_raw_tape_present,
     item27_reanalysis_ablation_evidence,
     market_expansion_scorecard,
     open_meteo_air_quality_archive_evidence,
@@ -77,6 +80,27 @@ def write_payload_evidence(folder, family, payload, *, snapshot_id, source):
 
 
 class TestSourceFamilyInventory(unittest.TestCase):
+    def test_clob_inventory_accepts_gzip_raw_and_rejects_divergent_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            with gzip.open(
+                folder / "order_books.jsonl.gz",
+                "wt",
+                encoding="utf-8",
+            ) as handle:
+                handle.write('{"capture_id":"one"}\n')
+
+            gzip_only = clob_raw_tape_present(folder)
+
+            (folder / "order_books.jsonl").write_text(
+                '{"capture_id":"different"}\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(TieredTextConflictError):
+                clob_raw_tape_present(folder)
+
+        self.assertIn("order_books.jsonl.gz", gzip_only)
+
     def test_builds_inventory_with_lineage_missingness_and_preflight(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

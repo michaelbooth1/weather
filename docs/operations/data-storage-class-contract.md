@@ -11,6 +11,12 @@ class before a writer adds a new file family under `data/`.
 | `analysis_projection` | Tables, partitions, or indexes derived from canonical evidence for faster reads and reports. | Snapshot CSV long tables, CLOB summary/long CSVs, price-history CSVs, closed-day Parquet partitions, taker incremental SQLite checkpoints, large backtest row exports, model artifacts with rebuild manifests. | Rebuildable, but not disposable by size alone. Deletion requires a reviewed cleanup manifest and named rebuild source. `order_books_long` is rebuilt exactly from `order_books.jsonl`; gzip is its retained serving projection. |
 | `operator_cache` | Reports, dashboards, status files, provider/runtime caches, console logs, and local workflow outputs. | `data/backtest/*_report.md`, `fleet_observability.json`, replay-cache entries, `data/logs/*.log`, provider cache folders, bounded observation-trigger source caches. | TTL or cleanup-manifest driven. Replay-cache cleanup is stricter: exact full-key reachability only, with ambiguity retained; never age or LRU. Incident-linked logs or reports must be named in an incident or cleanup manifest before deletion. |
 
+Deterministic gzip is a storage representation, not a storage-class change.
+In particular, `order_books.jsonl.gz` has the same protected
+`canonical_evidence` contract as `order_books.jsonl`. A transitional plain and
+gzip pair is readable only when the decompressed bytes are identical; a
+divergent pair blocks before any rows are returned.
+
 ## Code Registry
 
 The code-backed registry lives in

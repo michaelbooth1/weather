@@ -17,7 +17,12 @@ from weather.forecast_payload_contracts import (
     ForecastPayloadExtractionIdentityError,
     deduplicate_fanout_coordinator_attributions,
 )
-from weather.io import read_csv_rows as io_read_csv_rows, read_json as io_read_json
+from weather.io import (
+    TieredTextConflictError,
+    read_csv_rows as io_read_csv_rows,
+    read_json as io_read_json,
+    resolve_tiered_text,
+)
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.model.toronto_model import TORONTO_TZ
@@ -750,6 +755,25 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         name: (folder / filename).exists()
         for name, filename in SNAPSHOT_OPTIONAL_ARTIFACTS.items()
     }
+    artifact_conflicts = {}
+    try:
+        resolve_tiered_text(folder / "order_books.jsonl")
+    except FileNotFoundError:
+        artifact_presence["order_books_raw"] = False
+    except TieredTextConflictError as exc:
+        artifact_presence["order_books_raw"] = False
+        artifact_conflicts["order_books_raw"] = str(exc)
+    else:
+        artifact_presence["order_books_raw"] = True
+    try:
+        resolve_tiered_text(folder / "order_books_long.csv")
+    except FileNotFoundError:
+        artifact_presence["order_books_long"] = False
+        artifact_presence["order_books_long_gzip"] = False
+    except TieredTextConflictError as exc:
+        artifact_presence["order_books_long"] = False
+        artifact_presence["order_books_long_gzip"] = False
+        artifact_conflicts["order_books_long"] = str(exc)
     source_status = source_status_summary_for_folder(folder)
     forecast_payloads = forecast_payload_summary_for_folder(folder)
     clob_features = clob_feature_summary_for_folder(folder)
@@ -773,6 +797,7 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         "coverage_reason": coverage.get("reason"),
         "capture_ratio": coverage.get("capture_ratio"),
         "artifact_presence": artifact_presence,
+        "artifact_conflicts": artifact_conflicts,
         "source_status": source_status,
         "forecast_payloads": forecast_payloads,
         "clob_features": clob_features,
@@ -795,6 +820,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
     field_nonempty = Counter()
     field_totals = Counter()
     artifact_totals = Counter()
+    artifact_conflict_totals = Counter()
     training_ready_artifact_totals = Counter()
     training_ready_folder_count = 0
     training_ready_cutoff = datetime.now(TORONTO_TZ).date()
@@ -920,6 +946,9 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
                 artifact_totals[name] += 1
                 if artifact_scope_ready:
                     training_ready_artifact_totals[name] += 1
+        artifact_conflict_totals.update(
+            (row.get("artifact_conflicts") or {}).keys()
+        )
         artifact_presence = row.get("artifact_presence") or {}
         if artifact_presence.get("clob_capture_status"):
             clob_capture_status_days += 1
@@ -1092,6 +1121,9 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
         "median_capture_gap_minutes": safe_median([row.get("median_gap_minutes") for row in folder_rows]),
         "max_capture_gap_minutes": safe_max([row.get("max_gap_minutes") for row in folder_rows]),
         "artifact_day_counts": dict(sorted(artifact_totals.items())),
+        "artifact_conflict_day_counts": dict(
+            sorted(artifact_conflict_totals.items())
+        ),
         "training_ready_folder_count": training_ready_folder_count,
         "artifact_training_ready_day_counts": dict(sorted(training_ready_artifact_totals.items())),
         "source_status": {

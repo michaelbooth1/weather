@@ -63,6 +63,8 @@ SELECTION_UNIVERSE_EXCLUDED_FIELDS = (
 )
 PRODUCTION_MAX_MARKET_DAYS = 60
 PRODUCTION_MAX_ROWS_PER_MARKET_DAY = 250_000
+PRODUCTION_CONTIGUOUS_WINDOW_DAYS = 14
+PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS = 7
 
 
 class ContractViolation(ValueError):
@@ -217,14 +219,19 @@ def _contiguous_locked_dates(values: Any, *, field: str) -> list[str]:
         raise ContractViolation("invalid_date", f"{field} must be a date list") from exc
     canonical = [value.isoformat() for value in sorted(parsed)]
     if (
-        len(parsed) != 14
-        or len(set(parsed)) != 14
+        len(parsed) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+        or len(set(parsed)) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
         or raw != canonical
-        or parsed != [parsed[0] + timedelta(days=offset) for offset in range(14)]
+        or parsed
+        != [
+            parsed[0] + timedelta(days=offset)
+            for offset in range(PRODUCTION_CONTIGUOUS_WINDOW_DAYS)
+        ]
     ):
         raise ContractViolation(
             "invalid_locked_window",
-            f"{field} must be one canonical contiguous 14-day window",
+            f"{field} must be one canonical contiguous "
+            f"{PRODUCTION_CONTIGUOUS_WINDOW_DAYS}-day window",
         )
     return canonical
 
@@ -957,8 +964,8 @@ def verify_validation_plan_payload(
         locked_set = set(locked_selection_dates)
         if (
             selection_contract.get("status") != "PASS"
-            or len(locked_selection_dates) != 14
-            or len(locked_set) != 14
+            or len(locked_selection_dates) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(locked_set) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             or selection_contract.get("locked_dates_used_for_selection") is not False
             or selection_contract.get("candidate_selection_permission") != "forbidden"
             or not str(selection_contract.get("window_lock_id") or "")
@@ -1234,9 +1241,9 @@ def verify_streaming_evaluation_payload(
         if (
             lock.get("schema_version") != EVALUATION_SCHEMA_VERSION
             or lock.get("status") != "PASS"
-            or lock.get("window_days") != 14
-            or len(target_dates) != 14
-            or len(set(target_dates)) != 14
+            or lock.get("window_days") != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(target_dates) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+            or len(set(target_dates)) != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             or lock.get("missing_calendar_dates") != []
             or lock.get("candidate_selection_permission") != "forbidden"
             or lock.get("locked_before_scoring") is not True
@@ -1247,7 +1254,10 @@ def verify_streaming_evaluation_payload(
         ):
             raise ContractViolation("invalid_evaluation_window_lock", "production lock incomplete")
         parsed = [_parse_date(value, "window_lock.target_date") for value in target_dates]
-        if parsed != [parsed[0] + timedelta(days=offset) for offset in range(14)]:
+        if parsed != [
+            parsed[0] + timedelta(days=offset)
+            for offset in range(PRODUCTION_CONTIGUOUS_WINDOW_DAYS)
+        ]:
             raise ContractViolation("invalid_evaluation_window_lock", "window is not contiguous")
         if lock.get("window_start") != target_dates[0] or lock.get("window_end") != target_dates[-1]:
             raise ContractViolation("invalid_evaluation_window_lock", "window bounds mismatch")
@@ -1298,7 +1308,8 @@ def verify_streaming_evaluation_payload(
         weather = lanes.get("weather_only") or []
         if not weather or any(
             summary.get("release_id") != expected_release_id
-            or int(summary.get("fleet_dates") or 0) != 14
+            or int(summary.get("fleet_dates") or 0)
+            != PRODUCTION_CONTIGUOUS_WINDOW_DAYS
             for summary in weather
         ):
             raise ContractViolation(

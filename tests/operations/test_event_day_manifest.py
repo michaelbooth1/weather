@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import json
 import os
@@ -79,6 +80,18 @@ class TestEventDayManifest(unittest.TestCase):
     def write_text(self, path: Path, text: str):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+        return path
+
+    def write_gzip(self, path: Path, payload: bytes):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as raw:
+            with gzip.GzipFile(
+                filename="",
+                mode="wb",
+                fileobj=raw,
+                mtime=0,
+            ) as handle:
+                handle.write(payload)
         return path
 
     def make_folder(self, root: Path, slug="highest-temperature-in-austin-on-june-22-2026"):
@@ -274,6 +287,128 @@ class TestEventDayManifest(unittest.TestCase):
         )
         mm_record = families["market_making_runs"]["files"][0]
         self.assertEqual(mm_record["role"], "canonical_evidence")
+
+    def test_gzip_only_order_books_is_canonical_and_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            payload = b'{"token_id":"t1"}\n{"token_id":"t2"}\n'
+            (folder / "order_books.jsonl").unlink()
+            self.write_gzip(folder / "order_books.jsonl.gz", payload)
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        families = {
+            row["artifact_family"]: row
+            for row in manifest["artifact_families"]
+        }
+        order_books = {
+            row["path"]: row for row in families["order_books"]["files"]
+        }
+        compressed = order_books["order_books.jsonl.gz"]
+        self.assertEqual(validation["status"], "PASS")
+        self.assertEqual(compressed["row_count"], 2)
+        self.assertEqual(compressed["validation_status"], "PASS")
+        self.assertEqual(compressed["storage_class"], "canonical_evidence")
+        self.assertEqual(compressed["artifact_family"], "clob_raw_evidence")
+        self.assertTrue(compressed["protected"])
+
+    def test_conflicting_order_book_pair_blocks_before_counting_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            self.write_gzip(
+                folder / "order_books.jsonl.gz",
+                b'{"token_id":"different"}\n{"token_id":"extra"}\n',
+            )
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        families = {
+            row["artifact_family"]: row
+            for row in manifest["artifact_families"]
+        }
+        order_books = {
+            row["path"]: row for row in families["order_books"]["files"]
+        }
+        for path in ("order_books.jsonl", "order_books.jsonl.gz"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    order_books[path]["validation_status"],
+                    "BLOCK",
+                )
+                self.assertEqual(order_books[path]["row_count"], 0)
+                self.assertIn(
+                    "TieredTextConflictError",
+                    order_books[path]["validation_detail"],
+                )
+        self.assertEqual(manifest["validation"]["status"], "BLOCK")
+        self.assertEqual(validation["status"], "BLOCK")
+        blocked = {
+            row["check"]
+            for row in validation["checks"]
+            if row["status"] == "BLOCK"
+        }
+        self.assertIn("file_validation", blocked)
+
+    def test_conflicting_order_book_long_pair_blocks_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            self.write_gzip(
+                folder / "order_books_long.csv.gz",
+                (
+                    b"snapshot_id,market_id,token_id,bid,ask\n"
+                    b"s0,austin,t0,0.40,0.42\n"
+                ),
+            )
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+            validation = validate_event_day_manifest(
+                manifest,
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        families = {
+            row["artifact_family"]: row
+            for row in manifest["artifact_families"]
+        }
+        order_books = {
+            row["path"]: row for row in families["order_books"]["files"]
+        }
+        for path in ("order_books_long.csv", "order_books_long.csv.gz"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    order_books[path]["validation_status"],
+                    "BLOCK",
+                )
+                self.assertEqual(order_books[path]["row_count"], 0)
+                self.assertIn(
+                    "TieredTextConflictError",
+                    order_books[path]["validation_detail"],
+                )
+        self.assertEqual(manifest["validation"]["status"], "BLOCK")
+        self.assertEqual(validation["status"], "BLOCK")
 
     def test_manifest_cites_event_metadata_validation_hash_when_available(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -45,7 +45,7 @@ STORAGE_CLASS_CONTRACTS = (
     StorageClassContract(
         CANONICAL_EVIDENCE,
         "Append-only or source-of-truth evidence that cannot be safely rebuilt after the fact.",
-        ("jsonl", "json", "csv", "raw", "csv.gz"),
+        ("jsonl", "jsonl.gz", "json", "csv", "raw", "csv.gz"),
         "Permanent archive; local copies stay until a reviewed cleanup manifest exists.",
         "Must be named by a reviewed cleanup manifest before local deletion.",
         "Reviewed cleanup manifest with exact path, class, reason, operator, and checksum.",
@@ -176,6 +176,7 @@ ARTIFACT_FAMILIES = (
             "snapshots/clob*.jsonl",
             "snapshots/*/clob_tokens.jsonl",
             "snapshots/*/order_books.jsonl",
+            "snapshots/*/order_books.jsonl.gz",
             "snapshots/*/price_history.jsonl",
             "snapshots/*/price_history_raw_manifest.jsonl",
             "snapshots/*/price_history_raw/**/*.json",
@@ -186,7 +187,11 @@ ARTIFACT_FAMILIES = (
         "not rebuildable; CLOB book, price, and websocket state is live-only",
         "canonical_evidence_review_gate",
         True,
-        examples=("data/snapshots/<event>/order_books.jsonl", "data/snapshots/<event>/market_ws.jsonl"),
+        examples=(
+            "data/snapshots/<event>/order_books.jsonl",
+            "data/snapshots/<event>/order_books.jsonl.gz",
+            "data/snapshots/<event>/market_ws.jsonl",
+        ),
     ),
     ArtifactFamilyClassification(
         "clob_token_map",

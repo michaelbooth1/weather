@@ -5,8 +5,11 @@ from datetime import date, timedelta
 import pyarrow.parquet as pq
 import pytest
 
+import weather.reporting.validation.point_in_time_evaluation as point_in_time_evaluation
 from weather.point_in_time_contract import (
     ContractViolation as FrozenContractViolation,
+    PRODUCTION_CONTIGUOUS_WINDOW_DAYS,
+    PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS,
     verify_materialization_manifest as verify_frozen_materialization_manifest,
 )
 from weather.reporting.validation.point_in_time_evaluation import (
@@ -44,6 +47,59 @@ PROVENANCE = {
     "manifest_hash": "manifest-hash",
     "source_file_hash": "source-hash",
 }
+
+
+def test_production_hot_window_defaults_are_bound_to_frozen_contract():
+    assert PRODUCTION_CONTIGUOUS_WINDOW_DAYS == 14
+    assert PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS == 7
+    assert (
+        point_in_time_evaluation.PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+        == PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+    )
+    assert (
+        point_in_time_evaluation.PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS
+        == PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS
+    )
+
+    lock = build_window_lock(
+        (
+            date(2026, 6, 1) + timedelta(days=offset)
+            for offset in range(PRODUCTION_CONTIGUOUS_WINDOW_DAYS)
+        ),
+        input_sha256="a" * 64,
+        generated_at_utc="2026-06-15T00:00:00+00:00",
+    )
+    assert lock["status"] == "PASS"
+    assert lock["window_days"] == PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+    assert len(lock["target_dates"]) == PRODUCTION_CONTIGUOUS_WINDOW_DAYS
+
+
+@pytest.mark.parametrize(
+    ("target_age_days", "is_valid"),
+    [
+        (PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS, True),
+        (PRODUCTION_MAX_LATEST_TARGET_AGE_DAYS + 1, False),
+    ],
+)
+def test_production_latest_target_freshness_uses_frozen_contract_limit(
+    target_age_days,
+    is_valid,
+):
+    locked_at = date(2026, 6, 30)
+    latest_target = locked_at - timedelta(days=target_age_days)
+
+    def verify_freshness():
+        return _verify_production_latest_target_freshness(
+            [latest_target.isoformat()],
+            locked_at_utc=f"{locked_at.isoformat()}T12:00:00+00:00",
+            require_current_prelock=False,
+        )
+
+    if is_valid:
+        assert verify_freshness() == target_age_days
+    else:
+        with pytest.raises(ContractViolation, match="latest target date is stale"):
+            verify_freshness()
 
 
 def test_stage_selection_binding_rejects_self_hashed_locked_inventory():

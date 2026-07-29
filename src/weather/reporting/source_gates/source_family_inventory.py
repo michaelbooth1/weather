@@ -16,7 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.backtesting.settled_days import folder_market_id
-from weather.io import read_json, write_json_atomic
+from weather.io import (
+    TieredTextConflictError,
+    read_json,
+    resolve_tiered_text,
+    write_json_atomic,
+)
 from weather.market.market_microstructure_features import CLOB_MODEL_FEATURE_COLUMNS
 from weather.market.market_registry import REGISTRY
 from weather.operations.closed_market_day_archive import (
@@ -466,6 +471,7 @@ def stats_template():
         "by_cutoff": defaultdict(lambda: {"rows": 0, "total_cells": 0, "missing_cells": 0}),
         "artifact_folders": set(),
         "clob_raw_tape_folders": set(),
+        "clob_raw_tape_conflict_folders": set(),
         "marine_water_contrast_rows": 0,
         "marine_water_contrast_sources": set(),
         "marine_water_contrast_providers": set(),
@@ -755,11 +761,20 @@ def scan_marine_water_contrast_sidecars(marine_water_contrast_root, stats_by_fam
 
 
 def clob_raw_tape_present(folder):
+    for tiered_path in (
+        folder / "order_books.jsonl",
+        folder / "order_books_long.csv",
+    ):
+        try:
+            resolve_tiered_text(tiered_path)
+        except FileNotFoundError:
+            continue
     names = {
         "order_books_summary.csv",
         "order_books_long.csv",
         "order_books_long.csv.gz",
         "order_books.jsonl",
+        "order_books.jsonl.gz",
         "price_history.csv",
         "price_history.jsonl",
         "market_ws_events.csv",
@@ -780,7 +795,11 @@ def scan_clob(
     prefer_archive=True,
 ):
     stats = stats_by_family["clob_microstructure"]
-    raw_tapes = clob_raw_tape_present(folder)
+    try:
+        raw_tapes = clob_raw_tape_present(folder)
+    except TieredTextConflictError:
+        stats["clob_raw_tape_conflict_folders"].add(str(folder))
+        raw_tapes = []
     if raw_tapes:
         stats["clob_raw_tape_folders"].add(str(folder))
         stats["artifact_folders"].add(str(folder))
@@ -1190,6 +1209,8 @@ def reanalysis_lane_consistency(gate_lane, artifact_lane):
 
 def lineage_status(spec, stats):
     if spec.family_id == "clob_microstructure":
+        if stats["clob_raw_tape_conflict_folders"]:
+            return "BLOCKED_CONFLICTING_CLOB_TAPES"
         if stats["feature_rows"] and stats["clob_raw_tape_folders"]:
             return "PASS"
         if stats["feature_rows"]:
@@ -1467,6 +1488,9 @@ def inventory_rows(
             },
             "clob_lineage": {
                 "raw_tape_folder_count": len(stats["clob_raw_tape_folders"]),
+                "conflicting_raw_tape_folder_count": len(
+                    stats["clob_raw_tape_conflict_folders"]
+                ),
                 "artifact_folder_count": len(stats["artifact_folders"]),
             },
             "lineage_status": lineage,

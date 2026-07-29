@@ -1,4 +1,5 @@
 import csv
+import gzip
 import tempfile
 import unittest
 from pathlib import Path
@@ -128,6 +129,34 @@ class ClobCoverageAuditTests(unittest.TestCase):
 
         self.assertEqual(payload["classification"], "one_sided_books_no_midpoint")
         self.assertTrue(payload["raw_book_present"])
+
+    def test_audit_folder_accepts_gzip_raw_and_blocks_divergent_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            write_snapshots(folder)
+            with gzip.open(
+                folder / "order_books.jsonl.gz",
+                "wt",
+                encoding="utf-8",
+            ) as handle:
+                handle.write('{"capture_id":"one"}\n')
+            write_features(folder, [feature()])
+
+            gzip_only = audit_folder(folder)
+
+            (folder / "order_books.jsonl").write_text(
+                '{"capture_id":"different"}\n',
+                encoding="utf-8",
+            )
+            conflicting = audit_folder(folder)
+
+        self.assertTrue(gzip_only["raw_book_present"])
+        self.assertFalse(conflicting["raw_book_present"])
+        self.assertEqual(
+            conflicting["classification"],
+            "blocked_conflicting_raw_book_pair",
+        )
+        self.assertIn("order_books_raw", conflicting["raw_book_conflicts"])
 
     def test_build_payload_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
