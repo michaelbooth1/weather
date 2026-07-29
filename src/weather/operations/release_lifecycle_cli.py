@@ -89,7 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    rollback = subparsers.add_parser("rollback", help="atomically return to the prior verified release")
+    rollback = subparsers.add_parser(
+        "rollback",
+        help=(
+            "return to the prior verified release, or deactivate a first release "
+            "to the verified no-pointer serving state"
+        ),
+    )
     rollback.add_argument("--market-day-boundary", type=Path, required=True)
     rollback.add_argument(
         "--drill-record",

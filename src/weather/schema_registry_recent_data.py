@@ -574,6 +574,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Hash-linked rollback, coordinated restart, restored identity, and health drill proof.",
     ),
     SchemaSpec(
+        "inactive_release_forward_shadow",
+        "inactive_release_forward_shadow_v0.1",
+        "weather.reporting.scorecards.inactive_release_forward_shadow",
+        "active",
+        "Exact per-instant inactive-release replay, recorded-production comparison, and first-pipeline-divergence evidence.",
+    ),
+    SchemaSpec(
         "off_machine_backup_proof",
         "off_machine_backup_proof_v0.1",
         "weather.reporting.serving_gates.production_readiness_gate",

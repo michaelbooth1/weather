@@ -58,6 +58,7 @@ from weather.model.calibration_runtime import (
 from weather.release_contract import BASE_MODEL_MARKET_COMPONENT_KINDS
 from weather.release_serving import (
     STATUS_BOUND,
+    STATUS_INACTIVE_SHADOW_BOUND,
     STATUS_RESEARCH_UNBOUND,
     ReleaseServingBindingError,
     get_process_active_serving_bundle,
@@ -104,14 +105,22 @@ class TorontoHighTempModel(
             else None
         )
         self.serving_bundle = serving_bundle or get_process_active_serving_bundle()
-        if self.serving_bundle.status not in {STATUS_BOUND, STATUS_RESEARCH_UNBOUND}:
+        if self.serving_bundle.status not in {
+            STATUS_BOUND,
+            STATUS_INACTIVE_SHADOW_BOUND,
+            STATUS_RESEARCH_UNBOUND,
+        }:
             raise ReleaseServingBindingError(
                 "base-model construction blocked by active-release binding: "
                 f"{self.serving_bundle.status}: {self.serving_bundle.reason}"
             )
-        if self.serving_bundle.status == STATUS_BOUND and not self.serving_bundle.base_model_bound:
+        if (
+            self.serving_bundle.status
+            in {STATUS_BOUND, STATUS_INACTIVE_SHADOW_BOUND}
+            and not self.serving_bundle.base_model_bound
+        ):
             raise ReleaseServingBindingError(
-                "active release is bound but its complete base-model graph is not"
+                "release is bound but its complete base-model graph is not"
             )
         self.set_target_date(target_date or TARGET_DATE)
         self._last_family_secondary_gate = {}
@@ -122,7 +131,10 @@ class TorontoHighTempModel(
         self._configure_base_model_components()
 
     def _configure_base_model_components(self):
-        if self.serving_bundle.status == STATUS_BOUND:
+        if self.serving_bundle.status in {
+            STATUS_BOUND,
+            STATUS_INACTIVE_SHADOW_BOUND,
+        }:
             self._bind_release_base_model_components()
             return
         self._bound_base_model_components = None

@@ -30,6 +30,8 @@ from weather.release_artifacts import (
 from weather.release_contract import (
     BASE_MODEL_MARKET_COMPONENT_KINDS,
     BASE_MODEL_SHARED_COMPONENT_ROLES,
+    PRODUCTION_CANDIDATE_MODE,
+    PRODUCTION_RELEASE_KIND,
     SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
     SERVING_ARTIFACT_KINDS,
     active_release_kind,
@@ -38,6 +40,7 @@ from weather.release_contract import (
 
 
 STATUS_BOUND = "BOUND"
+STATUS_INACTIVE_SHADOW_BOUND = "INACTIVE_SHADOW_BOUND"
 STATUS_SHADOW_BOUND = "SHADOW_BOUND"
 STATUS_RESEARCH_UNBOUND = "RESEARCH_UNBOUND"
 STATUS_BLOCKED = "BLOCKED"
@@ -350,7 +353,10 @@ def materialize_verified_base_model_market(
 ) -> dict[str, Any]:
     """Deserialize only one market's HGB after the complete graph is verified."""
 
-    if bundle.status != STATUS_BOUND or not bundle.base_model_bound:
+    if (
+        bundle.status not in {STATUS_BOUND, STATUS_INACTIVE_SHADOW_BOUND}
+        or not bundle.base_model_bound
+    ):
         raise ReleaseServingBindingError(
             "cannot materialize a base model without a verified active-release graph"
         )
@@ -387,6 +393,110 @@ def materialize_verified_base_model_market(
         label=role,
     )
     return materialized
+
+
+def _materialize_complete_serving_bundle(
+    *,
+    status: str,
+    reason: str,
+    pointer_present: bool,
+    pointer_file_sha256: str | None,
+    release_id: str,
+    manifest_sha256: str,
+    pointer_sha256: str,
+    sequence: int | None,
+    release_kind: str,
+    semantic_contract: Mapping[str, Any],
+    release_dir: Path,
+    route: Mapping[str, Any],
+    roles: Mapping[str, Mapping[str, Any]],
+    serving_rows: Mapping[str, Mapping[str, Any]],
+    served_paths: Mapping[str, Path],
+) -> VerifiedServingBundle:
+    """Load one fully verified serving graph into an immutable process bundle."""
+
+    model_row = roles.get("pooled_band_model")
+    if not model_row or model_row.get("kind") != "model":
+        raise ReleaseServingBindingError("verified release pooled model role is missing")
+    json_payloads: dict[str, Mapping[str, Any]] = {}
+    for role, row in sorted(serving_rows.items()):
+        if role == "pooled_band_model":
+            continue
+        path = release_dir / str(row["path"])
+        if path.suffix.casefold() == ".pkl":
+            continue
+        if path.suffix.casefold() != ".json":
+            raise ReleaseServingBindingError(
+                f"serving role {role!r} is not a supported JSON artifact: {path}"
+            )
+        json_payloads[role] = _checked_json(
+            path,
+            expected_sha256=str(row["sha256"]),
+            label=role,
+        )
+    registry = json_payloads.get("model_variant_registry")
+    if not isinstance(registry, Mapping):
+        raise ReleaseServingBindingError("verified model variant registry is missing")
+    _verify_route_registry_model_binding(
+        route=route,
+        registry=registry,
+        model_row=model_row,
+        release_id=release_id,
+    )
+    base_model_graph = json_payloads.get("base_model_serving_graph")
+    if not isinstance(base_model_graph, Mapping):
+        raise ReleaseServingBindingError("verified base-model serving graph is missing")
+    base_model_artifacts, base_model_shared_artifacts = _load_verified_base_model_graph(
+        graph=base_model_graph,
+        route=route,
+        roles=roles,
+        json_payloads=json_payloads,
+        release_dir=release_dir,
+    )
+    model_bundle = _checked_pickle(
+        release_dir / str(model_row["path"]),
+        expected_sha256=str(model_row["sha256"]),
+        label="pooled band model",
+    )
+    return VerifiedServingBundle(
+        status=status,
+        reason=reason,
+        pointer_present=pointer_present,
+        pointer_file_sha256=pointer_file_sha256,
+        release_id=release_id,
+        manifest_sha256=manifest_sha256,
+        pointer_sha256=pointer_sha256,
+        sequence=sequence,
+        release_kind=release_kind,
+        candidate_mode=str(semantic_contract.get("candidate_mode") or ""),
+        production_capable=semantic_contract.get("production_capable") is True,
+        release_dir=str(release_dir),
+        route=_deep_freeze(route),
+        model_variant_registry=_deep_freeze(registry),
+        model_bundle=model_bundle,
+        json_artifacts=_deep_freeze(json_payloads),
+        artifact_paths=MappingProxyType(
+            {role: str(path) for role, path in served_paths.items()}
+        ),
+        artifact_hashes=MappingProxyType(
+            {role: str(row["sha256"]) for role, row in serving_rows.items()}
+        ),
+        base_model_graph=_deep_freeze(base_model_graph),
+        base_model_artifacts=MappingProxyType(
+            {
+                market_id: MappingProxyType(dict(components))
+                for market_id, components in base_model_artifacts.items()
+            }
+        ),
+        base_model_shared_artifacts=MappingProxyType(
+            dict(base_model_shared_artifacts)
+        ),
+        base_model_bound=True,
+        base_model_binding_reason=(
+            "complete per-market HGB/LR/calibration graph bound to verified release "
+            "roles; routed HGB materializes on demand"
+        ),
+    )
 
 
 def load_verified_active_serving_bundle(
@@ -471,50 +581,7 @@ def load_verified_active_serving_bundle(
     )
     # The resolver above re-hashes every serving binding. JSON contracts can
     # now be read and cross-checked before the model pickle is opened.
-    model_row = roles.get("pooled_band_model")
-    if not model_row or model_row.get("kind") != "model":
-        raise ReleaseServingBindingError("active release pooled model role is missing")
-    json_payloads: dict[str, Mapping[str, Any]] = {}
-    for role, row in sorted(serving_rows.items()):
-        if role == "pooled_band_model":
-            continue
-        path = release_dir / str(row["path"])
-        if path.suffix.casefold() == ".pkl":
-            continue
-        if path.suffix.casefold() != ".json":
-            raise ReleaseServingBindingError(
-                f"serving role {role!r} is not a supported JSON artifact: {path}"
-            )
-        json_payloads[role] = _checked_json(
-            path,
-            expected_sha256=str(row["sha256"]),
-            label=role,
-        )
-    registry = json_payloads.get("model_variant_registry")
-    if not isinstance(registry, Mapping):
-        raise ReleaseServingBindingError("verified model variant registry is missing")
-    _verify_route_registry_model_binding(
-        route=route,
-        registry=registry,
-        model_row=model_row,
-        release_id=str(resolved["release_id"]),
-    )
-    base_model_graph = json_payloads.get("base_model_serving_graph")
-    if not isinstance(base_model_graph, Mapping):
-        raise ReleaseServingBindingError("verified base-model serving graph is missing")
-    base_model_artifacts, base_model_shared_artifacts = _load_verified_base_model_graph(
-        graph=base_model_graph,
-        route=route,
-        roles=roles,
-        json_payloads=json_payloads,
-        release_dir=release_dir,
-    )
-    model_bundle = _checked_pickle(
-        release_dir / str(model_row["path"]),
-        expected_sha256=str(model_row["sha256"]),
-        label="pooled band model",
-    )
-    return VerifiedServingBundle(
+    return _materialize_complete_serving_bundle(
         status=STATUS_BOUND,
         reason=(
             "reviewed first-release serving-identity bootstrap; research-only, "
@@ -529,30 +596,99 @@ def load_verified_active_serving_bundle(
         pointer_sha256=str(resolved["pointer_sha256"]),
         sequence=int(resolved["sequence"]),
         release_kind=release_kind,
-        candidate_mode=str(semantic_contract.get("candidate_mode") or ""),
-        production_capable=production_capable,
-        release_dir=str(release_dir),
-        route=_deep_freeze(route),
-        model_variant_registry=_deep_freeze(registry),
-        model_bundle=model_bundle,
-        json_artifacts=_deep_freeze(json_payloads),
-        artifact_paths=MappingProxyType({role: str(path) for role, path in served_paths.items()}),
-        artifact_hashes=MappingProxyType(
-            {role: str(row["sha256"]) for role, row in serving_rows.items()}
+        semantic_contract=semantic_contract,
+        release_dir=release_dir,
+        route=route,
+        roles=roles,
+        serving_rows=serving_rows,
+        served_paths=served_paths,
+    )
+
+
+def load_verified_inactive_serving_bundle(
+    release_dir: str | Path,
+    *,
+    expected_manifest_sha256: str,
+    active_pointer_path: str | Path = DEFAULT_ACTIVE_RELEASE_POINTER,
+    repo_root: str | Path = REPO_ROOT,
+    check_runtime: bool = True,
+    current_runtime_versions: Mapping[str, Any] | None = None,
+    current_runtime_identity: Mapping[str, Any] | None = None,
+) -> VerifiedServingBundle:
+    """Bind a production-capable immutable release for shadow execution only."""
+
+    release_root = Path(release_dir).resolve()
+    pointer_path = Path(active_pointer_path).resolve()
+    if pointer_path.exists():
+        pointer = load_active_release_pointer(pointer_path)
+        if str(pointer.get("active_release_id") or "") == release_root.name:
+            raise ReleaseServingBindingError(
+                "inactive shadow loader refuses the currently active release"
+            )
+    verified = verify_release(
+        release_root,
+        repo_root=repo_root,
+        expected_manifest_sha256=expected_manifest_sha256,
+        check_runtime=check_runtime,
+        current_runtime_versions=current_runtime_versions,
+        current_runtime_identity=current_runtime_identity,
+    )
+    if not verified.get("semantic_contract_verified"):
+        raise ReleaseServingBindingError(
+            "inactive release has no verified semantic serving contract"
+        )
+    semantic_contract = verified.get("semantic_contract") or {}
+    if (
+        semantic_contract.get("candidate_mode") != PRODUCTION_CANDIDATE_MODE
+        or semantic_contract.get("production_capable") is not True
+    ):
+        raise ReleaseServingBindingError(
+            "inactive shadow loader requires a production-capable release"
+        )
+    manifest = verified["manifest"]
+    roles = _inventory_by_role(manifest)
+    serving_rows = {
+        role: row
+        for role, row in roles.items()
+        if row.get("kind") in SERVING_ARTIFACT_KINDS
+    }
+    served_paths = {
+        role: release_root / str(row["path"])
+        for role, row in serving_rows.items()
+    }
+    route_row = roles.get("market_route_table")
+    if not route_row or route_row.get("kind") != "route":
+        raise ReleaseServingBindingError(
+            "inactive release market route role is missing"
+        )
+    route = _checked_json(
+        release_root / str(route_row["path"]),
+        expected_sha256=str(route_row["sha256"]),
+        label="inactive market route table",
+    )
+    if route != manifest.get("route"):
+        raise ReleaseServingBindingError(
+            "inactive frozen route artifact does not exactly match its manifest"
+        )
+    return _materialize_complete_serving_bundle(
+        status=STATUS_INACTIVE_SHADOW_BOUND,
+        reason=(
+            "production-capable immutable release roles and frozen route verified "
+            "for inactive shadow execution; no active pointer authority"
         ),
-        base_model_graph=_deep_freeze(base_model_graph),
-        base_model_artifacts=MappingProxyType(
-            {
-                market_id: MappingProxyType(dict(components))
-                for market_id, components in base_model_artifacts.items()
-            }
-        ),
-        base_model_shared_artifacts=MappingProxyType(dict(base_model_shared_artifacts)),
-        base_model_bound=True,
-        base_model_binding_reason=(
-            "complete per-market HGB/LR/calibration graph bound to verified release roles; "
-            "routed HGB materializes on demand"
-        ),
+        pointer_present=False,
+        pointer_file_sha256=None,
+        release_id=str(verified["release_id"]),
+        manifest_sha256=str(verified["manifest_sha256"]),
+        pointer_sha256="",
+        sequence=None,
+        release_kind=PRODUCTION_RELEASE_KIND,
+        semantic_contract=semantic_contract,
+        release_dir=release_root,
+        route=route,
+        roles=roles,
+        serving_rows=serving_rows,
+        served_paths=served_paths,
     )
 
 
@@ -761,7 +897,11 @@ def clear_process_serving_bundle_cache() -> None:
 
 
 def serving_bundle_lineage(bundle: VerifiedServingBundle) -> dict[str, Any]:
-    if bundle.status in {STATUS_BOUND, STATUS_SHADOW_BOUND}:
+    if bundle.status in {
+        STATUS_BOUND,
+        STATUS_INACTIVE_SHADOW_BOUND,
+        STATUS_SHADOW_BOUND,
+    }:
         return {
             "release_id": bundle.release_id,
             "release_manifest_sha256": bundle.manifest_sha256,

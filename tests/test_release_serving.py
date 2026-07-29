@@ -29,6 +29,7 @@ from weather.operations.release_promotion import resolve_active_release
 from weather.release_serving import (
     STATUS_BLOCKED,
     STATUS_BOUND,
+    STATUS_INACTIVE_SHADOW_BOUND,
     STATUS_RESEARCH_UNBOUND,
     STATUS_RESTART_REQUIRED,
     ReleaseServingBindingError,
@@ -36,6 +37,7 @@ from weather.release_serving import (
     clear_process_serving_bundle_cache,
     get_process_active_serving_bundle,
     load_verified_active_serving_bundle,
+    load_verified_inactive_serving_bundle,
     materialize_verified_base_model_market,
     serving_bundle_lineage,
 )
@@ -253,6 +255,56 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
         "afternoon_residual_centering",
         "family_secondary_artifacts",
     }
+
+
+def test_inactive_shadow_loader_binds_release_without_pointer_authority(
+    tmp_path: Path,
+):
+    paths, _frozen, result, releases, pointer = _active_fixture(tmp_path)
+    release_dir = releases / "r1"
+
+    with pytest.raises(
+        ReleaseServingBindingError,
+        match="currently active release",
+    ):
+        load_verified_inactive_serving_bundle(
+            release_dir,
+            expected_manifest_sha256=result["manifest_sha256"],
+            active_pointer_path=pointer,
+            repo_root=paths["repo"],
+            check_runtime=False,
+        )
+
+    pointer.unlink()
+    bundle = load_verified_inactive_serving_bundle(
+        release_dir,
+        expected_manifest_sha256=result["manifest_sha256"],
+        active_pointer_path=pointer,
+        repo_root=paths["repo"],
+        check_runtime=False,
+    )
+
+    assert bundle.status == STATUS_INACTIVE_SHADOW_BOUND
+    assert bundle.pointer_present is False
+    assert bundle.pointer_sha256 == ""
+    assert bundle.sequence is None
+    assert bundle.release_id == "r1"
+    assert bundle.manifest_sha256 == result["manifest_sha256"]
+    assert bundle.production_capable is True
+    assert bundle.base_model_bound is True
+    assert (
+        serving_bundle_lineage(bundle)["release_identity_status"]
+        == "verified_inactive_shadow_bundle"
+    )
+    assert materialize_verified_base_model_market(bundle, "nyc")[
+        "feature_hgb"
+    ]["12"]["fixture_component"] == "feature_hgb"
+    model = TorontoHighTempModel(
+        target_date=date(2026, 6, 18),
+        market_id="nyc",
+        serving_bundle=bundle,
+    )
+    assert model.load_feature_model_hgb()["12"]["fixture_component"] == "feature_hgb"
 
 
 def test_research_release_without_valid_bootstrap_provenance_is_rejected(

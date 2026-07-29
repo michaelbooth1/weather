@@ -12,6 +12,7 @@ from weather.operations.capture_resource_gate import (
 )
 from weather.release_artifacts import ReleaseArtifactVerificationError, canonical_payload_sha256
 from weather.release_contract import (
+    NO_ACTIVE_POINTER_STATE,
     PRODUCTION_CANDIDATE_MODE,
     PRODUCTION_RELEASE_KIND,
     RESEARCH_ONLY_CANDIDATE_MODE,
@@ -23,6 +24,7 @@ from weather.reporting.serving_gates.production_readiness_gate import (
     STAGE_NOT_READY,
     STAGE_PAPER,
     STAGE_SHADOW,
+    _validate_rollback,
     build_production_readiness_gate,
     build_and_write_production_readiness_status,
     main,
@@ -349,6 +351,38 @@ def _evidence_payload(name: str) -> dict:
             },
         }
     raise AssertionError(name)
+
+
+def test_no_active_pointer_rollback_is_a_valid_completed_first_release_drill():
+    payload = {
+        **_base("release_rollback_drill", release_scoped=True),
+        "evidence_contract": "release_rollback_drill",
+        "rollback_status": "PASS",
+        "post_rollback_identity_status": "PASS",
+        "post_rollback_serving_status": "PASS",
+        "health_status": "PASS",
+        "rollback_source_release_id": RELEASE_ID,
+        "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+        "rollback_target_release_id": None,
+        "rollback_target_manifest_sha256": None,
+        "restored_release_id": None,
+        "active_pointer_present": False,
+        "rollback_duration_seconds": 1.0,
+        "post_rollback_identity": {
+            "target_state": NO_ACTIVE_POINTER_STATE,
+            "release_identity_status": "research_unbound_non_countable",
+        },
+    }
+
+    assert _validate_rollback(payload) == []
+
+    payload["post_rollback_identity"] = {
+        "target_state": NO_ACTIVE_POINTER_STATE,
+        "release_identity_status": "release_binding_failed",
+    }
+    assert {
+        issue["code"] for issue in _validate_rollback(payload)
+    } == {"no_pointer_rollback_serving_state_mismatch"}
 
 
 def _full_fixture(tmp_path: Path) -> dict:

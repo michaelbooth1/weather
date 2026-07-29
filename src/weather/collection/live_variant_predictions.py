@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from weather.paths import REPO_ROOT
 from weather.release_serving import (
     STATUS_BOUND,
+    STATUS_INACTIVE_SHADOW_BOUND,
     STATUS_RESEARCH_UNBOUND,
     STATUS_SHADOW_BOUND,
     VerifiedServingBundle,
@@ -156,7 +157,11 @@ def build_live_variant_prediction_rows(
             pointer_present=False,
         )
     )
-    if binding.status in {STATUS_BOUND, STATUS_SHADOW_BOUND}:
+    if binding.status in {
+        STATUS_BOUND,
+        STATUS_INACTIVE_SHADOW_BOUND,
+        STATUS_SHADOW_BOUND,
+    }:
         variants = _release_bound_variants(binding, market_id)
     elif binding.status == STATUS_RESEARCH_UNBOUND:
         registry = load_registry(registry_path)
@@ -825,50 +830,97 @@ def _band_binary_probabilities(
     band_rows: list[dict[str, Any]],
     context: dict[str, Any],
 ) -> dict[str, float]:
+    return trace_pooled_band_binary_probabilities(
+        artifact,
+        feature_vector,
+        band_rows,
+        context,
+    )["probabilities"]
+
+
+def trace_pooled_band_binary_probabilities(
+    artifact: dict[str, Any],
+    feature_vector: dict[str, Any],
+    band_rows: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Run the canonical pooled-band runtime and retain each probability stage."""
+
     from weather.model.variant_prediction_runtime import apply_band_postprocessing, predict_band_rows_for_bundle
 
     records = _band_prediction_records(feature_vector, band_rows)
     if not records:
-        return {}
+        return {"probabilities": {}, "stages": {}, "stage_order": []}
     hour = str(records[0].get("cutoff_hour") or (context.get("captured_at").hour if context.get("captured_at") else ""))
     bundle = (artifact.get("models") or {}).get(hour)
     if not bundle:
         raise ValueError(f"artifact has no live model for cutoff hour {hour!r}")
     raw = predict_band_rows_for_bundle(bundle, records, postprocess=False)
     postprocess = artifact.get("postprocess") or {}
-    probabilities = {}
+    raw_probabilities: dict[str, float] = {}
+    postprocessed_probabilities: dict[str, float] = {}
     for band, record, probability in zip(band_rows, records, raw):
         p = _maybe_float(probability)
         if p is None:
             continue
+        key = band_key(band)
+        raw_probabilities[key] = float(p)
         if _postprocess_enabled(postprocess):
             p = apply_band_postprocessing(p, record, config=postprocess)
-        probabilities[band_key(band)] = max(0.0, min(1.0, float(p)))
+        postprocessed_probabilities[key] = max(0.0, min(1.0, float(p)))
     partition_normalization_enabled = postprocess.get(
         "partition_normalization_enabled",
         True,
     )
+    preblend_probabilities = dict(postprocessed_probabilities)
     if partition_normalization_enabled:
-        probabilities = _normalize_probability_partition(
-            probabilities,
+        preblend_probabilities = _normalize_probability_partition(
+            preblend_probabilities,
             float(postprocess.get("partition_normalization_gamma", 1.25)),
         )
-    probabilities = _apply_current_blend(
-        probabilities,
+    blended_probabilities = _apply_current_blend(
+        preblend_probabilities,
         band_rows,
         postprocess,
         str(feature_vector.get("market_id") or context.get("market_id") or ""),
         feature_vector=feature_vector,
         source_diagnostics=(context.get("model") or {}).get("source_diagnostics"),
     )
+    final_probabilities = dict(blended_probabilities)
     if (
         partition_normalization_enabled
         and postprocess.get("current_blend_enabled", False)
     ):
         # A band-specific blend policy is not a convex combination of whole
         # simplexes.  Restore the categorical mass after the shared row blend.
-        probabilities = _normalize_probability_partition(probabilities, 1.0)
-    return probabilities
+        final_probabilities = _normalize_probability_partition(
+            final_probabilities,
+            1.0,
+        )
+    return {
+        "probabilities": final_probabilities,
+        "stage_order": [
+            "candidate_raw",
+            "candidate_postprocessed",
+            "candidate_preblend",
+            "candidate_current_blend",
+            "candidate_final",
+        ],
+        "stages": {
+            "candidate_raw": raw_probabilities,
+            "candidate_postprocessed": postprocessed_probabilities,
+            "candidate_preblend": preblend_probabilities,
+            "candidate_current_blend": blended_probabilities,
+            "candidate_final": final_probabilities,
+        },
+        "cutoff_hour": hour,
+        "partition_normalization_enabled": bool(
+            partition_normalization_enabled
+        ),
+        "current_blend_enabled": bool(
+            postprocess.get("current_blend_enabled", False)
+        ),
+    }
 
 
 def _density_probabilities(
