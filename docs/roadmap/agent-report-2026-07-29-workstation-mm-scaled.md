@@ -1,23 +1,108 @@
-# Workstation handback — 2026-07-29: scaled MM queue stopped safely on storage
+# Workstation handback — 2026-07-29: cleanup landed, MM queue still storage-blocked
 
 ## Headline
 
-**NOT DONE / RESUMABLE.** I pulled `origin/master` at
-`32316de278614367219dd1958117c52f20f54e97`, kept the accepted scaled-MM
-implementation frozen at
-`c6319fa12788ab68fd83154205185ae3def695fc`, and started the commercially
-important `-28c` queue first.
+**NOT DONE / STOPPED AS DIRECTED.** I merged `origin/master` at
+`7417f433fb57a37a9b5740be981ac52cb8fd8266` into the topic branch, kept the
+accepted scaled-MM implementation frozen at
+`c6319fa12788ab68fd83154205185ae3def695fc`, and executed the `-29b` cleanup
+before any further MM work.
 
-The fresh Gamma catalog is complete and reproduces the historical 7/9/11-band
-regimes. The resumable Data API backfill reached 1,619 terminal completions
-and 17 explicit validation gaps before I stopped it with 50.444 GiB free.
-There are 147 valid events left. Continuing projected through the host's
-50 GiB safety floor, so I did not manufacture space by deleting, compressing,
-or rewriting evidence.
+Free space was only 31.197 GiB immediately before cleanup. I removed
+25.025 GiB of exact, authorized scratch state: rebuildable replay caches,
+clean pushed/handed-back worktrees, pytest roots, duplicate dependency
+environments, and superseded MM run roots. The drive finished at 56.285 GiB.
+That is 9.715 GiB below the handoff's 66 GiB admission floor, so I stopped
+again instead of deleting report-bound evidence, any `data/` path, or any
+production-data junction.
 
-Mission 2 analysis, Mission 3 rewards, and the subsequently queued cool-bias
-score are `NOT_RUN`. The frozen sequence forbids them before a terminal
-backfill.
+The frozen v7 backfill therefore remains at 1,619 terminal completions,
+17 explicit validation gaps, and 147 valid events left. Mission 2 analysis,
+Mission 3 rewards, and cool-bias scoring remain `NOT_RUN`. Item 325 warm-tier
+work (`-29c`) remains `NOT_STARTED`, because its handoff explicitly places it
+after completed `-29b`.
+
+## `-29b` storage reclaim
+
+The action-bound free-space readings were:
+
+| Reading | Bytes | GiB |
+| --- | ---: | ---: |
+| before the first unlink | 33,497,219,072 | 31.197 |
+| after the authorized set | 60,435,828,736 | 56.285 |
+| drive-observed increase | 26,938,609,664 | 25.088 |
+
+The inventory sum is authoritative for what was removed; the small difference
+from the drive-observed increase reflects concurrent host writes while the
+cleanup ran.
+
+| Authorized class | Files | Bytes | GiB |
+| --- | ---: | ---: | ---: |
+| three July 22 H1 replay-cache roots | 21 | 20,527,872,905 | 19.119 |
+| 12 clean pushed/handed-back worktrees | 19,870 | 5,023,691,707 | 4.679 |
+| 17 pytest/environment/superseded-run targets | 38,046 | 1,318,794,780 | 1.228 |
+| **Total** | **57,937** | **26,870,359,392** | **25.025** |
+
+The largest single contributor was
+`weather-workstation-research-2026-07-22\scratch\workstation-research-output\workstream_a\h1\cache`:
+9 files, 19,525,481,808 bytes (18.185 GiB). It was the explicit
+`--cache-root` for a fully pushed July 22 report. Its compact reports, result
+artifacts, frozen commands, and canonical rebuild inputs were left in place.
+Two nested H1 replay caches added another 1,002,391,097 bytes, making
+rebuildable replay caches the largest cleanup class at 19.119 GiB.
+
+The 12 worktrees were clean and either exact at their pushed upstream or a
+handed-back detached baseline. Their tracked states and branches remain in
+Git/remotes; ignored worktree-local temp state is not recoverable from the
+Recycle Bin. The pytest roots, environments, and replay caches are likewise
+not in the Recycle Bin, but are rebuildable.
+
+Hard exclusions remained untouched:
+
+- the active v7 packet and its 5.065 GB of source evidence;
+- the frozen cool-bias packet and every input it hash-binds;
+- regime-split, clean-gap, sharpening, deficit, skill-gap, and profit-edge
+  result artifacts that support pushed report numbers;
+- the active MM code worktree, current report worktree, live-canary worktree,
+  and unpushed model-learning worktree;
+- remaining pushed evidence beneath the July 22 research worktree;
+- every `data/` root, mirror path, and junction targeting production data.
+
+No real-data file was applied, deleted, moved, rewritten, or compressed.
+
+## Identity-amendment decision
+
+**AUTHORIZED IN PRINCIPLE, NOT LANDED.** The narrowest uniform amendment is to
+allow an exact-empty JSON string `eventSlug: ""` to use the already-bound
+catalog event identity. The rule would apply to every event. Absent, null,
+whitespace-only, and wrong nonempty slugs would still fail. All other exact
+condition, token, local-day, transaction, side, economics, outcome, and
+deduplication checks remain unchanged.
+
+The four handoff checks currently stand as follows:
+
+1. **Uniform rule:** designed; it is not conditioned on the 17 failures.
+2. **Committed before scoring:** preserved. No analysis or held-out score has
+   run, and no analysis artifact exists.
+3. **Reproduce the existing 1,619:** not yet proven, so the amendment has not
+   been accepted. The frozen baseline is 1,619 receipts (1,618 positive,
+   1 empty), 2,946,985 canonical rows, zero duplicates, 362 local completions,
+   and 268 primary completions.
+4. **Coverage delta:** unchanged at this stop: 1,619 complete before and after,
+   17 explicit gaps, and 147 valid nonterminal events.
+
+V7's predeclaration forbids changing its frozen program in place. Once storage
+reaches 66 GiB, the safe sequence is to finish the 147 under unchanged v7,
+then build a separately predeclared v8 cache-only packet. Its independent gate
+must dual-parse both the original 1,619 and every terminal v7 completion and
+require identical rows, canonical IDs, CSV bytes, status, request tree, and
+local/primary membership before the exact-empty amendment can recover any gap.
+Network must be mechanically disabled for that replay.
+
+Because analysis is still `NOT_RUN`, there is no defensible verdict-change
+bound yet. The seven unresolved July 9 primary events could still change tier
+selection, so decision authority remains null rather than being inferred from
+the complete subset.
 
 ## Frozen v7 packet
 
@@ -121,7 +206,11 @@ There is no terminal backfill manifest yet.
 ## The 17 gaps
 
 Every failure is the same frozen contract violation: at least one returned
-execution lacks `eventSlug`. No row was relabeled after inspection.
+execution has the exact JSON string `eventSlug: ""`. Across the 17 retained
+HTTP-200 responses, 271 of 32,340 otherwise-valid rows have that exact-empty
+value. None omit the key, use null or whitespace, supply a wrong nonempty slug,
+or violate the remaining condition/token/time/economics checks. No row was
+relabeled after inspection.
 
 - Ten failures are vendor-only events on 2026-05-14 or 2026-05-21.
 - Seven are local, primary, price-history events on 2026-07-09:
@@ -132,13 +221,11 @@ decision-grade tier selection even after the remaining 147 events are
 fetched. It can still run and disclose partial/descriptive estimates, but its
 decision authority must remain null.
 
-Recovering these events would require a new **pre-score** identity amendment,
-for example admitting a missing `eventSlug` only when event-local condition,
-token, side, economics, and exchange-time identity are otherwise exact and no
-conflicting nonempty slug exists. I did not make that post-response policy
-change.
+Recovering these events requires the separately frozen **pre-score** v8
+identity amendment and equivalence gate described above. No policy or
+canonical row changed in v7.
 
-## Why I stopped
+## Initial stop and current stop
 
 The run began with 55.311 GiB free and stopped with 50.444 GiB free. Provider
 evidence alone now occupies:
@@ -154,12 +241,19 @@ rewards window also needs roughly 11–14 GiB of capture headroom.
 
 Before resuming, I recommend at least **66 GiB free, preferably 70 GiB**. That
 keeps the 50 GiB floor through the remaining backfill, analysis outputs,
-37,770 reward variants, and live capture. No cleanup action is authorized by
-this report.
+37,770 reward variants, and live capture.
+
+The subsequent `-29b` cleanup recovered the full high-confidence authorized
+set but ended at 56.285 GiB. The remaining approximately 9.715 GiB cannot be
+obtained from the inventoried scope without touching active packets,
+report-bound evidence, unpushed work, `data/`, or production-data junctions.
+The handoff explicitly says to stop in that state, so no fetch or score was
+started.
 
 ## Resume and queue order
 
-After a fresh quiet-window host admission:
+Do not resume until a fresh quiet-window host admission proves at least
+66 GiB free. Then:
 
 ```powershell
 cd C:\Users\Michael\Documents\github\weather\scratch\workstation-research-output\mm-scaled-20260728c-v7
@@ -168,12 +262,16 @@ cd C:\Users\Michael\Documents\github\weather\scratch\workstation-research-output
   --min-request-interval-seconds 0.5
 ```
 
-Then, in frozen order:
+Continue in this order:
 
-1. validate the terminal backfill independently;
-2. run and verify scaled analysis;
-3. admit and run the 37,770-variant rewards probe;
-4. only then score the cool-bias packet.
+1. validate the terminal v7 backfill independently;
+2. freeze v8, prove exact equivalence for the original 1,619 and all terminal
+   v7 completions, then replay cache-only with network disabled;
+3. verify the coverage delta and run/verify scaled analysis, including the
+   complete-subset verdict-change bound;
+4. admit and run the 37,770-variant rewards probe;
+5. score and verify the cool-bias packet, with held-out/no-op first;
+6. only after completed `-29b`, begin `-29c` item 325 warm-tier work.
 
 The cool-bias packet is already predeclared and self-tested, but unscored:
 
