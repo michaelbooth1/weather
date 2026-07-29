@@ -15,6 +15,9 @@ These instructions apply to `config/`.
   `no_market_extra_locations.json` as reviewed registries. Preserve schema,
   provenance, lifecycle, and archive fields; do not reformat or prune entries
   opportunistically.
+- Treat `storage_pressure.json` as an operator activation policy. Its checked-in
+  default must preserve current capture; activation is a separately reviewed
+  production operation, not part of a code merge.
 - Never add credentials, secrets, machine-specific paths, or paid-weather
   provider requirements to checked-in config.
 

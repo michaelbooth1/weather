@@ -469,9 +469,12 @@ def attach_marine_contrast_slice_context(copy, feature_row=None, band_row=None):
         copy[column] = value
         band_row[column] = value
 
-def _model_for_market(models, market_id):
+def _model_for_market(models, market_id, serving_bundle=None):
     if market_id not in models:
-        models[market_id] = TorontoHighTempModel(market_id=market_id)
+        models[market_id] = TorontoHighTempModel(
+            market_id=market_id,
+            serving_bundle=serving_bundle,
+        )
     return models[market_id]
 
 
@@ -626,7 +629,13 @@ def _record_feature_row(
     return row
 
 
-def build_candidate_features(manifest, snapshots_root, family_unit, artifact=None):
+def build_candidate_features(
+    manifest,
+    snapshots_root,
+    family_unit,
+    artifact=None,
+    serving_bundle=None,
+):
     """Return (market_id, snapshot_id) -> feature row for candidate scoring."""
     models = {}
     climates = {}
@@ -676,7 +685,11 @@ def build_candidate_features(manifest, snapshots_root, family_unit, artifact=Non
             diagnostics["excluded_non_family_snapshots"] += len(pinned_ids)
             continue
 
-        model = _model_for_market(models, market_id)
+        model = _model_for_market(
+            models,
+            market_id,
+            serving_bundle=serving_bundle,
+        )
         climate = _climate_for_market(
             climates, model, market_id, production_context
         )
@@ -1715,6 +1728,7 @@ def _compute_pooled_candidate_day(
     family_unit,
     prediction_mode,
     defer_settlement_join=False,
+    serving_bundle=None,
 ):
     day_manifest = _single_entry_manifest(manifest, folder, args.snapshots_root)
     replay_results = run_replay_backtest(
@@ -1726,6 +1740,7 @@ def _compute_pooled_candidate_day(
         write=False,
         corpus_manifest=day_manifest,
         long_job_guard_info=getattr(args, "long_job_guard_info", None),
+        serving_bundle=serving_bundle,
     )
     if prediction_mode == "band_binary":
         labels_by_identity = None
@@ -1739,6 +1754,7 @@ def _compute_pooled_candidate_day(
             args.snapshots_root,
             family_unit,
             artifact=artifact,
+            serving_bundle=serving_bundle,
         )
         clob_features, clob_diagnostics = build_clob_feature_index(
             day_manifest,
@@ -1771,6 +1787,7 @@ def _compute_pooled_candidate_day(
             args.snapshots_root,
             family_unit,
             artifact=artifact,
+            serving_bundle=serving_bundle,
         )
         source_diagnostics, source_diagnostics_summary = (
             build_residual_source_diagnostics_index(
@@ -1793,6 +1810,7 @@ def _compute_pooled_candidate_day(
             args.snapshots_root,
             family_unit,
             artifact=artifact,
+            serving_bundle=serving_bundle,
         )
         source_freshness, source_freshness_diagnostics = build_source_freshness_index(
             day_manifest,

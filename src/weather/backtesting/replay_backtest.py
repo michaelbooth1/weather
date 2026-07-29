@@ -295,9 +295,17 @@ def settlement_distance_bucket(value):
     return "3+"
 
 
-def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
-                        include_reconstructed=False, write=True,
-                        corpus_manifest=None, long_job_guard_info=None):
+def run_replay_backtest(
+    folders,
+    daily_summary_path,
+    overrides,
+    out_path,
+    include_reconstructed=False,
+    write=True,
+    corpus_manifest=None,
+    long_job_guard_info=None,
+    serving_bundle=None,
+):
     # Each folder replays through ITS OWN market's model (spec, unit, artifacts,
     # climatology) and settles against its own market's daily summary; one
     # Toronto model for every folder silently mis-replayed the 11 F markets.
@@ -306,7 +314,10 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
 
     def model_for_market(market_id):
         if market_id not in models:
-            models[market_id] = TorontoHighTempModel(market_id=market_id)
+            models[market_id] = TorontoHighTempModel(
+                market_id=market_id,
+                serving_bundle=serving_bundle,
+            )
         return models[market_id]
 
     daily_indexes = {}
@@ -351,7 +362,6 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
             print(f"  skip {Path(folder).name}: no replay_inputs.jsonl (capture not yet seeded)")
             continue
         model = model_for_market(market_id)
-        daily_index = daily_index_for_market(market_id)
         df = pd.read_csv(tape_path)
         if "snapshot_id" not in df:
             continue
@@ -371,6 +381,7 @@ def run_replay_backtest(folders, daily_summary_path, overrides, out_path,
         if pinned_settlement:
             bucket, source, note = pinned_settlement
         else:
+            daily_index = daily_index_for_market(market_id)
             bucket, source, note = settlement_for_tape(df, target_date, daily_index, overrides)
         feature_index = load_feature_vectors(folder)
 

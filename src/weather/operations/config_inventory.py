@@ -60,6 +60,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "backfill_or_archive_before_training",
         "max_age_days": None,
     },
+    "storage_pressure.json": {
+        "owner": "weather.market.storage_pressure_policy",
+        "classification": "operator_activation_policy",
+        "freshness_policy": "default_preserves_current_capture_until_operator_activation",
+        "max_age_days": None,
+    },
 }
 
 

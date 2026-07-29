@@ -45,6 +45,106 @@ Routine provider caches may be pruned after TTL expiry when no replay,
 promotion, or incident report references them. Forecast archives used for
 settled replay evidence are not routine cache.
 
+## Storage-Pressure Build
+
+The workstation storage-pressure tools are manual and dry-run first. They are
+not scheduled and a code merge performs no cleanup.
+
+`config/storage_pressure.json` owns the capture switch. The checked-in value
+`capture.write_order_books_long_csv=true` preserves current behavior. Missing,
+malformed, wrong-schema, duplicate-key, or non-boolean policy also fails safe
+to writing the projection. Setting the value to `false` skips only future
+`order_books_long.csv` appends; summary CSV and canonical
+`order_books.jsonl` capture continue, and existing long tables are untouched.
+
+Plan replay-cache retention from explicitly named reachability roots:
+
+```powershell
+python -m weather.operations.replay_cache_retention --cache-root <replay-cache-root> --corpus <pinned-promotion-corpus.json> --registry config\model_variant_registry.json --active-release-pointer <artifacts\releases\current_release.json> --releases-root <artifacts\releases> --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+The planner uses full cache keys and exact corpus/artifact/config identities.
+It never selects by age, modification time, or LRU. Missing or changing roots,
+unreadable subtrees, malformed entries, path/key mismatches, links, or any
+other ambiguity retain every provisional candidate. The recommended quota is
+10 GiB: it is deliberately far above the expected healthy cache working set
+and therefore detects runaway identity/config accumulation. It is a diagnostic
+ceiling, not an eviction policy; reachable entries are never selected even
+when reachable bytes exceed the quota. Rebuildable candidates must use a
+verified `production_static_context`; legacy artifacts that could consult
+mutable climate, source-reliability, reanalysis, or marine sidecars are
+retained. The plan also pins the genuine active pointer's exact identity plus
+the complete retained release manifest and declared artifact inventory. Apply
+resolves that same pointer through the strict
+release-root-contained serving path. The resolved `release_id`,
+`manifest_sha256`, and `release_dir` must match the approved plan; any active
+release drift aborts cleanup and requires a new plan.
+
+Apply also performs the real
+`_compute_pooled_candidate_day` cache-off computation for every exact
+corpus/artifact binding, compares the full six-field key plus `rows`,
+`replay_results`, `coverage`, and `diagnostics`, writes a durable
+`PRE_UNLINK` record, then repeats the computation and source/candidate
+verification immediately before the exact-file unlink. A mismatch or compute
+failure retains the candidate.
+
+After reviewing every candidate, edit only the manifest's
+`operator_review.approved`, `approved_by`, `approved_at_utc`, and `note`
+fields. Then bind apply to the edited file and repeat every planning root:
+
+```powershell
+$manifestHash = (Get-FileHash -Algorithm SHA256 <review-output-outside-data>\replay_cache_retention_manifest.json).Hash.ToLowerInvariant()
+python -m weather.operations.replay_cache_retention --apply --manifest <review-output-outside-data>\replay_cache_retention_manifest.json --expected-manifest-sha256 $manifestHash --cache-root <replay-cache-root> --corpus <pinned-promotion-corpus.json> --registry config\model_variant_registry.json --active-release-pointer <artifacts\releases\current_release.json> --releases-root <artifacts\releases> --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+The standalone two-file fixture comparison does not prove an actual rebuild,
+but can be run without unrelated plan inputs:
+
+```powershell
+python -m weather.operations.replay_cache_retention --rebuild-one-cache-entry <cache-entry.json> --rebuild-one-payload <rebuilt-payload.json> --output-root <proof-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+Plan closed-day projection tiering separately:
+
+```powershell
+python -m weather.operations.closed_day_projection_tiering plan --snapshots-root <data\snapshots> --as-of-date <YYYY-MM-DD> --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+python -m weather.operations.closed_day_projection_tiering rebuild-one --folder <closed-event-folder> --output-root <proof-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+The projection registry names every closed-day archive family, its canonical
+rebuild source, accepted reader representations, and its current blocker.
+Only `order_books_long` is eligible. It requires finalized closed-day evidence,
+a current event-day manifest, no writer lock, at least
+`MIN_QUIET_SECONDS` of source-write quiescence, canonical `order_books.jsonl`,
+and an exact byte-parity rebuild proof. Apply retains
+`order_books_long.csv.gz` and removes only the verified same-folder
+`order_books_long.csv`; it never treats the raw JSONL as disposable.
+
+After reviewing the tiering plan, edit only
+`operator_review.approved`, `approved_by`, `approved_at_utc`, `note`, and
+`approved_plan_hash`; the last value must exactly equal the unchanged top-level
+`plan_hash`. Apply uses the exact approved-manifest file identity:
+
+```powershell
+python -m weather.operations.closed_day_projection_tiering apply --approved-manifest <review-output-outside-data>\closed_day_projection_tiering_plan.json --output-root <review-output-outside-data> --protected-root <production-data-root> --protected-root <mirror-data-root>
+```
+
+Current market-making runtime consumes `order_books_summary.csv`, which remains
+untouched. Future full-depth corpus readers must use
+`weather.market.order_book_tape`: canonical JSONL first, then gzip CSV, then
+plain CSV. The long-table column contract has been unchanged since its
+introduction, and gzip fallback is covered by fixture tests. Production
+85-GiB replay remains an operator rehearsal and is not implied by unit tests.
+
+For either tool, apply requires an externally reviewed exact manifest,
+`cleanup_preflight`, immediate identity/byte/SHA/key re-verification, and
+durable per-action JSON and Markdown receipts. The tools stop on the first
+failure and never remove directories. Every production data or mirror boundary
+must be supplied with a repeated `--protected-root`; output is rejected if it
+overlaps any one of them, while the source data root is independently derived
+and protected as well. Do not use these commands against production data until
+the operator has reviewed the dry run and scheduled the quiet window.
+
 ## Shared Forecast Payload CAS
 
 New explicitly market-invariant forecast responses use the shared immutable

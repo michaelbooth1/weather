@@ -121,11 +121,22 @@ and schema-safe. Raw evidence references remain permanent.
 | `price_history` | `price_history.csv`, `price_history.csv.gz` | `price_history.jsonl`, `price_history_raw_manifest.jsonl`, `price_history_raw/*.json` |
 | `market_ws_events` | `market_ws_events.csv`, `market_ws_events.csv.gz` | `market_ws.jsonl` |
 | `clob_features_long` | `clob_features_long.csv`, `clob_features_long.csv.gz` | `clob_features.jsonl`, raw CLOB tapes |
-| `variant_predictions_long` | `variant_predictions_long.csv`, `variant_predictions_long.csv.gz` | `live_variant_predictions.jsonl` |
+| `variant_predictions_long` | `variant_predictions_long.csv`, `variant_predictions_long.csv.gz` | `variant_predictions.jsonl`, legacy `live_variant_predictions.jsonl` |
 
 If a family is missing, the manifest records `status=missing_source`. If a
 family is retained only as raw evidence because the JSONL shape is unstable,
 the manifest records `status=raw_reference_only`.
+
+Projection cleanup eligibility is stricter than archive readability. The
+complete cleanup registry lives in
+`weather.operations.closed_day_projection_registry`; it records exact
+canonical rebuild sources, accepted canonical/Parquet/gzip/text
+representations, and an explicit blocker for every ineligible family. At
+present only
+`order_books_long.csv` is eligible for verified gzip tiering. Every other
+family remains blocked until its exact rebuild and every direct gzip reader
+have fixture proof. The retained `order_books_long.csv.gz` is a serving
+projection; `order_books.jsonl` remains canonical evidence.
 
 ## Validation
 
