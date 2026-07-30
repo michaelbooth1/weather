@@ -2,7 +2,15 @@
 """Toronto code-soak STREAK status -- the single most important operational check.
 
 Answers, in one command: how many CONTIGUOUS `complete`-grade Toronto days do we
-have (the gate to release #1), and is TODAY on track to grade `complete`?
+have, and is TODAY on track to grade `complete`?
+
+This is the OPERATIONAL capture clock, and it is NOT by itself the gate to release
+#1. Complete-grade capture is necessary but not sufficient for point-in-time
+admission: a date also has to be wholly strict-readable (every bounded JSONL line
+parses, self-hashes verify, distributions are finite/nonnegative/mass-preserving,
+no reconstructed input). Reaching 14 here is an invitation to run the strict lock,
+not proof that it will pass -- 2026-07-24 is complete-grade AND blocked by one
+malformed line. Keep two clocks; see docs/ops/streak-soak.md.
 
 Authoritative source is the settlement ledger, NOT market_day_labels.csv (that CSV
 is a lagging promotion artifact -- it can show an older date while the ledger already
@@ -13,7 +21,12 @@ Grade rule (mirrors src/weather/collection/collection_health.py):
   * a "gap" = consecutive snapshot captures spaced > interval * 1.5 apart
     (snapshot loop interval = 10 min -> 15 min threshold)
   * a day is clean only if it has captures spanning 12:00->18:00 with no in-window gap
-  * streak eligibility counts quality_grade in {complete, manual_override}
+  * streak eligibility requires quality_grade == "complete", exactly, because
+    latest_toronto_lock_revisions (weather.operations.point_in_time_staging_receipt)
+    requires exactly that. This counter previously also accepted
+    "manual_override", which meant it could reach 14 while the staging receipt
+    rejected the same dates. No ledger row has ever carried that grade, so the
+    divergence was latent, but the looser rule is the wrong one to keep.
 
 Pure stdlib, zero imports from the weather package: it can never roll a capture loop
 and runs even if the package is mid-refactor.
@@ -37,7 +50,12 @@ LEDGER = REPO / "data" / "settlements" / "toronto" / "ledger.jsonl"
 LABELS = REPO / "data" / "backtest" / "market_day_labels.csv"
 SNAPS = REPO / "data" / "snapshots"
 
-COMPLETE_GRADES = {"complete", "manual_override"}
+# Exactly "complete" -- must stay identical to latest_toronto_lock_revisions.
+COMPLETE_GRADES = {"complete"}
+# Grades that used to count here. Surfaced loudly rather than silently dropped, so
+# a day that stops counting is visible as a reason rather than an unexplained
+# decrement.
+DEMOTED_GRADES = {"manual_override"}
 TARGET_STREAK = 14
 AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
@@ -216,6 +234,10 @@ def build_report() -> dict:
     labels_latest = labels_latest_toronto_date(LABELS)
     promotion_lag = bool(latest and labels_latest and labels_latest < latest)
 
+    # Dates the old looser rule would have counted. Never silently absorbed: a day
+    # that does not count must show a reason.
+    demoted = [d for d in recent if grades[d] in DEMOTED_GRADES]
+
     today = dt.date.today()
     today_settled = today.isoformat() in grades
     today_health = None if today_settled else today_capture_health(today)
@@ -230,6 +252,7 @@ def build_report() -> dict:
         "recent_tape": [{"date": d, "grade": grades[d]} for d in recent],
         "complete_rate_last14": f"{completes}/{len(recent)}",
         "complete_rate_last8": f"{completes8}/{len(last8)}",
+        "demoted_grades_present": demoted,
         "promotion_lag": promotion_lag,
         "ledger_latest": latest,
         "labels_latest": labels_latest,
@@ -250,9 +273,16 @@ def print_human(rep: dict) -> None:
         print(f"  need         : {rep['target'] - rep['streak_days']} more clean days -> "
               f"lock ~{rep['projected_lock_date_if_all_clean']} IF every day is complete")
     else:
-        print("  LOCKABLE: 14-day window is available -- run the PIT preselection.")
+        print("  CAPTURE CLOCK FULL: 14 contiguous complete days. This is necessary,")
+        print("  NOT sufficient -- run the PIT preselection to find out if the window")
+        print("  is actually admissible (strict-readability is a separate gate).")
     print(f"  complete rate: {rep['complete_rate_last8']} (last 8), "
           f"{rep['complete_rate_last14']} (last 14)")
+    if rep["demoted_grades_present"]:
+        print(f"  NOTE: {len(rep['demoted_grades_present'])} date(s) carry a grade this "
+              f"counter no longer accepts")
+        print(f"        (must be exactly 'complete' to match the staging receipt): "
+              f"{', '.join(rep['demoted_grades_present'])}")
     print()
     print("  recent tape (newest last):")
     for row in rep["recent_tape"]:
