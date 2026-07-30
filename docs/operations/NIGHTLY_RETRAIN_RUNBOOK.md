@@ -251,10 +251,11 @@ python -m weather.operations.all_shadow_release_bootstrap `
 
 If the tracked research bundle predates the required corpus-lineage contract,
 add `--model-source-release <verified-immutable-release-directory>`. The builder
-reverifies that release without adopting its runtime identity and copies only
-its hash-bound `pooled_band_model` role. The new release still freezes the
-current tracked family-secondary manifest, artifact registry, runtime market
-set, and base graph.
+reverifies that release without adopting its runtime identity, copies its
+hash-bound `pooled_band_model` role, and imports the corpus lineage from the
+same release's model-bound `training_evaluation_corpus` role. The new release
+still freezes the current tracked family-secondary manifest, artifact registry,
+runtime market set, and base graph.
 
 The builder requires a clean code identity and the exact runtime fleet
 (Toronto in C plus eleven F markets). It copies the tracked pooled F bundle,

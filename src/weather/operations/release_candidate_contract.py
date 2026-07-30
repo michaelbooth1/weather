@@ -744,8 +744,17 @@ def _corpus_manifest(
     bundle_sha256: str,
     *,
     production_evaluation: Mapping[str, Any] | None = None,
+    research_corpus_lineage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    lineage = _json_safe(bundle.get("corpus_lineage") or {})
+    if production_evaluation is not None and research_corpus_lineage is not None:
+        raise CandidateContractError(
+            "production evaluation and research corpus lineage overrides are mutually exclusive"
+        )
+    lineage = _json_safe(
+        research_corpus_lineage
+        if research_corpus_lineage is not None
+        else bundle.get("corpus_lineage") or {}
+    )
     if production_evaluation is not None:
         trainer_evaluation = lineage.get("evaluation")
         lineage["evaluation"] = _json_safe(production_evaluation)
@@ -778,6 +787,13 @@ def _corpus_manifest(
             "schema_version": schema_version("release_training_evaluation_corpus"),
             "bundle_sha256": bundle_sha256,
             "corpus_lineage": lineage,
+            "lineage_source": (
+                "verified_immutable_release"
+                if research_corpus_lineage is not None
+                else "production_point_in_time_qualification"
+                if production_evaluation is not None
+                else "candidate_bundle"
+            ),
         }
     )
 
@@ -1324,6 +1340,7 @@ def freeze_candidate_semantic_contract(
     family_unit: str,
     candidate_mode: str = RESEARCH_ONLY_CANDIDATE_MODE,
     point_in_time_artifacts: Mapping[str, str | Path] | None = None,
+    research_corpus_lineage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Freeze configs/sidecars, persist leakage evidence, and verify exact PASS."""
 
@@ -1334,6 +1351,10 @@ def freeze_candidate_semantic_contract(
         raise CandidateContractError(f"unsupported candidate mode: {mode!r}")
     point_in_time_sources = dict(point_in_time_artifacts or {})
     if mode == PRODUCTION_CANDIDATE_MODE:
+        if research_corpus_lineage is not None:
+            raise CandidateContractError(
+                "production candidate cannot use a research corpus-lineage override"
+            )
         if set(point_in_time_sources) != set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS):
             raise CandidateContractError(
                 "production candidate requires the exact point-in-time artifact role set"
@@ -1488,6 +1509,7 @@ def freeze_candidate_semantic_contract(
         bundle,
         bundle_sha,
         production_evaluation=production_evaluation,
+        research_corpus_lineage=research_corpus_lineage,
     )
     generated = {
         **sidecars,

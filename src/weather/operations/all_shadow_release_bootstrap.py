@@ -229,6 +229,50 @@ def _verified_release_role_source(
     }
 
 
+def _verified_release_research_lineage(
+    source_release_dir: str | Path,
+    *,
+    expected_bundle_sha256: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    release_dir = Path(source_release_dir).resolve()
+    verified = verify_release(release_dir, check_runtime=False)
+    manifest = verified.get("manifest")
+    inventory = (
+        ((manifest or {}).get("artifacts") or {}).get("inventory")
+        if isinstance(manifest, Mapping)
+        else None
+    )
+    matches = [
+        row
+        for row in inventory or ()
+        if isinstance(row, Mapping) and row.get("role") == "training_evaluation_corpus"
+    ]
+    if verified.get("status") != "PASS" or len(matches) != 1:
+        raise AllShadowBootstrapError(
+            "source release does not verify with exactly one "
+            f"training_evaluation_corpus role: {release_dir}"
+        )
+    row = matches[0]
+    path = release_dir / str(row.get("path") or "")
+    payload = _read_contract_json(path, label="source release training/evaluation corpus")
+    if (
+        sha256_file(path) != row.get("sha256")
+        or payload.get("bundle_sha256") != expected_bundle_sha256
+        or not isinstance(payload.get("corpus_lineage"), Mapping)
+    ):
+        raise AllShadowBootstrapError(
+            "source release training/evaluation corpus is not bound to the selected model"
+        )
+    return dict(payload["corpus_lineage"]), {
+        "role": "training_evaluation_corpus",
+        "role_sha256": row.get("sha256"),
+        "payload_sha256": payload.get("payload_sha256"),
+        "bundle_sha256": payload.get("bundle_sha256"),
+        "lineage_source_release_id": manifest.get("release_id"),
+        "lineage_source_manifest_sha256": verified.get("manifest_sha256"),
+    }
+
+
 def _read_contract_json(path: Path, *, label: str) -> dict[str, Any]:
     try:
         payload = strict_json_loads(path.read_text(encoding="utf-8"), label=label)
@@ -325,6 +369,7 @@ def build_all_shadow_release(
     if code.get("git_dirty") is not False:
         raise AllShadowBootstrapError("all-shadow release bootstrap requires a clean source tree")
     source_rows = []
+    research_corpus_lineage: dict[str, Any] | None = None
     source_provenance: dict[str, Any] = {
         "pooled_band_model": {
             "kind": "tracked_repository_artifact",
@@ -362,6 +407,21 @@ def build_all_shadow_release(
         row["candidate_relative_path"] = candidate_relative
         source_rows.append(row)
         candidate_paths[role] = destination
+    if model_source_release is not None:
+        research_corpus_lineage, lineage_proof = (
+            _verified_release_research_lineage(
+                model_source_release,
+                expected_bundle_sha256=next(
+                    row["sha256"]
+                    for row in source_rows
+                    if row["role"] == "pooled_band_model"
+                ),
+            )
+        )
+        source_provenance["training_evaluation_corpus"] = {
+            "kind": "verified_immutable_release_role",
+            **lineage_proof,
+        }
     promotion = all_shadow_promotion()
     semantic = freeze_candidate_semantic_contract(
         candidate_dir=candidate_dir,
@@ -374,6 +434,7 @@ def build_all_shadow_release(
         promotion=promotion,
         family_unit="F",
         candidate_mode=RESEARCH_ONLY_CANDIDATE_MODE,
+        research_corpus_lineage=research_corpus_lineage,
     )
     contract_summary = _verify_all_shadow_contract(
         candidate_dir=candidate_dir,
