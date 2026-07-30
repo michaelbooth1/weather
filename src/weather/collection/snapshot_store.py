@@ -46,6 +46,10 @@ from weather.collection.live_variant_predictions import (
     LIVE_VARIANT_PREDICTION_COLUMNS,
     build_live_variant_prediction_rows,
 )
+from weather.captured_input_hash import (
+    CAPTURED_INPUT_HASH_ALGORITHM,
+    captured_input_payload_sha256,
+)
 from weather.market.market_config import config_for_date, config_from_event
 from weather.market.snapshot_cadence_quality import snapshot_cadence_quality
 from weather.model.feature_store import (
@@ -103,10 +107,13 @@ MODEL_VERSION = MODEL_VERSION_HGB
 REPLAY_SCHEMA_VERSION = schema_version("replay_inputs")
 FORECAST_PAYLOAD_SCHEMA_VERSION = schema_version("forecast_payload_manifest")
 OBSERVATION_PAYLOAD_SCHEMA_VERSION = schema_version("observation_payload_manifest")
-CAPTURED_INPUT_HASH_ALGORITHM = "sha256-canonical-json;omit=captured_input_hash"
 REPLAY_RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
+# Snapshot transactions normally complete in seconds. Preserve a live owner's
+# lock through unusually large payload writes, but bound that protection so a
+# recycled PID cannot strand the market indefinitely.
+SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS = 60 * 60
 RESIDUAL_SHADOW_RELEASE_DIR_ENV = (
     "WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_RELEASE_DIR"
 )
@@ -158,6 +165,43 @@ def _json_digest_and_size(payload, algorithm, **encoder_options):
         digest.update(byte_chunk)
         payload_bytes += len(byte_chunk)
     return digest.hexdigest(), payload_bytes
+
+
+def _process_is_running(pid):
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        synchronize = 0x00100000
+        wait_timeout = 0x00000102
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(
+            process_query_limited_information | synchronize,
+            False,
+            pid,
+        )
+        if not handle:
+            # Access denied is evidence that a process occupies the PID even
+            # though this account cannot inspect it. Fail closed and preserve
+            # the lock; other failures mean no queryable process owns the PID.
+            return kernel32.GetLastError() == 5
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _verified_serving_bundle_once_per_process() -> VerifiedServingBundle:
@@ -2973,7 +3017,10 @@ class SnapshotStore:
             "recorded_distribution": model.get("distribution") or {},
             "sources": sources,
         }
-        payload["captured_input_hash"] = canonical_payload_sha256(payload)
+        payload["captured_input_hash"] = captured_input_payload_sha256(
+            payload,
+            persisted=False,
+        )
         return payload
 
     def write_replay_input(
@@ -3043,7 +3090,21 @@ class SnapshotStore:
             age = time.time() - self.lock_path.stat().st_mtime
         except FileNotFoundError:
             return False
-        return age > 300
+        try:
+            owner_pid = int(self.lock_path.read_text(encoding="ascii").strip())
+        except (OSError, UnicodeError, ValueError):
+            # A legacy or torn lock has no trustworthy owner identity. Preserve
+            # it while fresh, then recover it using the historical age bound.
+            return age > 300
+        # A large replay payload can keep a healthy writer inside one snapshot
+        # transaction for more than five minutes. Preserve a live owner within
+        # the generous transaction bound, but recover after that bound because
+        # a recycled PID is not proof that the original writer still owns the
+        # lock.
+        return (
+            not _process_is_running(owner_pid)
+            or age > SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS
+        )
 
 
 if __name__ == "__main__":

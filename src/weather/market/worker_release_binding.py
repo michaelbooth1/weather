@@ -16,13 +16,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from weather.captured_input_hash import (
+    CAPTURED_INPUT_HASH_ALGORITHM,
+    captured_input_payload_sha256,
+)
 from weather.market.market_config import config_for_date
 from weather.market.market_microstructure_features import snapshot_band_key
 from weather.paths import REPO_ROOT
 from weather.release_artifacts import (
     DEFAULT_ACTIVE_RELEASE_POINTER,
     DEFAULT_RELEASES_ROOT,
-    canonical_payload_sha256,
     strict_json_loads,
 )
 from weather.release_serving import (
@@ -37,7 +40,6 @@ from weather.schema_registry import schema_version
 
 REPLAY_INPUT_FILENAME = "replay_inputs.jsonl"
 VERIFIED_RELEASE_IDENTITY_STATUS = "verified_variant_serving_bundle"
-CAPTURED_INPUT_HASH_ALGORITHM = "sha256-canonical-json;omit=captured_input_hash"
 REPLAY_INPUT_SCHEMA_VERSION = schema_version("replay_inputs")
 MAX_REPLAY_INPUT_LINE_BYTES = 8 * 1024 * 1024
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
@@ -179,9 +181,7 @@ def _matching_replay_inputs(
 
 def _verify_captured_input_hash(record: Mapping[str, Any], *, snapshot_id: str) -> None:
     claimed = str(record.get("captured_input_hash") or "")
-    unhashed = dict(record)
-    unhashed.pop("captured_input_hash", None)
-    actual = canonical_payload_sha256(unhashed)
+    actual = captured_input_payload_sha256(record, persisted=True)
     if len(claimed) != 64 or claimed != actual:
         raise WorkerReleaseBindingError(
             f"captured-input self-hash mismatch for snapshot {snapshot_id!r}"
