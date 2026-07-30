@@ -173,12 +173,59 @@ def _copy_exclusive(
         or sha256_file(source) != source_hash
     ):
         raise AllShadowBootstrapError(f"{role} changed or failed hash verification while copied")
-    return {
+    result = {
         "role": role,
-        "source_repo_relative_path": source.relative_to(repo_root).as_posix(),
+        "source_path": str(source),
         "candidate_relative_path": destination.as_posix(),
         "bytes": size,
         "sha256": source_hash,
+    }
+    try:
+        result["source_repo_relative_path"] = source.relative_to(repo_root).as_posix()
+    except ValueError:
+        result["source_repo_relative_path"] = None
+    return result
+
+
+def _verified_release_role_source(
+    source_release_dir: str | Path,
+    *,
+    role: str,
+) -> tuple[Path, dict[str, Any]]:
+    release_dir = Path(source_release_dir).resolve()
+    verified = verify_release(release_dir, check_runtime=False)
+    manifest = verified.get("manifest")
+    inventory = (
+        ((manifest or {}).get("artifacts") or {}).get("inventory")
+        if isinstance(manifest, Mapping)
+        else None
+    )
+    matches = [
+        row
+        for row in inventory or ()
+        if isinstance(row, Mapping) and row.get("role") == role
+    ]
+    if verified.get("status") != "PASS" or len(matches) != 1:
+        raise AllShadowBootstrapError(
+            f"source release does not verify with exactly one {role!r} role: {release_dir}"
+        )
+    row = matches[0]
+    source = release_dir / str(row.get("path") or "")
+    if (
+        source.is_symlink()
+        or not source.is_file()
+        or sha256_file(source) != row.get("sha256")
+    ):
+        raise AllShadowBootstrapError(
+            f"source release role {role!r} failed its immutable hash: {source}"
+        )
+    return source, {
+        "release_id": manifest.get("release_id"),
+        "release_manifest_sha256": verified.get("manifest_sha256"),
+        "role": role,
+        "role_sha256": row.get("sha256"),
+        "runtime_reverification_requested": False,
+        "integrity_verification_status": verified.get("status"),
     }
 
 
@@ -259,6 +306,7 @@ def build_all_shadow_release(
     repo_root: str | Path = REPO_ROOT,
     receipt_path: str | Path | None = None,
     expected_live_runtimes: Sequence[str] = DEFAULT_EXPECTED_RUNTIMES,
+    model_source_release: str | Path | None = None,
 ) -> dict[str, Any]:
     """Freeze and verify one inactive release; never create an active pointer."""
 
@@ -277,10 +325,33 @@ def build_all_shadow_release(
     if code.get("git_dirty") is not False:
         raise AllShadowBootstrapError("all-shadow release bootstrap requires a clean source tree")
     source_rows = []
+    source_provenance: dict[str, Any] = {
+        "pooled_band_model": {
+            "kind": "tracked_repository_artifact",
+            "path": SOURCE_ARTIFACTS["pooled_band_model"][0],
+        }
+    }
     candidate_dir.mkdir(parents=True)
     candidate_paths: dict[str, Path] = {}
     for role, (source_relative, candidate_relative) in SOURCE_ARTIFACTS.items():
-        source = repo_root / source_relative
+        if role == "pooled_band_model" and model_source_release is not None:
+            source, release_proof = _verified_release_role_source(
+                model_source_release,
+                role=role,
+            )
+            source_provenance[role] = {
+                "kind": "verified_immutable_release_role",
+                **release_proof,
+            }
+        else:
+            source = repo_root / source_relative
+            source_provenance.setdefault(
+                role,
+                {
+                    "kind": "tracked_repository_artifact",
+                    "path": source_relative,
+                },
+            )
         destination = candidate_dir / candidate_relative
         row = _copy_exclusive(
             source,
@@ -325,6 +396,7 @@ def build_all_shadow_release(
             "production_capable": False,
             "promotion": promotion,
             "source_artifacts": source_rows,
+            "source_provenance": source_provenance,
         },
         code_identity=code,
     )
@@ -363,6 +435,7 @@ def build_all_shadow_release(
         "promotion": promotion,
         "contract": contract_summary,
         "source_artifacts": source_rows,
+        "source_provenance": source_provenance,
         "verification": {
             "status": verified["status"],
             "semantic_candidate_mode": verified_semantic["candidate_mode"],
@@ -391,6 +464,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo-root", default=str(REPO_ROOT))
     parser.add_argument("--receipt-out")
     parser.add_argument(
+        "--model-source-release",
+        help=(
+            "optional previously verified immutable release whose pooled_band_model "
+            "role supplies the bundle when the tracked research bundle lacks lineage"
+        ),
+    )
+    parser.add_argument(
         "--expected-live-runtimes",
         default=",".join(DEFAULT_EXPECTED_RUNTIMES),
         help="comma-separated exact runtime identities",
@@ -410,6 +490,7 @@ def main(argv: list[str] | None = None) -> int:
             for value in args.expected_live_runtimes.split(",")
             if value.strip()
         ],
+        model_source_release=args.model_source_release,
     )
     print(json.dumps(result, sort_keys=True))
     return 0
