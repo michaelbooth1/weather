@@ -200,6 +200,67 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertIsNone(result.calibration_context["observed_floor_bucket"])
         self.assertIsNone(result.calibration_context["wu_history_floor_bucket"])
 
+    def test_celsius_station_rescue_supplies_the_same_feature_and_served_floor(self):
+        sources = {
+            "wu_history": {"ok": False, "error": "paid_provider_disabled"},
+            "station_observations": {
+                "ok": True,
+                "data": {
+                    "station_observation_source": "eccc_swob",
+                    "station_id": "CYYZ",
+                    "temp_native": 25.0,
+                    "max_since_7am_native": 26.0,
+                },
+            },
+        }
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+
+        features = self.model.extract_live_features(sources, cutoff_hour=14, now=now)
+        result = self.model.estimate_distribution_result(sources, now=now)
+
+        self.assertEqual(features["high_so_far"], 26.0)
+        self.assertEqual(result.calibration_context["observed_floor_bucket"], 26)
+        self.assertIsNone(result.calibration_context["wu_history_floor_bucket"])
+        self.assertEqual(
+            self.model.bin_probability(
+                result.distribution,
+                {"kind": "lte", "value": 25},
+                result.calibration_context,
+            ),
+            0.0,
+        )
+
+    def test_fahrenheit_station_rescue_supplies_the_same_feature_and_served_floor(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="nyc")
+        sources = {
+            "wu_history": {"ok": False, "error": "paid_provider_disabled"},
+            "station_observations": {
+                "ok": True,
+                "data": {
+                    "station_observation_source": "metar",
+                    "station_id": "KNYC",
+                    "temp_native": 90.0,
+                    "max_since_7am_native": 91.0,
+                },
+            },
+        }
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+
+        features = model.extract_live_features(sources, cutoff_hour=14, now=now)
+        result = model.estimate_distribution_result(sources, now=now)
+
+        self.assertEqual(features["high_so_far"], 91.0)
+        self.assertEqual(result.calibration_context["observed_floor_bucket"], 91)
+        self.assertIsNone(result.calibration_context["wu_history_floor_bucket"])
+        self.assertEqual(
+            model.bin_probability(
+                result.distribution,
+                {"kind": "lte", "value": 90},
+                result.calibration_context,
+            ),
+            0.0,
+        )
+
     def test_printed_history_floor_is_applied_once(self):
         rows = [
             _wu_row("07:00", 18.0),

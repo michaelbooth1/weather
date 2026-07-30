@@ -95,14 +95,11 @@ BUCKET_TRANSITION_BLEND_MAX = 0.12
 
 # --- Live-observed floors ---------------------------------------------------
 # Wunderground *history* (the settlement source) prints with a lag and can stall
-# for hours. Non-resolution observations (SWOB, METAR, ASOS) can
-# lead it, so a higher observed bucket suppresses mass below it -- but ONLY as a
-# hedged floor sized by the learned WU catch-up rate for that source
-# (settlement_lag_model), clamped so it can never become a hard settlement
-# floor. WU history itself stays the only hard floor: v0.4.8 made SWOB hard and
-# was wrong; the 2026-06-09 audit found the current/METAR floor near-hard
-# (0.001) the same way, and the stage/ablation analyses measured both floors
-# net-negative for Toronto at that sizing.
+# for hours. When a WU print exists, non-resolution observations (SWOB, METAR,
+# ASOS) that lead it remain hedged by the learned WU catch-up rate; v0.4.8 made
+# that disagreement path hard and was wrong. The separate empty-WU contract
+# may hard-floor the effective observed high already admitted by feature
+# extraction from captured, cutoff-aligned station/current evidence.
 LIVE_FLOOR_HEDGE = 0.40   # retained fraction one bucket below, when no learned rate
 LIVE_FLOOR_BASE = 0.12    # per-degree decay for buckets further below
 LIVE_FLOOR_HEDGE_MIN = 0.30   # hedge clamp: never harder than this...
@@ -171,4 +168,3 @@ STANDING_HIGH_PARTIAL_TWO_UP_RETAINED = 0.30
 STANDING_HIGH_PARTIAL_BASE = 0.18
 COMPONENT_SCHEMA_VERSION = "toronto_distribution_components_v0.1"
 VALIDATED_WU_MAX_HARD_FLOOR_MARKETS = frozenset({"miami"})
-

@@ -10,8 +10,10 @@ Scope: serving-time model code under `src/weather/model/`. Inherits
 - Apply the source-role and hard-floor contract in
   [Durable Agent Context](../../../docs/operations/AGENT_CONTEXT.md) when
   combining observations; a support signal cannot silently change roles.
-- Align intraday features to the effective WU printed cutoff, not wall-clock
-  hour alone. WU publication lag is a modeled behavior.
+- Align WU-backed intraday features and floors to the effective WU printed
+  cutoff, not wall-clock hour alone. WU publication lag is a modeled behavior.
+  When WU is empty, only the admitted station/current rescue captured by model
+  emission may establish the effective observed-high floor.
 - `historical_target_cache()` defaults to the serving-safe prior-year,
   target-season window. Calibration may request exact PIT coverage dates only
   to make the verified prelocked universe addressable; that does not relax

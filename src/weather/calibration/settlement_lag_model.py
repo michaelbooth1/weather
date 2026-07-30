@@ -454,9 +454,10 @@ def write_report(path, artifact):
         "",
         "## Live Use",
         "",
-        "WU history remains the only hard settlement floor. When SWOB leads WU, "
-        "live inference uses the learned catch-up rate to decide how strongly "
-        "to suppress buckets below the SWOB-observed bucket.",
+        "WU history is hard when present. When WU is empty, the admitted "
+        "pre-emission station/current observed-high rescue is also hard. "
+        "When SWOB leads an existing WU print, live inference still uses the "
+        "learned catch-up rate to suppress lower buckets only softly.",
         "",
     ])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

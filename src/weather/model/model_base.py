@@ -9,6 +9,7 @@ from weather.model.feature_store import (
     row_max_since_7am_native,
     row_same_day_max_native,
     row_temp_native,
+    startup_observation_guard_features,
 )
 from weather.units import round_half_up
 
@@ -41,6 +42,87 @@ class ModelUtilsMixin:
         if rows:
             return self.max_row_temp(self.source_rows_until_cutoff(rows, cutoff_hour))
         return self.row_max_native(history)
+
+    def effective_observed_high_context(self, history, current, station, cutoff_hour):
+        """Derive the same cutoff-safe observed high for features and floors.
+
+        Printed WU rows remain authoritative when present.  When that path is
+        empty, the captured live station/current observation and its
+        max-since-07:00 summary may rescue the feature exactly as serving-time
+        feature extraction already did.  An empty observation set stays empty;
+        this helper never manufactures a floor from forecasts or climatology.
+        """
+        rows = self.rows_for_target_date((history or {}).get("rows") or [])
+        feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
+        feature_latest = feature_rows[-1] if feature_rows else None
+        history_high = self.cutoff_aligned_wu_history_max_native(
+            history,
+            cutoff_hour,
+        )
+        wu_current_temp = self.row_temp_native(current)
+        station_current_temp = self.row_temp_native(station)
+        live_observation_temp = (
+            wu_current_temp
+            if wu_current_temp is not None
+            else station_current_temp
+        )
+        current_temp = (
+            self.row_temp_native(feature_latest)
+            if feature_latest is not None
+            else live_observation_temp
+        )
+        current_max = self.row_max_since_7am_native(current)
+        if current_max is None:
+            current_max = self.row_max_since_7am_native(station)
+
+        effective_high = self.max_value(history_high, current_temp)
+        if history_high is None and cutoff_hour >= 7 and current_max is not None:
+            effective_high = self.max_value(effective_high, current_max)
+
+        # A producer startup sentinel may sit just beyond a coarse hour cutoff.
+        # Inspect it for quarantine diagnostics without admitting it as an
+        # observed high or current-temperature feature.
+        guard_current_temp = current_temp
+        if guard_current_temp is None and rows:
+            guard_current_temp = self.row_temp_native(rows[-1])
+        startup_guard = startup_observation_guard_features(
+            high_so_far=(
+                effective_high
+                if effective_high is not None
+                else guard_current_temp
+            ),
+            current_temp=guard_current_temp,
+            live_reading_temp=live_observation_temp,
+            unit=self.spec.display_unit,
+        )
+        if startup_guard.get("startup_feature_quarantined_flag"):
+            effective_high = None
+            current_temp = None
+
+        effective_floor_high = (
+            history_high
+            if history_high is not None
+            else effective_high
+        )
+        if effective_floor_high is None:
+            source = None
+        elif history_high is not None:
+            source = "wu_history"
+        elif current_max is not None and effective_floor_high == current_max:
+            source = "current_or_station_max_since_7am"
+        else:
+            source = "cutoff_aligned_current_observation"
+
+        return {
+            "effective_observed_high": effective_high,
+            "effective_observed_floor_high": effective_floor_high,
+            "effective_observed_high_source": source,
+            "history_high": history_high,
+            "current_temp": current_temp,
+            "live_observation_temp": live_observation_temp,
+            "current_max": current_max,
+            **startup_guard,
+        }
 
     def row_temp_native(self, row):
         return row_temp_native(row)
