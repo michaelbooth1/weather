@@ -168,6 +168,71 @@ Two corrections to earlier assumptions, both from measurement:
   deletion evidence"*. That manifest needs the active release pointer, and
   `artifacts/releases` does not exist on this host.
 
+## 2026-07-29: a fourth tier (2 TB Google Drive), and what it can and cannot be
+
+Exact figures from the 04:30 mirror log, which reports the whole replicated tree
+without needing a scan: **531.805 GB, 3,785,460 files, 53,469 dirs.** That run
+copied **39.476 GB** and purged **15.927 GB** of extras.
+
+Two numbers govern every offload decision, and both rule out the obvious plan:
+
+- **File count.** 3.79M files. A per-file cloud sync of that tree costs days of
+  pure metadata round-trips on every pass, forever. The market-day archive
+  (562 objects) is the only viable unit — so the warm tier is a **prerequisite**
+  for any cloud tier, not an alternative to it.
+- **Churn amplification, 4.4x.** 39.476 GB copied for ~8.9 GB of genuinely new
+  retained data, because `order_books_long.csv` and its siblings grow all day and
+  re-copy whole. A cloud target suffers the same amplification with no delta
+  transfer. Therefore **only sealed (closed *and* tiered) market-days are ever
+  pushed**, which makes the cold tier append-only by construction and sets upload
+  volume to the retained rate rather than the churn rate.
+
+Capacity arithmetic on 2 TB:
+
+| what we push | initial | daily | 2 TB lasts |
+| --- | ---: | ---: | ---: |
+| raw tree as-is | 532 GB | ~10 GB | **~5 months** |
+| sealed compressed market-days | ~70-120 GB | ~1.5-2 GB | **~3 years** |
+
+So 2 TB is either barely a stopgap or multi-year headroom, decided entirely by
+whether we compress first. Compressed is also the only version that fits a home
+uplink: ~2 GB/night is minutes, whereas 39.5 GB/night never converges.
+
+Tier 4 (cold, off-site) therefore reads: **one verified compressed object per
+sealed market-day, pushed by `rclone` through a `crypt` remote, verified with
+`rclone cryptcheck`.** Encryption is not gold-plating here — raw capture payloads
+can embed provider API keys in request URLs and headers, and an upload to a
+third-party service cannot be recalled, only rotated. A `crypt` remote closes
+that question structurally instead of relying on a scan being exhaustive, and
+`cryptcheck` satisfies gate 3's "verified by manifest, not merely present".
+Cost acknowledged: no server-side dedup or preview, and the crypt passphrase
+becomes load-bearing for a *copy* (never for the original).
+
+Drive must **not** be a mirror target, a working tier for replay/backtest, a git
+remote, or a `.git` host. It **should** carry the ~382 MB model artifacts that
+exhausted the metered Git LFS quota, which is a clean, small, immediate use.
+
+This does not reopen the durability agenda, which is deliberately deprioritized
+until the model is profitable. The cold tier is being specified as **capacity
+relief**, and it stays behind the sync split like every other deletion.
+
+### Mirror scope is a separate lever from retention, and it was free
+
+`WeatherDataMirror` ran a bare `/MIR` of all of `data/`, including
+`data/backtest/replay_cache` — **32.28 GB / 770 files** of cache that
+`storage_classes.py` classifies as rebuildable. Nothing requires a rebuildable
+cache to be *replicated*; it is not archive payload. Excluded it via `/XD`
+(2026-07-29), which is 3x the workstation's then-current 9.7 GiB admission
+shortfall, recovered with no compression, no network, and no deletion of
+canonical evidence. `/XD` skips the directory rather than purging it, so the copy
+already on the workstation needs one explicit deletion there.
+
+Next-cheapest compression family found while measuring: **10.67 GB of loose
+analysis output at `data/backtest` root** (2,417 files; 4.86 GB `.csv`, 2.47 GB
+`.pkl`, 1.94 GB `.jsonl`), untouched since 2026-07-11 — entirely cold and highly
+compressible, but outside the closed-market-day family registry, so it needs its
+own eligibility proof rather than an improvised one-off.
+
 Acceptance:
 
 - Free space on the production volume trends flat or upward across a full week
