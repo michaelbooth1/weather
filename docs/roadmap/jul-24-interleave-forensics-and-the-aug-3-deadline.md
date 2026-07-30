@@ -56,7 +56,57 @@ Path 2 is a deletion from canonical evidence and path 3 is a write to it, so nei
 on inference. The choice turns on what the PIT contract requires of record count versus record
 validity, which is exactly what the unpushed keystone report should settle.
 
-**No repair has been attempted. The file is untouched.**
+## RESOLVED 2026-07-29 — and the pre-flight overturned the plan twice
+
+Repaired under operator approval. **The repair recovered a record rather than losing one**, which is
+not what either the handoff or the approved option predicted. Two pre-flight findings changed it:
+
+**1. `replay_input_status.json` is derived, not sealed.** It records `captured_count: 194`,
+`evaluation_only_count: 2`, `snapshot_count: 196`, `reconstructed_count: 0` — but it was generated
+`2026-07-25T15:06:57Z`, *after* the corruption, by a reader that had already skipped the malformed
+line. So 194 was a **consequence** of the defect, not an independent seal. Treating it as
+authoritative would have argued for discarding record B to "stay consistent".
+
+**2. Record B is unique, and both fragments map to real snapshots.** Accounting all 196 snapshot ids
+against the 194 intact inputs left exactly two uncovered, and they are precisely the two fragments:
+
+| snapshot | local time | fragment | state |
+| --- | --- | --- | --- |
+| `20260724T053437445479-0400` | 05:34:37 | A | truncated at 8,155 bytes; remainder never written |
+| `20260724T054342416541-0400` | 05:43:42 | B | intact, parses clean, 154,458 bytes |
+
+So B was a genuine record the corruption had merely **hidden**. Dropping the whole line — the
+reading that matched the recorded count — would have destroyed it.
+
+Also reconciled: the report's line digest
+`8f17b3b1de8d85a101bbe3f50b32aa7f03f00df90d2e801806fa78856054e47f` is over the exact bytes
+**including CRLF**; hashing the stripped body gives `5886dd9c...`. A convention difference only —
+**both hosts hold identical bytes**, which independently confirms the mirror is faithful.
+
+### What was done
+
+Fragment A quarantined to `C:\Users\micha\ops\quarantine\toronto-2026-07-24` (with the full
+pre-repair file, the original line, and the prior status files); line 46 rewritten as record B alone
+via atomic `os.replace`; `replay_input_status.json` regenerated **by its own producer**
+(`replay_status_backfill.repair_folder(overwrite=True, reconstruct_missing=False)`) rather than
+hand-edited, so `reconstructed_count` stays 0 as the admissibility predicate requires.
+
+Nothing was reconstructed. Nothing recoverable was discarded — A's missing bytes were never written.
+
+### Verified after
+
+- `replay_inputs.jsonl`: **195 lines, 0 malformed**, 195 unique captured ids
+- snapshot accounting: 195 covered + 1 legitimately uncovered (A's) = **196**
+- status: `captured_count 195`, `evaluation_only_count 1`, `reconstructed_count 0`,
+  `snapshot_count 196`
+- whole folder: **197,777 JSONL lines across 13 files, 0 malformed**
+- file sha256 `7b58a04b...` → `cb29b91e...`; receipt at `repair-receipt.json`
+
+**Toronto's captured-input count for 2026-07-24 improved from 194 to 195**, and with the 13 files
+already clear, all fourteen Toronto daily files in the audit window are now wholly strict-readable.
+The Aug 3 deadline for *this* blocker is cleared. Admissibility still additionally requires
+self-hash verification under `captured_input_payload_sha256`, which lives on the unmerged keystone
+branch.
 
 ## The same defect class, fixed on the operations side
 
