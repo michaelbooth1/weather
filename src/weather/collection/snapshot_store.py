@@ -110,6 +110,10 @@ OBSERVATION_PAYLOAD_SCHEMA_VERSION = schema_version("observation_payload_manifes
 REPLAY_RECONSTRUCTED_FILENAME = "replay_inputs_reconstructed.jsonl"
 SNAPSHOT_EXPLANATION_SCHEMA_VERSION = "snapshot_explanations_v0.1"
 SNAPSHOT_PROBABILITY_TOLERANCE = 1e-9
+# Snapshot transactions normally complete in seconds. Preserve a live owner's
+# lock through unusually large payload writes, but bound that protection so a
+# recycled PID cannot strand the market indefinitely.
+SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS = 60 * 60
 RESIDUAL_SHADOW_RELEASE_DIR_ENV = (
     "WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_RELEASE_DIR"
 )
@@ -3093,10 +3097,14 @@ class SnapshotStore:
             # it while fresh, then recover it using the historical age bound.
             return age > 300
         # A large replay payload can keep a healthy writer inside one snapshot
-        # transaction for more than five minutes. Age alone previously let a
-        # second process unlink that live writer's lock and interleave JSONL
-        # chunks. Only a dead recorded owner is now recoverable.
-        return not _process_is_running(owner_pid)
+        # transaction for more than five minutes. Preserve a live owner within
+        # the generous transaction bound, but recover after that bound because
+        # a recycled PID is not proof that the original writer still owns the
+        # lock.
+        return (
+            not _process_is_running(owner_pid)
+            or age > SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS
+        )
 
 
 if __name__ == "__main__":

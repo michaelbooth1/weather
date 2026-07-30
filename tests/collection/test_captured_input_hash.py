@@ -6,7 +6,10 @@ from unittest.mock import patch
 import pytest
 
 from weather.captured_input_hash import captured_input_payload_sha256
-from weather.collection.snapshot_store import SnapshotStore
+from weather.collection.snapshot_store import (
+    SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS,
+    SnapshotStore,
+)
 from weather.release_artifacts import (
     ReleaseArtifactVerificationError,
     canonical_payload_sha256,
@@ -102,5 +105,18 @@ def test_snapshot_lock_recovers_a_dead_owner_without_waiting_for_age(tmp_path):
     with patch(
         "weather.collection.snapshot_store._process_is_running",
         return_value=False,
+    ):
+        assert store.lock_is_stale() is True
+
+
+def test_snapshot_lock_recovers_after_live_owner_backstop(tmp_path):
+    store = SnapshotStore(root=tmp_path, event_slug="fixture")
+    store.lock_path.write_text(str(os.getpid()), encoding="ascii")
+    old = time.time() - SNAPSHOT_LOCK_LIVE_OWNER_MAX_AGE_SECONDS - 1
+    os.utime(store.lock_path, (old, old))
+
+    with patch(
+        "weather.collection.snapshot_store._process_is_running",
+        return_value=True,
     ):
         assert store.lock_is_stale() is True
