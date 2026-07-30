@@ -779,13 +779,12 @@ class FeatureModelMixin:
             current_max = self.row_max_since_7am_native(station)
 
         # high_so_far
-        temps = [self.row_temp_native(r) for r in feature_rows if self.row_temp_native(r) is not None]
-        history_high_for_trust = max(temps) if temps else None
+        history_high_for_trust = self.cutoff_aligned_wu_history_max_native(
+            history,
+            cutoff_hour,
+        )
         current_temp = self.row_temp_native(feature_latest) if feature_latest else live_observation_temp
-        if temps:
-            high_so_far = max(temps)
-        else:
-            high_so_far = None
+        high_so_far = history_high_for_trust
 
         # current_temp
         if current_temp is None:
@@ -1279,11 +1278,12 @@ class FeatureModelMixin:
 
     def bucket_transition_model(self, sources, now, min_sample_size=5):
         history = self.source_data(sources, "wu_history")
-        observed_bucket = self.round_half_up(self.row_max_native(history))
-
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
+        )
+        observed_bucket = self.round_half_up(
+            self.cutoff_aligned_wu_history_max_native(history, cutoff_hour)
         )
 
         if observed_bucket is None:

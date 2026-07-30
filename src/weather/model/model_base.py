@@ -28,6 +28,20 @@ class ModelUtilsMixin:
                 filtered.append(row)
         return filtered
 
+    def cutoff_aligned_wu_history_max_native(self, history, cutoff_hour):
+        """Return the authoritative printed high visible at the model cutoff.
+
+        Captured/reconstructed WU payloads are allowed to omit the producer's
+        top-level ``max_*`` summary.  The rows are the durable source evidence,
+        so feature extraction and serving floors must derive their high from
+        the same target-date, cutoff-aligned row population when present.
+        Legacy summary-only payloads remain valid source evidence.
+        """
+        rows = self.rows_for_target_date((history or {}).get("rows") or [])
+        if rows:
+            return self.max_row_temp(self.source_rows_until_cutoff(rows, cutoff_hour))
+        return self.row_max_native(history)
+
     def row_temp_native(self, row):
         return row_temp_native(row)
 

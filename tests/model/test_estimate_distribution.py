@@ -80,7 +80,10 @@ class TestEstimateDistribution(unittest.TestCase):
             _wu_row("12:00", 26.0),
             _wu_row("14:00", 25.0),
         ]
-        dist = self.model.estimate_distribution(_sources(rows, 26.0))
+        dist = self.model.estimate_distribution(
+            _sources(rows, 26.0),
+            now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ),
+        )
         self._assert_valid_distribution(dist)
         below = sum(p for t, p in dist.items() if t < 26)
         at_or_above = sum(p for t, p in dist.items() if t >= 26)
@@ -126,6 +129,77 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertEqual(context["observed_support_bucket"], 91)
         self.assertGreaterEqual(context["current_observed_bucket"], 91)
 
+    def test_cutoff_aligned_celsius_wu_rows_supply_served_hard_floor_without_summary(self):
+        rows = [
+            _wu_row("07:00", 18.0),
+            _wu_row("12:00", 26.0),
+            _wu_row("14:00", 25.0),
+            _wu_row("15:00", 30.0),
+        ]
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {"rows": rows},
+            },
+        }
+
+        result = self.model.estimate_distribution_result(
+            sources,
+            now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ),
+        )
+
+        self.assertEqual(result.calibration_context["observed_floor_bucket"], 26)
+        self.assertEqual(result.calibration_context["wu_history_floor_bucket"], 26)
+        self.assertEqual(
+            self.model.bin_probability(
+                result.distribution,
+                {"kind": "lte", "value": 25},
+                result.calibration_context,
+            ),
+            0.0,
+        )
+
+    def test_cutoff_aligned_fahrenheit_wu_rows_supply_served_hard_floor_without_summary(self):
+        model = TorontoHighTempModel(target_date="2026-05-29", market_id="nyc")
+        sources = {
+            "wu_history": {
+                "ok": True,
+                "data": {
+                    "rows": [
+                        {"time": "07:00", "temp_native": 76.0},
+                        {"time": "12:00", "temp_native": 91.0},
+                        {"time": "14:00", "temp_native": 90.0},
+                        {"time": "15:00", "temp_native": 99.0},
+                    ],
+                },
+            },
+        }
+
+        result = model.estimate_distribution_result(
+            sources,
+            now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ),
+        )
+
+        self.assertEqual(result.calibration_context["observed_floor_bucket"], 91)
+        self.assertEqual(result.calibration_context["wu_history_floor_bucket"], 91)
+        self.assertEqual(
+            model.bin_probability(
+                result.distribution,
+                {"kind": "lte", "value": 90},
+                result.calibration_context,
+            ),
+            0.0,
+        )
+
+    def test_missing_wu_rows_do_not_fabricate_a_served_hard_floor(self):
+        result = self.model.estimate_distribution_result(
+            {"wu_history": {"ok": True, "data": {"rows": []}}},
+            now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ),
+        )
+
+        self.assertIsNone(result.calibration_context["observed_floor_bucket"])
+        self.assertIsNone(result.calibration_context["wu_history_floor_bucket"])
+
     def test_printed_history_floor_is_applied_once(self):
         rows = [
             _wu_row("07:00", 18.0),
@@ -140,7 +214,10 @@ class TestEstimateDistribution(unittest.TestCase):
             return original_apply_floor(scores, floor_bucket, multiplier)
 
         self.model.apply_floor = recording_apply_floor
-        self.model.estimate_distribution(_sources(rows, 26.0))
+        self.model.estimate_distribution(
+            _sources(rows, 26.0),
+            now=datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ),
+        )
 
         self.assertEqual(calls, [(26, 0.000001)])
 

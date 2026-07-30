@@ -162,7 +162,6 @@ class DistributionMixin(DistributionSignalMixin):
         global_ensemble = self.source_data(sources, "global_ensemble")
 
         now = now or datetime.now(self.spec.tz)
-        history_max = self.row_max_native(history)
         station_temp = self.row_temp_native(station)
         station_max = self.row_max_since_7am_native(station)
         current_temp = self.row_temp_native(current)
@@ -174,6 +173,10 @@ class DistributionMixin(DistributionSignalMixin):
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
+        )
+        history_max = self.cutoff_aligned_wu_history_max_native(
+            history,
+            cutoff_hour,
         )
         current_max_features = current_max_trust_features(
             current_max,
