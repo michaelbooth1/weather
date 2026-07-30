@@ -1,9 +1,14 @@
 # Code-soak streak — the #1 operational objective
 
-The **streak** is the number of *contiguous* `complete`-grade Toronto capture days.
-Fourteen in a row unlocks the point-in-time window that bootstraps the first inactive
-model release (release #1), which is the gate to the entire learning loop. **Protecting
-capture cleanliness outranks all other routine work on this host.**
+The **streak** is the number of *contiguous* operationally complete Toronto
+capture days. Fourteen in a row is the calendar/capture prerequisite for the
+point-in-time lock; it does **not** by itself prove that the fourteen folders
+are admissible. The release window additionally needs exact current
+`complete` ledger revisions, strictly readable captured inputs and snapshot
+tapes, complete captured-input self-hashes, no reconstructed inputs, matching
+snapshot/settlement identity, and a passing production prelock/staging
+receipt. **Protecting capture cleanliness outranks all other routine work on
+this host**, but the release clock must report both properties.
 
 ## Check it in one command
 
@@ -18,6 +23,15 @@ streak count, day 1, the projected lock date if every day stays clean, the recen
 grade tape, the daily complete-rate, whether **today** is on track, and any promotion
 lag. It is pure stdlib and imports nothing from the `weather` package, so it can never
 roll a capture loop and runs even mid-refactor.
+
+`streak.ps1` measures only the operational capture clock. A daily release-window
+check must collapse the same authoritative ledger, then mark a date admissible
+only when its latest revision is exactly `complete` and a bounded streaming
+audit of that date's canonical tapes passes the strict predicate above. Report
+the contiguous operational streak and contiguous admissible streak separately;
+never infer the second from the first. Candidate qualification, route/base-graph
+binding, and forward parity remain release-level gates, not properties of one
+capture day.
 
 ## Full host status in one command
 
@@ -221,10 +235,14 @@ reboot-exposure check.
   already carries the newer `complete` grade. If the two disagree, the ledger wins and
   the CSV just hasn't been promoted yet (run the daily chain). The checker flags this
   as `PROMOTION LAG`.
-- **Streak eligibility:** `quality_grade in {complete, manual_override}`
-  (`point_in_time_evaluation.py: COUNTABLE_LABEL_QUALITIES`). This is **stricter** than
-  `promotion_countable` — a `partial` day is countable for model *scoring* but does
-  **not** advance the streak. Never use `manual_override` to paper over a real gap.
+- **Operational streak eligibility:** `quality_grade in {complete,
+  manual_override}`. This is **stricter** than `promotion_countable` — a
+  `partial` day can be countable for model *scoring* but does not advance the
+  operational streak. Never use `manual_override` to paper over a real gap.
+- **Release-lock eligibility:** the latest staging-receipt revision must be
+  exactly `complete`; `manual_override` does not satisfy
+  `latest_toronto_lock_revisions`. The operational counter can therefore reach
+  14 while the release-admissible counter remains below 14.
 
 ## What makes a day `complete` vs `partial`
 

@@ -14,7 +14,7 @@ from weather.collection.live_variant_predictions import (
 )
 from weather.collection.collection_health import variant_prediction_tape_health
 from weather.collection.snapshot_tracker import SnapshotStore
-from weather.release_artifacts import canonical_payload_sha256
+from weather.captured_input_hash import captured_input_payload_sha256
 from weather.release_contract import (
     PRODUCTION_CANDIDATE_MODE,
     PRODUCTION_RELEASE_KIND,
@@ -650,7 +650,7 @@ class TestLiveVariantPredictions(unittest.TestCase):
             replay = json.loads((root / "replay_inputs.jsonl").read_text(encoding="utf-8").strip())
             served = json.loads((root / "variant_predictions.jsonl").read_text(encoding="utf-8").strip())
 
-        expected_hash = canonical_payload_sha256(replay, omit=("captured_input_hash",))
+        expected_hash = captured_input_payload_sha256(replay, persisted=True)
         self.assertEqual(replay["schema_version"], "toronto_replay_inputs_v0.2")
         self.assertEqual(replay["release_id"], "release-live-1")
         self.assertEqual(replay["release_manifest_sha256"], "a" * 64)

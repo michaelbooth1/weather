@@ -81,6 +81,18 @@ winning band. `source_quality=healthy` means those pinned structural and input-
 integrity checks passed; it is not a claim that the forecast has predictive
 edge.
 
+The operational Toronto `streak.ps1` count is necessary but not sufficient for
+this contract. It checks ledger grade/capture cadence, while the staging
+receipt requires fourteen exact current `complete` revisions and the source
+reader independently verifies every pinned folder and byte inventory. Strict
+release-bound replay/serve parity adds a captured-input self-hash gate. That
+hash restores the schema-owned integer type of `recorded_distribution`
+temperature-bucket keys before canonical JSON hashing, plus nested numeric-key
+maps only when their persisted numeric ordering proves the original type.
+JSON persistence represents every object key as a string. This is typed
+canonicalization, not insertion-order acceptance; malformed JSON still fails
+the whole strict source file.
+
 Production accepts at most 60 market-days and 250,000 rows per market-day,
 retains one raw market-day at a time, and writes Arrow batches of at most 65,536
 rows. Each tape is capped at 128 MiB with 1 MiB CSV fields; each captured replay
