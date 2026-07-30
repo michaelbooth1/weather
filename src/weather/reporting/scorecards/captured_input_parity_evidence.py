@@ -21,6 +21,10 @@ from typing import Any
 from weather.collection.live_variant_predictions import (
     build_live_variant_prediction_rows,
 )
+from weather.captured_input_hash import (
+    CAPTURED_INPUT_HASH_ALGORITHM,
+    captured_input_payload_sha256,
+)
 from weather.experiment_contract import finalize_self_hash
 from weather.io import sha256_file, write_json_atomic
 from weather.market.market_config import config_for_date
@@ -50,7 +54,6 @@ from weather.schema_registry import schema_version
 
 PARITY_SCHEMA_VERSION = schema_version("live_variant_settlement_scorecard")
 REPLAY_INPUT_SCHEMA_VERSION = schema_version("replay_inputs")
-CAPTURED_INPUT_HASH_ALGORITHM = "sha256-canonical-json;omit=captured_input_hash"
 EVIDENCE_HASH_FIELD = "evidence_sha256"
 PARITY_BRANCH_SCENARIO = "captured_market_day"
 
@@ -485,7 +488,7 @@ def _verify_captured_record(
         max_age_hours=max_age_hours,
         source=source,
     )
-    expected_hash = canonical_payload_sha256(record, omit=("captured_input_hash",))
+    expected_hash = captured_input_payload_sha256(record, persisted=True)
     if (
         record.get("captured_input_hash_algorithm") != CAPTURED_INPUT_HASH_ALGORITHM
         or str(record.get("captured_input_hash") or "") != expected_hash

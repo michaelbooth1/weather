@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from weather.captured_input_hash import captured_input_payload_sha256
 from weather.market import taker_bot_cli
 from tests.market.test_market_making_run import (
     write_known_edge_map,
@@ -26,7 +27,6 @@ from weather.market.worker_release_binding import (
     worker_tape_columns,
     worker_tape_summary_fields,
 )
-from weather.release_artifacts import canonical_payload_sha256
 from weather.release_serving import clear_process_serving_bundle_cache
 from weather.schema_registry import schema_version
 
@@ -109,7 +109,10 @@ def _write_release_bound_worker_inputs(
         "recorded_distribution": {"80": 0.5, "82": 0.5},
         "sources": {"synthetic": {"status": "fresh"}},
     }
-    replay_input["captured_input_hash"] = canonical_payload_sha256(replay_input)
+    replay_input["captured_input_hash"] = captured_input_payload_sha256(
+        replay_input,
+        persisted=False,
+    )
     (folder / "replay_inputs.jsonl").write_text(
         json.dumps(replay_input, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -472,8 +475,9 @@ def test_worker_snapshot_binding_rejects_cross_market_event_provenance(
         replay_path = folder / "replay_inputs.jsonl"
         replay = json.loads(replay_path.read_text(encoding="utf-8"))
         replay["event_slug"] = OLD_EVENT
-        replay["captured_input_hash"] = canonical_payload_sha256(
-            {key: value for key, value in replay.items() if key != "captured_input_hash"}
+        replay["captured_input_hash"] = captured_input_payload_sha256(
+            replay,
+            persisted=True,
         )
         replay_path.write_text(json.dumps(replay) + "\n", encoding="utf-8")
         with pytest.raises(WorkerReleaseBindingError, match="event_slug"):
