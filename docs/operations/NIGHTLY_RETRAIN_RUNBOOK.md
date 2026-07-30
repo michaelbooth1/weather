@@ -237,6 +237,29 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
+## Reviewed All-Shadow Research Bootstrap
+
+Use this bounded workstation entry point when the repository has no active
+pointer and the immediate objective is an inspectable immutable identity
+release, not production qualification:
+
+```powershell
+python -m weather.operations.all_shadow_release_bootstrap `
+  --candidate-id <reviewed-release-id> `
+  --run-root <dedicated-run-root-outside-data>
+```
+
+The builder requires a clean code identity and the exact runtime fleet
+(Toronto in C plus eleven F markets). It copies the tracked pooled F bundle,
+family-secondary manifest, and artifact registry; freezes every market as
+explicit `shadow`; freezes all seven base-model components for every market;
+creates a `research_only` immutable release; and reverifies its hashes,
+runtime, route, and semantic contract. Its self-hashed
+`all_shadow_release_bootstrap_receipt_v1` remains under the declared run root.
+It refuses an existing candidate/release identity and proves
+`current_release.json` stayed absent. It never promotes, writes a pointer, or
+changes serving state.
+
 ## Separate Serving-Identity Bootstrap
 
 This manual research-serving exception is not part of the first inactive

@@ -735,6 +735,27 @@ RECENT_REGISTERED_SCHEMAS = (
         "Self-hashed staged-source trio binding to the exact latest complete-grade Toronto ledger revisions.",
     ),
     SchemaSpec(
+        "release_admissibility_receipt",
+        "release_admissibility_receipt_v1",
+        "weather.operations.release_admissibility_clock",
+        "active",
+        "Self-hashed per-market-day proof that immutable settlement and captured-input evidence is release-admissible.",
+    ),
+    SchemaSpec(
+        "release_admissibility_clock",
+        "release_admissibility_clock_v1",
+        "weather.operations.release_admissibility_clock",
+        "active",
+        "Small receipt-only collapse of the calendar-contiguous release-admissible streak.",
+    ),
+    SchemaSpec(
+        "all_shadow_release_bootstrap_receipt",
+        "all_shadow_release_bootstrap_receipt_v1",
+        "weather.operations.all_shadow_release_bootstrap",
+        "active",
+        "Self-hashed proof for a reviewed research-only all-shadow immutable release build that leaves the active pointer absent.",
+    ),
+    SchemaSpec(
         "point_in_time_candidate_training_graph",
         "point_in_time_candidate_training_graph_v1",
         "weather.reporting.validation.point_in_time_evaluation",

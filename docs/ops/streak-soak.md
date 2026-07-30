@@ -33,6 +33,35 @@ never infer the second from the first. Candidate qualification, route/base-graph
 binding, and forward parity remain release-level gates, not properties of one
 capture day.
 
+Run the expensive grade once, after the settlement revision is final:
+
+```powershell
+venv\Scripts\python.exe -m weather.operations.release_admissibility_clock grade `
+  --target-date 2026-07-27 `
+  --snapshots-root data\snapshots `
+  --ledger-root data\settlements `
+  --receipt data\backtest\release_admissibility\receipts\2026-07-27.json `
+  --fail-on-block
+```
+
+The command parses the bounded CSV/JSONL tapes row-by-row and persists one
+self-hashed `release_admissibility_receipt_v1` with `status`, a stable
+`reason.code`, the exact ledger revision, inventory counts, and every source
+hash. Frequent status checks must never run that command. They may run the
+receipt-only collapse:
+
+```powershell
+venv\Scripts\python.exe -m weather.operations.release_admissibility_clock collapse `
+  --receipt-root data\backtest\release_admissibility\receipts `
+  --clock-out data\backtest\release_admissibility\clock.json
+```
+
+`release_admissibility_clock_v1` is intentionally small. The status digest only
+needs `evaluation_end_date`, `contiguous_pass_days`, `streak_start_date`,
+`latest_status`, `latest_reason_code`, and `clock_sha256`. An unsettled tail
+with `reason.code=ledger_label_missing` does not reset the most recent settled
+streak; any settled `BLOCK` does.
+
 ## Full host status in one command
 
 For a broader check — streak **plus** capture-loop priority, RAM/disk, the daily
