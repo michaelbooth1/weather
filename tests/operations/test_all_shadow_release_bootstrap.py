@@ -140,9 +140,17 @@ def test_verified_source_release_supplies_model_bound_research_lineage(
         {},
         bundle_sha,
         research_corpus_lineage=observed,
+        research_corpus_lineage_provenance={
+            "verification_status": "PASS",
+            "source_release_id": "r1",
+            "source_release_manifest_sha256": "a" * 64,
+            "source_role_sha256": digest,
+            "source_payload_sha256": "c" * 64,
+        },
     )
 
     assert observed == lineage
     assert proof["lineage_source_release_id"] == "r1"
-    assert frozen["lineage_source"] == "verified_immutable_release"
+    assert frozen["lineage_source"]["kind"] == "verified_immutable_release"
+    assert frozen["lineage_source"]["source_release_id"] == "r1"
     assert frozen["corpus_lineage"] == lineage

@@ -270,6 +270,7 @@ def _verified_release_research_lineage(
         "bundle_sha256": payload.get("bundle_sha256"),
         "lineage_source_release_id": manifest.get("release_id"),
         "lineage_source_manifest_sha256": verified.get("manifest_sha256"),
+        "verification_status": "PASS",
     }
 
 
@@ -370,6 +371,7 @@ def build_all_shadow_release(
         raise AllShadowBootstrapError("all-shadow release bootstrap requires a clean source tree")
     source_rows = []
     research_corpus_lineage: dict[str, Any] | None = None
+    research_corpus_lineage_provenance: dict[str, Any] | None = None
     source_provenance: dict[str, Any] = {
         "pooled_band_model": {
             "kind": "tracked_repository_artifact",
@@ -422,6 +424,17 @@ def build_all_shadow_release(
             "kind": "verified_immutable_release_role",
             **lineage_proof,
         }
+        research_corpus_lineage_provenance = {
+            "verification_status": lineage_proof["verification_status"],
+            "source_release_id": lineage_proof[
+                "lineage_source_release_id"
+            ],
+            "source_release_manifest_sha256": lineage_proof[
+                "lineage_source_manifest_sha256"
+            ],
+            "source_role_sha256": lineage_proof["role_sha256"],
+            "source_payload_sha256": lineage_proof["payload_sha256"],
+        }
     promotion = all_shadow_promotion()
     semantic = freeze_candidate_semantic_contract(
         candidate_dir=candidate_dir,
@@ -435,6 +448,9 @@ def build_all_shadow_release(
         family_unit="F",
         candidate_mode=RESEARCH_ONLY_CANDIDATE_MODE,
         research_corpus_lineage=research_corpus_lineage,
+        research_corpus_lineage_provenance=(
+            research_corpus_lineage_provenance
+        ),
     )
     contract_summary = _verify_all_shadow_contract(
         candidate_dir=candidate_dir,

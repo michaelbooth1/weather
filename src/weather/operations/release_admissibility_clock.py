@@ -30,7 +30,11 @@ from weather.captured_input_hash import captured_input_payload_sha256
 from weather.io import write_json_atomic
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import REGISTRY
-from weather.release_artifacts import canonical_payload_sha256, strict_json_loads
+from weather.release_artifacts import (
+    ReleaseArtifactVerificationError,
+    canonical_payload_sha256,
+    strict_json_loads,
+)
 from weather.reporting.data_quality.feature_quality_quarantine import (
     apply_recovery_classification,
     dedupe_rows,
@@ -132,8 +136,13 @@ def _input(path: Path, *, role: str, max_bytes: int) -> dict[str, Any]:
     return {"role": role, "path": path.name, "bytes": size, "sha256": digest}
 
 
-def _read_small_json(path: Path, *, role: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    item = _input(path, role=role, max_bytes=MAX_SMALL_JSON_BYTES)
+def _read_small_json(
+    path: Path,
+    *,
+    role: str,
+    item: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    item = item or _input(path, role=role, max_bytes=MAX_SMALL_JSON_BYTES)
     try:
         text = path.read_text(encoding="utf-8")
         payload = strict_json_loads(text, label=f"{role} {path}")
@@ -174,8 +183,13 @@ def _read_ledger(
     *,
     event_slug: str,
     market_id: str,
+    item: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    item = _input(ledger_path, role="settlement_ledger", max_bytes=MAX_LEDGER_BYTES)
+    item = item or _input(
+        ledger_path,
+        role="settlement_ledger",
+        max_bytes=MAX_LEDGER_BYTES,
+    )
     rows: list[dict[str, Any]] = []
     try:
         with ledger_path.open("rb") as handle:
@@ -248,8 +262,13 @@ def _scan_snapshot_tape(
     target_date: str,
     event_slug: str,
     label: Mapping[str, Any],
+    item: dict[str, Any] | None = None,
 ) -> tuple[dict[str, dict[str, str]], int, int, dict[str, Any]]:
-    item = _input(path, role="snapshot_tape", max_bytes=MAX_SNAPSHOT_BYTES)
+    item = item or _input(
+        path,
+        role="snapshot_tape",
+        max_bytes=MAX_SNAPSHOT_BYTES,
+    )
     required = {"snapshot_id", "captured_at_local", "range_label", "bin_kind", "bin_value_c"}
     contexts: dict[str, dict[str, str]] = {}
     coordinates: set[tuple[str, str, str, str]] = set()
@@ -318,11 +337,16 @@ def _scan_features(
     *,
     unit: str,
     snapshot_contexts: Mapping[str, Mapping[str, str]],
+    item: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]], int, dict[str, Any] | None]:
     path = folder / "features_long.csv"
     if not path.exists():
         return [], {}, 0, None
-    item = _input(path, role="feature_tape", max_bytes=MAX_FEATURE_BYTES)
+    item = item or _input(
+        path,
+        role="feature_tape",
+        max_bytes=MAX_FEATURE_BYTES,
+    )
     context = folder_context(folder, unit=unit)
     feature_support: dict[str, dict[str, str]] = {}
     quarantines: list[dict[str, Any]] = []
@@ -351,10 +375,20 @@ def _scan_status(
     *,
     snapshot_ids: set[str],
     event_slug: str,
+    summary_item: dict[str, Any] | None = None,
+    long_item: dict[str, Any] | None = None,
 ) -> tuple[set[str], dict[str, int], list[dict[str, Any]]]:
-    summary, summary_item = _read_small_json(folder / "replay_input_status.json", role="replay_status")
+    summary, summary_item = _read_small_json(
+        folder / "replay_input_status.json",
+        role="replay_status",
+        item=summary_item,
+    )
     path = folder / "replay_input_status_long.csv"
-    long_item = _input(path, role="replay_status_tape", max_bytes=MAX_SNAPSHOT_BYTES)
+    long_item = long_item or _input(
+        path,
+        role="replay_status_tape",
+        max_bytes=MAX_SNAPSHOT_BYTES,
+    )
     statuses: dict[str, str] = {}
     for row_number, row in _iter_csv(path, role="replay_status_tape", max_bytes=MAX_SNAPSHOT_BYTES):
         snapshot_id = str(row.get("snapshot_id") or "").strip()
@@ -394,8 +428,13 @@ def _scan_replay(
     event_slug: str,
     target_date: str,
     quarantines: list[dict[str, Any]],
+    item: dict[str, Any] | None = None,
 ) -> tuple[set[str], set[str], dict[str, Any]]:
-    item = _input(path, role="captured_input_tape", max_bytes=MAX_REPLAY_BYTES)
+    item = item or _input(
+        path,
+        role="captured_input_tape",
+        max_bytes=MAX_REPLAY_BYTES,
+    )
     replay_ids: set[str] = set()
     contaminated: set[str] = set()
     quarantine_by_snapshot: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -434,7 +473,7 @@ def _scan_replay(
                 claimed = str(record.get("captured_input_hash") or "")
                 try:
                     actual = captured_input_payload_sha256(record, persisted=True)
-                except ValueError as exc:
+                except (ValueError, ReleaseArtifactVerificationError) as exc:
                     raise AdmissibilityBlock("replay_hash_invalid", f"captured input {snapshot_id} cannot be canonically hashed: {exc}") from exc
                 if len(claimed) != 64 or claimed != actual:
                     raise AdmissibilityBlock("replay_hash_mismatch", f"captured input {snapshot_id} has an invalid self-hash")
@@ -470,8 +509,13 @@ def _validate_settlement_sidecar(
     event_slug: str,
     market_id: str,
     target_date: str,
+    item: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    payload, item = _read_small_json(folder / "settlement.json", role="settlement_sidecar")
+    payload, item = _read_small_json(
+        folder / "settlement.json",
+        role="settlement_sidecar",
+        item=item,
+    )
     expected = {
         "event_slug": event_slug,
         "market_id": market_id,
@@ -520,12 +564,19 @@ def grade_market_day(
     status = "BLOCK"
     reason = {"code": "not_evaluated", "detail": "evaluation did not run"}
     try:
-        label, verification, ledger_item = _read_ledger(
-            ledger_path_for_market(market_id, ledger_root),
-            event_slug=event_slug,
-            market_id=market_id,
+        ledger_path = ledger_path_for_market(market_id, ledger_root)
+        ledger_item = _input(
+            ledger_path,
+            role="settlement_ledger",
+            max_bytes=MAX_LEDGER_BYTES,
         )
         inputs.append(ledger_item)
+        label, verification, ledger_item = _read_ledger(
+            ledger_path,
+            event_slug=event_slug,
+            market_id=market_id,
+            item=ledger_item,
+        )
         ledger_identity = {
             "revision_id": label.get("revision_id"),
             "revision_number": label.get("revision_number"),
@@ -542,34 +593,75 @@ def grade_market_day(
             raise AdmissibilityBlock("snapshot_folder_missing", f"snapshot folder is missing: {folder}") from exc
         if stat.S_ISLNK(folder_info.st_mode) or not stat.S_ISDIR(folder_info.st_mode) or folder.name != event_slug:
             raise AdmissibilityBlock("snapshot_folder_identity", f"snapshot folder is not the exact regular directory for {event_slug}")
+        sidecar_item = _input(
+            folder / "settlement.json",
+            role="settlement_sidecar",
+            max_bytes=MAX_SMALL_JSON_BYTES,
+        )
+        inputs.append(sidecar_item)
         _sidecar, sidecar_item = _validate_settlement_sidecar(
             folder,
             label=label,
             event_slug=event_slug,
             market_id=market_id,
             target_date=date_text,
+            item=sidecar_item,
         )
-        inputs.append(sidecar_item)
+        snapshot_item = _input(
+            folder / "snapshots_long.csv",
+            role="snapshot_tape",
+            max_bytes=MAX_SNAPSHOT_BYTES,
+        )
+        inputs.append(snapshot_item)
         snapshot_contexts, snapshot_rows, band_count, snapshot_item = _scan_snapshot_tape(
             folder / "snapshots_long.csv",
             target_date=date_text,
             event_slug=event_slug,
             label=label,
+            item=snapshot_item,
         )
-        inputs.append(snapshot_item)
+        feature_path = folder / "features_long.csv"
+        feature_item = (
+            _input(
+                feature_path,
+                role="feature_tape",
+                max_bytes=MAX_FEATURE_BYTES,
+            )
+            if feature_path.exists()
+            else None
+        )
+        if feature_item:
+            inputs.append(feature_item)
         quarantines, _feature_support, feature_rows, feature_item = _scan_features(
             folder,
             unit=REGISTRY[market_id].display_unit,
             snapshot_contexts=snapshot_contexts,
+            item=feature_item,
         )
-        if feature_item:
-            inputs.append(feature_item)
+        status_summary_item = _input(
+            folder / "replay_input_status.json",
+            role="replay_status",
+            max_bytes=MAX_SMALL_JSON_BYTES,
+        )
+        status_long_item = _input(
+            folder / "replay_input_status_long.csv",
+            role="replay_status_tape",
+            max_bytes=MAX_SNAPSHOT_BYTES,
+        )
+        inputs.extend((status_summary_item, status_long_item))
         captured_ids, status_counts, status_items = _scan_status(
             folder,
             snapshot_ids=set(snapshot_contexts),
             event_slug=event_slug,
+            summary_item=status_summary_item,
+            long_item=status_long_item,
         )
-        inputs.extend(status_items)
+        replay_item = _input(
+            folder / "replay_inputs.jsonl",
+            role="captured_input_tape",
+            max_bytes=MAX_REPLAY_BYTES,
+        )
+        inputs.append(replay_item)
         replay_ids, excluded_ids, replay_item = _scan_replay(
             folder / "replay_inputs.jsonl",
             snapshot_ids=set(snapshot_contexts),
@@ -577,8 +669,8 @@ def grade_market_day(
             event_slug=event_slug,
             target_date=date_text,
             quarantines=quarantines,
+            item=replay_item,
         )
-        inputs.append(replay_item)
         pinned_ids = captured_ids - excluded_ids
         if not pinned_ids:
             raise AdmissibilityBlock("no_release_admissible_inputs", "feature-quality quarantine excludes every captured input")

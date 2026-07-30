@@ -175,6 +175,9 @@ def test_malformed_replay_blocks_and_persists_reason(tmp_path):
 
     assert receipt["status"] == "BLOCK"
     assert receipt["reason"]["code"] == "replay_invalid_jsonl"
+    assert {
+        row["role"] for row in receipt["inputs"]
+    } >= {"settlement_ledger", "snapshot_tape", "captured_input_tape"}
     assert receipt_path.exists()
 
 
