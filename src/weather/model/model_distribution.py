@@ -162,7 +162,6 @@ class DistributionMixin(DistributionSignalMixin):
         global_ensemble = self.source_data(sources, "global_ensemble")
 
         now = now or datetime.now(self.spec.tz)
-        history_max = self.row_max_native(history)
         station_temp = self.row_temp_native(station)
         station_max = self.row_max_since_7am_native(station)
         current_temp = self.row_temp_native(current)
@@ -175,6 +174,17 @@ class DistributionMixin(DistributionSignalMixin):
             now,
             history.get("rows") or [],
         )
+        observed_high_context = self.effective_observed_high_context(
+            history,
+            current,
+            station,
+            cutoff_hour,
+        )
+        history_max = observed_high_context["history_high"]
+        effective_observed_high = observed_high_context["effective_observed_high"]
+        effective_observed_floor_high = observed_high_context[
+            "effective_observed_floor_high"
+        ]
         current_max_features = current_max_trust_features(
             current_max,
             history_max=history_max,
@@ -273,12 +283,22 @@ class DistributionMixin(DistributionSignalMixin):
             eccc_forecast_signal,
         ]
         observed_bucket = self.round_half_up(history_max)
+        effective_observed_bucket = self.round_half_up(
+            effective_observed_floor_high
+        )
         validated_current_max_floor = self.validated_current_max_floor_bucket(
             trusted_current_max,
             history_max=history_max,
         )
         hard_floor_bucket = max(
-            [bucket for bucket in (observed_bucket, validated_current_max_floor) if bucket is not None],
+            [
+                bucket
+                for bucket in (
+                    effective_observed_bucket,
+                    validated_current_max_floor,
+                )
+                if bucket is not None
+            ],
             default=None,
         )
         current_observed_bucket = self.round_half_up(self.max_value(
@@ -320,6 +340,12 @@ class DistributionMixin(DistributionSignalMixin):
             "cutoff_hour": cutoff_hour,
             "observed_floor_bucket": hard_floor_bucket,
             "wu_history_floor_bucket": observed_bucket,
+            "effective_observed_high": effective_observed_high,
+            "effective_observed_floor_high": effective_observed_floor_high,
+            "effective_observed_floor_bucket": effective_observed_bucket,
+            "effective_observed_high_source": observed_high_context[
+                "effective_observed_high_source"
+            ],
             "validated_current_max_floor_bucket": validated_current_max_floor,
             "current_observed_bucket": current_observed_bucket,
             "observed_support_bucket": observed_support_bucket,

@@ -22,7 +22,6 @@ from weather.model.feature_store import (
     forecast_profile_features,
     merge_forecast_air_quality_rows,
     row_value,
-    startup_observation_guard_features,
     row_wind_direction,
     wind_direction_delta_degrees,
 )
@@ -771,46 +770,30 @@ class FeatureModelMixin:
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(rows)
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None
-        wu_current_temp = self.row_temp_native(current)
-        station_current_temp = self.row_temp_native(station)
-        live_observation_temp = wu_current_temp if wu_current_temp is not None else station_current_temp
-        current_max = self.row_max_since_7am_native(current)
-        if current_max is None:
-            current_max = self.row_max_since_7am_native(station)
-
-        # high_so_far
-        temps = [self.row_temp_native(r) for r in feature_rows if self.row_temp_native(r) is not None]
-        history_high_for_trust = max(temps) if temps else None
-        current_temp = self.row_temp_native(feature_latest) if feature_latest else live_observation_temp
-        if temps:
-            high_so_far = max(temps)
-        else:
-            high_so_far = None
+        observed_high_context = self.effective_observed_high_context(
+            history,
+            current,
+            station,
+            cutoff_hour,
+        )
+        live_observation_temp = observed_high_context["live_observation_temp"]
+        current_max = observed_high_context["current_max"]
+        history_high_for_trust = observed_high_context["history_high"]
+        current_temp = observed_high_context["current_temp"]
+        high_so_far = observed_high_context["effective_observed_high"]
 
         # current_temp
-        if current_temp is None:
-            current_temp = live_observation_temp
         if current_temp is None and strict:
             return None
-        if current_temp is None:
-            current_temp = self.row_temp_native(rows[-1]) if rows else None
-        high_so_far = self.max_value(high_so_far, current_temp)
-        # Station max_since_7am covers 7:00 through NOW, so folding it into
-        # high_so_far when printed rows exist would leak post-cutoff readings
-        # the training path excludes (train/serve skew). It may only rescue
-        # high_so_far when the printed path is empty; with printed history the
-        # signal belongs to current_max_trust_features instead.
-        if history_high_for_trust is None and cutoff_hour >= 7 and current_max is not None:
-            high_so_far = self.max_value(high_so_far, current_max)
-        startup_guard = startup_observation_guard_features(
-            high_so_far=high_so_far,
-            current_temp=current_temp,
-            live_reading_temp=live_observation_temp,
-            unit=self.spec.display_unit,
-        )
+        startup_guard = {
+            "startup_feature_quarantined_flag": observed_high_context[
+                "startup_feature_quarantined_flag"
+            ],
+            "startup_feature_quarantine_reason": observed_high_context[
+                "startup_feature_quarantine_reason"
+            ],
+        }
         if startup_guard.get("startup_feature_quarantined_flag"):
-            high_so_far = None
-            current_temp = None
             if strict:
                 return None
         if high_so_far is None and strict:
@@ -1279,11 +1262,12 @@ class FeatureModelMixin:
 
     def bucket_transition_model(self, sources, now, min_sample_size=5):
         history = self.source_data(sources, "wu_history")
-        observed_bucket = self.round_half_up(self.row_max_native(history))
-
         cutoff_hour = self.effective_intraday_cutoff_hour(
             now,
             history.get("rows") or [],
+        )
+        observed_bucket = self.round_half_up(
+            self.cutoff_aligned_wu_history_max_native(history, cutoff_hour)
         )
 
         if observed_bucket is None:

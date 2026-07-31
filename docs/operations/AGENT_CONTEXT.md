@@ -23,13 +23,18 @@ generated reports for dynamic state.
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
 - WU history is the settlement proxy and may establish a hard observed floor.
-  METAR/ASOS, ECCC, NWS, Open-Meteo, reanalysis, marine context, and other
-  sources are support, forecasts, or sanity checks unless a specific contract
-  explicitly promotes them to settlement evidence.
+  When the WU observation path is empty, the serving contract also promotes
+  the effective observed high already admitted by feature extraction: a
+  target-date, cutoff-aligned current station observation or its captured
+  max-since-07:00 summary. This exception never admits forecast, climatology,
+  post-cutoff, unit-implausible, or missing evidence.
 - A supporting observation can lead or disagree with the WU print. Model that
-  uncertainty; do not silently turn a non-resolution source into a hard floor.
+  uncertainty; outside the explicit empty-WU rescue contract, do not silently
+  turn a non-resolution source into a hard floor.
 - Intraday features align to the effective WU printed cutoff. Wall-clock time
-  can advance before WU history prints a row.
+  can advance before WU history prints a row. Any station rescue used as a
+  floor must be captured by the build and must not use an observation after
+  the model-emission time.
 
 Paid weather-provider access is unsupported. Do not add credentials, required
 environment variables, operator commands, or roadmap dependencies for paid
