@@ -82,6 +82,7 @@ from weather.reporting.scorecards import progress_audit
 from weather.reporting.promotion import promotion_refresh
 from weather.reporting.serving_gates import runtime_identity_reconciliation
 from weather.reporting.source_gates import settlement_source_audit
+from weather.reporting.source_gates import observed_floor_safety_monitor
 from weather.reporting.casebooks import taker_tail_casebook
 from weather.reporting.market import trading_evidence
 
@@ -719,6 +720,36 @@ def run_settlement_source_audit_step(args):
         "unreconciled_label_count": summary.get("unreconciled_label_count"),
         "promotion_blocked_label_count": summary.get("promotion_blocked_label_count"),
         "proof_grade_label_count": summary.get("proof_grade_label_count"),
+    }
+
+
+def run_observed_floor_safety_monitor_step(args):
+    target = settled_analysis_target_date(args).isoformat()
+    payload = observed_floor_safety_monitor.build_payload(
+        labels_csv=getattr(args, "labels_csv", DEFAULT_LABELS_CSV),
+        target_date=target,
+        markets=getattr(args, "markets", ""),
+        generated_at_utc=utc_iso(),
+    )
+    json_out, report_out = observed_floor_safety_monitor.write_outputs(
+        payload,
+        json_out=backtest_path(args, "observed_floor_safety_monitor.json"),
+        report_out=backtest_path(args, "observed_floor_safety_monitor.md"),
+    )
+    summary = payload.get("summary") or {}
+    return {
+        "status": payload.get("status"),
+        "target_date": target,
+        "hard_stop_pipeline": payload.get("hard_stop_pipeline"),
+        "json_out": as_path(json_out),
+        "report_out": as_path(report_out),
+        "snapshot_count": summary.get("snapshot_count"),
+        "enforced_floor_count": summary.get("enforced_floor_count"),
+        "floorless_snapshot_count": summary.get("floorless_snapshot_count"),
+        "over_final_count": summary.get("over_final_count"),
+        "evidence_blocker_count": summary.get("evidence_blocker_count"),
+        "alerts": payload.get("alerts") or [],
+        "evidence_blockers": payload.get("evidence_blockers") or [],
     }
 
 

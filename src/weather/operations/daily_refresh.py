@@ -182,6 +182,7 @@ from weather.operations.daily_refresh_steps import (
     run_maker_paper_score_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
+    run_observed_floor_safety_monitor_step,
     run_nightly_health_checks_step,
     run_price_free_model_learning_step,
     run_proper_scoring_reliability_scorecard_step,

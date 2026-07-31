@@ -77,6 +77,7 @@ def pipeline_summary(steps):
     taker_tail = ((by_name.get("taker_tail_casebook") or {}).get("result") or {})
     maker_paper = ((by_name.get("maker_paper_score") or {}).get("result") or {})
     truth_audit = ((by_name.get("settlement_source_audit") or {}).get("result") or {})
+    floor_safety = ((by_name.get("observed_floor_safety_monitor") or {}).get("result") or {})
     trading = ((by_name.get("trading_evidence") or {}).get("result") or {})
     clob_tiering = ((by_name.get("clob_order_book_tiering") or {}).get("result") or {})
     replay_backfill = ((by_name.get("replay_status_backfill") or {}).get("result") or {})
@@ -202,6 +203,16 @@ def pipeline_summary(steps):
             "unreconciled_label_count": truth_audit.get("unreconciled_label_count"),
             "proof_grade_label_count": truth_audit.get("proof_grade_label_count"),
             "promotion_blocked_label_count": truth_audit.get("promotion_blocked_label_count"),
+        },
+        "observed_floor_safety_monitor": {
+            "status": floor_safety.get("status"),
+            "target_date": floor_safety.get("target_date"),
+            "snapshot_count": floor_safety.get("snapshot_count"),
+            "enforced_floor_count": floor_safety.get("enforced_floor_count"),
+            "floorless_snapshot_count": floor_safety.get("floorless_snapshot_count"),
+            "over_final_count": floor_safety.get("over_final_count"),
+            "evidence_blocker_count": floor_safety.get("evidence_blocker_count"),
+            "hard_stop_pipeline": floor_safety.get("hard_stop_pipeline"),
         },
         "trading_evidence": {
             "status": trading.get("status"),
@@ -600,5 +611,4 @@ def variant_learning_gate_from_steps(steps):
         "active_variant_shadow_status": active_status,
         "model_variant_evidence_growth_status": evidence_status,
     }
-
 

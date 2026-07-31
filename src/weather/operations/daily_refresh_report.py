@@ -152,6 +152,14 @@ def render_report(payload):
                     f"revised {result.get('revised_label_count')}; "
                     f"unreconciled {result.get('unreconciled_label_count')}"
                 )
+        elif step.get("name") == "observed_floor_safety_monitor":
+            detail = (
+                f"{result.get('status')} (target {result.get('target_date')}); "
+                f"floors {result.get('enforced_floor_count')}; "
+                f"over-final {result.get('over_final_count')}; "
+                f"evidence blockers {result.get('evidence_blocker_count')}; "
+                f"hard stop {result.get('hard_stop_pipeline')}"
+            )
         elif step.get("name") == "trading_evidence":
             if result.get("status") == "SKIPPED":
                 detail = result.get("reason") or "skipped"

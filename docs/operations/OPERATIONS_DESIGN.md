@@ -169,6 +169,14 @@ directory, and stage-specific SLA. Countability still requires the running
 wrapper PID/instance, task state, action, child lineage, and run-time
 correlation to match; child-supplied flags alone are not evidence.
 
+Before the settled-day analysis barrier, the read-only
+`observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
+from `snapshot_explanations.jsonl` to finalized settlement labels. Missing
+snapshot explanation coverage or unattributed floor provenance blocks the
+barrier. Any floor above settlement is an `ALERT` and a hard stop; the monitor
+records the exact market, target date, snapshot, floor, settlement, rescue
+source, and overshoot in buckets. It never reconstructs or replays a model.
+
 The default `Full` registration parameter set keeps captured-input parity,
 served-artifact, and served-route inputs mandatory. Before reviewed release #1
 parity inputs exist, the explicit transitional command is:

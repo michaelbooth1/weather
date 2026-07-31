@@ -63,6 +63,13 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "skippable_as_non_critical": True,
     },
     {
+        "step": "observed_floor_safety_monitor",
+        "phase": "served_floor_settlement_safety",
+        "critical": True,
+        "target_date_fields": ("target_date",),
+        "skippable_as_non_critical": False,
+    },
+    {
         "step": "trading_evidence",
         "phase": "post_label_trading_evidence",
         "critical": True,
@@ -171,7 +178,7 @@ def _dependency_status(step, dependency, target_date):
         non_critical = True
     elif result_status == "SKIPPED" and dependency.get("critical"):
         blocker = "step_skipped"
-    elif result_status in {"BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
+    elif result_status in {"ALERT", "BLOCK", "FAIL", "BREACH", "CRITICAL", "ERROR"} and dependency.get("critical"):
         if result_status == "BLOCK" and dependency.get("block_is_policy_verdict"):
             # The gate ran for the analyzed day and fail-closed as a policy
             # verdict; downstream consumers (promotion refresh, countability
