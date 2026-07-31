@@ -172,10 +172,19 @@ correlation to match; child-supplied flags alone are not evidence.
 Before the settled-day analysis barrier, the read-only
 `observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
 from `snapshot_explanations.jsonl` to finalized settlement labels. Missing
-snapshot explanation coverage or unattributed floor provenance blocks the
-barrier. Any floor above settlement is an `ALERT` and a hard stop; the monitor
-records the exact market, target date, snapshot, floor, settlement, rescue
-source, and overshoot in buckets. It never reconstructs or replays a model.
+snapshot explanation coverage or unattributed floor provenance is `BLOCK`; any
+floor above settlement is `ALERT`. The monitor records the exact market, target
+date, snapshot, floor, settlement, rescue source, and overshoot in buckets. It
+never reconstructs or replays a model.
+
+**Temporary posture, 2026-07-31:** until the Toronto release-admissible capture
+lock is secured, `ALERT` and `BLOCK` are alert-only by default. They remain
+prominent in status, rollup, and the daily report, but do not block the
+settled-day barrier: losing a paper-analysis day during the four-day pre-lock
+window is the larger operational risk. This does not make the monitor optional
+or weaken detection. After the lock, explicitly pass
+`--fail-on-observed-floor-safety` to `daily_refresh` to restore fail-closed
+barrier enforcement; the standalone monitor uses `--fail-closed`.
 
 The default `Full` registration parameter set keeps captured-input parity,
 served-artifact, and served-route inputs mandatory. Before reviewed release #1

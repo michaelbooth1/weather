@@ -218,6 +218,8 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30
+# After the Toronto lock, explicitly restore fail-closed enforcement:
+.\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30 --fail-closed
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh run --continue-on-error --fail-on-variant-evidence-alert
 .\venv\Scripts\python.exe -m weather.operations.daily_refresh status
 .\venv\Scripts\python.exe -m weather.operations.nightly_retrain run --dry-run
@@ -235,10 +237,14 @@ reports, and write `data/backtest/daily_refresh_status.json` plus
 The settlement stage also joins every captured served hard floor to the
 finalized settlement for that target date. The
 `observed_floor_safety_monitor` reads persisted snapshot explanations and
-settlement labels without replay. Missing floor provenance blocks the
-settled-day barrier, and a single floor above settlement emits an `ALERT` with
-market, date, snapshot, floor, settlement, rescue source, and bucket overshoot,
-then hard-stops the downstream evidence stage.
+settlement labels without replay. Missing floor provenance reports `BLOCK`, and
+a single floor above settlement emits an `ALERT` with market, date, snapshot,
+floor, settlement, rescue source, and bucket overshoot. During the dated
+pre-lock posture introduced 2026-07-31, both remain maximally visible but do not
+stop the settled-day chain. Pass `--fail-on-observed-floor-safety` to
+`daily_refresh` (or `--fail-closed` to the standalone monitor) after the Toronto
+lock is secured to restore fail-closed enforcement; detection and evidence
+requirements are identical in both modes.
 
 The scheduled maker paper-score step is host-bounded: it selects the latest 14
 `active_day_live_forward` runs and fails closed before loading more than 512 MiB

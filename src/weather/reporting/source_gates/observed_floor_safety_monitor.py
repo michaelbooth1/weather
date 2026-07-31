@@ -275,6 +275,7 @@ def build_payload(
     target_date,
     markets=None,
     generated_at_utc=None,
+    fail_closed=False,
 ):
     target_date = str(target_date)[:10]
     requested_markets = _market_ids(markets)
@@ -368,7 +369,8 @@ def build_payload(
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": generated_at_utc or _utc_iso(),
         "status": status,
-        "hard_stop_pipeline": status != "PASS",
+        "enforcement_mode": "fail_closed" if fail_closed else "alert_only",
+        "hard_stop_pipeline": bool(fail_closed and status != "PASS"),
         "target_date": target_date,
         "labels_csv": str(labels_csv),
         "summary": {
@@ -397,6 +399,7 @@ def render_report(payload):
         f"Generated: {payload.get('generated_at_utc')}",
         f"Target date: `{payload.get('target_date')}`",
         f"Status: **{payload.get('status')}**",
+        f"Enforcement mode: **{payload.get('enforcement_mode')}**",
         f"Hard stop: **{payload.get('hard_stop_pipeline')}**",
         "",
         "## Summary",
@@ -467,13 +470,21 @@ def write_outputs(payload, *, json_out=DEFAULT_JSON_OUT, report_out=DEFAULT_REPO
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Join captured served hard floors to final settlement and fail closed on any overshoot."
+        description="Join captured served hard floors to final settlement and alert on any overshoot."
     )
     parser.add_argument("--labels-csv", default=str(DEFAULT_LABELS_CSV))
     parser.add_argument("--target-date", required=True)
     parser.add_argument("--markets", default="")
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
+    parser.add_argument(
+        "--fail-closed",
+        action="store_true",
+        help=(
+            "Turn ALERT/BLOCK findings into a nonzero exit and pipeline hard stop. "
+            "The temporary pre-lock default is alert-only."
+        ),
+    )
     return parser
 
 
@@ -483,6 +494,7 @@ def main(argv=None):
         labels_csv=args.labels_csv,
         target_date=args.target_date,
         markets=args.markets,
+        fail_closed=args.fail_closed,
     )
     json_out, report_out = write_outputs(
         payload,
@@ -492,7 +504,7 @@ def main(argv=None):
     print(f"Observed floor safety monitor: {payload.get('status')}")
     print(f"JSON written to {json_out}")
     print(f"Report written to {report_out}")
-    return 0 if payload.get("status") == "PASS" else 1
+    return 1 if payload.get("hard_stop_pipeline") else 0
 
 
 if __name__ == "__main__":

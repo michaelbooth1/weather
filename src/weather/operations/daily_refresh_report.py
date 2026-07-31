@@ -8,6 +8,15 @@ from pathlib import Path
 
 def render_report(payload):
     admission = payload.get("capture_resource_admission") or {}
+    floor_step = next(
+        (
+            step
+            for step in payload.get("steps") or []
+            if step.get("name") == "observed_floor_safety_monitor"
+        ),
+        {},
+    )
+    floor_result = floor_step.get("result") or {}
     lines = [
         "# Daily Settlement-To-Promotion Refresh",
         "",
@@ -16,6 +25,27 @@ def render_report(payload):
         f"Duration seconds: `{payload.get('duration_seconds')}`",
         f"Capture-resource decision: `{admission.get('decision') or '-'}`",
         f"Capture-resource workload: `{admission.get('workload') or '-'}`",
+    ]
+    if floor_result.get("status") == "ALERT":
+        lines += [
+            "",
+            "## OVER-FINAL FLOOR ALERT",
+            "",
+            f"**{floor_result.get('over_final_count') or 0} captured floor(s) exceeded settlement.**",
+            f"Enforcement mode: `{floor_result.get('enforcement_mode') or '-'}`; "
+            f"pipeline hard stop: `{bool(floor_result.get('hard_stop_pipeline'))}`.",
+            "",
+            "| Market | Date | Snapshot | Floor | Settlement | Rescue source | Overshoot |",
+            "| :--- | :--- | :--- | ---: | ---: | :--- | ---: |",
+        ]
+        for alert in floor_result.get("alerts") or []:
+            lines.append(
+                f"| {alert.get('market_id')} | {alert.get('target_date')} | "
+                f"{alert.get('snapshot_id')} | {alert.get('floor_bucket')} | "
+                f"{alert.get('settlement_bucket')} | {alert.get('rescue_source')} | "
+                f"{alert.get('overshoot_buckets')} |"
+            )
+    lines += [
         "",
         "## Steps",
         "",
@@ -158,6 +188,7 @@ def render_report(payload):
                 f"floors {result.get('enforced_floor_count')}; "
                 f"over-final {result.get('over_final_count')}; "
                 f"evidence blockers {result.get('evidence_blocker_count')}; "
+                f"mode {result.get('enforcement_mode')}; "
                 f"hard stop {result.get('hard_stop_pipeline')}"
             )
         elif step.get("name") == "trading_evidence":

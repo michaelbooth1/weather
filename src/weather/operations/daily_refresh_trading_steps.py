@@ -730,6 +730,7 @@ def run_observed_floor_safety_monitor_step(args):
         target_date=target,
         markets=getattr(args, "markets", ""),
         generated_at_utc=utc_iso(),
+        fail_closed=getattr(args, "fail_on_observed_floor_safety", False),
     )
     json_out, report_out = observed_floor_safety_monitor.write_outputs(
         payload,
@@ -740,6 +741,7 @@ def run_observed_floor_safety_monitor_step(args):
     return {
         "status": payload.get("status"),
         "target_date": target,
+        "enforcement_mode": payload.get("enforcement_mode"),
         "hard_stop_pipeline": payload.get("hard_stop_pipeline"),
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),

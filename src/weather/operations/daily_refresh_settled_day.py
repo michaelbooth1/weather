@@ -68,6 +68,10 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "critical": True,
         "target_date_fields": ("target_date",),
         "skippable_as_non_critical": False,
+        "result_controls_hard_stop": True,
+        "advisory_enforcement": (
+            "alert-only daily visibility until explicitly configured fail-closed"
+        ),
     },
     {
         "step": "trading_evidence",
@@ -183,6 +187,13 @@ def _dependency_status(step, dependency, target_date):
             # The gate ran for the analyzed day and fail-closed as a policy
             # verdict; downstream consumers (promotion refresh, countability
             # gates) enforce it. Record it without halting settled-day analysis.
+            policy_verdict = True
+        elif (
+            dependency.get("result_controls_hard_stop")
+            and not result.get("hard_stop_pipeline")
+        ):
+            # Retain full ALERT/BLOCK detection while an explicit operational
+            # flag controls whether this diagnostic may stop the daily chain.
             policy_verdict = True
         else:
             blocker = f"step_result_status={result_status}"
@@ -342,6 +353,8 @@ def _settled_day_resume_command(args, resume_step="settled_day_analysis_barrier"
     target = getattr(args, "settled_analysis_target_date", "") or ""
     if target:
         command += ["--settled-analysis-target-date", str(target)]
+    if getattr(args, "fail_on_observed_floor_safety", False):
+        command.append("--fail-on-observed-floor-safety")
     return " ".join(command)
 
 
@@ -412,7 +425,17 @@ def build_settled_day_analysis_barrier(args, *, steps_so_far=None):
             "component": dependency.get("step"),
             "phase": dependency.get("phase"),
             "result_status": dependency.get("result_status"),
-            "enforcement": "fail-closed downstream via promotion/countability gates",
+            "enforcement": (
+                next(
+                    (
+                        item.get("advisory_enforcement")
+                        for item in SETTLED_DAY_ANALYSIS_DEPENDENCIES
+                        if item.get("step") == dependency.get("step")
+                    ),
+                    None,
+                )
+                or "fail-closed downstream via promotion/countability gates"
+            ),
         }
         for dependency in dependencies
         if dependency.get("policy_verdict")

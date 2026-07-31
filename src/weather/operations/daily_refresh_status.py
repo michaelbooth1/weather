@@ -207,12 +207,15 @@ def pipeline_summary(steps):
         "observed_floor_safety_monitor": {
             "status": floor_safety.get("status"),
             "target_date": floor_safety.get("target_date"),
+            "enforcement_mode": floor_safety.get("enforcement_mode"),
             "snapshot_count": floor_safety.get("snapshot_count"),
             "enforced_floor_count": floor_safety.get("enforced_floor_count"),
             "floorless_snapshot_count": floor_safety.get("floorless_snapshot_count"),
             "over_final_count": floor_safety.get("over_final_count"),
             "evidence_blocker_count": floor_safety.get("evidence_blocker_count"),
             "hard_stop_pipeline": floor_safety.get("hard_stop_pipeline"),
+            "alerts": floor_safety.get("alerts") or [],
+            "evidence_blockers": floor_safety.get("evidence_blockers") or [],
         },
         "trading_evidence": {
             "status": trading.get("status"),
@@ -611,4 +614,3 @@ def variant_learning_gate_from_steps(steps):
         "active_variant_shadow_status": active_status,
         "model_variant_evidence_growth_status": evidence_status,
     }
-

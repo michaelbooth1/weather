@@ -538,6 +538,14 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--exchange-economics-platform", default="polymarket_us")
     parser.add_argument("--skip-settlement-source-audit", action="store_true")
+    parser.add_argument(
+        "--fail-on-observed-floor-safety",
+        action="store_true",
+        help=(
+            "Fail closed when the observed-floor monitor reports ALERT or BLOCK. "
+            "Defaults off during the temporary pre-lock alert-only posture."
+        ),
+    )
     parser.add_argument("--skip-trading-evidence", action="store_true")
     parser.add_argument("--markets", default="", help="Comma-separated market IDs for price-free diagnostics.")
     parser.add_argument(

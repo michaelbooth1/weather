@@ -98,6 +98,7 @@ def test_monitor_passes_complete_c_and_f_evidence_with_zero_overshoot(tmp_path):
 
     assert payload["schema_version"] == "observed_floor_safety_monitor_v0.1"
     assert payload["status"] == "PASS"
+    assert payload["enforcement_mode"] == "alert_only"
     assert payload["hard_stop_pipeline"] is False
     assert payload["summary"] == {
         "label_count": 2,
@@ -134,7 +135,8 @@ def test_single_over_final_floor_is_a_loud_alert(tmp_path):
     report = render_report(payload)
 
     assert payload["status"] == "ALERT"
-    assert payload["hard_stop_pipeline"] is True
+    assert payload["enforcement_mode"] == "alert_only"
+    assert payload["hard_stop_pipeline"] is False
     assert payload["summary"]["over_final_count"] == 1
     assert payload["alerts"] == [{
         "market_id": "toronto",
@@ -150,8 +152,17 @@ def test_single_over_final_floor_is_a_loud_alert(tmp_path):
     assert "OVER-FINAL ALERTS" in report
     assert "| toronto | 2026-07-30 | c1 | 28 | 27 |" in report
 
+    fail_closed = build_payload(
+        labels_csv=labels_csv,
+        target_date=TARGET_DATE,
+        fail_closed=True,
+    )
+    assert fail_closed["status"] == "ALERT"
+    assert fail_closed["enforcement_mode"] == "fail_closed"
+    assert fail_closed["hard_stop_pipeline"] is True
 
-def test_missing_explanation_is_a_fail_closed_evidence_blocker(tmp_path):
+
+def test_missing_explanation_is_a_visible_evidence_blocker(tmp_path):
     label = _write_market(
         tmp_path,
         market_id="dallas",
@@ -175,14 +186,15 @@ def test_missing_explanation_is_a_fail_closed_evidence_blocker(tmp_path):
     payload = build_payload(labels_csv=labels_csv, target_date=TARGET_DATE)
 
     assert payload["status"] == "BLOCK"
-    assert payload["hard_stop_pipeline"] is True
+    assert payload["enforcement_mode"] == "alert_only"
+    assert payload["hard_stop_pipeline"] is False
     assert payload["summary"]["evidence_blocker_count"] == 1
     assert payload["evidence_blockers"][0]["reason"] == "snapshot_explanation_missing"
     assert payload["evidence_blockers"][0]["snapshot_id"] == "f2"
     assert (folder / "snapshot_explanations.jsonl").exists()
 
 
-def test_cli_returns_nonzero_and_writes_artifacts_on_alert(tmp_path):
+def test_cli_alert_only_and_explicit_fail_closed_exit_codes(tmp_path):
     label = _write_market(
         tmp_path,
         market_id="dallas",
@@ -211,6 +223,21 @@ def test_cli_returns_nonzero_and_writes_artifacts_on_alert(tmp_path):
         str(report_out),
     ])
 
-    assert returncode == 1
+    assert returncode == 0
     assert json.loads(json_out.read_text(encoding="utf-8"))["status"] == "ALERT"
     assert "OVER-FINAL ALERTS" in report_out.read_text(encoding="utf-8")
+
+    returncode = main([
+        "--labels-csv",
+        str(labels_csv),
+        "--target-date",
+        TARGET_DATE,
+        "--json-out",
+        str(json_out),
+        "--report-out",
+        str(report_out),
+        "--fail-closed",
+    ])
+
+    assert returncode == 1
+    assert json.loads(json_out.read_text(encoding="utf-8"))["enforcement_mode"] == "fail_closed"
