@@ -1523,7 +1523,7 @@ def write_report(path, manifest):
             (artifacts.get("settlement_lag") or {}).get("lead_rows"),
         ])
     lines = [
-        "# F-Family Secondary Artifacts",
+        f"# {manifest.get('family_unit') or DEFAULT_FAMILY_UNIT}-Family Secondary Artifacts",
         "",
         f"Generated: {manifest.get('generated_at_utc')}",
         f"Schema: `{manifest.get('schema_version')}`",
@@ -1573,9 +1573,20 @@ def cmd_train(args):
             raise SystemExit(
                 f"Invalid production point-in-time preselection lock: {exc}"
             ) from exc
-    artifact_root = None
+    artifact_root = Path(args.artifact_root).resolve() if args.artifact_root else None
+    if args.family_unit == "C":
+        if artifact_root is None:
+            raise SystemExit(
+                "Inactive C-family training requires an explicit candidate --artifact-root"
+            )
+        if (
+            Path(args.out).resolve() == Path(DEFAULT_MANIFEST).resolve()
+            or Path(args.report).resolve() == Path(DEFAULT_REPORT).resolve()
+        ):
+            raise SystemExit(
+                "Inactive C-family training requires explicit candidate --out and --report paths"
+            )
     if preselection is not None:
-        artifact_root = Path(args.artifact_root).resolve() if args.artifact_root else None
         manifest_parent = Path(args.out).resolve().parent
         if (
             artifact_root is None
@@ -1585,6 +1596,16 @@ def cmd_train(args):
             raise SystemExit(
                 "Production family-secondary --artifact-root must be a child "
                 "of the candidate manifest directory"
+            )
+    elif args.family_unit == "C":
+        manifest_parent = Path(args.out).resolve().parent
+        if (
+            artifact_root == manifest_parent
+            or not artifact_root.is_relative_to(manifest_parent)
+        ):
+            raise SystemExit(
+                "Inactive C-family --artifact-root must be a child of the candidate "
+                "manifest directory"
             )
     try:
         manifest = build_family_manifest(
@@ -1617,7 +1638,12 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Train family secondary artifacts and serving gate.")
     sub = parser.add_subparsers(dest="command", required=True)
     train = sub.add_parser("train")
-    train.add_argument("--family-unit", default=DEFAULT_FAMILY_UNIT, choices=["F"])
+    train.add_argument(
+        "--family-unit",
+        default=DEFAULT_FAMILY_UNIT,
+        choices=["F", "C"],
+        help="Native-unit family to fit; C is the inactive Toronto candidate lane.",
+    )
     train.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     train.add_argument("--quality-grades", default=DEFAULT_QUALITY_GRADES)
     train.add_argument("--min-trust", type=int, default=DEFAULT_MIN_TRUST)

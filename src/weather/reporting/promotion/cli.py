@@ -34,7 +34,12 @@ def build_parser():
         default="",
         help="Required exact semantic corpus hash for --frozen-corpus.",
     )
-    parser.add_argument("--family-unit", default=DEFAULT_FAMILY_UNIT, choices=["F", "all"])
+    parser.add_argument(
+        "--family-unit",
+        default=DEFAULT_FAMILY_UNIT,
+        choices=["F", "C", "all"],
+        help="Native-unit family to evaluate; C is the inactive Toronto candidate lane.",
+    )
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
     parser.add_argument("--as-of", default=None)
     parser.add_argument("--quality-grades", default=",".join(DEFAULT_QUALITY_GRADES))

@@ -155,6 +155,21 @@ qualification declarations, not permission to raise the host load limits.
 Production mode remains candidate-only. It does not promote, replace the
 active pointer, restart workers, or grant trading permission.
 
+### Inactive Celsius admission lane
+
+As of 2026-07-31, the pooled direct-band trainer, family-secondary trainer,
+and promotion-refresh CLI accept `--family-unit C`. This is control-plane
+admission for Toronto only. It does not schedule a Celsius fit, create a
+preselection lock, run replay, change serving, or grant promotion permission.
+The existing Fahrenheit default remains unchanged.
+
+Do not run the Celsius candidate workflow until the current production
+point-in-time lock is secured. After that lock, use a distinct candidate root
+for every Celsius output and follow the same preselection-before-fit ordering
+documented above. `--family-unit C` on the pooled trainer is intentionally
+limited to `--objective band`; the legacy bucket and density lanes are not
+admitted by this patch.
+
 ### First inactive production release
 
 Captured-input parity is ordinarily checked before candidate work and must bind
