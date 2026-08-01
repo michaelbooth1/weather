@@ -237,6 +237,37 @@ operation through `python -m weather.operations.release_lifecycle promote`,
 which requires both a matching promotion-decision proof and a fresh
 market-day-boundary proof.
 
+## Reviewed All-Shadow Research Bootstrap
+
+Use this bounded workstation entry point when the repository has no active
+pointer and the immediate objective is an inspectable immutable identity
+release, not production qualification:
+
+```powershell
+python -m weather.operations.all_shadow_release_bootstrap `
+  --candidate-id <reviewed-release-id> `
+  --run-root <dedicated-run-root-outside-data>
+```
+
+If the tracked research bundle predates the required corpus-lineage contract,
+add `--model-source-release <verified-immutable-release-directory>`. The builder
+reverifies that release without adopting its runtime identity, copies its
+hash-bound `pooled_band_model` role, and imports the corpus lineage from the
+same release's model-bound `training_evaluation_corpus` role. The new release
+still freezes the current tracked family-secondary manifest, artifact registry,
+runtime market set, and base graph.
+
+The builder requires a clean code identity and the exact runtime fleet
+(Toronto in C plus eleven F markets). It copies the tracked pooled F bundle,
+family-secondary manifest, and artifact registry; freezes every market as
+explicit `shadow`; freezes all seven base-model components for every market;
+creates a `research_only` immutable release; and reverifies its hashes,
+runtime, route, and semantic contract. Its self-hashed
+`all_shadow_release_bootstrap_receipt_v1` remains under the declared run root.
+It refuses an existing candidate/release identity and proves
+`current_release.json` stayed absent. It never promotes, writes a pointer, or
+changes serving state.
+
 ## Separate Serving-Identity Bootstrap
 
 This manual research-serving exception is not part of the first inactive
@@ -309,12 +340,64 @@ the proof/record finalization; it never toggles back to the failed release.
 `--drill-record` may select an isolated output for a synthetic drill but cannot
 point inside the immutable release tree.
 
+The first active release has an explicit `NO_ACTIVE_POINTER` rollback target.
+It is eligible only when the active pointer is the verified sequence-1
+`PROMOTE` transition and the immutable manifest has null `parent_release` and
+`rollback_target`. For that transition the market-day-boundary proof binds the
+active source release being deactivated. The command writes a self-hashed,
+source-pointer-bound intent before removing `current_release.json`, then calls
+the canonical serving resolver and requires the absent pointer to resolve as
+`RESEARCH_UNBOUND` / `research_unbound_non_countable`. The finalized drill
+keeps the source release identity for evidence scope, records a null restored
+release and absent pointer, and embeds the post-deactivation serving proof.
+Interrupted finalization is recoverable from the same intent while the pointer
+remains absent; it never recreates or toggles the release.
+
 Loop control remains an explicit operator step. The initial record truthfully
 uses `status=PENDING_MANUAL_RESTART` and names the target runtimes under
 `manual_coordinated_restart.required_runtimes`. A real drill becomes complete
 only after those workers are coordinated onto the restored release, their
 runtime-identity proof is attached, post-restart health passes, and the manual
 restart, health, and overall statuses are all recorded as `PASS`.
+
+## Inactive-release forward shadow
+
+Forward shadow is a read-only comparison, not activation. It loads one
+immutable release with no pointer authority, rejects that release if it is
+currently active, and replays the exact captured source payload used by each
+recorded production snapshot in a declared half-open UTC window:
+
+```powershell
+python -m weather.reporting.scorecards.inactive_release_forward_shadow `
+  --release-dir <artifacts/releases/release-id> `
+  --manifest-sha256 <expected-manifest-sha256> `
+  --market-id <market-id> `
+  --target-date <yyyy-mm-dd> `
+  --captured-inputs <market-day/replay_inputs.jsonl> `
+  --snapshot-tape <market-day/snapshots.jsonl> `
+  --window-start <iso-8601-utc> `
+  --window-end <iso-8601-utc> `
+  --output-root <declared-output-root>
+```
+
+The inactive loader verifies the complete production-capable artifact graph,
+route, registry, base model, and manifest while keeping
+`active_pointer_authority_used=false`. The command verifies every captured
+input self-hash and both source-tape hashes before and after replay. An invalid
+or legacy input identity blocks strict evidence; do not repair it in place or
+waive the check. `--integrity-only` skips current checkout/runtime identity
+matching for an archived-release diagnostic. Its output is not release
+qualification or promotion evidence.
+
+For each instant, the JSON artifact binds the captured-input, recorded
+production/runtime, inactive release/manifest/candidate, model artifact, and
+postprocessor identities. It compares the recorded
+`snapshots.jsonl.bands[].model_probability` partition against the inactive
+incumbent projection and the candidate raw, postprocessed, preblend,
+current-blend, and final stages. The summary reports exact and tolerance
+whole-partition counts plus the first pipeline divergence. `status=PASS` means
+the instrument completed; `comparison_status=MATCH` or `DIVERGED` states the
+parity result. Neither result authorizes activation, promotion, or trading.
 
 Training output paths are candidate-only by default. An old serving path fails
 before training begins. `--allow-legacy-serving-output` is a temporary migration

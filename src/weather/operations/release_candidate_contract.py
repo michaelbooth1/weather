@@ -744,8 +744,24 @@ def _corpus_manifest(
     bundle_sha256: str,
     *,
     production_evaluation: Mapping[str, Any] | None = None,
+    research_corpus_lineage: Mapping[str, Any] | None = None,
+    research_corpus_lineage_provenance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    lineage = _json_safe(bundle.get("corpus_lineage") or {})
+    if production_evaluation is not None and research_corpus_lineage is not None:
+        raise CandidateContractError(
+            "production evaluation and research corpus lineage overrides are mutually exclusive"
+        )
+    if (research_corpus_lineage is None) != (
+        research_corpus_lineage_provenance is None
+    ):
+        raise CandidateContractError(
+            "research corpus lineage and its verified provenance must be supplied together"
+        )
+    lineage = _json_safe(
+        research_corpus_lineage
+        if research_corpus_lineage is not None
+        else bundle.get("corpus_lineage") or {}
+    )
     if production_evaluation is not None:
         trainer_evaluation = lineage.get("evaluation")
         lineage["evaluation"] = _json_safe(production_evaluation)
@@ -778,6 +794,16 @@ def _corpus_manifest(
             "schema_version": schema_version("release_training_evaluation_corpus"),
             "bundle_sha256": bundle_sha256,
             "corpus_lineage": lineage,
+            "lineage_source": (
+                {
+                    "kind": "verified_immutable_release",
+                    **_json_safe(research_corpus_lineage_provenance or {}),
+                }
+                if research_corpus_lineage is not None
+                else {"kind": "production_point_in_time_qualification"}
+                if production_evaluation is not None
+                else {"kind": "candidate_bundle"}
+            ),
         }
     )
 
@@ -1324,6 +1350,8 @@ def freeze_candidate_semantic_contract(
     family_unit: str,
     candidate_mode: str = RESEARCH_ONLY_CANDIDATE_MODE,
     point_in_time_artifacts: Mapping[str, str | Path] | None = None,
+    research_corpus_lineage: Mapping[str, Any] | None = None,
+    research_corpus_lineage_provenance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Freeze configs/sidecars, persist leakage evidence, and verify exact PASS."""
 
@@ -1334,6 +1362,13 @@ def freeze_candidate_semantic_contract(
         raise CandidateContractError(f"unsupported candidate mode: {mode!r}")
     point_in_time_sources = dict(point_in_time_artifacts or {})
     if mode == PRODUCTION_CANDIDATE_MODE:
+        if (
+            research_corpus_lineage is not None
+            or research_corpus_lineage_provenance is not None
+        ):
+            raise CandidateContractError(
+                "production candidate cannot use a research corpus-lineage override"
+            )
         if set(point_in_time_sources) != set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS):
             raise CandidateContractError(
                 "production candidate requires the exact point-in-time artifact role set"
@@ -1342,6 +1377,33 @@ def freeze_candidate_semantic_contract(
         raise CandidateContractError(
             "research-only candidate cannot include production point-in-time artifacts"
         )
+    if (research_corpus_lineage is None) != (
+        research_corpus_lineage_provenance is None
+    ):
+        raise CandidateContractError(
+            "research corpus lineage and provenance must be supplied together"
+        )
+    if research_corpus_lineage_provenance is not None:
+        source_release_id = str(
+            research_corpus_lineage_provenance.get("source_release_id") or ""
+        ).strip()
+        hashes = [
+            str(research_corpus_lineage_provenance.get(field) or "")
+            for field in (
+                "source_release_manifest_sha256",
+                "source_role_sha256",
+                "source_payload_sha256",
+            )
+        ]
+        if (
+            research_corpus_lineage_provenance.get("verification_status")
+            != "PASS"
+            or not source_release_id
+            or any(not _SHA256_RE.fullmatch(value) for value in hashes)
+        ):
+            raise CandidateContractError(
+                "research corpus-lineage provenance is not a verified immutable release proof"
+            )
     config_root = Path(repo_root).resolve() / "config"
     model_path = Path(model_bundle_path).resolve()
     bundle, bundle_sha = _load_verified_bundle(model_path)
@@ -1488,6 +1550,10 @@ def freeze_candidate_semantic_contract(
         bundle,
         bundle_sha,
         production_evaluation=production_evaluation,
+        research_corpus_lineage=research_corpus_lineage,
+        research_corpus_lineage_provenance=(
+            research_corpus_lineage_provenance
+        ),
     )
     generated = {
         **sidecars,

@@ -9,6 +9,7 @@ from weather.calibration.pooled_candidate_replay import (
 from weather.collection.live_variant_predictions import (
     _apply_current_blend,
     _band_binary_probabilities,
+    trace_pooled_band_binary_probabilities,
 )
 from weather.market.market_registry import REGISTRY
 from weather.model.current_blend import (
@@ -367,6 +368,12 @@ def test_contextual_band_blend_restores_simplex_with_live_replay_parity():
             band_rows,
             {"market_id": "austin", "model": {}},
         )
+        trace = trace_pooled_band_binary_probabilities(
+            artifact,
+            feature_vector,
+            band_rows,
+            {"market_id": "austin", "model": {}},
+        )
 
     replay = [row["candidate_p"] for row in replay_rows]
     powered = [value**1.25 for value in raw_candidate]
@@ -386,3 +393,11 @@ def test_contextual_band_blend_restores_simplex_with_live_replay_parity():
     assert sum(live.values()) == pytest.approx(1.0, abs=1e-12)
     assert replay == pytest.approx(expected)
     assert list(live.values()) == pytest.approx(replay)
+    assert list(trace["stages"]["candidate_preblend"].values()) == pytest.approx(
+        preblend
+    )
+    assert list(trace["stages"]["candidate_current_blend"].values()) == pytest.approx(
+        raw_blended
+    )
+    assert trace["stages"]["candidate_final"] == pytest.approx(live)
+    assert trace["probabilities"] == pytest.approx(live)

@@ -22,6 +22,7 @@ from weather.operations.release_promotion import (  # noqa: F401
     DEFAULT_CANDIDATES_ROOT,
     DEFAULT_ROLLBACK_DRILL,
     MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
+    NO_ACTIVE_POINTER_STATE,
     PROMOTION_DECISION_SCHEMA_VERSION,
     ROLLBACK_DRILL_SCHEMA_VERSION,
     assert_candidate_only_output,

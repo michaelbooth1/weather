@@ -574,6 +574,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Hash-linked rollback, coordinated restart, restored identity, and health drill proof.",
     ),
     SchemaSpec(
+        "inactive_release_forward_shadow",
+        "inactive_release_forward_shadow_v0.1",
+        "weather.reporting.scorecards.inactive_release_forward_shadow",
+        "active",
+        "Exact per-instant inactive-release replay, recorded-production comparison, and first-pipeline-divergence evidence.",
+    ),
+    SchemaSpec(
         "off_machine_backup_proof",
         "off_machine_backup_proof_v0.1",
         "weather.reporting.serving_gates.production_readiness_gate",
@@ -733,6 +740,27 @@ RECENT_REGISTERED_SCHEMAS = (
         "weather.operations.point_in_time_staging_receipt",
         "active",
         "Self-hashed staged-source trio binding to the exact latest complete-grade Toronto ledger revisions.",
+    ),
+    SchemaSpec(
+        "release_admissibility_receipt",
+        "release_admissibility_receipt_v1",
+        "weather.operations.release_admissibility_clock",
+        "active",
+        "Self-hashed per-market-day proof that immutable settlement and captured-input evidence is release-admissible.",
+    ),
+    SchemaSpec(
+        "release_admissibility_clock",
+        "release_admissibility_clock_v1",
+        "weather.operations.release_admissibility_clock",
+        "active",
+        "Small receipt-only collapse of the calendar-contiguous release-admissible streak.",
+    ),
+    SchemaSpec(
+        "all_shadow_release_bootstrap_receipt",
+        "all_shadow_release_bootstrap_receipt_v1",
+        "weather.operations.all_shadow_release_bootstrap",
+        "active",
+        "Self-hashed proof for a reviewed research-only all-shadow immutable release build that leaves the active pointer absent.",
     ),
     SchemaSpec(
         "point_in_time_candidate_training_graph",

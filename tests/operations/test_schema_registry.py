@@ -97,6 +97,18 @@ class TestSchemaRegistry(unittest.TestCase):
             "capture_resource_gate_v0.1",
         )
         self.assertEqual(
+            schema_version("release_admissibility_receipt"),
+            "release_admissibility_receipt_v1",
+        )
+        self.assertEqual(
+            schema_version("release_admissibility_clock"),
+            "release_admissibility_clock_v1",
+        )
+        self.assertEqual(
+            schema_version("all_shadow_release_bootstrap_receipt"),
+            "all_shadow_release_bootstrap_receipt_v1",
+        )
+        self.assertEqual(
             schema_version("point_in_time_analytical_contract"),
             "point_in_time_analytical_contract_v0.1",
         )

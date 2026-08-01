@@ -34,6 +34,7 @@ from weather.release_artifacts import (
     strict_json_loads,
     validate_release_id,
 )
+from weather.release_contract import NO_ACTIVE_POINTER_STATE
 from weather.schema_registry import registry_payload, schema_version
 
 
@@ -409,12 +410,6 @@ def _validate_rollback(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     )
     for field_name in ("rollback_status", "post_rollback_identity_status", "health_status"):
         _expect(issues, payload, (field_name,), "PASS", code=f"rollback_{field_name}_failed")
-    _expect_nonempty(
-        issues,
-        payload,
-        ("rollback_target_release_id",),
-        code="rollback_target_missing",
-    )
     _expect_number(
         issues,
         payload,
@@ -422,6 +417,74 @@ def _validate_rollback(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         lambda value: value > 0,
         "greater than 0",
         code="rollback_duration_invalid",
+    )
+    if payload.get("rollback_target_state") == NO_ACTIVE_POINTER_STATE:
+        _expect(
+            issues,
+            payload,
+            ("rollback_target_release_id",),
+            None,
+            code="no_pointer_rollback_target_release_present",
+        )
+        _expect(
+            issues,
+            payload,
+            ("rollback_target_manifest_sha256",),
+            None,
+            code="no_pointer_rollback_target_manifest_present",
+        )
+        _expect(
+            issues,
+            payload,
+            ("restored_release_id",),
+            None,
+            code="no_pointer_rollback_restored_release_present",
+        )
+        _expect(
+            issues,
+            payload,
+            ("active_pointer_present",),
+            False,
+            code="no_pointer_rollback_pointer_present",
+        )
+        _expect(
+            issues,
+            payload,
+            ("post_rollback_serving_status",),
+            "PASS",
+            code="no_pointer_rollback_serving_failed",
+        )
+        _expect(
+            issues,
+            payload,
+            ("post_rollback_identity", "target_state"),
+            NO_ACTIVE_POINTER_STATE,
+            code="no_pointer_rollback_identity_target_mismatch",
+        )
+        _expect(
+            issues,
+            payload,
+            ("post_rollback_identity", "release_identity_status"),
+            "research_unbound_non_countable",
+            code="no_pointer_rollback_serving_state_mismatch",
+        )
+        if payload.get("rollback_source_release_id") != payload.get("release_id"):
+            issues.append(
+                _validator_issue(
+                    "no_pointer_rollback_source_scope_mismatch",
+                    "no-pointer rollback evidence must be scoped to its source release",
+                    release_id=payload.get("release_id"),
+                    rollback_source_release_id=payload.get(
+                        "rollback_source_release_id"
+                    ),
+                )
+            )
+        return issues
+    _expect_nonempty(
+        issues,
+        payload,
+        ("rollback_target_release_id",),
+        code="rollback_target_missing",
     )
     if payload.get("restored_release_id") != payload.get("release_id"):
         issues.append(

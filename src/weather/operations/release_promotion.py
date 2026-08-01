@@ -17,6 +17,7 @@ from weather.artifacts import (
 )
 from weather.paths import REPO_ROOT, data_path
 from weather.release_contract import (
+    NO_ACTIVE_POINTER_STATE,
     PRODUCTION_RELEASE_KIND,
     SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
     active_release_kind,
@@ -322,6 +323,58 @@ def _post_rollback_identity_proof(
     return proof
 
 
+def _post_deactivation_serving_proof(
+    *,
+    releases_root: Path,
+    pointer_path: Path,
+    verified_at_utc: str,
+) -> dict[str, Any]:
+    """Prove that an absent pointer resolves through the canonical serving path."""
+
+    from weather.release_serving import (
+        STATUS_RESEARCH_UNBOUND,
+        load_verified_active_serving_bundle,
+        serving_bundle_lineage,
+    )
+
+    if pointer_path.exists():
+        raise ReleaseLifecycleError(
+            "post-deactivation serving proof requires the active pointer to be absent"
+        )
+    bundle = load_verified_active_serving_bundle(
+        pointer_path=pointer_path,
+        releases_root=releases_root,
+        check_runtime=False,
+    )
+    lineage = serving_bundle_lineage(bundle)
+    expected_lineage_status = "research_unbound_non_countable"
+    if (
+        bundle.status != STATUS_RESEARCH_UNBOUND
+        or bundle.pointer_present
+        or lineage.get("release_identity_status") != expected_lineage_status
+    ):
+        raise ReleaseLifecycleError(
+            "post-deactivation serving path did not resolve to the canonical "
+            "no-active-pointer state"
+        )
+    proof: dict[str, Any] = {
+        "status": "PASS",
+        "verified_at_utc": verified_at_utc,
+        "target_state": NO_ACTIVE_POINTER_STATE,
+        "release_id": None,
+        "manifest_sha256": None,
+        "pointer_path": str(pointer_path),
+        "pointer_present": False,
+        "serving_bundle_status": bundle.status,
+        "release_identity_status": expected_lineage_status,
+        "release_identity_reason": lineage["release_identity_reason"],
+        "serving_path_resolved": True,
+        "runtime_compatibility_checked": False,
+    }
+    proof["proof_sha256"] = canonical_payload_sha256(proof)
+    return proof
+
+
 def _rollback_drill_record(
     *,
     started_at_utc: str,
@@ -436,6 +489,214 @@ def _rollback_drill_intent(
             "compare planned_pointer_sha256 with the active pointer, verify the "
             "target release, and rerun/complete the rollback drill record"
         ),
+    }
+    record["record_sha256"] = canonical_payload_sha256(record)
+    return record
+
+
+def _no_pointer_rollback_intent(
+    *,
+    started_at_utc: str,
+    source_pointer: Mapping[str, Any],
+    source: Mapping[str, Any],
+    boundary: Mapping[str, Any],
+    pointer_path: Path,
+) -> dict[str, Any]:
+    """Journal a first-release deactivation before removing its pointer."""
+
+    source_manifest = source["manifest"]
+    record = {
+        "schema_version": ROLLBACK_DRILL_SCHEMA_VERSION,
+        "evidence_contract": "release_rollback_drill",
+        "generated_at_utc": started_at_utc,
+        "status": "PENDING_POINTER_RECONCILIATION",
+        "release_id": source_pointer["active_release_id"],
+        "manifest_sha256": source_pointer["active_manifest_sha256"],
+        "rollback_status": "PENDING",
+        "rollback_source_release_id": source_pointer["active_release_id"],
+        "rollback_source_manifest_sha256": source_pointer[
+            "active_manifest_sha256"
+        ],
+        "rollback_source_release_kind": active_release_kind(source_pointer),
+        "rollback_source_pointer_sha256": source_pointer["pointer_sha256"],
+        "rollback_source_pointer_sequence": source_pointer["sequence"],
+        "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+        "rollback_target_release_id": None,
+        "rollback_target_manifest_sha256": None,
+        "rollback_target_release_kind": None,
+        "planned_pointer_state": "ABSENT",
+        "planned_pointer_path": str(pointer_path),
+        "market_day_boundary_sha256": boundary["sha256"],
+        "market_day_boundary_observed_at_utc": boundary["observed_at_utc"],
+        "effective_target_date": boundary["effective_target_date"],
+        "rollback_started_at_utc": started_at_utc,
+        "manual_coordinated_restart": {
+            "required": True,
+            "status": "PENDING",
+            "release_id": None,
+            "target_state": NO_ACTIVE_POINTER_STATE,
+            "required_runtimes": list(
+                source_manifest.get("expected_live_runtimes") or []
+            ),
+            "completed_at_utc": None,
+            "completed_by": None,
+            "runtime_identity_proof": None,
+        },
+        "health_status": "PENDING",
+        "health_proof": None,
+        "reconciliation_action": (
+            "verify rollback_source_pointer_sha256 when the pointer is present; "
+            "otherwise prove the pointer is absent, resolve the canonical serving "
+            "path as research-unbound/non-countable, and finalize the drill"
+        ),
+    }
+    record["record_sha256"] = canonical_payload_sha256(record)
+    return record
+
+
+def _load_no_pointer_rollback_intent(
+    drill_record_path: Path,
+    *,
+    pointer_path: Path,
+    source_pointer: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load and verify the journal for a first-release deactivation."""
+
+    try:
+        payload = strict_json_loads(
+            drill_record_path.read_text(encoding="utf-8"),
+            label="no-active-pointer rollback reconciliation intent",
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        state = "present" if source_pointer is not None else "absent"
+        raise ReleaseLifecycleError(
+            f"active pointer is {state}, but a recoverable no-active-pointer "
+            f"rollback intent cannot be loaded from {drill_record_path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ReleaseLifecycleError(
+            "no-active-pointer rollback reconciliation intent must be a JSON object"
+        )
+    expected = {
+        "schema_version": ROLLBACK_DRILL_SCHEMA_VERSION,
+        "evidence_contract": "release_rollback_drill",
+        "status": "PENDING_POINTER_RECONCILIATION",
+        "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+        "rollback_target_release_id": None,
+        "rollback_target_manifest_sha256": None,
+        "rollback_target_release_kind": None,
+        "planned_pointer_state": "ABSENT",
+        "planned_pointer_path": str(pointer_path),
+    }
+    if source_pointer is not None:
+        expected.update(
+            {
+                "release_id": source_pointer.get("active_release_id"),
+                "manifest_sha256": source_pointer.get("active_manifest_sha256"),
+                "rollback_source_release_id": source_pointer.get(
+                    "active_release_id"
+                ),
+                "rollback_source_manifest_sha256": source_pointer.get(
+                    "active_manifest_sha256"
+                ),
+                "rollback_source_release_kind": active_release_kind(
+                    source_pointer
+                ),
+                "rollback_source_pointer_sha256": source_pointer.get(
+                    "pointer_sha256"
+                ),
+                "rollback_source_pointer_sequence": source_pointer.get(
+                    "sequence"
+                ),
+            }
+        )
+    mismatches = [
+        f"{field}={payload.get(field)!r} (expected {value!r})"
+        for field, value in expected.items()
+        if payload.get(field) != value
+    ]
+    expected_record_sha256 = canonical_payload_sha256(
+        payload,
+        omit=("record_sha256",),
+    )
+    if payload.get("record_sha256") != expected_record_sha256:
+        mismatches.append("record_sha256 does not match the canonical intent payload")
+    if mismatches:
+        raise ReleaseLifecycleError(
+            "no-active-pointer rollback state does not match its durable drill "
+            "intent: " + "; ".join(mismatches)
+        )
+    return payload
+
+
+def _no_pointer_rollback_drill_record(
+    *,
+    completed_at_utc: str,
+    duration_seconds: float,
+    source: Mapping[str, Any],
+    identity_proof: Mapping[str, Any],
+    rollback_intent: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the pending-restart proof for rollback to an absent pointer."""
+
+    source_manifest = source["manifest"]
+    source_release_id = str(rollback_intent["rollback_source_release_id"])
+    source_manifest_sha256 = str(
+        rollback_intent["rollback_source_manifest_sha256"]
+    )
+    record = {
+        "schema_version": ROLLBACK_DRILL_SCHEMA_VERSION,
+        "evidence_contract": "release_rollback_drill",
+        "generated_at_utc": completed_at_utc,
+        "status": "PENDING_MANUAL_RESTART",
+        "release_id": source_release_id,
+        "manifest_sha256": source_manifest_sha256,
+        "rollback_status": "PASS",
+        "rollback_source_release_id": source_release_id,
+        "rollback_source_manifest_sha256": source_manifest_sha256,
+        "rollback_source_release_kind": rollback_intent[
+            "rollback_source_release_kind"
+        ],
+        "rollback_source_pointer_sha256": rollback_intent[
+            "rollback_source_pointer_sha256"
+        ],
+        "rollback_source_pointer_sequence": rollback_intent[
+            "rollback_source_pointer_sequence"
+        ],
+        "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+        "rollback_target_release_id": None,
+        "rollback_target_manifest_sha256": None,
+        "rollback_target_release_kind": None,
+        "restored_release_id": None,
+        "active_pointer_present": False,
+        "rollback_started_at_utc": rollback_intent["rollback_started_at_utc"],
+        "rollback_completed_at_utc": completed_at_utc,
+        "rollback_duration_seconds": max(duration_seconds, 1e-9),
+        "post_rollback_identity_status": "PASS",
+        "post_rollback_serving_status": "PASS",
+        "post_rollback_identity": dict(identity_proof),
+        "rollback_intent_sha256": rollback_intent["record_sha256"],
+        "rollback_intent": dict(rollback_intent),
+        "manual_coordinated_restart": {
+            "required": True,
+            "status": "PENDING",
+            "release_id": None,
+            "target_state": NO_ACTIVE_POINTER_STATE,
+            "required_runtimes": list(
+                source_manifest.get("expected_live_runtimes") or []
+            ),
+            "completed_at_utc": None,
+            "completed_by": None,
+            "runtime_identity_proof": None,
+        },
+        "health_status": "PENDING",
+        "health_proof": None,
+        "completion_requirements": [
+            "restart every required worker after the active pointer is absent",
+            "attach runtime_identity_proof showing research_unbound_non_countable",
+            "set health_status to PASS only after post-restart serving health passes",
+            "set status to PASS only after the manual restart and health proof are complete",
+        ],
     }
     record["record_sha256"] = canonical_payload_sha256(record)
     return record
@@ -560,6 +821,62 @@ def _finalize_rollback_drill(
             "release pointer was rolled back and identity-verified, but the drill record "
             f"could not be finalized at {drill_record_path}; the durable reconciliation "
             f"intent remains and the same rollback command can retry finalization: {exc}"
+        ) from exc
+    return identity_proof, drill_record
+
+
+def _finalize_no_pointer_rollback_drill(
+    *,
+    releases_root: Path,
+    pointer_path: Path,
+    drill_record_path: Path,
+    rollback_intent: Mapping[str, Any],
+    operation_time: datetime,
+    duration_seconds: float,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Verify pointer absence and serving resolution, then finalize the journal."""
+
+    if pointer_path.exists():
+        raise ReleaseLifecycleError(
+            "cannot finalize no-active-pointer rollback while the pointer exists"
+        )
+    source_release_id = str(rollback_intent["rollback_source_release_id"])
+    source_manifest_sha256 = str(
+        rollback_intent["rollback_source_manifest_sha256"]
+    )
+    source = verify_release(
+        _release_dir(releases_root, source_release_id),
+        expected_manifest_sha256=source_manifest_sha256,
+        check_runtime=False,
+    )
+    if (
+        source["manifest"].get("parent_release") is not None
+        or source["manifest"].get("rollback_target") is not None
+    ):
+        raise ReleaseLifecycleError(
+            "no-active-pointer rollback source is not a verified first release"
+        )
+    completed_at_utc = operation_time.astimezone(timezone.utc).isoformat()
+    identity_proof = _post_deactivation_serving_proof(
+        releases_root=releases_root,
+        pointer_path=pointer_path,
+        verified_at_utc=completed_at_utc,
+    )
+    drill_record = _no_pointer_rollback_drill_record(
+        completed_at_utc=completed_at_utc,
+        duration_seconds=duration_seconds,
+        source=source,
+        identity_proof=identity_proof,
+        rollback_intent=rollback_intent,
+    )
+    try:
+        _write_json_atomic(drill_record_path, drill_record)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ReleaseLifecycleError(
+            "active pointer was removed and the canonical no-pointer serving state "
+            "was verified, but the drill record could not be finalized at "
+            f"{drill_record_path}; the durable reconciliation intent remains and "
+            f"the same rollback command can retry finalization: {exc}"
         ) from exc
     return identity_proof, drill_record
 
@@ -751,12 +1068,15 @@ def rollback_release(
     drill_record_path: str | Path = DEFAULT_ROLLBACK_DRILL,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Atomically point back to the prior release and persist its identity proof.
+    """Return to the prior release, or remove a first-release pointer, with proof.
 
     Runtime compatibility is intentionally checked by the restarted consumer;
     rollback itself cannot assume the old release used the current code runtime.
     The drill record therefore remains pending until the coordinated worker
-    restart and post-restart health proof are completed manually.
+    restart and post-restart health proof are completed manually.  A verified
+    first activation has an explicit ``NO_ACTIVE_POINTER`` target: its pointer
+    is removed only after a durable intent is written, then the canonical
+    serving loader must resolve the absent-pointer state successfully.
     """
 
     started_monotonic = time.perf_counter()
@@ -774,6 +1094,42 @@ def rollback_release(
         releases_root=releases_root,
     )
     with _pointer_lock(pointer_path):
+        if not pointer_path.exists():
+            rollback_intent = _load_no_pointer_rollback_intent(
+                drill_record_path,
+                pointer_path=pointer_path,
+            )
+            completed_time = (
+                operation_time if now is not None else datetime.now(timezone.utc)
+            )
+            intent_started = _parse_utc(
+                rollback_intent.get("rollback_started_at_utc"),
+                field="rollback_started_at_utc",
+            )
+            identity_proof, drill_record = _finalize_no_pointer_rollback_drill(
+                releases_root=releases_root,
+                pointer_path=pointer_path,
+                drill_record_path=drill_record_path,
+                rollback_intent=rollback_intent,
+                operation_time=completed_time,
+                duration_seconds=(completed_time - intent_started).total_seconds(),
+            )
+            return {
+                "status": "ROLLED_BACK",
+                "release_id": None,
+                "previous_release_id": rollback_intent[
+                    "rollback_source_release_id"
+                ],
+                "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+                "pointer_path": str(pointer_path),
+                "pointer_sha256": None,
+                "active_pointer_present": False,
+                "release_kind": None,
+                "release_identity_proof": identity_proof,
+                "drill_record_path": str(drill_record_path),
+                "drill_status": drill_record["status"],
+                "restart_required": True,
+            }
         current = load_active_pointer(pointer_path)
         if current.get("action") == "ROLLBACK":
             rollback_intent = _load_rollback_drill_intent(
@@ -802,6 +1158,90 @@ def rollback_release(
         else:
             target_id = current.get("previous_release_id")
             target_hash = current.get("previous_manifest_sha256")
+            if not target_id or not target_hash:
+                if (
+                    current.get("action") != "PROMOTE"
+                    or current.get("sequence") != 1
+                    or target_id is not None
+                    or target_hash is not None
+                ):
+                    raise ReleaseLifecycleError(
+                        "active release pointer has no verified rollback target "
+                        "and is not a first activation"
+                    )
+                source = verify_release(
+                    _release_dir(
+                        releases_root,
+                        str(current["active_release_id"]),
+                    ),
+                    expected_manifest_sha256=str(
+                        current["active_manifest_sha256"]
+                    ),
+                    check_runtime=False,
+                )
+                if (
+                    source["manifest"].get("parent_release") is not None
+                    or source["manifest"].get("rollback_target") is not None
+                ):
+                    raise ReleaseLifecycleError(
+                        "first-activation pointer does not bind a null "
+                        "parent/rollback target"
+                    )
+                boundary_gate = validate_market_day_boundary(
+                    market_day_boundary,
+                    release_id=str(current["active_release_id"]),
+                    manifest_sha256=str(current["active_manifest_sha256"]),
+                    now=now,
+                )
+                rollback_intent = _no_pointer_rollback_intent(
+                    started_at_utc=started_at_utc,
+                    source_pointer=current,
+                    source=source,
+                    boundary=boundary_gate,
+                    pointer_path=pointer_path,
+                )
+                _write_json_atomic(drill_record_path, rollback_intent)
+                try:
+                    pointer_path.unlink()
+                except OSError as exc:
+                    raise ReleaseLifecycleError(
+                        "no-active-pointer rollback intent was persisted, but "
+                        f"the active pointer could not be removed: {exc}"
+                    ) from exc
+                if pointer_path.exists():
+                    raise ReleaseLifecycleError(
+                        "active pointer still exists after first-release deactivation"
+                    )
+                completed_time = (
+                    operation_time
+                    if now is not None
+                    else datetime.now(timezone.utc)
+                )
+                identity_proof, drill_record = (
+                    _finalize_no_pointer_rollback_drill(
+                        releases_root=releases_root,
+                        pointer_path=pointer_path,
+                        drill_record_path=drill_record_path,
+                        rollback_intent=rollback_intent,
+                        operation_time=completed_time,
+                        duration_seconds=time.perf_counter()
+                        - started_monotonic,
+                    )
+                )
+                return {
+                    "status": "ROLLED_BACK",
+                    "release_id": None,
+                    "previous_release_id": current["active_release_id"],
+                    "rollback_target_state": NO_ACTIVE_POINTER_STATE,
+                    "pointer_path": str(pointer_path),
+                    "pointer_sha256": None,
+                    "active_pointer_present": False,
+                    "release_kind": None,
+                    "release_identity_proof": identity_proof,
+                    "drill_record_path": str(drill_record_path),
+                    "drill_status": drill_record["status"],
+                    "restart_required": True,
+                }
             if not target_id or not target_hash:
                 raise ReleaseLifecycleError(
                     "active release pointer has no verified rollback target"
