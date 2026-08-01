@@ -23,6 +23,9 @@ artifacts/candidates/
 # --- Runtime / transient state (not source of truth) ---
 *.log
 scratch/
+# Ad-hoc job output. Untracked non-ignored paths here make capture_code_identity
+# report git_dirty, which fails the release build's clean-source-tree gate.
+logs/
 data/wunderground/*/last_good_sources.json
 data/snapshots/loop_pause.flag
 **/.snapshot.lock
