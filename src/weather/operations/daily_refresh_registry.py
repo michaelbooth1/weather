@@ -15,6 +15,7 @@ STEP_ORDER = (
     "taker_tail_casebook",
     "maker_paper_score",
     "settlement_source_audit",
+    "observed_floor_safety_monitor",
     "trading_evidence",
     "clob_order_book_tiering",
     "replay_status_backfill",

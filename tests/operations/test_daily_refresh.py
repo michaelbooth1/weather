@@ -44,6 +44,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_market_beating_objective_scoreboard_step,
     run_model_market_disagreement_rehydration_step,
     run_model_variant_evidence_growth_step,
+    run_observed_floor_safety_monitor_step,
     run_promotion_refresh_step,
     run_price_free_model_learning_step,
     run_public_wu_settlement_restore_step,
@@ -62,6 +63,10 @@ from weather.operations.daily_refresh import (  # noqa: E402
     pipeline_summary,
 )
 from weather.operations.daily_refresh_registry import carried_forward_steps, step_names_for_stage
+from weather.operations.daily_refresh_settled_day import (
+    SETTLED_DAY_ANALYSIS_DEPENDENCIES,
+    _dependency_status,
+)
 from weather.operations.daily_refresh_steps import SettledDayAnalysisBarrierError
 from weather.operations.daily_refresh_report import render_report as render_daily_refresh_report
 from weather.reporting.candidate_lifecycle.active_variant_shadow_refresh import build_payload as build_active_variant_shadow_payload
@@ -242,6 +247,7 @@ def _args(tmp, **overrides):
         "taker_tail_casebook_max_runs": 0,
         "skip_maker_paper_score": False,
         "skip_settlement_source_audit": False,
+        "fail_on_observed_floor_safety": False,
         "skip_trading_evidence": False,
         "promotion_min_artifact_free_bytes": 1024 * 1024 * 1024,
         "replay_cache": "read_write",
@@ -407,6 +413,7 @@ def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_afte
         {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+        {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
         {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -1439,6 +1446,7 @@ class TestDailyRefresh(unittest.TestCase):
                 {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
                 {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -1538,6 +1546,7 @@ class TestDailyRefresh(unittest.TestCase):
                 {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+                {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
                 {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
                 {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -1632,6 +1641,7 @@ class TestDailyRefresh(unittest.TestCase):
             {"name": "taker_tail_casebook", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "maker_paper_score", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "settlement_source_audit", "status": "ok", "result": {"status": "SKIPPED"}},
+            {"name": "observed_floor_safety_monitor", "status": "ok", "result": {"status": "PASS", "target_date": target_date}},
             {"name": "trading_evidence", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "replay_status_backfill", "status": "ok", "result": {"status": "SKIPPED"}},
             {"name": "hourly_model_performance", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -1872,6 +1882,8 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertLess(names.index("taker_edge_permission_map"), names.index("taker_tail_casebook"))
         self.assertLess(names.index("taker_tail_casebook"), names.index("maker_paper_score"))
         self.assertLess(names.index("maker_paper_score"), names.index("settlement_source_audit"))
+        self.assertLess(names.index("settlement_source_audit"), names.index("observed_floor_safety_monitor"))
+        self.assertLess(names.index("observed_floor_safety_monitor"), names.index("trading_evidence"))
         self.assertLess(names.index("settlement_source_audit"), names.index("trading_evidence"))
         self.assertLess(names.index("trading_evidence"), names.index("daily_learning"))
         self.assertLess(names.index("market_day_labels_finalize"), names.index("clob_order_book_tiering"))
@@ -3546,6 +3558,153 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(result["target_date_gate_blockers"], [])
         self.assertEqual(result["global_status"], "BLOCK")
         self.assertEqual(result["promotion_blocked_label_count"], 1)
+
+    def test_observed_floor_safety_monitor_step_writes_settled_day_artifacts(self):
+        target_date = "2026-06-19"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "snapshots" / "atlanta-day"
+            folder.mkdir(parents=True)
+            tape = folder / "snapshots_long.csv"
+            tape.write_text(
+                "snapshot_id,range_label\ns1,84 F\ns1,85 F\n",
+                encoding="utf-8",
+            )
+            (folder / "snapshot_explanations.jsonl").write_text(
+                json.dumps({
+                    "snapshot_id": "s1",
+                    "market_id": "atlanta",
+                    "target_date": target_date,
+                    "explanations": {
+                        "probability_calibration_context": {
+                            "observed_floor_bucket": 84,
+                            "effective_observed_floor_bucket": 84,
+                            "effective_observed_high_source": "current_or_station_max_since_7am",
+                        }
+                    },
+                }) + "\n",
+                encoding="utf-8",
+            )
+            labels = root / "labels.csv"
+            labels.write_text(
+                "event_slug,market_id,target_date,settlement_bucket,snapshot_tape_path\n"
+                f"atlanta-day,atlanta,{target_date},84,{tape}\n",
+                encoding="utf-8",
+            )
+
+            result = run_observed_floor_safety_monitor_step(_args(
+                tmp,
+                labels_csv=str(labels),
+                settled_analysis_target_date=target_date,
+            ))
+            payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["target_date"], target_date)
+        self.assertEqual(result["enforced_floor_count"], 1)
+        self.assertEqual(result["over_final_count"], 0)
+        self.assertEqual(result["enforcement_mode"], "alert_only")
+        self.assertFalse(result["hard_stop_pipeline"])
+        self.assertEqual(payload["summary"]["snapshot_count"], 1)
+
+    def test_settled_day_barrier_treats_default_floor_alert_as_advisory(self):
+        target_date = "2026-06-19"
+        dependency = next(
+            row
+            for row in SETTLED_DAY_ANALYSIS_DEPENDENCIES
+            if row.get("step") == "observed_floor_safety_monitor"
+        )
+        result = _dependency_status(
+            {
+                "name": "observed_floor_safety_monitor",
+                "status": "ok",
+                "result": {
+                    "status": "ALERT",
+                    "target_date": target_date,
+                    "enforcement_mode": "alert_only",
+                    "hard_stop_pipeline": False,
+                    "over_final_count": 1,
+                },
+            },
+            dependency,
+            target_date,
+        )
+
+        self.assertIsNone(result["blocker"])
+        self.assertTrue(result["policy_verdict"])
+
+    def test_settled_day_barrier_hard_stops_on_one_over_final_floor(self):
+        target_date = "2026-06-19"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                settled_analysis_target_date=target_date,
+                fail_on_observed_floor_safety=True,
+            )
+            steps = _settled_barrier_dependency_steps(target_date)
+            floor_step = next(
+                step
+                for step in steps
+                if step.get("name") == "observed_floor_safety_monitor"
+            )
+            floor_step["result"] = {
+                "status": "ALERT",
+                "target_date": target_date,
+                "enforcement_mode": "fail_closed",
+                "hard_stop_pipeline": True,
+                "over_final_count": 1,
+            }
+            args._daily_refresh_steps_so_far = steps
+
+            with self.assertRaises(SettledDayAnalysisBarrierError) as raised:
+                run_settled_day_analysis_barrier_step(args)
+
+        blocker = next(
+            row
+            for row in raised.exception.payload["blockers"]
+            if row.get("component") == "observed_floor_safety_monitor"
+        )
+        self.assertEqual(blocker["detail"], "step_result_status=ALERT")
+        self.assertIn(
+            "--resume-from-step observed_floor_safety_monitor",
+            blocker["resume_command"],
+        )
+        self.assertIn("--fail-on-observed-floor-safety", blocker["resume_command"])
+
+    def test_daily_report_puts_alert_only_floor_alert_before_steps(self):
+        alert = {
+            "market_id": "toronto",
+            "target_date": "2026-07-30",
+            "snapshot_id": "s1",
+            "floor_bucket": 28,
+            "settlement_bucket": 27,
+            "rescue_source": "current_or_station_max_since_7am",
+            "overshoot_buckets": 1,
+        }
+        report = render_daily_refresh_report({
+            "generated_at_utc": "2026-07-31T12:00:00+00:00",
+            "status": "ok",
+            "duration_seconds": 1,
+            "steps": [{
+                "name": "observed_floor_safety_monitor",
+                "status": "ok",
+                "duration_seconds": 0.1,
+                "result": {
+                    "status": "ALERT",
+                    "target_date": "2026-07-30",
+                    "enforcement_mode": "alert_only",
+                    "hard_stop_pipeline": False,
+                    "over_final_count": 1,
+                    "evidence_blocker_count": 0,
+                    "enforced_floor_count": 1,
+                    "alerts": [alert],
+                },
+            }],
+        })
+
+        self.assertLess(report.index("## OVER-FINAL FLOOR ALERT"), report.index("## Steps"))
+        self.assertIn("| toronto | 2026-07-30 | s1 | 28 | 27 |", report)
+        self.assertIn("Enforcement mode: `alert_only`; pipeline hard stop: `False`.", report)
 
     def test_provisional_blocker_slugs_only_for_pure_provisional_gates(self):
         from weather.operations.daily_refresh_trading_steps import (

@@ -931,4 +931,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Rebuild-one byte-parity proof from canonical full-book JSONL.",
     ),
+    SchemaSpec(
+        "observed_floor_safety_monitor",
+        "observed_floor_safety_monitor_v0.1",
+        "weather.reporting.source_gates.observed_floor_safety_monitor",
+        "active",
+        "Fail-closed settled-day join of captured served hard floors to eventual settlement.",
+    ),
 )

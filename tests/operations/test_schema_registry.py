@@ -67,6 +67,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "settlement_source_revision_audit_v0.1",
         )
         self.assertEqual(
+            schema_version("observed_floor_safety_monitor"),
+            "observed_floor_safety_monitor_v0.1",
+        )
+        self.assertEqual(
             schema_version("proper_scoring_reliability_scorecard"),
             "proper_scoring_reliability_scorecard_v0.1",
         )
