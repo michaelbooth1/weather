@@ -76,6 +76,13 @@ replay and seattle 66–67 F warm-tail dampening replay — both marked countabl
 auto-change disallowed, next experiment named. These are replay-only (zero streak risk) and are
 exactly the kind of work the wait is for.
 
+> **CORRECTION, same night.** F7 below files the repo-root `logs/` residue as low-priority
+> housekeeping. That was wrong: it sat directly on the release #1 critical path. The build's
+> clean-source-tree gate excludes only `artifacts/releases`, `artifacts/candidates` and `data`, so
+> those two untracked files made `git_dirty` true and would have failed the build's first command.
+> Fixed at `aaf8252b`; full analysis in `docs/operations/RELEASE_ONE_BUILD_RUNBOOK.md` §1. The
+> recurring `config/` half of the same gate is unfixable by ignoring and is now a build step.
+
 **F7 — Housekeeping (low).** Five inert branches (`bootstrap-rehearsal-2026-07-23`,
 `pit-simplex-2026-07-24`, `lock-blocker-fixes-2026-07-24`, `release-one-rehearsal-2026-07-29`,
 `mm-gate-2026-07-28b`) are retirable — their code already landed; only their handback reports differ.
