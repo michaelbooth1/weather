@@ -1108,7 +1108,9 @@ def _materialize_production_preselection_source_locked(
         ):
             raise BoundedReadError("replay manifest market-day inventory is invalid")
         expected_market_day_counts[key] = entry_rows
-    if not entries or len(entries) > max_market_days:
+    if not entries:
+        raise BoundedReadError("replay manifest is empty")
+    if len(entries) > max_market_days:
         raise BoundedReadError(
             f"market-day bound exceeded: {len(entries)} > {max_market_days}"
         )

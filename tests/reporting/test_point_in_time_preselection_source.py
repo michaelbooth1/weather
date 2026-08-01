@@ -31,6 +31,7 @@ from weather.reporting.validation.point_in_time_evaluation import (
     POINT_IN_TIME_ARROW_SCHEMA,
     PRODUCTION_PRESELECTION_SOURCE_ARROW_SCHEMA,
     PRODUCTION_PRESELECTION_SOURCE_SCHEMA_VERSION,
+    BoundedReadError,
     ContractViolation,
     _verify_preselection_source_corpus,
     canonical_json,
@@ -461,6 +462,24 @@ def test_production_bounds_fail_before_loading_the_replay_manifest(
         with pytest.raises(ValueError, match="bound|streaming|market|row|batch"):
             materialize_production_preselection_source(**kwargs)
     loader.assert_not_called()
+
+
+def test_materializer_reports_an_empty_replay_manifest(tmp_path):
+    replay = tmp_path / "replay.json"
+    _write_replay_manifest(replay, [], snapshots_root=tmp_path / "snapshots")
+    corpus = tmp_path / "source.parquet"
+    manifest = tmp_path / "source-manifest.json"
+
+    with pytest.raises(BoundedReadError, match="replay manifest is empty"):
+        materialize_production_preselection_source(
+            replay_manifest=replay,
+            parquet_out=corpus,
+            manifest_out=manifest,
+            snapshots_root=tmp_path / "snapshots",
+        )
+
+    assert not corpus.exists()
+    assert not manifest.exists()
 
 
 def test_materializer_rejects_an_iterator_that_omits_a_replay_market_day(tmp_path):
