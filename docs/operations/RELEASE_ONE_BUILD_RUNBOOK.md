@@ -243,6 +243,29 @@ That is the *no-retry* floor. The rehearsal actually burned two additional famil
 1,578 s) discovering input gaps before a pass, so budget several hours for a first real build and
 expect at least one retry cycle.
 
+## 7a-bis. THE BUILD CANNOT START BEFORE 2026-08-04
+
+The workstation's lock-window sweep (2026-08-02) reported the window "NOT CLEAN" on an F-family
+coverage gap for `2026-07-31` → `2026-08-03`. **Checked on the production host: that is an evidence-
+horizon artifact, not a defect.** `build_family_dataset` computes live from settled market data — it
+is not a cached corpus needing a manual rebuild — so a date is "missing" precisely until it settles.
+
+Verified here: `2026-07-31` has **all 12 markets settled**, F markets included, at
+`quality_grade=complete`, `settlement_source=daily_summary`,
+`resolution_source_type=wunderground_history`. The sweep ran against a mirror up to 24 h stale, which
+is why its FAIL begins exactly at the horizon. Its own report says the finding "begins at the mirror's
+current evidence horizon; it is not a scattered recurrence" — that is the tell.
+
+**But the real constraint it exposes is a scheduling one, and it is easy to get wrong:**
+
+> Every locked date must be **settled** before the build, because pooled fitting refuses preselected
+> dates absent from the F-family corpus. The 14th locked day is `2026-08-03`, which settles on
+> `2026-08-04`. **Therefore the earliest possible build start is 2026-08-04, not lock day.**
+
+Do not read "lock ~08-03" as "build on 08-03". On 08-03 the 14th day merely *occurs*; both clocks read
+14 and the F corpus covers the whole window only the following morning. Sequence: last day settles →
+confirm both clocks at 14 → confirm F coverage across all 14 dates → then build.
+
 ## 7b. Pre-lock input check — run this BEFORE lock day
 
 The rehearsal found three defect classes in its (June) synthetic universe. **None is known to affect
@@ -270,10 +293,16 @@ if not entries or len(entries) > max_market_days:
 Two unrelated conditions share one message. An **empty** manifest raises the self-contradictory
 `market-day bound exceeded: 0 > 60`, pointing at bounds when the real cause is an empty input.
 
-If you see `0 > <anything>`, the manifest is empty — do not go looking at bounds. Not fixed
-pre-lock because the file is reachable from the calibration path
-(`calibration/residual_distribution_v1.py` imports it), making the change potentially roll-sensitive
-for a defect that cannot fire on a real, non-empty lock.
+If you see `0 > <anything>`, the manifest is empty — do not go looking at bounds.
+
+**A reviewed fix exists** on `codex/workstation-lock-window-sweep-2026-08-02a` (`b28efa54`): it splits
+the condition so an empty manifest says `replay manifest is empty`, changing no bounds, output, or
+admission semantics (61 passed, 1 skipped). It is **deliberately unmerged before the lock.** The
+workstation declared the roll footprint itself — `calibration/residual_distribution_v1.py` imports
+`RollingOriginFold` and the fold builders from this module, putting it on the calibration path — and
+taking a fleet roll for a cosmetic message, for a defect that cannot fire on a real non-empty lock, is
+pure downside this close to a lock. The line above already captures its full operational value. Merge
+it after the lock, in a quiet window.
 
 ## 8. Still unrehearsed
 
