@@ -23,6 +23,12 @@ a dated audit into current guidance by silently modernizing its transcript.
   clean checkout.
 - Add a dated roadmap item for work status. Do not store active status in a
   free-form narrative or agent file.
+- The one sanctioned narrative channel is the dated agent decision log under
+  `docs/roadmap/` (`workstation-handoff-*` and `agent-report-*`). It records
+  instructions, findings, and accept/reject decisions between hosts — never item
+  status, counts, or scope, which stay in the owning numbered item. It is
+  append-only: correct a published entry in the next one, not by editing it. See
+  [the roadmap agent guide](roadmap/AGENTS.md).
 
 Run `python -m weather.operations.agent_docs_audit` after changing canonical
 documentation or agent instructions.

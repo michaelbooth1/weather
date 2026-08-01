@@ -16,7 +16,10 @@ record that is valuable evidence but not current instruction.
 | Git branches, worktrees, commits, and pull requests | [Git workflow SOP](git-workflow.md) | Canonical runbook |
 | Documentation ownership and drift prevention | [Documentation maintenance](documentation-maintenance.md) | Canonical guide |
 | End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
+| **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
+| Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
+| Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated evidence; newest is current |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |
 | Research findings | `research/` and dated roadmap audits | Historical evidence unless labeled otherwise |
@@ -36,12 +39,27 @@ Exact market definitions, schema versions, release contents, event counts, and
 artifact hashes belong to code, config, and manifests. Canonical prose explains
 how to interpret and update those sources; it should not copy volatile values.
 
+## Two directories, similar names
+
+`docs/operations/` holds the canonical operational contracts and runbooks.
+`docs/ops/` holds the host/streak runbook only. They are different directories;
+check which one a link points at.
+
 ## Roadmap and historical material
 
 `roadmap/active-backlog.md` is generated from numbered item files and is the
 fastest current-work view. `roadmap/ROADMAP.md` is the full taxonomy/index.
 Dated audits, research reports, incident notes, completed item transcripts, and
 older narratives are immutable evidence, not operator instructions.
+
+**Two records coexist, and they answer different questions.** Numbered items
+under `roadmap/items/` own engineering scope, status, acceptance criteria, and
+evidence. The dated `workstation-handoff-*` / `agent-report-*` pair is the
+append-only decision log of the production-host and workstation agent loop: what
+was instructed, what was measured, what was accepted or rejected, and why. Recent
+research direction lives almost entirely in that correspondence, so an agent
+asking "why are we doing this?" should read the newest handoff, not only the
+backlog. See [the roadmap agent guide](roadmap/AGENTS.md) for the convention.
 
 ## Update this file when
 

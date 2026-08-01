@@ -40,6 +40,15 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
+- **Committing code can restart live capture.** Capture supervisors fingerprint
+  the repository source files they have imported, so a commit touching a
+  loop-imported module triggers a `STALE_CODE` readoption restart on the
+  production host. Inside the 12:00-18:00 graded window that can cost a streak
+  day, which is the project's #1 operational objective. Merge such changes only
+  in the 01:00-04:00 quiet window, via
+  `scripts/ops/quiet_window_merge.ps1`, which merges locally, proves capture
+  recovered, and only then pushes. Markdown, `docs/`, and `config/` changes are
+  roll-free. See [the code-soak streak runbook](docs/ops/streak-soak.md).
 - Build repository-owned paths with `weather.paths`; do not make runtime code
   depend on the current working directory.
 
