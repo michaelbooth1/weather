@@ -111,8 +111,8 @@ def guard_training_artifact_output(args, artifact_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train the F-family pooled feature model starter.")
-    parser.add_argument("--family-unit", default=None, choices=["F", "all"])
+    parser = argparse.ArgumentParser(description="Train a pooled feature-model candidate.")
+    parser.add_argument("--family-unit", default=None, choices=["F", "C", "all"])
     parser.add_argument("--objective", default="bucket", choices=["bucket", "band", "density"],
                         help=("bucket=v0.1 exact-bucket classifier; band=v0.2 direct market-band "
                               "classifier; density=canonical-F continuous-density candidate."))
@@ -237,8 +237,28 @@ def main():
             ) from exc
     reanalysis_promotion_lane = load_reanalysis_promotion_lane(args.reanalysis_lane_json)
     family_unit = args.family_unit or ("all" if args.objective == "density" else "F")
+    if family_unit == "C" and args.objective != "band":
+        raise SystemExit(
+            "--family-unit C is an inactive direct-band candidate lane and requires --objective band"
+        )
     if args.objective == "bucket" and family_unit != "F":
-        raise SystemExit("--family-unit all is currently only supported with --objective band or density")
+        raise SystemExit(
+            "--family-unit all is currently only supported with --objective band or density"
+        )
+    if (
+        family_unit == "C"
+        and (
+            args.exact_winner_catchup
+            or args.dynamic_source_state
+            or args.source_freshness_guardrail
+            or args.feature_subset != FEATURE_SUBSET_ALL
+            or args.reanalysis_lane_json
+        )
+    ):
+        raise SystemExit(
+            "--family-unit C is an inactive direct-band baseline and cannot be combined "
+            "with F-family shadow lanes"
+        )
     if (
         args.objective == "band"
         and str(family_unit).lower() == "all"
