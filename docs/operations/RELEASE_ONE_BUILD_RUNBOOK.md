@@ -227,6 +227,54 @@ rolls cost promotion-evidence countability, not the streak and not the lock.**
 | generic materialization schema rejected | wrong source type | use `production_point_in_time_preselection_source_v1` |
 | parity blocks with no active release | expected on a new store | use `--bootstrap-first-inactive-release`, never `--skip-captured-input-replay-parity` |
 
+## 7a. Budget the build in HOURS, not minutes
+
+Measured on the workstation's synthetic rehearsal, 2026-08-01, on real-shaped data. **The build is a
+multi-hour operation. Do not start one late in the day and expect it to finish.**
+
+| Stage | Measured |
+| :--- | ---: |
+| Pooled F-band model fit | 1,499 s (~25 min) |
+| Family-secondary graph | 1,853 s (~31 min) |
+| Frozen promotion-corpus replay | 915 s (~15 min) |
+| **One clean pass, minimum** | **~71 min** |
+
+That is the *no-retry* floor. The rehearsal actually burned two additional family fits (1,769 s and
+1,578 s) discovering input gaps before a pass, so budget several hours for a first real build and
+expect at least one retry cycle.
+
+## 7b. Pre-lock input check — run this BEFORE lock day
+
+The rehearsal found three defect classes in its (June) synthetic universe. **None is known to affect
+the lock window, because the rehearsal never covered those dates.** Each one fails the build if it is
+present, so the lock window `2026-07-21 → 2026-08-03` must be checked for all three in advance:
+
+1. **Duplicate pinned replay identities.** Seven June folders (`06-17`, `06-18`, `06-19`, `06-20`,
+   `06-22`, `06-25`, `06-28`) each contain duplicates; the bounded reader correctly refuses on the
+   first one. A single duplicate inside the lock window stops the build.
+2. **`too_few_replay_inputs`.** `2026-06-01` and `2026-06-02` lack the captured replay prerequisite.
+3. **F-family training-corpus coverage gaps.** `06-15`, `06-16`, `06-18`, `06-24`, `06-25`, `06-26`
+   are absent from the F-family corpus and were refused by pooled fitting.
+
+Finding any of these on lock day costs the window. Finding them now costs nothing.
+
+## 7c. Known diagnostic defect (real, unfixed)
+
+`src/weather/reporting/validation/point_in_time_evaluation.py` (~line 1111):
+
+```python
+if not entries or len(entries) > max_market_days:
+    raise BoundedReadError(f"market-day bound exceeded: {len(entries)} > {max_market_days}")
+```
+
+Two unrelated conditions share one message. An **empty** manifest raises the self-contradictory
+`market-day bound exceeded: 0 > 60`, pointing at bounds when the real cause is an empty input.
+
+If you see `0 > <anything>`, the manifest is empty — do not go looking at bounds. Not fixed
+pre-lock because the file is reachable from the calibration path
+(`calibration/residual_distribution_v1.py` imports it), making the change potentially roll-sensitive
+for a defect that cannot fire on a real, non-empty lock.
+
 ## 8. Still unrehearsed
 
 Nothing past preselection has ever run on real evidence. The workstation's synthetic rehearsal
