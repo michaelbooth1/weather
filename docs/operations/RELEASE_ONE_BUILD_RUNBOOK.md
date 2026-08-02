@@ -99,6 +99,51 @@ so it is roll-free.
 
 ## 3. Build the release
 
+> ### READ FIRST — there is an automated path, and it is the better one
+>
+> **Discovered 2026-08-01.** `scripts/ops/training_window.ps1` (lines ~229-275) already contains a
+> **self-disarming first-inactive-release bootstrap**. The 01:00 training window arms it only while
+> *all three* hold: a **receipted staged PIT source** exists, the release store is absent/empty, and no
+> active pointer exists. Once release #1 exists the same window falls back to the ordinary research
+> invocation instead of wedging.
+>
+> It is currently **disarmed**, because the staged source root does not exist:
+> `data/analysis/point_in_time/production_source_2026-07-16` (the `2026-07-16` suffix is a fixed
+> identifier in the script, not a live date — a new staging must use that exact path or the script must
+> change).
+>
+> **Prefer this path over a manual build.** The training window stops capture before training, so the
+> build runs with the fleet already quiesced, inside the quiet window, gated on a verified receipt, and
+> self-disarming. A manual 04:00 build reproduces all of that by hand under time pressure.
+>
+> **To arm it, after the lock:**
+>
+> 1. Build the preselection source per §3a below.
+> 2. Place the three files at that exact root, named
+>    `preselection-source.parquet`, `preselection-source-manifest.json`, `replay_manifest.json`.
+> 3. Create the receipt:
+>
+> ```powershell
+> python -m weather.operations.point_in_time_staging_receipt create `
+>   --receipt <root>\staging-receipt.json `
+>   --corpus <root>\preselection-source.parquet `
+>   --manifest <root>\preselection-source-manifest.json `
+>   --replay-manifest <root>\replay_manifest.json `
+>   --ledger-root data\settlements
+> ```
+>
+> 4. Confirm it verifies (`... staging_receipt verify` with the same arguments — the window runs exactly
+>    this and refuses on non-zero, logging `staged PIT source receipt is stale or mismatched`).
+> 5. Let the 01:00 window run. Watch for the log line `receipted staged PIT source + empty release
+>    store: production mode with first-inactive-release bootstrap`.
+>
+> Note the automated path passes `--point-in-time-source-replay-manifest` pointing at the **staged**
+> `replay_manifest.json` — the one built alongside the corpus in step 1. That is consistent with the
+> §3b correction below; it is not the stale July-11 `promotion_corpus.json`.
+>
+> §3b remains the manual fallback if the receipt cannot be made to verify, or if the window's other
+> preconditions (`--fail-on-daily-learning-blocker`, capture-stop, timeouts) block the run.
+
 ### 3a. Preselection source (candidate-independent)
 
 Production mode requires the narrow `production_point_in_time_preselection_source_v1` source. The

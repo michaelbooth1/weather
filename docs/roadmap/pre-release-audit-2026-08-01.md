@@ -17,6 +17,31 @@ memory. Lock lands ~2026-08-03 if Aug 2–3 stay clean; earliest build start is 
 | Merge queue | nothing armed; no roll-sensitive merge can fire on lock night by default |
 | Build path | preselection rehearsed on real evidence; downstream rehearsed synthetically; timings known (~71 min no-retry floor) |
 
+## F0 — THE BUILD IS ALREADY AUTOMATED, AND MY RUNBOOK MISSED IT
+
+`scripts/ops/training_window.ps1` (~lines 229-275) contains a **self-disarming first-inactive-release
+bootstrap**. The 01:00 window arms it only while all three hold: a **receipted staged PIT source**
+exists, the release store is absent/empty, and no active pointer exists — then falls back to ordinary
+research mode once release #1 exists.
+
+It is **currently disarmed**: the staged root
+`data/analysis/point_in_time/production_source_2026-07-16` does not exist (verified tonight). That
+`2026-07-16` suffix is a fixed identifier in the script, not a live date.
+
+**This is the better build path and it should be the primary one.** The training window stops capture
+before training, so the build runs with the fleet already quiesced, in the quiet window, gated on
+`point_in_time_staging_receipt verify`, and self-disarming. My runbook documented a manual 04:00 build
+that reproduces all of that by hand under time pressure. Runbook corrected tonight with the arming
+procedure (`staging_receipt create`, exact filenames, the log line to watch for).
+
+Two things this also settles: the automated path passes the **staged** `replay_manifest.json`, which
+independently confirms the F1 correction below; and `point_in_time_staging_receipt` has a `create`
+verb, so the receipt is authored, not hand-written.
+
+**Remaining question for build day:** whether to arm the automated path or run §3b manually. Default
+to automated. Do not do both — the release-store-empty check would disarm the second, but racing them
+is needless.
+
 ## Findings — the actual remaining work
 
 **F1 — `promotion_corpus.json` is July 11: pre-boundary and stale.** Runbook §3b's example passes it
