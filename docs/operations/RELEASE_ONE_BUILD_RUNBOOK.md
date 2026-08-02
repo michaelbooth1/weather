@@ -130,9 +130,16 @@ python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
   --bootstrap-first-inactive-release `
   --point-in-time-source-corpus <preselection-source-v1.parquet> `
-  --point-in-time-source-manifest <preselection-source-v1-manifest.json> `
-  --point-in-time-source-replay-manifest <promotion-corpus.json>
+  --point-in-time-source-manifest <preselection-source-v1-manifest.json>
 ```
+
+> **CORRECTED 2026-08-01 — do NOT pass `--point-in-time-source-replay-manifest
+> data/backtest/promotion_corpus.json`.** That file is dated **2026-07-11**: it predates the
+> `2026-07-31` `rows[-1]` boundary, so pinning it would mix artifacts across the boundary, and it is
+> three weeks stale against the lock window. The sanctioned path is to **omit the flag**: for a staged
+> source the prelock then copies the exact replay manifest already hash-bound by that source (the one
+> §3a just built). Only pass an explicit replay manifest if it was itself generated inside the window
+> and reviewed.
 
 Success creates `IMMUTABLE_CANDIDATE` with activation `NONE`. That is the correct and complete
 outcome of this step — promotion and serving stay unauthorized.
@@ -170,6 +177,27 @@ exact release/manifest identity, review, and candidate-only-build proof.
 
 Rollback is proven and available: `release_lifecycle_cli rollback --market-day-boundary <proof>`
 returns a first release to the verified no-pointer state.
+
+**Authoring the two required files:** the code contains fail-closed *validators* only
+(`validate_promotion_decision`, `validate_market_day_boundary` in
+`src/weather/operations/release_promotion.py`) — there is no generator. The boundary proof has a
+staleness limit, so it must be written at promotion time, not staged. Field-by-field templates and a
+worked validation walkthrough are the deliverable of workstation mission `-08-11a`; do not attempt
+promotion before that handback is merged.
+
+## 4a. Post-promotion cutover — the part that makes release #1 worth having
+
+Promotion writes the pointer; nothing reloads it by itself. Long-running workers bind the release via
+`worker_release_binding` and must restart to adopt it. After `promote` succeeds:
+
+1. Restart the capture/serving workers in a controlled slot (never inside 12:00–18:00).
+2. Verify binding: runtime identity carries the release, zero unbound/global-fallback rows.
+3. Verify the unlocks actually unlocked — nightly retrain proceeds past
+   `captured_input_replay_parity_blocked`; the settlement scorecard begins binding predictions to the
+   release identity instead of `legacy-runtime:*`; `replay_cache_retention` can now classify.
+4. Only then take the 32.3 GB replay-cache reclaim and CLOB tiering.
+
+The verification checklist details are part of the `-08-11a` handback.
 
 ---
 
@@ -280,6 +308,13 @@ present, so the lock window `2026-07-21 → 2026-08-03` must be checked for all 
    are absent from the F-family corpus and were refused by pooled fitting.
 
 Finding any of these on lock day costs the window. Finding them now costs nothing.
+
+> **2026-08-01 status:** the workstation sweep verified 07-14 → 07-30 clean on all three classes, and
+> 07-31/08-01 clean on the two replay classes. The remaining dates (08-01 F-coverage, 08-02, 08-03)
+> can only be checked on the production host — mirror lag makes the workstation structurally too late.
+> **No extra tooling is needed: preselection itself is the verifier.** On build day, run §3a first and
+> read its exclusion list (the rehearsal proved it materializes, hash-binds, and fails safe); pooled
+> fit then names any F-family coverage gap ~25 minutes in. Budget for that instead of pre-checking.
 
 ## 7c. Known diagnostic defect (real, unfixed)
 
