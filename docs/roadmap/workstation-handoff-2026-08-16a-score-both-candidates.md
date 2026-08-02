@@ -56,7 +56,21 @@ after seeing results.
    `P(D1) >= P(D>=2)` on qualified D1 rows outside the development window, and does the `D_class=D1`
    slice stop failing? The repair was selected on 54 development snapshots; this is the first
    independent test of it.
-6. Whether `capture_hour=14` and `capture_hour=17` recur. I expect at least one not to.
+6. Whether `capture_hour=14` and `capture_hour=17` recur.
+
+   **Pre-registered predictions, added 2026-08-02 from the `-08-17a` diagnosis.** That mission
+   separated the two failures into distinct mechanisms, so this is now a test of whether we
+   understand the model, not just a measurement:
+
+   - **Hour 17 is the recurring D1-valley mechanism**, which the `-08-15a` ordinal repair directly
+     targets. **Prediction: hour 17 improves under the repaired candidate relative to the base.**
+   - **Hour 14 is a distinct cold-forecast over-continuation failure**, concentrated in Los Angeles,
+     NYC, and Denver, which the repair does not address. **Prediction: hour 14 does not improve
+     materially under the repair.**
+
+   Report both predictions as confirmed or refuted, explicitly. If hour 17 fails to improve, the
+   D1-valley diagnosis was wrong and the repair is not doing what we think. If hour 14 *does*
+   improve, we do not understand why the repair works, which matters more than the Brier number.
 7. Whether the excluded rows still contribute **zero** newly-severe rows for both candidates. They
    must, by construction; if not, something crosses the gate and that is the headline.
 
