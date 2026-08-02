@@ -120,6 +120,51 @@ and an exact byte-parity rebuild proof. Apply retains
 `order_books_long.csv.gz` and removes only the verified same-folder
 `order_books_long.csv`; it never treats the raw JSONL as disposable.
 
+### Running the tiering plan: preconditions and known traps
+
+Verified by the 2026-08-02 dry run. Read this before spending time on a run that
+cannot succeed.
+
+**`--protected-root` stats every path you pass, so a UNC mirror root fails
+without the share credential.** The command above lists both the production data
+root and the mirror root. On the production host an ordinary session is not
+authenticated to `\\<workstation>\weather-mirror`, and the guard's reparse-point
+check calls `Path.exists()` on it, so the run dies with
+`OSError: [WinError 1326] The user name or password is incorrect` before writing
+anything. The guard exists to stop *output* landing inside a protected tree, so
+when the output root is on a local volume and the mirror is a UNC path on
+another host they cannot overlap. Pass the production data root alone in that
+case and record the omission in the run notes. Never read or supply the stored
+mirror credential to satisfy this check.
+
+**Every closed-day action requires a finalized-PASS `event_day_manifest.json` in
+the event folder.** This is the gate that decides the whole run, and it is
+checked per folder. As of 2026-08-02 the manifest exists in 48 of 706 folders,
+all written 2026-07-11, and none of them are finalized-PASS — so the planner
+emits zero actions regardless of family eligibility. If a plan returns
+`Eligible actions | 0`, check the blocker histogram before assuming a tooling
+problem; `event_day_manifest_missing_or_invalid_json` dominating means the
+manifest pipeline is the thing to fix, not the tiering tool. See
+[item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md).
+
+**Exit code 2 means `NOT_DONE`, which is the normal result of a dry run with no
+eligible actions.** It is not a crash. The JSON and Markdown are still written.
+
+**Benign blockers you should expect to see and ignore:**
+
+- `order_books_long_csv_missing` — the day is already tiered.
+- `event_day_is_not_closed_before_as_of_date` and `order_books_long_recently_written`
+  — the current day, correctly refused.
+- `event_slug_has_no_target_date` — a non-event directory under
+  `data/snapshots` (for example `observation_source_cache`) reported as a blocked
+  folder rather than skipped as out-of-scope.
+
+**Split market-days must be excluded, not tiered.** Some days hold both a plain
+`order_books_long.csv` and an `order_books_long.csv.gz` covering *disjoint*
+halves of the day; a gz-first reader silently returns a partial day. The plain
+half is not redundant and must not be deleted. Check for both files before
+approving any action on a day, and exclude such days from any future automation.
+
 After reviewing the tiering plan, edit only
 `operator_review.approved`, `approved_by`, `approved_at_utc`, `note`, and
 `approved_plan_hash`; the last value must exactly equal the unchanged top-level

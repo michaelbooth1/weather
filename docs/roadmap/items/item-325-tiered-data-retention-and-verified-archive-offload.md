@@ -233,6 +233,78 @@ analysis output at `data/backtest` root** (2,417 files; 4.86 GB `.csv`, 2.47 GB
 compressible, but outside the closed-market-day family registry, so it needs its
 own eligibility proof rather than an improvised one-off.
 
+## 2026-08-02 first real dry run: the warm tier is blocked on the event-day manifest, not on reader coverage
+
+First production dry run of `closed_day_projection_tiering plan` (`--as-of-date 2026-08-02`).
+Read-only; wrote only to a review root outside `data/`. Result:
+
+| Metric | Value |
+| --- | ---: |
+| Folders evaluated | 706 |
+| **Eligible actions** | **0** |
+| Blocked folders | 706 |
+| Planned source bytes | 0 |
+
+Blocker frequency across all 706 folders:
+
+| Count | Blocker |
+| ---: | --- |
+| 661 | `order_books_long_csv_missing` (already tiered — benign) |
+| 657 | `event_day_manifest_missing_or_invalid_json` |
+| 93 | `canonical_order_books_jsonl_missing` |
+| 48 | `event_day_manifest_current_validation_blocked` |
+| 48 | `event_day_manifest_not_finalized_pass` |
+| 12 | `event_day_is_not_closed_before_as_of_date` (today — correct) |
+| 12 | `order_books_long_recently_written` (today — correct) |
+| 1 | `event_slug_has_no_target_date` |
+
+Isolating the 45 folders that actually hold a plain `order_books_long.csv`:
+
+- **32 closed days whose *only* blocker is `event_day_manifest_missing_or_invalid_json`;**
+- 12 open days from today, correctly refused as not-closed;
+- 1 is `observation_source_cache`, a non-event directory under `data/snapshots` that the planner
+  reports as a blocked folder rather than skipping as out-of-scope.
+
+**Root cause.** `event_day_manifest.json` exists in **48 of 706** folders. Every one was written
+`2026-07-11` and covers only June 6-9 (12 markets x 4 days) — and all 48 fail
+`event_day_manifest_not_finalized_pass` *and* `event_day_manifest_current_validation_blocked`.
+**No folder anywhere in the tree carries a finalized-PASS event-day manifest.** No manifest has been
+generated since 2026-07-11.
+
+**This corrects the 2026-07-29 entry above.** That entry named the real blocker as reader coverage —
+"the projection-family registry marks 16 of 17 families ineligible" — and framed the work as proving
+the gzip read path per family and flipping eligibility. That is a real constraint but it is **not the
+binding one**. `order_books_long` is already eligible and already fixture-proven, and it still plans
+zero actions. Proving the other sixteen families changes nothing while the manifest gate is
+unsatisfied for all 706 folders. **The binding constraint is the event-day manifest pipeline.**
+
+What is actually sitting there, measured the same day:
+
+- **44 plain `order_books_long.csv`, 25.44 GB untiered**, against 588 already-tiered `.csv.gz`
+  totalling 21.78 GB.
+- **~17 GB of that backlog is 2026-08-01 alone** — twelve markets at ~1.4 GB each. At the measured
+  ~23x this is ~16 GB reclaimable from one day of one family.
+- **20 of the 44 have both a plain and a gz half.** These are the split-projection days: disjoint
+  halves where a gz-first reader silently gets a partial day. They are not ordinary tiering
+  candidates and the plain half must not be deleted. Any automation must exclude them explicitly.
+
+The provenance of the existing 588 `.gz` files is **not** established by this dry run. Something
+tiered them, but it was not this gated path, which has never been able to emit an action. Do not
+assume the two are the same mechanism without checking.
+
+Revised ordering for the warm tier, replacing the 07-29 framing:
+
+1. Fix the event-day manifest pipeline: find why generation stopped after 2026-07-11 and why the 48
+   that exist are not finalized-PASS. Nothing else in the warm tier can move until this does.
+2. Re-run this dry run. Expect ~32 closed days to become eligible, worth ~25 GB.
+3. Only then consider cadence (a scheduled plan/apply for the already-eligible family), with split
+   days excluded.
+4. Reader coverage for the other sixteen families remains genuinely open, but it is step four, not
+   step one.
+
+Automating an apply path is deliberately gated behind operator review by the design above, and it
+would touch `src/**` or `scripts/**`, making it roll-sensitive. **Not before the release-#1 lock.**
+
 Acceptance:
 
 - Free space on the production volume trends flat or upward across a full week
