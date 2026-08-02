@@ -7,6 +7,10 @@ Everything here was verified against the live repository and the consolidated re
 Commands are quoted from `docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md` on that branch; preconditions
 were tested by running the real gate functions, not by reading them.
 
+Promotion evidence, automated bootstrap, and cutover steps were red-teamed again against
+`origin/master` at `a1421aca` in mission `-08-11a`. Where the older snapshot and the merged code
+differ, the corrected procedure below follows the merged code.
+
 This is the *first* release the project has ever built. There is no prior run to copy.
 
 ---
@@ -83,6 +87,12 @@ $env:PYTHONPATH="$PWD\src"
 Do not proceed until that prints `GATE PASSES: True`. Note this commit changes no loop-loaded module,
 so it is roll-free.
 
+The preferred automated path in §3 performs the same narrow commit itself: `training_window.ps1`
+accepts only these two paths, validates each as JSON, refuses to auto-commit when any other path is
+dirty, and then runs the clean-source gate in `nightly_retrain`. It does **not** push the generated
+commit. The manual commands above are the fallback when the window's auto-commit did not run; do not
+make both commits.
+
 ---
 
 ## 2. Lock day (~2026-08-03) — confirm, then freeze
@@ -118,10 +128,12 @@ so it is roll-free.
 >
 > **To arm it, after the lock:**
 >
-> 1. Build the preselection source per §3a below.
-> 2. Place the three files at that exact root, named
->    `preselection-source.parquet`, `preselection-source-manifest.json`, `replay_manifest.json`.
-> 3. Create the receipt:
+> 1. Use the standalone `point_in_time_evaluation prelock-production` command in §3a to write the
+>    three fresh outputs directly at the exact staged root. Do **not** use `nightly_retrain` merely to
+>    stage them: before release #1 its ordinary parity preflight defers the plan before prelock runs.
+> 2. Review the emitted lock and source manifest. Confirm the replay manifest was generated inside
+>    this build window and is the one hash-bound by the source manifest.
+> 3. Create the receipt against those exact three files:
 >
 > ```powershell
 > python -m weather.operations.point_in_time_staging_receipt create `
@@ -134,8 +146,11 @@ so it is roll-free.
 >
 > 4. Confirm it verifies (`... staging_receipt verify` with the same arguments — the window runs exactly
 >    this and refuses on non-zero, logging `staged PIT source receipt is stale or mismatched`).
-> 5. Let the 01:00 window run. Watch for the log line `receipted staged PIT source + empty release
->    store: production mode with first-inactive-release bootstrap`.
+> 5. Let the 01:00 window run. `training_window.ps1` first performs the narrow config auto-commit from
+>    §1, disables all three capture supervisors, stops and verifies all three capture loops, then adds
+>    production mode plus `--bootstrap-first-inactive-release` only when the receipt, empty release
+>    store, and absent pointer all pass. Watch for `receipted staged PIT source + empty release store:
+>    production mode with first-inactive-release bootstrap`. Its `finally` block restores capture.
 >
 > Note the automated path passes `--point-in-time-source-replay-manifest` pointing at the **staged**
 > `replay_manifest.json` — the one built alongside the corpus in step 1. That is consistent with the
@@ -147,15 +162,23 @@ so it is roll-free.
 ### 3a. Preselection source (candidate-independent)
 
 Production mode requires the narrow `production_point_in_time_preselection_source_v1` source. The
-generic candidate-scoring materialization schema is **rejected**. Two ways in — folder mode builds the
-staged source for you:
+generic candidate-scoring materialization schema is **rejected**. Build the candidate-independent
+source directly at the path hard-coded by `training_window.ps1`:
 
 ```powershell
-python -m weather.operations.nightly_retrain run `
-  --release-candidate-mode production `
-  --point-in-time-folder <snapshots-root>/<settled-event-1> `
-  --point-in-time-folder <snapshots-root>/<settled-event-2>
+New-Item -ItemType Directory -Force data\analysis\point_in_time\production_source_2026-07-16
+python -m weather.reporting.validation.point_in_time_evaluation prelock-production `
+  --folder <snapshots-root>/<settled-event-1> `
+  --folder <snapshots-root>/<settled-event-2> `
+  --source-corpus-out data\analysis\point_in_time\production_source_2026-07-16\preselection-source.parquet `
+  --source-manifest-out data\analysis\point_in_time\production_source_2026-07-16\preselection-source-manifest.json `
+  --replay-manifest-out data\analysis\point_in_time\production_source_2026-07-16\replay_manifest.json `
+  --lock-out data\analysis\point_in_time\production_source_2026-07-16\preselection-lock.json
 ```
+
+Repeat `--folder` once for every reviewed settled event folder. Keeping the direct CLI here matters:
+the nightly wrapper's folder mode writes under a candidate work directory and cannot run before the
+pre-release parity bootstrap has been requested.
 
 The workstation rehearsal already proved this stage works on real evidence: source materialization,
 hash-binding, and a valid manifest (26,884 band rows, 2,444 captured-input identities), all labels
@@ -174,17 +197,18 @@ generic switch hides the condition rather than attesting it.
 python -m weather.operations.nightly_retrain run `
   --release-candidate-mode production `
   --bootstrap-first-inactive-release `
-  --point-in-time-source-corpus <preselection-source-v1.parquet> `
-  --point-in-time-source-manifest <preselection-source-v1-manifest.json>
+  --point-in-time-source-corpus <staged-root>\preselection-source.parquet `
+  --point-in-time-source-manifest <staged-root>\preselection-source-manifest.json `
+  --point-in-time-source-replay-manifest <staged-root>\replay_manifest.json `
+  --point-in-time-source-receipt <staged-root>\staging-receipt.json
 ```
 
-> **CORRECTED 2026-08-01 — do NOT pass `--point-in-time-source-replay-manifest
-> data/backtest/promotion_corpus.json`.** That file is dated **2026-07-11**: it predates the
-> `2026-07-31` `rows[-1]` boundary, so pinning it would mix artifacts across the boundary, and it is
-> three weeks stale against the lock window. The sanctioned path is to **omit the flag**: for a staged
-> source the prelock then copies the exact replay manifest already hash-bound by that source (the one
-> §3a just built). Only pass an explicit replay manifest if it was itself generated inside the window
-> and reviewed.
+> **CORRECTED 2026-08-01 and rechecked 2026-08-11a — do NOT pass
+> `data/backtest/promotion_corpus.json`.** That July-11 file predates the `2026-07-31` `rows[-1]`
+> boundary and is stale against the lock window. The merged wrapper requires all four staged-source
+> paths and verifies their receipt before work. Therefore pass the fresh staged `replay_manifest.json`
+> and `staging-receipt.json` exactly as the automated path does; omitting either is a terminal staged-
+> source preflight block.
 
 Success creates `IMMUTABLE_CANDIDATE` with activation `NONE`. That is the correct and complete
 outcome of this step — promotion and serving stay unauthorized.
@@ -223,26 +247,75 @@ exact release/manifest identity, review, and candidate-only-build proof.
 Rollback is proven and available: `release_lifecycle_cli rollback --market-day-boundary <proof>`
 returns a first release to the verified no-pointer state.
 
-**Authoring the two required files:** the code contains fail-closed *validators* only
-(`validate_promotion_decision`, `validate_market_day_boundary` in
-`src/weather/operations/release_promotion.py`) — there is no generator. The boundary proof has a
-staleness limit, so it must be written at promotion time, not staged. Field-by-field templates and a
-worked validation walkthrough are the deliverable of workstation mission `-08-11a`; do not attempt
-promotion before that handback is merged.
+**Authoring the two required files:** copy
+[`release-promotion-decision.template.json`](release-promotion-decision.template.json) and
+[`release-market-day-boundary.template.json`](release-market-day-boundary.template.json). Both
+templates deliberately fail closed until their sentinels/false values are replaced. Take `release_id`
+and `manifest_sha256` from `release_lifecycle_cli verify <release-id>`—the latter is the manifest's
+canonical self-hash, not the file-byte hash. Set `candidate_only_build=true` only after the nightly
+status proves `candidate_release.activation=NONE`, `candidate_release.active_pointer_unchanged=true`,
+and `first_inactive_release_bootstrap_finalization.status=PASS`. Set review identity/time only after
+human review.
+
+The boundary file is promotion-time evidence. Establish the effective target date, quiesce every
+release-writing process, prove both day lists empty, then set the two booleans to true and write
+`observed_at_utc` last. The promotion process compares it with its UTC wall clock: older than 900
+seconds blocks, more than 60 seconds in the future blocks, and a timezone is mandatory. Do not add
+fields: validators currently accept extras, but every extra changes the canonical proof hash stored
+in the pointer.
 
 ## 4a. Post-promotion cutover — the part that makes release #1 worth having
 
-Promotion writes the pointer; nothing reloads it by itself. Long-running workers bind the release via
-`worker_release_binding` and must restart to adopt it. After `promote` succeeds:
+Promotion returns `restart_required=true`; a pointer write does not reload any process-sticky bundle.
+Run this only in a controlled slot, never inside 12:00–18:00. The boundary proof is truthful only if
+the snapshot, observation-trigger, maker, and taker writers were already quiesced; the CLOB loop does
+not bind a model release but is normally stopped/restored with capture.
 
-1. Restart the capture/serving workers in a controlled slot (never inside 12:00–18:00).
-2. Verify binding: runtime identity carries the release, zero unbound/global-fallback rows.
-3. Verify the unlocks actually unlocked — nightly retrain proceeds past
-   `captured_input_replay_parity_blocked`; the settlement scorecard begins binding predictions to the
-   release identity instead of `legacy-runtime:*`; `replay_cache_retention` can now classify.
-4. Only then take the 32.3 GB replay-cache reclaim and CLOB tiering.
-
-The verification checklist details are part of the `-08-11a` handback.
+1. **Pin the promoted identity.** Run `python -m weather.operations.release_lifecycle_cli active` and
+   retain its JSON. Require `status=PASS`, the intended `release_id` and `manifest_sha256`,
+   `release_kind=serving_identity_bootstrap`, `sequence=1`, and the `pointer_sha256` returned by
+   promotion.
+2. **Restart the actual binders.** Restart the snapshot loop with
+   `python -m weather.collection.snapshot_tracker --restart`. Restart the market-making daily roll
+   with `python -m weather.operations.market_making_daily_roll stop` followed by `... ensure`.
+   `market_making_run` and `taker_bot_cli` are the only direct consumers of
+   `worker_release_binding`; the taker daily-roll CLI has no stop verb, so disable
+   `WeatherTakerBotDailyRollSupervisor`, retire the exact PID/date through the module's fail-closed
+   `retire_taker_bot_process_tree` helper (it verifies both before killing the tree), run `... ensure`,
+   then re-enable the supervisor. Restore/ensure the CLOB and observation loops using the exact commands in
+   `training_window.ps1` and enable their supervisors.
+3. **Prove rows, not just processes.** For the first entirely post-cutover market day, require snapshot
+   `variant_predictions_long.csv` rows, maker `run_config.json`/quote rows, and taker
+   `run_config.json`/order rows to carry the active `release_id`, `release_manifest_sha256`, and
+   `release_pointer_sha256`. Snapshot rows require
+   `release_identity_status=verified_variant_serving_bundle` and
+   `serving_model_binding_status=verified_release_base_model`. Maker/taker rows require
+   `release_identity_status=verified_variant_serving_bundle` and `base_model_release_bound=true`.
+   The count of `research_unbound_non_countable`, `release_restart_required`,
+   `release_binding_failed`, `release_unbound_legacy_base_model`, blank release IDs, mismatched IDs,
+   or mismatched hashes must be zero.
+4. **Nightly unlock.** After the next ordinary 01:00 window, read
+   `data/backtest/nightly_retrain_status.json`. Require
+   `captured_input_replay_parity.status=PASS`; require `promotion.reason` not equal
+   `captured_input_replay_parity_blocked`; and require no `steps[]` row named
+   `captured_input_replay_parity` with `status=blocked`. The top-level run may still stop on a later,
+   unrelated gate; that does not relock parity.
+5. **Settlement identity unlock.** Run
+   `python -m weather.reporting.scorecards.live_variant_settlement_scorecard score` against only the
+   first fully post-cutover tape(s), with the release manifest supplied as
+   `--expected-variants-manifest` and outputs outside `data/`. Require a nonzero
+   `coverage.eligible_partition_count`, every `partitions[].release_identity_sources` equal
+   `["explicit"]`, and every `variant_release_summaries[].release_id` equal the active release; zero
+   release IDs may begin `legacy-runtime:`. Overall scoring can still block for model-quality reasons.
+6. **Replay-cache classification unlock (dry run only).** Run the dry-run command in
+   [the retention policy](data-retention-policy.md) with the genuine pointer, release root, registry,
+   pinned corpus, cache root, and an output root outside `data/`. Require
+   `reachability.status=COMPLETE`, `serving_rebuild.release_id` and
+   `serving_rebuild.manifest_sha256` equal the active identity, no `reachability_incomplete:*`
+   blocker, and `summary.ambiguity_count=0`. Prefer `status=PASS`; a quota-only block is separate from
+   the identity unlock. Do **not** use `--apply` here.
+7. Only after all six checks pass may the separately reviewed replay-cache reclaim and CLOB tiering
+   proceed. They remain deferred by operator decision; this checklist does not authorize them.
 
 ---
 
@@ -386,7 +459,8 @@ it after the lock, in a quiet window.
 
 ## 8. Still unrehearsed
 
-Nothing past preselection has ever run on real evidence. The workstation's synthetic rehearsal
-(handoff `-08-01c`) is in flight to find those failures before the window opens. Read its ordered
-failure list — classified real-defect / missing-prerequisite / synthetic-artifact — before starting
-the real build, and fold anything it finds into §7.
+Nothing past preselection has ever run on real evidence. The workstation's synthetic rehearsal is
+complete and its fail-closed findings were accepted, but it does not substitute for the first real
+candidate. Read its ordered failure list—classified real-defect / missing-prerequisite / synthetic-
+artifact—before starting the real build. Work that genuinely requires a promoted release remains
+deferred until release #1 exists.

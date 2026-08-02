@@ -1,0 +1,12 @@
+{
+  "schema_version": "release_promotion_decision_v0.1",
+  "decision": "PROMOTE",
+  "gate_status": "PASS",
+  "release_id": "__COPY_FROM_RELEASE_LIFECYCLE_VERIFY_RELEASE_ID__",
+  "manifest_sha256": "__COPY_FROM_RELEASE_LIFECYCLE_VERIFY_MANIFEST_SHA256__",
+  "candidate_only_build": false,
+  "release_kind": "serving_identity_bootstrap",
+  "reviewed": false,
+  "reviewed_by": "__REQUIRED_HUMAN_REVIEWER_IDENTITY__",
+  "reviewed_at_utc": "__REQUIRED_REVIEW_TIME_WITH_TIMEZONE__"
+}

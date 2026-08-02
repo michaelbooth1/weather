@@ -1,0 +1,16 @@
+{
+  "schema_version": "release_market_day_boundary_v0.1",
+  "status": "PASS",
+  "release_id": "__COPY_FROM_RELEASE_LIFECYCLE_VERIFY_RELEASE_ID__",
+  "manifest_sha256": "__COPY_FROM_RELEASE_LIFECYCLE_VERIFY_MANIFEST_SHA256__",
+  "effective_target_date": "__YYYY_MM_DD_ESTABLISHED_AT_CUTOVER__",
+  "observed_at_utc": "__PROMOTION_TIME_TIMESTAMP_WITH_TIMEZONE__",
+  "at_market_day_boundary": false,
+  "processes_quiesced": false,
+  "open_market_days": [
+    "__REMOVE_ONLY_AFTER_PROVING_NONE_ARE_OPEN__"
+  ],
+  "mixed_release_market_days": [
+    "__REMOVE_ONLY_AFTER_PROVING_NONE_ARE_MIXED__"
+  ]
+}
