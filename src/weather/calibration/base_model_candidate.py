@@ -339,6 +339,8 @@ def fit_market_candidate(
     feature_contract_id: str,
     runtime_id: str,
     corpus_manifest_sha256: str,
+    pit_forecast_corpus_manifest_sha256: str,
+    pit_forecast_preflight_sha256: str,
     records: Sequence[Mapping[str, Any]],
     parent_hgb: Mapping[str, Any],
     parent_lr: Mapping[str, Any],
@@ -370,6 +372,10 @@ def fit_market_candidate(
         "feature_contract_id": feature_contract_id,
         "runtime_id": runtime_id,
         "corpus_manifest_sha256": corpus_manifest_sha256,
+        "pit_forecast_corpus_manifest_sha256": (
+            pit_forecast_corpus_manifest_sha256
+        ),
+        "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
         "market_id": market_id,
         "unit": unit,
     }
@@ -382,6 +388,10 @@ def fit_market_candidate(
         "feature_contract_id": feature_contract_id,
         "runtime_id": runtime_id,
         "corpus_manifest_sha256": corpus_manifest_sha256,
+        "pit_forecast_corpus_manifest_sha256": (
+            pit_forecast_corpus_manifest_sha256
+        ),
+        "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
         "market_id": market_id,
         "unit": unit,
     }
@@ -484,6 +494,10 @@ def fit_market_candidate(
             "feature_contract_id": feature_contract_id,
             "runtime_id": runtime_id,
             "corpus_manifest_sha256": corpus_manifest_sha256,
+            "pit_forecast_corpus_manifest_sha256": (
+                pit_forecast_corpus_manifest_sha256
+            ),
+            "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
             "exact_distribution": {
                 "enabled": True,
                 "method": "temperature",
@@ -511,6 +525,10 @@ def fit_market_candidate(
             "feature_contract_id": feature_contract_id,
             "runtime_id": runtime_id,
             "corpus_manifest_sha256": corpus_manifest_sha256,
+            "pit_forecast_corpus_manifest_sha256": (
+                pit_forecast_corpus_manifest_sha256
+            ),
+            "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
             "statistical_change": "target_date_aligned_prior_and_contiguous_support",
             "parent_hgb_parameters_frozen": True,
             "parent_lr_parameters": LR_PARAMETERS,

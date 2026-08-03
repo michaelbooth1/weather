@@ -300,14 +300,15 @@ the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
 
 The nightly plan also contains exactly one fail-closed
 `all_market_base_retrain` step. Its target date, parent release, training
-cutoff, parent feature-contract hash, frozen corpus manifest, candidate
-directory, and runtime ID have no ambient defaults. The step trains all twelve
+cutoff, parent feature-contract hash, frozen feature-record corpus manifest,
+PIT forecast corpus manifest, candidate directory, and runtime ID have no
+ambient defaults. The step trains all twelve
 built-in markets or makes no release, writes only below a new candidate root,
 and builds a research-only inactive child release after the complete graph
 verifies. It does not call the legacy global-writing feature-model CLI. The
-forecast-archive and feature-value parity gates intentionally remain blockers
-until their owning repairs land; see the runbook before configuring these
-arguments on a scheduled invocation.
+PIT corpus must verify and bind exactly to every planned market/date/cutoff
+feature record; ambient forecast history is unreachable. See the runbook before
+configuring these arguments on a scheduled invocation.
 
 When no release or pointer exists, production mode has one explicit deadlock-
 free path: `--bootstrap-first-inactive-release` waives only the impossible

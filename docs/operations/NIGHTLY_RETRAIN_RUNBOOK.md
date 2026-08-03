@@ -53,7 +53,7 @@ stop the run before expensive retraining or promotion refresh steps.
 
 The nightly plan always declares one `all_market_base_retrain` step before the
 other model trainers. It has no skip flag and no ambient identity/date values.
-A scheduled invocation must explicitly provide all seven bindings:
+A scheduled invocation must explicitly provide all eight bindings:
 
 ```powershell
 python -m weather.operations.nightly_retrain run `
@@ -62,25 +62,34 @@ python -m weather.operations.nightly_retrain run `
   --base-retrain-training-as-of <iso-8601-with-timezone> `
   --base-retrain-feature-contract-id <sha256:parent-feature-contract> `
   --base-retrain-corpus-manifest <frozen-corpus-manifest.json> `
+  --base-retrain-pit-forecast-corpus-manifest <pit-corpus-root>\manifest.json `
   --base-retrain-candidate-dir <new-root-outside-the-repository> `
   --base-retrain-runtime-id <reviewed-runtime-id>
 ```
 
 The same step can be invoked directly with
 `python -m weather.operations.base_retrain`; inspect `--help` for its explicit
-release-store, pointer, and repository arguments. Do not run it on the current
-real corpus: the late-July forecast archive is incomplete and the WU-surface
-historical/live feature values are not equivalent. Both conditions are
-intentional hard preflight failures, and no fit starts when either is present.
+release-store, pointer, and repository arguments. No fit starts unless the PIT
+forecast corpus manifest verifies and covers every planned market, selected
+date, and parent cutoff hour. The preflight also requires every hash-bound
+feature record to carry the same corpus ID, request/raw hashes, native forecast
+value, and issue/availability/as-of timestamps. A missing, corrupt, incomplete,
+or differently bound corpus blocks the complete fleet.
 
 The corpus manifest supplies row-level evidence, not summary booleans. For all
 twelve built-in markets it binds selected prior-year target-date `+/-7` rows,
-native labels and units, cutoff timestamps, daily/hourly hashes, forecast field
-coverage and issue-time provenance, exact parent feature order, historical/live
+native labels and units, cutoff timestamps, daily/hourly hashes, exact parent
+feature order, historical/live
 feature values and missingness, allowed sidecars, and fold-local/final support.
-The preflight independently recomputes these gates. Forecast coverage reports
-`covered/expected` (including `0/N`), and train/serve parity compares values,
+The preflight independently recomputes these gates. The separate PIT manifest
+supplies forecast coverage and point-in-time provenance; its exact selection
+binding must match the feature records. Train/serve parity compares values,
 units, categories, missingness, and cutoff behavior field by field.
+
+The base-retrain lane never discovers or reads
+`weather.sources.forecast_history.daily_path_for` or ambient
+`data/forecast_history/forecast_daily.csv`. The explicit PIT manifest is the
+only forecast-history input accepted by this lane.
 
 Candidate output must be a new root outside the repository and immutable
 release store. A dry path probe hashes repository global model/calibration

@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from weather.io import sha256_file
 from weather.market.market_registry import all_specs
 from weather.model.feature_store import FORECAST_PROFILE_COLUMNS
 from weather.schema_registry import schema_version
@@ -35,6 +36,19 @@ REQUIRED_EXCLUDED_CONSUMERS = (
     "late_day_continuation",
     "analog_distance",
 )
+PIT_SELECTION_BINDING_FIELDS = (
+    "market_id",
+    "target_date",
+    "cutoff_hour_local",
+    "forecast_high_native",
+    "temperature_unit",
+    "corpus_id",
+    "request_hash",
+    "raw_response_sha256",
+    "issue_time_utc",
+    "available_at_utc",
+    "feature_as_of_utc",
+)
 
 
 def _canonical_hash(payload):
@@ -55,6 +69,31 @@ def _canonical_row_hash(payload, field):
     body = dict(payload)
     body.pop(field, None)
     return _canonical_hash(body)
+
+
+def pit_selection_binding_sha256(rows):
+    """Hash an exact market/date/cutoff selection and its PIT provenance."""
+
+    normalized = []
+    for row in rows:
+        normalized.append(
+            {
+                field: (
+                    int(row[field])
+                    if field == "cutoff_hour_local"
+                    else row.get(field)
+                )
+                for field in PIT_SELECTION_BINDING_FIELDS
+            }
+        )
+    normalized.sort(
+        key=lambda row: (
+            str(row["market_id"]),
+            str(row["target_date"]),
+            int(row["cutoff_hour_local"]),
+        )
+    )
+    return _canonical_hash({"rows": normalized})
 
 
 def validate_consumer_dispositions(dispositions):
@@ -93,6 +132,7 @@ def preflight_pit_forecast_training_corpus(
     required_market_ids=None,
     required_years=None,
     required_cutoff_hours=None,
+    required_market_date_cutoffs=None,
     active_archive_roots=None,
 ):
     manifest_path = Path(manifest_path)
@@ -179,7 +219,7 @@ def preflight_pit_forecast_training_corpus(
             f"coverage matrix differs from immutable plan; missing={missing}, extra={extra}"
         )
 
-    daily_keys = set()
+    daily_by_key = {}
     daily_path = manifest_path.parent / "forecast_daily.jsonl"
     with daily_path.open("r", encoding="utf-8") as handle:
         for line in handle:
@@ -189,9 +229,9 @@ def preflight_pit_forecast_training_corpus(
                 row.get("target_date"),
                 int(row.get("cutoff_hour_local")),
             )
-            if key in daily_keys:
+            if key in daily_by_key:
                 raise CorpusVerificationError(f"duplicate daily training row: {key}")
-            daily_keys.add(key)
+            daily_by_key[key] = row
             if row.get("derived_row_sha256") != _canonical_row_hash(
                 row,
                 "derived_row_sha256",
@@ -219,8 +259,44 @@ def preflight_pit_forecast_training_corpus(
                     raise CorpusVerificationError(
                         f"daily and coverage PIT timestamps differ for {key}: {field}"
                     )
+    daily_keys = set(daily_by_key)
     if daily_keys != coverage_keys:
         raise CorpusVerificationError("daily and coverage key matrices differ")
+
+    if required_market_date_cutoffs is None:
+        selection_keys = set(daily_keys)
+    else:
+        try:
+            selection_keys = {
+                (str(market_id), str(target_date), int(cutoff_hour))
+                for market_id, target_date, cutoff_hour in required_market_date_cutoffs
+            }
+        except (TypeError, ValueError) as exc:
+            raise CorpusVerificationError(
+                "required market/date/cutoff selection is invalid"
+            ) from exc
+        missing_selection = sorted(selection_keys - daily_keys)
+        if missing_selection:
+            raise CorpusVerificationError(
+                "corpus does not cover the required market/date/cutoff matrix; "
+                f"missing={missing_selection[:5]}"
+            )
+    selection_rows = [
+        {
+            "market_id": key[0],
+            "target_date": key[1],
+            "cutoff_hour_local": key[2],
+            "forecast_high_native": daily_by_key[key]["forecast_high_native"],
+            "temperature_unit": daily_by_key[key]["temperature_unit"],
+            "corpus_id": manifest["corpus_id"],
+            "request_hash": daily_by_key[key]["request_hash"],
+            "raw_response_sha256": daily_by_key[key]["raw_response_sha256"],
+            "issue_time_utc": daily_by_key[key]["issue_time_utc"],
+            "available_at_utc": daily_by_key[key]["available_at_utc"],
+            "feature_as_of_utc": daily_by_key[key]["feature_as_of_utc"],
+        }
+        for key in sorted(selection_keys)
+    ]
 
     expected_profile_dates = {
         (request["market_id"], target_date)
@@ -277,6 +353,7 @@ def preflight_pit_forecast_training_corpus(
         "schema_version": PREFLIGHT_SCHEMA_VERSION,
         "status": "PASS",
         "manifest_path": str(manifest_path.resolve()),
+        "manifest_file_sha256": sha256_file(manifest_path),
         "manifest_sha256": manifest["manifest_sha256"],
         "corpus_id": manifest["corpus_id"],
         "target_year": expected_target_year,
@@ -285,6 +362,8 @@ def preflight_pit_forecast_training_corpus(
         "years": expected_years,
         "cutoff_hours_local": expected_cutoffs,
         "coverage_rows": len(coverage_keys),
+        "selection_row_count": len(selection_rows),
+        "selection_binding_sha256": pit_selection_binding_sha256(selection_rows),
         "hourly_rows": hourly_rows,
         "compatibility_fallback_allowed": False,
         "active_archive_discoverable": False,

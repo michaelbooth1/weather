@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import pickle
 from pathlib import Path
@@ -6,6 +7,9 @@ from pathlib import Path
 import pytest
 
 from weather.calibration.base_model_candidate import contiguous_serving_support
+from weather.calibration.forecast_training_contract import (
+    pit_selection_binding_sha256,
+)
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.operations.base_retrain import (
     BaseRetrainContractError,
@@ -35,6 +39,7 @@ TARGET_DATE = "2099-07-24"
 TRAINING_AS_OF = "2099-07-25T04:00:00+00:00"
 FEATURE_CONTRACT_ID = "sha256:" + "c" * 64
 RUNTIME_ID = "synthetic-runtime-v1"
+PIT_CORPUS_ID = "e" * 64
 
 
 def _support(unit: str) -> dict:
@@ -194,18 +199,87 @@ def _record_paths(tmp_path: Path) -> dict[str, Path]:
     for market_id in EXPECTED_MARKETS:
         path = tmp_path / "corpus" / f"{market_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(_pit_record(market_id)) + "\n",
+            encoding="utf-8",
+        )
         paths[market_id] = path
     return paths
 
 
+def _pit_binding(market_id: str) -> dict:
+    return {
+        "market_id": market_id,
+        "target_date": "2098-07-24",
+        "cutoff_hour_local": 12,
+        "forecast_high_native": 21.0 if MARKET_UNITS[market_id] == "C" else 91.0,
+        "temperature_unit": MARKET_UNITS[market_id],
+        "corpus_id": PIT_CORPUS_ID,
+        "request_hash": hashlib.sha256(f"request:{market_id}".encode()).hexdigest(),
+        "raw_response_sha256": hashlib.sha256(f"raw:{market_id}".encode()).hexdigest(),
+        "issue_time_utc": "2098-07-23T00:00:00+00:00",
+        "available_at_utc": "2098-07-23T01:00:00+00:00",
+        "feature_as_of_utc": "2098-07-24T16:00:00+00:00",
+    }
+
+
+def _pit_record(market_id: str) -> dict:
+    binding = _pit_binding(market_id)
+    return {
+        "target_date": binding["target_date"],
+        "cutoff_hour": binding["cutoff_hour_local"],
+        "forecast_high": binding["forecast_high_native"],
+        **{
+            f"forecast_pit_{field}": value
+            for field, value in binding.items()
+            if field
+            not in {
+                "market_id",
+                "target_date",
+                "cutoff_hour_local",
+                "forecast_high_native",
+            }
+        },
+    }
+
+
+def _receipt_hash(payload: dict) -> str:
+    body = dict(payload)
+    body.pop("preflight_sha256", None)
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _pit_preflight(pit_manifest: Path, *, status: str = "PASS") -> dict:
+    rows = [_pit_binding(market_id) for market_id in EXPECTED_MARKETS]
+    receipt = {
+        "status": status,
+        "manifest_path": str(pit_manifest.resolve()),
+        "manifest_file_sha256": sha256_file(pit_manifest),
+        "manifest_sha256": "f" * 64,
+        "corpus_id": PIT_CORPUS_ID,
+        "selection_row_count": len(rows),
+        "selection_binding_sha256": pit_selection_binding_sha256(rows),
+    }
+    if status != "PASS":
+        receipt["error"] = "synthetic PIT verification failure"
+    receipt["preflight_sha256"] = _receipt_hash(receipt)
+    return receipt
+
+
 def _plan(candidate_dir: Path, corpus_manifest: Path) -> dict:
+    pit_manifest = candidate_dir.parent / "pit-manifest.json"
+    pit_manifest.parent.mkdir(parents=True, exist_ok=True)
+    if not pit_manifest.exists():
+        pit_manifest.write_text("{}\n", encoding="utf-8")
     return build_plan(
         target_date=TARGET_DATE,
         parent_release_id="parent-r1",
         training_as_of=TRAINING_AS_OF,
         feature_contract_id=FEATURE_CONTRACT_ID,
         corpus_manifest=corpus_manifest,
+        pit_forecast_corpus_manifest=pit_manifest,
         candidate_dir=candidate_dir,
         runtime_id=RUNTIME_ID,
     )
@@ -251,21 +325,26 @@ def test_preflight_demonstrates_zero_forecast_coverage_and_wu_blind_value_mismat
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
     result = evaluate_preflight(
-        plan=_plan(tmp_path / "candidate-r1", path),
+        plan=plan,
         manifest=manifest,
         manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=_pit_preflight(pit_path, status="BLOCK"),
         parent=_parent(),
         output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
     )
 
     checks = {row["name"]: row for row in result["checks"]}
     assert result["status"] == "BLOCK"
-    assert checks["forecast_archive"]["status"] == "BLOCK"
+    assert checks["pit_forecast_corpus"]["status"] == "BLOCK"
     assert checks["train_serve_parity"]["status"] == "BLOCK"
-    assert {row["coverage"] for row in checks["forecast_archive"]["blockers"]} == {
-        "0/1"
-    }
+    assert any(
+        row["code"] == "PIT_FORECAST_CORPUS_UNVERIFIED"
+        for row in checks["pit_forecast_corpus"]["blockers"]
+    )
     mismatch = checks["train_serve_parity"]["blockers"]
     assert all(row["code"] == "TRAIN_SERVE_PARITY_MISMATCH" for row in mismatch)
     assert {row["field"] for row in mismatch} == {"rise_from_7am"}
@@ -283,10 +362,14 @@ def test_synthetic_repaired_manifest_clears_all_executable_preflights(tmp_path):
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
     result = evaluate_preflight(
-        plan=_plan(tmp_path / "candidate-r1", path),
+        plan=plan,
         manifest=manifest,
         manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=_pit_preflight(pit_path),
         parent=_parent(),
         output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
     )
@@ -294,6 +377,47 @@ def test_synthetic_repaired_manifest_clears_all_executable_preflights(tmp_path):
     assert result["status"] == "PASS"
     assert result["fit_authorized"] is True
     assert all(row["status"] == "PASS" for row in result["checks"])
+
+
+def test_legacy_feature_records_without_pit_provenance_block_preflight(tmp_path):
+    record_paths = _record_paths(tmp_path)
+    record_paths["toronto"].write_text(
+        json.dumps(
+            {
+                "target_date": "2098-07-24",
+                "cutoff_hour": 12,
+                "forecast_high": 21.0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest = _manifest(
+        forecast_covered=True,
+        parity_equal=True,
+        record_paths=record_paths,
+    )
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
+
+    result = evaluate_preflight(
+        plan=plan,
+        manifest=manifest,
+        manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=_pit_preflight(pit_path),
+        parent=_parent(),
+        output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
+    )
+
+    gate = next(row for row in result["checks"] if row["name"] == "pit_forecast_corpus")
+    assert gate["status"] == "BLOCK"
+    assert any(
+        row["code"] == "PIT_FEATURE_RECORD_PROVENANCE_MISSING"
+        for row in gate["blockers"]
+    )
 
 
 def test_output_isolation_probe_detects_legacy_global_write(tmp_path):
@@ -348,8 +472,7 @@ def _run_fixture(tmp_path: Path):
         path.write_text(
             json.dumps(
                 {
-                    "target_date": "2098-07-24",
-                    "cutoff_hour": 12,
+                    **_pit_record(market_id),
                     "final_bucket": 20 if MARKET_UNITS[market_id] == "C" else 90,
                 }
             )
@@ -363,6 +486,8 @@ def _run_fixture(tmp_path: Path):
     )
     manifest_path = tmp_path / "corpus" / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    pit_manifest_path = tmp_path / "corpus" / "pit-manifest.json"
+    pit_manifest_path.write_text("{}\n", encoding="utf-8")
     parent = _parent()
     parent["parent_release_dir"] = str(parent_dir)
     args = argparse.Namespace(
@@ -371,6 +496,7 @@ def _run_fixture(tmp_path: Path):
         training_as_of=TRAINING_AS_OF,
         feature_contract_id=FEATURE_CONTRACT_ID,
         corpus_manifest=str(manifest_path),
+        pit_forecast_corpus_manifest=str(pit_manifest_path),
         candidate_dir=str(tmp_path / "run" / "candidate-r1"),
         runtime_id=RUNTIME_ID,
         releases_root=str(repo / "artifacts" / "releases"),
@@ -405,11 +531,35 @@ def test_toronto_nyc_only_success_is_not_releasable(tmp_path):
         run_base_retrain(
             args,
             parent_loader=lambda **_kwargs: parent,
+            pit_preflight_loader=lambda *_args, **_kwargs: _pit_preflight(
+                Path(args.pit_forecast_corpus_manifest)
+            ),
             market_fitter=fake_fitter,
             release_builder=lambda **kwargs: release_calls.append(kwargs),
         )
 
     assert release_calls == []
+
+
+def test_missing_pit_manifest_blocks_before_any_market_fit(tmp_path):
+    args, parent, _repo = _run_fixture(tmp_path)
+    Path(args.pit_forecast_corpus_manifest).unlink()
+    fit_calls = []
+
+    result = run_base_retrain(
+        args,
+        parent_loader=lambda **_kwargs: parent,
+        market_fitter=lambda **kwargs: fit_calls.append(kwargs),
+    )
+
+    assert result["status"] == "BLOCK"
+    assert fit_calls == []
+    gate = next(
+        row
+        for row in result["preflight"]["checks"]
+        if row["name"] == "pit_forecast_corpus"
+    )
+    assert gate["status"] == "BLOCK"
 
 
 def test_fit_scope_inventory_aborts_when_a_runner_touches_global_artifacts(tmp_path):
@@ -435,6 +585,9 @@ def test_fit_scope_inventory_aborts_when_a_runner_touches_global_artifacts(tmp_p
         run_base_retrain(
             args,
             parent_loader=lambda **_kwargs: parent,
+            pit_preflight_loader=lambda *_args, **_kwargs: _pit_preflight(
+                Path(args.pit_forecast_corpus_manifest)
+            ),
             market_fitter=legacy_writer,
             release_builder=lambda **kwargs: release_calls.append(kwargs),
         )
@@ -454,6 +607,7 @@ def test_nightly_plan_contains_exactly_one_unskippable_base_step():
     assert command[1:3] == ["-m", "weather.operations.base_retrain"]
     assert command.count("--target-date") == 1
     assert command.count("--candidate-dir") == 1
+    assert command.count("--pit-forecast-corpus-manifest") == 1
     assert "--skip-base-retrain" not in command
 
 
@@ -464,6 +618,7 @@ def test_empty_nightly_bindings_do_not_acquire_ambient_path_defaults(tmp_path):
         training_as_of="",
         feature_contract_id="",
         corpus_manifest="",
+        pit_forecast_corpus_manifest="",
         candidate_dir="",
         runtime_id="",
     )
@@ -471,6 +626,7 @@ def test_empty_nightly_bindings_do_not_acquire_ambient_path_defaults(tmp_path):
     assert plan["candidate_dir"] == ""
     assert plan["candidate_release_id"] == ""
     assert plan["corpus_manifest"] == ""
+    assert plan["pit_forecast_corpus_manifest"] == ""
 
 
 def _write_json(path: Path, payload: dict) -> None:

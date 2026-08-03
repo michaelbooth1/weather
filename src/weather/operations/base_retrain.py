@@ -21,12 +21,16 @@ from pathlib import Path
 from typing import Any
 
 from weather.calibration.base_model_candidate import (
+    BaseModelCandidateFitError,
     contiguous_serving_support,
     fit_market_candidate,
     read_hash_bound_records,
 )
+from weather.calibration.forecast_training_contract import (
+    pit_selection_binding_sha256,
+    preflight_pit_forecast_training_corpus,
+)
 from weather.market.market_registry import BUILTIN_SPECS
-from weather.model.feature_store import FORECAST_FEATURE_COLUMNS
 from weather.operations.release_candidate_contract import (
     SEMANTIC_PATHS,
     _finalize_payload,
@@ -46,6 +50,10 @@ from weather.release_contract import (
     SEMANTIC_CONTRACT_SCHEMA_VERSION,
 )
 from weather.schema_registry import schema_version
+from weather.sources.forecast_training_corpus import (
+    CorpusVerificationError,
+    MaterializationBlocked,
+)
 
 
 SCHEMA_VERSION = schema_version("all_market_base_retrain")
@@ -166,6 +174,7 @@ def build_plan(
     training_as_of: str,
     feature_contract_id: str,
     corpus_manifest: str | Path,
+    pit_forecast_corpus_manifest: str | Path,
     candidate_dir: str | Path,
     runtime_id: str,
 ) -> dict[str, Any]:
@@ -173,6 +182,7 @@ def build_plan(
 
     candidate_value = str(candidate_dir)
     corpus_value = str(corpus_manifest)
+    pit_corpus_value = str(pit_forecast_corpus_manifest)
     markets = []
     for market_id in EXPECTED_MARKETS:
         outputs = candidate_market_outputs(candidate_dir, market_id)
@@ -199,6 +209,7 @@ def build_plan(
             "training_as_of": str(training_as_of),
             "feature_contract_id": str(feature_contract_id),
             "corpus_manifest": corpus_value,
+            "pit_forecast_corpus_manifest": pit_corpus_value,
             "candidate_dir": candidate_value,
             "candidate_release_id": (
                 Path(candidate_value).name if candidate_value.strip() else ""
@@ -218,6 +229,7 @@ def explicit_argument_gate(plan: Mapping[str, Any]) -> dict[str, Any]:
         "training_as_of",
         "feature_contract_id",
         "corpus_manifest",
+        "pit_forecast_corpus_manifest",
         "candidate_dir",
         "runtime_id",
     )
@@ -486,11 +498,178 @@ def _gate(name: str, blockers: Sequence[Mapping[str, Any]], **evidence: Any) -> 
     }
 
 
+def _required_pit_selection_keys(
+    manifest: Mapping[str, Any],
+    parent: Mapping[str, Any],
+) -> tuple[tuple[str, str, int], ...]:
+    markets = manifest.get("markets")
+    if not isinstance(markets, Mapping):
+        return ()
+    keys = set()
+    for market_id in EXPECTED_MARKETS:
+        market = markets.get(market_id)
+        if not isinstance(market, Mapping):
+            continue
+        dates = {
+            str(row.get("local_date") or "")
+            for row in market.get("selected_dates") or []
+            if str(row.get("local_date") or "")
+        }
+        hours = {
+            int(hour)
+            for hour in ((parent.get("markets") or {}).get(market_id) or {}).get(
+                "hours", {}
+            )
+            if str(hour).isdigit()
+        }
+        keys.update(
+            (market_id, target_date, cutoff_hour)
+            for target_date in dates
+            for cutoff_hour in hours
+        )
+    return tuple(sorted(keys))
+
+
+def _feature_record_pit_binding(
+    manifest: Mapping[str, Any],
+    parent: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    required_keys = set(_required_pit_selection_keys(manifest, parent))
+    bindings: dict[tuple[str, str, int], dict[str, Any]] = {}
+    blockers: list[dict[str, Any]] = []
+    markets = manifest.get("markets")
+    if not isinstance(markets, Mapping):
+        markets = {}
+    for market_id in EXPECTED_MARKETS:
+        market = markets.get(market_id)
+        if not isinstance(market, Mapping):
+            continue
+        try:
+            records = read_hash_bound_records(
+                market.get("records_path") or "",
+                expected_sha256=str(market.get("records_sha256") or ""),
+            )
+        except (BaseModelCandidateFitError, OSError, TypeError, ValueError) as exc:
+            blockers.append(
+                {
+                    "code": "PIT_FEATURE_RECORD_UNVERIFIED",
+                    "market_id": market_id,
+                    "message": str(exc),
+                }
+            )
+            continue
+        for record in records:
+            try:
+                key = (
+                    market_id,
+                    str(record["target_date"]),
+                    int(record["cutoff_hour"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                blockers.append(
+                    {
+                        "code": "PIT_FEATURE_RECORD_KEY_INVALID",
+                        "market_id": market_id,
+                        "message": "feature record lacks a valid target date or cutoff hour",
+                    }
+                )
+                continue
+            if key not in required_keys:
+                blockers.append(
+                    {
+                        "code": "PIT_FEATURE_RECORD_OUTSIDE_PLAN",
+                        "market_id": market_id,
+                        "target_date": key[1],
+                        "cutoff_hour_local": key[2],
+                        "message": "fitted feature record is outside the planned PIT matrix",
+                    }
+                )
+                continue
+            if key in bindings:
+                blockers.append(
+                    {
+                        "code": "PIT_FEATURE_RECORD_DUPLICATE",
+                        "market_id": market_id,
+                        "target_date": key[1],
+                        "cutoff_hour_local": key[2],
+                        "message": "more than one feature record claims the planned PIT key",
+                    }
+                )
+                continue
+            binding = {
+                "market_id": market_id,
+                "target_date": key[1],
+                "cutoff_hour_local": key[2],
+                "forecast_high_native": record.get("forecast_high"),
+                "temperature_unit": record.get("forecast_pit_temperature_unit"),
+                "corpus_id": record.get("forecast_pit_corpus_id"),
+                "request_hash": record.get("forecast_pit_request_hash"),
+                "raw_response_sha256": record.get(
+                    "forecast_pit_raw_response_sha256"
+                ),
+                "issue_time_utc": record.get("forecast_pit_issue_time_utc"),
+                "available_at_utc": record.get("forecast_pit_available_at_utc"),
+                "feature_as_of_utc": record.get(
+                    "forecast_pit_feature_as_of_utc"
+                ),
+            }
+            missing = [
+                field
+                for field, value in binding.items()
+                if value is None or (isinstance(value, str) and not value.strip())
+            ]
+            if missing:
+                blockers.append(
+                    {
+                        "code": "PIT_FEATURE_RECORD_PROVENANCE_MISSING",
+                        "market_id": market_id,
+                        "target_date": key[1],
+                        "cutoff_hour_local": key[2],
+                        "fields": missing,
+                        "message": "feature record lacks explicit PIT corpus provenance",
+                    }
+                )
+                continue
+            if binding["temperature_unit"] != MARKET_UNITS[market_id]:
+                blockers.append(
+                    {
+                        "code": "PIT_FEATURE_RECORD_UNIT_MISMATCH",
+                        "market_id": market_id,
+                        "target_date": key[1],
+                        "cutoff_hour_local": key[2],
+                        "message": "PIT forecast value is not in the market's native unit",
+                    }
+                )
+                continue
+            bindings[key] = binding
+    missing_keys = sorted(required_keys - set(bindings))
+    if missing_keys:
+        blockers.append(
+            {
+                "code": "PIT_FEATURE_RECORD_MATRIX_INCOMPLETE",
+                "missing_count": len(missing_keys),
+                "missing": [list(key) for key in missing_keys[:5]],
+                "message": "feature records do not cover the planned market/date/cutoff matrix",
+            }
+        )
+    rows = [bindings[key] for key in sorted(bindings)]
+    evidence = {
+        "required_selection_row_count": len(required_keys),
+        "feature_record_selection_row_count": len(rows),
+        "feature_record_selection_binding_sha256": (
+            pit_selection_binding_sha256(rows) if rows else ""
+        ),
+    }
+    return blockers, evidence
+
+
 def evaluate_preflight(
     *,
     plan: Mapping[str, Any],
     manifest: Mapping[str, Any],
     manifest_sha256: str,
+    pit_forecast_manifest_sha256: str,
+    pit_forecast_preflight: Mapping[str, Any],
     parent: Mapping[str, Any],
     output_isolation: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -551,12 +730,10 @@ def evaluate_preflight(
         plan["training_as_of"], field="training_as_of"
     )
     wu_blockers = []
-    forecast_blockers = []
     feature_blockers = []
     parity_blockers = []
     sidecar_blockers = []
     support_blockers = []
-    forecast_coverage_rows = []
     for market_id in EXPECTED_MARKETS:
         market = manifest_markets.get(market_id)
         parent_market = (parent.get("markets") or {}).get(market_id) or {}
@@ -651,29 +828,6 @@ def evaluate_preflight(
                 {"code": "LIVE_ONLY_FEATURE", "market_id": market_id, "features": live_only, "message": "selected parent field is live-only"}
             )
 
-        forecast_fields = sorted(parent_feature_names & set(FORECAST_FEATURE_COLUMNS))
-        forecast = market.get("forecast_archive") or {}
-        field_rows = forecast.get("fields") or {}
-        for field in forecast_fields:
-            coverage = field_rows.get(field) if isinstance(field_rows, Mapping) else None
-            expected_dates = sorted(selected_dates)
-            covered_dates = sorted((coverage or {}).get("covered_dates") or [])
-            expected_declared = sorted((coverage or {}).get("expected_dates") or [])
-            expected_count = len(expected_dates)
-            covered_count = len(set(expected_dates) & set(covered_dates))
-            coverage_text = f"{covered_count}/{expected_count}"
-            forecast_coverage_rows.append(
-                {"market_id": market_id, "field": field, "coverage": coverage_text}
-            )
-            if (
-                expected_declared != expected_dates
-                or covered_dates != expected_dates
-                or (coverage or {}).get("pit_issue_time_provenance") is not True
-            ):
-                forecast_blockers.append(
-                    {"code": "FORECAST_ARCHIVE_INCOMPLETE", "market_id": market_id, "field": field, "coverage": coverage_text, "message": f"forecast archive coverage is {coverage_text}"}
-                )
-
         parity_by_field: dict[str, list[Mapping[str, Any]]] = {}
         for sample in market.get("parity_samples") or []:
             parity_by_field.setdefault(str(sample.get("field") or ""), []).append(sample)
@@ -748,10 +902,82 @@ def evaluate_preflight(
         wu_blockers.append(
             {"code": "WU_FLEET_MISMATCH", "message": "corpus manifest is not exactly the 12 built-in markets"}
         )
+    pit_blockers = []
+    if pit_forecast_preflight.get("status") != "PASS":
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_CORPUS_UNVERIFIED",
+                "message": str(
+                    pit_forecast_preflight.get("error")
+                    or "PIT forecast corpus preflight is not exact PASS"
+                ),
+            }
+        )
+    expected_preflight_hash = _canonical_sha256(
+        {
+            key: value
+            for key, value in pit_forecast_preflight.items()
+            if key != "preflight_sha256"
+        }
+    )
+    if pit_forecast_preflight.get("preflight_sha256") != expected_preflight_hash:
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_PREFLIGHT_IDENTITY",
+                "message": "PIT forecast corpus preflight self-hash does not verify",
+            }
+        )
+    try:
+        receipt_path = Path(str(pit_forecast_preflight.get("manifest_path") or "")).resolve()
+        planned_path = Path(str(plan.get("pit_forecast_corpus_manifest") or "")).resolve()
+        path_matches = receipt_path == planned_path
+    except (OSError, RuntimeError, ValueError):
+        path_matches = False
+    if (
+        not path_matches
+        or pit_forecast_preflight.get("manifest_file_sha256")
+        != pit_forecast_manifest_sha256
+    ):
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_MANIFEST_IDENTITY",
+                "message": "PIT preflight is not bound to the explicit manifest file",
+            }
+        )
+    record_blockers, record_evidence = _feature_record_pit_binding(manifest, parent)
+    pit_blockers.extend(record_blockers)
+    if record_evidence["required_selection_row_count"] <= 0:
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_SELECTION_EMPTY",
+                "message": "planned market/date/cutoff selection is empty",
+            }
+        )
+    if (
+        int(pit_forecast_preflight.get("selection_row_count") or -1)
+        != record_evidence["required_selection_row_count"]
+        or pit_forecast_preflight.get("selection_binding_sha256")
+        != record_evidence["feature_record_selection_binding_sha256"]
+    ):
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_SELECTION_BINDING_MISMATCH",
+                "message": "feature records are not the exact preflighted PIT selection",
+            }
+        )
     checks.extend(
         [
             _gate("wu_corpus", wu_blockers),
-            _gate("forecast_archive", forecast_blockers, coverage=forecast_coverage_rows),
+            _gate(
+                "pit_forecast_corpus",
+                pit_blockers,
+                manifest_file_sha256=pit_forecast_manifest_sha256,
+                corpus_id=pit_forecast_preflight.get("corpus_id"),
+                selection_binding_sha256=pit_forecast_preflight.get(
+                    "selection_binding_sha256"
+                ),
+                **record_evidence,
+            ),
             _gate("feature_allowlist", feature_blockers),
             _gate("train_serve_parity", parity_blockers),
             _gate("sidecars", sidecar_blockers),
@@ -788,6 +1014,10 @@ def evaluate_preflight(
             "feature_contract_id": plan["feature_contract_id"],
             "runtime_id": plan["runtime_id"],
             "corpus_manifest_sha256": manifest_sha256,
+            "pit_forecast_corpus_manifest_sha256": pit_forecast_manifest_sha256,
+            "pit_forecast_preflight_sha256": pit_forecast_preflight.get(
+                "preflight_sha256"
+            ),
             "checks": checks,
             "blocker_count": len(blockers),
             "blockers": blockers,
@@ -957,6 +1187,9 @@ def run_base_retrain(
     args: argparse.Namespace,
     *,
     parent_loader: Callable[..., dict[str, Any]] = load_parent_contract,
+    pit_preflight_loader: Callable[..., dict[str, Any]] = (
+        preflight_pit_forecast_training_corpus
+    ),
     market_fitter: Callable[..., dict[str, Any]] = fit_market_candidate,
     release_builder: Callable[..., dict[str, Any]] = create_release,
     isolation_probe: Callable[[Path], None] | None = None,
@@ -969,6 +1202,7 @@ def run_base_retrain(
         training_as_of=args.training_as_of,
         feature_contract_id=args.feature_contract_id,
         corpus_manifest=args.corpus_manifest,
+        pit_forecast_corpus_manifest=args.pit_forecast_corpus_manifest,
         candidate_dir=args.candidate_dir,
         runtime_id=args.runtime_id,
     )
@@ -993,6 +1227,31 @@ def run_base_retrain(
     manifest_path = Path(args.corpus_manifest)
     manifest_sha = sha256_file(manifest_path)
     manifest = _read_json(manifest_path, label="base-retrain corpus manifest")
+    pit_manifest_path = Path(args.pit_forecast_corpus_manifest)
+    pit_manifest_sha = ""
+    required_pit_selection = _required_pit_selection_keys(manifest, parent)
+    try:
+        pit_manifest_sha = sha256_file(pit_manifest_path)
+        pit_preflight = pit_preflight_loader(
+            pit_manifest_path,
+            target_year=_parse_date(args.target_date, field="target_date").year,
+            required_market_ids=list(EXPECTED_MARKETS),
+            required_market_date_cutoffs=required_pit_selection,
+        )
+    except (
+        CorpusVerificationError,
+        MaterializationBlocked,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        pit_preflight = {
+            "status": "BLOCK",
+            "manifest_path": str(pit_manifest_path.resolve()),
+            "manifest_file_sha256": pit_manifest_sha,
+            "error": str(exc),
+        }
     isolation = prove_output_isolation(
         candidate_dir=candidate,
         repo_root=args.repo_root,
@@ -1004,6 +1263,8 @@ def run_base_retrain(
         plan=plan,
         manifest=manifest,
         manifest_sha256=manifest_sha,
+        pit_forecast_manifest_sha256=pit_manifest_sha,
+        pit_forecast_preflight=pit_preflight,
         parent=parent,
         output_isolation=isolation,
     )
@@ -1053,6 +1314,8 @@ def run_base_retrain(
             feature_contract_id=args.feature_contract_id,
             runtime_id=args.runtime_id,
             corpus_manifest_sha256=manifest_sha,
+            pit_forecast_corpus_manifest_sha256=pit_manifest_sha,
+            pit_forecast_preflight_sha256=pit_preflight["preflight_sha256"],
             records=records,
             parent_hgb=parent["markets"][market_id]["hgb"],
             parent_lr=parent["markets"][market_id]["lr"],
@@ -1100,6 +1363,8 @@ def run_base_retrain(
             "semantic_contract_sha256": semantic["contract_sha256"],
             "parent_release_id": args.parent_release_id,
             "parent_manifest_sha256": parent["parent_manifest_sha256"],
+            "pit_forecast_corpus_manifest_sha256": pit_manifest_sha,
+            "pit_forecast_preflight_sha256": pit_preflight["preflight_sha256"],
             "active_pointer_unchanged_before_release_build": True,
         }
     )
@@ -1126,6 +1391,10 @@ def run_base_retrain(
                 "preflight_sha256": preflight["payload_sha256"],
                 "fleet_receipt_sha256": fleet_receipt["payload_sha256"],
                 "corpus_manifest_sha256": manifest_sha,
+                "pit_forecast_corpus_manifest_sha256": pit_manifest_sha,
+                "pit_forecast_preflight_sha256": pit_preflight[
+                    "preflight_sha256"
+                ],
                 "runtime_id": args.runtime_id,
             }
         },
@@ -1158,6 +1427,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--training-as-of", required=True)
     parser.add_argument("--feature-contract-id", required=True)
     parser.add_argument("--corpus-manifest", required=True)
+    parser.add_argument("--pit-forecast-corpus-manifest", required=True)
     parser.add_argument("--candidate-dir", required=True)
     parser.add_argument("--runtime-id", required=True)
     parser.add_argument("--releases-root", required=True)

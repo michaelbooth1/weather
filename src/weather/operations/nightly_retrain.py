@@ -540,6 +540,8 @@ def all_market_base_retrain_command(args):
         args.base_retrain_feature_contract_id,
         "--corpus-manifest",
         args.base_retrain_corpus_manifest,
+        "--pit-forecast-corpus-manifest",
+        args.base_retrain_pit_forecast_corpus_manifest,
         "--candidate-dir",
         args.base_retrain_candidate_dir,
         "--runtime-id",
@@ -562,6 +564,9 @@ def all_market_base_retrain_plan(args):
         training_as_of=args.base_retrain_training_as_of,
         feature_contract_id=args.base_retrain_feature_contract_id,
         corpus_manifest=args.base_retrain_corpus_manifest,
+        pit_forecast_corpus_manifest=(
+            args.base_retrain_pit_forecast_corpus_manifest
+        ),
         candidate_dir=args.base_retrain_candidate_dir,
         runtime_id=args.base_retrain_runtime_id,
     )
@@ -2755,6 +2760,10 @@ def build_run_parser(parser):
     parser.add_argument("--base-retrain-training-as-of", default="")
     parser.add_argument("--base-retrain-feature-contract-id", default="")
     parser.add_argument("--base-retrain-corpus-manifest", default="")
+    parser.add_argument(
+        "--base-retrain-pit-forecast-corpus-manifest",
+        default="",
+    )
     parser.add_argument("--base-retrain-candidate-dir", default="")
     parser.add_argument("--base-retrain-runtime-id", default="")
     parser.add_argument(

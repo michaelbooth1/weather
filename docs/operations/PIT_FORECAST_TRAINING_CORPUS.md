@@ -71,6 +71,15 @@ When this option is present there is no compatibility fallback to ambient
 `data/forecast_history` files. Forecast-relative marine columns are nulled so
 they cannot retain values derived from the legacy archive.
 
+The all-market base-retrain lane uses the same manifest through its required
+`--pit-forecast-corpus-manifest` option (or nightly's
+`--base-retrain-pit-forecast-corpus-manifest` binding). Its preflight requests
+the exact planned market/date/cutoff selection, then matches the corpus receipt
+against PIT provenance flattened into every hash-bound feature record. Corpus
+identity, request/raw-response hashes, native forecast value and unit, and
+issue/availability/as-of timestamps must all agree. Legacy records assembled
+from ambient `forecast_daily.csv` have no such provenance and fail closed.
+
 This input does not authorize fitting, promotion, serving changes, or release
 binding. Those remain separate reviewed actions under the nightly retrain and
 release runbooks.

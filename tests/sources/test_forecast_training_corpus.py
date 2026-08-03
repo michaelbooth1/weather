@@ -7,6 +7,7 @@ from weather.calibration.forecast_training_contract import (
     preflight_pit_forecast_training_corpus,
 )
 from weather.sources.forecast_training_corpus import (
+    CorpusVerificationError,
     DEFAULT_SOURCE_FIELDS,
     PITForecastTrainingCorpus,
     MaterializationBlocked,
@@ -251,6 +252,17 @@ def test_complete_corpus_is_atomic_content_addressed_and_explicit(tmp_path):
     )
     assert preflight["status"] == "PASS"
     assert preflight["compatibility_fallback_allowed"] is False
+    assert preflight["manifest_file_sha256"]
+    assert preflight["selection_row_count"] == 1
+    assert preflight["selection_binding_sha256"]
+
+    with pytest.raises(CorpusVerificationError, match="does not cover"):
+        preflight_pit_forecast_training_corpus(
+            manifest_path,
+            target_year=2026,
+            required_market_ids=["toronto"],
+            required_market_date_cutoffs=[("toronto", "2021-05-10", 11)],
+        )
 
     reader = PITForecastTrainingCorpus(manifest_path, "toronto")
     resolved = reader.resolve(date(2021, 5, 10), 10)
