@@ -101,6 +101,15 @@ mid-copy.
 The dashboard views are overview, per-market detail, history, market making,
 operations, and roadmap.
 
+Each per-market detail route shows the current serving build's recorded
+distribution pipeline at its effective cutoff: stage distributions, centre
+movement, explicit missing snapshots, trusted-floor binding mass, and the final
+served probabilities beside market-implied probabilities. It does not replay
+alternate cutoffs. The Operations route leads with the canonical host digest,
+keeps operational capture continuity separate from receipt-backed release
+admissibility, and shows the age/state of the daily refresh and morning
+briefing rather than treating stored artifacts as live state.
+
 ## Tests And Local Checks
 
 ```powershell
