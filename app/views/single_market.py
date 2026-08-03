@@ -7,6 +7,8 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+from app.table_utils import csv_data_row_count
+from app.views.model_pipeline import render_pipeline_model_view
 from weather.collection.snapshot_tracker import SnapshotStore
 from weather.market.market_config import config_for_date, config_from_event
 from weather.market.market_registry import DEFAULT_MARKET_ID, spec_for_id
@@ -185,6 +187,7 @@ def render_single_market_page(market_id, live_refresh_seconds):
             error_msg = item.get("error", "")
             
             age_str = "-"
+            timestamp_valid = True
             if fetched_at_str:
                 try:
                     fetched_at = datetime.fromisoformat(fetched_at_str)
@@ -196,12 +199,13 @@ def render_single_market_page(market_id, live_refresh_seconds):
                         age_str = "1 min ago"
                     else:
                         age_str = f"{minutes} mins ago"
-                except:
-                    pass
+                except (TypeError, ValueError):
+                    timestamp_valid = False
+                    age_str = "Invalid timestamp"
                     
-            if ok and not stale:
+            if ok and not stale and timestamp_valid:
                 status = "🟢 Live"
-            elif ok and stale:
+            elif ok:
                 status = "🟡 Stale"
                 has_stale = True
             else:
@@ -303,6 +307,12 @@ def render_single_market_page(market_id, live_refresh_seconds):
 
         st.dataframe(model["model_rows"], width='stretch', hide_index=True)
 
+        render_pipeline_model_view(
+            model,
+            market_label=spec.city_label,
+            unit=spec.display_unit,
+        )
+
         # Render Model Explanation Panel
         explanation = model.get("model_explanation")
         if explanation:
@@ -311,7 +321,14 @@ def render_single_market_page(market_id, live_refresh_seconds):
             exp_col1, exp_col2, exp_col3 = st.columns(3)
             with exp_col1:
                 st.markdown("**Active Constraints**")
-                st.write(f"- **Floor (Min possible high):** {explanation.get('observed_floor')} {spec.display_unit}")
+                component_payload = model.get("distribution_components") or {}
+                trusted_floor = component_payload.get("observed_floor_bucket")
+                if trusted_floor is None:
+                    trusted_floor = explanation.get("observed_floor")
+                st.write(
+                    f"- **Trusted observed-high floor:** "
+                    f"{trusted_floor if trusted_floor is not None else '-'} {spec.display_unit}"
+                )
                 st.write(f"- **Plausible Cap:** {explanation.get('forecast_cap')} {spec.display_unit}")
             with exp_col2:
                 st.markdown("**Active Regimes**")
@@ -371,7 +388,7 @@ def render_single_market_page(market_id, live_refresh_seconds):
             skip_pct = boundary.get("skip_rate") * 100
             
             st.markdown(
-                f"Given that the confirmed floor bucket is **{observed_bucket} C** at or before **{ch_hour:02d}:00** cutoff: "
+                f"Given that the confirmed floor bucket is **{observed_bucket} {spec.display_unit}** at or before **{ch_hour:02d}:00** cutoff: "
                 f"Here is how similar seasonal historical days resolved (sample size $N = {n_samples}$ days):"
             )
             
@@ -428,9 +445,9 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 "Date": f"TODAY ({model_client(market_id).target_date:%B %d})",
                 "Match %": "-",
                 "Final High": "-",
-                "High so far": f"{today_feat.get('high_so_far')} C",
-                "Rise from 7 AM": f"{today_feat.get('rise_from_7am'):.1f} C",
-                "Dew Point": f"{today_feat.get('dewpoint_c')} C",
+                "High so far": f"{today_feat.get('high_so_far')} {spec.display_unit}",
+                "Rise from 7 AM": f"{today_feat.get('rise_from_7am'):.1f} {spec.display_unit}",
+                "Dew Point": f"{today_feat.get('dewpoint_c')} {spec.display_unit}",
                 "Wind Regime": today_feat.get("wind_group"),
                 "Cloud Regime": today_feat.get("cloud_group")
             })
@@ -438,10 +455,10 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 comparison_rows.append({
                     "Date": d["date"],
                     "Match %": f"{d['similarity']:.1f}%",
-                    "Final High": f"{d['final_high']} C",
-                    "High so far": f"{d['high_so_far']} C",
-                    "Rise from 7 AM": f"{d['rise_from_7am']:.1f} C",
-                    "Dew Point": f"{d['dewpoint_c']} C",
+                    "Final High": f"{d['final_high']} {spec.display_unit}",
+                    "High so far": f"{d['high_so_far']} {spec.display_unit}",
+                    "Rise from 7 AM": f"{d['rise_from_7am']:.1f} {spec.display_unit}",
+                    "Dew Point": f"{d['dewpoint_c']} {spec.display_unit}",
                     "Wind Regime": d["wind_group"],
                     "Cloud Regime": d["cloud_group"]
                 })
@@ -603,34 +620,13 @@ def render_single_market_page(market_id, live_refresh_seconds):
             store = snapshot_store(market_id)
             
             # Calculate row counts
-            long_rows_cnt = 0
-            wide_rows_cnt = 0
-            forecast_rows_cnt = 0
-            
-            if store.long_path.exists():
-                try:
-                    with store.long_path.open("r", encoding="utf-8") as f:
-                        long_rows_cnt = sum(1 for _ in f) - 1 # exclude header
-                except:
-                    pass
+            long_rows_cnt = csv_data_row_count(store.long_path)
+            wide_rows_cnt = csv_data_row_count(store.wide_path)
+            forecast_rows_cnt = csv_data_row_count(store.forecasts_long_path)
                     
-            if store.wide_path.exists():
-                try:
-                    with store.wide_path.open("r", encoding="utf-8") as f:
-                        wide_rows_cnt = sum(1 for _ in f) - 1 # exclude header
-                except:
-                    pass
-                    
-            if store.forecasts_long_path.exists():
-                try:
-                    with store.forecasts_long_path.open("r", encoding="utf-8") as f:
-                        forecast_rows_cnt = sum(1 for _ in f) - 1 # exclude header
-                except:
-                    pass
-                    
-            st.write(f"- **Long Format Snapshots CSV:** `{store.long_path}` ({long_rows_cnt} rows)")
-            st.write(f"- **Wide Format Snapshots CSV:** `{store.wide_path}` ({wide_rows_cnt} rows)")
-            st.write(f"- **Forecast Snapshot CSV:** `{store.forecasts_long_path}` ({forecast_rows_cnt} rows)")
+            st.write(f"- **Long Format Snapshots CSV:** `{store.long_path}` ({long_rows_cnt if long_rows_cnt is not None else 'unavailable'} rows)")
+            st.write(f"- **Wide Format Snapshots CSV:** `{store.wide_path}` ({wide_rows_cnt if wide_rows_cnt is not None else 'unavailable'} rows)")
+            st.write(f"- **Forecast Snapshot CSV:** `{store.forecasts_long_path}` ({forecast_rows_cnt if forecast_rows_cnt is not None else 'unavailable'} rows)")
             st.write(f"- **JSONL Snapshot Archive:** `{store.jsonl_path}`")
             
             # Last snapshot view
@@ -679,7 +675,9 @@ def render_single_market_page(market_id, live_refresh_seconds):
                 unique_snapshots = hist_df[["snapshot_id", "captured_at_local", "top_temp_c", "top_probability"]].drop_duplicates().tail(5)
                 # Format dataframe
                 unique_snapshots["Time"] = pd.to_datetime(unique_snapshots["captured_at_local"]).dt.strftime("%H:%M:%S")
-                unique_snapshots["Top Projected Temp"] = unique_snapshots["top_temp_c"].map(lambda x: f"{x} C")
+                unique_snapshots["Top Projected Temp"] = unique_snapshots["top_temp_c"].map(
+                    lambda x: f"{x} {spec.display_unit}"
+                )
                 unique_snapshots["Top Probability"] = unique_snapshots["top_probability"].map(lambda x: f"{x*100:.1f}%")
                 
                 st.dataframe(

@@ -81,3 +81,14 @@ def test_streamlit_router_stays_thin_and_single_market_view_owns_page_body():
         for pattern in router_forbidden
         if pattern in router_text
     } == {}
+
+
+def test_single_market_uses_served_floor_and_native_unit_labels():
+    single_market_text = SINGLE_MARKET_VIEW_PATH.read_text(encoding="utf-8")
+
+    assert 'model.get("distribution_components")' in single_market_text
+    assert "Trusted observed-high floor" in single_market_text
+    assert "Floor (Min possible high)" not in single_market_text
+    assert "observed_bucket} C" not in single_market_text
+    assert "high_so_far')} C" not in single_market_text
+    assert "d['final_high']} C" not in single_market_text
