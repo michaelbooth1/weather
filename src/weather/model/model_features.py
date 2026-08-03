@@ -105,6 +105,50 @@ class FeatureModelMixin:
         except (TypeError, ValueError):
             return default
 
+    def feature_serving_prior(self, cutoff_hour):
+        """Return a candidate-declared aligned prior and contiguous support.
+
+        Legacy artifacts declare neither field and retain the existing dynamic
+        climatology path.  A candidate that declares only one field, holes in
+        support, missing/zero prior mass, or off-support keys is invalid and
+        fails serving rather than silently truncating to ``model.classes_``.
+        """
+
+        key = str(cutoff_hour)
+        kind = getattr(self, "active_model_kind", "empirical")
+        if kind == "hgb":
+            cfg = (self.load_feature_model_hgb() or {}).get(key) or {}
+        elif kind == "lr":
+            cfg = (self.load_feature_model_coefs() or {}).get(key) or {}
+        else:
+            return None
+        declared_prior = cfg.get("target_date_aligned_prior")
+        declared_support = cfg.get("serving_support")
+        if declared_prior is None and declared_support is None:
+            return None
+        if not isinstance(declared_prior, dict) or not isinstance(
+            declared_support, list
+        ):
+            raise ValueError("candidate feature prior/support contract is incomplete")
+        try:
+            support = [int(value) for value in declared_support]
+            prior = {int(bucket): float(value) for bucket, value in declared_prior.items()}
+        except (TypeError, ValueError) as exc:
+            raise ValueError("candidate feature prior/support is not numeric") from exc
+        if (
+            not support
+            or support != list(range(min(support), max(support) + 1))
+            or set(prior) != set(support)
+            or any(value <= 0.0 for value in prior.values())
+        ):
+            raise ValueError(
+                "candidate feature prior/support is not contiguous with positive mass"
+            )
+        total = sum(prior.values())
+        if total <= 0.0:
+            raise ValueError("candidate feature prior has no probability mass")
+        return {bucket: value / total for bucket, value in sorted(prior.items())}
+
     def feature_ordinal_smoothing_config(self, cutoff_hour):
         """Artifact-driven ordinal smoothing config for feature-model serving.
 

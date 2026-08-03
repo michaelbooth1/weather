@@ -763,6 +763,50 @@ class TestDistributionHelpers(unittest.TestCase):
         self.assertFalse(pipeline.metadata["feature_ordinal_smoothing"]["enabled"])
         self.assertEqual(pipeline.components["feature_blend"], out)
 
+    def test_model_path_stage_uses_candidate_prior_to_represent_support_beyond_classes(self):
+        pipeline = DistributionPipelineState()
+        scores = {20: 0.5, 21: 0.5}
+        self.model.predict_feature_distribution = (
+            lambda sources, cutoff_hour, now: ({20: 0.75, 21: 0.25}, "unit")
+        )
+        self.model.feature_serving_prior = lambda cutoff_hour: {
+            20: 0.2,
+            21: 0.3,
+            22: 0.5,
+        }
+        self.model.feature_blend_weight = lambda cutoff_hour: 0.8
+        now = datetime(2026, 5, 29, 12, 0, tzinfo=TORONTO_TZ)
+
+        out, _intraday, using_feature_model, _using_calibrated_empirical = (
+            self.model.distribution_model_path_stage(
+                scores,
+                sources={},
+                cutoff_hour=12,
+                now=now,
+                observed_bucket=20,
+                current={},
+                weather_forecast={},
+                eccc_city={},
+                current_temp=None,
+                weather_forecast_max=None,
+                open_meteo_max=None,
+                nws_forecast_max=None,
+                global_ensemble_max=None,
+                eccc_forecast_high=None,
+                weights_config={},
+                weight_map={},
+                has_component_weights=False,
+                pipeline=pipeline,
+            )
+        )
+
+        self.assertTrue(using_feature_model)
+        self.assertGreater(out[22], 0.0)
+        self.assertEqual(
+            pipeline.components["candidate_target_date_aligned_prior"],
+            {20: 0.2, 21: 0.3, 22: 0.5},
+        )
+
     def test_model_path_stage_applies_feature_smoothing_only_when_artifact_enables_it(self):
         pipeline = DistributionPipelineState()
         scores = {18: 0.2, 19: 0.2, 20: 0.2, 21: 0.2, 22: 0.2}

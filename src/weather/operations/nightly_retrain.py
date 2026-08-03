@@ -523,6 +523,50 @@ def pooled_feature_command(args):
     return command
 
 
+def all_market_base_retrain_command(args):
+    """Build the one explicit base-model step; empty bindings fail in its CLI."""
+
+    return [
+        sys.executable,
+        "-m",
+        "weather.operations.base_retrain",
+        "--target-date",
+        args.base_retrain_target_date,
+        "--parent-release-id",
+        args.base_retrain_parent_release_id,
+        "--training-as-of",
+        args.base_retrain_training_as_of,
+        "--feature-contract-id",
+        args.base_retrain_feature_contract_id,
+        "--corpus-manifest",
+        args.base_retrain_corpus_manifest,
+        "--candidate-dir",
+        args.base_retrain_candidate_dir,
+        "--runtime-id",
+        args.base_retrain_runtime_id,
+        "--releases-root",
+        args.releases_root,
+        "--active-pointer",
+        args.release_pointer,
+        "--repo-root",
+        args.repo_root,
+    ]
+
+
+def all_market_base_retrain_plan(args):
+    from weather.operations.base_retrain import build_plan
+
+    return build_plan(
+        target_date=args.base_retrain_target_date,
+        parent_release_id=args.base_retrain_parent_release_id,
+        training_as_of=args.base_retrain_training_as_of,
+        feature_contract_id=args.base_retrain_feature_contract_id,
+        corpus_manifest=args.base_retrain_corpus_manifest,
+        candidate_dir=args.base_retrain_candidate_dir,
+        runtime_id=args.base_retrain_runtime_id,
+    )
+
+
 def artifact_registry_command(args):
     return [
         sys.executable,
@@ -1275,6 +1319,7 @@ def planned_steps(args):
                 point_in_time_preselection_command(args),
             )
         )
+    steps.append(("all_market_base_retrain", all_market_base_retrain_command(args)))
     if not args.skip_family_secondary:
         steps.append(("family_secondary_artifacts", family_secondary_command(args)))
     if not args.skip_pooled_feature:
@@ -2118,6 +2163,7 @@ def _run_nightly_retrain_guarded(
         if candidate_guard["status"] not in {"BLOCK", "DEFERRED"}
         else []
     )
+    base_retrain_plan = all_market_base_retrain_plan(args)
     payload = {
         "schema_version": SCHEMA_VERSION,
         "runner": "nightly_retrain",
@@ -2178,6 +2224,7 @@ def _run_nightly_retrain_guarded(
                 args, "point_in_time_private_memory_budget_bytes", None
             ),
             "build_candidate_release": args.build_candidate_release,
+            "all_market_base_retrain_plan": base_retrain_plan,
             "bootstrap_first_inactive_release": bootstrap_requested,
             "release_pointer": args.release_pointer,
             "long_job_guard": long_job_guard_info or {},
@@ -2369,7 +2416,7 @@ def _run_nightly_retrain_guarded(
             if name == "experiment_queue":
                 step = run_experiment_queue_step(args, runner)
             else:
-                if name == "family_secondary_artifacts":
+                if name == "all_market_base_retrain":
                     payload["daily_learning"] = daily_learning_summary(args.daily_learning_out)
                     if _should_skip_expensive_retrain(args, payload["daily_learning"]):
                         steps.append({
@@ -2699,6 +2746,17 @@ def build_run_parser(parser):
     parser.add_argument("--pooled-band-artifact", default="")
     parser.add_argument("--artifact-registry", default="")
     parser.add_argument("--candidate-id", default="")
+    parser.add_argument(
+        "--base-retrain-target-date",
+        default="",
+        help="Explicit target date for the all-market base step; there is no date default.",
+    )
+    parser.add_argument("--base-retrain-parent-release-id", default="")
+    parser.add_argument("--base-retrain-training-as-of", default="")
+    parser.add_argument("--base-retrain-feature-contract-id", default="")
+    parser.add_argument("--base-retrain-corpus-manifest", default="")
+    parser.add_argument("--base-retrain-candidate-dir", default="")
+    parser.add_argument("--base-retrain-runtime-id", default="")
     parser.add_argument(
         "--release-candidate-mode",
         choices=sorted(CANDIDATE_MODES),
