@@ -379,9 +379,18 @@ F-family artifacts. For the local multi-market helper, use
 
 # Paper taker-bot simulator.
 .\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60
+.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll start --disable-counterfactual-tape
 .\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
 .\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
 ```
+
+Counterfactual replay tape remains enabled by default. The explicit daily-roll
+flag disables it for the launched child without changing the default. On every
+daily-roll start or recovery, the configured `counterfactual_retention_days`
+(14 by default) is enforced against both target-date age and file mtime. Only
+the two allowlisted counterfactual detail CSVs are removed; real order evidence
+and compact run/settlement/strategy summaries remain. Exact pre-delete hashes,
+byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.

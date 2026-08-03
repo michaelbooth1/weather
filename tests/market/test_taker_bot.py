@@ -371,6 +371,39 @@ def write_labels(path, rows):
 
 
 class TestTakerBot(unittest.TestCase):
+    def test_cli_counterfactual_disable_overrides_default(self):
+        from weather.market import taker_bot_cli
+
+        payload = {
+            "run_folder": "synthetic-run",
+            "summary": {
+                "latest_tick_filled_orders": 0,
+                "cumulative_filled_orders": 0,
+                "cumulative_net_pnl_usdc": 0.0,
+            },
+        }
+        with patch.object(
+            taker_bot_cli,
+            "build_run_once",
+            return_value=payload,
+        ) as run_once:
+            result = taker_bot_cli.main(
+                [
+                    "--date",
+                    TARGET_DATE,
+                    "--budget-usdc",
+                    "100",
+                    "--now",
+                    NOW,
+                    "--disable-counterfactual-tape",
+                    "--exchange-economics-snapshot",
+                    "",
+                ]
+            )
+
+        self.assertIs(result, payload)
+        self.assertFalse(run_once.call_args.kwargs["config"]["counterfactual_tape_enabled"])
+
     def test_run_loop_releases_completed_tick_payloads(self):
         class Payload:
             pass

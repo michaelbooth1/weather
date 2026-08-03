@@ -6,13 +6,14 @@ from weather.operations.windows_silent import apply_windows_silent_subprocess_de
 apply_windows_silent_subprocess_defaults()
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -58,6 +59,13 @@ DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_STRATEGIES = DEFAULT_BAKEOFF_STRATEGIES
+COUNTERFACTUAL_RETENTION_FILENAMES = (
+    "counterfactual_orders_long.csv",
+    "settled_counterfactual_orders_long.csv",
+)
+COUNTERFACTUAL_RETENTION_PLAN_FILENAME = "counterfactual_retention_plan.json"
+COUNTERFACTUAL_RETENTION_STATUS_FILENAME = "counterfactual_retention_status.json"
+COUNTERFACTUAL_RETENTION_EVIDENCE_DIRNAME = "_counterfactual_retention"
 PID_MATCH = "match"
 PID_NO_MATCH = "no_match"
 PID_MATCH_UNKNOWN = "unknown"
@@ -158,6 +166,238 @@ def write_json(path, payload):
     return path
 
 
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _self_hash(payload, field):
+    body = dict(payload)
+    body.pop(field, None)
+    return hashlib.sha256(
+        json.dumps(
+            body,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def counterfactual_tape_retention_plan(
+    runs_root=DEFAULT_RUNS_ROOT,
+    *,
+    retention_days=14,
+    now=None,
+    timezone_name=DEFAULT_TIMEZONE,
+):
+    """Plan exact old counterfactual tapes without depending on settlement."""
+
+    root = Path(runs_root)
+    try:
+        retention_days = int(retention_days)
+    except (TypeError, ValueError):
+        retention_days = 0
+    generated_at = parse_datetime(now) or utc_now()
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.replace(tzinfo=timezone.utc)
+    generated_at = generated_at.astimezone(timezone.utc)
+    local_today = generated_at.astimezone(ZoneInfo(timezone_name)).date()
+    blockers = []
+    if retention_days < 1:
+        blockers.append(
+            {
+                "code": "INVALID_RETENTION_DAYS",
+                "message": "counterfactual retention must be at least one day",
+            }
+        )
+    if root.is_symlink():
+        blockers.append(
+            {
+                "code": "RUNS_ROOT_SYMLINK",
+                "message": "counterfactual retention refuses a symlinked runs root",
+            }
+        )
+    candidates = []
+    if root.is_dir() and not blockers:
+        cutoff_date = local_today - timedelta(days=retention_days)
+        cutoff_time = generated_at - timedelta(days=retention_days)
+        for date_folder in sorted(root.iterdir()):
+            if not date_folder.is_dir() or date_folder.is_symlink():
+                continue
+            try:
+                target_date = date.fromisoformat(date_folder.name)
+            except ValueError:
+                continue
+            if target_date > cutoff_date:
+                continue
+            for run_folder in sorted(date_folder.iterdir()):
+                if not run_folder.is_dir() or run_folder.is_symlink():
+                    continue
+                for filename in COUNTERFACTUAL_RETENTION_FILENAMES:
+                    path = run_folder / filename
+                    if not path.is_file() or path.is_symlink():
+                        continue
+                    stat = path.stat()
+                    modified_at = datetime.fromtimestamp(
+                        stat.st_mtime,
+                        tz=timezone.utc,
+                    )
+                    if modified_at > cutoff_time:
+                        continue
+                    candidates.append(
+                        {
+                            "path": str(path.resolve()),
+                            "target_date": target_date.isoformat(),
+                            "run_id": run_folder.name,
+                            "filename": filename,
+                            "byte_count": stat.st_size,
+                            "sha256": _sha256_file(path),
+                            "modified_at_utc": modified_at.isoformat(),
+                            "retention_days": retention_days,
+                            "settlement_summary_required": False,
+                        }
+                    )
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "document_type": "counterfactual_tape_retention_plan",
+        "status": "BLOCK" if blockers else "PASS",
+        "generated_at_utc": generated_at.isoformat(),
+        "runs_root": str(root.resolve()),
+        "retention_days": retention_days,
+        "cutoff_basis": "target_date_and_file_mtime",
+        "settlement_summary_required": False,
+        "allowlisted_filenames": list(COUNTERFACTUAL_RETENTION_FILENAMES),
+        "candidate_count": len(candidates),
+        "candidate_bytes": sum(row["byte_count"] for row in candidates),
+        "candidates": candidates,
+        "blockers": blockers,
+    }
+    payload["plan_sha256"] = _self_hash(payload, "plan_sha256")
+    return payload
+
+
+def apply_counterfactual_tape_retention(plan, *, runs_root=DEFAULT_RUNS_ROOT):
+    """Apply one self-hashed, allowlisted retention plan and receipt every path."""
+
+    root = Path(runs_root).resolve()
+    blockers = []
+    if plan.get("plan_sha256") != _self_hash(plan, "plan_sha256"):
+        blockers.append(
+            {
+                "code": "PLAN_IDENTITY_MISMATCH",
+                "message": "counterfactual retention plan self-hash does not verify",
+            }
+        )
+    if Path(str(plan.get("runs_root") or "")).resolve() != root:
+        blockers.append(
+            {
+                "code": "RUNS_ROOT_MISMATCH",
+                "message": "counterfactual retention plan names a different runs root",
+            }
+        )
+    if plan.get("status") != "PASS":
+        blockers.extend(plan.get("blockers") or [])
+    deleted = []
+    skipped = []
+    if not blockers:
+        for candidate in plan.get("candidates") or []:
+            path = Path(str(candidate.get("path") or ""))
+            try:
+                resolved = path.resolve()
+                relative = resolved.relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                skipped.append({**candidate, "reason": "path_outside_runs_root"})
+                continue
+            if (
+                len(relative.parts) != 3
+                or relative.parts[-1] not in COUNTERFACTUAL_RETENTION_FILENAMES
+                or relative.parts[-1] != candidate.get("filename")
+                or path.is_symlink()
+                or not path.is_file()
+            ):
+                skipped.append({**candidate, "reason": "path_contract_changed"})
+                continue
+            stat = path.stat()
+            if (
+                stat.st_size != int(candidate.get("byte_count") or -1)
+                or _sha256_file(path) != candidate.get("sha256")
+            ):
+                skipped.append({**candidate, "reason": "file_identity_changed"})
+                continue
+            try:
+                path.unlink()
+            except OSError as exc:
+                skipped.append(
+                    {
+                        **candidate,
+                        "reason": "delete_failed",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                continue
+            deleted.append(candidate)
+    receipt = {
+        "schema_version": SCHEMA_VERSION,
+        "document_type": "counterfactual_tape_retention_receipt",
+        "status": (
+            "BLOCK" if blockers else "PARTIAL" if skipped else "PASS"
+        ),
+        "generated_at_utc": plan.get("generated_at_utc"),
+        "runs_root": str(root),
+        "plan_sha256": plan.get("plan_sha256"),
+        "settlement_summary_required": False,
+        "deleted_count": len(deleted),
+        "deleted_bytes": sum(row["byte_count"] for row in deleted),
+        "deleted": deleted,
+        "skipped_count": len(skipped),
+        "skipped": skipped,
+        "blockers": blockers,
+    }
+    receipt["receipt_sha256"] = _self_hash(receipt, "receipt_sha256")
+    return receipt
+
+
+def enforce_counterfactual_tape_retention(
+    runs_root=DEFAULT_RUNS_ROOT,
+    *,
+    retention_days=14,
+    now=None,
+    timezone_name=DEFAULT_TIMEZONE,
+):
+    """Plan and apply the declared counterfactual retention on every daily roll."""
+
+    root = Path(runs_root)
+    plan = counterfactual_tape_retention_plan(
+        root,
+        retention_days=retention_days,
+        now=now,
+        timezone_name=timezone_name,
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    write_json(root / COUNTERFACTUAL_RETENTION_PLAN_FILENAME, plan)
+    evidence_root = root / COUNTERFACTUAL_RETENTION_EVIDENCE_DIRNAME
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    plan_evidence_path = evidence_root / f"{plan['plan_sha256']}.plan.json"
+    if not plan_evidence_path.exists():
+        write_json(plan_evidence_path, plan)
+    receipt = apply_counterfactual_tape_retention(plan, runs_root=root)
+    receipt_evidence_path = evidence_root / f"{plan['plan_sha256']}.receipt.json"
+    receipt = {
+        **receipt,
+        "plan_evidence_path": str(plan_evidence_path.resolve()),
+        "receipt_evidence_path": str(receipt_evidence_path.resolve()),
+    }
+    receipt["receipt_sha256"] = _self_hash(receipt, "receipt_sha256")
+    if not receipt_evidence_path.exists():
+        write_json(receipt_evidence_path, receipt)
+    write_json(root / COUNTERFACTUAL_RETENTION_STATUS_FILENAME, receipt)
+    return receipt
+
+
 def runtime_taker_daily_roll_supervisor_spec(
     *,
     status_path=DEFAULT_STATUS_PATH,
@@ -183,6 +423,7 @@ def build_taker_bot_command(
     config_overrides=None,
     strategies=DEFAULT_STRATEGIES,
     experiment_id=None,
+    disable_counterfactual_tape=False,
 ):
     command = [
         str(python_executable or sys.executable),
@@ -207,6 +448,8 @@ def build_taker_bot_command(
         command.extend(["--experiment-id", str(experiment_id)])
     for override in config_overrides or []:
         command.extend(["--config", str(override)])
+    if disable_counterfactual_tape:
+        command.append("--disable-counterfactual-tape")
     return command
 
 
@@ -1022,6 +1265,8 @@ def _base_payload(
     command,
     disk_preflight=None,
     config_warnings=None,
+    counterfactual_retention=None,
+    counterfactual_tape_enabled=True,
     now=None,
 ):
     config_warnings = list(config_warnings or [])
@@ -1041,6 +1286,8 @@ def _base_payload(
         "policy_defaults": dict(DEFAULT_CONFIG),
         "config_warning_count": len(config_warnings),
         "config_warnings": config_warnings,
+        "counterfactual_tape_enabled": bool(counterfactual_tape_enabled),
+        "counterfactual_retention": counterfactual_retention or {},
         "runtime_identity": get_runtime_identity(),
         "disk_capacity_preflight": disk_preflight or {},
     }
@@ -1063,6 +1310,7 @@ def start_for_date(
     config_overrides=None,
     strategies=None,
     experiment_id=None,
+    disable_counterfactual_tape=False,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
@@ -1089,8 +1337,17 @@ def start_for_date(
         config_overrides=config_overrides,
         strategies=strategies,
         experiment_id=experiment_id,
+        disable_counterfactual_tape=disable_counterfactual_tape,
     )
     effective_config = {**DEFAULT_CONFIG, **parse_config_overrides(config_overrides or [])}
+    if disable_counterfactual_tape:
+        effective_config["counterfactual_tape_enabled"] = False
+    retention = enforce_counterfactual_tape_retention(
+        runs_root,
+        retention_days=effective_config.get("counterfactual_retention_days") or 14,
+        now=now,
+        timezone_name=timezone_name,
+    )
     config_warnings = current_high_trust_config_warnings(effective_config)
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
@@ -1116,6 +1373,10 @@ def start_for_date(
                 runs_root=runs_root,
                 command=command,
                 config_warnings=config_warnings,
+                counterfactual_retention=retention,
+                counterfactual_tape_enabled=effective_config.get(
+                    "counterfactual_tape_enabled", True
+                ),
                 now=now,
             )
             payload.update({
@@ -1157,6 +1418,10 @@ def start_for_date(
                 command=existing.get("command") or command,
                 disk_preflight=existing.get("disk_capacity_preflight") or {},
                 config_warnings=config_warnings,
+                counterfactual_retention=retention,
+                counterfactual_tape_enabled=effective_config.get(
+                    "counterfactual_tape_enabled", True
+                ),
                 now=now,
             )
             payload.update(refreshed)
@@ -1180,6 +1445,10 @@ def start_for_date(
             command=existing.get("command") or command,
             disk_preflight=existing.get("disk_capacity_preflight") or {},
             config_warnings=config_warnings,
+            counterfactual_retention=retention,
+            counterfactual_tape_enabled=effective_config.get(
+                "counterfactual_tape_enabled", True
+            ),
             now=now,
         )
         payload.update({
@@ -1242,6 +1511,10 @@ def start_for_date(
         command=command,
         disk_preflight=disk_preflight,
         config_warnings=config_warnings,
+        counterfactual_retention=retention,
+        counterfactual_tape_enabled=effective_config.get(
+            "counterfactual_tape_enabled", True
+        ),
         now=now,
     )
     if forced_run_retirement is not None:
@@ -1305,6 +1578,7 @@ def ensure_for_date(
     config_overrides=None,
     strategies=None,
     experiment_id=None,
+    disable_counterfactual_tape=False,
     min_free_bytes=DEFAULT_MIN_FREE_BYTES,
     max_activity_age_seconds=DEFAULT_MAX_ACTIVITY_AGE_SECONDS,
     startup_grace_seconds=DEFAULT_STARTUP_GRACE_SECONDS,
@@ -1352,6 +1626,7 @@ def ensure_for_date(
             config_overrides=config_overrides,
             strategies=strategies,
             experiment_id=experiment_id,
+            disable_counterfactual_tape=disable_counterfactual_tape,
             min_free_bytes=min_free_bytes,
             max_activity_age_seconds=max_activity_age_seconds,
             startup_grace_seconds=startup_grace_seconds,
@@ -1435,6 +1710,11 @@ def build_start_parser(parser):
     parser.add_argument("--config", action="append", default=[], help="Config override passed to taker_bot.")
     parser.add_argument("--strategies", default=None, help="Comma-separated taker strategy IDs to run.")
     parser.add_argument("--experiment-id", default=None, help="Stable taker strategy experiment ID.")
+    parser.add_argument(
+        "--disable-counterfactual-tape",
+        action="store_true",
+        help="Disable counterfactual strategy-replay tape generation for the launched run.",
+    )
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
     parser.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
     parser.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
@@ -1457,6 +1737,7 @@ def cmd_start(args):
         config_overrides=args.config,
         strategies=args.strategies,
         experiment_id=args.experiment_id,
+        disable_counterfactual_tape=args.disable_counterfactual_tape,
         min_free_bytes=args.min_free_bytes,
         max_activity_age_seconds=args.max_activity_age_seconds,
         startup_grace_seconds=args.startup_grace_seconds,
@@ -1501,6 +1782,7 @@ def cmd_ensure(args):
         config_overrides=args.config,
         strategies=args.strategies,
         experiment_id=args.experiment_id,
+        disable_counterfactual_tape=args.disable_counterfactual_tape,
         min_free_bytes=args.min_free_bytes,
         max_activity_age_seconds=args.max_activity_age_seconds,
         startup_grace_seconds=args.startup_grace_seconds,
