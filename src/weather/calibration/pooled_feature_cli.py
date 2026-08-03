@@ -133,6 +133,14 @@ def main():
     parser.add_argument("--reanalysis-lane-json", default=None,
                         help="Source-family inventory JSON or promotion-lane JSON for Item 32 allowed-market masking.")
     parser.add_argument(
+        "--pit-forecast-corpus-manifest",
+        default=None,
+        help=(
+            "Explicit training-only PIT forecast corpus manifest. When set, "
+            "legacy forecast_daily.csv/forecast_long.csv fallback is disabled."
+        ),
+    )
+    parser.add_argument(
         "--point-in-time-preselection-lock",
         default=None,
         help=(
@@ -302,6 +310,7 @@ def main():
             prior_as_of_exclusive=(
                 min(included_dates) if included_dates else None
             ),
+            pit_forecast_corpus_manifest=args.pit_forecast_corpus_manifest,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

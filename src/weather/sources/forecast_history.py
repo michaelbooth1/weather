@@ -1,13 +1,10 @@
-"""Historical forecast layer: archived Open-Meteo forecasts for past target-season
-days, used as a non-leaky training feature for the model.
+"""Legacy historical forecast archive used by serving compatibility paths.
 
-Open-Meteo's Historical Forecast API returns the forecast that was *issued for* a
-past date (initialized from that morning's run, so it predicts the day without
-seeing its outcome). We store the forecasted daily-max temperature per date; the
-model joins it as `forecast_high` and derives `forecast_gap = forecast_high -
-high_so_far`. Open-Meteo is the canonical forecast source for both training (this
-layer) and serving (live Open-Meteo), so the feature means the same thing on both
-sides.
+The stitched historical rows and compatibility daily files in this module do
+not prove issue-time point-in-time safety. New retraining that requires cutoff-
+safe forecasts must use the explicit, training-only contract in
+``weather.sources.forecast_training_corpus``. This archive remains the active
+serving path and is not overwritten by that corpus.
 
 CLI:
   python -m weather.sources.forecast_history backfill [--start-year 2015] [--end-year 2026]

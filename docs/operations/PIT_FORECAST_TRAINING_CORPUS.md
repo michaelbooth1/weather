@@ -1,0 +1,85 @@
+# Point-In-Time Forecast Training Corpus
+
+This contract owns the training-only forecast input used to repair historical
+forecast blindness without changing the active serving archive. The corpus is
+immutable, cutoff-safe, content-addressed, and supplied explicitly to pooled
+retraining. It is not a serving fallback and is never discovered through
+`weather.sources.forecast_history.daily_path_for`.
+
+## Safety boundary
+
+- `weather.sources.forecast_training_corpus` contains no HTTP client. Its
+  planner is always `dry_run_no_network` and never authorizes a provider probe
+  or collection.
+- A separately reviewed collector may submit raw response bytes to
+  `stage_response` only after an immutable plan exists and provider semantics
+  have been probed. Each unit is keyed by the plan's request hash.
+- Staging records the allowlisted HTTP metadata, retrieval timestamp, response
+  SHA-256, byte and row counts, validation result, and issue/run evidence.
+  Zero-row or invalid units are failures. Resume skips only a complete unit
+  whose receipt, byte count, and raw-response hash still verify.
+- Materialization requires every planned market/year request. Every target
+  date must have exactly 24 local hourly rows, all contracted fields, valid
+  units, accepted issue evidence, and both `issue_time_utc` and
+  `available_at_utc` at or before every feature cutoff.
+- Target-year rows, empty issue identity, and stitched continuous-archive rows
+  fail closed. Partial or zero-row builds never enter a `corpora/` directory.
+- Publication verifies the complete temporary corpus, derives its identity
+  from the plan and file hashes, and atomically renames it to
+  `corpora/<corpus_id>`. An existing identity is never overwritten.
+
+The active analog archive remains pinned. Forecast-relative marine fields,
+forecast-error secondary artifacts, late-day continuation, and analog distance
+are explicitly excluded from this first corpus. Every pooled forecast-profile
+column is either mapped to a source field or named in the exclusions receipt.
+
+## Dry-run planning
+
+Run the planner from the repository root. The command performs no network I/O:
+
+```powershell
+python -m weather.sources.forecast_training_corpus plan `
+  --out <run-root>\pit-forecast-plan-2021-2025.json `
+  --years 2021,2022,2023,2024,2025 `
+  --target-year 2026
+```
+
+The plan pins markets, seasonal dates, cutoff hours, the source model, fixed
+lead, variables and units, endpoint parameters, request hashes, consumer
+dispositions, estimated call equivalents, and exact expected coverage. Writing
+different content to an existing plan path is refused.
+
+Use the same module's `resume-status` and `materialize` commands after an
+authorized collector has populated request-keyed staging. Neither command
+fetches data. Failed units are recorded in `failure_ledger.jsonl`.
+
+## Retraining input
+
+Pooled retraining accepts the corpus only through the explicit option:
+
+```powershell
+python -m weather.calibration.pooled_feature_cli `
+  --pit-forecast-corpus-manifest <corpus-root>\manifest.json `
+  <other reviewed training arguments>
+```
+
+Before record assembly, the preflight verifies the manifest and every file
+hash, reconstructs the exact market/date/cutoff matrix from `plan.json`, checks
+daily and hourly row hashes and point-in-time timestamps, verifies all profile
+field dispositions, and rejects paths overlapping the active forecast archive.
+When this option is present there is no compatibility fallback to ambient
+`data/forecast_history` files. Forecast-relative marine columns are nulled so
+they cannot retain values derived from the legacy archive.
+
+This input does not authorize fitting, promotion, serving changes, or release
+binding. Those remain separate reviewed actions under the nightly retrain and
+release runbooks.
+
+## Storage and retention
+
+Raw staging and published corpora are `canonical_evidence` under the
+[Data Storage Class Contract](data-storage-class-contract.md). Plans,
+preflight receipts, and failure ledgers are evidence for the same run. Keep
+task execution under its declared run root until a separate operating decision
+assigns a durable repository-owned location. Never publish into or below
+`data/forecast_history`.

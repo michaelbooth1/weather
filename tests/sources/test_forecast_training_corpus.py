@@ -1,0 +1,292 @@
+import json
+from datetime import date
+
+import pytest
+
+from weather.calibration.forecast_training_contract import (
+    preflight_pit_forecast_training_corpus,
+)
+from weather.sources.forecast_training_corpus import (
+    DEFAULT_SOURCE_FIELDS,
+    PITForecastTrainingCorpus,
+    MaterializationBlocked,
+    PlanValidationError,
+    StagingValidationError,
+    assert_training_only_publish_root,
+    build_plan,
+    materialize_corpus,
+    resume_ledger,
+    stage_response,
+    verify_corpus_manifest,
+    write_immutable_plan,
+)
+
+
+def _plan(tmp_path, *, markets=("toronto",), year=2021, target_year=2026, cutoffs=(10,)):
+    plan = build_plan(
+        years=(year,),
+        target_year=target_year,
+        market_ids=markets,
+        season_start=(5, 10),
+        season_end=(5, 10),
+        cutoff_hours=cutoffs,
+        planned_at_utc="2026-01-01T00:00:00+00:00",
+    )
+    path = tmp_path / "plan.json"
+    write_immutable_plan(path, plan)
+    return plan, path
+
+
+def _response_for(request, *, target_date=None, empty=False, unit_override=None):
+    target_date = target_date or request["window_start"]
+    times = [] if empty else [f"{target_date}T{hour:02d}:00" for hour in range(24)]
+    hourly = {"time": times}
+    hourly_units = {}
+    for field_index, binding in enumerate(request["variables"]):
+        values = [] if empty else [float(field_index + hour + 1) for hour in range(24)]
+        hourly[binding["request_field"]] = values
+        hourly_units[binding["request_field"]] = (
+            unit_override
+            if unit_override and binding["source_field"] == unit_override[0]
+            else binding["source_unit"]
+        )
+    return json.dumps({"hourly": hourly, "hourly_units": hourly_units}).encode("utf-8")
+
+
+def _evidence(request, *, kind="fixed_lead_offset", available_at="2021-05-09T06:00:00Z"):
+    return [
+        {
+            "target_date": request["window_start"],
+            "issue_evidence_kind": kind,
+            "issue_time_utc": "2021-05-09T00:00:00Z",
+            "available_at_utc": available_at,
+            "run_id_exposed": True,
+            "run_id": "gfs-20210509-00z",
+        }
+    ]
+
+
+def _stage_valid(plan_path, staging_root, request, **response_kwargs):
+    return stage_response(
+        plan_path,
+        staging_root,
+        request["request_hash"],
+        _response_for(request, **response_kwargs),
+        http_status=200,
+        http_headers={"ETag": "fixture", "Authorization": "must-not-persist"},
+        retrieved_at_utc="2026-01-01T01:00:00Z",
+        issue_evidence=_evidence(request),
+    )
+
+
+def test_plan_is_immutable_network_free_and_excludes_target_year(tmp_path):
+    plan, path = _plan(tmp_path)
+
+    assert plan["mode"] == "dry_run_no_network"
+    assert plan["network_authorized"] is False
+    assert plan["provider_probe_authorized"] is False
+    assert plan["years"] == [2021]
+    assert plan["target_year"] == 2026
+    assert plan["target_year_excluded"] is True
+    assert plan["source_fields"] == list(DEFAULT_SOURCE_FIELDS)
+    assert all(request["year"] != 2026 for request in plan["requests"])
+
+    changed = dict(plan)
+    changed["planned_at_utc"] = "2026-01-02T00:00:00+00:00"
+    with pytest.raises(PlanValidationError, match="self-hash mismatch"):
+        write_immutable_plan(path, changed)
+
+    other = build_plan(
+        years=(2021,),
+        target_year=2026,
+        market_ids=("toronto",),
+        season_start=(5, 10),
+        season_end=(5, 10),
+        cutoff_hours=(10,),
+        planned_at_utc="2026-01-02T00:00:00+00:00",
+    )
+    with pytest.raises(PlanValidationError, match="different content"):
+        write_immutable_plan(path, other)
+
+
+def test_zero_rows_are_failed_and_never_resume_as_complete(tmp_path):
+    plan, path = _plan(tmp_path)
+    request = plan["requests"][0]
+    staging = tmp_path / "staging"
+
+    with pytest.raises(StagingValidationError, match="zero_rows"):
+        stage_response(
+            path,
+            staging,
+            request["request_hash"],
+            _response_for(request, empty=True),
+            retrieved_at_utc="2026-01-01T01:00:00Z",
+            issue_evidence=_evidence(request),
+        )
+
+    ledger = resume_ledger(path, staging)
+    assert ledger["all_complete"] is False
+    assert ledger["complete_units"] == 0
+    failures = [json.loads(line) for line in (staging / "failure_ledger.jsonl").read_text().splitlines()]
+    assert failures[-1]["failure_class"] == "staged_response_validation_failed"
+    assert "zero_rows" in failures[-1]["errors"]
+
+
+def test_resume_requires_the_staged_body_hash_to_still_match(tmp_path):
+    plan, path = _plan(tmp_path)
+    request = plan["requests"][0]
+    staging = tmp_path / "staging"
+    _stage_valid(path, staging, request)
+
+    body_path = staging / "requests" / request["request_hash"] / "response.json"
+    body_path.write_bytes(body_path.read_bytes() + b" ")
+
+    ledger = resume_ledger(path, staging)
+    assert ledger["all_complete"] is False
+    assert ledger["units"][0]["reason"] == "byte_count_mismatch"
+
+
+def test_partial_staging_cannot_publish_any_corpus(tmp_path):
+    plan, path = _plan(tmp_path, markets=("toronto", "nyc"))
+    staging = tmp_path / "staging"
+    publish = tmp_path / "training"
+    _stage_valid(path, staging, plan["requests"][0])
+
+    with pytest.raises(MaterializationBlocked, match="all request units"):
+        materialize_corpus(path, staging, publish)
+
+    assert not (publish / "corpora").exists()
+    failures = [json.loads(line) for line in (staging / "failure_ledger.jsonl").read_text().splitlines()]
+    assert failures[-1]["failure_class"] == "partial_staging_blocks_publication"
+
+
+@pytest.mark.parametrize(
+    ("target_date", "evidence_kind", "unit_override", "available_at", "error"),
+    [
+        ("2026-05-10", "fixed_lead_offset", None, None, "target_year_row"),
+        (None, "fixed_lead_offset", ("cloud_cover", "kelvin"), None, "invalid_unit"),
+        (
+            None,
+            "fixed_lead_offset",
+            None,
+            "2021-05-10T15:00:00Z",
+            "available_after_cutoff",
+        ),
+    ],
+)
+def test_staging_and_publication_reject_unsafe_rows(
+    tmp_path,
+    target_date,
+    evidence_kind,
+    unit_override,
+    available_at,
+    error,
+):
+    plan, path = _plan(tmp_path)
+    request = plan["requests"][0]
+    staging = tmp_path / "staging"
+    body = _response_for(
+        request,
+        target_date=target_date,
+        unit_override=unit_override,
+    )
+    evidence = _evidence(
+        request,
+        kind=evidence_kind,
+        available_at=available_at or "2021-05-09T06:00:00Z",
+    )
+    with pytest.raises(StagingValidationError, match=error):
+        stage_response(
+            path,
+            staging,
+            request["request_hash"],
+            body,
+            retrieved_at_utc="2026-01-01T01:00:00Z",
+            issue_evidence=evidence,
+        )
+
+    assert resume_ledger(path, staging)["all_complete"] is False
+    with pytest.raises(MaterializationBlocked, match="all request units"):
+        materialize_corpus(path, staging, tmp_path / "training")
+    assert not (tmp_path / "training" / "corpora").exists()
+
+
+@pytest.mark.parametrize("kind", ["", "stitched", "stitched_continuous_archive"])
+def test_stitched_or_empty_issue_evidence_is_rejected_during_staging(tmp_path, kind):
+    plan, path = _plan(tmp_path)
+    request = plan["requests"][0]
+
+    with pytest.raises(StagingValidationError, match="rejected_issue_evidence"):
+        stage_response(
+            path,
+            tmp_path / "staging",
+            request["request_hash"],
+            _response_for(request),
+            retrieved_at_utc="2026-01-01T01:00:00Z",
+            issue_evidence=_evidence(request, kind=kind),
+        )
+
+
+def test_complete_corpus_is_atomic_content_addressed_and_explicit(tmp_path):
+    plan, path = _plan(tmp_path)
+    request = plan["requests"][0]
+    staging = tmp_path / "staging"
+    publish = tmp_path / "training"
+    receipt = _stage_valid(path, staging, request)
+
+    assert receipt["http_headers"] == {"etag": "fixture"}
+    manifest_path = materialize_corpus(path, staging, publish)
+    manifest = verify_corpus_manifest(manifest_path)
+    assert manifest_path.parent.name == manifest["corpus_id"]
+    assert manifest["coverage"]["status"] == "complete"
+    assert manifest["active_archive_pinned"] is True
+    assert manifest["daily_path_discoverable"] is False
+
+    preflight = preflight_pit_forecast_training_corpus(
+        manifest_path,
+        target_year=2026,
+        required_market_ids=["toronto"],
+        required_years=[2021],
+        required_cutoff_hours=[10],
+    )
+    assert preflight["status"] == "PASS"
+    assert preflight["compatibility_fallback_allowed"] is False
+
+    reader = PITForecastTrainingCorpus(manifest_path, "toronto")
+    resolved = reader.resolve(date(2021, 5, 10), 10)
+    assert resolved["forecast_high"] == 24.0
+    assert len(resolved["profile_rows"]) == 24
+    assert resolved["provenance"]["request_hash"] == request["request_hash"]
+    assert resolved["provenance"]["raw_response_sha256"] == receipt["raw_response_sha256"]
+
+    with pytest.raises(MaterializationBlocked, match="overwrite refused"):
+        materialize_corpus(path, staging, publish)
+
+
+def test_reader_preserves_fahrenheit_native_values_and_exposes_celsius(tmp_path):
+    plan, path = _plan(tmp_path, markets=("nyc",))
+    request = plan["requests"][0]
+    staging = tmp_path / "staging"
+    _stage_valid(path, staging, request)
+    manifest_path = materialize_corpus(path, staging, tmp_path / "training")
+
+    resolved = PITForecastTrainingCorpus(manifest_path, "nyc").resolve(
+        "2021-05-10",
+        10,
+    )
+
+    assert resolved["forecast_high"] == 24.0
+    assert resolved["profile_rows"][-1]["temp_native"] == 24.0
+    assert resolved["profile_rows"][-1]["temp_c"] == pytest.approx(-4.4444)
+    assert resolved["provenance"]["temperature_unit"] == "F"
+
+
+def test_publish_root_must_not_overlap_an_active_archive(tmp_path):
+    active = tmp_path / "data" / "forecast_history"
+    with pytest.raises(MaterializationBlocked, match="overlaps active"):
+        assert_training_only_publish_root(active / "training", [active])
+
+
+def test_target_year_cannot_enter_the_plan(tmp_path):
+    with pytest.raises(PlanValidationError, match="structurally excluded"):
+        _plan(tmp_path, year=2026, target_year=2026)

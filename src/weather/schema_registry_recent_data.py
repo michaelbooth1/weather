@@ -7,6 +7,62 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "pit_forecast_normalizer",
+        "open_meteo_previous_runs_pit_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Normalizer contract for issue-preserving Open-Meteo Previous Runs responses.",
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_plan",
+        "pit_forecast_corpus_plan_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Immutable, network-free request plan for the training-only point-in-time forecast corpus.",
+    ),
+    SchemaSpec(
+        "pit_forecast_staged_response",
+        "pit_forecast_staged_response_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Request-keyed raw-response receipt with HTTP metadata, hashes, validation, and issue evidence.",
+    ),
+    SchemaSpec(
+        "pit_forecast_failure",
+        "pit_forecast_failure_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Append-only failure-ledger row for staging and materialization blocks.",
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_row",
+        "pit_forecast_corpus_row_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Cutoff-safe training-only forecast daily and hourly rows with raw-response lineage.",
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_coverage",
+        "pit_forecast_corpus_coverage_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Per-market/year/date/field/issue/cutoff coverage decision for the PIT forecast corpus.",
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_manifest",
+        "pit_forecast_corpus_manifest_v1",
+        "weather.sources.forecast_training_corpus",
+        "active",
+        "Content-addressed immutable manifest for a complete training-only PIT forecast corpus.",
+    ),
+    SchemaSpec(
+        "pit_forecast_training_preflight",
+        "pit_forecast_training_preflight_v1",
+        "weather.calibration.forecast_training_contract",
+        "active",
+        "Self-hashed fail-closed preflight binding a retrain to an explicit PIT forecast corpus.",
+    ),
+    SchemaSpec(
         "forecast_payload_manifest",
         "forecast_payload_manifest_v2",
         "weather.collection.snapshot_store",

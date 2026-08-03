@@ -89,6 +89,9 @@ Use the storage-class contract and a reviewed cleanup manifest.
 - [Point-In-Time Evaluation Runbook](POINT_IN_TIME_EVALUATION.md) defines the
   evidence key, materialization, production preselection and qualification,
   folds, and locked evaluation workflow.
+- [Point-In-Time Forecast Training Corpus](PIT_FORECAST_TRAINING_CORPUS.md)
+  defines immutable forecast planning, request-keyed staging, cutoff-safe
+  publication, and explicit pooled-retraining consumption.
 - [Research Audit Harness](RESEARCH_AUDIT_HARNESS.md) owns reproducible audit
   entrypoints.
 
