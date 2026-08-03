@@ -35,13 +35,22 @@ if (-not $isListening) {
         "--server.headless", "true",
         "--browser.gatherUsageStats", "false"
     )
-    Start-Process `
+    # BelowNormal so the dashboard yields to the capture loops. This host is
+    # memory- and CPU-constrained, the loops run at AboveNormal, and a capture
+    # gap costs a streak day; a slower page render costs nothing.
+    $proc = Start-Process `
         -FilePath $python `
         -ArgumentList $arguments `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError $stderrLog | Out-Null
+        -RedirectStandardError $stderrLog `
+        -PassThru
+    try {
+        $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+    } catch {
+        Write-Host "warning: could not set BelowNormal priority: $($_.Exception.Message)"
+    }
     Start-Sleep -Seconds 2
 }
 
