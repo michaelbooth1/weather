@@ -257,9 +257,13 @@ base/variant CSV pair containing only current maker-score reader fields.
 Preflight validates both members against their canonical tapes and
 measures/passes those exact paths; if either member is missing, stale,
 malformed, or incompatible, the whole run falls back to both canonical quote
-tapes. The score receipt records selected and canonical bytes, their ratio,
-and every run's input mode. Existing runs can be projected without rewriting
-canonical tapes with:
+tapes. For the scheduled active-day scorer only, canonical fallback captures a
+SHA-256-bound prefix ending at the last complete CSV record and the isolated
+child reads exactly that prefix; later appends are excluded, while any rewrite
+inside the prefix fails closed. Captured mtime is receipt metadata rather than
+an equality gate. The score receipt records selected and canonical bytes,
+their ratio, and every run's input mode. Existing runs can be projected without
+rewriting canonical tapes with:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill

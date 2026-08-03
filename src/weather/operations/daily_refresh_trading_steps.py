@@ -395,7 +395,10 @@ def run_maker_paper_score_step(args):
         latest_n=latest_runs,
         evidence_mode=mm_paper.ACTIVE_DAY_EVIDENCE_MODE,
     )
-    selected_inputs = [resolve_run_scoring_inputs(folder) for folder in selected]
+    selected_inputs = [
+        resolve_run_scoring_inputs(folder, live_append_prefix=True)
+        for folder in selected
+    ]
     # Admit the most recent runs that FIT the byte budget rather than demanding
     # exactly latest_runs and blocking the whole step when they do not. The
     # budget is a memory guard on a 16 GB host, so it is still never exceeded;

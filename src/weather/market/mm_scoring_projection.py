@@ -5,6 +5,11 @@ retain only fields read by :mod:`weather.market.mm_paper` and its scoring
 helpers. A small manifest binds both projections to canonical and projection
 file size/mtime pairs. Readers use the pair only when the complete run-level
 binding validates; otherwise they fail closed to the canonical tapes.
+
+The daily active-day scorer is the one exception to exact canonical-file
+identity: its writer is still appending while the isolated child runs. That
+path receives a SHA-256-bound complete-record byte prefix. Projection inputs
+and every ordinary caller retain exact size/mtime binding.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ BASE_CANONICAL_FILENAME = "quote_intents_long.csv"
 MODEL_VARIANT_CANONICAL_FILENAME = "model_variant_quote_intents_long.csv"
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_HEADER_BYTES = 64 * 1024
+LIVE_APPEND_PREFIX_BINDING_MODE = schema_version("maker_scoring_input_binding")
 
 # Strict current mm_run_v0.2 fields consumed by quote/leg construction and by
 # the mm_paper_v0.1 uptime, blocker, event, guardrail, reward, and model-variant
@@ -217,6 +223,68 @@ def _file_binding(path: Path, *, content_hash: bool = False) -> dict[str, Any]:
     return binding
 
 
+def _live_append_prefix_binding(path: Path) -> dict[str, Any]:
+    """Bind the largest complete-line prefix visible at capture time.
+
+    The current maker writer emits one CSV record per CRLF-terminated line.
+    Trimming to the last LF prevents a capture taken during an append from
+    admitting a partial final record. The child still parses with strict CSV
+    semantics, so a newline inside an unfinished quoted field fails closed.
+    """
+
+    try:
+        captured = path.stat()
+    except OSError:
+        return {"filename": path.name, "exists": False}
+    captured_size = int(captured.st_size)
+    prefix_size = 0
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            cursor = captured_size
+            while cursor > 0:
+                chunk_size = min(1024 * 1024, cursor)
+                cursor -= chunk_size
+                handle.seek(cursor)
+                chunk = handle.read(chunk_size)
+                newline = chunk.rfind(b"\n")
+                if newline >= 0:
+                    prefix_size = cursor + newline + 1
+                    break
+            if prefix_size <= 0:
+                raise RuntimeError(
+                    f"maker live-append CSV has no complete record boundary: {path}"
+                )
+            handle.seek(0)
+            remaining = prefix_size
+            while remaining:
+                chunk = handle.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise RuntimeError(
+                        f"maker live-append CSV shrank during prefix capture: {path}"
+                    )
+                digest.update(chunk)
+                remaining -= len(chunk)
+        after = path.stat()
+    except OSError as exc:
+        raise RuntimeError(
+            f"maker live-append CSV could not be prefix-bound: {path}"
+        ) from exc
+    if int(after.st_size) < prefix_size:
+        raise RuntimeError(
+            f"maker live-append CSV shrank during prefix capture: {path}"
+        )
+    return {
+        "filename": path.name,
+        "exists": True,
+        "binding_mode": LIVE_APPEND_PREFIX_BINDING_MODE,
+        "size_bytes": prefix_size,
+        "sha256": digest.hexdigest(),
+        "captured_file_size_bytes": captured_size,
+        "captured_mtime_ns": int(captured.st_mtime_ns),
+    }
+
+
 def _same_binding(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     if left.get("filename") != right.get("filename"):
         return False
@@ -350,7 +418,11 @@ def validate_run_scoring_projection(run_folder: str | Path) -> dict[str, Any]:
     }
 
 
-def resolve_run_scoring_inputs(run_folder: str | Path) -> dict[str, Any]:
+def resolve_run_scoring_inputs(
+    run_folder: str | Path,
+    *,
+    live_append_prefix: bool = False,
+) -> dict[str, Any]:
     """Resolve the projection pair or an all-canonical fail-closed fallback."""
 
     folder = Path(run_folder)
@@ -361,6 +433,18 @@ def resolve_run_scoring_inputs(run_folder: str | Path) -> dict[str, Any]:
         kind: paths[kind]["projection" if use_projection else "canonical"]
         for kind in _KINDS
     }
+    input_bindings = (
+        validation.get("projection_bindings")
+        if use_projection
+        else {
+            kind: (
+                _live_append_prefix_binding(path)
+                if live_append_prefix
+                else _file_binding(path)
+            )
+            for kind, path in input_paths.items()
+        }
+    )
     canonical_bytes = sum(
         int(binding.get("size_bytes") or 0)
         for binding in (_file_binding(paths[kind]["canonical"]) for kind in _KINDS)
@@ -368,7 +452,7 @@ def resolve_run_scoring_inputs(run_folder: str | Path) -> dict[str, Any]:
     )
     input_bytes = sum(
         int(binding.get("size_bytes") or 0)
-        for binding in (_file_binding(path) for path in input_paths.values())
+        for binding in input_bindings.values()
         if binding.get("exists")
     )
     return {
@@ -382,11 +466,7 @@ def resolve_run_scoring_inputs(run_folder: str | Path) -> dict[str, Any]:
             kind: str(paths[kind]["canonical"])
             for kind in _KINDS
         },
-        "input_bindings": (
-            validation.get("projection_bindings")
-            if use_projection
-            else {kind: _file_binding(path) for kind, path in input_paths.items()}
-        ),
+        "input_bindings": input_bindings,
         "input_bytes": input_bytes,
         "canonical_bytes": canonical_bytes,
         "projected_vs_canonical_byte_ratio": (
@@ -583,6 +663,7 @@ if __name__ == "__main__":
 __all__ = [
     "BASE_CANONICAL_FILENAME",
     "BASE_PROJECTION_FILENAME",
+    "LIVE_APPEND_PREFIX_BINDING_MODE",
     "MANIFEST_FILENAME",
     "MODEL_VARIANT_CANONICAL_FILENAME",
     "MODEL_VARIANT_PROJECTION_FILENAME",
