@@ -23,6 +23,7 @@ $ErrorActionPreference = "Stop"
 $repo = "C:\Users\micha\Desktop\github\weather"
 $py = Join-Path $repo "venv\Scripts\python.exe"
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
+$historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $log = New-Object System.Collections.Generic.List[string]
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format "HH:mm:ss"), $m
@@ -34,11 +35,21 @@ function Fail($m) {
     exit 1
 }
 function Save-Report($ok, $stage, $detail) {
+    $record = [ordered]@{
+        ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
+        stage = $stage; detail = $detail; log = @($log)
+    }
     try {
-        [ordered]@{
-            ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
-            stage = $stage; detail = $detail; log = @($log)
-        } | ConvertTo-Json -Depth 5 | Set-Content -Path $reportPath -Encoding utf8
+        $record | ConvertTo-Json -Depth 5 | Set-Content -Path $reportPath -Encoding utf8
+    }
+    catch {}
+    # $reportPath is a single most-recent slot, so a later run ERASES an earlier one. On
+    # 2026-08-01 three scheduled merges aborted at 01:15/01:50/02:25 (the config-drift trap)
+    # and a manual re-run at 02:55 succeeded and overwrote all three -- leaving no on-disk
+    # trace of the failures at all, only the task exit codes. That is exactly how the aborts
+    # were later mis-read as a cosmetic exit code. Append every outcome so history survives.
+    try {
+        $record | ConvertTo-Json -Depth 5 -Compress | Add-Content -Path $historyPath -Encoding utf8
     }
     catch {}
 }

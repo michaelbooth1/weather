@@ -130,8 +130,32 @@ $chainTerm = if ($chain -and $chain.terminal) { "terminal" } else { "running/unk
 $chainGate = $null
 if ($chain -and $chain.production_readiness) {
     $pr = $chain.production_readiness
-    $chainGate = "readiness {0}/{1}, {2} blockers -> {3}" -f [string]$pr.status, [string]$pr.stage,
-    [int]$pr.blocker_count, [string]$pr.first_blocker.code
+    if ([string]$pr.status -eq "SKIPPED") {
+        # A SKIPPED readiness gate carries `reason` + `pipeline_status`, NOT stage/
+        # blocker_count/first_blocker. The generic format below therefore rendered it as
+        # "readiness SKIPPED/, 0 blockers -> " -- three empty fields and a zero, which reads
+        # as benign. It is the opposite: SKIPPED means the gate never ran at all because the
+        # pipeline upstream of it did not succeed. Name that reason. (2026-08-03.)
+        $chainGate = "readiness SKIPPED - {0} (pipeline {1})" -f [string]$pr.reason, [string]$pr.pipeline_status
+    }
+    else {
+        $chainGate = "readiness {0}/{1}, {2} blockers -> {3}" -f [string]$pr.status, [string]$pr.stage,
+        [int]$pr.blocker_count, [string]$pr.first_blocker.code
+    }
+}
+# Every step can be `ok` while the run still did not succeed. A step's STEP status only says
+# it EXECUTED; its PAYLOAD carries the verdict, and the two disagree routinely. On 2026-08-03
+# all 23 steps were `ok` and the chain still terminated `deferred /
+# upstream_pipeline_not_successful`, because live_variant_settlement_scorecard,
+# hourly_model_performance, ten_minute_model_performance, rollup_freshness and
+# trading_evidence were each BLOCK inside $chain.summary. Reading step status alone says
+# "the chain is healthy" and is wrong -- surface the payload verdicts too.
+$chainBlocked = $null
+if ($chain -and $chain.summary) {
+    $blocked = @($chain.summary.PSObject.Properties |
+        Where-Object { $_.Value -and [string]$_.Value.status -eq "BLOCK" } |
+        ForEach-Object { $_.Name })
+    if ($blocked.Count -gt 0) { $chainBlocked = "{0} step(s) BLOCK in payload: {1}" -f $blocked.Count, ($blocked -join ", ") }
 }
 # Name the failing STEP and its reason. A bare "error" costs a manual dig through
 # daily_refresh_status.json every single time, which is exactly what this script exists
@@ -210,10 +234,13 @@ $interactiveTasks = 0
 $upcoming = New-Object System.Collections.Generic.List[psobject]
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
-    # WeatherOneShotPush is deliberately left Interactive: pushing needs the credential
-    # vault, which an S4U task in session 0 cannot reach. It is not unattended-critical
-    # (commits simply queue), so it must not keep the reboot-exposure flag lit forever.
-    if ([string]$_.Principal.LogonType -eq "Interactive" -and $_.TaskName -ne "WeatherOneShotPush") {
+    # Both one-shots are deliberately left Interactive: they push (to origin, and to the
+    # off-host mirror) and pushing needs the credential vault, which an S4U task in session 0
+    # cannot reach -- proved 2026-08-01, "direct push failed (no credential vault under S4U);
+    # handing off to WeatherOneShotPush". Neither is unattended-critical (commits simply queue),
+    # so neither must keep the reboot-exposure flag lit forever. Do NOT "fix" them to S4U.
+    $deliberatelyInteractive = @("WeatherOneShotPush", "WeatherOneShotMirror")
+    if ([string]$_.Principal.LogonType -eq "Interactive" -and $deliberatelyInteractive -notcontains $_.TaskName) {
         $interactiveTasks++
     }
     $ti = $_ | Get-ScheduledTaskInfo
@@ -265,16 +292,37 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # Normal for freshly registered work, and flagging it would train us to ignore flags.
         if (-not $ok -and $res -eq "0x41303") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
+        # A SPENT one-shot -- it fired, has no NextRunTime, and last ran over a day ago -- is
+        # finished work, not current breakage. Its exit code is history and would otherwise burn
+        # a FLAG forever: the three WeatherQuietWindowMerge tasks were still flagging 0x1 from
+        # 2026-08-01 two days later, long after a manual re-run had completed the merge. Keep the
+        # failure visible, but report it as what it is -- an old run nobody re-armed -- so it
+        # cannot masquerade as a live fault and train us to ignore the flag list.
+        if (-not $ok -and $oneShot -and -not $ti.NextRunTime -and $ti.LastRunTime -and
+            ([datetime]$ti.LastRunTime) -lt (Get-Date).AddHours(-24)) {
+            $warns.Add("$name last FAILED $res on $($ti.LastRunTime) and is NOT re-armed (spent one-shot) - re-register it if that work still needs to run")
+            $ok = $true
+        }
         if (-not $ok) { $flags.Add("$name $res unexpected (last run $($ti.LastRunTime))") }
     }
 }
 
 # ---- unattended resilience ----
-# Almost every Weather* task is LogonType=Interactive, so the fleet only runs while a
-# user session exists. With no auto-logon, a reboot leaves this host DARK -- capture,
-# chain, streak monitor and these very alerts all stop -- until somebody logs in. The
-# monitoring cannot warn about the one failure that disables the monitoring, so surface
-# the exposure continuously instead.
+# HISTORY, because the comment here outlived the fact and produced a false alarm for ten
+# days. Before 2026-07-24 almost every Weather* task was LogonType=Interactive, so the fleet
+# only ran while a user session existed and a reboot left this host DARK until somebody
+# logged in. That was fixed: measured 2026-08-03, every capture-critical task
+# (WeatherSnapshotLoopSupervisor, WeatherClobBookLoopSupervisor,
+# WeatherObservationTriggerSupervisor, WeatherCapturePriorityGuard) is S4U with a time
+# trigger, and WeatherBootRecovery is S4U on a boot trigger. The ONLY Interactive tasks left
+# are the two credential-vault one-shots excluded above, neither of which captures anything.
+# So $interactiveTasks is now normally 0 and the honest branch is the S4U one at the bottom.
+# The exposure is still surfaced continuously, because the monitoring cannot warn about the
+# one failure that would disable the monitoring.
+#
+# NOT YET PROVEN: the S4U fix has never survived a real reboot (uptime was 322 h on
+# 2026-08-03; the fix landed 07-24, last boot 07-21). Configuration says capture self-recovers.
+# That is not the same as measured. Worth a deliberate 01:00-04:00 reboot test after the lock.
 $rebootPending = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
 $autoLogon = ""
 try {
@@ -438,7 +486,7 @@ if ($Json) {
         }
         capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
-        chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail }
+        chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
             restore_verified = $(if ($restore) { [bool]$restore.ok } else { $null })
@@ -476,6 +524,7 @@ else { "0x2 = gates BLOCK, expected pre-release" }
 Write-Output ("  CHAIN     : {0} / {1}   ({2})" -f $chainStatus, $chainTerm, $chainNote)
 if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 if ($chainGate) { Write-Output ("              gate: {0}" -f $chainGate) }
+if ($chainBlocked) { Write-Output ("              {0}" -f $chainBlocked) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
