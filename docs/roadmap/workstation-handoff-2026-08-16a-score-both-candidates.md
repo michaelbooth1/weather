@@ -36,6 +36,47 @@
 > Everything else â€” frozen artifacts, the declared date set, the harness, seed, repetitions, and
 > steps 1, 2, 3 and 5 of the choice rule â€” is **unchanged**.
 
+> ## AMENDED 2026-08-03 22:45 EDT, BEFORE ANY `-08-16a` SCORING â€” re-power correction
+>
+> **The paragraph immediately above is now known to be false, and this is the second time this
+> mission's instrument has failed audit before use.** `-09-06a` (merged `629d26c1`, report
+> `docs/roadmap/agent-report-2026-08-03-workstation-repower-the-endpoints.md`) invalidated the claim
+> that frozen severe-tail SSE is powered at four dates. Under the predeclared crossed date/market
+> bootstrap the direct-served diagnostic proxy has **72.94% power at `N=4`**, needs **`N=5`** at its
+> point estimate and **`N=15`** at its nonzero crossed 95% lower improvement bound. The severe-tail
+> fleet-date SD rises from `0.064670` to `0.082122`.
+>
+> **More importantly: that 25.53% proxy is not an effect estimate for either frozen candidate.**
+> Neither the base nor the repaired candidate has an endpoint-native severe-tail estimate obtainable
+> without scoring the held candidates, which is the thing this mission exists to do. Their honest
+> required N is therefore **unknown** â€” not 5, not 15, and certainly not 4. The old `N=4` claim
+> calibrated one instrument and assigned its power to another.
+>
+> This amendment is made **pre-unblinding** â€” nothing in this mission has been scored â€” and it
+> changes the instrument, not the hypothesis, exactly as the 20:52 amendment did.
+>
+> **Four changes, nothing else:**
+>
+> 1. **Demote frozen severe-tail SSE from confirmatory primary to a directional primary readout.**
+>    Keep it as the headline tail estimate; do not call either sign a confirmation.
+> 2. **Keep 09:00â€“14:00 fleet Brier directional.** There is now **no confirmatory efficacy endpoint
+>    at `N=4`**, and **no endpoint may be substituted after results are visible.**
+> 3. Run the two frozen artifacts on the four already-declared dates with the unchanged harness,
+>    seed, repetitions, corrected max-T harm gate, deterministic safety gates, per-date reporting and
+>    choice-rule ordering. The output may identify a **directional leader for further study**. It
+>    **cannot** earn confirmation, promotion, or reserved-window entry by efficacy claim.
+> 4. **Both artifacts remain held after this run.** Any later confirmation design must be dated and
+>    pre-registered from candidate-native evidence or an explicit MDE target **before any reserved
+>    date is read**.
+>
+> Frozen artifacts, application gate, date set, structural predictions, tie-break correction and every
+> deterministic safety contract are **unchanged**. The reserved window `2026-08-06 â†’ 11-03` remains
+> untouched.
+>
+> **Why run it at all.** The four dates are already declared and spent either way, and a 72.94%-power
+> directional readout is worth collecting. What it is not is a confirmation, and this project has
+> previously called an underpowered result a win. That is the failure this block exists to prevent.
+
 Two frozen artifacts now exist and neither has been scored on evidence it did not help build. This
 mission spends the remaining ordinary date budget once, on both of them, on identical dates.
 
