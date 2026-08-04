@@ -74,7 +74,18 @@ chance to.
   session got this wrong and told the operator front-end merges roll the fleet; they do not. Check
   `data/snapshots/loop_status.json`, `clob_loop_status.json`,
   `observation_trigger_status.json` → `runtime_identity.source_scope_files`. If your file is not in
-  those arrays, the commit cannot roll that loop.
+  those arrays, the commit cannot roll that loop. Measured 2026-08-03: **77 entries, every one a
+  `src/weather/*.py`, zero `.ps1` and zero `scripts/`** — so `scripts\ops\*.ps1` and docs are
+  provably roll-free, not roll-free by convention.
+- **Audit a flag before you act on it — the monitor has been wrong.** On 2026-08-03, of six open
+  flags: one was outright false ("a restart leaves the whole fleet DOWN" — capture is all S4U),
+  three were stale-but-real (spent one-shots that can never clear), and the chain line rendered
+  `readiness SKIPPED/, 0 blockers` for a run that had five payload-level BLOCKs. All fixed in
+  `1d287f72`, but the failure mode will recur: **every one of them was a comment or a format string
+  that outlived the fact it described.** See `status-monitor-false-alarms` in memory.
+- **`quiet_window_merge_last.json` is a single most-recent slot, not a history.** A later run erases
+  an earlier one — on 08-01 a successful re-run overwrote three abort reports and left no trace of
+  the failures. Use `data/alerts/quiet_window_merge_history.jsonl` (added `1d287f72`) for history.
 - **`data/snapshots/loop_status_supervisor_status.json` is a DEAD FILE** frozen at 2026-07-13 that
   permanently reads `DEAD / circuit_open / 6-6`. The live files are `loop_supervisor_status.json`,
   `clob_loop_supervisor_status.json`, `observation_trigger_supervisor_status.json`. **Check
@@ -113,37 +124,98 @@ chance to.
 
 ---
 
-## 6. Where things stand — 2026-08-03 ~21:00
+## 6. Where things stand — 2026-08-03 ~21:50, RE-VERIFIED against the host
 
-**Release #1 lock is tomorrow morning.** Day 14 (08-03) closed CLEAN, 143 captures, zero gaps. Once
-it settles: verify both clocks read 14 from `2026-07-21`, snapshot `clock.json` + receipt hashes,
-flip the observed-floor monitor to fail-closed, confirm `git_dirty is False`, lock. That opens a
-7-day build window.
+The 21:00 version of this section asserted three things that measurement did not support. They are
+corrected below, and the corrections are left visible because the *pattern* is the lesson.
 
-**Post-lock order — this sequence matters:**
+**The lock is on track, and both clocks agree.** Ran the admissibility clock live on
+`2026-07-21 → 2026-08-02`:
 
-1. Delete the **55.31 GB** of taker counterfactual tape (approved; manifest in the outgoing
-   session's scratchpad). **Do this before merging the stack** — the stack's retention job hashes
-   every candidate at 00:05 and would SHA-256 ~29 GB in one pass otherwise.
-2. Merge the **maker binding fix** alone (roll 1). It restores the chain, which has been truncated
-   since 08-02 with `observed_floor_safety_monitor`, `clob_order_book_tiering`, `promotion_refresh`
-   and `daily_learning` all dark. This is priority-1 now that MM outranks the taker.
+```text
+contiguous_pass_days : 13      streak_start_date : 2026-07-21
+latest_status        : PASS    latest_reason_code : release_admissible
+receipt_count        : 13      status             : PASS
+clock_sha256         : 152d8ddd38396d81113f24570b2bba369eef9a178175e81d95631f9ea01f410b
+receipt_set_sha256   : 776a5845e1fadf914e7296cede7c2bfb374ae8233d7ab7fbed0889af1cb1baaa
+```
+
+All 13 receipts PASS, **including 07-24**. `streak.ps1` agrees exactly: 13/14, same start date.
+
+> **CORRECTION 1.** The 21:00 text said "Day 14 (08-03) closed CLEAN, 143 captures". 08-03 had not
+> closed — it was still capturing (168 by 21:48). **The clocks read 13.** 08-03 is the 14th day and
+> settles the morning of 08-04. Nothing is wrong; the day was described as finished while it ran.
+
+`--receipt-root` and `--clock-out` are **required** args. Point them at a scratchpad to keep the
+probe read-only. `clock.json` is an *output* of the run, so its absence under
+`data/backtest/release_admissibility/` is expected, not a defect.
+
+> **CORRECTION 2.** The 21:00 text said the chain "has been truncated since 08-02" with four steps
+> dark, and made the maker binding fix priority-1 on that basis. **False.** `daily_refresh_status.json`
+> (11:31 on 08-03) records **all 23 steps `ok`** — `maker_paper_score` PASS with `gate_status=OPEN`,
+> floor monitor PASS, tiering PASS. The race is **intermittent, not daily**: it binds only when the
+> 07:05 roll is still appending as the chain reads. On 08-02 the chain read ~10:03 and lost; on
+> 08-03 it read 09:53 and won. Truncated *on* 08-02, not *since*. Merge the fix on reliability
+> merits, not as an outage. Two of the four step names quoted don't exist in the chain.
+
+> **CORRECTION 3, and I made this one myself.** "All 23 steps ok" is **not** "the chain is healthy",
+> and I said it was before checking the payloads. Step status says a step EXECUTED; the payload
+> carries the verdict. The run terminated `deferred / upstream_pipeline_not_successful` with
+> **five steps BLOCK inside `summary`**: `live_variant_settlement_scorecard`,
+> `hourly_model_performance`, `ten_minute_model_performance`, `rollup_freshness`,
+> `trading_evidence`. `status.ps1` now prints these on their own line (commit `1d287f72`).
+
+**OPEN, and the first thing to look at tomorrow:** `live_variant_settlement_scorecard` reports
+`eligible_prediction_coverage = 0.0` and `missing_or_invalid_partition_count = 103564` of 103564,
+with `valid_prediction_partition_count = 0`. Zero valid prediction partitions is not obviously an
+expected pre-release gate. **Resolve which of these five BLOCKs clear when the release pointer is
+created and which are real defects, BEFORE spending the 7-day window.** The standalone
+`production_readiness_gate.json` (05:00) reports BLOCK / NOT_READY with 69 blockers led by
+`active_release_verification_failed` — that one is definitionally pre-release; several clean-day
+blockers (`clean_day_market_count_not_12`, `singular_release_identity`, `capture_slos_pass`) are
+structural and do not tick down overnight.
+
+**Post-lock order — mostly unchanged, one demotion:**
+
+1. Delete the **55.31 GB** of taker counterfactual tape (approved). **Before merging the stack** —
+   the stack's retention job hashes every candidate at 00:05 and would SHA-256 ~29 GB in one pass.
+   Disk is 107.8 GB free falling ~8.2 GB/day (~13 days); this roughly doubles the headroom.
+2. Merge the **maker binding fix** (roll 1) — **no longer priority-1**, see correction 2.
 3. Merge the **four-commit consolidated stack** (roll 2). Then switch on
    `--disable-counterfactual-tape` for `WeatherTakerBotDailyRoll`.
-4. Then the parity-gate branch. Bind it as a blocking precondition on the base-retrain step — not
-   the release path, not during the build window.
+4. Then the parity-gate branch, bound as a blocking precondition on the base-retrain step — not the
+   release path, not during the build window.
 
-**`-08-16a` runs 2026-08-05 04:30.** Amended pre-unblinding: severe-tail SSE is the primary readout,
-max-T gate added, slice tie-break void, 09:00–14:00 demoted to directional.
+**There is no scheduled merge trigger.** `WeatherQuietWindowMerge{,2,3}` are spent one-shots with an
+empty `NextRunTime`; all three genuinely failed on 08-01 (the config-drift trap) and the merge was
+finished by a manual 02:55 re-run. **Any plan above that assumes the quiet window fires on its own
+is assuming a mechanism with no next run — re-register it explicitly.**
 
-**In flight:** the absorption-waterfall mission (`-09-05a`) — why 78% of an upstream improvement
-disappears before it reaches served output.
+**`-08-16a` is gated "DO NOT RUN BEFORE 2026-08-05 04:30" and is a *workstation* mission — nothing
+on this host fires it.** It needs the operator relay line. No `-08-16a` branch exists yet. Amended
+pre-unblinding: severe-tail SSE primary, max-T gate added, slice tie-break void, 09:00–14:00
+directional.
+
+**In flight:** the absorption-waterfall mission (`-09-05a`), dispatched 2026-08-03 — why 78% of an
+upstream improvement disappears before it reaches served output. **Its result should gate the
+retrain decision** (see §8.1): if the absorption path really does eat most of an upstream gain,
+every model-side mission this month has been optimising something that cannot reach served output.
+
+**Unasked question worth a mission.** `maker_paper_score` reports `candidate_input_bytes` 1.37 GB
+against `max_input_bytes` 512 MB, `input_budget_trimmed_run_count=11`, `selected_run_count=3` of 14.
+**The maker scorer discards ~60% of its candidate input every day**, on the track that outranks
+everything else, and nobody has asked what that costs the MM evidence it feeds.
 
 **Also pending:** a provider probe to confirm whether Previous Runs actually serves the 21 profile
 fields the PIT corpus plan assumes. It is the plan's least-verified assumption.
 
-**Deferred:** an OS reboot (blocked deliberately — see `windows-auto-reboot-streak-risk`; the AU
-policy keys need reverting after the build window).
+**The reboot is NOT as blocked as it looked.** The alarm that justified deferring it was false —
+every capture-critical task is S4U with a time trigger and `WeatherBootRecovery` is S4U on a boot
+trigger; the only Interactive tasks are the two credential-vault one-shots, which capture nothing
+(fixed in `1d287f72`). Capture is *configured* to self-recover but this has **never survived a real
+reboot** (uptime 322 h; the S4U fix landed 07-24, last boot 07-21). Do it deliberately in a
+01:00–04:00 window after the lock and measure it, then revert the AU policy keys — `AUOptions=2` is
+what is actually blocking installs, and it defers security updates for as long as it stands.
 
 ---
 
