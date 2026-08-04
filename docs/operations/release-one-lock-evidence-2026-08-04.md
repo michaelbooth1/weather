@@ -68,13 +68,78 @@ settlement_source   : daily_summary
 streak starts that day. The gap is almost certainly that event.
 
 **It does not affect the lock.** Both clocks are Toronto-scoped and Toronto is `complete` on 07-21
-(191 snapshots, capture_ratio 1.33). It is recorded here because it is a **live risk to the build**:
-runbook §7a-bis warns that pooled F-family fitting refuses preselected dates absent from the
-corpus. Miami is *present but partial*, and `promotion_countable` is `True`, so it may well be
-admitted — but that has not been verified, and finding out mid-window would be expensive.
+(191 snapshots, capture_ratio 1.33).
 
-**Verify F-family admission of `2026-07-21` before spending build time.** Preselection is its own
-verifier (§7b), so §3a run first will answer it.
+> ### RETIRED 2026-08-04 23:35 — this was not a build risk
+>
+> This section originally read *"Verify F-family admission of `2026-07-21` before spending build
+> time. Preselection is its own verifier (§7b), so §3a run first will answer it."* **Both halves of
+> that were wrong**, and they are corrected here rather than deleted.
+>
+> **1. §3a does not verify F-family coverage.** Runbook §7b splits the check: preselection's
+> exclusion list covers the two *replay* defect classes, while pooled fit names an F-family coverage
+> gap ~25 min in. §3a is Toronto-scoped and never reads a Miami folder at all.
+>
+> **2. A single market's `partial` cannot cause the refusal.** In
+> `src/weather/calibration/pooled_feature_assembly.py`, `build_family_dataset` accumulates
+> `available_target_dates` as a **union across every F market**, and `build_market_records` populates
+> it at line ~798 *before* any grade filtering:
+>
+> ```python
+> if _available_target_dates is not None:
+>     _available_target_dates.update(
+>         local_date.isoformat() for local_date in dates if by_date.get(local_date)
+>     )
+> ```
+>
+> The refusal at line ~914 (`pooled training corpus does not cover every preselected fleet date`)
+> tests `included_target_dates - available_target_dates` — a **date-level** test, not a per-market
+> one. `2026-07-21` is covered by the ten other complete F markets regardless of Miami. Miami's
+> `partial` can at worst drop Miami's own rows.
+>
+> The original §7a-bis reasoning still holds and is the general rule: `build_family_dataset` computes
+> live from settled market data, so a date is "missing" precisely until it settles. All 14 are settled.
+
+## Preselection VERIFIED on the real window — 2026-08-04 23:31 UTC
+
+Run as a **dry run to a scratch root** (`C:\tmp\preselect-dryrun-2026-08-04`), deliberately *not* to
+the staged root — see the arming warning below. 14 Toronto folders, `2026-07-21 → 2026-08-03`.
+
+```text
+status  : PASS      elapsed: 1.02 min
+lock    : fcb687e207acdc0cff3f4dfce549cb61a10002354d4ddb8d81cf5bdb89e02705
+window  : 2026-07-21 -> 2026-08-03, window_days 14, missing_calendar_dates []
+rows    : 29,062 accepted, market_days_read 14
+labels  : settlement_label_authority.ledger_authority = 14  (no sidecar fallback)
+replay  : entries 14, skipped 0
+```
+
+**`skipped: 0` — zero exclusions.** Replay defect classes 1 and 2 from §7b (duplicate pinned replay
+identities, `too_few_replay_inputs`) are **clean across all 14 dates**, including `2026-08-02` and
+`2026-08-03`, which mirror lag made structurally uncheckable from the workstation.
+
+This is the first time production preselection has ever passed on real evidence; the rehearsal
+reached only 13 days and correctly refused.
+
+> **The dry run proves admissibility. It does not arm the build, and must not be reused as if it
+> did** — the staged corpus is hash-bound to its own paths, and §3a requires the source be built
+> inside the build window, not staged early.
+
+### Arming is a side effect of the output path — know this before running §3a again
+
+`training_window.ps1` is disarmed **only because
+`data/analysis/point_in_time/production_source_2026-07-16` does not exist.** `WeatherTrainingWindow`
+is `Ready` and fires at 01:00 nightly, aborting `0x2` on the absent root. Writing §3a's outputs to
+that exact path plus a verifying staging receipt **arms the first real release build for the next
+01:00**, unattended. Use a scratch root for verification; use the staged root only when a build is
+actually intended for that night.
+
+### Dated hazard — the window must never auto-extend past 2026-08-05
+
+Reserved confirmation dates begin **2026-08-06** (`docs/operations/reserved-confirmation-window.md`,
+the single source of truth). Reading a reserved date destroys it permanently. Any build run on or
+after 2026-08-07 must pin `--window-end` explicitly; a window allowed to roll forward to "latest
+settled" will begin consuming reserved dates. Dates through `2026-08-05` are unaffected.
 
 ## Repository state at snapshot
 
