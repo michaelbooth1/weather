@@ -1,0 +1,210 @@
+{
+  "schema_version": "detectable_win_power_design_input_v0.1",
+  "source_boundary": "Only published aggregate measurements and POST-regime regenerated development outputs from the permitted July 22-26 window were reduced to market-day and whole-date summaries. No underlying row, filename inventory, or substitute from July 27-31, August 1-3, or August 6-19 was opened. The published 19-of-54 and 3-of-53 headlines and protected-slice support counts are inputs, not recomputed reserved-window results.",
+  "design": {
+    "one_sided_alpha": 0.05,
+    "target_power": 0.8,
+    "reservation_start": "2026-08-06",
+    "current_reservation_days": 14,
+    "recommended_reservation_days": 504,
+    "primary_endpoint_id": "primary_09_14_brier"
+  },
+  "effect_evidence": {
+    "raw_base_market_gap": 0.03153217684279328,
+    "raw_absolute_improvement": 0.007783857616311279,
+    "raw_gap_fraction": 0.24685443238246616,
+    "raw_delta_interval": [
+      -0.015136672792920317,
+      -0.0008679282655798395
+    ],
+    "served_base_market_gap": 0.021360815280028138,
+    "served_absolute_improvement_upper": 0.0011507019411383013,
+    "served_gap_fraction_lower": 0.0,
+    "served_gap_fraction_upper": 0.05386975759367109,
+    "served_delta_interval": [
+      -0.007010908136674728,
+      0.004711174009089746
+    ],
+    "served_dates_improved": 3,
+    "served_dates_total": 5,
+    "severe_tail_baseline_sse": 0.47854135943102577,
+    "severe_tail_absolute_sse_improvement": 0.12215023823342228,
+    "severe_tail_sse_reduction_fraction": 0.2552553417298266,
+    "severe_tail_positive_excess_reduction_fraction": 0.30062136724344455,
+    "severe_tail_dates_improved": 5,
+    "severe_tail_dates_total": 5,
+    "published_severe_row_fraction": 0.0426,
+    "published_severe_loss_fraction": 0.602,
+    "forecast_lookahead_c_equivalent_displacement": 0.07,
+    "raw_bias_c_equivalent_magnitude": 1.2131,
+    "forecast_lookahead_bias_fraction": 0.057703404500865546,
+    "interpretation": "The retrain targets the stale prior and contiguous class support, but downstream serving absorbed most of the measured raw correction and the point-in-time forecast repair is small and cool-signed. The honest served planning range is therefore zero through the measured 5.39% gap closure; zero remains plausible."
+  },
+  "endpoints": [
+    {
+      "id": "pooled_brier",
+      "label": "Pooled all-hour Brier",
+      "measure": "paired candidate-minus-incumbent daily-first Brier across all capture hours",
+      "role": "secondary",
+      "planning_effect_fraction_upper": 0.05386975759367109,
+      "planning_effect_fraction_midpoint": 0.025,
+      "populations": {
+        "fleet": {
+          "baseline_reference": 0.021360815280028138,
+          "cluster_unit": "whole fleet target date",
+          "variance_evidence": "Three allowed forward-chained development dates from the published all-hour gated-candidate OOF output; a lower-variance proxy, not an effect estimate for the retrain.",
+          "variance_method": "two-way date and market clustered variance converted to an equivalent per-date standard deviation",
+          "cluster_standard_deviation_override": 0.003150680341937647,
+          "degrees_of_freedom_cap": 11,
+          "variance_components": {
+            "source_market_days": 36,
+            "source_dates": 3,
+            "source_markets": 12,
+            "date_component": 0.0000022149428759624284,
+            "market_component": 0.0000034832761460423472,
+            "market_day_intersection_component": 0.000002389290149647333,
+            "two_way_variance_of_source_mean": 0.0000033089288723574423
+          },
+          "cluster_deltas": [
+            -0.000794806145303389,
+            -0.00291810633044998,
+            -0.005925016563898555
+          ]
+        },
+        "toronto": {
+          "baseline_reference": 0.011219819253533936,
+          "cluster_unit": "Toronto target date",
+          "variance_evidence": "The published all-hour gate copied Toronto exactly, so its zero deltas are not a variance estimate. The permitted Toronto 09:00-14:00 date variation is used as the conservative surrogate.",
+          "cluster_deltas": [
+            0.03527679397538519,
+            0.008408924074330736,
+            0.0016743569173406601,
+            0.0013712092657552752,
+            0.007001560462084483
+          ]
+        }
+      }
+    },
+    {
+      "id": "primary_09_14_brier",
+      "label": "09:00-14:00 Brier",
+      "measure": "paired candidate-minus-incumbent daily-first Brier at effective cutoffs 09:00 through 14:00",
+      "role": "primary",
+      "planning_effect_fraction_upper": 0.05386975759367109,
+      "planning_effect_fraction_midpoint": 0.025,
+      "populations": {
+        "fleet": {
+          "baseline_reference": 0.021360815280028138,
+          "cluster_unit": "whole fleet target date with equal market-day weight",
+          "variance_evidence": "Five permitted leave-one-date-out served-conditional development folds, aggregated market-day first and then as one whole-fleet date.",
+          "variance_method": "two-way date and market clustered variance converted to an equivalent per-date standard deviation",
+          "cluster_standard_deviation_override": 0.009722955233244698,
+          "degrees_of_freedom_cap": 11,
+          "variance_components": {
+            "source_market_days": 60,
+            "source_dates": 5,
+            "source_markets": 12,
+            "date_component": 0.000007179933013536133,
+            "market_component": 0.000020643435376339617,
+            "market_day_intersection_component": 0.000008916196696339662,
+            "two_way_variance_of_source_mean": 0.000018907171693536084
+          },
+          "cluster_deltas": [
+            -0.00308705087751647,
+            0.004726150605537212,
+            -0.009965319163995094,
+            -0.0024083934970075445,
+            0.003971449229587761
+          ]
+        },
+        "toronto": {
+          "baseline_reference": 0.011219819253533936,
+          "cluster_unit": "Toronto target date",
+          "variance_evidence": "The same five permitted OOF folds restricted to Toronto; the diagnostic transform worsened Toronto on all five date point estimates and is used only for variance.",
+          "cluster_deltas": [
+            0.03527679397538519,
+            0.008408924074330736,
+            0.0016743569173406601,
+            0.0013712092657552752,
+            0.007001560462084483
+          ]
+        }
+      }
+    },
+    {
+      "id": "severe_tail_sse",
+      "label": "Frozen severe-tail SSE",
+      "measure": "candidate-minus-incumbent squared error on incumbent-frozen severe band rows",
+      "role": "secondary diagnostic and safety",
+      "planning_effect_fraction_upper": 0.2552553417298266,
+      "planning_effect_fraction_midpoint": 0.1276276708649133,
+      "populations": {
+        "fleet": {
+          "baseline_reference": 0.47854135943102577,
+          "cluster_unit": "whole fleet target date with frozen-tail band weighting retained inside date",
+          "variance_evidence": "Five published permitted date-fold fixed-tail SSE deltas from the served conditional correction.",
+          "variance_method": "two-way date and market clustered variance over the 55 tail-bearing market-days, converted to an equivalent per-date standard deviation",
+          "cluster_standard_deviation_override": 0.06466968998423114,
+          "degrees_of_freedom_cap": 11,
+          "variance_components": {
+            "source_market_days": 55,
+            "source_dates": 5,
+            "source_markets": 12,
+            "date_component": 0.00011883009124505219,
+            "market_component": 0.0013557255131698344,
+            "market_day_intersection_component": 0.0006381218438835734,
+            "two_way_variance_of_source_mean": 0.0008364337605313132
+          },
+          "cluster_deltas": [
+            -0.10111541927587565,
+            -0.1215926208024038,
+            -0.11569979298296963,
+            -0.14685568760436518,
+            -0.12953466820930432
+          ]
+        },
+        "toronto": {
+          "baseline_reference": 0.420725,
+          "cluster_unit": "Toronto target date",
+          "variance_evidence": "Five permitted Toronto frozen-tail date means; only 39 severe rows exist and the date effects are highly unstable.",
+          "cluster_deltas": [
+            0.3262965193441653,
+            -0.6198918651163132,
+            0.048936490194402826,
+            0.054914897105934814,
+            0.0742841968525922
+          ]
+        }
+      }
+    }
+  ],
+  "slice_gate": {
+    "current_rule": "Fail if any observed protected-slice candidate-minus-incumbent point estimate exceeds the pooled point improvement.",
+    "reference_snapshot_count": 8380,
+    "simulation_seed": 20260904,
+    "published_candidate_failures": {
+      "first_candidate": "19 of 54",
+      "repaired_candidate": "3 of 53"
+    },
+    "dimension_slice_counts": {
+      "D_class": [3224, 232, 4869, 55],
+      "binding_strength": [1995, 2667, 1847, 1816, 55],
+      "capture_hour": [347, 325, 323, 315, 318, 357, 341, 345, 353, 377, 376, 383, 365, 367, 357, 358, 344, 354, 342, 351, 353, 344, 349, 336],
+      "floor_source": [55, 8325],
+      "forecast_relative_winner": [2476, 977, 134, 2817, 1635, 174, 167],
+      "market": [717, 697, 714, 691, 688, 691, 676, 696, 699, 689, 698, 724]
+    }
+  },
+  "primary_endpoint": {
+    "name": "Fleet 09:00-14:00 paired daily-first Brier difference",
+    "definition": "For every countable reserved target date, average snapshot-first 11-band Brier within each market-day at effective cutoffs 09:00-14:00, give each of the 12 registered market-days equal weight, and retain the candidate-minus-incumbent fleet-date difference as the single independent observation.",
+    "decision_rule": "One-sided alpha 0.05 test of mean fleet-date difference below zero over the complete frozen reservation using two-way date/market cluster-robust inference and degrees of freedom capped by the 12-market dimension, with no interim look or endpoint switch. A win additionally requires every unchanged deterministic safety, parity, release, trusted-floor, probability-mass, newly-severe, and corrected protected-slice harm gate to pass."
+  },
+  "source_receipts": {
+    "conditional_bias_summary_sha256": "3daa3a3d9e7c22f06dbca77e40b81c5c065fc373f5237ab9bd1aae2b71d185d5",
+    "conditional_oof_snapshot_sha256": "fe3f6588d7bdc655b6c2cb630147c5590d74d96099acc94ad03fc3a397aaaeba",
+    "post_regime_floor_trace_sha256": "2e9da6e324130494760cd6b2dbe632658f6b29b99615439bab66fa1141519c9b",
+    "raw_hgb_diagnosis_sha256": "6c981f8246ebf35c9560ed5271b7f3dd18e3b2173e7afb793f4618521f9897c0",
+    "all_hour_oof_rows_sha256": "4d448afe4ea67d7057a48f121c15fa55138072cd6a75201d60965c87dad781f6"
+  }
+}

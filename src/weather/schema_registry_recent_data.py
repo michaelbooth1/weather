@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "detectable_win_power_design_input",
+        "detectable_win_power_design_input_v0.1",
+        "weather.reporting.scorecards.detectable_win_power",
+        "active",
+        "Aggregate-only published effect, date-cluster variance, protected-slice support, and reservation inputs for the first base-retrain confirmation power design.",
+    ),
+    SchemaSpec(
+        "detectable_win_power_design",
+        "detectable_win_power_design_v0.1",
+        "weather.reporting.scorecards.detectable_win_power",
+        "active",
+        "No-network clustered endpoint power, slice-gate false-rejection, max-T correction, primary-endpoint, and reservation recommendation report.",
+    ),
+    SchemaSpec(
         "forecast_payload_manifest",
         "forecast_payload_manifest_v2",
         "weather.collection.snapshot_store",
