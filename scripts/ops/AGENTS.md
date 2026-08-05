@@ -28,6 +28,12 @@ Keep their task names and `ensure` arguments aligned with
 `docs/operations/OPERATIONS_DESIGN.md`. An intentional stop must account for
 both the detached worker and the supervisor that can revive it.
 
+`WeatherMakerExecutionCapture` is a separate long-lived WebSocket evidence
+producer, not a fourth `ensure` supervisor. Its registration source is
+`register_mm_execution_capture.ps1`. Editing that script never authorizes
+registration or provider access, and a missing/incomplete per-event session
+receipt must remain non-countable for the maker-day checklist.
+
 Choose one retraining topology per host:
 
 - `register_nightly_retrain.ps1` directly schedules retraining and does not stop

@@ -205,6 +205,9 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.market.market_microstructure stop
 .\venv\Scripts\python.exe -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m weather.market.market_microstructure websocket --market toronto --seconds 300
+# Continuous fleet WebSocket tape required for countable maker days. Provider access;
+# use --once only for an explicitly authorized diagnostic.
+.\venv\Scripts\python.exe -m weather.market.mm_execution_capture --market all
 
 # Fast observation-triggered recompute watcher.
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger once --market all
@@ -259,7 +262,12 @@ The scheduled maker paper-score step is host-bounded: it selects the latest 14
 `active_day_live_forward` runs and fails closed before loading more than 512 MiB
 of quote inputs. Operators can narrow those limits with
 `--maker-paper-latest-active-runs` and `--maker-paper-max-input-bytes`; raising
-them requires a separate host-capacity review.
+them requires a separate host-capacity review. Longitudinal diagnostics retain
+that bounded corpus, while the maker-day countability proof is isolated to the
+settled analysis target date. Before discovering or reading maker runs, the
+scorer reads the canonical reserved-confirmation-window declaration and refuses
+to score a declared reserved date (or an unspecified date while a reservation
+is declared).
 
 Finalized runs normally provide a source-bound `mm_scoring_projection_v0.1`
 base/variant CSV pair containing only current maker-score reader fields.

@@ -73,6 +73,12 @@ from weather.market.mm_paper_constants import (  # noqa: E402
     SCHEMA_VERSION,
 )
 from weather.market.mm_paper_aggregation import MakerPaperRunAggregation
+from weather.market.mm_day_countability import (
+    DEFAULT_RESERVATION_PATH,
+    build_day_countability,
+    confirmation_reservation_gate,
+)
+from weather.market.mm_reward_q_share import build_sampled_reward_q_share
 
 from weather.market.mm_paper_scoring import (  # noqa: E402
     ACTIVE_DAY_EVIDENCE_MODE,
@@ -2029,12 +2035,15 @@ def skipped_fill_evidence_completeness(legs, reason="skip_fill_simulation"):
 def decisive_resting_check(legs, diagnostics):
     unresolved = []
     unresolved_count = 0
+    unresolved_by_target_date = Counter()
     for leg in legs:
         event_diag = diagnostics.get(leg["event_slug"]) or {}
         if event_diag.get("settlement_available") and leg["quote_expires_at"] > leg["quote_time"]:
             continue
         if not event_diag.get("settlement_available"):
             unresolved_count += 1
+            if leg.get("target_date"):
+                unresolved_by_target_date[str(leg["target_date"])] += 1
             if len(unresolved) < 50:
                 unresolved.append({
                     "leg_id": leg["leg_id"],
@@ -2044,6 +2053,9 @@ def decisive_resting_check(legs, diagnostics):
                 })
     return {
         "unresolved_resting_quote_count": unresolved_count,
+        "unresolved_resting_quote_count_by_target_date": dict(
+            sorted(unresolved_by_target_date.items())
+        ),
         "unresolved_resting_quotes": unresolved,
     }
 
@@ -2130,11 +2142,13 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         "queue_estimated_fill_legs": 0,
         "queue_estimated_filled_shares": 0.0,
     })
+    event_target_dates = defaultdict(set)
 
     def key_for_leg(leg):
         quote_time = leg.get("quote_time")
         hour = f"{quote_time.hour:02d}:00Z" if quote_time else "unknown"
         return (
+            leg.get("target_date") or "",
             leg.get("market_id") or "",
             leg.get("range_label") or "",
             hour,
@@ -2160,7 +2174,16 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
     for leg in legs or []:
         key = key_for_leg(leg)
         item = by_slice[key]
-        item["market_id"], item["range_label"], item["hour_utc"], item["clob_token_id"], item["side"] = key
+        (
+            item["target_date"],
+            item["market_id"],
+            item["range_label"],
+            item["hour_utc"],
+            item["clob_token_id"],
+            item["side"],
+        ) = key
+        if leg.get("event_slug") and leg.get("target_date"):
+            event_target_dates[str(leg["event_slug"])].add(str(leg["target_date"]))
         item["quote_legs"] += 1
         item["quoted_shares"] += finite_float(leg.get("quote_size"), 0.0) or 0.0
         queue = (
@@ -2173,6 +2196,7 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
     for fill in fill_rows or []:
         fill_hour = hour_bucket(fill.get("fill_time_utc"))
         key = (
+            fill.get("target_date") or "",
             fill.get("market_id") or "",
             fill.get("range_label") or "",
             fill_hour,
@@ -2180,7 +2204,14 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
             fill.get("side") or "",
         )
         item = by_slice[key]
-        item["market_id"], item["range_label"], item["hour_utc"], item["clob_token_id"], item["side"] = key
+        (
+            item["target_date"],
+            item["market_id"],
+            item["range_label"],
+            item["hour_utc"],
+            item["clob_token_id"],
+            item["side"],
+        ) = key
         item["strict_trade_through_fills"] += 1
         item["strict_trade_through_filled_shares"] += finite_float(fill.get("fill_size"), 0.0) or 0.0
 
@@ -2204,6 +2235,7 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
             finite_float(row.get("incomplete_market_data_leg_fraction"), 0.0) or 0.0,
             int(row.get("quote_legs") or 0),
             row.get("market_id") or "",
+            row.get("target_date") or "",
             row.get("range_label") or "",
             row.get("hour_utc") or "",
             row.get("side") or "",
@@ -2264,6 +2296,87 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
     ):
         blockers.append("clob_recon_coverage")
 
+    by_target_date = {}
+    unresolved_by_target = (
+        (decisive_resting or {}).get("unresolved_resting_quote_count_by_target_date")
+        or {}
+    )
+    all_target_dates = sorted({
+        target_date
+        for values in event_target_dates.values()
+        for target_date in values
+        if target_date
+    })
+    for target_date in all_target_dates:
+        target_slices = [
+            row for row in slice_rows
+            if str(row.get("target_date") or "") == target_date
+        ]
+        target_events = {
+            event_slug for event_slug, dates in event_target_dates.items()
+            if target_date in dates
+        }
+        target_event_rows = [
+            row for row in event_rows
+            if row.get("event_slug") in target_events
+        ]
+        target_quote_legs = sum(int(row.get("quote_legs") or 0) for row in target_slices)
+        target_missing_size = sum(
+            int(row.get("missing_size_trade_rows") or 0)
+            for row in target_event_rows
+        )
+        target_rejected = sum(
+            int(row.get("rejected_execution_evidence_rows") or 0)
+            for row in target_event_rows
+        )
+        target_conflicting = sum(
+            int(row.get("conflicting_execution_evidence_rows") or 0)
+            for row in target_event_rows
+        )
+        target_missing_book = sum(
+            int(row.get("missing_book_queue_legs") or 0)
+            for row in target_slices
+        )
+        target_missing_trade_size = sum(
+            int(row.get("missing_trade_size_queue_legs") or 0)
+            for row in target_slices
+        )
+        target_unresolved = int(unresolved_by_target.get(target_date) or 0)
+        target_blockers = []
+        if target_quote_legs <= 0:
+            target_blockers.append("no_quote_legs")
+        if target_missing_size > int(config.get("fill_evidence_max_missing_size_trade_rows", 0)):
+            target_blockers.append("missing_size_trade_rows")
+        if target_rejected:
+            target_blockers.append("rejected_execution_evidence_rows")
+        if target_conflicting:
+            target_blockers.append("conflicting_execution_evidence_rows")
+        if target_missing_book > int(config.get("fill_evidence_max_missing_book_queue_legs", 0)):
+            target_blockers.append("missing_book_queue_legs")
+        if target_missing_trade_size > int(config.get("fill_evidence_max_missing_trade_size_queue_legs", 0)):
+            target_blockers.append("missing_trade_size_queue_legs")
+        if target_unresolved > int(config.get("fill_evidence_max_unresolved_resting_quotes", 0)):
+            target_blockers.append("unresolved_resting_quotes")
+        if bool(config.get("fill_evidence_require_clob_recon_coverage", True)) and (
+            int(clob_summary.get("book_rows") or 0) <= 0
+            or int(clob_summary.get("slice_rows") or 0) <= 0
+        ):
+            target_blockers.append("clob_recon_coverage")
+        by_target_date[target_date] = {
+            "status": "PASS" if not target_blockers else "BLOCK",
+            "promotion_grade": not target_blockers,
+            "blockers": target_blockers,
+            "quote_legs": target_quote_legs,
+            "missing_size_trade_rows": target_missing_size,
+            "rejected_execution_evidence_rows": target_rejected,
+            "conflicting_execution_evidence_rows": target_conflicting,
+            "missing_book_queue_legs": target_missing_book,
+            "missing_trade_size_queue_legs": target_missing_trade_size,
+            "unresolved_resting_quote_count": target_unresolved,
+            "event_diagnostics": target_event_rows,
+            "by_market_hour_token": target_slices,
+        }
+
     return {
         "schema_version": "mm_fill_evidence_completeness_v0.1",
         "execution_evidence_schema_version": EXECUTION_EVIDENCE_SCHEMA_VERSION,
@@ -2295,6 +2408,7 @@ def fill_evidence_completeness_summary(legs, fill_rows, queue_rows, diagnostics,
         "clob_recon_coverage_source": (clob_recon or {}).get("coverage_source"),
         "by_market_hour_token": slice_rows,
         "event_diagnostics": event_rows,
+        "by_target_date": by_target_date,
     }
 
 
@@ -2338,6 +2452,8 @@ def _build_paper_payload(
     clob_recon_path=DEFAULT_CLOB_RECON,
     exchange_economics_snapshot_path=None,
     exchange_economics_target_date=None,
+    day_countability_target_date=None,
+    confirmation_reservation_path=DEFAULT_RESERVATION_PATH,
     exchange_economics_platform=exchange_economics.DEFAULT_PLATFORM,
     exchange_economics_required=None,
     known_edge_coverage_map=None,
@@ -2349,6 +2465,18 @@ def _build_paper_payload(
 ):
     config = {**DEFAULT_CONFIG, **(config or {})}
     generated_at = generated_at_iso(now)
+    requested_countability_target = (
+        day_countability_target_date
+        or exchange_economics_target_date
+        or run_folder_target_date
+    )
+    reservation_gate = confirmation_reservation_gate(
+        requested_countability_target,
+        path=confirmation_reservation_path,
+    )
+    if reservation_gate.get("status") != "PASS":
+        blockers = ", ".join(reservation_gate.get("blockers") or ["blocked"])
+        raise ValueError(f"maker paper scoring blocked by confirmation reservation: {blockers}")
     discovered_run_folders = discover_run_folders(runs_root, run_folders=run_folders)
     if selected_run_folders is None:
         candidate_run_folders, run_folder_selection = select_run_folders_for_paper(
@@ -2496,6 +2624,16 @@ def _build_paper_payload(
         or paper_score_freshness.get("latest_covered_active_day")
         or selected_economics_target_date(run_configs, quote_rows)
     )
+    final_countability_target = day_countability_target_date or economics_target_date
+    final_reservation_gate = confirmation_reservation_gate(
+        final_countability_target,
+        path=confirmation_reservation_path,
+    )
+    if final_reservation_gate.get("source_sha256") != reservation_gate.get("source_sha256"):
+        raise ValueError("maker paper scoring blocked: confirmation reservation changed during scoring")
+    if final_reservation_gate.get("status") != "PASS":
+        blockers = ", ".join(final_reservation_gate.get("blockers") or ["blocked"])
+        raise ValueError(f"maker paper scoring blocked by confirmation reservation: {blockers}")
     exchange_gate_required = (
         bool(exchange_economics_required)
         if exchange_economics_required is not None
@@ -2534,8 +2672,19 @@ def _build_paper_payload(
         config=config,
         clob_recon=clob_recon,
     )
-    del quote_rows
-    gc.collect()
+    reward_q_share = build_sampled_reward_q_share(
+        legs,
+        snapshots_root,
+        discount_factor=(
+            reward_score_diagnostics.get("discount_factor")
+            if reward_score_diagnostics.get("score_basis")
+            == "polymarket_us_discount_factor_ticks_from_best"
+            else None
+        ),
+        default_tick_size=reward_score_diagnostics.get("tick_size"),
+        default_min_order_size=reward_score_diagnostics.get("min_order_size") or 0.0,
+        max_book_age_seconds=config.get("reward_book_max_age_seconds", 120.0),
+    )
     casebook_event_slugs = {
         leg.get("event_slug")
         for source in (legs or [], model_variant_legs or [])
@@ -2613,6 +2762,18 @@ def _build_paper_payload(
             "unresolved_resting_quotes": [],
         }
         fill_evidence_completeness = skipped_fill_evidence_completeness(legs)
+    day_countability = build_day_countability(
+        quote_rows,
+        legs,
+        fill_rows,
+        snapshots_root=snapshots_root,
+        fill_evidence=fill_evidence_completeness,
+        reward_q_share=reward_q_share,
+        target_date=final_countability_target,
+        reservation_gate=final_reservation_gate,
+    )
+    del quote_rows
+    gc.collect()
     exchange_fields = exchange_economics.exchange_economics_artifact_fields(exchange_gate)
     def attach_exchange_fields(row):
         row.update({
@@ -2728,6 +2889,25 @@ def _build_paper_payload(
             "clob_recon_book_rows": fill_evidence_completeness.get("clob_recon_book_rows", 0),
             "clob_recon_slice_rows": fill_evidence_completeness.get("clob_recon_slice_rows", 0),
         },
+        "day_countability": {
+            "status": day_countability.get("status"),
+            "counts_toward_maker_day_target": day_countability.get("counts_toward_maker_day_target"),
+            "target_dates": day_countability.get("target_dates") or [],
+            "blockers": day_countability.get("blockers") or [],
+            "first_blocker": day_countability.get("first_blocker"),
+            "checklist": day_countability.get("checklist") or {},
+        },
+        "reward_q_share": {
+            "status": reward_q_share.get("status"),
+            "exact_sampled": reward_q_share.get("exact_sampled"),
+            "sampled_legs": reward_q_share.get("sampled_legs"),
+            "quoted_legs": reward_q_share.get("quoted_legs"),
+            "own_q": reward_q_share.get("own_q"),
+            "competitor_q": reward_q_share.get("competitor_q"),
+            "denominator_q": reward_q_share.get("denominator_q"),
+            "sampled_q_share": reward_q_share.get("sampled_q_share"),
+            "blockers": reward_q_share.get("blockers") or [],
+        },
         "pnl": summarize_pnl(fill_rows),
         "early_hour_guardrail_shadow": early_hour_guardrail_shadow.get("summary") or {},
         "anti_overfit": anti_overfit,
@@ -2800,6 +2980,8 @@ def _build_paper_payload(
         "summary": summary,
         "clob_recon": clob_recon,
         "fill_evidence_completeness": fill_evidence_completeness,
+        "day_countability": day_countability,
+        "reward_q_share": reward_q_share,
         "reward_score_diagnostics": reward_score_diagnostics,
         "quote_blocker_diagnostics": blocker_diagnostics,
         "event_diagnostics": diagnostics,

@@ -1949,6 +1949,34 @@ REGISTERED_SCHEMAS = (
         "Market-making evidence starvation summary.",
     ),
     SchemaSpec(
+        "mm_day_countability",
+        "mm_day_countability_v0.1",
+        "weather.market.mm_day_countability",
+        "active",
+        "Mechanical maker-day countability checklist.",
+    ),
+    SchemaSpec(
+        "mm_execution_capture_session",
+        "mm_execution_capture_session_v0.1",
+        "weather.market.mm_execution_capture",
+        "active",
+        "Continuous market WebSocket capture session receipt.",
+    ),
+    SchemaSpec(
+        "mm_execution_capture_status",
+        "mm_execution_capture_status_v0.1",
+        "weather.market.mm_execution_capture",
+        "active",
+        "Continuous market WebSocket capture supervisor status.",
+    ),
+    SchemaSpec(
+        "mm_execution_tape_inventory",
+        "mm_execution_tape_inventory_v0.1",
+        "weather.market.mm_day_countability",
+        "active",
+        "Maker execution tape and quote-lifetime coverage inventory.",
+    ),
+    SchemaSpec(
         "mm_fill_evidence_completeness",
         "mm_fill_evidence_completeness_v0.1",
         "weather.market.mm_paper",
@@ -1961,6 +1989,13 @@ REGISTERED_SCHEMAS = (
         "weather.market.market_making_model_variants",
         "active",
         "Market-making model-variant bakeoff report.",
+    ),
+    SchemaSpec(
+        "mm_reward_q_share",
+        "mm_reward_q_share_v0.1",
+        "weather.market.mm_reward_q_share",
+        "active",
+        "Exact sampled maker reward Q-share from retained full-depth books.",
     ),
     SchemaSpec(
         "mm_model_variant_clustered_promotion_gate",

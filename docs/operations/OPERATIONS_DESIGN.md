@@ -91,6 +91,32 @@ Windows holds the detached child's console handle for the process lifetime,
 console rotation occurs at the next managed loop startup before opening the
 new handle.
 
+### Maker Execution-Evidence Producer
+
+Maker-day scoring has a stricter execution-evidence requirement than the raw
+book loop. `WeatherMakerExecutionCapture`, registered only through
+`scripts/ops/register_mm_execution_capture.ps1`, runs
+`python -m weather.market.mm_execution_capture --market all` as a separate
+long-lived process. It subscribes the whole active fleet on one WebSocket,
+routes messages into each event's `market_ws.jsonl` and
+`market_ws_events.csv`, and writes `market_ws_sessions.jsonl` coverage
+receipts. `data/snapshots/market_execution_capture_status.json` records the
+latest session or connection failure.
+
+This process is separate because the latency-critical CLOB loop intentionally
+remains raw-book-only, while the older enrichment loop samples each market for
+a short bounded interval and cannot prove continuous quote-lifetime coverage.
+The maker-day checklist fails closed when the execution tape or a complete
+session covering a resting quote is absent. A valid no-quote day still needs a
+retained execution tape and complete session receipt; no tape is never evidence
+of zero fills. The paper scorer also binds the checklist to one settled target
+date even though its longitudinal diagnostics can read a bounded multi-run
+corpus. Before run discovery, it reads
+`docs/operations/reserved-confirmation-window.md`: a declared reserved target,
+an unspecified target under a declared reservation, or an unparseable
+declaration blocks scoring before target artifacts are read. Editing or testing
+the registration script does not register or start the task.
+
 ### Observation-Trigger Loop
 
 - `data/snapshots/observation_trigger_status.json`
