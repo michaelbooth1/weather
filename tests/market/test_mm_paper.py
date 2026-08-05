@@ -796,6 +796,11 @@ class TestMMPaper(unittest.TestCase):
             [Path(path).name for path in selection["selected_run_folders"]],
             ["mid-active", "new-active"],
         )
+        self.assertEqual(payload["day_countability"]["target_dates"], ["2026-06-20"])
+        self.assertNotIn(
+            "expected_exactly_one_target_date",
+            payload["day_countability"]["blockers"],
+        )
         self.assertIn("Run-folder selection", report)
         self.assertIn("diagnostic_selection_not_full_corpus", report)
 
@@ -1375,6 +1380,16 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(fill["casebook_taxonomy"], "market_lead")
             self.assertGreater(float(fill["maker_rebate_estimate_usdc"]), 0.0)
             self.assertGreater(float(fill["liquidity_reward_estimate_usdc"]), 0.0)
+            self.assertEqual(float(fill["liquidity_reward_accepted_usdc"]), 0.0)
+            self.assertEqual(float(fill["maker_rebate_accepted_usdc"]), 0.0)
+            self.assertEqual(
+                fill["maker_rebate_acceptance_status"],
+                "DIAGNOSTIC_ONLY_NO_PAYOUT_EVIDENCE",
+            )
+            self.assertEqual(
+                fill["reward_acceptance_status"],
+                "DIAGNOSTIC_ONLY_NO_PAYOUT_EVIDENCE",
+            )
             self.assertGreater(float(fill["flattening_fee_estimate_usdc"]), 0.0)
             self.assertGreater(float(fill["net_pnl_after_fees_incentives_usdc"]), 0.0)
 

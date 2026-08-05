@@ -1965,14 +1965,36 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
         spread_capture = (price - mid) * size
     maker_fee_equiv = fee_equivalent(size, price, config["maker_fee_rate"])
     maker_rebate = maker_fee_equiv * float(config["maker_rebate_pool_share"])
+    maker_rebate_has_payout_evidence = bool(leg.get("maker_rebate_actual_payout_evidence"))
+    maker_rebate_accepted = maker_rebate if maker_rebate_has_payout_evidence else 0.0
+    maker_rebate_acceptance_status = (
+        "ACTUAL_PAYOUT_EVIDENCE"
+        if maker_rebate_has_payout_evidence else
+        "DIAGNOSTIC_ONLY_NO_PAYOUT_EVIDENCE"
+    )
     flatten_fee = fee_equivalent(size, price, config["flattening_fee_rate"])
     reward = float(leg.get("reward_estimate_usdc") or 0.0) * (size / max(leg["quote_size"], 1e-9))
+    reward_has_payout_evidence = bool(leg.get("reward_actual_payout_evidence"))
+    reward_accepted = reward if reward_has_payout_evidence else 0.0
+    reward_acceptance_status = (
+        "ACTUAL_PAYOUT_EVIDENCE"
+        if reward_has_payout_evidence else
+        "DIAGNOSTIC_ONLY_NO_PAYOUT_EVIDENCE"
+    )
+    provisional_net_30m = (
+        mark_30m * size + maker_rebate_accepted + reward_accepted - flatten_fee
+        if mark_30m is not None
+        else None
+    )
     if settlement_pnl is not None:
-        net = settlement_pnl + maker_rebate + reward - flatten_fee
-    elif mark_30m is not None:
-        net = mark_30m * size + maker_rebate + reward - flatten_fee
+        net = settlement_pnl + maker_rebate_accepted + reward_accepted - flatten_fee
+        acceptance_pnl_status = "COUNTABLE_SETTLEMENT"
     else:
-        net = maker_rebate + reward - flatten_fee
+        # The acceptance horizon is settlement. A 30-minute markout remains a
+        # useful provisional diagnostic, but must never be silently substituted
+        # into the acceptance P&L used to count a maker day.
+        net = None
+        acceptance_pnl_status = "NOT_COUNTABLE_SETTLEMENT_MISSING"
     return {
         "markouts": markouts,
         "settlement_outcome": outcome,
@@ -1982,8 +2004,15 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
         "adverse_30m": adverse_30m,
         "maker_fee_equiv": maker_fee_equiv,
         "maker_rebate": maker_rebate,
+        "maker_rebate_accepted": maker_rebate_accepted,
+        "maker_rebate_acceptance_status": maker_rebate_acceptance_status,
         "reward": reward,
+        "reward_accepted": reward_accepted,
+        "reward_acceptance_status": reward_acceptance_status,
         "flatten_fee": flatten_fee,
+        "acceptance_horizon": "settlement",
+        "acceptance_pnl_status": acceptance_pnl_status,
+        "provisional_net_30m": provisional_net_30m,
         "net": net,
     }
 
@@ -2134,8 +2163,15 @@ def conservative_fill_row(
         "settlement_pnl_usdc": compact_float(financials["settlement_pnl"]),
         "maker_fee_equivalent_usdc": compact_float(financials["maker_fee_equiv"]),
         "maker_rebate_estimate_usdc": compact_float(financials["maker_rebate"]),
+        "maker_rebate_accepted_usdc": compact_float(financials["maker_rebate_accepted"]),
+        "maker_rebate_acceptance_status": financials["maker_rebate_acceptance_status"],
         "liquidity_reward_estimate_usdc": compact_float(financials["reward"]),
+        "liquidity_reward_accepted_usdc": compact_float(financials["reward_accepted"]),
+        "reward_acceptance_status": financials["reward_acceptance_status"],
         "flattening_fee_estimate_usdc": compact_float(financials["flatten_fee"]),
+        "acceptance_horizon": financials["acceptance_horizon"],
+        "acceptance_pnl_status": financials["acceptance_pnl_status"],
+        "provisional_net_30m_usdc": compact_float(financials["provisional_net_30m"]),
         "net_pnl_after_fees_incentives_usdc": compact_float(financials["net"]),
         "settlement_markout_per_share": compact_float(financials["settlement_markout"]),
         "settlement_outcome": compact_float(financials["settlement_outcome"]),
@@ -2395,15 +2431,40 @@ def sum_field(rows, key):
 
 
 def summarize_pnl(fill_rows):
+    rows = fill_rows
+    settlement_countable = sum(
+        1 for row in rows
+        if row.get("acceptance_pnl_status") == "COUNTABLE_SETTLEMENT"
+    )
+    settlement_missing = sum(
+        1 for row in rows
+        if row.get("acceptance_pnl_status") == "NOT_COUNTABLE_SETTLEMENT_MISSING"
+    )
     return {
-        "spread_capture_usdc": compact_float(sum_field(fill_rows, "spread_capture_usdc")),
-        "adverse_selection_30m_usdc": compact_float(sum_field(fill_rows, "adverse_selection_30m_usdc")),
-        "settlement_pnl_usdc": compact_float(sum_field(fill_rows, "settlement_pnl_usdc")),
-        "maker_fee_equivalent_usdc": compact_float(sum_field(fill_rows, "maker_fee_equivalent_usdc")),
-        "maker_rebate_estimate_usdc": compact_float(sum_field(fill_rows, "maker_rebate_estimate_usdc")),
-        "liquidity_reward_estimate_usdc": compact_float(sum_field(fill_rows, "liquidity_reward_estimate_usdc")),
-        "flattening_fee_estimate_usdc": compact_float(sum_field(fill_rows, "flattening_fee_estimate_usdc")),
-        "net_pnl_after_fees_incentives_usdc": compact_float(sum_field(fill_rows, "net_pnl_after_fees_incentives_usdc")),
+        "acceptance_horizon": "settlement",
+        "acceptance_status": (
+            "NOT_COUNTABLE_SETTLEMENT_MISSING"
+            if settlement_missing else
+            "COUNTABLE_SETTLEMENT" if settlement_countable else
+            "NO_FILLS"
+        ),
+        "settlement_countable_fill_count": settlement_countable,
+        "settlement_missing_fill_count": settlement_missing,
+        "spread_capture_usdc": compact_float(sum_field(rows, "spread_capture_usdc")),
+        "adverse_selection_30m_usdc": compact_float(sum_field(rows, "adverse_selection_30m_usdc")),
+        "settlement_pnl_usdc": compact_float(sum_field(rows, "settlement_pnl_usdc")),
+        "maker_fee_equivalent_usdc": compact_float(sum_field(rows, "maker_fee_equivalent_usdc")),
+        "maker_rebate_estimate_usdc": compact_float(sum_field(rows, "maker_rebate_estimate_usdc")),
+        "maker_rebate_accepted_usdc": compact_float(sum_field(rows, "maker_rebate_accepted_usdc")),
+        "liquidity_reward_estimate_usdc": compact_float(sum_field(rows, "liquidity_reward_estimate_usdc")),
+        "liquidity_reward_accepted_usdc": compact_float(sum_field(rows, "liquidity_reward_accepted_usdc")),
+        "flattening_fee_estimate_usdc": compact_float(sum_field(rows, "flattening_fee_estimate_usdc")),
+        "provisional_net_30m_usdc": compact_float(sum_field(rows, "provisional_net_30m_usdc")),
+        "net_pnl_after_fees_incentives_usdc": (
+            None
+            if settlement_missing else
+            compact_float(sum_field(rows, "net_pnl_after_fees_incentives_usdc"))
+        ),
     }
 
 

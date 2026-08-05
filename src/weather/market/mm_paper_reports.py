@@ -79,6 +79,8 @@ def render_paper_report(payload):
     fill_evidence = payload.get("fill_evidence_completeness") or summary.get("fill_evidence_completeness") or {}
     selection = summary.get("run_folder_selection") or payload.get("run_folder_selection") or {}
     reward_score = payload.get("reward_score_diagnostics") or summary.get("reward_score_diagnostics") or {}
+    reward_q_share = payload.get("reward_q_share") or summary.get("reward_q_share") or {}
+    day_countability = payload.get("day_countability") or summary.get("day_countability") or {}
     quote_blockers = payload.get("quote_blocker_diagnostics") or summary.get("quote_blocker_diagnostics") or {}
     model_variant = payload.get("model_variant_bakeoff") or {}
     model_variant_summary = summary.get("model_variant_bakeoff") or {}
@@ -134,6 +136,8 @@ def render_paper_report(payload):
             ["Exchange snapshot", summary.get("exchange_economics_snapshot_id") or "-"],
             ["Paper-score freshness", freshness.get("status") or "-"],
             ["Fill evidence completeness", fill_evidence.get("status") or "-"],
+            ["Maker-day countability", day_countability.get("status") or "-"],
+            ["Maker-day first blocker", day_countability.get("first_blocker") or "-"],
             ["Latest completed active day", freshness.get("latest_completed_active_day") or "-"],
             ["Latest covered active day", freshness.get("latest_covered_active_day") or "-"],
             ["Locked policy params", anti.get("locked_policy_params")],
@@ -149,18 +153,55 @@ def render_paper_report(payload):
         "",
     ])
     lines.extend(markdown_table(
-        ["Component", "USDC"],
+        ["Component", "Value"],
         [
+            ["Acceptance horizon", pnl.get("acceptance_horizon") or "settlement"],
+            ["Acceptance status", pnl.get("acceptance_status") or "-"],
+            ["Settlement-countable fills", pnl.get("settlement_countable_fill_count", 0)],
+            ["Settlement-missing fills", pnl.get("settlement_missing_fill_count", 0)],
             ["Spread capture", fmt_num(pnl.get("spread_capture_usdc"), 4)],
             ["Adverse-selection markout 30m", fmt_num(pnl.get("adverse_selection_30m_usdc"), 4)],
             ["Settlement P&L", fmt_num(pnl.get("settlement_pnl_usdc"), 4)],
             ["Maker fee-equivalent", fmt_num(pnl.get("maker_fee_equivalent_usdc"), 4)],
             ["Maker rebate estimate", fmt_num(pnl.get("maker_rebate_estimate_usdc"), 4)],
             ["Liquidity reward estimate", fmt_num(pnl.get("liquidity_reward_estimate_usdc"), 4)],
+            ["Liquidity reward accepted", fmt_num(pnl.get("liquidity_reward_accepted_usdc"), 4)],
             ["Flattening fee estimate", fmt_num(pnl.get("flattening_fee_estimate_usdc"), 4)],
+            ["Provisional net at 30m", fmt_num(pnl.get("provisional_net_30m_usdc"), 4)],
             ["Net after fees/incentives", fmt_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4)],
         ],
     ))
+    if day_countability:
+        lines.extend(["", "## Maker-Day Countability", ""])
+        lines.extend(markdown_table(
+            ["Check", "Value"],
+            [
+                ["Status", day_countability.get("status") or "-"],
+                ["Target dates", ", ".join(day_countability.get("target_dates") or []) or "-"],
+                ["Counts toward 22-day target", day_countability.get("counts_toward_maker_day_target")],
+                *[
+                    [key, value]
+                    for key, value in sorted((day_countability.get("checklist") or {}).items())
+                ],
+                ["Blockers", ", ".join(day_countability.get("blockers") or []) or "-"],
+            ],
+        ))
+    if reward_q_share:
+        lines.extend(["", "## Exact Sampled Reward Q-Share", ""])
+        lines.extend(markdown_table(
+            ["Metric", "Value"],
+            [
+                ["Status", reward_q_share.get("status") or "-"],
+                ["Exact sampled denominator", reward_q_share.get("exact_sampled")],
+                ["Sampled / quoted legs", f"{reward_q_share.get('sampled_legs', 0)} / {reward_q_share.get('quoted_legs', 0)}"],
+                ["Own Q", fmt_num(reward_q_share.get("own_q"), 6)],
+                ["Competitor Q", fmt_num(reward_q_share.get("competitor_q"), 6)],
+                ["Denominator Q", fmt_num(reward_q_share.get("denominator_q"), 6)],
+                ["Sampled Q-share", fmt_num(reward_q_share.get("sampled_q_share"), 8)],
+                ["Sample binding SHA-256", reward_q_share.get("sample_binding_sha256") or "-"],
+                ["Blockers", ", ".join(reward_q_share.get("blockers") or []) or "-"],
+            ],
+        ))
     if reward_score:
         lines.extend([
             "",
