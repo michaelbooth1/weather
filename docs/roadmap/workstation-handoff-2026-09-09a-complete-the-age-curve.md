@@ -39,9 +39,9 @@ August split.** If a date you expect is missing, say which and why rather than w
 
 ### Timing
 
-`2026-08-05` settles on the morning of `2026-08-06`. **Run this once it has settled** — waiting costs
-nothing and takes August support from 3 dates to 5, which matters when August is the whole point. If
-you must run earlier, say so and report the reduced August N explicitly.
+**Amended 2026-08-04:** with the reservation re-based, August support is no longer capped at 5 dates
+and there is no deadline. Run when convenient; every extra settled date strengthens the age curve.
+Report the August N you actually obtained rather than a target.
 
 ## Questions
 
@@ -107,12 +107,25 @@ finding. Short answer is fine — do not let it consume the mission.
 
 ## Constraints
 
-**Reserved dates `2026-08-06` → `2026-11-03` must not be read, replayed, scored, or inspected — as
-target dates.** `docs/operations/reserved-confirmation-window.md` is the single source of truth and
-outranks this document. Reading a reserved target date destroys it permanently. **`2026-08-05` is the
-hard ceiling and there is no discretion above it.** Note the distinction: settling target date
-`2026-08-05` using data produced on calendar day `2026-08-06` is fine — the reservation is on target
-dates, not processing days.
+> ### AMENDED 2026-08-04 — the 2026-08-05 ceiling is GONE
+>
+> This handoff originally imposed a hard ceiling at `2026-08-05` because `2026-08-06 → 2026-11-03`
+> was reserved. **The operator re-based the reservation on 2026-08-04: nothing is reserved today.**
+> The window is armed but undated, and begins only when the first retrain candidate is frozen.
+>
+> **Consequence for this mission — it gets materially better.** The August support that made Q1/Q2
+> answerable was capped at 3–5 dates; it is now limited only by what has settled. Use **every settled
+> `promotion_countable` date available when you run**, and report the June/July/August split you
+> actually obtained.
+>
+> This strengthens Q3 too: the `2026-07-31` `rows[-1]` boundary can now be tested with real support on
+> both sides rather than a handful of dates.
+
+**`docs/operations/reserved-confirmation-window.md` is the single source of truth and outranks this
+document — re-read it when you run.** If a window has been declared there by then, it is absolute:
+reserved target dates must not be read, replayed, scored, or inspected, and reading one destroys it
+permanently. Note the distinction that still applies: the reservation is on **target dates**, not
+processing days, so settling a non-reserved target date using data produced later is fine.
 
 **The trusted observed-high floor is out of scope and must not be weakened, softened, re-tuned, or
 "improved" in any variant.** It is load-bearing.

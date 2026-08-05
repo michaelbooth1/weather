@@ -81,9 +81,16 @@ this window; a collision there is far more expensive than a day's delay here.
 paper mode remains an explicit operator decision with a code change, and is **not** delegated here.
 You may analyse it; do not implement it.
 
-**Reserved dates `2026-08-06` → `2026-11-03` must not be read, enumerated, replayed, or scored as
-target dates.** `docs/operations/reserved-confirmation-window.md` is the single source of truth and
-outranks this document. It is under active operator review — **assume it stands.**
+> **AMENDED 2026-08-04 — the reservation was re-based and NOTHING is reserved today.** This handoff
+> originally told you to assume `2026-08-06 → 2026-11-03` stands. The operator re-based it on
+> 2026-08-04: the window is armed but undated and begins only when the first retrain candidate is
+> frozen. **The MM clock is no longer blocked**, which is precisely why this mission is now the
+> critical path.
+
+**`docs/operations/reserved-confirmation-window.md` remains the single source of truth and outranks
+this document — re-read it when you run.** If a window has been declared there by then it is
+absolute, and note rule 4: **MM paper scoring must stop on declared confirmation dates and does not
+inherit an exemption.**
 
 **Roll-safety matters.** Anything inside the capture loops' loaded-module closure rolls all three
 loops and must land in a 01:00–04:00 quiet window. **State plainly, per file, whether your change is
