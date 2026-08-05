@@ -21,6 +21,48 @@ project keeps repeating and has now twice caught just in time.
 
 **A day that cannot be scored cannot count. This mission makes days count.**
 
+## AMENDED 2026-08-05 — the live payload now names the blockers, use it
+
+This handoff was written before the chain produced a countability verdict. It now has, and it is more
+specific than my original scope. **Work the named list, not my guesses.** From
+`data/backtest/daily_refresh_status.json`, `summary.trading_evidence`, target day `2026-08-04`:
+
+```text
+mm_maker_countability_gate_status : BLOCK
+mm_counts_toward_live_forward     : false
+mm_paper_conservative_fills       : 0
+mm_evidence_mode                  : post_settlement_evaluation
+mm_evidence_starvation_status     : NOT_ACTIVE_DAY
+mm_maker_countability_blockers    :
+    evidence_mode=post_settlement_evaluation
+    live_forward_gate=BLOCK
+    preflight=WARN
+    model_variant_bakeoff_skipped_variants=66
+    quote_starvation=quote_starved_infra
+    fill_evidence_completeness=BLOCK
+```
+
+**Two of these were not in my original scope and may matter more than what was:**
+
+- **`quote_starvation=quote_starved_infra`** — the maker is quote-starved for **infrastructure**
+  reasons, which is a *different* cause from the promotion block. Promotion PASS alone will not fix an
+  infra starvation. Find out what `quote_starved_infra` actually means in code and what clears it.
+- **`evidence_mode=post_settlement_evaluation`** — the maker is running in post-settlement evaluation
+  rather than live-forward. **A post-settlement day cannot, by construction, count toward a
+  live-forward gate.** Determine what selects this mode and what it takes to be in live-forward mode
+  on a normal day.
+
+Also unexplained and worth a look: **`model_variant_bakeoff_skipped_variants=66`**.
+
+**One thing has already improved:** `mm_paper_score_freshness_status: PASS`, with
+`mm_paper_latest_completed_active_day: 2026-08-04`. The maker-scoring binding fix merged in the
+01:15 quiet window on 2026-08-05 (`498757fb`) and the scorer is no longer dark. That outage is closed;
+do not re-solve it.
+
+**Treat clearing these six as P0**, ahead of the priorities below — though `fill_evidence_completeness`
+is the same defect as P1, and `live_forward_gate` is downstream of the others. Report each blocker's
+root cause and what clears it, even where the fix is not yours to make.
+
 ## Scope, in priority order
 
 ### P1 — retain the evidence that proves a strict-through fill
