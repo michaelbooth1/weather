@@ -280,7 +280,17 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }
     }
     if ($st -eq "Disabled") {
-        if ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
+        # A one-shot that FIRED, SUCCEEDED and then disabled itself is completed work, not an
+        # anomaly. Every guarded agent runner (lock day, quiet window, post-merge watchdog,
+        # morning briefing) ends with Disable-ScheduledTask by design so it cannot re-fire on a
+        # later boot. On 2026-08-05 that raised three simultaneous "unexpectedly DISABLED" flags
+        # for three tasks that had each done exactly what they were built to do. Same lesson as
+        # the spent-FAILED case below: a monitor that flags success trains us to ignore it.
+        $selfDisarmed = ($oneShot -and -not $ti.NextRunTime -and $res -eq "0x0" -and $ti.LastRunTime)
+        if ($selfDisarmed) {
+            $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - completed work, no action")
+        }
+        elseif ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
     }
     else {
         $ok = ($res -eq "0x0")
