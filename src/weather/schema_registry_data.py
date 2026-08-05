@@ -1443,6 +1443,32 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec("nightly_retrain", "nightly_retrain_v0.1", "weather.operations.nightly_retrain", "active"),
     SchemaSpec(
+        "all_market_base_retrain",
+        "all_market_base_retrain_v0.1",
+        "weather.operations.base_retrain",
+        "active",
+        "Explicit-only all-market base-model plan, preflight, and candidate-fit receipts.",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_evidence_manifest",
+        "all_market_base_retrain_evidence_manifest_v0.1",
+        "weather.operations.base_retrain",
+        "active",
+        "Hash-bound forecast, feature-record, parity, support, calibration, and artifact-regime evidence for the all-market base-retrain preflight.",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_fit_receipt",
+        "all_market_base_retrain_fit_receipt_v0.1",
+        "weather.calibration.base_model_candidate",
+        "active",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_probability_calibration",
+        "all_market_base_retrain_probability_calibration_v0.1",
+        "weather.calibration.base_model_candidate",
+        "active",
+    ),
+    SchemaSpec(
         "settled_day_freshness",
         "settled_day_freshness_v0.1",
         "weather.operations.settled_day_freshness",

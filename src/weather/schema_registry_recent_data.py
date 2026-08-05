@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "train_serve_feature_parity",
+        "train_serve_feature_parity_v0.1",
+        "weather.reporting.scorecards.train_serve_feature_parity",
+        "active",
+        "Standalone field-level train/serve comparison report covering values, units, categories, missingness, cutoff availability, provenance, coverage, exceptions, and known-defect proof.",
+    ),
+    SchemaSpec(
+        "train_serve_feature_parity_case",
+        "train_serve_feature_parity_case_v0.1",
+        "weather.reporting.scorecards.train_serve_feature_parity",
+        "active",
+        "Deterministic no-network captured-case manifest used to drive independent training-time and serving-time feature construction.",
+    ),
+    SchemaSpec(
         "forecast_payload_manifest",
         "forecast_payload_manifest_v2",
         "weather.collection.snapshot_store",

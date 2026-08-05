@@ -49,6 +49,52 @@ python -m weather.operations.nightly_retrain run --fail-on-daily-learning-blocke
 That flag is also the CLI default. It makes `daily_learning.status == BLOCKED`
 stop the run before expensive retraining or promotion refresh steps.
 
+## Per-Market Base Retraining Is Explicit-Only
+
+The scheduled nightly plan still does **not** fit the 12 per-market base HGBs.
+The separate `weather.operations.base_retrain` lane is deliberately unwired
+and unregistered. It projects the exact live registry into one fleet-atomic
+candidate plan and has no ambient target date, feature contract, evidence, or
+output defaults.
+
+First snapshot only the current evidence identities, then run the preflight:
+
+```powershell
+python -m weather.operations.base_retrain inspect-current `
+  --target-date <late-season-alignment-date> `
+  --training-as-of <timezone-aware-timestamp> `
+  --data-root <production-data-root> `
+  --artifact-root <tracked-artifact-root> `
+  --parity-report <train-serve-feature-parity.json> `
+  --runtime-id <runtime-id> `
+  --output <evidence-manifest.json>
+
+python -m weather.operations.base_retrain preflight `
+  --target-date <same-date> `
+  --training-as-of <same-timestamp> `
+  --parent-artifact-id <manifest-parent-artifact-id> `
+  --feature-contract-id <manifest-feature-contract-id> `
+  --evidence-manifest <evidence-manifest.json> `
+  --candidate-dir <new-candidate-directory> `
+  --runtime-id <same-runtime-id> `
+  --output <preflight.json> `
+  --fail-on-block
+```
+
+The preflight independently blocks incomplete manifest-backed forecast
+coverage, non-PIT or stitched forecasts, train/serve parity findings,
+undeclared contiguous native support, inherited calibrators, and mixed or
+missing artifact provenance across the 2026-07-31 `rows[-1]` boundary. The
+ambient stitched `forecast_daily.csv`, release store, and release pointer are
+unreachable from this lane.
+
+`run --execute-fit` is an explicit future operator action, not a nightly step.
+It is reachable only after the exact preflight passes, writes all per-market
+outputs into a new staging tree, requires all 12 markets and candidate-specific
+blocked-OOF calibration, and atomically publishes only the candidate directory.
+Do not invoke it until the blocking evidence contracts are repaired and the
+operator authorizes the model-fit spend.
+
 ## Research And Production Candidate Modes
 
 `--release-candidate-mode research_only` is the default. It preserves the
