@@ -24,6 +24,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.collection.snapshot_tracker import capture_snapshot
+from weather.collection.triggered_snapshot_queue import (
+    DEFAULT_TRIGGER_QUEUE_ROOT,
+    acknowledge_triggered_snapshot_job,
+    completed_triggered_snapshot_jobs,
+    enqueue_triggered_snapshot,
+    triggered_snapshot_queue_status,
+)
 from weather.io import read_jsonl as io_read_jsonl
 from weather.market.market_config import config_for_date, date_from_event_slug
 from weather.market.live_observation_normalization import update_monotonic_high_ledger
@@ -487,7 +494,7 @@ def detect_observation_triggers(previous, current, support_margin=DEFAULT_SUPPOR
     return deduped
 
 
-def build_trigger_context(market_id, previous, current, triggers):
+def build_trigger_context(market_id, previous, current, triggers, now=None):
     reasons = sorted({trigger["reason"] for trigger in triggers})
     primary = triggers[0] if triggers else {}
     return {
@@ -503,7 +510,7 @@ def build_trigger_context(market_id, previous, current, triggers):
         "triggers": triggers,
         "previous_observation": previous,
         "current_observation": current,
-        "created_at_utc": utc_now().isoformat(),
+        "created_at_utc": (now or utc_now()).astimezone(timezone.utc).isoformat(),
     }
 
 
@@ -585,7 +592,72 @@ def latest_trade_permission(status, now=None, stale_seconds=DEFAULT_FAST_STALE_S
     }
 
 
-def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_observation_state, now=None):
+def apply_completed_trigger_receipts(status, events_path, queue_root):
+    """Publish completed queued captures exactly once per persisted watcher status.
+
+    The event includes a stable ``work_id``.  Status is written before receipts
+    are acknowledged; if the process exits between those operations, the next
+    pass sees the work id in status and acknowledges without appending again.
+    """
+
+    processed = list(status.get("completed_trigger_work_ids") or [])
+    processed_set = set(processed)
+    acknowledgements = []
+    applied = 0
+    for receipt in completed_triggered_snapshot_jobs(queue_root):
+        work_id = receipt.get("work_id")
+        if not work_id:
+            continue
+        if work_id not in processed_set:
+            snapshot_result = receipt.get("snapshot") or {}
+            event = {
+                "schema_version": SCHEMA_VERSION,
+                "record_type": "observation_trigger_event",
+                "work_id": work_id,
+                "triggered_at_utc": receipt.get("completed_at_utc") or utc_now().isoformat(),
+                "market_id": receipt.get("market_id"),
+                "event_slug": receipt.get("event_slug"),
+                "trigger_context": receipt.get("trigger_context") or {},
+                "snapshot": snapshot_result,
+                "queue_receipt": {
+                    "queued_at_utc": receipt.get("queued_at_utc"),
+                    "completed_at_utc": receipt.get("completed_at_utc"),
+                    "attempt_count": receipt.get("attempt_count"),
+                },
+            }
+            append_jsonl(events_path, event)
+            if snapshot_result.get("written"):
+                market_id = receipt.get("market_id")
+                status["latest_triggered"][market_id] = {
+                    "work_id": work_id,
+                    "triggered_at_utc": event["triggered_at_utc"],
+                    "event_slug": receipt.get("event_slug"),
+                    "snapshot_id": snapshot_result.get("snapshot_id"),
+                    "snapshot_path": snapshot_result.get("path"),
+                    "top_temp": snapshot_result.get("top_temp_c"),
+                    "top_probability": snapshot_result.get("top_probability"),
+                    "distribution": snapshot_result.get("distribution"),
+                    "trigger_context": receipt.get("trigger_context") or {},
+                }
+            processed.append(work_id)
+            processed_set.add(work_id)
+            applied += 1
+        acknowledgements.append(work_id)
+    # This is only a crash-recovery/deduplication horizon; normal receipts are
+    # acknowledged immediately after the status write below.
+    status["completed_trigger_work_ids"] = processed[-2048:]
+    return {"applied_count": applied, "acknowledgements": acknowledgements}
+
+
+def run_once(
+    args,
+    capture_func=capture_snapshot,
+    fetch_state_func=fetch_market_observation_state,
+    now=None,
+    *,
+    defer_triggered_snapshots=False,
+    enqueue_func=enqueue_triggered_snapshot,
+):
     now = now or utc_now()
     status_path = Path(args.status_out)
     events_path = Path(args.events_out)
@@ -598,6 +670,15 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
     }
     status.setdefault("markets", {})
     status.setdefault("latest_triggered", {})
+    status.setdefault("runtime_identity", get_runtime_identity(scope_files="loaded"))
+    trigger_queue_root = Path(
+        getattr(args, "trigger_queue_root", status_path.parent / "triggered_snapshot_queue")
+    )
+    receipt_reconciliation = apply_completed_trigger_receipts(
+        status,
+        events_path,
+        trigger_queue_root,
+    )
     poll_results = {}
     trigger_count = 0
     errors = {}
@@ -642,36 +723,46 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
                 "dry_run": bool(args.dry_run),
             }
             if triggers:
-                trigger_context = build_trigger_context(market_id, previous, current, triggers)
+                trigger_context = build_trigger_context(market_id, previous, current, triggers, now=now)
                 result["trigger_context"] = trigger_context
                 if not args.dry_run:
-                    snapshot_result = capture_func(
-                        force=True,
-                        market_id=market_id,
-                        cadence="triggered",
-                        trigger_context=trigger_context,
-                    )
-                    result["snapshot"] = snapshot_result
-                    event = {
-                        "schema_version": SCHEMA_VERSION,
-                        "record_type": "observation_trigger_event",
-                        "triggered_at_utc": utc_now().isoformat(),
-                        "market_id": market_id,
-                        "event_slug": current.get("event_slug"),
-                        "trigger_context": trigger_context,
-                        "snapshot": snapshot_result,
-                    }
-                    append_jsonl(events_path, event)
-                    status["latest_triggered"][market_id] = {
-                        "triggered_at_utc": event["triggered_at_utc"],
-                        "event_slug": current.get("event_slug"),
-                        "snapshot_id": snapshot_result.get("snapshot_id"),
-                        "snapshot_path": snapshot_result.get("path"),
-                        "top_temp": snapshot_result.get("top_temp_c"),
-                        "top_probability": snapshot_result.get("top_probability"),
-                        "distribution": snapshot_result.get("distribution"),
-                        "trigger_context": trigger_context,
-                    }
+                    if defer_triggered_snapshots:
+                        result["snapshot_queue"] = enqueue_func(
+                            market_id=market_id,
+                            target_date=current.get("target_date"),
+                            event_slug=current.get("event_slug"),
+                            trigger_context=trigger_context,
+                            queue_root=trigger_queue_root,
+                            now=now,
+                        )
+                    else:
+                        snapshot_result = capture_func(
+                            force=True,
+                            market_id=market_id,
+                            cadence="triggered",
+                            trigger_context=trigger_context,
+                        )
+                        result["snapshot"] = snapshot_result
+                        event = {
+                            "schema_version": SCHEMA_VERSION,
+                            "record_type": "observation_trigger_event",
+                            "triggered_at_utc": utc_now().isoformat(),
+                            "market_id": market_id,
+                            "event_slug": current.get("event_slug"),
+                            "trigger_context": trigger_context,
+                            "snapshot": snapshot_result,
+                        }
+                        append_jsonl(events_path, event)
+                        status["latest_triggered"][market_id] = {
+                            "triggered_at_utc": event["triggered_at_utc"],
+                            "event_slug": current.get("event_slug"),
+                            "snapshot_id": snapshot_result.get("snapshot_id"),
+                            "snapshot_path": snapshot_result.get("path"),
+                            "top_temp": snapshot_result.get("top_temp_c"),
+                            "top_probability": snapshot_result.get("top_probability"),
+                            "distribution": snapshot_result.get("distribution"),
+                            "trigger_context": trigger_context,
+                        }
                 trigger_count += len(triggers)
             market_state.update({
                 "last_poll_at_utc": now.astimezone(timezone.utc).isoformat(),
@@ -700,9 +791,10 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         "last_poll_at_utc": now.astimezone(timezone.utc).isoformat(),
         "interval_seconds": getattr(args, "interval_seconds", DEFAULT_INTERVAL_SECONDS),
         "stale_after_seconds": getattr(args, "stale_after_seconds", DEFAULT_FAST_STALE_SECONDS),
-        "runtime_identity": get_runtime_identity(scope_files="loaded"),
         "last_poll_results": poll_results,
         "last_trigger_count": trigger_count,
+        "trigger_queue": triggered_snapshot_queue_status(trigger_queue_root),
+        "trigger_receipts_applied": receipt_reconciliation["applied_count"],
         "paused": PAUSE_FLAG_PATH.exists(),
     })
     status["trade_permission"] = latest_trade_permission(
@@ -712,6 +804,8 @@ def run_once(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
         policy_path=getattr(args, "trigger_policy", DEFAULT_REPLAY_JSON),
     )
     write_status(status, status_path)
+    for work_id in receipt_reconciliation["acknowledgements"]:
+        acknowledge_triggered_snapshot_job(work_id, trigger_queue_root)
     append_diagnostic({
         "time": now.astimezone(timezone.utc).isoformat(),
         "market_count": len(poll_results),
@@ -759,7 +853,10 @@ def watcher_health(status, now=None, interval_seconds=DEFAULT_INTERVAL_SECONDS, 
         "started_at": status.get("started_at"),
         "market_id": status.get("market"),
         "interval_seconds": status.get("interval_seconds"),
+        "last_iteration_elapsed_seconds": status.get("last_iteration_elapsed_seconds"),
+        "max_recent_iteration_elapsed_seconds": status.get("max_recent_iteration_elapsed_seconds"),
         "last_trigger_count": status.get("last_trigger_count"),
+        "trigger_queue": status.get("trigger_queue") or {},
     }
 
 
@@ -1144,7 +1241,23 @@ def run_loop(args, capture_func=capture_snapshot, fetch_state_func=fetch_market_
                     capture_func=capture_func,
                     fetch_state_func=fetch_state_func,
                     now=loop_started,
+                    defer_triggered_snapshots=True,
                 )
+            iteration_completed = utc_now()
+            iteration_elapsed = max(
+                0.0,
+                (iteration_completed - loop_started).total_seconds(),
+            )
+            status = read_status(args.status_out) or status
+            attach_status_writer(status, writer_lock)
+            recent_elapsed = list(status.get("recent_iteration_elapsed_seconds") or [])
+            recent_elapsed.append(round(iteration_elapsed, 3))
+            recent_elapsed = recent_elapsed[-12:]
+            status["last_iteration_completed_at_utc"] = iteration_completed.isoformat()
+            status["last_iteration_elapsed_seconds"] = round(iteration_elapsed, 3)
+            status["recent_iteration_elapsed_seconds"] = recent_elapsed
+            status["max_recent_iteration_elapsed_seconds"] = max(recent_elapsed)
+            write_status(status, args.status_out)
             print(json.dumps(result, sort_keys=True, default=str), flush=True)
             if args.max_iterations is not None and int(status.get("iterations") or 0) >= args.max_iterations:
                 return status
@@ -1650,6 +1763,7 @@ def build_parser():
         p.add_argument("--dry-run", action="store_true")
         p.add_argument("--trigger-on-first", action="store_true")
         p.add_argument("--trigger-policy", default=str(DEFAULT_REPLAY_JSON))
+        p.add_argument("--trigger-queue-root", default=str(DEFAULT_TRIGGER_QUEUE_ROOT))
 
     once = sub.add_parser("once", help="Poll observations once and trigger recomputes if needed.")
     add_common(once)

@@ -20,6 +20,7 @@ import time
 from collections import Counter
 from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from weather.market.market_config import config_for_date, ensure_date
 from weather.market.info_event_calendar import summarize_event_gate_rows
@@ -120,6 +121,7 @@ from weather.market.live_observation_normalization import (
     normalized_high_for_market,
 )
 from weather.market.market_making_evidence import (
+    DEFAULT_ACTIVE_WINDOW_END,
     EVIDENCE_MODE_AUTO,
     EVIDENCE_MODE_ACTIVE_DAY,
     EVIDENCE_MODE_CHOICES,
@@ -1312,6 +1314,11 @@ def build_run_once(
         requested_mode=evidence_mode,
         run_mode=mode,
     )
+    active_window_start_utc = datetime.combine(
+        target,
+        dt_time.fromisoformat(evidence_classification["active_window_start_local"]),
+        tzinfo=ZoneInfo(evidence_classification["timezone"]),
+    ).astimezone(timezone.utc)
     run_id = run_id or make_run_id(now)
     run_folder = run_folder_for(runs_root, target, run_id)
     run_folder.mkdir(parents=True, exist_ok=True)
@@ -1442,6 +1449,7 @@ def build_run_once(
             event_metadata_gate=_event_metadata_gate_for_market(event_metadata_state, spec.id),
             current_high_assessment=current_high_assessment,
             release_production_capable=release_binding.bundle.production_capable,
+            active_window_start_utc=active_window_start_utc,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -1843,11 +1851,11 @@ def finalize_scoring_projection(payload):
 
 def paper_until_utc(target_date, specs):
     target = ensure_date(target_date)
-    ends = [
-        datetime.combine(target, dt_time(23, 59, 59), tzinfo=spec.tz).astimezone(timezone.utc)
-        for spec in specs
-    ]
-    return max(ends)
+    return datetime.combine(
+        target,
+        dt_time.fromisoformat(DEFAULT_ACTIVE_WINDOW_END),
+        tzinfo=ZoneInfo("America/Toronto"),
+    ).astimezone(timezone.utc)
 
 
 def run_loop(
@@ -1868,7 +1876,7 @@ def run_loop(
     with keep_system_awake("weather market-making bot loop"):
         while True:
             now = utc_now()
-            if until is not None and now > until:
+            if until is not None and now >= until:
                 break
             if max_ticks is not None and tick >= int(max_ticks):
                 break

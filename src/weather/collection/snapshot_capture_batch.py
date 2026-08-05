@@ -60,6 +60,7 @@ def capture_command(
     request,
     *,
     result_path,
+    trigger_context_path=None,
     expected_runtime_fingerprint=None,
     python_executable=None,
 ):
@@ -76,6 +77,10 @@ def capture_command(
         command.append("--force")
     if request.get("target_date"):
         command.extend(["--target-date", str(request["target_date"])])
+    if request.get("cadence"):
+        command.extend(["--cadence", str(request["cadence"])])
+    if trigger_context_path:
+        command.extend(["--trigger-context-file", str(trigger_context_path)])
     if expected_runtime_fingerprint:
         command.extend([
             "--expected-runtime-fingerprint",
@@ -159,9 +164,17 @@ def run_isolated_capture(
     started_at = now_fn()
     with tempfile.TemporaryDirectory(prefix="weather_snapshot_capture_") as tmp:
         result_path = Path(tmp) / "result.json"
+        trigger_context_path = None
+        if request.get("trigger_context"):
+            trigger_context_path = Path(tmp) / "trigger_context.json"
+            trigger_context_path.write_text(
+                json.dumps(request["trigger_context"], sort_keys=True, default=str),
+                encoding="utf-8",
+            )
         command = capture_command(
             request,
             result_path=result_path,
+            trigger_context_path=trigger_context_path,
             expected_runtime_fingerprint=expected_runtime_fingerprint,
             python_executable=python_executable,
         )

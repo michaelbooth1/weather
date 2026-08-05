@@ -216,6 +216,14 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger replay
 ```
 
+The managed observation loop persists material triggers to
+`data/snapshots/triggered_snapshot_queue/` and returns to polling; it never
+runs a model snapshot inline. The existing snapshot loop checks the spool every
+five seconds during its normal idle sleep and claims queued work on its next
+bounded pass, using its normal worker, timeout, and host-memory admission.
+Retryable failures remain pending, and terminal results are published to
+`observation_triggers.jsonl`.
+
 ### Settlement, Reporting, And Promotion
 
 ```powershell
@@ -451,6 +459,7 @@ data/
     clob_diagnostics.jsonl
     observation_trigger_status.json
     observation_triggers.jsonl
+    triggered_snapshot_queue/    # durable pending/in-flight/receipt handoff
     <event-slug>/
       snapshots_long.csv
       snapshots.jsonl

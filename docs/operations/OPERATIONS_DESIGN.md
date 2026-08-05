@@ -21,7 +21,7 @@ loop.
 | :--- | :--- | :--- | :--- |
 | Weather/model snapshots | `WeatherSnapshotLoopSupervisor` | `python -m weather.collection.snapshot_tracker --ensure` | Multi-market weather, model, source-state, and market snapshot tapes at the slower scheduled cadence. |
 | CLOB books | `WeatherClobBookLoopSupervisor` | `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15` | Independent fast Polymarket order-book and market-event capture. |
-| Observation triggers | `WeatherObservationTriggerSupervisor` | `python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180` | Low-cost observation polling and forced recomputes when settlement-relevant source state changes. |
+| Observation triggers | `WeatherObservationTriggerSupervisor` | `python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180` | Low-cost observation polling and durable enqueueing when settlement-relevant source state changes. The snapshot loop performs recomputes under its existing resource bounds. |
 
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
@@ -99,7 +99,19 @@ new handle.
 - `data/snapshots/observation_trigger_console.log`
 - `data/snapshots/observation_triggers.jsonl`
 - `data/snapshots/observation_source_cache/<market>.json`
+- `data/snapshots/triggered_snapshot_queue/{pending,inflight,completed,acknowledged}/`
 - forced snapshot rows tagged with trigger context
+
+The watcher writes one immutable work file per material market trigger and does
+not execute snapshot/model work in its polling iteration. The weather snapshot
+loop checks the spool every five seconds during its normal idle sleep, claims
+at most one queued item per market on its next pass, and substitutes it into
+the same bounded isolated batch used for scheduled captures. A pass already in
+progress retains its existing fleet-deadline bound. Retryable resource,
+timeout, or fleet-budget failures return to
+`pending`; terminal receipts remain in `completed` until the watcher publishes
+the existing observation-trigger event and replaces the receipt with a compact
+acknowledgement. A snapshot-loop restart recovers orphaned `inflight` files.
 
 The watcher uses one observation-only last-good cache per market. It does not
 read or migrate the full model cache under `data/wunderground/`; a missing

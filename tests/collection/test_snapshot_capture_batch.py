@@ -18,6 +18,14 @@ from weather.collection.snapshot_capture_batch import (
     run_isolated_capture,
 )
 from weather.collection.snapshot_tracker import capture_runtime_fingerprint_gate
+from weather.collection.triggered_snapshot_queue import (
+    claim_triggered_snapshot_jobs,
+    completed_triggered_snapshot_jobs,
+    enqueue_triggered_snapshot,
+    recover_inflight_jobs,
+    retry_triggered_snapshot_job,
+    triggered_snapshot_queue_status,
+)
 
 
 NOW = datetime(2026, 7, 11, 18, 0, tzinfo=timezone.utc)
@@ -298,9 +306,16 @@ def test_isolated_capture_classifies_and_persists_resource_limit_evidence():
 
 
 def test_command_preserves_force_date_market_and_parent_runtime_identity(tmp_path):
+    context_path = tmp_path / "trigger-context.json"
     command = capture_command(
-        {"market_id": "seattle", "force": True, "target_date": "2026-07-11"},
+        {
+            "market_id": "seattle",
+            "force": True,
+            "target_date": "2026-07-11",
+            "cadence": "triggered",
+        },
         result_path=tmp_path / "result.json",
+        trigger_context_path=context_path,
         expected_runtime_fingerprint="abc123",
         python_executable="python.exe",
     )
@@ -309,6 +324,8 @@ def test_command_preserves_force_date_market_and_parent_runtime_identity(tmp_pat
     assert command[command.index("--market") + 1] == "seattle"
     assert command[command.index("--target-date") + 1] == "2026-07-11"
     assert command[command.index("--expected-runtime-fingerprint") + 1] == "abc123"
+    assert command[command.index("--cadence") + 1] == "triggered"
+    assert command[command.index("--trigger-context-file") + 1] == str(context_path)
     assert "--force" in command
 
 
@@ -494,6 +511,163 @@ def test_managed_loop_integrates_batch_heartbeats_and_isolates_market_error(
         "physical_write_budget_bytes": 400,
         "physical_write_budget_status": "PASS",
     }
+
+
+def test_managed_loop_claims_trigger_queue_under_existing_bounded_batch(
+    tmp_path,
+    monkeypatch,
+):
+    spec = SimpleNamespace(id="toronto")
+    due_state = {
+        "market_id": "toronto",
+        "event_slug": "event-toronto",
+        "target_date": "2026-07-11",
+        "due": False,
+        "last_snapshot_at": NOW.isoformat(),
+        "next_due_at": (NOW + timedelta(minutes=9)).isoformat(),
+    }
+    queue_root = tmp_path / "trigger_queue"
+    context = {
+        "market_id": "toronto",
+        "event_slug": "event-toronto",
+        "target_date": "2026-07-11",
+        "current_observation": {"captured_at_utc": NOW.isoformat()},
+        "triggers": [{"reason": "wu_history_high_increased"}],
+    }
+    queued = enqueue_triggered_snapshot(
+        market_id="toronto",
+        target_date="2026-07-11",
+        event_slug="event-toronto",
+        trigger_context=context,
+        queue_root=queue_root,
+        now=NOW,
+    )
+
+    def fake_batch(requests, **_kwargs):
+        assert len(requests) == 1
+        assert requests[0]["market_id"] == "toronto"
+        assert requests[0]["cadence"] == "triggered"
+        assert requests[0]["force"] is True
+        assert requests[0]["trigger_context"] == context
+        return {
+            "records": [{
+                "market_id": "toronto",
+                "started_at": NOW,
+                "completed_at": NOW + timedelta(seconds=1),
+                "result": {
+                    "written": True,
+                    "snapshot_id": "triggered-snapshot",
+                    "path": "snapshots_long.csv",
+                },
+                "execution": {"mode": "synthetic_isolated"},
+            }],
+            "summary": {"mode": "isolated_subprocess_batch", "request_count": 1},
+        }
+
+    class NoopPower:
+        def start(self):
+            return {"status": "synthetic"}
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(tracker, "LOOP_STATUS_PATH", tmp_path / "loop_status.json")
+    monkeypatch.setattr(tracker, "DIAGNOSTICS_PATH", tmp_path / "diagnostics.jsonl")
+    monkeypatch.setattr(tracker, "PAUSE_FLAG_PATH", tmp_path / "pause.flag")
+    monkeypatch.setattr(tracker, "all_specs", lambda: [spec])
+    monkeypatch.setattr(
+        tracker,
+        "ordered_snapshot_specs",
+        lambda *_args, **_kwargs: [(spec, due_state)],
+    )
+    monkeypatch.setattr(tracker, "run_bounded_capture_batch", fake_batch)
+    monkeypatch.setattr(
+        tracker,
+        "runtime_identity_status",
+        lambda *_args, **_kwargs: {"runtime_code_state": "current_code"},
+    )
+    monkeypatch.setattr(
+        tracker,
+        "current_fleet_collection_health",
+        lambda **_kwargs: {"summary": {}, "markets": []},
+    )
+    monkeypatch.setattr(tracker, "keep_system_awake", lambda _reason: NoopPower())
+
+    status = tracker.run_loop(
+        interval_minutes=10,
+        max_iterations=1,
+        sleep_fn=lambda _seconds: None,
+        now_fn=lambda: NOW,
+        available_memory_fn=lambda: 16 * 1024**3,
+        trigger_queue_root=queue_root,
+    )
+    receipts = completed_triggered_snapshot_jobs(queue_root)
+
+    assert status["trigger_queue"]["pending_count"] == 0
+    assert status["trigger_queue"]["completed_unacknowledged_count"] == 1
+    assert receipts[0]["work_id"] == queued["work_id"]
+    assert receipts[0]["snapshot"]["snapshot_id"] == "triggered-snapshot"
+
+
+def test_trigger_queue_retries_failures_and_recovers_orphaned_inflight_work(tmp_path):
+    queue_root = tmp_path / "trigger_queue"
+    context = {
+        "current_observation": {"captured_at_utc": NOW.isoformat()},
+        "triggers": [{"reason": "wu_current_temp_bucket_crossed"}],
+    }
+    queued = enqueue_triggered_snapshot(
+        market_id="toronto",
+        target_date="2026-07-11",
+        event_slug="event-toronto",
+        trigger_context=context,
+        queue_root=queue_root,
+        now=NOW,
+    )
+    claimed = claim_triggered_snapshot_jobs(queue_root, market_ids=["toronto"])
+    retry_triggered_snapshot_job(
+        claimed[0],
+        {"written": False, "retryable": True, "capture_status": "capture_timeout"},
+        queue_root=queue_root,
+        now=NOW + timedelta(seconds=120),
+    )
+    retried = claim_triggered_snapshot_jobs(queue_root, market_ids=["toronto"])
+    recovery = recover_inflight_jobs(queue_root)
+    status = triggered_snapshot_queue_status(queue_root)
+
+    assert retried[0]["work_id"] == queued["work_id"]
+    assert retried[0]["attempt_count"] == 1
+    assert recovery["recovered_work_ids"] == [queued["work_id"]]
+    assert status["pending_count"] == 1
+    assert status["inflight_count"] == 0
+
+
+def test_snapshot_idle_sleep_is_interrupted_without_running_an_extra_fleet_pass(tmp_path):
+    queue_root = tmp_path / "trigger_queue"
+    sleeps = []
+
+    def sleep_and_enqueue(seconds):
+        sleeps.append(seconds)
+        enqueue_triggered_snapshot(
+            market_id="toronto",
+            target_date="2026-07-11",
+            event_slug="event-toronto",
+            trigger_context={
+                "current_observation": {"captured_at_utc": NOW.isoformat()},
+                "triggers": [{"reason": "wu_history_high_increased"}],
+            },
+            queue_root=queue_root,
+            now=NOW,
+        )
+
+    result = tracker.sleep_until_due_or_triggered_work(
+        20,
+        queue_root=queue_root,
+        sleep_fn=sleep_and_enqueue,
+        check_seconds=5,
+    )
+
+    assert sleeps == [5]
+    assert result == {"interrupted": True, "remaining_seconds": 15.0}
 
 
 def test_managed_loop_fails_closed_before_spawning_when_memory_cannot_admit_one(
