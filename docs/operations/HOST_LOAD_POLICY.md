@@ -21,7 +21,7 @@ be rescheduled — is never starved.
 | 00:05–00:30 | taker/MM daily roll-over | brief spike |
 | 00:30–09:00 | steady-state capture only (loops + supervisors) | **QUIET — heavy work goes here** |
 | 09:30–12:30 | Stage A settlement chain (labels, scorecards, tiering, parquet incremental) | heavy, scheduled |
-| 12:30–18:00 | capture + light periodic tasks (config refresh, disagreement analysis) | moderate |
+| 12:30–18:00 | capture + light periodic tasks (config refresh, disagreement analysis, incremental skill refresh at 13:00) | moderate |
 | 18:00–00:05 | near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch | **PROTECTED — nothing heavy, ever** |
 
 Stage-A settlement safeguards: the daily taker edge-permission aggregation is
@@ -177,6 +177,12 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
 5. Scheduled `-m weather.*` heavy work stays governed by its own admission
    gate (capture-resource DEFER on this live host) — this policy does not
    loosen it.
+
+The model-versus-market skill tracker follows the same split: its one-time
+full tape backfill is heavy ad-hoc work and belongs in 00:30-09:00 after the
+commit/disk preflight. Its 13:00 scheduled `refresh` requires that checkpoint,
+stats every known tape, and fully reads/hashes only changed settlement ledgers
+or snapshot tapes. It must not fall back to an unattended full backfill.
 
 ## Incident 2026-07-12 (why this policy exists)
 

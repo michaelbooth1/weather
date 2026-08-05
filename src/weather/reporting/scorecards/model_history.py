@@ -6,7 +6,7 @@ import json
 import math
 import csv
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.paths import data_path
@@ -22,19 +22,23 @@ from weather.scoring.metrics import (
 from weather.backtesting.settlement_ledger import (
     band_value_hi,
     clean_temperature_label,
+    current_ledger_label,
     ledger_label_for_slug,
+    ledger_path_for_market,
     parse_band_label,
+    read_jsonl as read_settlement_jsonl,
     resolve_outcome,
+    verify_ledger_history,
 )
 from weather.market.market_config import event_slug_for_date
 from weather.market.market_registry import all_specs, spec_for_id
-from weather.model.model_constants import TORONTO_TZ
+from weather.schema_registry import schema_version
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
 DEFAULT_LABELS_CSV = data_path() / "backtest" / "market_day_labels.csv"
 DEFAULT_HISTORY_CACHE = data_path() / "backtest" / "model_history_cache.json"
-MODEL_HISTORY_CACHE_SCHEMA = "model_history_cache_v0.3"
+MODEL_HISTORY_CACHE_SCHEMA = schema_version("model_history_cache")
 
 
 def safe_float(value):
@@ -86,14 +90,33 @@ def fmt_signed(value, digits=4):
 
 
 def recent_completed_dates(as_of=None, days=3):
-    """Last ``days`` completed target dates, excluding the current app date."""
-    as_of = as_of or datetime.now(TORONTO_TZ)
+    """Last ``days`` completed dates in the timezone carried by ``as_of``.
+
+    Callers evaluating a market should prefer ``market_completed_dates`` so a
+    western market cannot inherit Toronto's calendar near midnight.
+    """
+    as_of = as_of or datetime.now(timezone.utc)
     if isinstance(as_of, datetime):
         current = as_of.date()
     elif isinstance(as_of, date):
         current = as_of
     else:
         current = datetime.fromisoformat(str(as_of)).date()
+    return [current - timedelta(days=offset) for offset in range(days, 0, -1)]
+
+
+def market_completed_dates(spec, as_of=None, days=3):
+    """Last completed target dates using one market's settlement timezone."""
+
+    instant = as_of or datetime.now(timezone.utc)
+    if isinstance(instant, date) and not isinstance(instant, datetime):
+        current = instant
+    else:
+        if not isinstance(instant, datetime):
+            instant = datetime.fromisoformat(str(instant))
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=timezone.utc)
+        current = instant.astimezone(spec.tz).date()
     return [current - timedelta(days=offset) for offset in range(days, 0, -1)]
 
 
@@ -128,10 +151,31 @@ def load_label_index(path=DEFAULT_LABELS_CSV):
     return rows
 
 
-def load_label(event_slug, folder, label_index=None):
+def load_label(event_slug, folder, label_index=None, ledger_root=None):
+    """Load the authoritative ledger label, with legacy projections as fallback."""
+
+    ledger_label = ledger_label_for_slug(event_slug, ledger_root=ledger_root)
+    if ledger_label:
+        return ledger_label
     if label_index and event_slug in label_index:
         return label_index[event_slug]
-    return ledger_label_for_slug(event_slug) or _read_folder_label(folder) or {}
+    return _read_folder_label(folder) or {}
+
+
+def load_ledger_label_index(specs, ledger_root=None):
+    """Read each physical market ledger once and return its current labels."""
+
+    labels = {}
+    for spec in specs:
+        path = ledger_path_for_market(spec.id, ledger_root)
+        rows = read_settlement_jsonl(path)
+        verification = verify_ledger_history(rows)
+        if verification["status"] != "PASS":
+            codes = ",".join(item["code"] for item in verification["blockers"])
+            raise RuntimeError(f"settlement ledger integrity failure at {path}: {codes}")
+        for event_slug in {row.get("event_slug") for row in rows if row.get("event_slug")}:
+            labels[event_slug] = current_ledger_label(rows, event_slug)
+    return labels
 
 
 def _file_signature(path):
@@ -150,11 +194,22 @@ def _file_signature(path):
     }
 
 
-def history_signature(root, selected_dates, specs, labels_csv=DEFAULT_LABELS_CSV):
+def history_signature(
+    root,
+    selected_dates,
+    specs,
+    labels_csv=DEFAULT_LABELS_CSV,
+    ledger_root=None,
+    dates_by_market=None,
+):
     root = Path(root)
     files = [_file_signature(labels_csv)]
-    for target_date in selected_dates:
-        for spec in specs:
+    dates_by_market = dates_by_market or {
+        spec.id: list(selected_dates) for spec in specs
+    }
+    for spec in specs:
+        files.append(_file_signature(ledger_path_for_market(spec.id, ledger_root)))
+        for target_date in dates_by_market.get(spec.id, []):
             folder = root / event_slug_for_date(target_date, spec.id)
             files.append(_file_signature(folder / "snapshots_long.csv"))
             files.append(_file_signature(folder / "settlement.json"))
@@ -162,6 +217,10 @@ def history_signature(root, selected_dates, specs, labels_csv=DEFAULT_LABELS_CSV
         "schema_version": MODEL_HISTORY_CACHE_SCHEMA,
         "root": str(root.resolve()) if root.exists() else str(root),
         "dates": [item.isoformat() for item in selected_dates],
+        "dates_by_market": {
+            market_id: [item.isoformat() for item in market_dates]
+            for market_id, market_dates in sorted(dates_by_market.items())
+        },
         "market_ids": [spec.id for spec in specs],
         "files": files,
     }
@@ -194,7 +253,7 @@ def _write_history_cache(path, signature, payload):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         record = {
-            "generated_at": datetime.now(TORONTO_TZ).isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
             "signature": signature,
             "payload": payload,
         }
@@ -286,6 +345,10 @@ def scoring_rows(frame, settlement_bucket, target_date):
                 "capture_minute": capture_minute,
                 "cutoff_hour": capture_minute // 60 if capture_minute is not None else None,
                 "model_version": row.get("model_version"),
+                "runtime_git_commit": row.get("runtime_git_commit"),
+                "runtime_git_dirty": row.get("runtime_git_dirty"),
+                "runtime_code_state": row.get("runtime_code_state"),
+                "runtime_source_fingerprint": row.get("runtime_source_fingerprint"),
                 "market_id": row.get("_market_id"),
                 "city": row.get("_city"),
                 "band": _clean_label(row.get("range_label")),
@@ -452,7 +515,15 @@ def _status_summary(status):
     return labels.get(status, status or "-")
 
 
-def summarize_market_day(folder, spec, target_date, label_index=None):
+def summarize_market_day(
+    folder,
+    spec,
+    target_date,
+    label_index=None,
+    *,
+    label=None,
+    ledger_root=None,
+):
     folder = Path(folder)
     event_slug = event_slug_for_date(target_date, spec.id)
     row = {
@@ -487,7 +558,12 @@ def summarize_market_day(folder, spec, target_date, label_index=None):
     row["snapshot_count"] = int(frame["snapshot_id"].nunique()) if "snapshot_id" in frame else 0
     row["band_count"] = int(frame["range_label"].nunique()) if "range_label" in frame else 0
 
-    label = load_label(event_slug, folder, label_index=label_index)
+    label = label or load_label(
+        event_slug,
+        folder,
+        label_index=label_index,
+        ledger_root=ledger_root,
+    )
     settlement_bucket = safe_int(label.get("settlement_bucket"))
     row.update(
         {
@@ -622,29 +698,48 @@ def build_history_payload(
     labels_csv=DEFAULT_LABELS_CSV,
     use_cache=False,
     cache_path=DEFAULT_HISTORY_CACHE,
+    ledger_root=None,
 ):
-    selected_dates = list(dates or recent_completed_dates(as_of=as_of, days=days))
     market_id_set = set(market_ids or [])
     specs = [spec for spec in all_specs() if not market_id_set or spec.id in market_id_set]
+    if dates is not None:
+        selected_dates = list(dates)
+        dates_by_market = {spec.id: selected_dates for spec in specs}
+    else:
+        dates_by_market = {
+            spec.id: market_completed_dates(spec, as_of=as_of, days=days)
+            for spec in specs
+        }
+        selected_dates = sorted({item for values in dates_by_market.values() for item in values})
     root = Path(snapshots_root)
-    signature = history_signature(root, selected_dates, specs, labels_csv=labels_csv)
+    signature = history_signature(
+        root,
+        selected_dates,
+        specs,
+        labels_csv=labels_csv,
+        ledger_root=ledger_root,
+        dates_by_market=dates_by_market,
+    )
     if use_cache:
         cached = _read_history_cache(cache_path, signature)
         if cached is not None:
             return cached
 
     label_index = load_label_index(labels_csv)
+    ledger_label_index = load_ledger_label_index(specs, ledger_root=ledger_root)
     day_rows = []
     all_rows = []
 
-    for target_date in selected_dates:
-        for spec in specs:
+    for spec in specs:
+        for target_date in dates_by_market.get(spec.id, []):
             folder = root / event_slug_for_date(target_date, spec.id)
             summary, rows = summarize_market_day(
                 folder,
                 spec,
                 target_date,
                 label_index=label_index,
+                label=ledger_label_index.get(event_slug_for_date(target_date, spec.id)),
+                ledger_root=ledger_root,
             )
             day_rows.append(summary)
             all_rows.extend(rows)
@@ -675,9 +770,13 @@ def build_history_payload(
     }
 
     payload = {
-        "generated_at": datetime.now(TORONTO_TZ).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "snapshots_root": str(root),
         "dates": [item.isoformat() for item in selected_dates],
+        "dates_by_market": {
+            market_id: [item.isoformat() for item in market_dates]
+            for market_id, market_dates in sorted(dates_by_market.items())
+        },
         "days": day_rows,
         "overall": overall,
         "by_location": _group_score_rows(all_rows, scored_days, "market_id", "city"),

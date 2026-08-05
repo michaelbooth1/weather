@@ -148,6 +148,24 @@ Bot daily-roll workers and reporting jobs have their own launchers,
 supervisors, status artifacts, and evidence gates. They consume capture output
 but are not a fourth capture loop.
 
+## Model-versus-market skill tracking
+
+`weather.reporting.scorecards.model_market_skill_tracker` maintains an
+append-only, correction-preserving skill series from promotion-countable
+settlement-ledger labels and served `snapshots_long.csv` tapes. `backfill` is an
+explicit heavy first run for the 00:30-09:00 host quiet window. `refresh` fails
+closed without that checkpoint and otherwise reads only changed physical
+ledgers and changed/new tapes. Both commands check
+`docs/operations/reserved-confirmation-window.md` before enumerating evidence
+and stop while any reservation is active or ambiguous.
+
+`scripts/ops/register_model_market_skill_tracker.ps1` defines the optional
+`WeatherModelMarketSkillTracker` direct Python task at 13:00 with a 30-minute
+limit. The task is light after the checkpoint and is separate from Stage A;
+the registration script must not be used to disguise or launch the initial
+backfill. Registration is an operator action and is not performed by tests or
+repository delivery work.
+
 ## Daily Refresh Delegated-Child Tasks
 
 `scripts/ops/register_daily_refresh.ps1` registers both daily stages as

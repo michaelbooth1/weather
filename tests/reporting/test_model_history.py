@@ -9,8 +9,11 @@ from weather.reporting.scorecards.model_history import (  # noqa: E402
     format_daily_brier_table,
     format_group_table,
     format_location_hour_table,
+    load_label,
+    market_completed_dates,
     recent_completed_dates,
 )
+from weather.market.market_registry import spec_for_id
 
 
 SLUG = "highest-temperature-in-toronto-on-july-1-2026"
@@ -142,6 +145,30 @@ def test_recent_completed_dates_excludes_current_day():
         date(2026, 6, 13),
         date(2026, 6, 14),
     ]
+
+
+def test_market_completed_dates_use_each_market_timezone():
+    instant = datetime.fromisoformat("2026-07-02T04:30:00+00:00")
+    assert market_completed_dates(spec_for_id("toronto"), instant, days=1) == [
+        date(2026, 7, 1)
+    ]
+    assert market_completed_dates(spec_for_id("los-angeles"), instant, days=1) == [
+        date(2026, 6, 30)
+    ]
+
+
+def test_load_label_prefers_authoritative_ledger(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "weather.reporting.scorecards.model_history.ledger_label_for_slug",
+        lambda event_slug, ledger_root=None: {"event_slug": event_slug, "settlement_bucket": 26},
+    )
+    label = load_label(
+        SLUG,
+        tmp_path,
+        label_index={SLUG: {"event_slug": SLUG, "settlement_bucket": "25"}},
+        ledger_root=tmp_path / "settlements",
+    )
+    assert label["settlement_bucket"] == 26
 
 
 def test_history_payload_scores_day_and_finds_winner_first_over_50(tmp_path, monkeypatch):

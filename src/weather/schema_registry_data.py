@@ -1483,15 +1483,40 @@ REGISTERED_SCHEMAS = (
         migration_notes="Adds winner-band catch-up diagnostics by location, day, and location-hour.",
     ),
     SchemaSpec(
-        "model_history_cache",
+        "model_history_cache_v0_3",
         "model_history_cache_v0.3",
         "weather.reporting.scorecards.model_history",
-        "active",
+        "legacy",
         supersedes=("model_history_cache_v0.2",),
         migration_notes=(
             "Caches material_coverage_grade and promotion_countable(+reason) "
             "per settled label so history rows carry item-319 countability."
         ),
+    ),
+    SchemaSpec(
+        "model_history_cache",
+        "model_history_cache_v0.4",
+        "weather.reporting.scorecards.model_history",
+        "active",
+        supersedes=("model_history_cache_v0.3",),
+        migration_notes=(
+            "Uses the settlement ledger before legacy label projections and derives completed "
+            "target dates independently in every market timezone."
+        ),
+    ),
+    SchemaSpec(
+        "model_market_skill_history",
+        "model_market_skill_history_v0.1",
+        "weather.reporting.scorecards.model_market_skill_tracker",
+        "active",
+        "Append-only market-day and weekly model-versus-market skill revisions.",
+    ),
+    SchemaSpec(
+        "model_market_skill_summary",
+        "model_market_skill_summary_v0.1",
+        "weather.reporting.scorecards.model_market_skill_tracker",
+        "active",
+        "Restart checkpoint and current operator projection for the durable skill series.",
     ),
     SchemaSpec("multi_variant_shadow", "multi_variant_shadow_v0.1", "weather.reporting.candidate_lifecycle.multi_variant_shadow", "active"),
     SchemaSpec(

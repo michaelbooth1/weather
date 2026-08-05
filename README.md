@@ -222,6 +222,11 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.market.market_day_labels finalize
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
+# One-time full build (run manually in the host quiet window), then incremental refreshes.
+.\venv\Scripts\python.exe -m weather.reporting.scorecards.model_market_skill_tracker backfill `
+  --floor-control-rows <hard-floor-control.csv> `
+  --cool-bias-control-rows <cool-bias-control.csv>
+.\venv\Scripts\python.exe -m weather.reporting.scorecards.model_market_skill_tracker refresh
 .\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
 .\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
 .\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
@@ -422,6 +427,13 @@ candidate training are separate registrations. Their script parameter blocks
 are the source of truth for names, cadence, and required inputs. On a dedicated
 single host, use the bounded training-window topology; do not also enable the
 direct nightly-retrain task for the same workload.
+
+`scripts/ops/register_model_market_skill_tracker.ps1` defines the optional
+`WeatherModelMarketSkillTracker` incremental task at 13:00. Registration does
+not perform the required first backfill, and `refresh` fails closed until that
+checkpoint exists. Run the first backfill manually during 00:30-09:00 after the
+host resource preflight; the scheduled path then reads only changed settlement
+ledgers and changed served snapshot tapes.
 
 The Operations dashboard can inspect and control the supervised loops. CLI
 status commands are still the fastest sanity checks:

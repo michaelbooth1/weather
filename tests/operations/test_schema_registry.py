@@ -30,6 +30,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "residual_distribution_v1_forward_attestation_v1",
         )
         self.assertEqual(schema_version("feature_store"), "toronto_feature_store_v1.15")
+        self.assertEqual(schema_version("model_history_cache"), "model_history_cache_v0.4")
         self.assertEqual(schema_version("feature_quality_quarantine"), "feature_quality_quarantine_v0.1")
         self.assertEqual(schema_version("reanalysis_synoptic_features"), "reanalysis_synoptic_features_v0.5")
         self.assertEqual(schema_version("pressure_level_cache_status"), "pressure_level_cache_status_v0.1")
@@ -82,6 +83,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("live_variant_settlement_scorecard"),
             "live_variant_settlement_scorecard_v0.1",
+        )
+        self.assertEqual(
+            schema_version("model_market_skill_history"),
+            "model_market_skill_history_v0.1",
+        )
+        self.assertEqual(
+            schema_version("model_market_skill_summary"),
+            "model_market_skill_summary_v0.1",
         )
         self.assertEqual(schema_version("release_manifest"), "release_manifest_v0.1")
         self.assertEqual(
