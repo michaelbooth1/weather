@@ -14,6 +14,7 @@ from weather.market.taker_bot import ORDER_COLUMNS
 from weather.market.market_config import event_slug_for_date
 from weather.market.mm_scoring_projection import (
     BASE_PROJECTION_FILENAME,
+    LIVE_APPEND_PREFIX_BINDING_MODE,
     MODEL_VARIANT_PROJECTION_FILENAME,
     SCORING_COLUMNS,
     resolve_run_scoring_inputs,
@@ -4022,12 +4023,31 @@ class TestDailyRefresh(unittest.TestCase):
         projected_receipt = selected_inputs[str(projected)]
         self.assertEqual(fallback_receipt["input_mode"], "canonical_fallback")
         self.assertEqual(
+            {
+                binding.get("binding_mode")
+                for binding in fallback_receipt["input_bindings"].values()
+            },
+            {LIVE_APPEND_PREFIX_BINDING_MODE},
+        )
+        self.assertTrue(
+            all(
+                len(binding.get("sha256") or "") == 64
+                for binding in fallback_receipt["input_bindings"].values()
+            )
+        )
+        self.assertEqual(
             fallback_receipt["projection_reason"],
             "model_variant_projection_binding_mismatch",
         )
         self.assertEqual(fallback_receipt["input_bytes"], fallback_input_bytes)
         self.assertEqual(fallback_receipt["canonical_bytes"], fallback_input_bytes)
         self.assertEqual(projected_receipt["input_mode"], "projection")
+        self.assertTrue(
+            all(
+                "binding_mode" not in binding
+                for binding in projected_receipt["input_bindings"].values()
+            )
+        )
         self.assertEqual(projected_receipt["input_bytes"], projected_input_bytes)
         self.assertEqual(
             projected_receipt["canonical_bytes"], projected_canonical_bytes

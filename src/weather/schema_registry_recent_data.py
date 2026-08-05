@@ -7,6 +7,13 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "maker_scoring_input_binding",
+        "maker_scoring_input_binding_v0.1",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Hash-attested complete-record byte-prefix binding for live-appending maker scoring inputs.",
+    ),
+    SchemaSpec(
         "forecast_payload_manifest",
         "forecast_payload_manifest_v2",
         "weather.collection.snapshot_store",
