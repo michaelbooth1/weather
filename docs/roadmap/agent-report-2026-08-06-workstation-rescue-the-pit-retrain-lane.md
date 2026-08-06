@@ -2,12 +2,12 @@
 
 ## Verdict
 
-`codex/workstation-consolidate-merge-queue-2026-09-01a` is the surviving
+**`codex/workstation-consolidate-merge-queue-2026-09-01a` is the surviving
 retrain lane, but the handoff's highest-priority falsifier fired before repair.
 The held lane did not read `source_payload.covered_years`, yet its PIT selection
 was still sized from candidate-supplied `selected_dates` and candidate-supplied
 count/minimum fields. The absence of the named defect was accidental rather
-than a safe design property. Before this rescue, neither lane was safe.
+than a safe design property. Before this rescue, neither lane was safe.**
 
 The rescue now binds the first-retrain population into the self-hashed retrain
 plan: years 2021-2025, target month/day +/-7 days, cutoff hours 07-20, and all
@@ -31,8 +31,10 @@ without porting its self-sizing base-retrain orchestration.
 - Required branch:
   `codex/workstation-rescue-the-pit-retrain-lane-2026-09-20a`
 - Held parent: `450f03c53fad461732039bd879f9cc5f494f28ab`
-- Refreshed master: `e802233522f455fe857357ea287384f1999538fa`
-- Refresh merge: `5cc53f50` (`Merge origin/master into PIT retrain rescue`)
+- Minimum requested master: `e802233522f455fe857357ea287384f1999538fa`
+- Current master basis: `fbb729bb22c70b3267e1afa002dabb013833dea7`
+- Initial refresh merge: `5cc53f50` (`Merge origin/master into PIT retrain rescue`)
+- Rescue implementation commit: `1e97ec71076988727d63e8707eca488947f50c22`
 - Worktree: `scratch/w/rescue-pit-09-20a`
 - PR: none
 - Integration merge: none
@@ -55,6 +57,14 @@ No assertion was silently weakened during the refresh. The only changed test
 meaning in the rescue is deliberate: the synthetic exact-PASS base-retrain
 fixture now proves the complete fixed 75-date x 14-cutoff x 12-market matrix,
 not the former one-date x one-cutoff candidate-sized matrix.
+
+Origin advanced from `e8022335` to `fbb729bb` during final verification. The
+additional refresh was clean and documentation-only: it added the canonical
+established-findings, retractions, and delegation-contract guidance and updated
+their indexes. It did not alter the repaired code or the verification result.
+The newly canonical findings retained the earlier literal-search conclusion;
+this branch updates that entry to record the indirect candidate-sizing defect
+that the mission's falsifier proved.
 
 ## Lane adjudication
 
@@ -212,7 +222,7 @@ python -m compileall -q app src tests
 PASS
 
 python -m weather.operations.agent_docs_audit
-PASS (18 agent files, 679 Markdown files)
+PASS (18 agent files, 682 Markdown files)
 ```
 
 The master refresh exposed one pre-existing agent-doc audit failure: an

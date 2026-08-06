@@ -22,6 +22,24 @@ commands or policies into another guide.
 excludes current metrics, versions, local runtime state, and backlog priorities;
 use generated reports and the active backlog for those facts.
 
+## Accumulated Knowledge
+
+Three documents hold what the ~600-file dated correspondence under `docs/roadmap/`
+established. That record is too large for any agent to read; these are its
+distillation and should be read before model, measurement, or research work.
+
+- [Established Findings](ESTABLISHED_FINDINGS.md) owns measured results about the
+  model, the market gap, the cool bias, the serving floor, and feature blindness,
+  each with its support and interval treatment.
+- [Retracted Claims And False Leads](RETRACTED_AND_FALSE_LEADS.md) owns claims that
+  were published and withdrawn, plus operational alarms that look real and are not.
+  Read it before acting on a surprising result.
+- [Delegation Contract](DELEGATION_CONTRACT.md) owns the standing boundaries,
+  roll-verdict method, and required structure for cross-host handoffs and reports.
+
+These files record evidence, not invariants. Re-verify a number against its named
+source report before citing it in a new decision.
+
 ## Development And Validation
 
 - [Python Runtime Audit Gate](PYTHON_RUNTIME_AUDIT_GATE.md) covers the focused

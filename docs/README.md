@@ -11,6 +11,9 @@ record that is valuable evidence but not current instruction.
 | Product purpose, setup, dashboard, command catalog | [Root README](../README.md) | Canonical guide |
 | Agent rules and task routing | [Root AGENTS.md](../AGENTS.md) | Canonical guide |
 | Durable domain constraints | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
+| **What we have measured about the model** | [Established findings](operations/ESTABLISHED_FINDINGS.md) | Canonical distillation |
+| **Claims that were wrong, and traps that look true** | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md) | Canonical distillation |
+| **Running or receiving a cross-host mission** | [Delegation contract](operations/DELEGATION_CONTRACT.md) | Canonical contract |
 | System boundaries and data flow | [Architecture](architecture.md) | Canonical guide |
 | Development and verification | [Development](development.md) | Canonical guide |
 | Git branches, worktrees, commits, and pull requests | [Git workflow SOP](git-workflow.md) | Canonical runbook |
@@ -51,6 +54,12 @@ check which one a link points at.
 fastest current-work view. `roadmap/ROADMAP.md` is the full taxonomy/index.
 Dated audits, research reports, incident notes, completed item transcripts, and
 older narratives are immutable evidence, not operator instructions.
+
+**The correspondence is too large to read.** It is ~600 files and grows daily.
+[Established findings](operations/ESTABLISHED_FINDINGS.md) and
+[retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md) are the distilled state of
+what it established — read those first, and go to the dated files only for the detail behind a
+specific finding.
 
 **Two records coexist, and they answer different questions.** Numbered items
 under `roadmap/items/` own engineering scope, status, acceptance criteria, and
