@@ -113,6 +113,15 @@ measured (~5,761 rows, Aug 3–5).** Not "mostly empty" — exactly zero populat
 | --- | --- |
 | Toronto, 5 days, all hours 07–20 (919 rows) | 10 features at **0%**, every hour |
 | Fleet, 11 markets, Aug 3–5 (5,761 rows) | the same 10 at **0.0%**; the other 9 at 93.6–100% |
+
+> **Scope caveat, added 2026-08-06 — the survivor range is NOT a usable positive control.**
+> This row says "11 markets" and never enumerates which 11 of the 12, and its row count is
+> approximate. `-09-28a` re-measured on this host and got **5,731 rows and 91.36–100%** for the
+> nine survivors after a strict Austin-row exclusion. **The finding itself reproduces exactly**
+> — the same 10 features at 0.0%, and 8 of them dead in all 14 Toronto hour models at 29 trained
+> features each. Only the *survivor range* differs, and it differs because the original scope was
+> never pinned. Treat the **dead set as the control** and the 93.6–100% range as incidental
+> colour. Do not conclude a measurement stack is wrong because it misses that range.
 | Serving artifact `feature_model_hgb.pkl` | **8 of 29 trained features are dead at serve in all 14 hour models** |
 
 The dead set is the entire local-meteorology block: `rise_from_7am`, `warming_rate_2h`,
