@@ -25,6 +25,21 @@
 .PARAMETER TargetDate
     Settled-analysis target date (yyyy-MM-dd). The chain normally targets yesterday.
 
+.PARAMETER Refetch
+    Force the WU settlement restore to fetch the target day even when the store
+    believes there is nothing to fetch.
+
+    Needed whenever the restore already failed on this date with a status code the
+    classifier calls permanent. `write_fetch_error` stamps such a row
+    `treated_as_source_unavailable`, `unavailable_dates()` collects it, and
+    `missing_dates()` subtracts it -- so the plain resume finds an empty range and
+    silently fetches nothing. `recover_unavailable_errors()` does not undo it either,
+    because `failure_class_for_error_row` returns the *stored* class rather than
+    re-deriving it. On 2026-08-06 all 12 stations 404'd inside an 8-minute window
+    (the same URLs served 200 minutes later), which poisoned 2026-08-05 fleet-wide.
+    This switch passes --wu-settlement-restore-refetch, which takes the target range
+    unconditionally instead of via missing_ranges().
+
 .PARAMETER Force
     Run even inside the graded window. Only for a deliberate operator decision.
 #>
@@ -32,6 +47,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$ResumeFrom,
     [Parameter(Mandatory = $true)][string]$TargetDate,
+    [switch]$Refetch,
     [switch]$Force
 )
 
@@ -52,6 +68,7 @@ function Write-Status($state, $detail, $exit) {
         exit_code    = $exit
         resume_from  = $ResumeFrom
         target_date  = $TargetDate
+        refetch      = [bool]$Refetch
         started_at   = $script:startedAt
         finished_at  = (Get-Date).ToString("o")
         log          = $log
@@ -78,8 +95,9 @@ $chainArgs = @(
     "--snapshots-root", (Join-Path $repo "data\snapshots"),
     "--settled-analysis-target-date", $TargetDate
 )
+if ($Refetch) { $chainArgs += "--wu-settlement-restore-refetch" }
 
-Write-Host "resuming chain from '$ResumeFrom' for $TargetDate"
+Write-Host "resuming chain from '$ResumeFrom' for $TargetDate$(if ($Refetch) { ' (refetch)' })"
 Write-Host "log: $log"
 
 # Start-Process rather than a direct call: redirecting a native executable's stderr
