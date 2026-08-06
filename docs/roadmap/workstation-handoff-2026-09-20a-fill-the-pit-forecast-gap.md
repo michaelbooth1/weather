@@ -1,153 +1,148 @@
-# Workstation handoff 2026-09-20a — fill the point-in-time forecast gap
+# Workstation handoff 2026-09-20a — rescue the PIT retrain lane
 
-**Goal: collect the point-in-time forecast rows the first retrain needs, so it can be trained on
-issue-qualified evidence instead of stitched evidence.** The licensing block that stopped `-09-16a`
-and `-08-28a` is cleared. The training population is decided. The collector already exists and works.
-What is missing is the *window*: the corpus stops on **June 30** and the retrain's slice is aligned on
-**July 31**.
+> **REVISED 2026-08-05, after this handoff was first published.** The original version of this file
+> told you to extend the season window in `weather.sources.forecast_history` and collect into the
+> forecast archive. **That instruction was wrong and is withdrawn.** A held branch already contains a
+> purpose-built point-in-time training corpus that deliberately avoids the serving archive, and it
+> already targets 2021–2025. If you started the original mission, stop and re-read from here. Nothing
+> collected under the old instruction should be kept.
 
-Branch from refreshed `origin/master`. Branch name:
-`codex/workstation-fill-the-pit-forecast-gap-2026-09-20a`.
+**Goal: rescue the better of two independently-built retrain lanes before it rots, and decide which
+one survives.** We have been tracking the wrong one.
 
-## Read this first — it is the answer to the question that stopped two prior missions
+Branch from `origin/codex/workstation-consolidate-merge-queue-2026-09-01a`, refreshed onto current
+`origin/master`. Branch name: `codex/workstation-rescue-the-pit-retrain-lane-2026-09-20a`.
 
-`docs/operations/forecast-source-and-training-population.md` is canonical and binding:
+## What was just discovered on the production host
 
-- **Free tier of Open-Meteo. No paid API, ever, without a new dated operator decision.** Collection
-  through the existing Previous Runs integration is authorized by the repository owner.
-- **The training population is 2021–2025.** This is decided. Do not re-open it, do not widen it, and
-  do not stop to ask whether collection is permitted — it is.
+`-09-01a` is named "consolidate merge queue" and was treated as a housekeeping branch. It is not. It
+carries four substantive commits:
 
-If you find yourself about to halt on sourcing or licensing, you have found the exact failure mode
-this file exists to prevent. Continue.
+```text
+a5247509  ops: add fail-closed all-market base retrain
+9cb708c6  forecast: build point-in-time training corpus
+5ae82294  retrain: bind base fleet to PIT forecast corpus
+450f03c5  taker: enforce counterfactual tape retention
+```
 
-## Start from this — measured on the operations host 2026-08-05, do not re-derive it
+It contains `src/weather/sources/forecast_training_corpus.py` (1,536 lines) and
+`docs/operations/PIT_FORECAST_TRAINING_CORPUS.md`, plus a 324-line binding of `base_retrain.py` to
+that corpus with 174 lines of new tests.
 
-All 12 markets already have `data/forecast_history/<icao>/`, each ~18.5 MB of `forecast_long.csv`.
-The collector `src/weather/sources/forecast_history.py` is complete and has a working CLI
-(`--market <id> backfill`), `fetch_previous_runs_payload`, `PREVIOUS_RUNS_URL`,
-`DEFAULT_PREVIOUS_RUN_START_YEAR = 2021`, `DEFAULT_PREVIOUS_RUN_LEADS = (1..7)`.
+**And it is a different lane from `-09-12a`, not an ancestor of it.** Verified:
 
-Toronto's `manifest.json`, generated **2026-06-23** (43 days stale), tells the whole story:
+| Check | Result |
+| --- | --- |
+| Does `-09-12a` contain `a5247509` (base retrain)? | **NO** |
+| Does `-09-12a` contain `5ae82294` (PIT binding)? | **NO** |
+| `source_payload.get("covered_years")` self-sizing defect on `-09-01a` | **0 occurrences** |
+| Same defect on `-09-12a` | **1 occurrence** |
 
-| Field | Value | What it means |
-| --- | --- | --- |
-| `season_window` | start `[5, 10]`, end **`[6, 30]`** | **the defect** — 52 target dates per year, ending June 30 |
-| `previous_runs.per_year_rows` | 2018–2020: **0**; 2021–2025: **8,736** each | PIT rows exist for exactly 2021–2025, and nowhere else |
-| `covered_years` | `[2018 … 2026]` | claims nine years the PIT evidence does not support |
+Two independent implementations of the first retrain exist. **The one we have been tracking in the
+backlog (`-09-12a`) is the one carrying the self-sizing defect. The one we filed as housekeeping is
+the one that does not.**
 
-And the per-basis split of `forecast_daily_by_issue.csv` (Toronto, 2,596 rows) is unambiguous:
+`-09-01a` is 59 commits behind master and last moved 2026-08-03. Its footprint is modest and mostly
+additive — `model_features.py` +44, `nightly_retrain.py` +69, `forecast_history.py` +17,
+`schema_registry_data.py` +25, `pooled_feature_assembly.py` +72, `storage_classes.py` +26. **It is
+rescuable today and will not be rescuable indefinitely.**
 
-| Years | `fixed_lead_day_offset` (PIT) | `stitched_continuous_archive` |
-| --- | ---: | ---: |
-| 2018, 2019, 2020 | **0 per year** | 52 per year |
-| 2021–2025 | 364 per year (52 dates x 7 leads) | 52 per year |
+## Why its corpus design is the right one — do not redesign it
 
-**This independently confirms the 2021–2025 decision on the evidence rather than on argument.**
-2018–2020 are not a population we chose to exclude; they are a population that does not exist in
-issue-qualified form. Do not spend time re-litigating them.
+`PIT_FORECAST_TRAINING_CORPUS.md` already states the contract, and it is better than what the
+withdrawn instruction would have produced:
 
-## The actual gap
+- The corpus is **training-only** and is "never discovered through
+  `weather.sources.forecast_history.daily_path_for`." It is explicitly **not a serving fallback.**
+  This matters: the serving archive is read live, and casual backfill into it is how the marine
+  sidecar defect happened.
+- **Stitched continuous-archive rows fail closed.** Empty issue identity fails closed. Target-year
+  rows fail closed.
+- Every target date must have exactly 24 local hourly rows with both `issue_time_utc` and
+  `available_at_utc` at or before every feature cutoff.
+- Immutable, content-addressed, atomically published under `corpora/<corpus_id>`; an existing
+  identity is never overwritten.
+- Its planner is already documented with `--years 2021,2022,2023,2024,2025` — **the population
+  decided in `docs/operations/forecast-source-and-training-population.md`, independently arrived at.**
 
-`8,736 = 52 dates x 7 leads x 24 hours`. The PIT corpus covers **May 10 – June 30 only.**
+**Do not redesign this contract, do not soften its fail-closed rules, and do not make it reachable
+from serving.**
 
-The retrain's slice is aligned on the `2026-07-31` artifact regime boundary, and the markets we trade
-run through the summer. **There is currently zero PIT forecast coverage for late July, August, or
-September in any market, in any year.** A retrain run today would have no issue-qualified evidence
-for the part of the season it is actually going to serve.
+## P1 — refresh it, and prove nothing was lost
 
-## P1 — extend the season window and collect
+Rebase or merge `-09-01a` onto current `origin/master`. 59 commits of drift is the whole difficulty
+of this mission; treat it as the deliverable, not the preamble.
 
-Extend the season window end from `[6, 30]` to **`[9, 30]`**. Keep the start at `[5, 10]` so existing
-rows stay comparable and the append stays idempotent. Collect PIT rows for **2021–2025** across all
-**12 markets**.
+- Resolve every conflict in favour of **keeping both behaviours**, and list each conflict you
+  resolved with one sentence on what you chose and why.
+- The full suite must pass. Where a test changed meaning, say so explicitly — a silently rewritten
+  assertion is how a rescue turns into a regression.
+- `schema_registry_data.py` is contended by three other branches. Keep the change **purely additive**.
 
-Sequence it, do not fire all 12 at once:
+## P2 — adjudicate the two lanes
 
-1. **Toronto first, alone.** Report exact wall time, exact bytes added, request count, and any
-   throttling or error response from the free tier. That is your sizing measurement.
-2. **Stop and check the budget.** Expected order of magnitude is ~2.5x current file size per market
-   (52 dates to ~129) and roughly 60 previous-runs requests fleet-wide. If Toronto alone projects
-   past **1.5 GB fleet-wide** or the free tier throttles, stop and report rather than pushing through.
-3. Then the remaining 11, paced. Keep the existing `--pause` discipline; a polite collector is the
-   condition of continuing to have a free source.
+Produce a verdict, with evidence, on this exact question: **does `-09-01a` supersede `-09-12a`
+entirely, or does `-09-12a` contain anything that must be salvaged?**
 
-**Clamp 2026 to completed target dates only.** September 2026 has not happened. A partial current
-year is correct and expected; a fabricated one is not.
+`-09-12a` uniquely carries `train_serve_feature_parity.py` — the standing control for this project's
+dominant defect class, which already caught `wind_gust_kmh` and `wind_shift_3h_degrees` being dropped
+at serve in all 12 markets. **That control is valuable and must not be lost** whichever lane wins.
 
-## P2 — make the manifest stop overstating what it has
+Answer per component: base retrain step, PIT corpus, forecast training contract, train/serve parity
+gate, candidate manifest handling. For each, say which branch's version survives and why. **Do not
+merge the two lanes into a hybrid** — pick, justify, and name what gets ported.
 
-The manifest currently reports `covered_years: [2018 … 2026]` on the strength of stitched rows. That
-single field is load-bearing far outside this module: **the retrain preflight derives its required
-matrix from `source_payload["covered_years"]`**, so a manifest that counts stitched years inflates
-and misdescribes the gate.
+If the answer is that `-09-12a` should be retired, say so plainly. Its branch ref is never deleted
+regardless; agent reports live on unmerged branches.
 
-Your job here is narrow and specific:
+## P3 — state what the gate now requires
 
-- Report **PIT-qualified years separately** from any-basis years. A year with zero
-  `fixed_lead_day_offset` rows is not a covered year for training purposes, and the manifest must say
-  so in a field a consumer can read without parsing the CSV.
-- Make the stitched rows **explicitly identifiable and separable** at read time. They are not garbage
-  — they are legitimate compatibility evidence — but they are the exact contamination the retrain
-  exists to remove, and nothing should be able to admit them into a fit by accident.
-- Record the season window and the per-year, per-basis row counts in the manifest so coverage is
-  checkable without a rescan.
+With the PIT binding in place and the year set at 2021–2025, state plainly: how many cells the gate
+requires, how many the corpus can currently prove, and therefore whether the first retrain PASSes,
+BLOCKs, or BLOCKs pending collection.
 
-**Do not touch `base_retrain.py` and do not try to repair the preflight's self-sizing gate.** That
-repair lives on the held `-09-12a` lane and binds the year set into the hash-bound retrain plan. The
-two halves must stay separate: **the source manifest proves coverage; the plan chooses the matrix.**
-Your half is making the proof honest. Say in your report what a consumer should read instead of
-`covered_years`.
+**A BLOCK is a correct and useful answer.** The corpus module has no HTTP client by design — its
+planner is permanently `dry_run_no_network` — so it is expected to have zero staged units today.
+Confirming that the lane blocks precisely because nothing has been collected yet is exactly the
+result that tells us the collector is the next mission and nothing else is in the way.
 
-## P3 — prove the coverage
-
-Deliver a coverage report that states, per market and per year: PIT target dates, leads present,
-hourly rows, and any hole. A hole is a finding, not a failure — report it, do not paper over it.
-
-Then answer the question the retrain will actually ask: **for the `2026-07-31`-aligned slice, is the
-PIT matrix complete across all 12 markets and all 5 years, and if not, exactly which cells are
-missing.** That sentence is the deliverable.
-
-`class_support` is expected to be tight in the severity tail — Dallas 108 F, Denver 101–102 F,
-Houston 103–104 F, Seattle 95 F. Extending into August and September should *help*, because the
-hottest days of the year are in that window and were previously outside the corpus entirely.
-**Measure whether it does.** If tail support is still short, say so and stop there — do not widen
-`covered_years` to reach it. The decision record names observation history as the next place to look,
-and that is a separate mission.
+Do not tune anything to reach a PASS. Do not widen `covered_years`. Do not write a collector in this
+mission — that is `-09-23a`, and it is deliberately separate because the corpus contract requires the
+collector to be separately reviewed.
 
 ## Boundaries
 
-- **Read-only with respect to production.** Write nothing under `data/` on the production host,
-  register nothing, start no loop, mutate no scheduled task, never write to the mirror or
-  `D:\weather-mirror`. Collect into your own clone.
-- **Do not commit the collected CSVs.** Never add `lfs: true`. The deliverable is the collector, the
-  manifest contract, the coverage report and the exact reproduction command — production re-runs the
-  identical idempotent command in a quiet window.
-- **Free tier only.** No paid provider, no paid tier, no new credentialed endpoint. If a better
-  *free* source looks compelling, note it in the report; adopting it is out of scope here.
+- **Read-only with respect to production.** Register nothing, start no loop, mutate no scheduled
+  task, write nothing under `data/` on the production host, never write to the mirror or
+  `D:\weather-mirror`.
+- **Do not collect, do not fetch, do not probe a provider.** The planner's `dry_run_no_network` mode
+  is a safety property of this branch — preserve it. No HTTP client enters
+  `forecast_training_corpus.py` in this mission.
+- **Do not fit a model, produce a candidate, or promote anything.**
 - Never read or expose `C:\Users\micha\.weathersync.cred`.
 - `docs/operations/reserved-confirmation-window.md` wins over this document. **No dates are reserved
-  today**; the window is armed but undated. **Check the file when you run — do not assume it is still
-  empty** — and exclude any reserved date from collection and from the coverage report.
+  today**; the window is armed but undated. Check the file when you run; do not declare, consume, or
+  read a reserved date.
 - Do not weaken the trusted observed-high floor, do not relax the promotion gate for `harvest_only`
-  rows, do not change providers or paid tiers.
-- Per-file roll verdict from the retained capture-loop import closures, not the `SOURCE_PATTERNS`
-  glob. State which of the snapshot / CLOB / observation-trigger / CLOB-enrichment closures each
-  changed file enters. `forecast_history.py` is a collection module — **check it rather than
-  assuming it is roll-free**, because a roll verdict is what decides whether this can merge outside
-  the quiet window.
+  rows, do not change providers or paid tiers. **Free-tier Open-Meteo only; no paid API.**
+- Concurrent missions own other files: `live_variant_settlement_scorecard.py`, `daily_refresh.py`
+  (`-09-21a`); `model/feature_store.py` (`-09-22a`); `mm_*.py` (`-09-18a`). You will contend with
+  `-09-21a` on `nightly_retrain.py` and `-09-22a` on `model_features.py` — both small and additive on
+  your side. **Flag the overlap in your report; do not restructure either file.**
+- Per-file roll verdict from retained capture-loop import closures, not the `SOURCE_PATTERNS` glob.
 - No PR, no merge. Commit to the exact branch name above and push that branch only.
-- Report to `docs/roadmap/agent-report-2026-08-06-workstation-fill-the-pit-forecast-gap.md`.
+- Report to `docs/roadmap/agent-report-2026-08-06-workstation-rescue-the-pit-retrain-lane.md`.
 
 ## What would falsify this mission
 
-- Finding that Previous Runs will not serve July–September for past years, or serves them with a
-  different issue-time semantics than the May–June rows, would mean the corpus cannot simply be
-  extended — report the exact semantics rather than collecting rows that only look compatible.
-- Finding that the existing 2021–2025 May–June PIT rows fail their own issue-time contract would be a
-  bigger finding than the missing window, and would outrank it. Check them before adding to them.
-- Finding that `season_window` is consumed somewhere that assumes a June end would make this a wider
-  change than a config edit; find the consumers before you widen it.
-- Finding that extending to September does **not** improve `class_support` in the severity tail would
-  mean the tail problem is not a window problem, and the observation-history route becomes the
-  priority. That is a useful negative result — report it plainly.
+- Finding that `-09-01a` cannot be refreshed without substantive rewrites would change this from a
+  rescue to a re-derivation. **Say so early** — that is a decision for the operations host, not
+  something to push through.
+- Finding that `-09-12a` is in fact the stronger lane on components other than the self-sizing defect
+  would reverse the premise. The lineage and defect counts above are verified; the *quality*
+  comparison is yours to make and may go the other way.
+- Finding that `-09-01a`'s PIT binding does not actually prevent candidate-supplied evidence from
+  sizing its own gate — that the defect is absent by accident rather than by design — would mean
+  neither lane is safe. That outranks everything else in this mission.
+- Finding that the corpus contract is reachable from a serving path anywhere would contradict its own
+  stated safety boundary and is a hard stop.
