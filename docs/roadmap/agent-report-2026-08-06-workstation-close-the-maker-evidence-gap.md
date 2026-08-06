@@ -9,19 +9,23 @@ recover every trade and every order-book change. Do not register or start
 
 The gap is `2026-08-06T00:08:24.636461-04:00` through
 `2026-08-06T00:08:26.801465-04:00`, equivalently
-`2026-08-06T04:08:24.636461Z` through `04:08:26.801465Z` and epoch milliseconds
-`1785989304636` through `1785989306801`. An all-fleet public Data API trade
-query over the enclosing epoch seconds returned HTTP 200 with `[]`. That does
-**not** prove continuity: the endpoint timestamps trades only to whole seconds,
-and no public historical endpoint replays the `price_change` events that encode
-order placement and cancellation. Current book snapshots reveal only net state,
-not the missing intermediate changes.
+`2026-08-06T04:08:24.636461Z` through `04:08:26.801465Z`, epoch seconds
+`1785989304.636461` through `1785989306.801465`, and exact epoch microseconds
+`1785989304636461` through `1785989306801465`. An all-fleet public Data API
+trade query over the enclosing epoch seconds returned HTTP 200 with `[]`. A
+separate public `GET /orderbook-history` route returned 101 millisecond-stamped
+snapshots inside truncated millisecond bounds, but Polymarket documents no
+completeness, loss-detection, sequencing, response, or retention contract for
+that route. Neither result proves continuity: no public historical endpoint
+replays the `price_change` events that encode every order placement and
+cancellation.
 
 The premise is therefore falsified exactly where the handoff required. P1 was
 not implemented, P2 was not soaked, and the settlement-continuity gate remains
-unchanged. Prompt reconciliation cannot fix this API limitation: the exact
-retrospective book-change retention horizon exposed by the public API is
-**none (effectively zero seconds)**.
+unchanged. Prompt reconciliation cannot fix this API limitation: the
+retrospective **exact-replay** retention horizon exposed by the public API is
+**none (effectively zero seconds)**. The snapshot-history route has an
+empirical retention lower bound, reported below, but remains indicative.
 
 ## P0 — public API capability audit
 
@@ -59,6 +63,7 @@ endpoint, API key, wallet, or credential was used.
 | --- | --- | --- | --- |
 | Public Data API trades | `GET https://data-api.polymarket.com/trades?eventId=<comma-separated-event-ids>&start=1785989304&end=1785989307&limit=10000&takerOnly=true` | Array rows containing `proxyWallet`, `side`, `asset`, `conditionId`, `size`, `price`, integer epoch-second `timestamp`, event/outcome metadata, and `transactionHash` | **INDICATIVE, not exact.** Whole-second time cannot place an execution against the microsecond gap bounds or reproduce the WebSocket's millisecond timestamp/local sequence. `transactionHash` is provenance but is not documented as a one-to-one execution ID. No book changes are returned. |
 | CLOB price history | `GET https://clob.polymarket.com/prices-history?market=<token_id>&startTs=1785989304.636461&endTs=1785989306.801465&fidelity=1` | `{"history":[{"t": <epoch-seconds>, "p": <price>}]}`; `fidelity` is expressed in minutes and defaults to one minute | **SAMPLED/INDICATIVE, not exact.** It has no size, side, transaction identity, book levels, or order/cancel changes. |
+| CLOB order-book history | `GET https://clob.polymarket.com/orderbook-history?asset_id=<token_id>&startTs=1785989304636&endTs=1785989306801&limit=1000&offset=0` | Empirical `{"count":N,"data":[<full-book-snapshot>]}`; each snapshot has a string epoch-millisecond `timestamp`, `hash`, bid/ask levels, and current-book metadata | **INDICATIVE, not exact.** The official error reference names only `startTs`, `asset_id` or `market`, and `limit <= 1000`; it does not define the response, units, completeness, ordering, pagination, loss detection, or retention. Millisecond filtering also cannot express the microsecond gap bounds exactly. |
 | CLOB book REST | `GET https://clob.polymarket.com/book?token_id=<token_id>`; batch equivalent `POST /books` | Current aggregated snapshot: `market`, `asset_id`, `timestamp`, `hash`, `bids[{price,size}]`, `asks[{price,size}]`, `min_order_size`, `tick_size`, `neg_risk`, `last_trade_price` | **CURRENT STATE ONLY.** There is no historical timestamp/window/cursor parameter and no event history. A before/after snapshot cannot reveal intermediate changes that net to the same state. |
 | Public market WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market`; subscription body has `assets_ids` and `type=market` | Live `book`, `price_change`, and `last_trade_price` messages with millisecond timestamps | **EXACT ONLY WHILE CONNECTED AND RETAINED.** The public contract exposes no start time, resume cursor, or historical replay. Reconnect supplies current/live state, not missed messages. |
 
@@ -66,15 +71,18 @@ The official contracts are:
 
 - [Data API trades](https://docs.polymarket.com/api-reference/core/get-trades-for-a-user-or-markets)
 - [CLOB prices history](https://docs.polymarket.com/api-reference/markets/get-prices-history)
+- [CLOB error reference, including `GET orderbook-history`](https://docs.polymarket.com/resources/error-codes)
 - [CLOB current order book](https://docs.polymarket.com/api-reference/market-data/get-order-book)
 - [CLOB current batch order books](https://docs.polymarket.com/api-reference/market-data/get-order-books-request-body)
 - [Public market WebSocket](https://docs.polymarket.com/api-reference/wss/market)
 
 The WebSocket conclusion is an inference from the complete documented public
 surface: the channel is explicitly real-time and its subscription schema has no
-replay control; the REST order-book endpoints expose current snapshots only.
-There is no documented public historical book-event endpoint elsewhere in the
-published orderbook/pricing surface.
+replay control. The normal REST order-book endpoints expose current snapshots
+only. The error-code page mentions `GET orderbook-history`, but neither the API
+reference, official documentation index, public SDK surface, nor rate-limit
+table defines that route as a lossless event replay. Its empirical snapshots
+cannot be promoted into a completeness guarantee that Polymarket does not make.
 
 ### Empirical known-gap result
 
@@ -84,6 +92,53 @@ the whole microsecond-bounded gap is inside the queried seconds. It returned:
 ```json
 []
 ```
+
+The unindexed `/orderbook-history` route was then queried separately for all
+264 fleet tokens with the truncated millisecond bounds
+`[1785989304636, 1785989306801]`, `limit=1000`, and `offset=0`. All 264 requests
+returned HTTP 200. The API reported 101 snapshots across 52 tokens at 60 unique
+timestamps, from `1785989304640` through `1785989306707`. Every per-token count
+was at most 101, so the API's 1000-row page limit was not reached. Snapshot
+support by market was Chicago 19, Dallas 2, Denver 9, Houston 4, Los Angeles 22,
+Miami 12, NYC 3, San Francisco 24, Toronto 6, and zero for Atlanta, Austin, and
+Seattle.
+
+The empirical response schema was the following (schematic values, not a row
+transcript):
+
+```json
+{
+  "count": 1,
+  "data": [
+    {
+      "market": "<condition-id>",
+      "asset_id": "<token-id>",
+      "timestamp": "1785989304640",
+      "hash": "<book-hash>",
+      "bids": [{"price": "0.45", "size": "10"}],
+      "asks": [{"price": "0.46", "size": "20"}],
+      "min_order_size": "5",
+      "tick_size": "0.01",
+      "neg_risk": false,
+      "last_trade_price": "0.45"
+    }
+  ]
+}
+```
+
+That is useful historical state, but it is not a replay proof. Rows contain no
+event type, delta/cause, order ID, trade side/size/hash, prior-sequence pointer,
+or completeness marker. The `startTs`/`endTs` filters and returned timestamps
+are only millisecond-precise: the floored bounds differ from the source
+boundaries by 0.461 ms at the start and 0.465 ms at the end. Because the route's
+boundary-inclusion semantics are undocumented, those boundary fractions cannot
+be classified exactly. Most importantly, the server gives no contract that
+every `price_change` produced a snapshot. The 101 rows are therefore a complete
+retrieval of what this API reported for the supplied filters, not proof of every
+matching-engine change. The route was empirically usable with `asset_id`; a
+valid condition-ID `market` probe returned HTTP 400 despite that parameter being
+named in the error reference, further underscoring the lack of a stable public
+contract.
 
 A positive-control window, `[1785989244, 1785989367]`, was then queried once
 per event under the same public contract. It returned 16 Miami rows and zero
@@ -96,9 +151,7 @@ conditions, and 264 tokens.
 For a Miami token with nearby positive-control trades
 (`15332633911667325118121586693747338564353024644825829348764813223409126388999`),
 the exact-gap `/prices-history` request returned only a `t`/`p` history point;
-the tested response was not an execution or book-event tape. Both `fidelity=1`
-and the undocumented `fidelity=0` probe returned the same sampled shape, so the
-zero probe does not create a hidden event-level route.
+the tested response was not an execution or book-event tape.
 
 The empty trade array means only “the Data API published no trade row in the
 enclosing seconds.” It cannot prove that no order was placed or cancelled, no
@@ -116,6 +169,8 @@ while connected and are absent from every retrospective response above.
    connection-local ordering required by the canonical execution tape.
 4. Minute-fidelity `t`/`p` samples cannot support strict counterfactual fill
    attribution.
+5. `/orderbook-history` returns millisecond snapshots without a sequence or
+   completeness contract, and its filters cannot encode the microsecond bounds.
 
 Marking such a splice “exactly covered” would therefore be false and would
 corrupt downstream maker P&L. The unchanged zero-gap continuity rule correctly
@@ -125,14 +180,20 @@ continues to reject this session.
 
 | Evidence | Public retrospective horizon | Consequence |
 | --- | --- | --- |
-| Exact trades **and every book change** | **Not exposed; effectively zero seconds** | P0 fails even for an immediate reconnect. There is no exact backfill design to implement. |
+| Exact trades **and every book change** | **No lossless replay contract is exposed; effectively zero seconds** | P0 fails even for an immediate reconnect. There is no exact backfill design to implement. |
 | Data API market/event trade rows | Documented as approximately the most recent **three years** | Useful for bounded retrospective trade analysis, but second-precision trades alone cannot close continuity. |
 | `/prices-history` samples | No retention guarantee stated in the official endpoint contract | Whatever samples remain are still only `t`/`p` aggregates and cannot become exact evidence. |
+| `/orderbook-history` snapshots | **No documented horizon.** Empirically the known gap remained readable at least **11 h 50 m 39.198535 s** after it ended. | This is a lower bound for indicative snapshot availability, not a completeness or future-retention guarantee. |
 | `/book`, `/books`, market WebSocket | Current/live only; no documented retrospective replay | Exact book evidence must be captured continuously at event time. |
 
-The trade endpoint's three-year floor is not the horizon of an exact backfill.
-The load-bearing horizon is the missing historical book-event route, and that
-horizon is none.
+The trade endpoint's approximate three-year window and the snapshot route's
+empirical lower bound are not the horizon of an exact backfill. The load-bearing
+exact-replay horizon is none.
+
+That empirical lower bound uses the first probe's HTTP `Date` value,
+`2026-08-06T15:59:06Z`, minus the exact gap end,
+`2026-08-06T04:08:26.801465Z`. It is an observation time, not a promised expiry
+or retention floor.
 
 ## P1 and P2 — hard-stopped
 
@@ -213,6 +274,8 @@ the branch is ever integrated. No integration is performed here.
 
 - reserved-confirmation-window runtime check: **PASS — none reserved**;
 - exact all-fleet Data API gap query: **HTTP 200, `[]`**;
+- exact-gap `/orderbook-history` probe: **264/264 HTTP 200; 101 returned
+  snapshots across 52 tokens and 60 millisecond timestamps; INDICATIVE only**;
 - 123-second all-fleet positive control: **HTTP 200, 16 rows across 12
   event queries; integer-second timestamps reproduced**;
 - exact-gap `/prices-history` shape probe: **HTTP 200, `history[{t,p}]` only**;
@@ -265,6 +328,47 @@ $tradeUri = "https://data-api.polymarket.com/trades?eventId=$events&start=178598
 $token = "15332633911667325118121586693747338564353024644825829348764813223409126388999"
 $historyUri = "https://clob.polymarket.com/prices-history?market=$token&startTs=1785989304.636461&endTs=1785989306.801465&fidelity=1"
 (Invoke-WebRequest -UseBasicParsing -Method Get -Uri $historyUri).Content
+
+$marketIds = @(
+  "toronto", "nyc", "atlanta", "austin", "chicago", "dallas",
+  "denver", "houston", "los-angeles", "miami", "san-francisco", "seattle"
+)
+$config = git show "$branch`:config/location_market_events.json" |
+  Out-String | ConvertFrom-Json
+$tokens = foreach ($marketId in $marketIds) {
+  $location = $config.locations | Where-Object { $_.location_id -eq $marketId }
+  $event = $location.active_events | Where-Object { $_.event_date -eq "2026-08-06" }
+  foreach ($market in $event.markets) {
+    foreach ($outcome in $market.outcomes) { [string]$outcome.token_id }
+  }
+}
+$bookRows = @()
+$bookCounts = foreach ($tokenId in $tokens) {
+  $uri = "https://clob.polymarket.com/orderbook-history?asset_id=$tokenId&startTs=1785989304636&endTs=1785989306801&limit=1000&offset=0"
+  $payload = Invoke-RestMethod -Method Get -Uri $uri
+  $bookRows += @($payload.data)
+  [pscustomobject]@{ token_id = $tokenId; count = [int]$payload.count }
+  Start-Sleep -Milliseconds 100
+}
+[pscustomobject]@{
+  token_requests = @($bookCounts).Count
+  returned_rows = @($bookRows).Count
+  nonempty_tokens = @($bookCounts | Where-Object { $_.count -gt 0 }).Count
+  unique_timestamps = @($bookRows.timestamp | Sort-Object -Unique).Count
+  minimum_timestamp = ($bookRows.timestamp | Measure-Object -Minimum).Minimum
+  maximum_timestamp = ($bookRows.timestamp | Measure-Object -Maximum).Maximum
+}
+
+$controlRows = @()
+foreach ($eventId in $events.Split(',')) {
+  $uri = "https://data-api.polymarket.com/trades?eventId=$eventId&start=1785989244&end=1785989367&limit=10000&takerOnly=true"
+  $controlRows += @(Invoke-RestMethod -Method Get -Uri $uri)
+}
+[pscustomobject]@{
+  rows = @($controlRows).Count
+  integer_timestamps = @($controlRows | Where-Object { $_.timestamp -is [int] -or $_.timestamp -is [long] }).Count
+  shared_second_rows = @($controlRows | Group-Object timestamp | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Group }).Count
+}
 
 .\venv\Scripts\python.exe -m pytest -q `
   tests\market\test_mm_execution_capture.py `
