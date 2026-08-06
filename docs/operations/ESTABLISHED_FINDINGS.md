@@ -271,6 +271,29 @@ and the `−3.41%` Toronto probe did not survive fleet measurement.
 
 ---
 
+## 4c. No target-year row is ever in-sample
+
+Verified 2026-08-06 at `model_climatology.py:121` and `:234`:
+
+```python
+if local_date.year >= self.target_date.year:
+    continue
+```
+
+The trainer skips every row from the target year unless an explicit coverage date is supplied,
+and `feature_model.py` calls `historical_target_cache()` without one. **For a 2026-target
+artifact, no 2026 date can be an exact fit row.** All twelve frozen artifacts show zero overlap
+with the 2026 label inventory — 0 of 216 checked market-days (`-09-30a`).
+
+Two consequences:
+
+- **Every evaluation we have run on 2026 data is honestly out-of-sample.** Being inside the
+  May 10 – Jun 30 archive window does *not* make a 2026 observation in-sample.
+- **A seasonal-distance test needs no in-sample control stratum**, because no such stratum can
+  exist. Compare in-season against out-of-season target dates, both out-of-sample.
+
+---
+
 ## 5. Method rules — binding on every measurement
 
 Each of these has already cost a retracted result. They are not stylistic preferences.
