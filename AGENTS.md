@@ -8,9 +8,18 @@ durable, and linked to one canonical source instead of copying volatile facts.
 1. Read the user request and inspect `git status --short` before editing. Existing
    changes belong to the user unless the task says otherwise.
 2. Read [the durable domain context](docs/operations/AGENT_CONTEXT.md).
-3. Use [the documentation map](docs/README.md) to load only the context needed
+3. **For any model, measurement, or research task, read
+   [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and
+   [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md).**
+   The dated correspondence under `docs/roadmap/` is ~600 files and cannot be read;
+   those two files are its distilled state. Skipping them causes agents to
+   re-derive known results or rebuild retracted ones.
+4. **For a cross-host mission — writing a handoff, executing one, or verifying a
+   handback — read [the delegation contract](docs/operations/DELEGATION_CONTRACT.md).**
+   Its standing boundaries bind every mission whether or not the handoff restates them.
+5. Use [the documentation map](docs/README.md) to load only the context needed
    for the task.
-4. Read the nearest nested `AGENTS.md` before changing files below it. Nested
+6. Read the nearest nested `AGENTS.md` before changing files below it. Nested
    instructions supplement this file and take precedence for their subtree.
 
 Do not use `.claude/settings.local.json` as project guidance. It is ignored,

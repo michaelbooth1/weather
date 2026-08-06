@@ -53,6 +53,16 @@ protected slices, and after-cost trading evidence where applicable.
 - Snapshot coverage and settlement-label quality determine whether a market-day
   is countable. Partial, stale, reconstructed, or release-unbound rows must not
   be silently upgraded.
+- The admission bar is `promotion_countable`, not `quality_grade == "complete"`.
+  The settlement authority is `data/settlements/<market>/ledger.jsonl`, not
+  `market_day_labels.csv`; the CSV is a projection and can disagree.
+- Uncertainty on any model-versus-market claim uses crossed date x market
+  clustering. Exchangeable market-day resampling produces intervals that are too
+  narrow and has already retracted published results. Report the effective date
+  and market cluster counts with every estimate, and say explicitly when a delta
+  is not distinguishable from zero.
+- Artifact regime boundaries are provenance, not target-date age. Do not pool
+  evidence across them.
 - Market-informed features require leakage-safe evaluation. Keep weather-only
   and market-aware claims distinguishable.
 - Training feature extraction and live feature extraction must change together.
