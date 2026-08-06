@@ -51,6 +51,29 @@ trajectory, moisture, pressure, wind. See
 **So `-09-22a`'s 6.58% severe-tail result is not a small effect from a marginal repair. It is a
 partial repair, measured with half of itself disabled, of the largest known defect in the model.**
 
+**3. The defect is ROUTING, and the adapter already parses what is missing.**
+
+Traced on 2026-08-06 and recorded in [`ESTABLISHED_FINDINGS.md`](../operations/ESTABLISHED_FINDINGS.md)
+§4. In short: `extract_live_features` binds `history`/`current` to the disabled `wu_history` /
+`wu_current` sources, only the observed-high path receives the station fallback, and
+`derive_station_observation_data` (`model_sources.py:315-326`) returns a 10-key dict carrying just
+`temp_native` and `max_since_7am_native` — while holding the full observation in `latest`.
+
+Meanwhile `eccc_swob_history.py:340-375` already emits `dewpoint_c`, `humidity`, `pressure`,
+`wind_speed_kmh`, `wind_gust_kmh`, `wind_dir_deg` and `clouds`, in the field names the extractor
+asks for. A real captured Toronto payload parses to `dewpoint_c=17.2`, `humidity=81.0`,
+`pressure=997.8`, `wind_speed_kmh=6.5`, `wind_dir_deg=129.0`, and payloads accumulate up to **20
+hourly rows**, so the trend features have their history too.
+
+**You are not required to act on this — the mission is measurement — but you should know it before
+choosing an approach.** `-09-22a` re-parses `raw_payload` in a separate guarded module. That is safe
+and it is why its flag-off path is byte-identical, so **keep using it for this measurement.** If your
+findings suggest the durable repair belongs in the adapter instead, say so in the report as a
+recommendation; do not restructure the serving path in this mission.
+
+Watch for one real name mismatch: the extractor reads `wind_kmh`, the adapter emits
+`wind_speed_kmh`.
+
 ## Start from this, do not re-derive it
 
 Read [`ESTABLISHED_FINDINGS.md`](../operations/ESTABLISHED_FINDINGS.md),

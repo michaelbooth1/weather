@@ -133,6 +133,37 @@ is where the information went.
 centre-displacement work were all measured on a model missing 10 of 19 base inputs at all times.
 None of them is invalidated, but none was measuring a model that could see.
 
+### The mechanism — traced 2026-08-06, it is a ROUTING defect, not a data gap
+
+The data is captured, parsed into the right field names, and then discarded. Four links:
+
+1. **`extract_live_features` reads the dead sources only.** `model_features.py:753-754` binds
+   `history = source_data(sources, "wu_history")` and `current = source_data(sources, "wu_current")`.
+   WU live collection is disabled, so `rows` is empty and `feature_latest` is `None`. Every dead
+   feature resolves through `feature_latest` / `current` / `rows` and therefore to `None`.
+2. **Only the observed-high path consumes the station fallback.** `effective_observed_high_context(...)`
+   takes `station` as an argument — which is exactly why `current_temp` and `high_so_far` are the two
+   survivors. Nothing else in the function receives it.
+3. **The station fallback deliberately returns almost nothing.** `model_sources.py:315-326`,
+   `derive_station_observation_data`, builds a 10-key dict whose only measurements are `temp_native`
+   and `max_since_7am_native`. It holds the full observation in `latest` and reads two values off it.
+4. **The adapter already parses everything, into WU-compatible names.**
+   `eccc_swob_history.py:340-375` emits `dewpoint_c`, `humidity`, `pressure`, `wind_speed_kmh`,
+   `wind_gust_kmh`, `wind_dir_deg`, `clouds` — the same names the extractor asks for.
+
+Verified on a real captured payload (Toronto, 2026-08-05, parsed by the repo's own
+`parse_swob_xml`): `dewpoint_c=17.2`, `humidity=81.0`, `pressure=997.8`, `wind_speed_kmh=6.5`,
+`wind_dir_deg=129.0`. Payloads accumulate up to **20 hourly rows**, so the trend features
+(`pressure_trend_3h`, `wind_shift_3h_degrees`, `rise_from_7am`, `warming_rate_2h`, `hours_at_peak`)
+have the history they need as well.
+
+**So the repair is routing, not collection or parsing.** Known real complications, none fatal:
+SWOB is Celsius and US markets need native Fahrenheit; SWOB cadence is hourly where training rows
+were denser, so trajectory features are *not* observationally identical to their trained semantics;
+`wind_gust_kmh` is legitimately absent in calm conditions and must stay missing; and any station row
+used must respect the cutoff and emission-time rules. One genuine name mismatch: the extractor reads
+`wind_kmh` while the adapter emits `wind_speed_kmh`.
+
 ---
 
 **Original section, retained — its root cause and effect analysis stand:**
