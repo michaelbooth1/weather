@@ -449,4 +449,5 @@ row” to “no book change.”
 - Dependency merge on this topic branch: `958c1b68adb8ae2480801e9c433e42f4fdc9709e`
 - Initial P0 report commit: `05176bd8e73107c85c8c3f3d0b57ec7764552685`
 - Initial handback-provenance commit: `f9155a665787f3c0b90ac4cc9205fed63d38783a`
-- Public-history correction commit: `f5559f03697d6059e1891aa3664902eaeab49fd4`
+- Public-history correction commit: `f5559f031fd91659a02bdfec9220aac9c6b32668`
+- Retention-evidence correction commit: `65a42070a90dba740a4250ec7b23bc9ab61bdd26`
