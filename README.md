@@ -152,6 +152,7 @@ Environment variables used by operator-facing code:
 | `WEATHER_RETAIN_RAW_FORECAST_PAYLOADS` | Controls retention of raw forecast payload blobs for live snapshot persistence; defaults to retained. |
 | `WEATHER_RETAIN_RAW_OBSERVATION_PAYLOADS` | Controls retention of raw observation payload blobs for live snapshot persistence; defaults to retained. |
 | `WEATHER_SOURCE_FAMILY_COOLDOWN_PATH` | Optional shared rate-limit cooldown state for cooperating source processes. |
+| `WEATHER_FREE_SOURCE_FEATURE_PARITY` | Research-only opt-in for cutoff-safe surface-feature population from captured free METAR/ECCC payloads. Defaults off; do not enable in production before the release lock and a separate activation decision. |
 | `WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_RELEASE_DIR` plus `WEATHER_RESIDUAL_DISTRIBUTION_V1_SHADOW_MANIFEST_SHA256` | Opts capture into an inactive residual-distribution shadow release; both the directory and exact manifest hash are required. |
 
 ## Core Commands

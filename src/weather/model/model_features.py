@@ -25,6 +25,10 @@ from weather.model.feature_store import (
     row_wind_direction,
     wind_direction_delta_degrees,
 )
+from weather.model.free_source_feature_parity import (
+    build_free_source_feature_overrides,
+    free_source_feature_parity_enabled,
+)
 from weather.sources.forecast_history import load_forecast_daily, daily_path_for
 from weather.sources.eccc_gridded import derive_eccc_gridded_features
 from weather.sources.marine_context import derive_marine_context_features
@@ -886,6 +890,27 @@ class FeatureModelMixin:
         if strict and (wind_group is None or cloud_group is None):
             return None
         microclimate = self.microclimate_features(wind_group, wind_speed)
+
+        if free_source_feature_parity_enabled():
+            parity = build_free_source_feature_overrides(
+                self,
+                sources,
+                cutoff_hour,
+                now,
+            )
+            rise_from_7am = parity["rise_from_7am"]
+            warming_rate_2h = parity["warming_rate_2h"]
+            hours_at_peak = parity["hours_at_peak"]
+            dewpoint = parity["dewpoint_c"]
+            humidity = parity["humidity"]
+            pressure = parity["pressure"]
+            pressure_trend_3h = parity["pressure_trend_3h"]
+            wind_speed = parity["wind_speed_kmh"]
+            wind_gust = parity["wind_gust_kmh"]
+            wind_shift_3h = parity["wind_shift_3h_degrees"]
+            wind_group = parity["wind_group"]
+            cloud_group = parity["cloud_group"]
+            microclimate = self.microclimate_features(wind_group, wind_speed)
 
         # Forecast features: forecasted daily max (matching the archived-forecast
         # training value) and the gap above the high so far. Open-Meteo is the
