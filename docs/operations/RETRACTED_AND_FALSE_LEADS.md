@@ -115,6 +115,37 @@ correctly requires an explicit immutable release ID. It should begin returning r
 release #1. **Do not "fix" it by relaxing release identity or deleting expected variants** — that
 turns a valid gate into a misleading skill claim.
 
+### "All Toronto ECCC payloads failed their pinned hashes" — FALSE, THE VERIFIER WAS WRONG
+
+`-09-22a` reported that every available Toronto ECCC raw-payload receipt failed its pinned canonical
+hash, fell back to METAR, and therefore shipped free-source parity with `humidity`, `pressure`, and
+`pressure_trend_3h` at **0% population**. **There is no ECCC integrity problem.**
+
+Verified on the production host 2026-08-06: **836 of 836** `eccc_swob` payloads across five Toronto
+market-days reproduce their declared `payload_hash` exactly. The payloads also contain `rel_hum`,
+`stn_pres`, `dwpt_temp`, `air_temp` and `mslp` — precisely the fields reported as unpopulated.
+
+**The trap:** `payload_hash_algorithm` is **`sha256-canonical-json`**, not a raw-bytes digest. The
+hash is taken over `canonical_json(parsed_payload)`, not over the file. The stored file carries a
+trailing newline, so it is exactly **one byte longer** than the hashed canonical form (8,014 vs
+8,013 in the checked example) and its raw digest never matches. Hashing the file bytes fails 100% of
+the time by construction, which is what "all 254 failed" actually means.
+
+```python
+# WRONG - fails every time
+hashlib.sha256(path.read_bytes()).hexdigest() == row["payload_hash"]
+# RIGHT
+hashlib.sha256(canonical_json(json.loads(path.read_bytes())).encode("utf-8")).hexdigest()
+```
+
+**Consequence: full free-source parity has never actually been measured.** `-09-22a`'s severe-tail
+result (6.58%, crossed CI [0.49%, 14.14%], D=5) was measured with Toronto's ECCC-only fields
+needlessly absent — and Toronto humidity/pressure were the point of that work. Re-run before drawing
+any conclusion about what free-source parity is worth.
+
+**Generalises: a 100% failure rate is a signal about the verifier, not the data.** Check the declared
+algorithm before concluding that canonical evidence is corrupt.
+
 ### The `SOURCE_PATTERNS` glob is NOT the roll-sensitivity test
 
 Roll sensitivity is the **loaded-module import closure**, recorded in the capture status files as

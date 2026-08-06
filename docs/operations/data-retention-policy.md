@@ -45,6 +45,44 @@ Routine provider caches may be pruned after TTL expiry when no replay,
 promotion, or incident report references them. Forecast archives used for
 settled replay evidence are not routine cache.
 
+## Scheduled CLOB Long-Tape Tiering
+
+`WeatherClobTiering` runs `scripts/ops/clob_tiering_run.ps1` daily at 05:00 local
+and is the load-bearing defence against the single largest retention leak in this
+project. It compresses each settled market-day's `order_books_long.csv` to
+`.csv.gz` (about 23x) and deletes the source only after byte-parity verification.
+
+**It exists because the identical work as a daily-refresh chain step is not
+reliable.** `clob_order_book_tiering` is step ~13 of ~45; when the chain defers
+earlier, the step never runs and raw tapes accumulate at roughly 18.7 GB/day
+across the 12 markets. That has happened twice for unrelated reasons — memory
+admission on 2026-07-18, and a single transient capture error
+(`capture_loop_not_fresh`, `consecutive_errors: 1`) deferring step 7 on
+2026-08-04. Both times free space fell far enough to threaten capture. Disk
+headroom must not be a downstream consequence of chain health.
+
+Registration: `scripts/ops/register_clob_tiering.ps1`. Task-level outcome,
+including bytes reclaimed, is written to
+`data/logs/clob_tiering_task_status.json`; the tiering report itself stays at the
+shared `data/backtest/clob_order_book_tiering.json` path that the chain step also
+writes, so one file always answers "when did tiering last succeed."
+
+Running the job twice is harmless. An already-tiered day is classified
+`already_tiered` and skipped, so the chain step and the scheduled task cannot
+conflict — whichever runs first leaves nothing for the other.
+
+**Split market-days are structurally excluded, not merely avoided.** A day that
+already holds an `order_books_long.csv.gz` can never become a candidate, and
+`apply` re-checks `gzip_path.exists()` before compressing. The disjoint-halves
+hazard described under *Storage-Pressure Build* below therefore cannot be
+triggered by this job. Those days appear in the plan as
+`already_tiered_source_present` and are left alone; reclaiming them needs the
+separate verified-delete path.
+
+The runner refuses to start inside the 12:00-18:00 graded capture window unless
+`-Forced`, and runs its child process at `BelowNormal` priority so sustained
+compression cannot starve the capture loops.
+
 ## Storage-Pressure Build
 
 The workstation storage-pressure tools are manual and dry-run first. They are

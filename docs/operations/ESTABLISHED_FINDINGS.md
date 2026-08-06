@@ -99,7 +99,43 @@ stack that cannot reproduce them is wrong, and the retained finding is not.
 
 ---
 
-## 4. The model is feature-blind at 09:00–14:00
+## 4. The model is feature-blind — ALL DAY, FLEET-WIDE, not only at 09:00–14:00
+
+> **CORRECTED 2026-08-06 on direct production measurement.** The "09:00–14:00" framing below was an
+> artifact of where we happened to look. It is not a blind *window*; **the model is blind at every
+> hour, in every market, always.** The corrected measurement is the first table; the original
+> section follows unchanged because its root cause and effect analysis still stand.
+
+**10 of 19 base features are 100% empty at every cutoff hour 07:00–20:00, in all 11 markets
+measured (~5,761 rows, Aug 3–5).** Not "mostly empty" — exactly zero populated values.
+
+| Measurement | Result |
+| --- | --- |
+| Toronto, 5 days, all hours 07–20 (919 rows) | 10 features at **0%**, every hour |
+| Fleet, 11 markets, Aug 3–5 (5,761 rows) | the same 10 at **0.0%**; the other 9 at 93.6–100% |
+| Serving artifact `feature_model_hgb.pkl` | **8 of 29 trained features are dead at serve in all 14 hour models** |
+
+The dead set is the entire local-meteorology block: `rise_from_7am`, `warming_rate_2h`,
+`hours_at_peak`, `dewpoint_c`, `humidity`, `pressure`, `pressure_trend_3h`, `wind_speed_kmh`,
+`wind_gust_kmh`, `wind_shift_3h_degrees`.
+
+What survives is `high_so_far`, `current_temp`, `onshore_flow`, `onshore_wind_speed_kmh`,
+`lake_breeze_proxy`, `forecast_high`, `forecast_gap`, `forecast_source_count`,
+`forecast_disagreement` — current state, lake-breeze geometry, and forecast consensus. **The model
+has no direct observation of moisture, pressure, wind, or temperature trajectory.**
+
+**So ~28% of every prediction's trained inputs are imputed medians, always.** This is the single
+largest known defect in the model and it subsumes the train/serve parity finding, which detected
+2 of the 10. It also explains §1 directly: if the gap is informational rather than calibration, this
+is where the information went.
+
+**Consequence for every prior result:** the cool bias, the market gap, the severity tail and the
+centre-displacement work were all measured on a model missing 10 of 19 base inputs at all times.
+None of them is invalidated, but none was measuring a model that could see.
+
+---
+
+**Original section, retained — its root cause and effect analysis stand:**
 
 **9 of 19 base features are empty at inference** in the floor-excluded lane, despite the inputs being
 fully captured. This is a **feature-contract defect, not an information gap** — the data exists.
@@ -173,15 +209,22 @@ Each of these has already cost a retracted result. They are not stylistic prefer
 
 Verified 2026-08-05. Neither branch contains the other's commits.
 
-| Lane | Contains | `covered_years` self-sizing defect |
+| Lane | Contains | Candidate-sized PIT gate defect |
 | --- | --- | --- |
-| `-09-12a` | base retrain, **`train_serve_feature_parity.py`** | **Present (1 occurrence)** |
-| `-09-01a` (named "consolidate merge queue") | base retrain, **1,536-line PIT training corpus**, PIT binding | **Absent (0 occurrences)** |
+| `-09-12a` | base retrain, **`train_serve_feature_parity.py`** | **Present directly through `covered_years`** |
+| `-09-01a` (named "consolidate merge queue") | base retrain, **1,536-line PIT training corpus**, PIT binding | **Present indirectly through candidate `selected_dates` and count fields; the literal `covered_years` occurrence is absent** |
 
 **`-09-01a` is the better lane** and its corpus contract is the right design: training-only, never
 reachable through `forecast_history.daily_path_for`, stitched rows fail closed, immutable and
 content-addressed, no HTTP client by design. `-09-12a` uniquely carries the train/serve parity gate,
 which must be salvaged whichever lane wins.
+
+The 2026-08-06 rescue falsifier showed that the earlier literal-search conclusion was not a safety
+property: `-09-01a` still reconstructed the required matrix from candidate-supplied dates and
+counts. The rescue keeps that lane and fixes the gate by binding the code-owned 2021-2025
+population, +/-7-day target window, 07:00-20:00 cutoffs and 12-market fleet into the self-hashed
+retrain plan. See
+[`agent-report-2026-08-06-workstation-rescue-the-pit-retrain-lane.md`](../roadmap/agent-report-2026-08-06-workstation-rescue-the-pit-retrain-lane.md).
 
 **Lesson that generalizes: branch names in this repository lie.** Read the commits before judging or
 disposing of a branch.
@@ -190,7 +233,8 @@ disposing of a branch.
 
 ## 8. The self-sizing gate defect
 
-`base_retrain.py` derives the required training matrix from the **candidate's own** source manifest:
+The `-09-12a` `base_retrain.py` derives the required training matrix from the **candidate's own**
+source manifest directly:
 
 ```python
 years = [int(value) for value in source_payload.get("covered_years") or []]
@@ -199,9 +243,15 @@ years = [int(value) for value in source_payload.get("covered_years") or []]
 A candidate can therefore shrink the gate that judges it, from **20,160 cells to 2,520**, by editing
 one JSON field. Three matrices all currently qualify as "valid" for the same target.
 
-**The fix is structural: the year set binds into the hash-bound retrain plan; the source manifest may
-prove coverage of the matrix but must never choose its size.** A test must show that reducing
-`covered_years` cannot reduce expected cells.
+The held `-09-01a` lane used a different form of the same defect: its required keys came from the
+candidate corpus manifest's `selected_dates`, while candidate count/minimum fields helped validate
+the result. Its existing synthetic PASS used only one date and one cutoff. Reducing candidate dates
+could therefore reduce the expected gate even without the `covered_years` expression above.
+
+**The fix is structural: the population policy binds into the hash-bound retrain plan; the source
+manifest may prove coverage of the matrix but must never choose its size.** The 2026-08-06 rescue
+adds the regression that reducing both `covered_years` and `selected_dates` cannot reduce the fixed
+12,600-cell expectation.
 
 ---
 
