@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import statistics
 import tempfile
 from collections import Counter, defaultdict
@@ -28,7 +29,10 @@ from weather.market.mm_paper_constants import (
     DEFAULT_CONFIG,
     DEFAULT_JSON_OUT,
     DEFAULT_RUNS_ROOT,
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_CONNECTION_SEQUENCE_SCOPE,
     EXECUTION_EVIDENCE_SCHEMA_VERSION,
+    EXECUTION_RAW_TAPE_FILENAME,
     MARKOUT_HORIZONS,
     SCHEMA_VERSION,
 )
@@ -1040,6 +1044,9 @@ def _ws_execution_candidates(raw):
             "raw_sha1",
             "event_slug",
             "market_id",
+            "session_id",
+            "local_connection_message_sequence",
+            "connection_sequence_scope",
         ):
             if candidate.get(key) in (None, "") and envelope.get(key) not in (None, ""):
                 candidate[key] = envelope[key]
@@ -1117,6 +1124,41 @@ def _execution_identity_values(raw):
     if transaction_hash:
         aliases.append(("transaction", transaction_hash))
     return supplied_canonical_id, native_id, transaction_hash, tuple(aliases)
+
+
+def _execution_audit_binding(raw, raw_sha1):
+    session_id = str(raw.get("session_id") or "").strip()
+    scope = str(raw.get("connection_sequence_scope") or "").strip()
+    try:
+        sequence = int(raw.get("local_connection_message_sequence"))
+    except (TypeError, ValueError):
+        return None
+    raw_sha1 = str(raw_sha1 or "").strip().lower()
+    if (
+        not session_id
+        or sequence <= 0
+        or scope != EXECUTION_CONNECTION_SEQUENCE_SCOPE
+        or len(raw_sha1) != 40
+        or any(character not in "0123456789abcdef" for character in raw_sha1)
+    ):
+        return None
+    return session_id, sequence, raw_sha1, scope
+
+
+def _execution_audit_bindings_json(bindings):
+    return json.dumps(
+        [
+            {
+                "session_id": session_id,
+                "local_connection_message_sequence": sequence,
+                "raw_sha1": raw_sha1,
+                "connection_sequence_scope": scope,
+            }
+            for session_id, sequence, raw_sha1, scope in sorted(set(bindings or ()))
+        ],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _execution_identity(raw, components, exchange_time, precision):
@@ -1235,6 +1277,10 @@ def _merge_execution_representation(existing, candidate):
         )
     if not existing.get("native_execution_id"):
         existing["native_execution_id"] = candidate.get("native_execution_id") or ""
+    existing["_audit_bindings"] = tuple(sorted({
+        *existing.get("_audit_bindings", ()),
+        *candidate.get("_audit_bindings", ()),
+    }))
     existing["_identity_aliases"] = tuple(
         sorted(
             {
@@ -1351,6 +1397,10 @@ def load_trade_rows(folder):
         candidate["supplied_canonical_execution_id"] = supplied_id
         candidate["native_execution_id"] = native_id
         candidate["transaction_hash"] = transaction_hash
+        audit_binding = _execution_audit_binding(raw, raw_sha1)
+        candidate["_audit_bindings"] = (
+            (audit_binding,) if audit_binding is not None else ()
+        )
         _merge_execution_representation(existing, candidate)
         register_aliases(execution_id, aliases)
         diagnostics["duplicate_representation_rows"] += 1
@@ -1442,6 +1492,9 @@ def load_trade_rows(folder):
             "raw_sha1": components["raw_sha1"],
             "source": source,
             "source_representations": source,
+            "_audit_bindings": tuple(filter(None, (
+                _execution_audit_binding(raw, components["raw_sha1"]),
+            ))),
             "_price_text": components["price_text"],
             "_size_text": components["size_text"],
             "_identity_aliases": identity["aliases"],
@@ -1502,7 +1555,7 @@ def load_trade_rows(folder):
                 accepted[execution_id] = candidate
             register_aliases(execution_id, identity["aliases"])
             accepted_id = execution_id
-        if source == "market_ws.jsonl" and components["raw_sha1"]:
+        if source in {EXECUTION_RAW_TAPE_FILENAME, "market_ws.jsonl"} and components["raw_sha1"]:
             raw_hash_index[components["raw_sha1"]].add(accepted_id)
 
     for filename, source_kind in (
@@ -1512,19 +1565,21 @@ def load_trade_rows(folder):
         for row in iter_csv_rows(folder / filename):
             add_trade(row, filename, source_kind)
 
-    for raw in iter_jsonl(folder / "market_ws.jsonl") or []:
-        for candidate in _ws_execution_candidates(raw) or []:
-            add_trade(candidate, "market_ws.jsonl", "ws")
+    for filename in (EXECUTION_RAW_TAPE_FILENAME, "market_ws.jsonl"):
+        for raw in iter_jsonl(folder / filename) or []:
+            for candidate in _ws_execution_candidates(raw) or []:
+                add_trade(candidate, filename, "ws")
 
-    for row in iter_csv_rows(folder / "market_ws_events.csv"):
-        candidate = dict(row)
-        candidate["_event_type"] = str(row.get("event_type") or "").strip().lower()
-        add_trade(
-            candidate,
-            "market_ws_events.csv",
-            "ws",
-            allow_raw_link=True,
-        )
+    for filename in (EXECUTION_CANONICAL_TAPE_FILENAME, "market_ws_events.csv"):
+        for row in iter_csv_rows(folder / filename):
+            candidate = dict(row)
+            candidate["_event_type"] = str(row.get("event_type") or "").strip().lower()
+            add_trade(
+                candidate,
+                filename,
+                "ws",
+                allow_raw_link=True,
+            )
 
     rows = []
     for row in accepted.values():
@@ -1788,14 +1843,15 @@ def load_mark_rows(folder):
         add_mark(row, "price_history.csv", time_keys=("point_time_utc", "timestamp_utc", "captured_at_utc"))
     for row in iter_csv_rows(folder / "order_books_summary.csv"):
         add_mark(row, "order_books_summary.csv", time_keys=("captured_at_utc", "book_time_utc", "captured_at_local"))
-    for row in iter_csv_rows(folder / "market_ws_events.csv"):
-        if str(row.get("event_type") or "").strip().lower() != GENUINE_WS_EXECUTION_TYPE:
-            continue
-        add_mark(
-            row,
-            "market_ws_events.csv",
-            time_keys=("trade_time_utc", "timestamp_utc"),
-        )
+    for filename in (EXECUTION_CANONICAL_TAPE_FILENAME, "market_ws_events.csv"):
+        for row in iter_csv_rows(folder / filename):
+            if str(row.get("event_type") or "").strip().lower() != GENUINE_WS_EXECUTION_TYPE:
+                continue
+            add_mark(
+                row,
+                filename,
+                time_keys=("exchange_time_utc", "trade_time_utc", "timestamp_utc"),
+            )
     marks.sort(key=lambda row: (row["clob_token_id"], row["time"]))
     return marks
 
@@ -2119,6 +2175,9 @@ def conservative_fill_row(
         "execution_side": trade.get("side") or "",
         "execution_condition_id": trade.get("condition_id") or "",
         "execution_raw_sha1": trade.get("raw_sha1") or "",
+        "execution_audit_bindings_json": _execution_audit_bindings_json(
+            trade.get("_audit_bindings")
+        ),
         "execution_source_representations": (
             trade.get("source_representations") or trade.get("source") or ""
         ),

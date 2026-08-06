@@ -8,7 +8,11 @@ SCHEMA_VERSION = "mm_paper_v0.1"
 EXECUTION_EVIDENCE_SCHEMA_VERSION = "mm_execution_evidence_v0.1"
 KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
 EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION = "early_hour_market_guardrail_shadow_v0.1"
-EXECUTION_SESSION_FILENAME = "market_ws_sessions.jsonl"
+EXECUTION_RAW_TAPE_FILENAME = "mm_execution_tape.jsonl"
+EXECUTION_CANONICAL_TAPE_FILENAME = "mm_execution_tape.csv"
+EXECUTION_SESSION_FILENAME = "mm_execution_tape_sessions.jsonl"
+EXECUTION_CONNECTION_SEQUENCE_SCOPE = "local_to_session_websocket_connection"
+EXECUTION_BOOK_ALIGNMENT_SEQUENCE_STATUS = "not_exposed_by_public_feed"
 
 DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -105,6 +109,7 @@ FILL_COLUMNS = [
     "execution_side",
     "execution_condition_id",
     "execution_raw_sha1",
+    "execution_audit_bindings_json",
     "execution_source_representations",
     "conservative_fill_rule",
     "queue_status",

@@ -94,22 +94,36 @@ new handle.
 ### Maker Execution-Evidence Producer
 
 Maker-day scoring has a stricter execution-evidence requirement than the raw
-book loop. `WeatherMakerExecutionCapture`, registered only through
-`scripts/ops/register_mm_execution_capture.ps1`, runs
-`python -m weather.market.mm_execution_capture --market all` as a separate
-long-lived process. It subscribes the whole active fleet on one WebSocket,
-routes messages into each event's `market_ws.jsonl` and
-`market_ws_events.csv`, and writes `market_ws_sessions.jsonl` coverage
-receipts. `data/snapshots/market_execution_capture_status.json` records the
-latest session or connection failure.
+book loop. On this branch, `WeatherMakerExecutionCapture` is registered only
+through `scripts/ops/register_mm_execution_capture.ps1`. The accepted `-09-17a`
+follow-on adds the operator-facing `scripts/ops/register_maker_tape.ps1`; after
+that branch is integrated, it must pass the same deployed-module `--help`
+contract before registration. The task runs
+`python -m weather.market.mm_execution_capture --market all --retention-mode
+executions-only --lock-scope execution-tape --host-policy-mode
+pause-training-window` as a separate BelowNormal process. It subscribes the
+whole active fleet on one WebSocket but retains only individual
+`last_trade_price` members. Each event's `mm_execution_tape.jsonl`,
+`mm_execution_tape.csv`, and `mm_execution_tape_sessions.jsonl` are serialized
+through `root/mm_execution_tape`, never the CLOB writer's `clob_raw_tape`
+anchor. The receipt binds the exact asset set, local connection-message
+sequence interval, execution count, and raw/canonical prefix bytes and hashes.
+A receipt claims complete coverage only after every asset subscribed for every
+event has appeared in public market data; each event row binds its own observed
+asset set and market-data message count, so activity in one event cannot prove
+an exact-zero interval for another.
+`data/snapshots/market_execution_capture_status.json` records the latest
+session, planned pause, or connection failure.
 
 This process is separate because the latency-critical CLOB loop intentionally
 remains raw-book-only, while the older enrichment loop samples each market for
 a short bounded interval and cannot prove continuous quote-lifetime coverage.
-The maker-day checklist fails closed when the execution tape or a complete
-session covering a resting quote is absent. A valid no-quote day still needs a
-retained execution tape and complete session receipt; no tape is never evidence
-of zero fills. The paper scorer also binds the checklist to one settled target
+The maker-day checklist fails closed when bound execution evidence or a
+complete session covering a decision or resting quote is absent. A valid
+no-quote day still needs a complete bound receipt. Missing raw/canonical files
+prove exact zero only when that receipt declares zero executions and binds both
+absent prefixes to zero bytes and SHA-256(empty); a positive receipt requires
+matching raw and canonical tapes. The paper scorer also binds the checklist to one settled target
 date even though its longitudinal diagnostics can read a bounded multi-run
 corpus. Before run discovery, it reads
 `docs/operations/reserved-confirmation-window.md`: a declared reserved target,

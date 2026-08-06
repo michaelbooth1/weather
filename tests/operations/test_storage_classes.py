@@ -1,5 +1,10 @@
 import unittest
 
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations.closed_market_day_archive import ARTIFACT_FAMILY_NAMES
 from weather.operations.storage_classes import (
     ANALYSIS_PROJECTION,
@@ -71,6 +76,31 @@ class TestStorageClassRegistry(unittest.TestCase):
                 self.assertIn("exact pinned promotion corpus", classification.rebuild_source)
                 self.assertIn("reachability", classification.notes)
 
+    def test_dedicated_maker_execution_tapes_are_permanent_canonical_evidence(self):
+        filenames = (
+            EXECUTION_RAW_TAPE_FILENAME,
+            EXECUTION_CANONICAL_TAPE_FILENAME,
+            EXECUTION_SESSION_FILENAME,
+        )
+
+        for filename in filenames:
+            with self.subTest(filename=filename):
+                classification = classify_storage_path(
+                    f"data/snapshots/event/{filename}"
+                )
+                self.assertEqual(
+                    classification.artifact_family,
+                    "maker_execution_tape",
+                )
+                self.assertEqual(classification.storage_class, CANONICAL_EVIDENCE)
+                self.assertEqual(
+                    classification.retention_class,
+                    "permanent_maker_execution_evidence",
+                )
+                self.assertTrue(classification.protected)
+                self.assertTrue(classification.durable)
+                self.assertIn("not rebuildable", classification.rebuild_source)
+
     def test_order_book_long_projection_has_specific_rebuild_contract(self):
         for path in (
             "data/snapshots/event/order_books_long.csv",
@@ -104,6 +134,10 @@ class TestStorageClassRegistry(unittest.TestCase):
                 probe = "data/snapshots/event/variant_predictions_long.csv"
             elif family == "clob_capture_status":
                 probe = "data/snapshots/event/clob_capture_status.jsonl"
+            elif family == "maker_execution_tape":
+                probe = (
+                    f"data/snapshots/event/{EXECUTION_CANONICAL_TAPE_FILENAME}"
+                )
             else:
                 probe = f"data/snapshots/event/{family}.csv"
             classification = classify_storage_path(probe)

@@ -7,8 +7,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from weather.io import write_json_atomic
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations.closed_market_day_archive_manifest_contract import (
+    ARTIFACT_FAMILY_NAMES as ARCHIVE_ARTIFACT_FAMILY_NAMES,
     manifest_content_hash as archive_manifest_content_hash,
+    validate_manifest_shape as validate_archive_manifest_shape,
 )
 from weather.operations.event_day_archive_coverage import (
     CURSOR_SCHEMA_VERSION,
@@ -211,6 +218,38 @@ def _cursor(snapshots, archive, as_of, folders, *, updated="2026-07-11T12:30:00+
 
 
 class TestEventDayArchiveCoverage(unittest.TestCase):
+    def test_archive_manifest_contract_accepts_maker_tape_and_remains_strict(self):
+        slug = "highest-temperature-in-toronto-on-june-1-2026"
+        manifest = _archive_manifest(slug, "2026-06-01", "c" * 64)
+        manifest["artifact_families"] = [
+            {
+                "artifact_family": "maker_execution_tape",
+                "status": "raw_reference_only",
+                "source_files": [
+                    {
+                        "path": f"{slug}/{filename}",
+                        "bytes": 1,
+                        "sha256": "d" * 64,
+                        "role": "raw_evidence",
+                    }
+                    for filename in (
+                        EXECUTION_RAW_TAPE_FILENAME,
+                        EXECUTION_CANONICAL_TAPE_FILENAME,
+                        EXECUTION_SESSION_FILENAME,
+                    )
+                ],
+            }
+        ]
+        manifest["manifest_hash"] = archive_manifest_content_hash(manifest)
+
+        self.assertIn("maker_execution_tape", ARCHIVE_ARTIFACT_FAMILY_NAMES)
+        self.assertEqual(validate_archive_manifest_shape(manifest), [])
+
+        unknown = deepcopy(manifest)
+        unknown["artifact_families"][0]["artifact_family"] = "unknown_family"
+        errors = validate_archive_manifest_shape(unknown)
+        self.assertIn("artifact_families[0].artifact_family is unknown", errors)
+
     def test_complete_hash_linked_index_passes_without_source_or_parquet_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

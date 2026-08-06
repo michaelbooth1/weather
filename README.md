@@ -205,9 +205,10 @@ Run commands from the repository root with the venv interpreter.
 .\venv\Scripts\python.exe -m weather.market.market_microstructure stop
 .\venv\Scripts\python.exe -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15
 .\venv\Scripts\python.exe -m weather.market.market_microstructure websocket --market toronto --seconds 300
-# Continuous fleet WebSocket tape required for countable maker days. Provider access;
-# use --once only for an explicitly authorized diagnostic.
-.\venv\Scripts\python.exe -m weather.market.mm_execution_capture --market all
+# Continuous execution-only fleet tape required for countable maker days. The
+# dedicated lock never contends with raw CLOB capture and the producer pauses
+# for the single-host training window.
+.\venv\Scripts\python.exe -m weather.market.mm_execution_capture --market all --retention-mode executions-only --lock-scope execution-tape --host-policy-mode pause-training-window
 
 # Fast observation-triggered recompute watcher.
 .\venv\Scripts\python.exe -m weather.operations.observation_trigger once --market all

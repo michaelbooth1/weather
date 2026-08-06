@@ -37,6 +37,7 @@ ARTIFACT_FAMILY_NAMES = frozenset(
         "order_books_long",
         "price_history",
         "market_ws_events",
+        "maker_execution_tape",
         "clob_features_long",
         "variant_predictions_long",
     }

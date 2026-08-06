@@ -120,6 +120,7 @@ and schema-safe. Raw evidence references remain permanent.
 | `order_books_long` | `order_books_long.csv`, `order_books_long.csv.gz` | `order_books.jsonl` |
 | `price_history` | `price_history.csv`, `price_history.csv.gz` | `price_history.jsonl`, `price_history_raw_manifest.jsonl`, `price_history_raw/*.json` |
 | `market_ws_events` | `market_ws_events.csv`, `market_ws_events.csv.gz` | `market_ws.jsonl` |
+| `maker_execution_tape` | None; raw-reference-only | `mm_execution_tape.jsonl`, `mm_execution_tape.csv`, `mm_execution_tape_sessions.jsonl` |
 | `clob_features_long` | `clob_features_long.csv`, `clob_features_long.csv.gz` | `clob_features.jsonl`, raw CLOB tapes |
 | `variant_predictions_long` | `variant_predictions_long.csv`, `variant_predictions_long.csv.gz` | `variant_predictions.jsonl`, legacy `live_variant_predictions.jsonl` |
 
@@ -137,6 +138,13 @@ present only
 family remains blocked until its exact rebuild and every direct gzip reader
 have fixture proof. The retained `order_books_long.csv.gz` is a serving
 projection; `order_books.jsonl` remains canonical evidence.
+
+The `maker_execution_tape` family is an optional event-day family. Every
+member, including `mm_execution_tape.csv`, is permanent raw evidence whose
+prefix bytes can be bound by a session receipt. Closed-day archiving records
+the files as `raw_reference_only`, writes no Parquet dataset for the family,
+and never deletes or tiers any member. The projection registry marks the whole
+family explicitly ineligible for cleanup.
 
 ## Validation
 
@@ -262,6 +270,8 @@ and must stay protected by reviewed cleanup manifests:
 - Raw CLOB tapes: `clob_tokens.jsonl`, `order_books.jsonl`,
   `price_history.jsonl`, `price_history_raw_manifest.jsonl`,
   `price_history_raw/*.json`, `market_ws.jsonl`, and capture status rows.
+- Dedicated maker execution evidence: `mm_execution_tape.jsonl`,
+  `mm_execution_tape.csv`, and `mm_execution_tape_sessions.jsonl`.
 - Settlement labels, per-market ledgers, resolution specs, and reconciliation
   evidence.
 - Archive manifests and Parquet partitions after Item 244 writes them.

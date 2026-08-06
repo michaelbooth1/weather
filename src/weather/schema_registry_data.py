@@ -1963,6 +1963,27 @@ REGISTERED_SCHEMAS = (
         "Continuous market WebSocket capture session receipt.",
     ),
     SchemaSpec(
+        "mm_execution_capture_bound_session",
+        "mm_execution_capture_bound_session_v0.1",
+        "weather.market.mm_execution_capture",
+        "active",
+        "Hash-bound execution-only WebSocket capture session receipt.",
+    ),
+    SchemaSpec(
+        "mm_execution_capture_execution_row",
+        "mm_execution_capture_execution_row_v0.1",
+        "weather.market.mm_execution_capture",
+        "active",
+        "Canonical execution-only WebSocket event row.",
+    ),
+    SchemaSpec(
+        "mm_execution_capture_raw_execution",
+        "mm_execution_capture_raw_execution_v0.1",
+        "weather.market.mm_execution_capture",
+        "active",
+        "Raw execution-only WebSocket payload member with local connection binding.",
+    ),
+    SchemaSpec(
         "mm_execution_capture_status",
         "mm_execution_capture_status_v0.1",
         "weather.market.mm_execution_capture",
