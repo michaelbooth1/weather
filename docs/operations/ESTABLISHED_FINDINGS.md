@@ -322,8 +322,39 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 ---
 
+## 9. Release #1 is not on the critical path to a countable MM day
+
+Measured 2026-08-06 by reading the gate implementations and the live chain payload.
+
+The MM countability chain — `live_forward_gate.py`, `market_making_preflight.py`,
+`market_making_readiness.py` — contains **zero references to release binding**. All six live
+blockers (`live_forward_gate`, `useful_work_liveness`, `quote_starvation`,
+`fill_evidence_completeness`, `preflight`, `model_variant_bakeoff_skipped_variants`) are
+execution-evidence or infrastructure. `mm_paper_conservative_fills = 0` — **what is missing
+is fills, not a release.**
+
+Release #1 turns on `production_readiness_gate` (currently `SKIPPED` because
+`release_identity` is `RESEARCH_UNBOUND`). It does **not** unblock promotion:
+`hourly_model_performance` BLOCKs on early-hour Brier trailing the market by **0.0205 vs a
+0.0030 tolerance in all 12 markets**, whose own remediation reads `keep promotion blocked`.
+
+**Consequence:** the unmerged four-deep maker stack (`-09-11a`→`-09-18a`→`-09-25a`→`-09-27a`)
+is the real MM critical path, and the blindness repair belongs *before* the candidate freeze —
+freezing first bakes a knowingly blind incumbent into every future comparison. Canonical:
+[release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md).
+
+**This corrects** the prior "remaining blocker is promotion, downstream of release #1"
+framing. Promotion, MM countability and release identity were treated as one chain; they are
+three independent ones.
+
+---
+
 ## Related
 
+- [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md) —
+  the sequencing finding above, with reproduction
+- [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) — how to tell a
+  never-dispatched mission from a completed one
 - [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) — what is not true despite appearing so
 - [DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md) — standing boundaries for delegated missions
 - [AGENT_CONTEXT.md](AGENT_CONTEXT.md) — durable domain invariants
