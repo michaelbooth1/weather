@@ -146,6 +146,42 @@ any conclusion about what free-source parity is worth.
 **Generalises: a 100% failure rate is a signal about the verifier, not the data.** Check the declared
 algorithm before concluding that canonical evidence is corrupt.
 
+### "A reconnect gap can be backfilled from the public API" — FALSE, AND IT IS A HARD CONSTRAINT
+
+`-09-27a` tested this at P0 and returned a hard NO-GO. **The public API cannot exactly reconstruct a
+sub-second coverage gap.** Do not re-propose backfill without new API capability.
+
+| Route | What it gives | Why it fails |
+| --- | --- | --- |
+| `/orderbook-history` | 101 ms-snapshots across 52 of 264 tokens | **Indicative only** — no sequencing, completeness, loss-detection, or exact-boundary contract; only partly documented |
+| Trade history | ~3 years retention | **Second-level timestamps**; omits book changes |
+| Price history | sampled `t/p` points | Sampled, not exact |
+
+**Exact-replay retention horizon is effectively zero seconds.** Snapshot retention is undocumented
+(empirically ≥12 h 17 m after the fact). An indicative reconstruction presented as exact would
+corrupt every maker P&L number downstream, so this fails closed.
+
+**Consequence:** gaps cannot be proven empty (`-09-25a`: cadence threshold `0.000 s`, receipts carry
+no maker-state fields) and cannot be filled after the fact (`-09-27a`). The only remaining directions
+are preventing the gap or accepting bounded uncertainty in maker scoring.
+
+### The maker's connection losses are NOT a host or network common-cause failure
+
+Measured on production 2026-08-06 against the `-09-18a` soak window. During the maker's
+settlement-breaking loss (04:08:24.6→04:08:26.8 UTC) the CLOB capture loop straddled the gap
+**unbroken** — records at 04:08:16.948 and 04:08:31.962, both `ok`, 22 tokens, 15-second cadence,
+no error anywhere in the surrounding ±2.5 minutes.
+
+Across the **entire** 6 h 52 m soak window the CLOB feed logged **19,625 records with exactly one
+error**. So whatever dropped the maker's socket left a concurrent connection to the same exchange
+from the same host completely unaffected — the cause is **connection-specific, not environmental**.
+
+**But redundancy is not a complete answer.** The same scan found 6 gaps >60 s all clustered at
+00:53–00:56 UTC across houston/LA/toronto/atlanta/seattle — a genuine fleet-wide common-cause stall,
+the pattern `-09-14a` targets. Independent-connection redundancy defends against the connection-
+specific drops that caused the `-09-18a` NO-GO; it does **not** defend against a fleet-wide stall.
+Any proposal must price that residual rather than claim the problem solved.
+
 ### The `SOURCE_PATTERNS` glob is NOT the roll-sensitivity test
 
 Roll sensitivity is the **loaded-module import closure**, recorded in the capture status files as
