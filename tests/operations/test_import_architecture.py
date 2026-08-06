@@ -234,6 +234,7 @@ REPORTING_SOURCE_GATE_MODULES = [
     Path("src/weather/reporting/source_gates/forecast_smoke_slice_prep.py"),
     Path("src/weather/reporting/source_gates/global_model_guidance_gate.py"),
     Path("src/weather/reporting/source_gates/marine_contrast_gate.py"),
+    Path("src/weather/reporting/source_gates/model_input_surface_gate.py"),
     Path("src/weather/reporting/source_gates/nbm_probabilistic_tmax_gate.py"),
     Path("src/weather/reporting/source_gates/nbm_probabilistic_tmax_settlement_scoring.py"),
     Path("src/weather/reporting/source_gates/official_guidance_sparse_coverage.py"),

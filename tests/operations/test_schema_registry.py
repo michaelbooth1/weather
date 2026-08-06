@@ -282,6 +282,7 @@ class TestSchemaRegistry(unittest.TestCase):
             "nbm_probabilistic_tmax_settlement_scoring_v0.1",
         )
         self.assertEqual(schema_version("marine_contrast_gate"), "marine_contrast_gate_v0.1")
+        self.assertEqual(schema_version("model_input_surface_gate"), "model_input_surface_gate_v0.1")
         self.assertEqual(schema_version("marine_water_contrast_features"), "marine_water_contrast_features_v0.1")
         self.assertEqual(schema_version("marine_water_contrast_backfill"), "marine_water_contrast_backfill_v0.1")
         self.assertEqual(schema_version("marine_gridded_sst_point"), "marine_gridded_sst_point_v0.1")

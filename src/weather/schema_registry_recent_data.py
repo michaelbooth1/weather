@@ -945,4 +945,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Fail-closed settled-day join of captured served hard floors to eventual settlement.",
     ),
+    SchemaSpec(
+        "model_input_surface_gate",
+        "model_input_surface_gate_v0.1",
+        "weather.reporting.source_gates.model_input_surface_gate",
+        "active",
+        "Fleet-wide per-market/hour trained-feature population coverage gate.",
+    ),
 )
