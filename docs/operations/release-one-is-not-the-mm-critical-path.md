@@ -1,105 +1,102 @@
-# Release #1 is not on the critical path to a countable MM day
+# Release #1 and the MM clock — what is and is not established
 
-Status: canonical finding, measured 2026-08-06 on production state. Supersedes the
-"remaining blocker is promotion, downstream of release #1" framing of the MM track.
+Status: **corrected 2026-08-06, same day, before anyone acted on it.** The first version of
+this file claimed release #1 was *not* on the critical path to a countable MM day. That claim
+was under-evidenced and is retracted. What replaces it is narrower and, for sequencing,
+points the same way for a different reason.
 
-## The question
+## What the first version got wrong
 
-The MM bot is the stated end goal, and release #1 has been priority 1 for several days. The
-sequencing question is whether that ordering is right: **is release #1 actually on the
-critical path to a countable market-making day, or is something else the binding constraint
-either way?**
+It checked for the string `release` in three gate modules, found none, and generalised that
+into a causal claim about the critical path. That is a search, not a trace — the same mistake
+this project has already recorded once, when a literal search over `-09-01a` was mistaken for
+a safety property (`ESTABLISHED_FINDINGS.md` §7).
 
-## The answer
+The path that actually produces a countable day was never traced. Tracing it falsifies the
+headline:
 
-**Release #1 is not on that path.** The market-making countability gate chain contains **zero
-references to release binding**:
+**Today's maker run, `data/mm_runs/2026-08-06/.../quote_intents_long.csv`, 924 intents:**
 
-| Module | Occurrences of "release" (case-insensitive) |
-| --- | ---: |
-| `src/weather/market/live_forward_gate.py` | **0** |
-| `src/weather/market/market_making_preflight.py` | **0** |
-| `src/weather/market/market_making_readiness.py` | **0** |
-
-`build_live_forward_gate` (`live_forward_gate.py:194-218`) passes on exactly two conditions:
-
-```python
-counts_toward_live_forward_gate = (
-    evidence["paper_trading_evidence"]["all_selected_markets_count"]
-    and run_level_ok
-)
-```
-
-Per-market paper-trading evidence, and run-level `useful_work_liveness`. Neither consults an
-active release pointer, a release manifest, or a served binding.
-
-## What is actually blocking, 2026-08-06
-
-From the chain payload (`daily_refresh_status.json`, `summary.trading_evidence`):
-
-| Blocker | Cleared by a release pointer? |
+| Field | Value |
 | --- | --- |
-| `live_forward_gate=BLOCK` | **No** — depends on per-market paper evidence |
-| `useful_work_liveness=BLOCK` | **No** — the maker is not doing useful work |
-| `quote_starvation=quote_starved_infra` | **No** — infrastructure |
-| `fill_evidence_completeness=BLOCK` | **No** — `mm_paper_conservative_fills = 0` |
-| `preflight=WARN` | No |
-| `model_variant_bakeoff_skipped_variants=66` | No |
+| `promotion_state` | **BLOCK on all 924** |
+| `known_edge_reason = promotion_block` | **847 (91.7%)** |
+| `known_edge_reason = source_freshness_model_gap` | 77 (8.3%) |
 
-`mm_paper_gate_status` is **OPEN** and `mm_paper_score_freshness_status` is **PASS**. The
-paper scorer is running fine and covering today. **What is missing is execution evidence —
-zero fills — not a release.**
+So MM quoting **is** gated on promotion today. Promotion BLOCK denies known-edge permission,
+no permission means no quotes, no quotes means no fills, and
+`fill_evidence_completeness=BLOCK` is one of the six countability blockers. The countability
+*modules* do not mention a release; the *causal chain* to a countable day runs straight
+through promotion.
 
-## What release #1 does and does not do
+## What is established
 
-- **Does:** create the active release pointer. `release_identity` is currently
-  `RESEARCH_UNBOUND` / `production_capable: false`, which makes `production_readiness_gate`
-  report `SKIPPED` rather than evaluating. A pointer turns that gate on.
-- **Does not:** unblock promotion. `hourly_model_performance` is `BLOCK` on
-  `early_hour_brier_regression` — early-hour model Brier trails the market by **0.0205
-  against a 0.0030 tolerance**, in **all 12 markets** — with the gate's own remediation
-  reading `keep promotion blocked`. That is a model-skill refusal and a release pointer does
-  not touch it.
-- **Does not:** advance the MM clock, per the table above.
+1. **The MM countability gate modules contain no release reference.**
+   `live_forward_gate.py`, `market_making_preflight.py`, `market_making_readiness.py`: zero
+   occurrences of "release", case-insensitive. `build_live_forward_gate` passes on per-market
+   paper-trading evidence and run-level `useful_work_liveness`. This is true and reproducible;
+   it just does not support the conclusion that was drawn from it.
 
-**So release #1 unblocks the pointer, not promotion, and not market making.**
+2. **MM quoting is gated on promotion**, by the 847/924 measurement above.
 
-## Consequences for sequencing
+3. **Release #1 is not sufficient for promotion.** `hourly_model_performance` is `BLOCK` on
+   `early_hour_brier_regression` — early-hour Brier trails the market by **0.0205 against a
+   0.0030 tolerance, in all 12 markets** — and that gate's own remediation line reads
+   `keep promotion blocked`. This is a model-skill refusal. **No release pointer touches it.**
 
-1. **The maker branch stack is the real MM critical path.** `-09-11a` → `-09-18a` → `-09-25a`
-   → `-09-27a` is a four-deep chain, each merging its predecessor, and **none of it is on
-   master**. It is the work that addresses execution evidence, which is what actually blocks
-   the clock. Landing it beats building the release.
-2. **The blindness repair should land before the candidate freeze, not after.** Release #1
-   *freezes* the June per-market HGBs, and the confirmation window arms at candidate freeze.
-   Those HGBs are fed constant imputed medians for 8 of 29 trained inputs at every hour in
-   every market. Freezing first bakes a knowingly blind incumbent into the baseline that
-   every future comparison is measured against, and makes the first retrain's apparent gain
-   partly an artifact of repaired plumbing rather than a better model.
-3. **Release #1 is not urgent, and it is not useless.** Its value is turning on
-   `production_readiness_gate` and establishing release identity. That value does not expire,
-   and it does not compete with the two items above.
+4. **Release #1 does turn on `production_readiness_gate`**, which currently reports `SKIPPED`
+   because `release_identity` is `RESEARCH_UNBOUND` / `production_capable: false`.
 
-## What this corrects
+## What is NOT established
 
-The prior framing — recorded as "MM Phase 1 fixed; remaining blocker is promotion,
-downstream of release #1" — is **wrong on this host as of 2026-08-06**. Promotion is blocked,
-but MM countability does not depend on promotion, and neither depends on the release pointer
-for the reasons above. The three were treated as one chain and they are not.
+- **Whether release #1 is necessary for promotion.** A 2026-07-31 note records the chain as
+  no release → `captured_input_replay_parity` BLOCK → `f_family_promotion_refresh` `not_run` →
+  every market `promotion_state: BLOCK`. That is consistent with today's data but was **not
+  re-verified here**, and today is a poor test: the chain died at the settled-day barrier
+  before Stage B, so promotion refresh never ran at all and its summary is all-null. Today's
+  BLOCK is the `not_run` default, which cannot distinguish "blocked by missing release" from
+  "never reached".
+- **Therefore the ordering of release #1 against the maker stack is open.** Do not treat
+  either as settled by this file.
 
-## Method note
+## What survives for sequencing
 
-This was settled by reading the gate implementations and today's chain payload, not by
-argument from the roadmap. `ESTABLISHED_FINDINGS.md` §5 requires power and interval treatment
-for *measurements*; this is a structural claim about code paths, and the appropriate evidence
-is the code path plus the live payload. Both are cited above and both are reproducible:
+Only one conclusion, and it is strengthened rather than weakened by the correction:
+
+**The blindness repair belongs before the candidate freeze.** Release #1 *freezes* the June
+per-market HGBs, and the confirmation window arms at candidate freeze. Those HGBs are fed
+constant imputed medians for 8 of 29 trained inputs, at every hour, in every market. Two
+reasons, the second of which is new:
+
+1. Freezing first bakes a knowingly blind incumbent into the baseline that every future
+   comparison is measured against, making the first retrain's apparent gain partly an artifact
+   of repaired plumbing rather than a better model.
+2. **Model skill is an independent promotion blocker that no release clears** (point 3 above).
+   Whatever release #1 unblocks, `early_hour_brier_regression` still refuses afterwards. Work
+   that improves the model is therefore on the promotion path in a way that building the
+   release is not.
+
+## How to settle the open question
+
+Run promotion refresh to completion once, with the settlement chain healthy, and read whether
+`captured_input_replay_parity` blocks for want of a release pointer. That requires the chain to
+get past the settled-day barrier — which needs 2026-08-05 backfilled first
+(`WeatherChainRecovery20260807`). **Do not re-answer this from the roadmap or from module
+greps.**
+
+## Reproduction
 
 ```powershell
+# claim 1 — true, and insufficient on its own
 Select-String -Path src\weather\market\live_forward_gate.py,`
   src\weather\market\market_making_preflight.py,`
   src\weather\market\market_making_readiness.py -Pattern "release" -CaseSensitive:$false
+
+# claim 2 — the trace that falsified the headline
+python -c "import csv,collections;r=list(csv.DictReader(open(r'data/mm_runs/2026-08-06/20260806T174937785434Z/quote_intents_long.csv',encoding='utf-8')));print(collections.Counter(x['known_edge_reason'] for x in r))"
 ```
 
 ## Update this file when
 
-The MM gate chain gains a release dependency, or the set of countability blockers changes.
+The open question above is settled by a completed promotion refresh, or the MM gate chain
+gains or loses a release dependency.

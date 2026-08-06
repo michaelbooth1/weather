@@ -322,30 +322,27 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 ---
 
-## 9. Release #1 is not on the critical path to a countable MM day
+## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
-Measured 2026-08-06 by reading the gate implementations and the live chain payload.
-
-The MM countability chain — `live_forward_gate.py`, `market_making_preflight.py`,
-`market_making_readiness.py` — contains **zero references to release binding**. All six live
-blockers (`live_forward_gate`, `useful_work_liveness`, `quote_starvation`,
-`fill_evidence_completeness`, `preflight`, `model_variant_bakeoff_skipped_variants`) are
-execution-evidence or infrastructure. `mm_paper_conservative_fills = 0` — **what is missing
-is fills, not a release.**
-
-Release #1 turns on `production_readiness_gate` (currently `SKIPPED` because
-`release_identity` is `RESEARCH_UNBOUND`). It does **not** unblock promotion:
-`hourly_model_performance` BLOCKs on early-hour Brier trailing the market by **0.0205 vs a
-0.0030 tolerance in all 12 markets**, whose own remediation reads `keep promotion blocked`.
-
-**Consequence:** the unmerged four-deep maker stack (`-09-11a`→`-09-18a`→`-09-25a`→`-09-27a`)
-is the real MM critical path, and the blindness repair belongs *before* the candidate freeze —
-freezing first bakes a knowingly blind incumbent into every future comparison. Canonical:
+Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
+and was corrected within hours.** Canonical:
 [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md).
 
-**This corrects** the prior "remaining blocker is promotion, downstream of release #1"
-framing. Promotion, MM countability and release identity were treated as one chain; they are
-three independent ones.
+| Claim | Status |
+| --- | --- |
+| MM countability *modules* contain zero references to release binding | **True**, and insufficient on its own |
+| MM quoting is gated on promotion | **True** — 924 intents today, `promotion_state` BLOCK on all, `known_edge_reason=promotion_block` on **847 (91.7%)** |
+| Release #1 is *sufficient* for promotion | **False.** `hourly_model_performance` BLOCKs on early-hour Brier trailing the market by **0.0205 vs a 0.0030 tolerance in all 12 markets**; its own remediation reads `keep promotion blocked` |
+| Release #1 is *necessary* for promotion | **NOT ESTABLISHED.** Today cannot test it — the chain died at the barrier, so promotion refresh never ran and its summary is all-null; the BLOCK is the `not_run` default |
+
+**What survives for sequencing:** the blindness repair belongs *before* the candidate freeze.
+Freezing bakes a knowingly blind incumbent into the baseline every future comparison uses,
+**and** model skill is an independent promotion blocker that no release pointer clears — so
+model work is on the promotion path in a way that building the release is not.
+
+**Method lesson, the second time this project has paid it:** the retracted version reached its
+conclusion by grepping three modules for a string and generalising to a causal claim. A search
+is not a trace. §7 records the same error made against `-09-01a`.
 
 ---
 

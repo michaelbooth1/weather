@@ -220,6 +220,34 @@ authorized.
 `-09-01a` sat 59 commits behind master. Held branches rot. Age a branch against master before
 planning work that depends on it.
 
+### "Release #1 is not on the critical path to a countable MM day" — RETRACTED
+
+Claimed and retracted the same day, 2026-08-06, before it was acted on.
+
+The claim was reached by grepping `live_forward_gate.py`, `market_making_preflight.py` and
+`market_making_readiness.py` for "release", finding zero hits, and concluding that market
+making is decoupled from the release. **The grep result is true. The conclusion does not
+follow.**
+
+Tracing the path that actually produces a countable day falsifies it: today's 924 quote
+intents all carry `promotion_state: BLOCK`, and **847 of them (91.7%) are denied with
+`known_edge_reason: promotion_block`**. Promotion BLOCK denies known-edge permission → no
+quotes → no fills → `fill_evidence_completeness=BLOCK`, which is one of the six countability
+blockers. The modules do not name a release; the causal chain runs through promotion anyway.
+
+**What is still true:** release #1 is not *sufficient* for promotion —
+`hourly_model_performance` independently BLOCKs on early-hour Brier (0.0205 vs 0.0030
+tolerance, all 12 markets) with the remediation `keep promotion blocked`. Whether release #1
+is *necessary* for promotion remains **unestablished**; it could not be tested on 2026-08-06
+because the chain died at the settled-day barrier before promotion refresh ran, making its
+all-null summary a `not_run` default rather than evidence.
+
+**The trap, and it is the second time:** a literal search is not a trace. §7 of
+`ESTABLISHED_FINDINGS.md` records the same error made against `-09-01a`, where the absence of
+a `covered_years` expression was mistaken for the absence of the self-sizing defect. Both
+times, absence of a string was read as absence of a behaviour. **Trace the path that produces
+the outcome, not the vocabulary of the modules near it.**
+
 ---
 
 ## 5. How to add to this file
