@@ -283,4 +283,4 @@ row” to “no book change.”
 - Current-master base: `4aecdb71416de083c6177f272f1a7a40a9f32871`
 - Carried dependency: `758824342f14aecdc42da4b545c40e048929059a`
 - Dependency merge on this topic branch: `958c1b68adb8ae2480801e9c433e42f4fdc9709e`
-- P0 report commit: **PENDING**
+- P0 report commit: `05176bd8e73107c85c8c3f3d0b57ec7764552685`
