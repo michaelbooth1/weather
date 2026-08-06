@@ -35,6 +35,7 @@ without porting its self-sizing base-retrain orchestration.
 - Current master basis: `fbb729bb22c70b3267e1afa002dabb013833dea7`
 - Initial refresh merge: `5cc53f50` (`Merge origin/master into PIT retrain rescue`)
 - Rescue implementation commit: `1e97ec71076988727d63e8707eca488947f50c22`
+- Current-master refresh merge: `79ab75e9ea004c81f5711260f698007a0ad73f4f`
 - Worktree: `scratch/w/rescue-pit-09-20a`
 - PR: none
 - Integration merge: none
