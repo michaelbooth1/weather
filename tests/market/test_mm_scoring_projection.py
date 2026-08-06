@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from weather.market.mm_paper_scoring import load_quote_rows
 from weather.market.mm_scoring_projection import (
     BASE_CANONICAL_FILENAME,
     BASE_PROJECTION_FILENAME,
+    LIVE_APPEND_PREFIX_BINDING_MODE,
     MANIFEST_FILENAME,
     MODEL_VARIANT_CANONICAL_FILENAME,
     MODEL_VARIANT_PROJECTION_FILENAME,
@@ -44,14 +46,25 @@ def _read_header(path: Path) -> list[str]:
         return next(csv.reader(handle))
 
 
-def _current_row(*, run_id: str, variant_id: str = "") -> dict[str, str]:
+def _append_csv_row(path: Path, row) -> None:
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_read_header(path))
+        writer.writerow(row)
+
+
+def _current_row(
+    *,
+    run_id: str,
+    variant_id: str = "",
+    target_date: str = "2026-07-18",
+) -> dict[str, str]:
     row = {column: "" for column in SCORING_COLUMNS}
     row.update({
         "run_id": run_id,
-        "target_date": "2026-07-18",
+        "target_date": target_date,
         "run_mode": "paper-live-forward",
-        "generated_at_utc": "2026-07-18T16:00:00+00:00",
-        "captured_at_utc": "2026-07-18T15:59:45+00:00",
+        "generated_at_utc": f"{target_date}T16:00:00+00:00",
+        "captured_at_utc": f"{target_date}T15:59:45+00:00",
         "capture_hour_local": "11",
         "policy_hash": "policy-current",
         "live_trade_permission": "False",
@@ -59,7 +72,11 @@ def _current_row(*, run_id: str, variant_id: str = "") -> dict[str, str]:
         "regime": "harvest",
         "reason_code": "QUOTE_HARVEST_MID",
         "market_id": "atlanta",
-        "event_slug": "highest-temperature-in-atlanta-on-july-18-2026",
+        "event_slug": (
+            "highest-temperature-in-atlanta-on-july-18-2026"
+            if target_date == "2026-07-18"
+            else f"synthetic-high-temperature-on-{target_date}"
+        ),
         "range_label": "90-91 F",
         "bin_kind": "range",
         "bin_value": "90",
@@ -89,7 +106,7 @@ def _current_row(*, run_id: str, variant_id: str = "") -> dict[str, str]:
         "event_gate_status": "PASS",
         "event_gate_action": "QUOTE",
         "event_gate_reason_code": "NO_RESTRICTED_EVENT",
-        "event_gate_next_event_at_utc": "2026-07-18T19:00:00+00:00",
+        "event_gate_next_event_at_utc": f"{target_date}T19:00:00+00:00",
         "early_hour_guardrail_status": "PASS",
         "early_hour_guardrail_min_edge": "0.02",
         "early_hour_guardrail_size_multiplier": "1.0",
@@ -109,18 +126,29 @@ def _current_row(*, run_id: str, variant_id: str = "") -> dict[str, str]:
     return row
 
 
-def _write_current_run(runs_root: Path, run_id: str = "paper-run") -> Path:
-    run_folder = runs_root / "2026-07-18" / run_id
+def _write_current_run(
+    runs_root: Path,
+    run_id: str = "paper-run",
+    *,
+    target_date: str = "2026-07-18",
+) -> Path:
+    run_folder = runs_root / target_date / run_id
     columns = [*SCORING_COLUMNS, *PROVENANCE_COLUMNS]
     _write_csv(
         run_folder / BASE_CANONICAL_FILENAME,
         columns,
-        [_current_row(run_id=run_id)],
+        [_current_row(run_id=run_id, target_date=target_date)],
     )
     _write_csv(
         run_folder / MODEL_VARIANT_CANONICAL_FILENAME,
         columns,
-        [_current_row(run_id=run_id, variant_id="candidate-shadow")],
+        [
+            _current_row(
+                run_id=run_id,
+                variant_id="candidate-shadow",
+                target_date=target_date,
+            )
+        ],
     )
     return run_folder
 
@@ -194,6 +222,118 @@ def test_invalid_projection_member_falls_back_to_both_canonical_tapes(tmp_path):
     }
     assert resolved["input_bytes"] == resolved["canonical_bytes"]
     assert resolved["projected_vs_canonical_byte_ratio"] == 1.0
+
+
+def test_live_append_prefix_scores_captured_rows_after_file_grows(tmp_path):
+    run_folder = _write_current_run(
+        tmp_path / "mm_runs",
+        target_date="2099-08-20",
+    )
+    exact = resolve_run_scoring_inputs(run_folder)
+    captured = resolve_run_scoring_inputs(
+        run_folder,
+        live_append_prefix=True,
+    )
+    quote_path = run_folder / BASE_CANONICAL_FILENAME
+    appended = _current_row(run_id="paper-run", target_date="2099-08-20")
+    appended["generated_at_utc"] = "2099-08-20T16:01:00+00:00"
+    _append_csv_row(quote_path, appended)
+
+    with pytest.raises(RuntimeError, match="size_bytes binding mismatch"):
+        load_quote_rows(
+            [run_folder],
+            input_paths_by_folder={str(run_folder): quote_path},
+            input_bindings_by_folder={
+                str(run_folder): exact["input_bindings"]["base"]
+            },
+        )
+
+    binding = captured["input_bindings"]["base"]
+    assert binding["binding_mode"] == LIVE_APPEND_PREFIX_BINDING_MODE
+    assert binding["captured_mtime_ns"] > 0
+    assert binding["size_bytes"] < quote_path.stat().st_size
+    rows, _configs = load_quote_rows(
+        [run_folder],
+        input_paths_by_folder={str(run_folder): quote_path},
+        input_bindings_by_folder={str(run_folder): binding},
+    )
+    assert len(rows) == 1
+    assert rows[0]["generated_at_utc"] == "2099-08-20T16:00:00+00:00"
+
+
+def test_live_append_prefix_excludes_partial_final_record(tmp_path):
+    run_folder = _write_current_run(
+        tmp_path / "mm_runs",
+        target_date="2099-08-20",
+    )
+    quote_path = run_folder / BASE_CANONICAL_FILENAME
+    complete_size = quote_path.stat().st_size
+    with quote_path.open("ab") as handle:
+        handle.write(b"paper-run,unfinished")
+
+    captured = resolve_run_scoring_inputs(
+        run_folder,
+        live_append_prefix=True,
+    )
+    binding = captured["input_bindings"]["base"]
+
+    assert binding["size_bytes"] == complete_size
+    assert binding["captured_file_size_bytes"] > binding["size_bytes"]
+    rows, _configs = load_quote_rows(
+        [run_folder],
+        input_paths_by_folder={str(run_folder): quote_path},
+        input_bindings_by_folder={str(run_folder): binding},
+    )
+    assert len(rows) == 1
+
+
+def test_live_append_prefix_rejects_newline_inside_unfinished_quoted_record(
+    tmp_path,
+):
+    run_folder = _write_current_run(
+        tmp_path / "mm_runs",
+        target_date="2099-08-20",
+    )
+    quote_path = run_folder / BASE_CANONICAL_FILENAME
+    with quote_path.open("ab") as handle:
+        handle.write(b'paper-run,"unfinished\n')
+
+    captured = resolve_run_scoring_inputs(
+        run_folder,
+        live_append_prefix=True,
+    )
+    binding = captured["input_bindings"]["base"]
+
+    with pytest.raises(csv.Error, match="unexpected end of data"):
+        load_quote_rows(
+            [run_folder],
+            input_paths_by_folder={str(run_folder): quote_path},
+            input_bindings_by_folder={str(run_folder): binding},
+        )
+
+
+def test_live_append_prefix_rejects_rewrite_inside_captured_bytes(tmp_path):
+    run_folder = _write_current_run(
+        tmp_path / "mm_runs",
+        target_date="2099-08-20",
+    )
+    quote_path = run_folder / BASE_CANONICAL_FILENAME
+    captured = resolve_run_scoring_inputs(
+        run_folder,
+        live_append_prefix=True,
+    )
+    binding = captured["input_bindings"]["base"]
+    original = quote_path.read_bytes()
+    rewritten = original.replace(b"atlanta", b"atlantb", 1)
+    assert len(rewritten) == len(original)
+    quote_path.write_bytes(rewritten)
+
+    with pytest.raises(RuntimeError, match="prefix hash binding mismatch"):
+        load_quote_rows(
+            [run_folder],
+            input_paths_by_folder={str(run_folder): quote_path},
+            input_bindings_by_folder={str(run_folder): binding},
+        )
 
 
 @pytest.mark.parametrize(

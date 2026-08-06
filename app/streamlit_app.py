@@ -7,7 +7,10 @@ import streamlit as st
 from weather.market.market_registry import all_specs
 
 
-LIVE_REFRESH_SECONDS = 60
+# The snapshot loop writes every 10 minutes, so a 60s refresh re-rendered the
+# same data five times over. 300s stays responsive while cutting the load this
+# page puts on a host whose binding constraint is capture.
+LIVE_REFRESH_SECONDS = 300
 
 
 st.set_page_config(page_title="Weather Markets", layout="wide")

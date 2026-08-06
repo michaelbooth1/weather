@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -49,3 +50,16 @@ def arrow_safe_dataframe(rows, *, force_string_columns=("Value",)):
 
 def arrow_safe_records(rows, *, force_string_columns=("Value",)):
     return arrow_safe_dataframe(rows, force_string_columns=force_string_columns).to_dict("records")
+
+
+def csv_data_row_count(path):
+    """Return the number of CSV data rows, or ``None`` when unreadable."""
+
+    path = Path(path)
+    if not path.exists():
+        return 0
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return max(0, sum(1 for _line in handle) - 1)
+    except OSError:
+        return None

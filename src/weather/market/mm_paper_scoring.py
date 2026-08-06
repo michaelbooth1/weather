@@ -6,6 +6,7 @@ import bisect
 import csv
 import gc
 import hashlib
+import io
 import json
 import math
 import statistics
@@ -22,6 +23,7 @@ from weather.io import (
     read_csv_rows as io_read_csv_rows,
 )
 from weather.market.mm_policy import bool_value, early_hour_guardrail_state, maybe_float, parse_time
+from weather.market.mm_scoring_projection import LIVE_APPEND_PREFIX_BINDING_MODE
 from weather.market.mm_paper_constants import (
     DEFAULT_CONFIG,
     DEFAULT_JSON_OUT,
@@ -438,9 +440,108 @@ def _capture_explicit_input_binding(path, *, content_hash=False):
     return binding
 
 
+def _capture_explicit_prefix_binding(path, prefix_size):
+    path = Path(path)
+    if type(prefix_size) is not int or prefix_size <= 0:
+        raise ValueError(f"invalid maker scoring prefix size for {path}")
+    try:
+        before = path.stat()
+    except OSError:
+        return {"filename": path.name, "exists": False}
+    if int(before.st_size) < prefix_size:
+        raise RuntimeError(f"maker scoring input prefix was truncated: {path}")
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            remaining = prefix_size
+            while remaining:
+                chunk = handle.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise RuntimeError(
+                        f"maker scoring input prefix was truncated: {path}"
+                    )
+                digest.update(chunk)
+                remaining -= len(chunk)
+        after = path.stat()
+    except OSError as exc:
+        raise RuntimeError(f"maker scoring input prefix could not be read: {path}") from exc
+    if int(after.st_size) < prefix_size:
+        raise RuntimeError(f"maker scoring input prefix was truncated: {path}")
+    return {
+        "filename": path.name,
+        "exists": True,
+        "size_bytes": int(after.st_size),
+        "mtime_ns": int(after.st_mtime_ns),
+        "prefix_size_bytes": prefix_size,
+        "prefix_sha256": digest.hexdigest(),
+    }
+
+
+class _BoundedRawReader(io.RawIOBase):
+    def __init__(self, handle, limit):
+        super().__init__()
+        self._handle = handle
+        self._remaining = int(limit)
+        self.bytes_read = 0
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        if self._remaining <= 0:
+            return 0
+        chunk = self._handle.read(min(len(buffer), self._remaining))
+        if not chunk:
+            return 0
+        size = len(chunk)
+        buffer[:size] = chunk
+        self._remaining -= size
+        self.bytes_read += size
+        return size
+
+
+def _iter_prefix_csv_rows(path, prefix_size):
+    path = Path(path)
+    bounded = None
+    with path.open("rb") as handle:
+        bounded = _BoundedRawReader(handle, prefix_size)
+        with io.BufferedReader(bounded) as binary:
+            with io.TextIOWrapper(
+                binary,
+                encoding="utf-8-sig",
+                newline="",
+            ) as text:
+                for row in csv.DictReader(text, strict=True):
+                    yield dict(row)
+    if bounded is None or bounded.bytes_read != prefix_size:
+        raise RuntimeError(f"maker scoring input prefix was truncated: {path}")
+
+
 def _validated_explicit_input_binding(path, expected_binding=None):
     path = Path(path)
     expected = dict(expected_binding or {})
+    binding_mode = expected.get("binding_mode")
+    if binding_mode is not None and binding_mode != LIVE_APPEND_PREFIX_BINDING_MODE:
+        raise ValueError(f"invalid maker scoring input binding mode for {path}")
+    if binding_mode == LIVE_APPEND_PREFIX_BINDING_MODE:
+        expected_exists = expected.get("exists")
+        if expected_exists is not True:
+            raise ValueError(f"invalid maker scoring prefix binding for {path}")
+        if expected.get("filename") not in (None, path.name):
+            raise RuntimeError(f"maker scoring input filename binding mismatch: {path}")
+        if type(expected.get("captured_file_size_bytes")) is not int:
+            raise ValueError(f"invalid maker scoring prefix capture size for {path}")
+        if type(expected.get("captured_mtime_ns")) is not int:
+            raise ValueError(f"invalid maker scoring prefix capture mtime for {path}")
+        expected_hash = expected.get("sha256")
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+            raise ValueError(f"invalid maker scoring prefix hash for {path}")
+        actual = _capture_explicit_prefix_binding(path, expected.get("size_bytes"))
+        if not actual["exists"]:
+            raise FileNotFoundError(path)
+        if actual.get("prefix_sha256") != expected_hash:
+            raise RuntimeError(f"maker scoring input prefix hash binding mismatch: {path}")
+        return actual
     content_hash = bool(expected.get("sha256"))
     actual = _capture_explicit_input_binding(path, content_hash=content_hash)
     if not expected:
@@ -523,7 +624,18 @@ def load_quote_rows(
                 quote_path,
                 expected_binding,
             )
-        for index, row in enumerate(iter_csv_rows(quote_path)):
+        if (
+            expected_binding
+            and expected_binding.get("binding_mode")
+            == LIVE_APPEND_PREFIX_BINDING_MODE
+        ):
+            input_rows = _iter_prefix_csv_rows(
+                quote_path,
+                expected_binding["size_bytes"],
+            )
+        else:
+            input_rows = iter_csv_rows(quote_path)
+        for index, row in enumerate(input_rows):
             row = dict(row)
             row["_run_folder"] = str(folder)
             row["_quote_row_index"] = index

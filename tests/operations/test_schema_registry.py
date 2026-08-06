@@ -53,6 +53,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "mm_scoring_projection_v0.1",
         )
         self.assertEqual(
+            schema_version("maker_scoring_input_binding"),
+            "maker_scoring_input_binding_v0.1",
+        )
+        self.assertEqual(
             schema_version("mm_execution_evidence"),
             "mm_execution_evidence_v0.1",
         )

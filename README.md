@@ -101,6 +101,15 @@ mid-copy.
 The dashboard views are overview, per-market detail, history, market making,
 operations, and roadmap.
 
+Each per-market detail route shows the current serving build's recorded
+distribution pipeline at its effective cutoff: stage distributions, centre
+movement, explicit missing snapshots, trusted-floor binding mass, and the final
+served probabilities beside market-implied probabilities. It does not replay
+alternate cutoffs. The Operations route leads with the canonical host digest,
+keeps operational capture continuity separate from receipt-backed release
+admissibility, and shows the age/state of the daily refresh and morning
+briefing rather than treating stored artifacts as live state.
+
 ## Tests And Local Checks
 
 ```powershell
@@ -257,9 +266,13 @@ base/variant CSV pair containing only current maker-score reader fields.
 Preflight validates both members against their canonical tapes and
 measures/passes those exact paths; if either member is missing, stale,
 malformed, or incompatible, the whole run falls back to both canonical quote
-tapes. The score receipt records selected and canonical bytes, their ratio,
-and every run's input mode. Existing runs can be projected without rewriting
-canonical tapes with:
+tapes. For the scheduled active-day scorer only, canonical fallback captures a
+SHA-256-bound prefix ending at the last complete CSV record and the isolated
+child reads exactly that prefix; later appends are excluded, while any rewrite
+inside the prefix fails closed. Captured mtime is receipt metadata rather than
+an equality gate. The score receipt records selected and canonical bytes,
+their ratio, and every run's input mode. Existing runs can be projected without
+rewriting canonical tapes with:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
