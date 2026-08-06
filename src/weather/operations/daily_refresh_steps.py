@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from weather.operations.daily_refresh_registry import (
+    LANE_CHOICES,
+    LANE_LEARNING,
+    LANE_PROMOTION,
+    STEP_LANES,
     STEP_ORDER,
+    STEP_PROMOTION_GATES,
+    STEP_REGISTRY,
     STAGE_CHOICES,
     STAGE_EVIDENCE,
     STAGE_SETTLEMENT,

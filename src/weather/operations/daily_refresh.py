@@ -18,7 +18,7 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from weather.io import write_json_atomic
 from weather.paths import data_path, repo_path
@@ -94,6 +94,16 @@ from weather.operations.daily_refresh_resources import (
     serializable_step_args,
     step_resource_budget,
 )
+from weather.operations.daily_refresh_lanes import (
+    blocked_promotion_step as _blocked_promotion_step,
+    chain_target_settlement_coverage as _chain_target_settlement_coverage,
+    deferred_heavy_step as _deferred_heavy_step,
+    lane_summary as _lane_summary,
+    promotion_lane_outcome_blocker as _promotion_lane_outcome_blocker,
+    resume_carry_state as _resume_carry_state,
+    settlement_barrier_blocker as _settlement_barrier_blocker,
+    step_lane as _step_lane,
+)
 from weather.operations.producer_provenance import (
     build_invocation_proof,
     build_lock_proof,
@@ -143,15 +153,18 @@ from weather.operations.daily_refresh_steps import (
     DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
     DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
     DEFAULT_RUNNERS,
+    LANE_LEARNING,
+    LANE_PROMOTION,
+    STEP_PROMOTION_GATES,
     STEP_ORDER,
     STAGE_CHOICES,
     STAGE_EVIDENCE,
     STAGE_SETTLEMENT,
     build_rollup_freshness_status,
     carried_forward_stage_head,
-    carried_forward_steps,
     casebook_args,
-    filter_runners_for_stage_and_resume,
+    filter_runners_for_resume,
+    filter_runners_for_stage,
     ingest_quality_gate_status,
     parse_date_arg,
     pipeline_summary,
@@ -204,6 +217,7 @@ from weather.operations.daily_refresh_steps import (
     run_winner_rank_parity_step,
     run_step,
     run_ten_minute_model_performance_step,
+    step_names_for_stage,
     summarize_labels,
     variant_learning_gate_from_steps,
     write_daily_progress_ledger,
@@ -487,6 +501,7 @@ def _flush_incremental_status(args, payload, *, fail_closed=False):
     """
     snapshot = dict(payload)
     snapshot["generated_at_utc"] = utc_iso()
+    snapshot["lanes"] = _lane_summary(args, payload.get("steps") or [])
     snapshot["summary"] = pipeline_summary(payload.get("steps") or [])
     try:
         write_json_atomic(getattr(args, "status_out", None), snapshot)
@@ -890,15 +905,53 @@ def _stage_barrier_summary(payload):
     }
 
 
+def _stage_a_binding(manifest):
+    return str(
+        (manifest or {}).get("run_id")
+        or (manifest or {}).get("completed_at_utc")
+        or (manifest or {}).get("started_at_utc")
+        or ""
+    )
+
+
+def _promotion_receipts_before(step_name, *, names=None):
+    end = STEP_ORDER.index(step_name)
+    allowed = set(STEP_ORDER[:end] if names is None else names)
+    return tuple(
+        name
+        for name in STEP_ORDER[:end]
+        if name in allowed and STEP_PROMOTION_GATES.get(name, False)
+    )
+
+
 def _stage_manifest_payload(args, payload, *, stage, status_path=None, report_path=None):
     target_date = getattr(args, "settled_analysis_target_date", "") or ""
     stage_label = "settlement_truth" if stage == STAGE_SETTLEMENT else "evidence_learning"
+    execution_failures = [
+        step.get("name")
+        for step in payload.get("steps") or []
+        if not step.get("carried_forward")
+        and step.get("status") in {"error", "deferred"}
+    ]
+    manifest_status = (
+        "INCOMPLETE"
+        if stage == STAGE_EVIDENCE and execution_failures
+        else "COMPLETED"
+        if payload.get("status") in {"ok", "critical"}
+        else str(payload.get("status") or "unknown").upper()
+    )
+    stage_gate = ((payload.get("config") or {}).get("stage_gate") or {})
     return {
         "schema_version": STAGE_MANIFEST_SCHEMA_VERSION,
+        "run_id": payload.get("run_id") or "",
         "stage": stage,
         "stage_label": stage_label,
-        "status": "COMPLETED" if payload.get("status") in {"ok", "critical"} else str(payload.get("status") or "unknown").upper(),
+        "status": manifest_status,
         "payload_status": payload.get("status"),
+        "execution_failure_steps": execution_failures,
+        "source_stage_a_binding": (
+            stage_gate.get("stage_a_binding") if stage == STAGE_EVIDENCE else ""
+        ),
         "target_date": target_date,
         "started_at_utc": payload.get("started_at_utc"),
         "completed_at_utc": payload.get("finished_at_utc"),
@@ -908,9 +961,11 @@ def _stage_manifest_payload(args, payload, *, stage, status_path=None, report_pa
         "completed_steps": [
             step.get("name")
             for step in payload.get("steps") or []
-            if step.get("status") != "error"
+            if step.get("status") not in {"error", "deferred", "blocked"}
         ],
         "barrier": _stage_barrier_summary(payload),
+        "lanes": payload.get("lanes")
+        or _lane_summary(args, payload.get("steps") or []),
         "steps": payload.get("steps") or [],
         "invocation": payload.get("invocation") or {},
         "lock_proof": payload.get("lock_proof") or {},
@@ -967,28 +1022,63 @@ def _stage_b_start_gate(args):
             "stage_a_manifest": str(stage_a_path),
         }
     barrier = stage_a.get("barrier") or {}
-    if barrier.get("status") == "BLOCK" or barrier.get("step_status") == "error":
-        return {
-            "status": "SKIP",
-            "skip_reason": "stage_a_barrier_blocked",
-            "target_date": target_date,
-            "barrier": barrier,
-            "stage_a_manifest": str(stage_a_path),
-        }
+    stage_a_binding = _stage_a_binding(stage_a)
+    required_stage_a_receipts = tuple(
+        name
+        for name in step_names_for_stage(STAGE_SETTLEMENT)
+        if STEP_PROMOTION_GATES.get(name, False)
+    )
+    stage_a_promotion_blocker = _promotion_lane_outcome_blocker(
+        stage_a.get("steps") or [],
+        required_names=required_stage_a_receipts,
+        target_date=target_date,
+    )
+    stage_a_target_coverage = _chain_target_settlement_coverage(
+        args,
+        stage_a.get("steps") or [],
+    )
     stage_b = _read_json_payload(stage_b_path)
-    if stage_b.get("target_date") == target_date and stage_b.get("status") == "COMPLETED":
+    if (
+        stage_b.get("target_date") == target_date
+        and stage_b.get("status") == "COMPLETED"
+        and stage_a_binding
+        and stage_b.get("source_stage_a_binding") == stage_a_binding
+    ):
         return {
             "status": "SKIP",
             "skip_reason": "stage_b_already_completed",
             "target_date": target_date,
             "stage_b_manifest": str(stage_b_path),
             "completed_at_utc": stage_b.get("completed_at_utc"),
+            "completed_status_out": stage_b.get("status_out"),
+            "completed_report_out": stage_b.get("report_out"),
         }
     return {
         "status": "RUN",
         "target_date": target_date,
         "stage_a_manifest": str(stage_a_path),
         "stage_b_manifest": str(stage_b_path),
+        "stage_a_binding": stage_a_binding,
+        "barrier": barrier,
+        "promotion_blocker": stage_a_promotion_blocker,
+        "target_settlement_coverage": stage_a_target_coverage,
+        "required_stage_a_promotion_receipts": list(
+            required_stage_a_receipts
+        ),
+        "promotion_lane_status": (
+            "BLOCKED"
+            if stage_a_promotion_blocker
+            or (
+                ((stage_a.get("lanes") or {}).get(LANE_PROMOTION) or {}).get(
+                    "status"
+                )
+                == "BLOCKED"
+            )
+            else "OPEN"
+        ),
+        "learning_mode": stage_a_target_coverage.get(
+            "coverage_status", "UNKNOWN"
+        ),
     }
 
 
@@ -1039,6 +1129,19 @@ def _write_stage_skip(args, *, started, started_at, gate):
         "skip_reason": gate.get("skip_reason"),
         "stage_gate": gate,
     }
+    if gate.get("skip_reason") == "stage_b_already_completed":
+        status_path = Path(
+            gate.get("completed_status_out") or args.status_out
+        )
+        report_path = Path(
+            gate.get("completed_report_out") or args.report_out
+        )
+        payload["preserved_completed_stage_b_artifacts"] = {
+            "status": "PRESERVED",
+            "status_out": as_path(status_path),
+            "report_out": as_path(report_path),
+        }
+        return payload, status_path, report_path
     status_path = write_json(args.status_out, payload)
     report_path = write_report(args.report_out, payload)
     return payload, status_path, report_path
@@ -1090,10 +1193,13 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     setattr(args, "_current_producer_release_identity", release_identity)
     setattr(args, "_current_producer_lock_proof", lock_proof)
     stage = _stage_name(args)
+    using_default_runners = runners is None
     default_runners_by_name = dict(DEFAULT_RUNNERS)
-    runners = filter_runners_for_stage_and_resume(
-        list(runners or DEFAULT_RUNNERS),
-        stage,
+    stage_runners = filter_runners_for_stage(
+        list(runners or DEFAULT_RUNNERS), stage
+    )
+    runners = filter_runners_for_resume(
+        stage_runners,
         getattr(args, "resume_from_step", ""),
     )
     payload = {
@@ -1235,14 +1341,45 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             prior = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             prior = {}
-        carried = carried_forward_steps(prior.get("steps"), resume_from)
-        payload["steps"] = carried
-        payload["resource_steps"] = list(prior.get("resource_steps") or [])
-        payload["config"]["carried_forward_step_count"] = len(carried)
+        requested_target = getattr(args, "settled_analysis_target_date", "")
+        current_stage_gate = (
+            (payload.get("config") or {}).get("stage_gate") or {}
+        )
+        current_stage_a_binding = str(
+            current_stage_gate.get("stage_a_binding") or ""
+        )
+        current_stage_a = (
+            _read_json_payload(
+                getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST)
+            )
+            if stage == STAGE_EVIDENCE
+            else {}
+        )
+        carry = _resume_carry_state(
+            prior,
+            current_stage_a,
+            stage=stage,
+            resume_from_step=resume_from,
+            requested_target=requested_target,
+            current_stage_a_binding=current_stage_a_binding,
+        )
+        if carry["restart_from_stage_start"]:
+            runners = list(stage_runners)
+            payload["config"]["resume_restarted_from_stage_start"] = True
+        payload["steps"] = carry["steps"]
+        payload["resource_steps"] = carry["resource_steps"]
+        payload["config"]["carried_forward_target_binding"] = carry[
+            "binding"
+        ]
+        payload["config"]["carried_forward_step_count"] = len(
+            carry["steps"]
+        )
         payload["config"]["carried_forward_resource_step_count"] = len(
             payload["resource_steps"]
         )
-        payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
+        payload["config"]["carried_forward_from_run_started_at_utc"] = (
+            carry["source_started_at_utc"]
+        )
     elif stage == STAGE_EVIDENCE and not args.dry_run:
         prior = _read_json_payload(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
         carried = carried_forward_stage_head(prior.get("steps"), stage)
@@ -1270,44 +1407,125 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     stage_a_resource_deferred = False
     captured_input_parity = None
     captured_input_parity_deferred = False
+    heavy_preflight_step = None
+    promotion_blocked = False
+    selected_step_names = {
+        step.get("name") for step in payload.get("steps") or []
+    } | {name for name, _runner in runners}
+    required_promotion_receipts = _promotion_receipts_before(
+        "promotion_refresh",
+        names=(STEP_ORDER if using_default_runners else selected_step_names),
+    )
+    payload["config"]["required_promotion_receipts"] = list(
+        required_promotion_receipts
+    )
     if args.dry_run:
         payload["steps"] = planned_steps(stage)
+        payload["lanes"] = _lane_summary(args, payload["steps"])
         payload["status"] = "dry_run"
     else:
         for name, runner in runners:
-            if name in DAILY_HEAVY_STEPS and capture_resource_admission is None:
-                capture_resource_admission, _proof_path, _proof_report = (
-                    _capture_resource_preflight(args)
+            lane = _step_lane(name)
+            if name == "live_variant_settlement_scorecard":
+                promotion_blocker = _settlement_barrier_blocker(
+                    payload["steps"],
+                    target_date=getattr(
+                        args, "settled_analysis_target_date", ""
+                    ),
                 )
-                payload["capture_resource_admission"] = capture_resource_admission
-                if capture_resource_admission.get("admitted") is not True:
-                    step = _capture_resource_deferred_step(
+            elif name == "promotion_refresh":
+                promotion_blocker = (
+                    ((payload.get("config") or {}).get("stage_gate") or {}).get(
+                        "promotion_blocker"
+                    )
+                    or _promotion_lane_outcome_blocker(
+                        payload["steps"],
+                        required_names=required_promotion_receipts,
+                        target_date=getattr(
+                            args, "settled_analysis_target_date", ""
+                        ),
+                    )
+                )
+            else:
+                promotion_blocker = {}
+            if promotion_blocker:
+                step = _blocked_promotion_step(name, promotion_blocker, args)
+                payload["steps"].append(step)
+                _flush_incremental_status(args, payload)
+                touch_long_job_guard(
+                    getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+                    progress=_progress_snapshot(
+                        payload.get("steps"),
+                        total_step_count,
+                    ),
+                )
+                continue
+            heavy_skip_requested = bool(
+                name == "active_variant_shadow"
+                and getattr(args, "skip_active_variant_shadow", False)
+            )
+            if name in DAILY_HEAVY_STEPS and not heavy_skip_requested:
+                if capture_resource_admission is None:
+                    capture_resource_admission, _proof_path, _proof_report = (
+                        _capture_resource_preflight(args)
+                    )
+                    payload["capture_resource_admission"] = (
                         capture_resource_admission
                     )
-                    payload["steps"].append(step)
-                    _flush_incremental_status(args, payload)
-                    capture_resource_deferred = True
-                    break
-            if (
-                name in DAILY_HEAVY_STEPS
-                and not getattr(args, "skip_captured_input_replay_parity", False)
-                and captured_input_parity is None
-            ):
-                captured_input_parity, _parity_path, _parity_report = (
-                    _captured_input_parity_preflight(
+                    if capture_resource_admission.get("admitted") is not True:
+                        heavy_preflight_step = _capture_resource_deferred_step(
+                            capture_resource_admission
+                        )
+                        payload["steps"].append(heavy_preflight_step)
+                        capture_resource_deferred = True
+                if (
+                    heavy_preflight_step is None
+                    and not getattr(
                         args,
-                        payload.get("release_identity") or {},
+                        "skip_captured_input_replay_parity",
+                        False,
                     )
-                )
-                payload["captured_input_replay_parity"] = captured_input_parity
-                if captured_input_parity.get("status") != "PASS":
-                    step = _captured_input_parity_deferred_step(
+                    and captured_input_parity is None
+                ):
+                    captured_input_parity, _parity_path, _parity_report = (
+                        _captured_input_parity_preflight(
+                            args,
+                            payload.get("release_identity") or {},
+                        )
+                    )
+                    payload["captured_input_replay_parity"] = (
                         captured_input_parity
                     )
+                    if captured_input_parity.get("status") != "PASS":
+                        heavy_preflight_step = (
+                            _captured_input_parity_deferred_step(
+                                captured_input_parity
+                            )
+                        )
+                        payload["steps"].append(heavy_preflight_step)
+                        captured_input_parity_deferred = True
+                if heavy_preflight_step is not None:
+                    step = _deferred_heavy_step(name, heavy_preflight_step)
                     payload["steps"].append(step)
                     _flush_incremental_status(args, payload)
-                    captured_input_parity_deferred = True
-                    break
+                    touch_long_job_guard(
+                        getattr(
+                            args,
+                            "long_job_state",
+                            DEFAULT_LONG_JOB_STATE_PATH,
+                        ),
+                        progress=_progress_snapshot(
+                            payload.get("steps"),
+                            total_step_count,
+                        ),
+                    )
+                    continue
+            if lane == LANE_LEARNING:
+                setattr(
+                    args,
+                    "_daily_refresh_chain_target_settlement_coverage",
+                    _chain_target_settlement_coverage(args, payload["steps"]),
+                )
             if name in {
                 "market_day_labels_finalize",
                 "settled_day_analysis_barrier",
@@ -1341,9 +1559,40 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                     "error": str(exc),
                     "traceback": traceback.format_exc(),
                 }
+                if lane is not None:
+                    step["lane"] = lane
+                    step["blocks_promotion"] = STEP_PROMOTION_GATES.get(
+                        name, False
+                    )
+                if lane is not None and name not in STAGE_A_ISOLATED_STEPS:
+                    step["contained_by_lane"] = True
+                    step["lane_blocker"] = STEP_PROMOTION_GATES.get(
+                        name, False
+                    )
                 payload["steps"].append(step)
                 _flush_incremental_status(args, payload)
+                touch_long_job_guard(
+                    getattr(args, "long_job_state", DEFAULT_LONG_JOB_STATE_PATH),
+                    progress=_progress_snapshot(
+                        payload.get("steps"),
+                        total_step_count,
+                    ),
+                )
+                if step.get("contained_by_lane"):
+                    continue
                 break
+            if lane is not None:
+                step["lane"] = lane
+                step["blocks_promotion"] = STEP_PROMOTION_GATES.get(
+                    name, False
+                )
+            if (
+                step.get("status") == "error"
+                and lane is not None
+                and name not in STAGE_A_ISOLATED_STEPS
+            ):
+                step["contained_by_lane"] = True
+                step["lane_blocker"] = STEP_PROMOTION_GATES.get(name, False)
             resource_execution = (
                 (step.get("result") or {}).get("resource_execution") or {}
             )
@@ -1375,12 +1624,30 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 stage_a_resource_deferred = True
                 break
             if step["status"] == "error" and (
-                not args.continue_on_error
-                or name in STAGE_A_ISOLATED_STEPS
-                or (step.get("result") or {}).get("hard_stop_pipeline")
+                not step.get("contained_by_lane")
+                and (
+                    not args.continue_on_error
+                    or name in STAGE_A_ISOLATED_STEPS
+                    or (step.get("result") or {}).get("hard_stop_pipeline")
+                )
             ):
                 break
-        errors = [step for step in payload["steps"] if step.get("status") == "error"]
+        payload["lanes"] = _lane_summary(args, payload["steps"])
+        errors = [
+            step
+            for step in payload["steps"]
+            if step.get("status") == "error"
+            and not step.get("contained_by_lane")
+        ]
+        contained_errors = [
+            step
+            for step in payload["steps"]
+            if step.get("status") == "error"
+            and step.get("contained_by_lane")
+        ]
+        promotion_blocked = (
+            (payload.get("lanes") or {}).get(LANE_PROMOTION) or {}
+        ).get("status") == "BLOCKED"
         payload["status"] = (
             "deferred"
             if capture_resource_deferred
@@ -1388,6 +1655,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             or stage_a_resource_deferred
             else "error"
             if errors
+            else "critical"
+            if contained_errors or promotion_blocked
             else "ok"
         )
         if args.fail_on_fleet_critical:
@@ -1481,6 +1750,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload.get("status") in {"error", "interrupted"}
         or capture_resource_deferred
         or stage_a_resource_deferred
+        or promotion_blocked
     )
     if (
         not args.dry_run

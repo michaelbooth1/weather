@@ -35,6 +35,9 @@ from weather.operations.daily_refresh_registry import (
     filter_runners_for_resume,
     planned_steps,
 )
+from weather.operations.daily_refresh_lanes import (
+    step_target_settlement_coverage,
+)
 from weather.operations.daily_refresh_settled_day import (
     SETTLED_DAY_ANALYSIS_DEPENDENCIES,
     SettledDayAnalysisBarrierError,
@@ -273,6 +276,7 @@ def _promotion_step_summary(payload, out_path, report_path, disk_preflight, *, s
         "shadow_markets": decisions.get("shadow_markets") or [],
         "blocked_markets": decisions.get("blocked_markets") or [],
         "corpus_market_days": corpus.get("market_day_count"),
+        "corpus_date_max": corpus.get("date_max"),
         "corpus_snapshots": corpus.get("snapshot_count"),
         "corpus_band_rows": corpus.get("band_row_count"),
         "candidate_brier": aggregate.get("candidate_brier"),
@@ -1272,6 +1276,11 @@ def run_frozen_baseline_replay_trend_step(args):
         "baseline_variant_id": baseline_variant_id,
         "shared_observations": coverage.get("shared_observations"),
         "shared_market_days": coverage.get("shared_market_days"),
+        "corpus_date_max": (
+            payload.get("run_date")
+            if int(coverage.get("shared_observations") or 0) > 0
+            else None
+        ),
         "brier_delta_current_minus_baseline": overall.get("brier_delta_current_minus_baseline"),
         "brier_delta_current_minus_market": overall.get("brier_delta_current_minus_market"),
         "status_reasons": payload.get("status_reasons") or [],
@@ -1334,6 +1343,14 @@ def run_model_variant_evidence_growth_step(args):
         "no_growth_reasons": payload.get("no_growth_reasons") or [],
         "trend": payload.get("trend") or [],
         "alerts": payload.get("alerts") or [],
+        "corpus_date_max": max(
+            (
+                str(row.get("target_date"))[:10]
+                for row in raw_rows
+                if row.get("target_date")
+            ),
+            default=None,
+        ),
     }
 
 
@@ -1409,6 +1426,11 @@ def run_disagreement_casebook_step(args):
         case_args.operator_out,
     )
     summary = payload.get("summary") or {}
+    case_dates = [
+        str(case.get("target_date"))[:10]
+        for case in payload.get("cases") or []
+        if case.get("target_date")
+    ]
     return {
         "json_out": as_path(json_out),
         "report_out": as_path(report_out),
@@ -1419,6 +1441,7 @@ def run_disagreement_casebook_step(args):
         "model_win_count": summary.get("model_win_count"),
         "model_loss_count": summary.get("model_loss_count"),
         "taxonomy_counts": summary.get("taxonomy_counts") or {},
+        "corpus_date_max": max(case_dates) if case_dates else None,
     }
 
 
@@ -1550,7 +1573,11 @@ def run_nightly_health_checks_step(args):
 
 def run_data_layer_audit_step(args):
     if args.skip_data_layer_audit:
-        return {"skipped": True, "reason": "skip_data_layer_audit"}
+        return {
+            "status": "SKIPPED",
+            "skipped": True,
+            "reason": "skip_data_layer_audit",
+        }
     payload = data_layer_audit.build_audit(
         snapshots_root=Path(args.snapshots_root),
         backtest_root=Path(args.backtest_root),
@@ -1706,6 +1733,11 @@ def run_winner_rank_parity_step(args):
         "winner_probability_gap_market_minus_model": summary.get("winner_probability_gap_market_minus_model"),
         "brier_contribution": summary.get("brier_contribution"),
         "candidate_guardrail_block_count": summary.get("candidate_guardrail_block_count"),
+        "corpus_date_max": (
+            max(payload.get("dates") or [])
+            if int(summary.get("snapshot_case_count") or 0) > 0
+            else None
+        ),
     }
 
 
@@ -1796,17 +1828,15 @@ def run_daily_learning_step(args):
         daily_refresh_summary=daily_refresh_summary,
         rollup_generated_at_overrides={"daily_progress_latest": utc_iso()},
     )
-    json_out, report_out = daily_learning.write_outputs(
-        payload,
-        json_out=backtest_path(args, "daily_learning.json"),
-        report_out=backtest_path(args, "daily_learning_report.md"),
-    )
     summary = payload.get("summary") or {}
     retrain_plan = payload.get("retrain_plan") or {}
-    return {
+    input_gate = payload.get("input_gate") or {}
+    result = {
         "status": payload.get("status"),
-        "json_out": as_path(json_out),
-        "report_out": as_path(report_out),
+        "input_gate_status": input_gate.get("status"),
+        "input_coverage": input_gate.get("coverage") or {},
+        "input_freshness": input_gate.get("freshness") or {},
+        "input_consistency": input_gate.get("consistency") or {},
         "learning_count": summary.get("learning_count"),
         "blocker_count": summary.get("blocker_count"),
         "high_priority_learning_count": summary.get("high_priority_learning_count"),
@@ -1814,6 +1844,29 @@ def run_daily_learning_step(args):
         "training_ready": retrain_plan.get("training_ready"),
         "promotion_ready": retrain_plan.get("promotion_ready"),
     }
+    coverage = step_target_settlement_coverage(
+        args,
+        {"name": "daily_learning", "status": "ok", "result": result},
+        getattr(
+            args,
+            "_daily_refresh_chain_target_settlement_coverage",
+            None,
+        ),
+    )
+    payload["target_settlement_coverage"] = coverage
+    json_out, report_out = daily_learning.write_outputs(
+        payload,
+        json_out=backtest_path(args, "daily_learning.json"),
+        report_out=backtest_path(args, "daily_learning_report.md"),
+    )
+    result.update(
+        {
+            "json_out": as_path(json_out),
+            "report_out": as_path(report_out),
+            "target_settlement_coverage": coverage,
+        }
+    )
+    return result
 
 
 def run_market_beating_objective_scoreboard_step(args):

@@ -63,7 +63,24 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_winner_rank_parity_step,
     pipeline_summary,
 )
-from weather.operations.daily_refresh_registry import carried_forward_steps, step_names_for_stage
+from weather.operations.daily_refresh_registry import (
+    COVERAGE_MODE_CHOICES,
+    LANE_CHOICES,
+    LANE_LEARNING,
+    LANE_PROMOTION,
+    STEP_LANES,
+    STEP_LEARNING_COVERAGE_DEPENDENCIES,
+    STEP_LEARNING_COVERAGE_MODES,
+    STEP_ORDER,
+    STEP_PROMOTION_GATES,
+    STEP_PROMOTION_RECEIPT_POLICIES,
+    STEP_REGISTRY,
+    carried_forward_steps,
+    step_names_for_stage,
+)
+from weather.operations.daily_refresh_lanes import (
+    promotion_lane_outcome_blocker,
+)
 from weather.operations.daily_refresh_settled_day import (
     SETTLED_DAY_ANALYSIS_DEPENDENCIES,
     _dependency_status,
@@ -386,6 +403,38 @@ def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
     return run
 
 
+def _stage_a_promotion_receipts(target_date, *, overrides=None):
+    overrides = overrides or {}
+    rows = []
+    for name in step_names_for_stage("settlement"):
+        if not STEP_PROMOTION_GATES[name]:
+            continue
+        action_statuses = STEP_PROMOTION_RECEIPT_POLICIES[name][
+            "action_statuses"
+        ]
+        accepted_status = next(
+            status
+            for status in ("PASS", "OK", "BLOCK")
+            if status in action_statuses
+        )
+        result = {"status": accepted_status}
+        for field in STEP_PROMOTION_RECEIPT_POLICIES[name].get(
+            "target_fields", ()
+        ):
+            result[field] = target_date
+        for field in STEP_PROMOTION_RECEIPT_POLICIES[name].get(
+            "positive_count_fields", ()
+        ):
+            result[field] = 1
+        row = {
+            "name": name,
+            "status": "ok",
+            "result": result,
+        }
+        rows.append(overrides.get(name, row))
+    return rows
+
+
 def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_after_finalize=False):
     restore_step = {
         "name": "public_wu_settlement_restore",
@@ -429,22 +478,47 @@ class TestDailyRefresh(unittest.TestCase):
     def test_run_daily_refresh_executes_steps_in_order_and_writes_status(self):
         calls = []
 
-        def runner(name):
+        def runner(name, result=None):
             def _run(_args):
                 calls.append(name)
-                return {"name": name}
+                return result or {"name": name}
             return _run
 
         with tempfile.TemporaryDirectory() as tmp:
-            args = _args(tmp)
+            args = _args(tmp, settled_analysis_target_date="2026-07-07")
             payload, status_path, report_path = run_daily_refresh(
                 args,
                 runners=[
                     ("market_day_labels_finalize", runner("market_day_labels_finalize")),
-                    ("promotion_refresh", runner("promotion_refresh")),
+                    (
+                        "settled_day_analysis_barrier",
+                        runner(
+                            "settled_day_analysis_barrier",
+                            {"status": "PASS", "target_date": "2026-07-07"},
+                        ),
+                    ),
+                    (
+                        "live_variant_settlement_scorecard",
+                        runner(
+                            "live_variant_settlement_scorecard",
+                            {
+                                "status": "PASS",
+                                "target_date": "2026-07-07",
+                                "source_row_count": 1,
+                                "valid_prediction_partition_count": 1,
+                            },
+                        ),
+                    ),
+                    (
+                        "fleet_observability",
+                        runner("fleet_observability", {"status": "OK"}),
+                    ),
+                    (
+                        "promotion_refresh",
+                        runner("promotion_refresh", {"status": "OK"}),
+                    ),
                     ("progress_audit", runner("progress_audit")),
                     ("disagreement_casebook", runner("disagreement_casebook")),
-                    ("fleet_observability", runner("fleet_observability")),
                 ],
             )
 
@@ -457,10 +531,12 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(calls, [
             "market_day_labels_finalize",
+            "settled_day_analysis_barrier",
+            "live_variant_settlement_scorecard",
+            "fleet_observability",
             "promotion_refresh",
             "progress_audit",
             "disagreement_casebook",
-            "fleet_observability",
         ])
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["capture_resource_admission"]["admitted"])
@@ -473,9 +549,12 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
         self.assertFalse(saved["config"]["long_job_guard"]["nested"])
         self.assertEqual(guard_state["status"], "complete")
-        self.assertEqual(guard_state["progress"]["last_completed_step"], "fleet_observability")
-        self.assertEqual(guard_state["progress"]["completed_step_count"], 5)
-        self.assertEqual(guard_state["progress"]["total_step_count"], 5)
+        self.assertEqual(
+            guard_state["progress"]["last_completed_step"],
+            "disagreement_casebook",
+        )
+        self.assertEqual(guard_state["progress"]["completed_step_count"], 7)
+        self.assertEqual(guard_state["progress"]["total_step_count"], 7)
         self.assertTrue(report_exists)
 
     def test_progress_counts_only_terminal_successes_and_keeps_declared_total(self):
@@ -487,7 +566,7 @@ class TestDailyRefresh(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, continue_on_error=True)
-            payload, _status_path, _report_path = run_daily_refresh(
+            payload, _status_path, report_path = run_daily_refresh(
                 args,
                 runners=[
                     ("ingest_quality_gate", ok),
@@ -496,7 +575,7 @@ class TestDailyRefresh(unittest.TestCase):
             )
             guard_state = json.loads(Path(args.long_job_state).read_text(encoding="utf-8"))
 
-        self.assertEqual(payload["status"], "error")
+        self.assertEqual(payload["status"], "critical")
         self.assertEqual(guard_state["progress"]["last_completed_step"], "ingest_quality_gate")
         self.assertEqual(guard_state["progress"]["completed_step_count"], 1)
         self.assertEqual(guard_state["progress"]["total_step_count"], 2)
@@ -528,12 +607,16 @@ class TestDailyRefresh(unittest.TestCase):
             self.assertEqual(actual_exit, expected_exit)
             self.assertEqual(saved["status"], terminal_status)
 
-    def test_live_capture_denial_stops_before_any_daily_heavy_child(self):
+    def test_live_capture_denial_defers_heavy_steps_but_runs_lightweight_learning(self):
         calls = []
 
         def heavy(_args):
             calls.append("heavy_child_started")
             return {"status": "PASS"}
+
+        def learning(_args):
+            calls.append("daily_learning")
+            return {"status": "BLOCKED"}
 
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, capture_resource_mode="live")
@@ -569,16 +652,36 @@ class TestDailyRefresh(unittest.TestCase):
                 runners=[
                     ("promotion_refresh", heavy),
                     ("active_variant_shadow", heavy),
+                    ("daily_learning", learning),
                 ],
             )
             saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
             proof = json.loads(Path(args.capture_resource_out).read_text(encoding="utf-8"))
 
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, ["daily_learning"])
 
         self.assertEqual(payload["status"], "deferred")
-        self.assertEqual(payload["steps"][-1]["name"], "capture_resource_admission")
-        self.assertEqual(payload["steps"][-1]["status"], "deferred")
+        admission = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "capture_resource_admission"
+        )
+        self.assertEqual(admission["status"], "deferred")
+        deferred = {
+            step["name"]: step
+            for step in payload["steps"]
+            if step["name"] in {"promotion_refresh", "active_variant_shadow"}
+        }
+        self.assertEqual(deferred["promotion_refresh"]["status"], "deferred")
+        self.assertEqual(deferred["active_variant_shadow"]["status"], "deferred")
+        learning_step = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        self.assertEqual(learning_step["status"], "ok")
+        self.assertEqual(
+            learning_step["result"]["target_settlement_coverage"]["coverage_status"],
+            "GAPPED",
+        )
         self.assertEqual(saved["status"], "deferred")
         self.assertFalse(proof["admitted"])
         self.assertEqual(proof["decision"], "DEFER")
@@ -590,6 +693,147 @@ class TestDailyRefresh(unittest.TestCase):
             "live_capture_loop_active",
             {row["code"] for row in proof["blockers"]},
         )
+
+    def test_live_capture_denial_rewrites_real_daily_learning_with_gap(self):
+        calls = []
+
+        def promotion(_args):
+            calls.append("promotion_refresh")
+            return {"status": "SHOULD_NOT_RUN"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                capture_resource_mode="live",
+                settled_analysis_target_date="2026-07-07",
+            )
+            backtest = Path(args.backtest_root)
+            backtest.mkdir(parents=True)
+            (backtest / "f_family_promotion_refresh.json").write_text(
+                json.dumps(
+                    {
+                        "generated_at_utc": "2026-07-07T12:00:00+00:00",
+                        "status": "PASS",
+                        "corpus": {"date_max": "2026-07-06"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshots = Path(args.snapshots_root)
+            snapshots.mkdir(parents=True)
+            now = datetime.now(timezone.utc).isoformat()
+            status = snapshots / "loop_status.json"
+            status.write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "last_heartbeat": now,
+                        "interval_seconds": 600,
+                        "consecutive_errors": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status.with_name(f".{status.name}.writer.lock").write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "loop": "snapshot",
+                        "module": "weather.collection.snapshot_tracker",
+                        "acquired_at_utc": now,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", dict(DEFAULT_RUNNERS)["daily_learning"]),
+                ],
+            )
+            artifact = json.loads(
+                (Path(args.backtest_root) / "daily_learning.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "deferred")
+        self.assertEqual(artifact["status"], "BLOCKED")
+        self.assertEqual(
+            artifact["target_settlement_coverage"]["coverage_status"],
+            "GAPPED",
+        )
+        self.assertEqual(
+            artifact["target_settlement_coverage"]["corpus_date_max"],
+            "2026-07-06",
+        )
+        self.assertEqual(
+            artifact["target_settlement_coverage"]["staleness_days"],
+            1,
+        )
+        self.assertEqual(
+            payload["lanes"][LANE_LEARNING]["status"],
+            "PARTIAL",
+        )
+
+    def test_skipped_active_shadow_bypasses_heavy_preflight_after_promotion_block(self):
+        calls = []
+
+        def barrier(_args):
+            raise SettledDayAnalysisBarrierError(
+                "settlement unavailable",
+                {
+                    "status": "BLOCK",
+                    "target_date": "2026-07-07",
+                    "hard_stop_pipeline": True,
+                },
+            )
+
+        def learning(_args):
+            calls.append("daily_learning")
+            return {"status": "BLOCKED"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                capture_resource_mode="live",
+                settled_analysis_target_date="2026-07-07",
+                skip_active_variant_shadow=True,
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("settled_day_analysis_barrier", barrier),
+                    (
+                        "promotion_refresh",
+                        lambda _args: self.fail("promotion work started"),
+                    ),
+                    (
+                        "active_variant_shadow",
+                        dict(DEFAULT_RUNNERS)["active_variant_shadow"],
+                    ),
+                    ("daily_learning", learning),
+                ],
+            )
+
+        self.assertEqual(calls, ["daily_learning"])
+        self.assertNotIn("capture_resource_admission", {
+            step["name"] for step in payload["steps"]
+        })
+        active = next(
+            step for step in payload["steps"] if step["name"] == "active_variant_shadow"
+        )
+        self.assertEqual(active["result"]["status"], "SKIPPED")
+        self.assertEqual(payload["status"], "critical")
 
     def test_isolated_stage_a_orchestration_error_hard_stops_continue_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -630,12 +874,16 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["production_readiness"]["status"], "SKIPPED")
         readiness.assert_not_called()
 
-    def test_missing_captured_input_replay_blocks_before_daily_heavy_child(self):
+    def test_missing_captured_input_replay_defers_heavy_steps_but_runs_learning(self):
         calls = []
 
         def heavy(_args):
             calls.append("heavy_child_started")
             return {"status": "PASS"}
+
+        def learning(_args):
+            calls.append("daily_learning")
+            return {"status": "BLOCKED"}
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -663,6 +911,7 @@ class TestDailyRefresh(unittest.TestCase):
                     runners=[
                         ("promotion_refresh", heavy),
                         ("active_variant_shadow", heavy),
+                        ("daily_learning", learning),
                     ],
                 )
             saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
@@ -671,12 +920,23 @@ class TestDailyRefresh(unittest.TestCase):
             )
             report_exists = Path(args.captured_input_parity_report).is_file()
 
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, ["daily_learning"])
         self.assertEqual(payload["status"], "deferred")
-        self.assertEqual(payload["steps"][-1]["name"], "captured_input_replay_parity")
-        self.assertEqual(payload["steps"][-1]["status"], "deferred")
-        self.assertTrue(payload["steps"][-1]["result"]["hard_stop_pipeline"])
-        self.assertIn("generate exact captured-input replay rows", payload["steps"][-1]["result"]["next_action"])
+        parity_step = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "captured_input_replay_parity"
+        )
+        self.assertEqual(parity_step["status"], "deferred")
+        self.assertTrue(parity_step["result"]["hard_stop_pipeline"])
+        self.assertIn(
+            "generate exact captured-input replay rows",
+            parity_step["result"]["next_action"],
+        )
+        learning_step = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        self.assertEqual(learning_step["status"], "ok")
         self.assertEqual(saved["status"], "deferred")
         self.assertEqual(parity["status"], "BLOCK")
         self.assertIn(
@@ -698,7 +958,7 @@ class TestDailyRefresh(unittest.TestCase):
             payload, _status_path, _report_path = run_daily_refresh(
                 args,
                 runners=[
-                    ("fleet_observability", lambda _args: {"status": "PASS"}),
+                    ("fleet_observability", lambda _args: {"status": "OK"}),
                 ],
             )
             gate = json.loads(
@@ -715,7 +975,7 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertFalse(pointer.exists())
         self.assertTrue(gate_report_exists)
 
-    def test_parity_exception_persists_current_block_and_still_runs_final_readiness(self):
+    def test_parity_exception_persists_block_and_skips_stale_final_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(
                 tmp,
@@ -733,7 +993,12 @@ class TestDailyRefresh(unittest.TestCase):
             parity = json.loads(Path(args.captured_input_parity_out).read_text(encoding="utf-8"))
 
         self.assertEqual(payload["status"], "deferred")
-        self.assertEqual(payload["steps"][-1]["name"], "production_readiness_gate")
+        self.assertEqual(payload["steps"][-1]["name"], "promotion_refresh")
+        self.assertEqual(payload["production_readiness"]["status"], "SKIPPED")
+        self.assertEqual(
+            payload["production_readiness"]["reason"],
+            "upstream_pipeline_not_successful",
+        )
         self.assertEqual(parity["status"], "BLOCK")
         self.assertEqual(parity["first_mismatch"]["code"], "parity_preflight_exception")
         parity_step = next(row for row in payload["steps"] if row["name"] == "captured_input_replay_parity")
@@ -784,7 +1049,7 @@ class TestDailyRefresh(unittest.TestCase):
             )
             payload, _status, _report = run_daily_refresh(
                 args,
-                runners=[("fleet_observability", lambda _args: {"status": "PASS"})],
+                runners=[("fleet_observability", lambda _args: {"status": "OK"})],
             )
 
         self.assertEqual(payload["production_readiness"]["status"], "BLOCK")
@@ -798,6 +1063,126 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(evidence[0], "promotion_refresh")
         self.assertNotIn("promotion_refresh", settlement)
         self.assertNotIn("fleet_observability", evidence)
+
+    def test_every_registered_step_declares_exactly_one_lane(self):
+        self.assertEqual(tuple(STEP_LANES), STEP_ORDER)
+        self.assertEqual(
+            tuple(name for name, _lane, _gate in STEP_REGISTRY),
+            STEP_ORDER,
+        )
+        self.assertEqual(len(STEP_REGISTRY), len(set(STEP_ORDER)))
+        self.assertEqual(set(STEP_LANES.values()), set(LANE_CHOICES))
+        self.assertEqual(tuple(STEP_PROMOTION_GATES), STEP_ORDER)
+        promotion_gate_names = {
+            name
+            for name, blocks in STEP_PROMOTION_GATES.items()
+            if blocks
+        }
+        self.assertEqual(
+            set(STEP_PROMOTION_RECEIPT_POLICIES),
+            promotion_gate_names,
+        )
+        self.assertTrue(
+            all(
+                policy["action_statuses"] <= policy["known_statuses"]
+                for policy in STEP_PROMOTION_RECEIPT_POLICIES.values()
+            )
+        )
+        learning_names = {
+            name for name, lane in STEP_LANES.items() if lane == LANE_LEARNING
+        }
+        self.assertEqual(set(STEP_LEARNING_COVERAGE_MODES), learning_names)
+        self.assertTrue(
+            set(STEP_LEARNING_COVERAGE_MODES.values()).issubset(
+                set(COVERAGE_MODE_CHOICES)
+            )
+        )
+        dependency_names = {
+            name
+            for name, mode in STEP_LEARNING_COVERAGE_MODES.items()
+            if mode == "dependencies"
+        }
+        self.assertEqual(
+            set(STEP_LEARNING_COVERAGE_DEPENDENCIES),
+            dependency_names,
+        )
+        self.assertTrue(
+            all(
+                isinstance(blocks_promotion, bool)
+                for _name, _lane, blocks_promotion in STEP_REGISTRY
+            )
+        )
+        self.assertEqual(tuple(name for name, _runner in DEFAULT_RUNNERS), STEP_ORDER)
+
+    def test_promotion_receipts_fail_closed_on_malformed_or_vacuous_evidence(self):
+        target = "2026-07-07"
+        cases = (
+            (
+                "unknown_status",
+                "ingest_quality_gate",
+                {"status": "MYSTERY"},
+                "promotion_receipt_unknown_status",
+            ),
+            (
+                "target_missing",
+                "hourly_model_performance",
+                {"status": "PASS"},
+                "promotion_receipt_target_missing",
+            ),
+            (
+                "target_mismatch",
+                "ten_minute_model_performance",
+                {
+                    "status": "PASS",
+                    "last_scored_target_date": "2026-07-06",
+                },
+                "promotion_receipt_target_mismatch",
+            ),
+            (
+                "runtime_zero_rows",
+                "runtime_identity_reconciliation",
+                {
+                    "status": "PASS",
+                    "target_date": target,
+                    "snapshot_row_count": 0,
+                },
+                "promotion_receipt_vacuous",
+            ),
+            (
+                "live_zero_rows",
+                "live_variant_settlement_scorecard",
+                {
+                    "status": "PASS",
+                    "target_date": target,
+                    "source_row_count": 0,
+                    "valid_prediction_partition_count": 1,
+                },
+                "promotion_receipt_vacuous",
+            ),
+            (
+                "fleet_warning",
+                "fleet_observability",
+                {"status": "WARN"},
+                "promotion_gate_negative_verdict",
+            ),
+            (
+                "fleet_critical",
+                "fleet_observability",
+                {"status": "CRITICAL"},
+                "promotion_gate_negative_verdict",
+            ),
+        )
+        for label, name, result, expected_class in cases:
+            with self.subTest(label=label):
+                blocker = promotion_lane_outcome_blocker(
+                    [{"name": name, "status": "ok", "result": result}],
+                    required_names=(name,),
+                    target_date=target,
+                )
+                self.assertEqual(blocker["step"], name)
+                self.assertEqual(
+                    blocker["root_cause_class"], expected_class
+                )
 
     def test_settlement_stage_writes_manifest_and_skips_evidence_tail(self):
         calls = []
@@ -857,7 +1242,7 @@ class TestDailyRefresh(unittest.TestCase):
                         "settled_day_analysis_barrier",
                         runner(
                             "settled_day_analysis_barrier",
-                            {"status": "OK", "target_date": "2026-07-07"},
+                            {"status": "PASS", "target_date": "2026-07-07"},
                         ),
                     ),
                     ("fleet_observability", runner("fleet_observability")),
@@ -874,7 +1259,7 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["config"]["stage"], "settlement")
         self.assertEqual(manifest["status"], "COMPLETED")
         self.assertEqual(manifest["target_date"], "2026-07-07")
-        self.assertEqual(manifest["barrier"]["status"], "OK")
+        self.assertEqual(manifest["barrier"]["status"], "PASS")
         self.assertEqual(manifest["evidence_trigger"]["status"], "PENDING")
         self.assertEqual(manifest["invocation"]["status"], "PASS")
         self.assertTrue(manifest["invocation"]["scheduler_attested"])
@@ -927,10 +1312,7 @@ class TestDailyRefresh(unittest.TestCase):
                     "target_date": "2026-07-07",
                     "started_at_utc": "2026-07-08T09:30:00+00:00",
                     "barrier": {"status": "OK", "target_date": "2026-07-07"},
-                    "steps": [
-                        {"name": "settled_day_analysis_barrier", "status": "ok", "result": {"status": "OK"}},
-                        {"name": "fleet_observability", "status": "ok", "result": {"status": "OK"}},
-                    ],
+                    "steps": _stage_a_promotion_receipts("2026-07-07"),
                 }),
                 encoding="utf-8",
             )
@@ -952,11 +1334,376 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(calls, ["promotion_refresh", "daily_learning"])
         self.assertEqual(payload["config"]["stage"], "evidence")
         self.assertEqual(payload["config"]["carried_forward_from_stage"], "settlement")
-        self.assertTrue(all(step.get("carried_forward") for step in seen["steps"][:2]))
-        self.assertEqual([step["name"] for step in seen["steps"][:2]], [
-            "settled_day_analysis_barrier",
-            "fleet_observability",
-        ])
+        expected_carried = _stage_a_promotion_receipts("2026-07-07")
+        self.assertTrue(
+            all(
+                step.get("carried_forward")
+                for step in seen["steps"][: len(expected_carried)]
+            )
+        )
+        self.assertEqual(
+            [
+                step["name"]
+                for step in seen["steps"][: len(expected_carried)]
+            ],
+            [step["name"] for step in expected_carried],
+        )
+
+    def test_evidence_stage_runs_learning_only_when_stage_a_barrier_blocked(self):
+        calls = []
+
+        def promotion(_args):
+            calls.append("promotion_refresh")
+            return {"status": "SHOULD_NOT_RUN"}
+
+        def learning(_args):
+            calls.append("daily_learning")
+            return {
+                "status": "BLOCKED",
+                "latest_settled_label_date": "2026-07-06",
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            stage_a_manifest = Path(tmp) / "backtest" / "stage_a.json"
+            stage_a_manifest.parent.mkdir(parents=True)
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "started_at_utc": "2026-07-08T09:30:00+00:00",
+                        "barrier": {
+                            "status": "BLOCK",
+                            "step_status": "error",
+                            "target_date": "2026-07-07",
+                        },
+                        "steps": _stage_a_promotion_receipts(
+                            "2026-07-07",
+                            overrides={
+                                "settled_day_analysis_barrier": {
+                                    "name": "settled_day_analysis_barrier",
+                                    "status": "error",
+                                    "root_cause_class": (
+                                        "settled_day_analysis_barrier"
+                                    ),
+                                    "result": {
+                                        "status": "BLOCK",
+                                        "target_date": "2026-07-07",
+                                        "hard_stop_pipeline": True,
+                                    },
+                                },
+                                "live_variant_settlement_scorecard": {
+                                    "name": (
+                                        "live_variant_settlement_scorecard"
+                                    ),
+                                    "status": "blocked",
+                                    "result": {"status": "BLOCK"},
+                                },
+                                "fleet_observability": {
+                                    "name": "fleet_observability",
+                                    "status": "ok",
+                                    "result": {"status": "CRITICAL"},
+                                },
+                            },
+                        ),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stage_b_manifest = Path(tmp) / "backtest" / "stage_b.json"
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(stage_b_manifest),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", learning),
+                ],
+            )
+            manifest = json.loads(stage_b_manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, ["daily_learning"])
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["config"]["stage_gate"]["status"], "RUN")
+        self.assertEqual(payload["config"]["stage_gate"]["learning_mode"], "GAPPED")
+        promotion_step = next(
+            step for step in payload["steps"] if step["name"] == "promotion_refresh"
+        )
+        self.assertEqual(promotion_step["status"], "blocked")
+        learning_step = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        coverage = learning_step["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(coverage["requested_target_date"], "2026-07-07")
+        self.assertEqual(manifest["status"], "COMPLETED")
+        self.assertEqual(manifest["lanes"][LANE_PROMOTION]["status"], "BLOCKED")
+
+    def test_evidence_stage_missing_required_receipt_blocks_only_promotion(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            receipts = [
+                row
+                for row in _stage_a_promotion_receipts("2026-07-07")
+                if row["name"] != "runtime_identity_reconciliation"
+            ]
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-truncated",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                        "steps": receipts,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(root / "stage_b.json"),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "promotion_refresh",
+                        lambda _args: calls.append("promotion_refresh")
+                        or {"status": "SHOULD_NOT_RUN"},
+                    ),
+                    (
+                        "daily_learning",
+                        lambda _args: calls.append("daily_learning")
+                        or {"status": "ACTIONABLE"},
+                    ),
+                ],
+            )
+
+        self.assertEqual(calls, ["daily_learning"])
+        blocker = payload["config"]["stage_gate"]["promotion_blocker"]
+        self.assertEqual(blocker["step"], "runtime_identity_reconciliation")
+        self.assertEqual(
+            blocker["root_cause_class"],
+            "promotion_receipt_missing",
+        )
+        promotion_step = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "promotion_refresh"
+        )
+        self.assertEqual(promotion_step["status"], "blocked")
+
+    def test_repaired_stage_a_binding_reruns_completed_stage_b_for_same_target(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_b_manifest = root / "stage_b.json"
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-repaired",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {"status": "PASS", "target_date": "2026-07-07"},
+                        "steps": _stage_a_promotion_receipts("2026-07-07"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stage_b_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "stage": "evidence",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "source_stage_a_binding": "stage-a-before-repair",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(stage_b_manifest),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "promotion_refresh",
+                        lambda _args: calls.append("promotion_refresh")
+                        or {"status": "OK"},
+                    ),
+                    (
+                        "daily_learning",
+                        lambda _args: calls.append("daily_learning")
+                        or {"status": "ACTIONABLE"},
+                    ),
+                ],
+            )
+            manifest = json.loads(stage_b_manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, ["promotion_refresh", "daily_learning"])
+        self.assertEqual(payload["config"]["stage_gate"]["status"], "RUN")
+        self.assertEqual(manifest["source_stage_a_binding"], "stage-a-repaired")
+
+    def test_completed_stage_b_fallback_preserves_completed_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_b_manifest = root / "stage_b.json"
+            status_path = root / "evidence_status.json"
+            report_path = root / "evidence_report.md"
+            completed_status = {
+                "status": "ok",
+                "config": {
+                    "stage": "evidence",
+                    "settled_analysis_target_date": "2026-07-07",
+                    "stage_gate": {"stage_a_binding": "stage-a-current"},
+                },
+                "steps": [{"name": "daily_learning", "status": "ok"}],
+            }
+            status_path.write_text(
+                json.dumps(completed_status), encoding="utf-8"
+            )
+            report_path.write_text(
+                "# completed evidence report\n", encoding="utf-8"
+            )
+            status_before = status_path.read_bytes()
+            report_before = report_path.read_bytes()
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-current",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                        "steps": _stage_a_promotion_receipts("2026-07-07"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stage_b_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "stage": "evidence",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "source_stage_a_binding": "stage-a-current",
+                        "status_out": str(status_path),
+                        "report_out": str(report_path),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(stage_b_manifest),
+                status_out=str(status_path),
+                report_out=str(report_path),
+                settled_analysis_target_date="2026-07-07",
+            )
+            payload, returned_status, returned_report = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "daily_learning",
+                        lambda _args: self.fail("completed Stage B reran"),
+                    )
+                ],
+            )
+
+            self.assertEqual(status_path.read_bytes(), status_before)
+            self.assertEqual(report_path.read_bytes(), report_before)
+
+        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["skip_reason"], "stage_b_already_completed")
+        self.assertEqual(
+            payload["preserved_completed_stage_b_artifacts"]["status"],
+            "PRESERVED",
+        )
+        self.assertEqual(Path(returned_status), status_path)
+        self.assertEqual(Path(returned_report), report_path)
+
+    def test_evidence_learning_exception_leaves_stage_b_incomplete_for_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_b_manifest = root / "stage_b.json"
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-current",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {"status": "PASS", "target_date": "2026-07-07"},
+                        "steps": _stage_a_promotion_receipts("2026-07-07"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(stage_b_manifest),
+                settled_analysis_target_date="2026-07-07",
+            )
+
+            def learning(_args):
+                raise RuntimeError("learning write failed")
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("promotion_refresh", lambda _args: {"status": "OK"}),
+                    ("daily_learning", learning),
+                ],
+            )
+            manifest = json.loads(stage_b_manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(manifest["status"], "INCOMPLETE")
+        self.assertEqual(manifest["execution_failure_steps"], ["daily_learning"])
+        self.assertEqual(manifest["source_stage_a_binding"], "stage-a-current")
 
     def test_acquire_lock_removes_dead_pid_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1218,7 +1965,7 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(tmp)
             payload, _status_path, report_path = run_daily_refresh(
                 args,
-                runners=[("promotion_refresh", bad)],
+                runners=[("unregistered_failure", bad)],
             )
             ledger = Path(args.backtest_root) / "daily_progress_ledger.jsonl"
             latest = Path(args.backtest_root) / "daily_progress_latest.json"
@@ -1253,7 +2000,7 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "error")
         self.assertEqual([step["status"] for step in payload["steps"]], ["error", "ok"])
 
-    def test_settled_day_barrier_hard_stops_even_when_continue_on_error(self):
+    def test_settled_day_barrier_blocks_promotion_but_learning_continues(self):
         calls = []
 
         def barrier(_args):
@@ -1268,23 +2015,701 @@ class TestDailyRefresh(unittest.TestCase):
                 },
             )
 
+        def promotion(_args):
+            calls.append("promotion")
+            return {"status": "SHOULD_NOT_RUN"}
+
+        def learning(_args):
+            calls.append("learning")
+            return {
+                "status": "BLOCKED",
+                "latest_settled_label_date": "2026-06-22",
+                "last_scored_target_date": "2026-06-22",
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, report_path = run_daily_refresh(
+                _args(
+                    tmp,
+                    continue_on_error=True,
+                    settled_analysis_target_date="2026-06-23",
+                ),
+                runners=[
+                    ("settled_day_analysis_barrier", barrier),
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", learning),
+                ],
+            )
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(calls, ["barrier", "learning"])
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(payload["steps"][0]["root_cause_class"], "settled_day_analysis_barrier")
+        promotion_step = next(
+            step for step in payload["steps"] if step["name"] == "promotion_refresh"
+        )
+        self.assertEqual(promotion_step["status"], "blocked")
+        self.assertTrue(promotion_step["result"]["promotion_not_run"])
+        learning_step = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        coverage = learning_step["result"]["target_settlement_coverage"]
+        self.assertEqual(learning_step["lane"], LANE_LEARNING)
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(coverage["requested_target_date"], "2026-06-23")
+        self.assertEqual(coverage["latest_settled_date"], "2026-06-22")
+        self.assertEqual(
+            coverage["blocker_step"], "settled_day_analysis_barrier"
+        )
+        self.assertEqual(coverage["settlement_barrier_status"], "BLOCK")
+        self.assertEqual(payload["lanes"][LANE_PROMOTION]["status"], "BLOCKED")
+        lane_coverage = payload["lanes"][LANE_LEARNING][
+            "target_settlement_coverage"
+        ]
+        self.assertEqual(lane_coverage["latest_settled_date"], "2026-06-22")
+        self.assertEqual(lane_coverage["corpus_date_max"], "2026-06-22")
+        self.assertEqual(lane_coverage["staleness_days"], 1)
+        self.assertEqual(
+            lane_coverage["blocker_step"], "settled_day_analysis_barrier"
+        )
+        self.assertIn("## Execution Lanes", report)
+        self.assertIn("Promotion lane: **BLOCKED**", report)
+        self.assertIn("Target coverage: `GAPPED`", report)
+        self.assertIn(
+            "latest settled: `2026-06-22`; corpus max: `2026-06-22`",
+            report,
+        )
+        self.assertIn(
+            "upstream settled_day_analysis_barrier", report
+        )
+        self.assertIn("settled-day barrier blocked", report)
+
+    def test_learning_lane_error_does_not_stop_later_learning_steps(self):
+        calls = []
+
+        def bad(_args):
+            calls.append("bad")
+            raise RuntimeError("learning failed")
+
         def after(_args):
             calls.append("after")
-            return {"status": "SHOULD_NOT_RUN"}
+            return {"status": "BLOCKED"}
 
         with tempfile.TemporaryDirectory() as tmp:
             payload, _status_path, _report_path = run_daily_refresh(
-                _args(tmp, continue_on_error=True),
+                _args(tmp),
                 runners=[
-                    ("settled_day_analysis_barrier", barrier),
-                    ("promotion_refresh", after),
+                    ("daily_learning", bad),
+                    ("market_beating_objective_scoreboard", after),
                 ],
             )
 
-        self.assertEqual(calls, ["barrier"])
-        self.assertEqual(payload["status"], "error")
-        self.assertEqual(payload["steps"][0]["root_cause_class"], "settled_day_analysis_barrier")
-        self.assertEqual(len(payload["steps"]), 1)
+        self.assertEqual(calls, ["bad", "after"])
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(
+            [step["status"] for step in payload["steps"]],
+            ["error", "ok"],
+        )
+        self.assertTrue(payload["steps"][0]["contained_by_lane"])
+        self.assertEqual(payload["lanes"][LANE_LEARNING]["status"], "PARTIAL")
+
+    def test_statusless_learning_skip_marks_lane_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp),
+                runners=[
+                    (
+                        "reanalysis_recent_refresh",
+                        lambda _args: {
+                            "skipped": True,
+                            "reason": "explicit_test_skip",
+                        },
+                    ),
+                ],
+            )
+
+        step = payload["steps"][0]
+        self.assertEqual(
+            step["result"]["target_settlement_coverage"][
+                "coverage_status"
+            ],
+            "NOT_APPLICABLE",
+        )
+        self.assertEqual(payload["lanes"][LANE_LEARNING]["status"], "PARTIAL")
+        self.assertEqual(
+            payload["lanes"][LANE_LEARNING]["incomplete_steps"],
+            ["reanalysis_recent_refresh"],
+        )
+
+    def test_policy_receipts_reach_canonical_promotion_adapter(self):
+        calls = []
+
+        def run(name, result):
+            def _runner(_args):
+                calls.append(name)
+                return result
+
+            return _runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "trading_evidence",
+                        run("trading_evidence", {"status": "BLOCK"}),
+                    ),
+                    (
+                        "hourly_model_performance",
+                        run(
+                            "hourly_model_performance",
+                            {
+                                "status": "BLOCK",
+                                "last_scored_target_date": "2026-07-07",
+                            },
+                        ),
+                    ),
+                    (
+                        "ten_minute_model_performance",
+                        run(
+                            "ten_minute_model_performance",
+                            {
+                                "status": "BLOCK",
+                                "last_scored_target_date": "2026-07-07",
+                            },
+                        ),
+                    ),
+                    (
+                        "settled_day_analysis_barrier",
+                        run(
+                            "settled_day_analysis_barrier",
+                            {"status": "PASS", "target_date": "2026-07-07"},
+                        ),
+                    ),
+                    (
+                        "live_variant_settlement_scorecard",
+                        run(
+                            "live_variant_settlement_scorecard",
+                            {
+                                "status": "PASS",
+                                "target_date": "2026-07-07",
+                                "source_row_count": 1,
+                                "valid_prediction_partition_count": 1,
+                            },
+                        ),
+                    ),
+                    (
+                        "promotion_refresh",
+                        run("promotion_refresh", {"status": "OK"}),
+                    ),
+                    (
+                        "daily_learning",
+                        run(
+                            "daily_learning",
+                            {
+                                "status": "ACTIONABLE",
+                                "latest_settled_label_date": "2026-07-07",
+                                "last_scored_target_date": "2026-07-07",
+                            },
+                        ),
+                    ),
+                ],
+            )
+
+        self.assertEqual(
+            calls,
+            [
+                "trading_evidence",
+                "hourly_model_performance",
+                "ten_minute_model_performance",
+                "settled_day_analysis_barrier",
+                "live_variant_settlement_scorecard",
+                "promotion_refresh",
+                "daily_learning",
+            ],
+        )
+        barrier_step = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "settled_day_analysis_barrier"
+        )
+        self.assertEqual(barrier_step["result"]["status"], "PASS")
+        promotion_step = next(
+            step for step in payload["steps"] if step["name"] == "promotion_refresh"
+        )
+        self.assertEqual(promotion_step["status"], "ok")
+        self.assertFalse(STEP_PROMOTION_GATES["trading_evidence"])
+        learning_step = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        self.assertEqual(
+            learning_step["result"]["target_settlement_coverage"]["coverage_status"],
+            "COMPLETE",
+        )
+
+    def test_shared_learning_producer_error_blocks_only_promotion_action(self):
+        calls = []
+
+        def barrier(_args):
+            calls.append("barrier")
+            return {"status": "PASS", "target_date": "2026-07-07"}
+
+        def runtime(_args):
+            calls.append("runtime")
+            raise RuntimeError("runtime reconciliation failed")
+
+        def live(_args):
+            calls.append("live")
+            return {"status": "PASS"}
+
+        def fleet(_args):
+            calls.append("fleet")
+            return {"status": "PASS"}
+
+        def promotion(_args):
+            calls.append("promotion")
+            return {"status": "SHOULD_NOT_RUN"}
+
+        def learning(_args):
+            calls.append("learning")
+            return {"status": "ACTIONABLE"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    ("settled_day_analysis_barrier", barrier),
+                    ("runtime_identity_reconciliation", runtime),
+                    ("live_variant_settlement_scorecard", live),
+                    ("fleet_observability", fleet),
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", learning),
+                ],
+            )
+
+        self.assertEqual(calls, ["barrier", "runtime", "live", "fleet", "learning"])
+        promotion_step = next(
+            step for step in payload["steps"] if step["name"] == "promotion_refresh"
+        )
+        self.assertEqual(promotion_step["status"], "blocked")
+        self.assertEqual(
+            promotion_step["result"]["upstream_blocker"]["step"],
+            "runtime_identity_reconciliation",
+        )
+        self.assertEqual(payload["status"], "critical")
+
+    def test_explicitly_skipped_required_gate_blocks_only_promotion(self):
+        calls = []
+
+        def called(name, result):
+            def _runner(_args):
+                calls.append(name)
+                return result
+
+            return _runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "ingest_quality_gate",
+                        called("ingest", {"skipped": True}),
+                    ),
+                    (
+                        "settled_day_analysis_barrier",
+                        called(
+                            "barrier",
+                            {"status": "PASS", "target_date": "2026-07-07"},
+                        ),
+                    ),
+                    (
+                        "live_variant_settlement_scorecard",
+                        called(
+                            "live",
+                            {"status": "PASS", "target_date": "2026-07-07"},
+                        ),
+                    ),
+                    (
+                        "promotion_refresh",
+                        called("promotion", {"status": "SHOULD_NOT_RUN"}),
+                    ),
+                    (
+                        "daily_learning",
+                        called("learning", {"status": "ACTIONABLE"}),
+                    ),
+                ],
+            )
+
+        self.assertEqual(calls, ["ingest", "barrier", "live", "learning"])
+        promotion = next(
+            row for row in payload["steps"] if row["name"] == "promotion_refresh"
+        )
+        blocker = promotion["result"]["upstream_blocker"]
+        self.assertEqual(blocker["step"], "ingest_quality_gate")
+        self.assertEqual(blocker["result_status"], "SKIPPED")
+
+    def test_learning_without_own_dates_never_inherits_barrier_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                            "source_row_count": 1,
+                            "valid_prediction_partition_count": 1,
+                        },
+                    ),
+                    (
+                        "daily_learning",
+                        lambda _args: {"status": "ACTIONABLE"},
+                    ),
+                ],
+            )
+
+        learning = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        coverage = learning["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "UNKNOWN")
+        self.assertIsNone(coverage["target_included"])
+        self.assertEqual(
+            coverage["gap_reason"],
+            "step_has_no_target_dated_corpus",
+        )
+        self.assertEqual(payload["lanes"][LANE_LEARNING]["status"], "UNKNOWN")
+
+    def test_no_data_result_cannot_be_complete_from_matching_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                            "source_row_count": 1,
+                            "valid_prediction_partition_count": 1,
+                        },
+                    ),
+                    (
+                        "settled_day_root_cause",
+                        lambda _args: {
+                            "status": "NO_DATA",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                ],
+            )
+
+        root_cause = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "settled_day_root_cause"
+        )
+        coverage = root_cause["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(coverage["gap_reason"], "learning_step_result_no_data")
+
+    def test_scoring_staleness_uses_last_scored_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    (
+                        "hourly_model_performance",
+                        lambda _args: {
+                            "status": "PASS",
+                            "latest_settled_label_date": "2026-07-07",
+                            "last_scored_target_date": "2026-07-06",
+                        },
+                    ),
+                ],
+            )
+
+        hourly = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "hourly_model_performance"
+        )
+        coverage = hourly["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(coverage["latest_settled_date"], "2026-07-07")
+        self.assertEqual(coverage["corpus_date_max"], "2026-07-06")
+        self.assertEqual(coverage["staleness_days"], 1)
+
+    def test_requested_target_without_rows_is_not_corpus_proof(self):
+        for step_name, count_field in (
+            ("runtime_identity_reconciliation", "snapshot_row_count"),
+            ("model_market_disagreement_rehydration", "target_row_count"),
+        ):
+            with self.subTest(step=step_name), tempfile.TemporaryDirectory() as tmp:
+                payload, _status_path, _report_path = run_daily_refresh(
+                    _args(tmp, settled_analysis_target_date="2026-07-07"),
+                    runners=[
+                        (
+                            "settled_day_analysis_barrier",
+                            lambda _args: {
+                                "status": "PASS",
+                                "target_date": "2026-07-07",
+                            },
+                        ),
+                        (
+                            step_name,
+                            lambda _args, field=count_field: {
+                                "status": "PASS",
+                                "target_date": "2026-07-07",
+                                field: 0,
+                            },
+                        ),
+                    ],
+                )
+
+                step = next(
+                    row for row in payload["steps"] if row["name"] == step_name
+                )
+                coverage = step["result"]["target_settlement_coverage"]
+                self.assertEqual(coverage["coverage_status"], "UNKNOWN")
+                self.assertIsNone(coverage["target_included"])
+
+    def test_latest_label_without_scored_target_is_a_coverage_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    (
+                        "hourly_model_performance",
+                        lambda _args: {
+                            "status": "BLOCK",
+                            "scoring_liveness_status": "BLOCK",
+                            "latest_settled_label_date": "2026-07-07",
+                            "last_scored_target_date": None,
+                        },
+                    ),
+                ],
+            )
+
+        hourly = next(
+            row
+            for row in payload["steps"]
+            if row["name"] == "hourly_model_performance"
+        )
+        coverage = hourly["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(
+            coverage["gap_reason"],
+            "learning_input_gate_block",
+        )
+
+    def test_barrier_target_mismatch_blocks_target_consumers(self):
+        calls = []
+
+        def called(name, result):
+            def _runner(_args):
+                calls.append(name)
+                return result
+
+            return _runner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        called(
+                            "barrier",
+                            {"status": "PASS", "target_date": "2026-07-06"},
+                        ),
+                    ),
+                    (
+                        "live_variant_settlement_scorecard",
+                        called("live", {"status": "SHOULD_NOT_RUN"}),
+                    ),
+                    (
+                        "promotion_refresh",
+                        called("promotion", {"status": "SHOULD_NOT_RUN"}),
+                    ),
+                    (
+                        "daily_learning",
+                        called(
+                            "learning",
+                            {
+                                "status": "ACTIONABLE",
+                                "last_scored_target_date": "2026-07-06",
+                            },
+                        ),
+                    ),
+                ],
+            )
+
+        self.assertEqual(calls, ["barrier", "learning"])
+        live = next(
+            step
+            for step in payload["steps"]
+            if step["name"] == "live_variant_settlement_scorecard"
+        )
+        self.assertEqual(live["status"], "blocked")
+        self.assertEqual(
+            live["result"]["upstream_blocker"]["root_cause_class"],
+            "settlement_barrier_target_mismatch",
+        )
+        coverage = payload["lanes"][LANE_LEARNING][
+            "target_settlement_coverage"
+        ]
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+
+    def test_dependency_coverage_propagates_weakest_current_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    (
+                        "live_variant_settlement_scorecard",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                            "source_row_count": 1,
+                            "valid_prediction_partition_count": 1,
+                        },
+                    ),
+                    (
+                        "promotion_refresh",
+                        lambda _args: {
+                            "status": "OK",
+                            "corpus_date_max": "2026-07-06",
+                        },
+                    ),
+                    ("shadow_ab_monitor", lambda _args: {"status": "PASS"}),
+                ],
+            )
+
+        shadow = next(
+            row for row in payload["steps"] if row["name"] == "shadow_ab_monitor"
+        )
+        coverage = shadow["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_mode"], "dependencies")
+        self.assertEqual(coverage["coverage_status"], "GAPPED")
+        self.assertEqual(coverage["corpus_date_max"], "2026-07-06")
+        self.assertEqual(coverage["staleness_days"], 1)
+        self.assertEqual(coverage["blocker_step"], "promotion_refresh")
+
+    def test_blocked_daily_learning_result_marks_learning_lane_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    ("daily_learning", lambda _args: {"status": "BLOCKED"}),
+                ],
+            )
+
+        self.assertEqual(payload["lanes"][LANE_LEARNING]["status"], "PARTIAL")
+        self.assertIn(
+            "daily_learning",
+            payload["lanes"][LANE_LEARNING]["incomplete_steps"],
+        )
+
+    def test_policy_block_does_not_falsify_complete_target_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(tmp, settled_analysis_target_date="2026-07-07"),
+                runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
+                    (
+                        "daily_learning",
+                        lambda _args: {
+                            "status": "BLOCKED",
+                            "latest_settled_label_date": "2026-07-07",
+                            "last_scored_target_date": "2026-07-07",
+                            "input_consistency": {
+                                "status": "FAIL",
+                                "checks": [
+                                    {
+                                        "name": "non_settlement_policy",
+                                        "status": "FAIL",
+                                        "evidence": {},
+                                    }
+                                ],
+                            },
+                        },
+                    ),
+                ],
+            )
+
+        learning = next(
+            step for step in payload["steps"] if step["name"] == "daily_learning"
+        )
+        coverage = learning["result"]["target_settlement_coverage"]
+        self.assertEqual(coverage["coverage_status"], "COMPLETE")
+        self.assertTrue(coverage["target_included"])
+        self.assertEqual(payload["lanes"][LANE_LEARNING]["status"], "PARTIAL")
+
+    def test_blocked_promotion_skips_production_readiness(self):
+        def barrier(_args):
+            raise SettledDayAnalysisBarrierError(
+                "settlement unavailable",
+                {
+                    "status": "BLOCK",
+                    "target_date": "2026-07-07",
+                    "hard_stop_pipeline": True,
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "weather.operations.daily_refresh._production_readiness_status"
+        ) as readiness:
+            payload, _status_path, _report_path = run_daily_refresh(
+                _args(
+                    tmp,
+                    settled_analysis_target_date="2026-07-07",
+                    skip_production_readiness_gate=False,
+                ),
+                runners=[
+                    ("settled_day_analysis_barrier", barrier),
+                    ("daily_learning", lambda _args: {"status": "BLOCKED"}),
+                ],
+            )
+
+        readiness.assert_not_called()
+        self.assertEqual(payload["production_readiness"]["status"], "SKIPPED")
 
     def test_carried_forward_steps_trims_to_pre_resume_and_marks(self):
         prior = [
@@ -1304,9 +2729,14 @@ class TestDailyRefresh(unittest.TestCase):
 
     def test_resume_seeds_prior_steps_for_barrier_consumers(self):
         with tempfile.TemporaryDirectory() as tmp:
-            args = _args(tmp, resume_from_step="settled_day_analysis_barrier")
+            args = _args(
+                tmp,
+                resume_from_step="settled_day_analysis_barrier",
+                settled_analysis_target_date="2026-07-07",
+            )
             prior = {
                 "started_at_utc": "2026-07-02T13:30:00+00:00",
+                "config": {"settled_analysis_target_date": "2026-07-07"},
                 "steps": [
                     {"name": "market_day_labels_finalize", "status": "ok", "result": {"label_count": 3}},
                     {"name": "hourly_model_performance", "status": "ok", "result": {"status": "BLOCK"}},
@@ -1361,12 +2791,21 @@ class TestDailyRefresh(unittest.TestCase):
                 tmp,
                 resume_from_step="settled_day_analysis_barrier",
                 skip_production_readiness_gate=False,
+                settled_analysis_target_date="2026-07-07",
             )
             prior = {
                 "started_at_utc": "2026-07-02T13:30:00+00:00",
+                "config": {"settled_analysis_target_date": "2026-07-07"},
                 "steps": [
                     {"name": "market_day_labels_finalize", "status": "ok", "result": {}},
-                    {"name": "hourly_model_performance", "status": "ok", "result": {}},
+                    {
+                        "name": "hourly_model_performance",
+                        "status": "ok",
+                        "result": {
+                            "status": "PASS",
+                            "last_scored_target_date": "2026-07-07",
+                        },
+                    },
                 ],
             }
             status_path = Path(args.status_out)
@@ -1382,7 +2821,10 @@ class TestDailyRefresh(unittest.TestCase):
                     runners=[
                         (
                             "settled_day_analysis_barrier",
-                            lambda _args: {"status": "PASS"},
+                            lambda _args: {
+                                "status": "PASS",
+                                "target_date": "2026-07-07",
+                            },
                         )
                     ],
                 )
@@ -1392,6 +2834,170 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["progress"]["last_completed_step"], "production_readiness_gate")
         self.assertEqual(guard_state["progress"]["completed_step_count"], 4)
         self.assertEqual(guard_state["progress"]["total_step_count"], 4)
+
+    def test_resume_rejects_carried_receipts_from_different_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                resume_from_step="settled_day_analysis_barrier",
+                settled_analysis_target_date="2026-07-07",
+            )
+            status_path = Path(args.status_out)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "started_at_utc": "2026-07-07T13:30:00+00:00",
+                        "config": {
+                            "settled_analysis_target_date": "2026-07-06"
+                        },
+                        "steps": [
+                            {
+                                "name": "hourly_model_performance",
+                                "status": "ok",
+                                "result": {"status": "PASS"},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            seen = {}
+
+            def barrier(step_args):
+                seen["steps"] = list(
+                    getattr(step_args, "_daily_refresh_steps_so_far", [])
+                )
+                return {"status": "PASS", "target_date": "2026-07-07"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[("settled_day_analysis_barrier", barrier)],
+            )
+
+        self.assertEqual(seen["steps"], [])
+        binding = payload["config"]["carried_forward_target_binding"]
+        self.assertEqual(binding["status"], "BLOCK")
+        self.assertEqual(binding["prior_target_date"], "2026-07-06")
+        self.assertEqual(payload["config"]["carried_forward_step_count"], 0)
+
+    def test_evidence_resume_rejects_receipts_from_repaired_stage_a(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_b_manifest = root / "stage_b.json"
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-repaired",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                        "steps": _stage_a_promotion_receipts("2026-07-07"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(stage_b_manifest),
+                resume_from_step="daily_learning",
+                settled_analysis_target_date="2026-07-07",
+            )
+            status_path = Path(args.status_out)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "started_at_utc": "2026-07-07T13:30:00+00:00",
+                        "config": {
+                            "settled_analysis_target_date": "2026-07-07",
+                            "stage_gate": {
+                                "stage_a_binding": "stage-a-before-repair"
+                            },
+                        },
+                        "steps": [
+                            {
+                                "name": "promotion_refresh",
+                                "status": "ok",
+                                "result": {
+                                    "status": "OK",
+                                    "source": "stale_prior_stage_b",
+                                },
+                            }
+                        ],
+                        "resource_steps": [
+                            {"step": "promotion_refresh", "status": "ok"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            seen = {}
+
+            def promotion(_step_args):
+                seen["promotion_called"] = True
+                return {"status": "OK", "source": "repaired_stage_a"}
+
+            def learning(step_args):
+                seen["steps"] = list(
+                    getattr(step_args, "_daily_refresh_steps_so_far", [])
+                )
+                seen["resources"] = list(
+                    getattr(step_args, "_daily_refresh_resource_steps", [])
+                )
+                return {"status": "ACTIONABLE"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    ("promotion_refresh", promotion),
+                    ("daily_learning", learning),
+                ],
+            )
+            manifest = json.loads(
+                stage_b_manifest.read_text(encoding="utf-8")
+            )
+
+        self.assertTrue(seen["promotion_called"])
+        promotions = [
+            step
+            for step in seen["steps"]
+            if step.get("name") == "promotion_refresh"
+        ]
+        self.assertEqual(len(promotions), 1)
+        self.assertEqual(
+            promotions[0]["result"]["source"], "repaired_stage_a"
+        )
+        self.assertTrue(
+            all(
+                step.get("carried_forward_source_stage") == "settlement"
+                for step in seen["steps"]
+                if step.get("name") != "promotion_refresh"
+            )
+        )
+        self.assertEqual(seen["resources"], [])
+        carry = payload["config"]["carried_forward_target_binding"]
+        self.assertEqual(carry["status"], "BLOCK")
+        self.assertEqual(carry["reason"], "resume_stage_a_binding_mismatch")
+        self.assertEqual(
+            carry["current_stage_a_binding"], "stage-a-repaired"
+        )
+        self.assertEqual(
+            carry["prior_stage_a_binding"], "stage-a-before-repair"
+        )
+        self.assertTrue(
+            payload["config"]["resume_restarted_from_stage_start"]
+        )
+        self.assertEqual(manifest["source_stage_a_binding"], "stage-a-repaired")
 
     def test_run_pins_settled_target_once_at_chain_start(self):
         # Regression (2026-07-07): steps derived the settled target from the
@@ -1745,6 +3351,10 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["status"], "dry_run")
         self.assertEqual(status["status"], "dry_run")
         self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * len(DEFAULT_RUNNERS))
+        self.assertEqual(
+            [step["lane"] for step in payload["steps"]],
+            [STEP_LANES[step["name"]] for step in payload["steps"]],
+        )
 
     def test_cli_dry_run_defaults_to_dry_run_status_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2432,8 +4042,11 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertTrue(report_exists)
 
     def test_promotion_refresh_disk_preflight_blocks_before_candidate_export(self):
+        calls = []
+
         def after(_args):
-            raise AssertionError("daily refresh should stop at disk preflight")
+            calls.append("daily_learning")
+            return {"status": "BLOCKED"}
 
         def promotion_for_test(step_args):
             return run_promotion_refresh_step(step_args)
@@ -2458,8 +4071,26 @@ class TestDailyRefresh(unittest.TestCase):
                 ),
                 runners=[
                     (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": getattr(
+                                _args,
+                                "settled_analysis_target_date",
+                            ),
+                        },
+                    ),
+                    (
                         "live_variant_settlement_scorecard",
-                        lambda _args: {"status": "PASS"},
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": getattr(
+                                _args,
+                                "settled_analysis_target_date",
+                            ),
+                            "source_row_count": 1,
+                            "valid_prediction_partition_count": 1,
+                        },
                     ),
                     ("promotion_refresh", promotion_for_test),
                     ("daily_learning", after),
@@ -2468,9 +4099,12 @@ class TestDailyRefresh(unittest.TestCase):
             report = Path(report_path).read_text(encoding="utf-8")
 
         run_refresh.assert_not_called()
-        self.assertEqual(payload["status"], "error")
-        self.assertEqual(len(payload["steps"]), 2)
-        step = payload["steps"][1]
+        self.assertEqual(calls, ["daily_learning"])
+        self.assertEqual(payload["status"], "critical")
+        self.assertEqual(len(payload["steps"]), 4)
+        step = next(
+            row for row in payload["steps"] if row["name"] == "promotion_refresh"
+        )
         result = step["result"]
         disk = result["disk_preflight"]
         self.assertEqual(step["status"], "error")
@@ -2563,7 +4197,10 @@ class TestDailyRefresh(unittest.TestCase):
         def runner(name):
             def _run(_args):
                 calls.append(name)
-                return {"name": name}
+                return {
+                    "status": "OK" if name == "promotion_refresh" else "PASS",
+                    "name": name,
+                }
             return _run
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -4906,10 +6543,18 @@ class TestDailyRefresh(unittest.TestCase):
                 tmp,
                 disable_long_job_guard=True,
                 skip_daily_progress_ledger=True,
+                settled_analysis_target_date="2026-07-07",
             )
             blocked, _, _ = run_daily_refresh(
                 blocked_args,
                 runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
                     (
                         "live_variant_settlement_scorecard",
                         lambda _args: {"status": "BLOCK", "blocker_count": 1},
@@ -4922,10 +6567,18 @@ class TestDailyRefresh(unittest.TestCase):
                 report_out=str(Path(tmp) / "backtest" / "skip_report.md"),
                 disable_long_job_guard=True,
                 skip_daily_progress_ledger=True,
+                settled_analysis_target_date="2026-07-07",
             )
             skipped, _, _ = run_daily_refresh(
                 skipped_args,
                 runners=[
+                    (
+                        "settled_day_analysis_barrier",
+                        lambda _args: {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                    ),
                     (
                         "live_variant_settlement_scorecard",
                         lambda _args: {"status": "SKIPPED", "reason": "no_live_variant_tape_for_target_date"},
@@ -4934,7 +6587,10 @@ class TestDailyRefresh(unittest.TestCase):
             )
 
         self.assertEqual(blocked["status"], "critical")
-        self.assertEqual(skipped["status"], "ok")
+        self.assertEqual(skipped["status"], "critical")
+        self.assertEqual(
+            skipped["lanes"][LANE_PROMOTION]["status"], "BLOCKED"
+        )
 
 
 if __name__ == "__main__":

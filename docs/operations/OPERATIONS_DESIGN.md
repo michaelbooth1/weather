@@ -169,6 +169,31 @@ directory, and stage-specific SLA. Countability still requires the running
 wrapper PID/instance, task state, action, child lineage, and run-time
 correlation to match; child-supplied flags alone are not evidence.
 
+Daily-refresh steps declare an execution lane and, separately, whether their
+current-run receipt gates promotion beside the canonical step registry. This
+keeps shared pre-promotion producers available to learning without allowing
+promotion to read an older PASS artifact after their current-run failure. Independent evidence
+producers and the settled-day barrier still run after a blocker; only the two
+target-day promotion consumers (live settlement scoring and the promotion
+action) are suppressed. Missing current-run gate receipts and target-mismatched
+barrier receipts fail promotion closed. A blocked settled-day barrier therefore
+still yields a completed, critical Stage-A manifest, and Stage B runs in
+gap-aware learning mode while carrying the exact promotion blocker forward.
+Every learning result declares whether target coverage comes from its own
+corpus, named dependencies, or is not applicable, and records the requested
+target, observed corpus dates, inclusion, staleness, and gap reason without
+inheriting a barrier PASS as proof. `daily_learning.json` persists the same
+coverage. Stage-B completion is bound to the exact Stage-A run, so a repaired
+Stage A can rerun promotion for the same target date. The canonical promotion
+adapter also reads the prior `daily_learning` and `data_layer_audit` artifacts
+because those producers run later in the same chain, and `daily_learning`
+itself consumes promotion output. This split does not redefine that
+pre-existing lag cycle as a same-run receipt; those artifacts remain subject
+to their canonical adapter gates.
+Heavy-work capture admission and captured-input parity may defer the affected
+heavy step, but lightweight learning continues. Physical-resource deferrals
+and isolated-child orchestration failures remain global hard stops.
+
 Before the settled-day analysis barrier, the read-only
 `observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
 from `snapshot_explanations.jsonl` to finalized settlement labels. Missing

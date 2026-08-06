@@ -364,7 +364,11 @@ def summarize_labels(labels):
 
 def run_reanalysis_recent_refresh_step(args):
     if args.skip_reanalysis_refresh:
-        return {"skipped": True, "reason": "skip_reanalysis_refresh"}
+        return {
+            "status": "SKIPPED",
+            "skipped": True,
+            "reason": "skip_reanalysis_refresh",
+        }
     end_date = parse_date_arg(args.reanalysis_end_date) or (utc_now().date() - timedelta(days=1))
     start_date = end_date - timedelta(days=max(1, int(args.reanalysis_lag_days)) - 1)
     client = ReanalysisClient(timeout=args.reanalysis_timeout, sleep_seconds=args.reanalysis_sleep)
@@ -543,7 +547,11 @@ def write_ingest_quality_report(path, payload):
 
 def run_ingest_quality_gate_step(args):
     if getattr(args, "skip_ingest_quality_gate", False):
-        return {"skipped": True, "reason": "skip_ingest_quality_gate"}
+        return {
+            "status": "SKIPPED",
+            "skipped": True,
+            "reason": "skip_ingest_quality_gate",
+        }
     years = _year_list(getattr(args, "ingest_quality_years", ""))
     results = data_auditor.audit_fleet_historical_data(
         target_month=getattr(args, "audit_target_month", None),
@@ -660,11 +668,10 @@ def run_market_day_labels_finalize(args):
     )
     summary = summarize_labels(labels)
     summary.update({
+        "status": "PASS",
         "folder_count": len(folders),
         "labels_csv": as_path(args.labels_csv),
         "ledger_root": as_path(args.ledger_root),
         "polymarket_reconciliation": not args.skip_polymarket_reconciliation,
     })
     return summary
-
-

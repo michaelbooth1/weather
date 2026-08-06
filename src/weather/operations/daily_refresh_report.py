@@ -26,6 +26,25 @@ def render_report(payload):
         f"Capture-resource decision: `{admission.get('decision') or '-'}`",
         f"Capture-resource workload: `{admission.get('workload') or '-'}`",
     ]
+    lanes = payload.get("lanes") or {}
+    promotion_lane = lanes.get("promotion") or {}
+    learning_lane = lanes.get("learning") or {}
+    coverage = learning_lane.get("target_settlement_coverage") or {}
+    if lanes:
+        lines += [
+            "",
+            "## Execution Lanes",
+            "",
+            f"Promotion lane: **{promotion_lane.get('status') or '-'}**",
+            f"Learning lane: **{learning_lane.get('status') or '-'}**",
+            f"Requested settlement target: `{coverage.get('requested_target_date') or '-'}`",
+            f"Target coverage: `{coverage.get('coverage_status') or '-'}`; "
+            f"included: `{coverage.get('target_included')}`; "
+            f"latest settled: `{coverage.get('latest_settled_date') or '-'}`; "
+            f"corpus max: `{coverage.get('corpus_date_max') or '-'}`.",
+            f"Coverage gap: `{coverage.get('gap_reason') or '-'}`; "
+            f"blocker: `{coverage.get('blocker_step') or '-'}`.",
+        ]
     if floor_result.get("status") == "ALERT":
         lines += [
             "",
@@ -49,8 +68,8 @@ def render_report(payload):
         "",
         "## Steps",
         "",
-        "| Step | Status | Seconds | Result |",
-        "| :--- | :--- | :--- | :--- |",
+        "| Step | Lane | Status | Seconds | Result |",
+        "| :--- | :--- | :--- | :--- | :--- |",
     ]
     for step in payload.get("steps") or []:
         result = step.get("result") or {}
@@ -205,12 +224,22 @@ def render_report(payload):
         elif step.get("name") == "promotion_refresh":
             disk = result.get("disk_preflight") or {}
             if result.get("promotion_not_run"):
-                live = result.get("live_variant_settlement_scorecard") or {}
-                first = result.get("first_blocker") or {}
-                detail = (
-                    f"BLOCK; live settlement scorer {live.get('status')}; "
-                    f"promotion not run; {first.get('detail') or result.get('reason') or '-'}"
-                )
+                upstream = result.get("upstream_blocker") or {}
+                if upstream:
+                    detail = (
+                        "BLOCK; promotion not run; upstream "
+                        f"{upstream.get('step') or '-'}; "
+                        f"{upstream.get('root_cause_class') or '-'}; "
+                        f"{upstream.get('reason') or upstream.get('detail') or '-'}"
+                    )
+                else:
+                    live = result.get("live_variant_settlement_scorecard") or {}
+                    first = result.get("first_blocker") or {}
+                    detail = (
+                        f"BLOCK; live settlement scorer {live.get('status')}; "
+                        "promotion not run; "
+                        f"{first.get('detail') or result.get('reason') or '-'}"
+                    )
             elif result.get("status") == "BLOCK" and disk:
                 detail = (
                     f"disk BLOCK; free {disk.get('free_bytes')}; "
@@ -434,7 +463,7 @@ def render_report(payload):
         else:
             detail = "-"
         lines.append(
-            f"| {step.get('name')} | {step.get('status')} | "
+            f"| {step.get('name')} | {step.get('lane') or '-'} | {step.get('status')} | "
             f"{step.get('duration_seconds', '-')} | {detail} |"
         )
     hourly_summary = (payload.get("summary") or {}).get("hourly_model_performance") or {}
