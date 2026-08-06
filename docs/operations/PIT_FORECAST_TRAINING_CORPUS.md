@@ -80,6 +80,14 @@ identity, request/raw-response hashes, native forecast value and unit, and
 issue/availability/as-of timestamps must all agree. Legacy records assembled
 from ambient `forecast_daily.csv` have no such provenance and fail closed.
 
+The first-retrain selection is owned by the hash-bound retrain plan, not by a
+source or feature-corpus manifest: training years 2021-2025, the target
+month/day plus or minus seven days in each year, cutoff hours 07-20, and all 12
+built-in markets. For the 2026-07-31 target that is 75 dates, 1,050 cells per
+market, and 12,600 fleet cells. Candidate-supplied `covered_years`, selected
+dates, counts, or minimums can prove rows only; they cannot reduce the required
+matrix.
+
 This input does not authorize fitting, promotion, serving changes, or release
 binding. Those remain separate reviewed actions under the nightly retrain and
 release runbooks.

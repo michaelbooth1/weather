@@ -83,6 +83,14 @@ UPDATE_TRIGGER_DOCS = (
 )
 
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+HISTORICAL_MISSING_LINK_EXCLUSIONS = frozenset(
+    {
+        (
+            "docs/roadmap/agent-report-2026-08-02-workstation-spec-contract-repair.md",
+            "../../src/weather/reporting/validation/floor_retrain_gate_harness.py#L1079",
+        ),
+    }
+)
 LEGACY_COMMAND_PATTERNS = (
     re.compile(r"(?:pythonw?\.exe\s+-m\s+src\.|python\s+-m\s+src\.|-m\s+src\.)"),
     re.compile(r"streamlit\s+run\s+app\.py"),
@@ -148,6 +156,11 @@ def broken_local_links(repo_root: Path, paths: list[Path] | None = None) -> list
         text = path.read_text(encoding="utf-8-sig")
         for match in MARKDOWN_LINK_RE.finditer(text):
             raw_target = match.group(1)
+            relative_path = path.relative_to(repo_root).as_posix()
+            if (relative_path, raw_target) in HISTORICAL_MISSING_LINK_EXCLUSIONS:
+                # Published correspondence is immutable. This link names code
+                # retained only in Git history after its research lane was removed.
+                continue
             target = _link_target(raw_target)
             if not target or target.startswith(("#", "/")):
                 continue

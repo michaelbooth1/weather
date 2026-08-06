@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import pickle
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from weather.operations.base_retrain import (
     BaseRetrainContractError,
     CORPUS_MANIFEST_SCHEMA_VERSION,
     EXPECTED_MARKETS,
+    FIRST_RETRAIN_CUTOFF_HOURS,
+    FIRST_RETRAIN_TRAINING_YEARS,
     MARKET_UNITS,
     REPLACED_COMPONENTS,
     _copy_parent_unchanged,
@@ -35,11 +38,16 @@ from weather.operations.nightly_retrain import (
 from weather.release_artifacts import sha256_file
 
 
-TARGET_DATE = "2099-07-24"
-TRAINING_AS_OF = "2099-07-25T04:00:00+00:00"
+TARGET_DATE = "2026-07-31"
+TRAINING_AS_OF = "2026-08-08T04:00:00+00:00"
 FEATURE_CONTRACT_ID = "sha256:" + "c" * 64
 RUNTIME_ID = "synthetic-runtime-v1"
 PIT_CORPUS_ID = "e" * 64
+TRAINING_DATES = tuple(
+    (date(year, 7, 31) + timedelta(days=offset)).isoformat()
+    for year in FIRST_RETRAIN_TRAINING_YEARS
+    for offset in range(-7, 8)
+)
 
 
 def _support(unit: str) -> dict:
@@ -63,7 +71,8 @@ def _parent() -> dict:
         markets[spec.id] = {
             "unit": spec.unit,
             "hours": {
-                "12": {"feature_names": ["forecast_high", "rise_from_7am"]}
+                str(hour): {"feature_names": ["forecast_high", "rise_from_7am"]}
+                for hour in FIRST_RETRAIN_CUTOFF_HOURS
             },
             "hgb": {},
             "lr": {},
@@ -100,7 +109,6 @@ def _market_manifest(
     parity_equal: bool,
     records_path: Path | None = None,
 ) -> dict:
-    selected_date = "2098-07-24"
     unit = MARKET_UNITS[market_id]
     rise_historical = {
         "value": 5.0,
@@ -121,30 +129,32 @@ def _market_manifest(
     }
     row = {
         "unit": unit,
-        "expected_selected_day_count": 1,
-        "minimum_selected_day_count": 1,
+        "expected_selected_day_count": len(TRAINING_DATES),
+        "minimum_selected_day_count": len(TRAINING_DATES),
         "minimum_hourly_rows_per_day": 1,
         "selected_dates": [
             {
                 "local_date": selected_date,
                 "daily_sha256": "a" * 64,
                 "hourly_sha256": "b" * 64,
-                "hourly_row_count": 10,
+                "hourly_row_count": 24,
                 "label_bucket": 20 if unit == "C" else 90,
-                "cutoff_at": "2098-07-24T16:00:00+00:00",
-                "max_predictor_known_at": "2098-07-24T15:59:00+00:00",
+                "cutoff_at": f"{selected_date}T20:00:00+00:00",
+                "max_predictor_known_at": f"{selected_date}T19:59:00+00:00",
             }
+            for selected_date in TRAINING_DATES
         ],
         "feature_names_by_hour": {
-            "12": ["forecast_high", "rise_from_7am"]
+            str(hour): ["forecast_high", "rise_from_7am"]
+            for hour in FIRST_RETRAIN_CUTOFF_HOURS
         },
         "all_missing_features": [],
         "live_only_features": [],
         "forecast_archive": {
             "fields": {
                 "forecast_high": {
-                    "expected_dates": [selected_date],
-                    "covered_dates": [selected_date] if forecast_covered else [],
+                    "expected_dates": list(TRAINING_DATES),
+                    "covered_dates": list(TRAINING_DATES) if forecast_covered else [],
                     "pit_issue_time_provenance": forecast_covered,
                 }
             }
@@ -200,31 +210,39 @@ def _record_paths(tmp_path: Path) -> dict[str, Path]:
         path = tmp_path / "corpus" / f"{market_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps(_pit_record(market_id)) + "\n",
+            "".join(
+                json.dumps(_pit_record(market_id, target_date, cutoff_hour)) + "\n"
+                for target_date in TRAINING_DATES
+                for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
+            ),
             encoding="utf-8",
         )
         paths[market_id] = path
     return paths
 
 
-def _pit_binding(market_id: str) -> dict:
+def _pit_binding(market_id: str, target_date: str, cutoff_hour: int) -> dict:
     return {
         "market_id": market_id,
-        "target_date": "2098-07-24",
-        "cutoff_hour_local": 12,
+        "target_date": target_date,
+        "cutoff_hour_local": cutoff_hour,
         "forecast_high_native": 21.0 if MARKET_UNITS[market_id] == "C" else 91.0,
         "temperature_unit": MARKET_UNITS[market_id],
         "corpus_id": PIT_CORPUS_ID,
-        "request_hash": hashlib.sha256(f"request:{market_id}".encode()).hexdigest(),
-        "raw_response_sha256": hashlib.sha256(f"raw:{market_id}".encode()).hexdigest(),
-        "issue_time_utc": "2098-07-23T00:00:00+00:00",
-        "available_at_utc": "2098-07-23T01:00:00+00:00",
-        "feature_as_of_utc": "2098-07-24T16:00:00+00:00",
+        "request_hash": hashlib.sha256(
+            f"request:{market_id}:{target_date}".encode()
+        ).hexdigest(),
+        "raw_response_sha256": hashlib.sha256(
+            f"raw:{market_id}:{target_date}".encode()
+        ).hexdigest(),
+        "issue_time_utc": f"{target_date}T00:00:00+00:00",
+        "available_at_utc": f"{target_date}T01:00:00+00:00",
+        "feature_as_of_utc": f"{target_date}T{cutoff_hour:02d}:00:00+00:00",
     }
 
 
-def _pit_record(market_id: str) -> dict:
-    binding = _pit_binding(market_id)
+def _pit_record(market_id: str, target_date: str, cutoff_hour: int) -> dict:
+    binding = _pit_binding(market_id, target_date, cutoff_hour)
     return {
         "target_date": binding["target_date"],
         "cutoff_hour": binding["cutoff_hour_local"],
@@ -252,7 +270,12 @@ def _receipt_hash(payload: dict) -> str:
 
 
 def _pit_preflight(pit_manifest: Path, *, status: str = "PASS") -> dict:
-    rows = [_pit_binding(market_id) for market_id in EXPECTED_MARKETS]
+    rows = [
+        _pit_binding(market_id, target_date, cutoff_hour)
+        for market_id in EXPECTED_MARKETS
+        for target_date in TRAINING_DATES
+        for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
+    ]
     receipt = {
         "status": status,
         "manifest_path": str(pit_manifest.resolve()),
@@ -306,6 +329,48 @@ def test_plan_declares_exactly_one_all_market_step_and_every_candidate_output(tm
     assert len(plan["markets"]) == 12
     assert all(len(row["outputs"]) == 5 for row in plan["markets"])
     assert {row["unit"] for row in plan["markets"]} == {"C", "F"}
+    population = plan["training_population"]
+    assert population["years"] == [2021, 2022, 2023, 2024, 2025]
+    assert population["selected_dates"] == list(TRAINING_DATES)
+    assert population["cutoff_hours_local"] == list(range(7, 21))
+    assert population["expected_market_date_cutoff_count"] == 12_600
+
+
+def test_candidate_dates_and_covered_years_cannot_shrink_the_pit_gate(tmp_path):
+    manifest = _manifest(forecast_covered=True, parity_equal=True)
+    manifest["covered_years"] = [2025]
+    for market in manifest["markets"].values():
+        market["covered_years"] = [2025]
+        market["selected_dates"] = market["selected_dates"][-1:]
+        market["expected_selected_day_count"] = 1
+        market["minimum_selected_day_count"] = 1
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
+
+    result = evaluate_preflight(
+        plan=plan,
+        manifest=manifest,
+        manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=_pit_preflight(pit_path),
+        parent=_parent(),
+        output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
+    )
+
+    checks = {row["name"]: row for row in result["checks"]}
+    assert checks["training_population_policy"]["status"] == "PASS"
+    assert checks["training_population_policy"][
+        "required_market_date_cutoff_count"
+    ] == 12_600
+    assert checks["pit_forecast_corpus"]["required_selection_row_count"] == 12_600
+    assert any(
+        row["code"] == "WU_TRAINING_POPULATION_MISMATCH"
+        for row in checks["wu_corpus"]["blockers"]
+    )
+    assert result["status"] == "BLOCK"
+    assert result["fit_authorized"] is False
 
 
 def test_base_retrain_cli_has_no_defaults_for_run_identity():
@@ -382,12 +447,12 @@ def test_synthetic_repaired_manifest_clears_all_executable_preflights(tmp_path):
 def test_legacy_feature_records_without_pit_provenance_block_preflight(tmp_path):
     record_paths = _record_paths(tmp_path)
     record_paths["toronto"].write_text(
-        json.dumps(
-            {
-                "target_date": "2098-07-24",
-                "cutoff_hour": 12,
-                "forecast_high": 21.0,
-            }
+            json.dumps(
+                {
+                    "target_date": TRAINING_DATES[0],
+                    "cutoff_hour": FIRST_RETRAIN_CUTOFF_HOURS[0],
+                    "forecast_high": 21.0,
+                }
         )
         + "\n",
         encoding="utf-8",
@@ -470,13 +535,19 @@ def _run_fixture(tmp_path: Path):
     record_paths = _record_paths(tmp_path)
     for market_id, path in record_paths.items():
         path.write_text(
-            json.dumps(
-                {
-                    **_pit_record(market_id),
-                    "final_bucket": 20 if MARKET_UNITS[market_id] == "C" else 90,
-                }
-            )
-            + "\n",
+            "".join(
+                json.dumps(
+                    {
+                        **_pit_record(market_id, target_date, cutoff_hour),
+                        "final_bucket": (
+                            20 if MARKET_UNITS[market_id] == "C" else 90
+                        ),
+                    }
+                )
+                + "\n"
+                for target_date in TRAINING_DATES
+                for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
+            ),
             encoding="utf-8",
         )
     manifest = _manifest(

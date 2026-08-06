@@ -18,6 +18,23 @@ def test_broken_local_links_reports_missing_target(tmp_path):
     ]
 
 
+def test_broken_local_links_preserves_exact_historical_exclusion(tmp_path):
+    doc = (
+        tmp_path
+        / "docs"
+        / "roadmap"
+        / "agent-report-2026-08-02-workstation-spec-contract-repair.md"
+    )
+    doc.parent.mkdir(parents=True)
+    doc.write_text(
+        "[historical](../../src/weather/reporting/validation/"
+        "floor_retrain_gate_harness.py#L1079)\n",
+        encoding="utf-8",
+    )
+
+    assert broken_local_links(tmp_path, [doc]) == []
+
+
 def test_legacy_command_scan_rejects_root_script_shims_but_allows_canonical_paths():
     legacy_register = ".\\" + "scripts\\" + "register_daily_refresh.ps1"
     legacy_launcher = ".\\" + "scripts\\" + "start_weather_dashboard.cmd"

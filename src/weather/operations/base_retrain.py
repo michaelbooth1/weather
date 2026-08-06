@@ -16,7 +16,7 @@ import pickle
 import re
 import shutil
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,10 @@ REGENERATED_ROLES = frozenset(
     }
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+FIRST_RETRAIN_TRAINING_YEARS = tuple(range(2021, 2026))
+FIRST_RETRAIN_CUTOFF_HOURS = tuple(range(7, 21))
+FIRST_RETRAIN_SEASON_RADIUS_DAYS = 7
+FIRST_RETRAIN_TRAINING_POLICY_ID = "first_retrain_2021_2025_target_season_policy"
 
 
 class BaseRetrainContractError(RuntimeError):
@@ -150,6 +154,46 @@ def _artifact_suffix(market_id: str) -> str:
     return "" if market_id == "toronto" else f"_{market_id}"
 
 
+def _training_population_for_target(target_value: Any) -> dict[str, Any]:
+    """Return the code-owned first-retrain matrix; evidence cannot resize it."""
+
+    try:
+        target = date.fromisoformat(str(target_value))
+    except (TypeError, ValueError):
+        target = None
+    selected_dates = []
+    if target is not None:
+        for year in FIRST_RETRAIN_TRAINING_YEARS:
+            try:
+                anchor = target.replace(year=year)
+            except ValueError:
+                if target.month != 2 or target.day != 29:
+                    raise
+                anchor = date(year, 2, 28)
+            selected_dates.extend(
+                (anchor + timedelta(days=offset)).isoformat()
+                for offset in range(
+                    -FIRST_RETRAIN_SEASON_RADIUS_DAYS,
+                    FIRST_RETRAIN_SEASON_RADIUS_DAYS + 1,
+                )
+            )
+    market_date_count = len(EXPECTED_MARKETS) * len(selected_dates)
+    return {
+        "policy_id": FIRST_RETRAIN_TRAINING_POLICY_ID,
+        "years": list(FIRST_RETRAIN_TRAINING_YEARS),
+        "target_month_day": target.strftime("%m-%d") if target is not None else "",
+        "season_radius_days": FIRST_RETRAIN_SEASON_RADIUS_DAYS,
+        "selected_dates": selected_dates,
+        "cutoff_hours_local": list(FIRST_RETRAIN_CUTOFF_HOURS),
+        "market_ids": list(EXPECTED_MARKETS),
+        "expected_training_date_count": len(selected_dates),
+        "expected_market_date_count": market_date_count,
+        "expected_market_date_cutoff_count": (
+            market_date_count * len(FIRST_RETRAIN_CUTOFF_HOURS)
+        ),
+    }
+
+
 def candidate_market_outputs(candidate_dir: str | Path, market_id: str) -> dict[str, str]:
     root = Path(candidate_dir)
     suffix = _artifact_suffix(market_id)
@@ -215,6 +259,7 @@ def build_plan(
                 Path(candidate_value).name if candidate_value.strip() else ""
             ),
             "runtime_id": str(runtime_id),
+            "training_population": _training_population_for_target(target_date),
             "market_count": len(markets),
             "markets": markets,
             "fleet_atomic": True,
@@ -498,43 +543,64 @@ def _gate(name: str, blockers: Sequence[Mapping[str, Any]], **evidence: Any) -> 
     }
 
 
-def _required_pit_selection_keys(
-    manifest: Mapping[str, Any],
-    parent: Mapping[str, Any],
-) -> tuple[tuple[str, str, int], ...]:
-    markets = manifest.get("markets")
-    if not isinstance(markets, Mapping):
-        return ()
-    keys = set()
-    for market_id in EXPECTED_MARKETS:
-        market = markets.get(market_id)
-        if not isinstance(market, Mapping):
-            continue
-        dates = {
-            str(row.get("local_date") or "")
-            for row in market.get("selected_dates") or []
-            if str(row.get("local_date") or "")
-        }
-        hours = {
-            int(hour)
-            for hour in ((parent.get("markets") or {}).get(market_id) or {}).get(
-                "hours", {}
-            )
-            if str(hour).isdigit()
-        }
-        keys.update(
-            (market_id, target_date, cutoff_hour)
-            for target_date in dates
-            for cutoff_hour in hours
+def _training_population_blockers(plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    expected = _training_population_for_target(plan.get("target_date"))
+    actual = plan.get("training_population")
+    if actual != expected:
+        blockers.append(
+            {
+                "code": "TRAINING_POPULATION_POLICY_MISMATCH",
+                "message": (
+                    "the hash-bound retrain plan is not the code-owned "
+                    "2021-2025 target-season population"
+                ),
+            }
         )
-    return tuple(sorted(keys))
+    try:
+        target = _parse_date(plan.get("target_date"), field="target_date")
+        if any(year >= target.year for year in FIRST_RETRAIN_TRAINING_YEARS):
+            blockers.append(
+                {
+                    "code": "TRAINING_POPULATION_NOT_PRIOR",
+                    "message": "every fixed training year must precede the target year",
+                }
+            )
+    except BaseRetrainContractError:
+        pass
+    expected_plan_sha = _canonical_sha256(
+        {key: value for key, value in plan.items() if key != "payload_sha256"}
+    )
+    if plan.get("payload_sha256") != expected_plan_sha:
+        blockers.append(
+            {
+                "code": "RETRAIN_PLAN_IDENTITY_MISMATCH",
+                "message": "the hash-bound retrain plan self-hash does not verify",
+            }
+        )
+    return blockers
+
+
+def _required_pit_selection_keys(
+    plan: Mapping[str, Any],
+) -> tuple[tuple[str, str, int], ...]:
+    population = _training_population_for_target(plan.get("target_date"))
+    market_ids = [str(value) for value in population.get("market_ids") or []]
+    dates = [str(value) for value in population.get("selected_dates") or []]
+    hours = [int(value) for value in population.get("cutoff_hours_local") or []]
+    return tuple(
+        (market_id, target_date, cutoff_hour)
+        for market_id in market_ids
+        for target_date in dates
+        for cutoff_hour in hours
+    )
 
 
 def _feature_record_pit_binding(
+    plan: Mapping[str, Any],
     manifest: Mapping[str, Any],
-    parent: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    required_keys = set(_required_pit_selection_keys(manifest, parent))
+    required_keys = set(_required_pit_selection_keys(plan))
     bindings: dict[tuple[str, str, int], dict[str, Any]] = {}
     blockers: list[dict[str, Any]] = []
     markets = manifest.get("markets")
@@ -691,6 +757,21 @@ def evaluate_preflight(
         )
     checks.append(_gate("scheduler_plan", scheduler_blockers, declared_market_count=12))
 
+    training_population = _training_population_for_target(plan.get("target_date"))
+    checks.append(
+        _gate(
+            "training_population_policy",
+            _training_population_blockers(plan),
+            policy_id=training_population["policy_id"],
+            years=training_population["years"],
+            selected_date_count=training_population["expected_training_date_count"],
+            cutoff_hour_count=len(training_population["cutoff_hours_local"]),
+            required_market_date_cutoff_count=training_population[
+                "expected_market_date_cutoff_count"
+            ],
+        )
+    )
+
     parent_blockers = []
     if parent.get("status") != "PASS":
         parent_blockers.append({"code": "PARENT_NOT_VERIFIED", "message": "parent is not exact PASS"})
@@ -734,6 +815,10 @@ def evaluate_preflight(
     parity_blockers = []
     sidecar_blockers = []
     support_blockers = []
+    required_selected_dates = set(training_population["selected_dates"])
+    required_cutoff_hours = {
+        str(value) for value in training_population["cutoff_hours_local"]
+    }
     for market_id in EXPECTED_MARKETS:
         market = manifest_markets.get(market_id)
         parent_market = (parent.get("markets") or {}).get(market_id) or {}
@@ -748,10 +833,19 @@ def evaluate_preflight(
             )
         selected = market.get("selected_dates") or []
         declared_count = int(market.get("expected_selected_day_count") or -1)
-        minimum_count = int(market.get("minimum_selected_day_count") or 1)
-        if declared_count != len(selected) or len(selected) < minimum_count:
+        if (
+            declared_count != len(required_selected_dates)
+            or len(selected) != len(required_selected_dates)
+        ):
             wu_blockers.append(
-                {"code": "WU_COUNT_MISMATCH", "market_id": market_id, "message": "selected-day counts fail declaration/minimum"}
+                {
+                    "code": "WU_COUNT_MISMATCH",
+                    "market_id": market_id,
+                    "required_count": len(required_selected_dates),
+                    "declared_count": declared_count,
+                    "actual_count": len(selected),
+                    "message": "selected-day count differs from the code-owned training population",
+                }
             )
         records_path = Path(str(market.get("records_path") or ""))
         records_sha = str(market.get("records_sha256") or "")
@@ -798,9 +892,32 @@ def evaluate_preflight(
                 wu_blockers.append(
                     {"code": "WU_ROW_INVALID", "market_id": market_id, "message": str(exc)}
                 )
+        actual_selected_dates = set(selected_dates)
+        if actual_selected_dates != required_selected_dates or len(selected_dates) != len(
+            required_selected_dates
+        ):
+            wu_blockers.append(
+                {
+                    "code": "WU_TRAINING_POPULATION_MISMATCH",
+                    "market_id": market_id,
+                    "missing_date_count": len(required_selected_dates - actual_selected_dates),
+                    "unexpected_date_count": len(actual_selected_dates - required_selected_dates),
+                    "message": "candidate evidence is not the exact 2021-2025 target-season date set",
+                }
+            )
 
         parent_hours = parent_market.get("hours") or {}
         manifest_hours = market.get("feature_names_by_hour") or {}
+        if set(parent_hours) != required_cutoff_hours:
+            feature_blockers.append(
+                {
+                    "code": "PARENT_CUTOFF_POLICY_MISMATCH",
+                    "market_id": market_id,
+                    "required_hours": sorted(required_cutoff_hours, key=int),
+                    "parent_hours": sorted(str(value) for value in parent_hours),
+                    "message": "parent cutoff hours differ from the fixed 07-20 gate",
+                }
+            )
         for hour, parent_hour in sorted(parent_hours.items()):
             expected_names = list(parent_hour.get("feature_names") or [])
             candidate_names = list(manifest_hours.get(hour) or [])
@@ -944,7 +1061,7 @@ def evaluate_preflight(
                 "message": "PIT preflight is not bound to the explicit manifest file",
             }
         )
-    record_blockers, record_evidence = _feature_record_pit_binding(manifest, parent)
+    record_blockers, record_evidence = _feature_record_pit_binding(plan, manifest)
     pit_blockers.extend(record_blockers)
     if record_evidence["required_selection_row_count"] <= 0:
         pit_blockers.append(
@@ -1013,6 +1130,11 @@ def evaluate_preflight(
             "parent_release_id": plan["parent_release_id"],
             "feature_contract_id": plan["feature_contract_id"],
             "runtime_id": plan["runtime_id"],
+            "retrain_plan_sha256": plan.get("payload_sha256"),
+            "training_population_policy_id": training_population["policy_id"],
+            "required_market_date_cutoff_count": training_population[
+                "expected_market_date_cutoff_count"
+            ],
             "corpus_manifest_sha256": manifest_sha256,
             "pit_forecast_corpus_manifest_sha256": pit_forecast_manifest_sha256,
             "pit_forecast_preflight_sha256": pit_forecast_preflight.get(
@@ -1229,7 +1351,7 @@ def run_base_retrain(
     manifest = _read_json(manifest_path, label="base-retrain corpus manifest")
     pit_manifest_path = Path(args.pit_forecast_corpus_manifest)
     pit_manifest_sha = ""
-    required_pit_selection = _required_pit_selection_keys(manifest, parent)
+    required_pit_selection = _required_pit_selection_keys(plan)
     try:
         pit_manifest_sha = sha256_file(pit_manifest_path)
         pit_preflight = pit_preflight_loader(
@@ -1363,6 +1485,11 @@ def run_base_retrain(
             "semantic_contract_sha256": semantic["contract_sha256"],
             "parent_release_id": args.parent_release_id,
             "parent_manifest_sha256": parent["parent_manifest_sha256"],
+            "retrain_plan_sha256": plan["payload_sha256"],
+            "training_population_policy_id": FIRST_RETRAIN_TRAINING_POLICY_ID,
+            "required_market_date_cutoff_count": _training_population_for_target(
+                args.target_date
+            )["expected_market_date_cutoff_count"],
             "pit_forecast_corpus_manifest_sha256": pit_manifest_sha,
             "pit_forecast_preflight_sha256": pit_preflight["preflight_sha256"],
             "active_pointer_unchanged_before_release_build": True,
