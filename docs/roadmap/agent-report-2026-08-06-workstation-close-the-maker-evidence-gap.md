@@ -183,17 +183,19 @@ continues to reject this session.
 | Exact trades **and every book change** | **No lossless replay contract is exposed; effectively zero seconds** | P0 fails even for an immediate reconnect. There is no exact backfill design to implement. |
 | Data API market/event trade rows | Documented as approximately the most recent **three years** | Useful for bounded retrospective trade analysis, but second-precision trades alone cannot close continuity. |
 | `/prices-history` samples | No retention guarantee stated in the official endpoint contract | Whatever samples remain are still only `t`/`p` aggregates and cannot become exact evidence. |
-| `/orderbook-history` snapshots | **No documented horizon.** Empirically the known gap remained readable at least **11 h 50 m 39.198535 s** after it ended. | This is a lower bound for indicative snapshot availability, not a completeness or future-retention guarantee. |
+| `/orderbook-history` snapshots | **No documented horizon.** Empirically the known gap remained readable at least **12 h 17 m 09.198535 s** after it ended. | This is a lower bound for indicative snapshot availability, not a completeness or future-retention guarantee. |
 | `/book`, `/books`, market WebSocket | Current/live only; no documented retrospective replay | Exact book evidence must be captured continuously at event time. |
 
 The trade endpoint's approximate three-year window and the snapshot route's
 empirical lower bound are not the horizon of an exact backfill. The load-bearing
 exact-replay horizon is none.
 
-That empirical lower bound uses the first probe's HTTP `Date` value,
-`2026-08-06T15:59:06Z`, minus the exact gap end,
-`2026-08-06T04:08:26.801465Z`. It is an observation time, not a promised expiry
-or retention floor.
+That empirical lower bound uses the HTTP `Date` value from a nonempty Toronto
+gap-snapshot response, `2026-08-06T16:25:36Z`, minus the exact gap end,
+`2026-08-06T04:08:26.801465Z`. That response returned HTTP 200 with three rows
+for token
+`54154421552674617436912803891331752657171436628211836980484290480640026577307`.
+It is an observation time, not a promised expiry or retention floor.
 
 ## P1 and P2 — hard-stopped
 
@@ -321,7 +323,13 @@ git diff --check "origin/master...$branch"
 git diff --name-status "origin/master...$branch"
 git show "$branch`:docs/roadmap/agent-report-2026-08-06-workstation-close-the-maker-evidence-gap.md"
 
-$events = "798963,798966,798965,798958,798967,798968,798969,798964,798947,798970,798946,798945"
+$eventMap = [ordered]@{
+  toronto = "798945"; nyc = "798947"; atlanta = "798963";
+  austin = "798966"; chicago = "798965"; dallas = "798958";
+  denver = "798967"; houston = "798968"; "los-angeles" = "798969";
+  miami = "798964"; "san-francisco" = "798970"; seattle = "798946"
+}
+$events = @($eventMap.Values) -join ","
 $tradeUri = "https://data-api.polymarket.com/trades?eventId=$events&start=1785989304&end=1785989307&limit=10000&takerOnly=true"
 (Invoke-WebRequest -UseBasicParsing -Method Get -Uri $tradeUri).Content
 
@@ -335,39 +343,91 @@ $marketIds = @(
 )
 $config = git show "$branch`:config/location_market_events.json" |
   Out-String | ConvertFrom-Json
-$tokens = foreach ($marketId in $marketIds) {
+$tokenRows = foreach ($marketId in $marketIds) {
   $location = $config.locations | Where-Object { $_.location_id -eq $marketId }
   $event = $location.active_events | Where-Object { $_.event_date -eq "2026-08-06" }
   foreach ($market in $event.markets) {
-    foreach ($outcome in $market.outcomes) { [string]$outcome.token_id }
+    foreach ($outcome in $market.outcomes) {
+      [pscustomobject]@{
+        market_id = $marketId
+        token_id = [string]$outcome.token_id
+      }
+    }
   }
 }
 $bookRows = @()
-$bookCounts = foreach ($tokenId in $tokens) {
-  $uri = "https://clob.polymarket.com/orderbook-history?asset_id=$tokenId&startTs=1785989304636&endTs=1785989306801&limit=1000&offset=0"
-  $payload = Invoke-RestMethod -Method Get -Uri $uri
-  $bookRows += @($payload.data)
-  [pscustomobject]@{ token_id = $tokenId; count = [int]$payload.count }
+$bookResults = foreach ($tokenRow in $tokenRows) {
+  $uri = "https://clob.polymarket.com/orderbook-history?asset_id=$($tokenRow.token_id)&startTs=1785989304636&endTs=1785989306801&limit=1000&offset=0"
+  $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri
+  $payload = $response.Content | ConvertFrom-Json
+  foreach ($row in @($payload.data)) {
+    $bookRows += [pscustomobject]@{
+      market_id = $tokenRow.market_id
+      timestamp = [string]$row.timestamp
+    }
+  }
+  [pscustomobject]@{
+    market_id = $tokenRow.market_id
+    token_id = $tokenRow.token_id
+    status_code = [int]$response.StatusCode
+    response_date = [string]$response.Headers["Date"]
+    count = [int]$payload.count
+  }
   Start-Sleep -Milliseconds 100
 }
 [pscustomobject]@{
-  token_requests = @($bookCounts).Count
+  token_requests = @($bookResults).Count
+  http_200 = @($bookResults | Where-Object { $_.status_code -eq 200 }).Count
+  reported_rows = ($bookResults | Measure-Object -Property count -Sum).Sum
   returned_rows = @($bookRows).Count
-  nonempty_tokens = @($bookCounts | Where-Object { $_.count -gt 0 }).Count
+  nonempty_tokens = @($bookResults | Where-Object { $_.count -gt 0 }).Count
+  page_limit_hits = @($bookResults | Where-Object { $_.count -ge 1000 }).Count
   unique_timestamps = @($bookRows.timestamp | Sort-Object -Unique).Count
   minimum_timestamp = ($bookRows.timestamp | Measure-Object -Minimum).Minimum
   maximum_timestamp = ($bookRows.timestamp | Measure-Object -Maximum).Maximum
+  earliest_nonempty_response_date = ($bookResults |
+    Where-Object { $_.count -gt 0 } |
+    Sort-Object { [datetime]$_.response_date } |
+    Select-Object -First 1).response_date
 }
+$marketCounts = foreach ($marketId in $marketIds) {
+  [pscustomobject]@{
+    market_id = $marketId
+    snapshots = @($bookRows | Where-Object { $_.market_id -eq $marketId }).Count
+  }
+}
+$marketCounts | Format-Table -AutoSize
 
 $controlRows = @()
-foreach ($eventId in $events.Split(',')) {
-  $uri = "https://data-api.polymarket.com/trades?eventId=$eventId&start=1785989244&end=1785989367&limit=10000&takerOnly=true"
-  $controlRows += @(Invoke-RestMethod -Method Get -Uri $uri)
+$controlResults = foreach ($entry in $eventMap.GetEnumerator()) {
+  $uri = "https://data-api.polymarket.com/trades?eventId=$($entry.Value)&start=1785989244&end=1785989367&limit=10000&takerOnly=true"
+  $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $uri
+  $payload = @($response.Content | ConvertFrom-Json)
+  foreach ($row in $payload) {
+    $controlRows += [pscustomobject]@{
+      market_id = [string]$entry.Key
+      timestamp = $row.timestamp
+      transaction_hash = [string]$row.transactionHash
+    }
+  }
+  [pscustomobject]@{
+    market_id = [string]$entry.Key
+    status_code = [int]$response.StatusCode
+    count = @($payload).Count
+  }
 }
 [pscustomobject]@{
+  event_requests = @($controlResults).Count
+  http_200 = @($controlResults | Where-Object { $_.status_code -eq 200 }).Count
   rows = @($controlRows).Count
   integer_timestamps = @($controlRows | Where-Object { $_.timestamp -is [int] -or $_.timestamp -is [long] }).Count
-  shared_second_rows = @($controlRows | Group-Object timestamp | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Group }).Count
+  support_by_market = @($controlResults | Where-Object { $_.count -gt 0 } |
+    ForEach-Object { "$($_.market_id)=$($_.count)" }) -join ","
+  rows_at_1785989274 = @($controlRows |
+    Where-Object { $_.timestamp -eq 1785989274 }).Count
+  distinct_hashes_at_1785989274 = @($controlRows |
+    Where-Object { $_.timestamp -eq 1785989274 } |
+    Select-Object -ExpandProperty transaction_hash -Unique).Count
 }
 
 .\venv\Scripts\python.exe -m pytest -q `
@@ -387,4 +447,6 @@ row” to “no book change.”
 - Current-master base: `4aecdb71416de083c6177f272f1a7a40a9f32871`
 - Carried dependency: `758824342f14aecdc42da4b545c40e048929059a`
 - Dependency merge on this topic branch: `958c1b68adb8ae2480801e9c433e42f4fdc9709e`
-- P0 report commit: `05176bd8e73107c85c8c3f3d0b57ec7764552685`
+- Initial P0 report commit: `05176bd8e73107c85c8c3f3d0b57ec7764552685`
+- Initial handback-provenance commit: `f9155a665787f3c0b90ac4cc9205fed63d38783a`
+- Public-history correction commit: `f5559f03697d6059e1891aa3664902eaeab49fd4`
