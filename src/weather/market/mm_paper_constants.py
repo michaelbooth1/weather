@@ -8,6 +8,11 @@ SCHEMA_VERSION = "mm_paper_v0.1"
 EXECUTION_EVIDENCE_SCHEMA_VERSION = "mm_execution_evidence_v0.1"
 KNOWN_EDGE_SCHEMA_VERSION = "mm_known_edge_map_v0.2"
 EARLY_HOUR_GUARDRAIL_SHADOW_SCHEMA_VERSION = "early_hour_market_guardrail_shadow_v0.1"
+EXECUTION_RAW_TAPE_FILENAME = "mm_execution_tape.jsonl"
+EXECUTION_CANONICAL_TAPE_FILENAME = "mm_execution_tape.csv"
+EXECUTION_SESSION_FILENAME = "mm_execution_tape_sessions.jsonl"
+EXECUTION_CONNECTION_SEQUENCE_SCOPE = "local_to_session_websocket_connection"
+EXECUTION_BOOK_ALIGNMENT_SEQUENCE_STATUS = "not_exposed_by_public_feed"
 
 DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -37,6 +42,7 @@ DEFAULT_CONFIG = {
     "reward_campaign_pool_usdc": 0.0,
     "reward_competitor_q": 100.0,
     "reward_min_payout_usdc": 1.0,
+    "reward_book_max_age_seconds": 120.0,
     "confidence_z": 1.96,
     "min_edge_allowed_live_days": 14,
     "min_edge_allowed_fills": 10,
@@ -103,6 +109,7 @@ FILL_COLUMNS = [
     "execution_side",
     "execution_condition_id",
     "execution_raw_sha1",
+    "execution_audit_bindings_json",
     "execution_source_representations",
     "conservative_fill_rule",
     "queue_status",
@@ -141,8 +148,15 @@ FILL_COLUMNS = [
     "settlement_pnl_usdc",
     "maker_fee_equivalent_usdc",
     "maker_rebate_estimate_usdc",
+    "maker_rebate_accepted_usdc",
+    "maker_rebate_acceptance_status",
     "liquidity_reward_estimate_usdc",
+    "liquidity_reward_accepted_usdc",
+    "reward_acceptance_status",
     "flattening_fee_estimate_usdc",
+    "acceptance_horizon",
+    "acceptance_pnl_status",
+    "provisional_net_30m_usdc",
     "net_pnl_after_fees_incentives_usdc",
     "exchange_economics_snapshot_id",
     "exchange_economics_hash",

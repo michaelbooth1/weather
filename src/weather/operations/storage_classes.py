@@ -7,6 +7,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
+
 
 CANONICAL_EVIDENCE = "canonical_evidence"
 ANALYSIS_PROJECTION = "analysis_projection"
@@ -166,6 +172,26 @@ ARTIFACT_FAMILIES = (
         "canonical_evidence_review_gate",
         True,
         examples=("data/snapshots/<event>/replay_inputs.jsonl",),
+    ),
+    ArtifactFamilyClassification(
+        "maker_execution_tape",
+        "market",
+        CANONICAL_EVIDENCE,
+        (
+            f"snapshots/*/{EXECUTION_RAW_TAPE_FILENAME}",
+            f"snapshots/*/{EXECUTION_CANONICAL_TAPE_FILENAME}",
+            f"snapshots/*/{EXECUTION_SESSION_FILENAME}",
+        ),
+        "permanent_maker_execution_evidence",
+        "not rebuildable because execution payloads, normalized rows, and bound session coverage are live-only",
+        "canonical_evidence_review_gate",
+        True,
+        examples=(
+            f"data/snapshots/<event>/{EXECUTION_RAW_TAPE_FILENAME}",
+            f"data/snapshots/<event>/{EXECUTION_CANONICAL_TAPE_FILENAME}",
+            f"data/snapshots/<event>/{EXECUTION_SESSION_FILENAME}",
+        ),
+        notes="Every dedicated tape member is canonical evidence; the CSV is not an analysis projection.",
     ),
     ArtifactFamilyClassification(
         "clob_raw_evidence",

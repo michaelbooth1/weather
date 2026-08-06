@@ -141,6 +141,11 @@ maintenance window:
 - **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
   unconditionally re-enables supervisors and ensures all loops, in case the
   window process dies mid-flight.
+- **`WeatherMakerExecutionCapture`** is not one of those three supervised
+  loops. In `pause-training-window` mode it disconnects from 01:00 through the
+  04:15 restore boundary, records the planned break on the preceding bound
+  receipt, remains `PAUSED` if restarted inside the window, and preserves its
+  independent 00:55 fleet-binding roll after resuming.
 - Script: `scripts\ops\training_window.ps1` (also supports `-RestoreOnly` and
   `-DryRun`). Log: `data\logs\training_window.log`.
 
@@ -155,7 +160,9 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
 1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,
    replays, conversions, backfills, or bulk file operations. Near-close tape
    is the highest-value data this platform collects; the 15-second fast-mode
-   contract has no slack for IO contention.
+   contract has no slack for IO contention. The maker producer's small,
+   append-only execution evidence is the explicit exception; it runs
+   BelowNormal and performs no bulk tape work in this window.
 2. **Heavy ad-hoc work runs 01:00–08:30**, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
    ≥ 50 GB disk free.

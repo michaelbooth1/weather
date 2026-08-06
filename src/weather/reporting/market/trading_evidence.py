@@ -375,9 +375,18 @@ def _select_market_making_run(root, *, target_date=None):
             "COUNTABLE_LATEST"
         )
     else:
-        selected_path, selected_payload = max(candidate_rows, key=lambda item: _run_sort_key(item[0], item[1]))
+        active_rows = [
+            (path, payload) for path, payload in candidate_rows
+            if payload.get("evidence_mode") == COUNTABLE_MM_EVIDENCE_MODE
+        ]
+        selected_path, selected_payload = max(
+            active_rows or candidate_rows,
+            key=lambda item: _run_sort_key(item[0], item[1]),
+        )
         if requested and not target_rows:
             selection_status = "STALE_FALLBACK"
+        elif active_rows:
+            selection_status = "ACTIVE_DAY_NON_COUNTABLE"
         elif requested:
             selection_status = "TARGET_DATE_NON_COUNTABLE"
     selected_target = str(selected_payload.get("target_date") or selected_path.parent.parent.name)
@@ -975,6 +984,16 @@ def summarize_market_making_run(path, payload, selection_summary=None):
     model_variant = payload.get("model_variant_bakeoff") or {}
     skipped_variants = model_variant.get("skipped_variants") or []
     skipped_variant_input_rows = sum(_int_value(row.get("input_row_count")) for row in skipped_variants)
+    required_skipped_variants = [
+        row for row in skipped_variants
+        if (
+            bool(row.get("counts_toward_maker_day_countability"))
+            or row.get("model_variant_id") == "served_current"
+        )
+    ]
+    required_skipped_variant_input_rows = sum(
+        _int_value(row.get("input_row_count")) for row in required_skipped_variants
+    )
     skipped_variant_ids = sorted({
         str(row.get("model_variant_id"))
         for row in skipped_variants
@@ -1007,8 +1026,10 @@ def summarize_market_making_run(path, payload, selection_summary=None):
         ]
         if blocker
     ]
-    if skipped_variant_input_rows:
-        countability_blockers.append(f"model_variant_bakeoff_skipped_variants={skipped_variant_input_rows}")
+    if required_skipped_variant_input_rows:
+        countability_blockers.append(
+            f"required_model_variant_skipped_rows={required_skipped_variant_input_rows}"
+        )
     if quote_starvation.get("status") == "BLOCK":
         countability_blockers.append(f"quote_starvation={quote_starvation.get('classification')}")
     if _exchange_gate_blocked(exchange_gate):
@@ -1057,6 +1078,7 @@ def summarize_market_making_run(path, payload, selection_summary=None):
         "model_variant_bakeoff_family_size": model_variant.get("multiple_testing_family_size"),
         "model_variant_bakeoff_skipped_variants": skipped_variants,
         "model_variant_bakeoff_skipped_variant_count": len(skipped_variants),
+        "model_variant_bakeoff_required_skipped_input_row_count": required_skipped_variant_input_rows,
         "model_variant_bakeoff_skipped_variant_ids": skipped_variant_ids,
         "model_variant_bakeoff_skipped_input_row_count": skipped_variant_input_rows,
         "reason_counts": reason_counts,
@@ -1654,6 +1676,16 @@ def build_trading_evidence_summary(
         if value is not None
     })
     paper_fill_evidence = mm_paper_summary.get("fill_evidence_completeness") or {}
+    paper_day_countability = (
+        mm_paper_summary.get("day_countability")
+        or mm_paper_payload.get("day_countability")
+        or {}
+    )
+    paper_day_targets = [str(value) for value in paper_day_countability.get("target_dates") or []]
+    selected_mm_target = str(market_making.get("selected_target_date") or "")
+    paper_day_matches_selected = bool(
+        selected_mm_target and paper_day_targets == [selected_mm_target]
+    )
     market_making["paper_fill_evidence_completeness_status"] = paper_fill_evidence.get("status")
     market_making["paper_fill_evidence_completeness_blockers"] = paper_fill_evidence.get("blockers") or []
     market_making["paper_fill_evidence_missing_size_trade_rows"] = paper_fill_evidence.get(
@@ -1668,6 +1700,10 @@ def build_trading_evidence_summary(
     market_making["paper_fill_evidence_unresolved_resting_quote_count"] = paper_fill_evidence.get(
         "unresolved_resting_quote_count"
     )
+    market_making["paper_day_countability"] = paper_day_countability
+    market_making["paper_day_countability_status"] = paper_day_countability.get("status")
+    market_making["paper_day_countability_target_dates"] = paper_day_targets
+    market_making["paper_day_countability_matches_selected_run"] = paper_day_matches_selected
     paper_model_variant = mm_paper_summary.get("model_variant_bakeoff") or {}
     market_making["paper_model_variant_bakeoff_status"] = paper_model_variant.get("status")
     market_making["paper_model_variant_promotion_gate_status"] = paper_model_variant.get("promotion_gate_status")
@@ -1689,7 +1725,20 @@ def build_trading_evidence_summary(
         blockers.append("paper_score_freshness=STALE")
         market_making["countability_blockers"] = blockers
         market_making["countability_status"] = "NON_COUNTABLE"
-    if paper_fill_evidence.get("status") == "BLOCK":
+    if paper_day_countability and not paper_day_matches_selected:
+        blockers = list(market_making.get("countability_blockers") or [])
+        blockers.append("paper_day_countability_target_mismatch")
+        market_making["countability_blockers"] = blockers
+        market_making["countability_status"] = "NON_COUNTABLE"
+    elif paper_day_countability.get("status") == "NOT_COUNTABLE":
+        blockers = list(market_making.get("countability_blockers") or [])
+        blockers.extend(
+            f"paper_day:{blocker}"
+            for blocker in paper_day_countability.get("blockers") or ["not_countable"]
+        )
+        market_making["countability_blockers"] = blockers
+        market_making["countability_status"] = "NON_COUNTABLE"
+    elif not paper_day_countability and paper_fill_evidence.get("status") == "BLOCK":
         blockers = list(market_making.get("countability_blockers") or [])
         blockers.append("fill_evidence_completeness=BLOCK")
         market_making["countability_blockers"] = blockers

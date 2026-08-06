@@ -25,6 +25,11 @@ import pyarrow.parquet as pq
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
 from weather.io import sha256_file
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations.closed_market_day_archive_manifest_contract import (
     validate_manifest_shape as validate_manifest_shape_contract,
 )
@@ -215,6 +220,22 @@ ARTIFACT_FAMILIES = (
         ("market_ws_events.csv", "market_ws_events.csv.gz"),
         ("market_ws.jsonl",),
         notes="WebSocket event summary table.",
+    ),
+    ArtifactFamilyContract(
+        "maker_execution_tape",
+        DATASET_FILENAME,
+        (),
+        (
+            EXECUTION_RAW_TAPE_FILENAME,
+            EXECUTION_CANONICAL_TAPE_FILENAME,
+            EXECUTION_SESSION_FILENAME,
+        ),
+        parquet_default_for_closed_days=False,
+        raw_evidence_permanent=True,
+        notes=(
+            "Dedicated execution payloads, normalized rows, and bound session receipts "
+            "remain raw-reference-only canonical evidence and are never deleted by archiving."
+        ),
     ),
     ArtifactFamilyContract(
         "clob_features_long",

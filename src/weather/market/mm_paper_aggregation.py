@@ -271,6 +271,15 @@ class SpilledRows:
             )
         ]
 
+    def iter_event_sorted(self, event_slug: str) -> Iterator[dict[str, Any]]:
+        cursor = self.connection.execute(
+            f"SELECT payload FROM {self.table} WHERE event_slug = ? "
+            "ORDER BY sort_time, sort_id, sequence",
+            (str(event_slug),),
+        )
+        for (payload,) in cursor:
+            yield _restore(payload)
+
     def distinct_quote_id_count(self) -> int:
         return int(
             self.connection.execute(

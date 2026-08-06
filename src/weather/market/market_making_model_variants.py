@@ -33,6 +33,7 @@ DEFAULT_VARIANT_SPECS = [
         "probability_source": "served_fair_probability",
         "uses_market_features": False,
         "counts_toward_model_promotion": True,
+        "counts_toward_maker_day_countability": True,
     },
     {
         "model_variant_id": "current_high_trust_retrain",
@@ -45,6 +46,7 @@ DEFAULT_VARIANT_SPECS = [
         ],
         "uses_market_features": False,
         "counts_toward_model_promotion": True,
+        "counts_toward_maker_day_countability": False,
     },
     {
         "model_variant_id": "dynamic_source_freshness",
@@ -58,6 +60,7 @@ DEFAULT_VARIANT_SPECS = [
         ],
         "uses_market_features": False,
         "counts_toward_model_promotion": True,
+        "counts_toward_maker_day_countability": False,
     },
     {
         "model_variant_id": "conservative_no_market_baseline",
@@ -66,6 +69,7 @@ DEFAULT_VARIANT_SPECS = [
         "probability_source": "market_mid",
         "uses_market_features": False,
         "counts_toward_model_promotion": False,
+        "counts_toward_maker_day_countability": False,
     },
     {
         "model_variant_id": "clob_overlay_risk_only",
@@ -74,6 +78,7 @@ DEFAULT_VARIANT_SPECS = [
         "probability_source": "derived_clob_overlay",
         "uses_market_features": True,
         "counts_toward_model_promotion": False,
+        "counts_toward_maker_day_countability": False,
     },
 ]
 
@@ -285,11 +290,16 @@ def materialize_model_variant_inputs(policy_inputs, config, *, target_date, runt
                 materialized.append(out)
                 emitted[variant_id] += 1
                 seen_for_base.add(variant_id)
+    specs_by_id = {row["model_variant_id"]: row for row in specs}
     skipped_rows = [
         {
             "model_variant_id": variant_id,
             "reason": reason,
             "input_row_count": count,
+            "model_variant_role": (specs_by_id.get(variant_id) or {}).get("model_variant_role", "shadow"),
+            "counts_toward_maker_day_countability": bool(
+                (specs_by_id.get(variant_id) or {}).get("counts_toward_maker_day_countability")
+            ),
         }
         for (variant_id, reason), count in sorted(skipped.items())
     ]

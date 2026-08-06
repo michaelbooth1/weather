@@ -60,6 +60,18 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("mm_execution_evidence"),
             "mm_execution_evidence_v0.1",
         )
+        self.assertEqual(
+            schema_version("mm_execution_capture_bound_session"),
+            "mm_execution_capture_bound_session_v0.1",
+        )
+        self.assertEqual(
+            schema_version("mm_execution_capture_execution_row"),
+            "mm_execution_capture_execution_row_v0.1",
+        )
+        self.assertEqual(
+            schema_version("mm_execution_capture_raw_execution"),
+            "mm_execution_capture_raw_execution_v0.1",
+        )
         self.assertEqual(schema_version("variant_learning_operational_gate"), "variant_learning_operational_gate_v0.1")
         self.assertEqual(schema_version("live_variant_predictions"), "live_variant_predictions_v0.2")
         self.assertEqual(schema_version("replay_inputs"), "toronto_replay_inputs_v0.2")
