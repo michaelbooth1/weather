@@ -64,6 +64,7 @@ function Get-FlagClass($text) {
     if ($text -match "capture loop DOWN|TODAY capture AT_RISK|capture alert raised") { return "capture" }
     if ($text -match "LOW RAM") { return "memory" }
     if ($text -match "LOW DISK") { return "capacity" }
+    if ($text -match "SETTLEMENT HOLE") { return "settlement" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
     if ($text -match "streak checker failed|BLIND") { return "observability" }
@@ -73,6 +74,7 @@ $actionWindow = @{
     capture       = "NOW - the graded window is 12:00-18:00"
     memory        = "NOW - memory pressure is the streak's primary failure mode"
     capacity      = "any time; tiering/cleanup is memory-light"
+    settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
     durability    = "any time; mirror runs nightly 04:30"
     resilience    = "any time, but a reboot must not happen before it is fixed"
     observability = "NOW - nothing else is watching while this is broken"
@@ -87,6 +89,17 @@ foreach ($f in @($status.flags)) {
         "memory" { if ($inCapture) { "CRITICAL" } else { "HIGH" } }
         "observability" { "HIGH" }
         "capacity" { "HIGH" }
+        # A settlement hole is not a scheduled-job hiccup. The evidence is already lost
+        # for that date and no future run reclaims it, so this outranks anything whose
+        # cost is bounded by "wait for the next run". It escalates with age because each
+        # extra day is another backfill nobody has scheduled: the 2026-08-06 hole sat at
+        # MEDIUM, below 33 routine state_change entries, while it was the only thing in
+        # the briefing that was actively costing us evidence.
+        "settlement" {
+            $holeDays = 0
+            if ($f -match "\((\d+) day") { $holeDays = [int]$Matches[1] }
+            if ($holeDays -ge 2) { "CRITICAL" } else { "HIGH" }
+        }
         "durability" { "MEDIUM" }
         "resilience" { "MEDIUM" }
         default { if ($inChain) { "HIGH" } else { "MEDIUM" } }

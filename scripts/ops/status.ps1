@@ -203,6 +203,56 @@ elseif ($chain -and -not $chain.terminal) {
     $chainTerm = "running/unknown"
 }
 
+# ---- settlement holes (the CONSEQUENCE, not the event) ----
+# Everything above watches the chain as an event: which step failed, what the task
+# returned. None of it watches the thing that actually costs us anything -- whether a
+# target date ended up settled. Those are different questions, and on 2026-08-06 they
+# gave different answers: the failing step was a MEDIUM standing note while 2026-08-05
+# went unsettled in all 12 markets and nothing said so.
+#
+# The event is also transient and the hole is not. Each chain run settles only
+# yesterday, so a missed day is never retried by the next run -- it needs an explicit
+# backfill (scripts\ops\chain_recovery_run.ps1). A hole therefore compounds silently
+# while the daily "chain ok" signal returns to normal the very next morning.
+#
+# Read the tail rather than the whole ledger: toronto's is large and this script runs
+# every 15 minutes beside live capture. Revisions append, so scan a window and take the
+# max rather than trusting the final line.
+$settleHole = $null
+$settleRoot = Join-Path $repo "data\settlements"
+if (Test-Path $settleRoot) {
+    $behind = @()
+    $latestSeen = $null
+    foreach ($dir in @(Get-ChildItem -LiteralPath $settleRoot -Directory -ErrorAction SilentlyContinue)) {
+        $ledger = Join-Path $dir.FullName "ledger.jsonl"
+        if (-not (Test-Path $ledger)) { continue }
+        $maxDate = $null
+        foreach ($line in @(Get-Content -LiteralPath $ledger -Tail 50 -ErrorAction SilentlyContinue)) {
+            if (-not $line) { continue }
+            try { $td = (ConvertFrom-Json $line).target_date } catch { continue }
+            if (-not $td) { continue }
+            try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
+            if (($null -eq $maxDate) -or ($d -gt $maxDate)) { $maxDate = $d }
+        }
+        if ($null -eq $maxDate) { continue }
+        if (($null -eq $latestSeen) -or ($maxDate -gt $latestSeen)) { $latestSeen = $maxDate }
+        $behind += [PSCustomObject]@{ market = $dir.Name; latest = $maxDate }
+    }
+    # The chain settles yesterday during its 09:30 run, so only expect it after the run
+    # has had time to finish. Before that, being one day back is normal, not a hole.
+    if ($behind.Count -gt 0 -and (Get-Date).Hour -ge 12) {
+        $expected = (Get-Date).Date.AddDays(-1)
+        $stale = @($behind | Where-Object { $_.latest -lt $expected })
+        if ($stale.Count -gt 0) {
+            $worst = ($stale | Sort-Object latest | Select-Object -First 1).latest
+            $days = [int]((Get-Date).Date - $worst).TotalDays - 1
+            $settleHole = "SETTLEMENT HOLE: {0} of {1} market(s) unsettled since {2:yyyy-MM-dd} ({3} day(s) behind) - each missed day needs an explicit backfill, the next chain run will not retry it" -f `
+                $stale.Count, $behind.Count, $worst, $days
+            $flags.Add($settleHole)
+        }
+    }
+}
+
 # ---- git / push ----
 $unpushed = & git -C $repo rev-list --count origin/master..master 2>$null
 if (-not $unpushed) { $unpushed = "?" }
