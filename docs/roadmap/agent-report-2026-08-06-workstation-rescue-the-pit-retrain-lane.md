@@ -32,10 +32,11 @@ without porting its self-sizing base-retrain orchestration.
   `codex/workstation-rescue-the-pit-retrain-lane-2026-09-20a`
 - Held parent: `450f03c53fad461732039bd879f9cc5f494f28ab`
 - Minimum requested master: `e802233522f455fe857357ea287384f1999538fa`
-- Current master basis: `fbb729bb22c70b3267e1afa002dabb013833dea7`
+- Current master basis: `2c85277dc6ab63ac1e872a6b2328b3f138cfdb23`
 - Initial refresh merge: `5cc53f50` (`Merge origin/master into PIT retrain rescue`)
 - Rescue implementation commit: `1e97ec71076988727d63e8707eca488947f50c22`
-- Current-master refresh merge: `79ab75e9ea004c81f5711260f698007a0ad73f4f`
+- Canonical-guidance refresh merge: `79ab75e9ea004c81f5711260f698007a0ad73f4f`
+- Latest-master refresh merge: `9a7ba54feb5e06a2d48d6610524aa3c479aa0687`
 - Worktree: `scratch/w/rescue-pit-09-20a`
 - PR: none
 - Integration merge: none
@@ -66,6 +67,14 @@ their indexes. It did not alter the repaired code or the verification result.
 The newly canonical findings retained the earlier literal-search conclusion;
 this branch updates that entry to record the indirect candidate-sizing defect
 that the mission's falsifier proved.
+
+Origin then advanced again from `fbb729bb` to `2c85277d` immediately before
+push. That second delta was also unrelated to the PIT lane: generated location
+metadata plus standalone CLOB-tiering scripts and their retention-policy
+documentation. It merged without conflict. Both PowerShell files passed static
+parser validation without execution; 130 affected tests plus 4 subtests and
+the complete suite passed on the resulting tree. No script was invoked and no
+task was registered.
 
 ## Lane adjudication
 
@@ -210,6 +219,12 @@ tests/operations/test_base_retrain.py
 
 tests/operations/test_experiment_executor.py
 24 passed
+
+latest-master location config + CLOB tiering
+130 passed, 4 subtests passed
+
+PowerShell static parser, without script execution
+PASS (2 scripts)
 ```
 
 Full verification used the already-documented Windows process execution-policy
