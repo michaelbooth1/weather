@@ -32,9 +32,13 @@ The exact branch is
 then-refreshed `origin/master @ 2d0f7f1493b6fd8231ed9012ff7bde75b5c9dc0a`
 and carries
 `origin/codex/workstation-make-mm-days-countable-2026-09-11a @ 14dd1e84`
-through merge commit `ff7d9ceb`. Before push it will also merge the latest
-refreshed `origin/master`; that refresh is branch maintenance, not integration
-of this branch into `master`.
+through merge commit `ff7d9ceb`. After the mission implementation commit, the
+branch was refreshed from
+`origin/master @ fbb729bb22c70b3267e1afa002dabb013833dea7`.
+The mission implementation/report commit is `da25b4c5`; branch-refresh merge
+commit `c2acaca98fbb04f59790aada018281da12535e9d` carries the new canonical
+delegation/distillation documents. Those ancestry merges are branch
+maintenance, not integration of this branch into `master`.
 
 ## P1 — the three registration contracts
 
@@ -259,7 +263,8 @@ globs:
 
 Only `src/weather/schema_registry_data.py` enters any retained closure, and it
 enters all four. Its diff is purely additive: three new `SchemaSpec` entries,
-with no existing entry changed. A single coordinated quiet-window adoption is
+plus five additive entries carried from `-09-11a`, with no existing entry
+changed. A single coordinated quiet-window adoption is
 therefore unavoidable and expected. Roll the snapshot, CLOB, and observation
 loops together after this branch lands; roll enrichment in the same window if
 it is deployed/running, then start the maker producer only after all incumbent
@@ -297,6 +302,38 @@ selection reached 21 passes, with only the then-untracked scheduler test and
 the known CPython-wheel mismatch preventing a clean aggregate command. The
 agent-doc audit also reports one unrelated pre-existing broken link in the
 August 2 contract-repair report.
+
+### Production-host reproduction commands
+
+These commands use paths that exist on the operations host and are read-only
+with respect to runtime evidence. They verify the delivered branch after it is
+checked out; they do not register or start the producer:
+
+```powershell
+Set-Location C:\Users\micha\Desktop\github\weather
+.\venv\Scripts\python.exe -m pytest -q `
+  tests\market\test_mm_execution_capture.py `
+  tests\market\test_mm_day_countability.py `
+  tests\market\test_mm_paper.py `
+  tests\market\test_mm_paper_scoring.py `
+  tests\reporting\test_trading_evidence.py
+.\venv\Scripts\python.exe -m pytest -q `
+  tests\operations\test_storage_classes.py `
+  tests\operations\test_event_day_manifest.py `
+  tests\operations\test_event_day_archive_coverage.py `
+  tests\operations\test_closed_market_day_archive.py `
+  tests\operations\test_closed_day_projection_tiering.py `
+  tests\operations\test_schema_registry.py `
+  tests\operations\test_register_mm_execution_capture_script.py
+.\venv\Scripts\python.exe -m compileall -q app src tests
+.\venv\Scripts\python.exe -m weather.market.mm_execution_capture --help
+.\venv\Scripts\python.exe -m weather.operations.agent_docs_audit
+```
+
+Do **not** reproduce the public soak under the production checkout: this
+mission's evidence was intentionally isolated to a workstation scratch root,
+and the authoritative result is already FAIL. A new soak must be a new dated
+mission with its own isolated evidence root and unchanged production state.
 
 ## Safety ledger
 
