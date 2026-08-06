@@ -160,6 +160,6 @@ matrix. Expected diff result: this report is the only changed file.
 - Branch:
   `codex/workstation-does-the-cool-bias-track-seasonal-distance-2026-09-30a`
 - Base: `208e20d4a5770e06301bbfc6b8550f1598fdd18e`
-- Measurement/report commit: `REPORT_COMMIT_TO_BIND`
+- Measurement/report commit: `c6a469ce801fa8cd1183216cd32c4e46b380bb67`
 - Final branch tip: use the `git rev-parse` command above; a Git commit cannot
   record its own hash in its contents.
