@@ -74,6 +74,21 @@ recommendation; do not restructure the serving path in this mission.
 Watch for one real name mismatch: the extractor reads `wind_kmh`, the adapter emits
 `wind_speed_kmh`.
 
+**4. Training was not blind, and there is a directional prior to test.**
+
+The serving imputer carries a finite physically-sensible median for every dead feature, so the model
+**learned real relationships** from them and is now fed a constant. This is pure train/serve skew,
+not a feature the model never saw — which lowers the risk that repair is a shift into unseen
+territory. Per-market artifacts are in **native units** (Denver `pressure` 24.4 inHg, Miami
+`dewpoint_c` 73 °F) while the pooled Toronto model is hPa/Celsius; **convert to what each artifact
+was trained on.**
+
+A PIT-safe Toronto probe on 2026-08-06 populated only the 4 directly-readable dead features and
+scored against settled bands: mean Brier **1.05384 → 1.01791, −3.41%**, 57.6% of rows improved,
+**3 of 4 dates improved with Aug 3 reversing**. D=4, Toronto-only, half the block — **a prior to
+test, not a result to bank.** Reproduce or refute it fleet-wide with all 10 features and crossed
+clustering. If your fleet estimate lands far from −3.4%, that is informative either way.
+
 ## Start from this, do not re-derive it
 
 Read [`ESTABLISHED_FINDINGS.md`](../operations/ESTABLISHED_FINDINGS.md),

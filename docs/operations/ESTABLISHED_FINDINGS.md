@@ -157,6 +157,42 @@ Verified on a real captured payload (Toronto, 2026-08-05, parsed by the repo's o
 (`pressure_trend_3h`, `wind_shift_3h_degrees`, `rise_from_7am`, `warming_rate_2h`, `hours_at_peak`)
 have the history they need as well.
 
+### Training was NOT blind — this is pure train/serve skew
+
+The serving artifact's `SimpleImputer` carries a **finite, physically sensible median for every dead
+feature**: `dewpoint_c` 13.0 °C, `humidity` 57%, `pressure` 994.25 hPa, `wind_speed_kmh` 15.0,
+`rise_from_7am` 6.0 (pooled/Toronto model). Had training never observed them, sklearn would have
+dropped them as all-NaN. **The model learned real relationships from these features and is now fed
+the same constant for every prediction, in every market, at every hour.**
+
+Per-market artifacts carry market-appropriate medians in **native units** — Denver `pressure` 24.4
+inHg (correct for altitude), Miami `dewpoint_c` 73 °F, Houston 71 °F — while the pooled Toronto model
+is hPa/Celsius. **Any repair must convert per market to the units each artifact was trained on.**
+
+This materially lowers the risk that repair is a distribution shift into unseen territory: populating
+these features restores learned behaviour rather than introducing novel behaviour.
+
+### DIRECTIONAL probe, 2026-08-06 — half the repair is worth about −3.4% Brier
+
+Toronto only, so by §5 this is **directional and can never be a confirmation**. PIT-safe: each row
+used only the SWOB observation captured at or before its own capture time and valid at or before its
+cutoff. Only the **4 directly-readable** dead features were populated (`dewpoint_c`, `humidity`,
+`pressure`, `wind_speed_kmh`); the four trajectory/trend features were left imputed, so this is a
+**lower bound on half the block**.
+
+| Measure | Value |
+| --- | --- |
+| Rows scored / dead cells filled | 755 / 3,020 (4.00 per row) |
+| Mean Brier, served (imputed) | 1.05384 |
+| Mean Brier, populated | 1.01791 |
+| Delta | **−0.03592 (−3.41%)** |
+| Rows improved | 435 of 755 (57.6%) |
+| **Dates improved** | **3 of 4** — Aug 3 reversed at +0.01455 |
+
+**D=4. One date reversed. Toronto-only.** A crossed interval at D=4 would certainly cross zero, so
+this is a prior to test, not a result to bank. It is exactly what `-09-26a` exists to measure
+properly: fleet-wide, all 10 features, crossed date × market clustering.
+
 **So the repair is routing, not collection or parsing.** Known real complications, none fatal:
 SWOB is Celsius and US markets need native Fahrenheit; SWOB cadence is hourly where training rows
 were denser, so trajectory features are *not* observationally identical to their trained semantics;
