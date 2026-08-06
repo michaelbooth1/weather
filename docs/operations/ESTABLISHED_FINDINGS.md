@@ -99,7 +99,43 @@ stack that cannot reproduce them is wrong, and the retained finding is not.
 
 ---
 
-## 4. The model is feature-blind at 09:00–14:00
+## 4. The model is feature-blind — ALL DAY, FLEET-WIDE, not only at 09:00–14:00
+
+> **CORRECTED 2026-08-06 on direct production measurement.** The "09:00–14:00" framing below was an
+> artifact of where we happened to look. It is not a blind *window*; **the model is blind at every
+> hour, in every market, always.** The corrected measurement is the first table; the original
+> section follows unchanged because its root cause and effect analysis still stand.
+
+**10 of 19 base features are 100% empty at every cutoff hour 07:00–20:00, in all 11 markets
+measured (~5,761 rows, Aug 3–5).** Not "mostly empty" — exactly zero populated values.
+
+| Measurement | Result |
+| --- | --- |
+| Toronto, 5 days, all hours 07–20 (919 rows) | 10 features at **0%**, every hour |
+| Fleet, 11 markets, Aug 3–5 (5,761 rows) | the same 10 at **0.0%**; the other 9 at 93.6–100% |
+| Serving artifact `feature_model_hgb.pkl` | **8 of 29 trained features are dead at serve in all 14 hour models** |
+
+The dead set is the entire local-meteorology block: `rise_from_7am`, `warming_rate_2h`,
+`hours_at_peak`, `dewpoint_c`, `humidity`, `pressure`, `pressure_trend_3h`, `wind_speed_kmh`,
+`wind_gust_kmh`, `wind_shift_3h_degrees`.
+
+What survives is `high_so_far`, `current_temp`, `onshore_flow`, `onshore_wind_speed_kmh`,
+`lake_breeze_proxy`, `forecast_high`, `forecast_gap`, `forecast_source_count`,
+`forecast_disagreement` — current state, lake-breeze geometry, and forecast consensus. **The model
+has no direct observation of moisture, pressure, wind, or temperature trajectory.**
+
+**So ~28% of every prediction's trained inputs are imputed medians, always.** This is the single
+largest known defect in the model and it subsumes the train/serve parity finding, which detected
+2 of the 10. It also explains §1 directly: if the gap is informational rather than calibration, this
+is where the information went.
+
+**Consequence for every prior result:** the cool bias, the market gap, the severity tail and the
+centre-displacement work were all measured on a model missing 10 of 19 base inputs at all times.
+None of them is invalidated, but none was measuring a model that could see.
+
+---
+
+**Original section, retained — its root cause and effect analysis stand:**
 
 **9 of 19 base features are empty at inference** in the floor-excluded lane, despite the inputs being
 fully captured. This is a **feature-contract defect, not an information gap** — the data exists.
