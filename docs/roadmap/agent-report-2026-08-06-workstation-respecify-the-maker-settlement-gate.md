@@ -32,8 +32,8 @@ and would not exercise the missing emptiness proof.
 
 | Event | Timestamp |
 | --- | --- |
-| Rule and threshold commit | `P0_RULE_COMMIT` (`P0_RULE_COMMITTER_TIMESTAMP`) |
-| First push containing the frozen rule | `P0_RULE_PUSH_OBSERVED_UTC` |
+| Rule and threshold commit | `f2e27e21c2b64df119eb6e1d61203a9aa4682470` (`2026-08-06T10:38:42-04:00`) |
+| First push containing the frozen rule | `2026-08-06T14:38:56.9232344Z` |
 | Earliest receipt in a new soak | **NONE — P1 was not run and no new soak evidence exists** |
 
 The rule text and threshold were frozen in the first report commit. A follow-up provenance-only
@@ -184,9 +184,60 @@ This mission authors only this Markdown report, which enters none of the four cl
 roll-free. The carried `-09-18a` dependency changes 36 additional files. Of those,
 `src/weather/schema_registry_data.py` enters **all four** closures and requires a coordinated
 quiet-window roll; every other carried file enters none and is roll-free. The full per-file verdict
-is the accepted table in
-`agent-report-2026-08-06-workstation-narrow-the-maker-producer.md`; the retained arrays were
-rechecked here rather than inferred from `SOURCE_PATTERNS`.
+is below; the retained arrays were rechecked here rather than inferred from `SOURCE_PATTERNS`.
+
+| Changed path | Snapshot | CLOB | Observation | Enrichment | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `README.md` | no | no | no | no | roll-free |
+| `docs/operations/HOST_LOAD_POLICY.md` | no | no | no | no | roll-free |
+| `docs/operations/OPERATIONS_DESIGN.md` | no | no | no | no | roll-free |
+| `docs/operations/closed-market-day-parquet-archive-contract.md` | no | no | no | no | roll-free |
+| `docs/operations/data-storage-class-contract.md` | no | no | no | no | roll-free |
+| `docs/roadmap/agent-report-2026-08-06-workstation-narrow-the-maker-producer.md` | no | no | no | no | roll-free |
+| `docs/roadmap/agent-report-2026-08-06-workstation-respecify-the-maker-settlement-gate.md` | no | no | no | no | roll-free |
+| `scripts/ops/AGENTS.md` | no | no | no | no | roll-free |
+| `scripts/ops/register_mm_execution_capture.ps1` | no | no | no | no | roll-free |
+| `src/weather/market/market_making_model_variants.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_day_countability.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_execution_capture.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_paper.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_paper_aggregation.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_paper_constants.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_paper_reports.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_paper_scoring.py` | no | no | no | no | roll-free |
+| `src/weather/market/mm_reward_q_share.py` | no | no | no | no | roll-free |
+| `src/weather/operations/closed_day_projection_registry.py` | no | no | no | no | roll-free |
+| `src/weather/operations/closed_market_day_archive.py` | no | no | no | no | roll-free |
+| `src/weather/operations/closed_market_day_archive_manifest_contract.py` | no | no | no | no | roll-free |
+| `src/weather/operations/event_day_manifest.py` | no | no | no | no | roll-free |
+| `src/weather/operations/storage_classes.py` | no | no | no | no | roll-free |
+| `src/weather/reporting/market/trading_evidence.py` | no | no | no | no | roll-free |
+| `src/weather/schema_registry_data.py` | **yes** | **yes** | **yes** | **yes** | coordinated quiet-window roll |
+| `tests/market/test_mm_day_countability.py` | no | no | no | no | roll-free |
+| `tests/market/test_mm_execution_capture.py` | no | no | no | no | roll-free |
+| `tests/market/test_mm_paper.py` | no | no | no | no | roll-free |
+| `tests/market/test_mm_paper_scoring.py` | no | no | no | no | roll-free |
+| `tests/operations/test_closed_day_projection_tiering.py` | no | no | no | no | roll-free |
+| `tests/operations/test_closed_market_day_archive.py` | no | no | no | no | roll-free |
+| `tests/operations/test_event_day_archive_coverage.py` | no | no | no | no | roll-free |
+| `tests/operations/test_event_day_manifest.py` | no | no | no | no | roll-free |
+| `tests/operations/test_register_mm_execution_capture_script.py` | no | no | no | no | roll-free |
+| `tests/operations/test_schema_registry.py` | no | no | no | no | roll-free |
+| `tests/operations/test_storage_classes.py` | no | no | no | no | roll-free |
+| `tests/reporting/test_trading_evidence.py` | no | no | no | no | roll-free |
+
+## Verification
+
+- `tests/market/test_mm_execution_capture.py`: **13 passed**;
+- `tests/market/test_mm_day_countability.py`: **18 passed**;
+- total focused verification: **31 passed**; and
+- `git diff --check`: **PASS** after the provenance-only report update; and
+- `weather.operations.agent_docs_audit`: **one pre-existing failure**, the known missing target in
+  `agent-report-2026-08-02-workstation-spec-contract-repair.md`; this report adds no broken link.
+
+The repository venv still points to the removed CPython 3.11 interpreter recorded by `-09-18a`.
+The focused tests therefore used the bundled CPython 3.12 runtime, its compatible NumPy/Pandas
+packages, and the retained venv's pure-Python pytest packages. No product failure was suppressed.
 
 ## What was not done
 
@@ -230,5 +281,4 @@ git show "$branch`:docs/roadmap/agent-report-2026-08-06-workstation-respecify-th
 - Base: `origin/master @ 9730012b5915c904032fa8075c7dbf06d47eab77`
 - Carried dependency: `origin/codex/workstation-narrow-the-maker-producer-2026-09-18a @ 55d500de6a0a1837d9377fe1bb81961954a300da`
 - Dependency merge on this branch: `aa3a30d5`
-- Frozen-rule commit: `P0_RULE_COMMIT`
-
+- Frozen-rule commit: `f2e27e21c2b64df119eb6e1d61203a9aa4682470`
