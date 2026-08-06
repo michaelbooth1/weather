@@ -173,15 +173,22 @@ Each of these has already cost a retracted result. They are not stylistic prefer
 
 Verified 2026-08-05. Neither branch contains the other's commits.
 
-| Lane | Contains | `covered_years` self-sizing defect |
+| Lane | Contains | Candidate-sized PIT gate defect |
 | --- | --- | --- |
-| `-09-12a` | base retrain, **`train_serve_feature_parity.py`** | **Present (1 occurrence)** |
-| `-09-01a` (named "consolidate merge queue") | base retrain, **1,536-line PIT training corpus**, PIT binding | **Absent (0 occurrences)** |
+| `-09-12a` | base retrain, **`train_serve_feature_parity.py`** | **Present directly through `covered_years`** |
+| `-09-01a` (named "consolidate merge queue") | base retrain, **1,536-line PIT training corpus**, PIT binding | **Present indirectly through candidate `selected_dates` and count fields; the literal `covered_years` occurrence is absent** |
 
 **`-09-01a` is the better lane** and its corpus contract is the right design: training-only, never
 reachable through `forecast_history.daily_path_for`, stitched rows fail closed, immutable and
 content-addressed, no HTTP client by design. `-09-12a` uniquely carries the train/serve parity gate,
 which must be salvaged whichever lane wins.
+
+The 2026-08-06 rescue falsifier showed that the earlier literal-search conclusion was not a safety
+property: `-09-01a` still reconstructed the required matrix from candidate-supplied dates and
+counts. The rescue keeps that lane and fixes the gate by binding the code-owned 2021-2025
+population, +/-7-day target window, 07:00-20:00 cutoffs and 12-market fleet into the self-hashed
+retrain plan. See
+[`agent-report-2026-08-06-workstation-rescue-the-pit-retrain-lane.md`](../roadmap/agent-report-2026-08-06-workstation-rescue-the-pit-retrain-lane.md).
 
 **Lesson that generalizes: branch names in this repository lie.** Read the commits before judging or
 disposing of a branch.
@@ -190,7 +197,8 @@ disposing of a branch.
 
 ## 8. The self-sizing gate defect
 
-`base_retrain.py` derives the required training matrix from the **candidate's own** source manifest:
+The `-09-12a` `base_retrain.py` derives the required training matrix from the **candidate's own**
+source manifest directly:
 
 ```python
 years = [int(value) for value in source_payload.get("covered_years") or []]
@@ -199,9 +207,15 @@ years = [int(value) for value in source_payload.get("covered_years") or []]
 A candidate can therefore shrink the gate that judges it, from **20,160 cells to 2,520**, by editing
 one JSON field. Three matrices all currently qualify as "valid" for the same target.
 
-**The fix is structural: the year set binds into the hash-bound retrain plan; the source manifest may
-prove coverage of the matrix but must never choose its size.** A test must show that reducing
-`covered_years` cannot reduce expected cells.
+The held `-09-01a` lane used a different form of the same defect: its required keys came from the
+candidate corpus manifest's `selected_dates`, while candidate count/minimum fields helped validate
+the result. Its existing synthetic PASS used only one date and one cutoff. Reducing candidate dates
+could therefore reduce the expected gate even without the `covered_years` expression above.
+
+**The fix is structural: the population policy binds into the hash-bound retrain plan; the source
+manifest may prove coverage of the matrix but must never choose its size.** The 2026-08-06 rescue
+adds the regression that reducing both `covered_years` and `selected_dates` cannot reduce the fixed
+12,600-cell expectation.
 
 ---
 
