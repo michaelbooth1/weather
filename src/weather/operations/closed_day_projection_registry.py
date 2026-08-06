@@ -7,6 +7,11 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations.closed_market_day_archive import ARTIFACT_FAMILY_NAMES
 
 
@@ -241,6 +246,26 @@ PROJECTION_FAMILIES = (
         False,
         _GZIP_UNPROVEN,
         "weather.market.market_microstructure_capture.ws_summary_rows",
+    ),
+    ProjectionFamilyContract(
+        "maker_execution_tape",
+        (
+            EXECUTION_RAW_TAPE_FILENAME,
+            EXECUTION_CANONICAL_TAPE_FILENAME,
+            EXECUTION_SESSION_FILENAME,
+        ),
+        (
+            EXECUTION_RAW_TAPE_FILENAME,
+            EXECUTION_CANONICAL_TAPE_FILENAME,
+            EXECUTION_SESSION_FILENAME,
+        ),
+        (
+            f"canonical_jsonl:{EXECUTION_RAW_TAPE_FILENAME}",
+            f"canonical_csv:{EXECUTION_CANONICAL_TAPE_FILENAME}",
+            f"canonical_jsonl:{EXECUTION_SESSION_FILENAME}",
+        ),
+        False,
+        "canonical_evidence_is_not_a_projection_cleanup_candidate",
     ),
     ProjectionFamilyContract(
         "clob_features_long",

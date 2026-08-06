@@ -5,15 +5,50 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from weather.market.mm_paper_scoring import (
+    compute_fill_financials,
     load_mark_rows,
     load_trade_rows,
     rows_between,
     simulate_conservative_fills,
     strict_trade_through,
+    summarize_pnl,
 )
 
 
 EVENT = "highest-temperature-in-atlanta-on-june-14-2026"
+
+
+def test_missing_settlement_keeps_30m_value_provisional_only():
+    fill_time = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
+    financials = compute_fill_financials(
+        {
+            "side": "YES_BID",
+            "direction": 1.0,
+            "clob_token_id": "token-80",
+            "quote_size": 2.0,
+            "market_mid": 0.50,
+            "reward_estimate_usdc": 0.0,
+            "bin_kind": "eq",
+            "bin_value": 80,
+            "bin_value_hi": 81,
+        },
+        {"fill_time": fill_time, "fill_price": 0.49, "fill_size": 2.0},
+        {"token-80": [{"time": fill_time + timedelta(minutes=30), "price": 0.60}]},
+        None,
+        {"maker_fee_rate": 0.0, "maker_rebate_pool_share": 0.0, "flattening_fee_rate": 0.0},
+    )
+    assert financials["acceptance_horizon"] == "settlement"
+    assert financials["acceptance_pnl_status"] == "NOT_COUNTABLE_SETTLEMENT_MISSING"
+    assert financials["net"] is None
+    assert financials["provisional_net_30m"] == pytest.approx(0.22)
+    summary = summarize_pnl([{
+        "acceptance_pnl_status": financials["acceptance_pnl_status"],
+        "provisional_net_30m_usdc": financials["provisional_net_30m"],
+        "net_pnl_after_fees_incentives_usdc": None,
+    }])
+    assert summary["acceptance_status"] == "NOT_COUNTABLE_SETTLEMENT_MISSING"
+    assert summary["net_pnl_after_fees_incentives_usdc"] is None
+    assert summary["provisional_net_30m_usdc"] == pytest.approx(0.22)
 
 
 def _write_csv(path, rows):

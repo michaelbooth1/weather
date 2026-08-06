@@ -8,6 +8,11 @@ import pandas as pd
 import pyarrow.parquet as pq
 from pandas.testing import assert_frame_equal
 
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations.closed_market_day_archive import (
     ARCHIVE_ROOT_VERSION,
     ARTIFACT_FAMILIES_BY_NAME,
@@ -265,6 +270,19 @@ class TestClosedMarketDayArchiveContract(unittest.TestCase):
         self.assertIn("forecast_payloads/**/*.json", forecasts.raw_evidence_patterns)
         capture_status = ARTIFACT_FAMILIES_BY_NAME["clob_capture_status"]
         self.assertIn("clob_capture_status.jsonl", capture_status.raw_evidence_patterns)
+        maker = ARTIFACT_FAMILIES_BY_NAME["maker_execution_tape"]
+        self.assertEqual(maker.source_patterns, ())
+        self.assertEqual(
+            maker.raw_evidence_patterns,
+            (
+                EXECUTION_RAW_TAPE_FILENAME,
+                EXECUTION_CANONICAL_TAPE_FILENAME,
+                EXECUTION_SESSION_FILENAME,
+            ),
+        )
+        self.assertFalse(maker.parquet_default_for_closed_days)
+        self.assertTrue(maker.raw_evidence_permanent)
+        self.assertIn("never deleted", maker.notes)
 
     def test_manifest_shape_and_reader_gate_require_validated_parquet(self):
         manifest = valid_manifest()
@@ -434,6 +452,47 @@ class TestClosedMarketDayParquetBackfill(unittest.TestCase):
                 nested_forecast_rows[0]["sha256"],
                 sha256_file(self.forecast_blob),
             )
+
+    def test_archive_plan_keeps_dedicated_maker_tapes_as_raw_references_only(self):
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_closed_folder(root)
+            self.write_text(folder / EXECUTION_RAW_TAPE_FILENAME, '{"event_type":"last_trade_price"}\n')
+            self.write_text(
+                folder / EXECUTION_CANONICAL_TAPE_FILENAME,
+                "event_type,price\nlast_trade_price,0.51\n",
+            )
+            self.write_text(folder / EXECUTION_SESSION_FILENAME, '{"execution_count":1}\n')
+            write_event_day_manifest(folder, snapshots_root=root / "snapshots")
+
+            plan = plan_market_day(
+                folder,
+                snapshots_root=root / "snapshots",
+                archive_root=root / "archive",
+                as_of_date="2026-06-23",
+            )
+
+        families = {
+            row["artifact_family"]: row for row in plan["artifact_families"]
+        }
+        maker = families["maker_execution_tape"]
+        self.assertEqual(maker["status"], "raw_reference_only")
+        self.assertIsNone(maker["source_path"])
+        self.assertEqual(maker["raw_evidence_count"], 3)
+        self.assertEqual(
+            {Path(row["path"]).name for row in maker["source_files"]},
+            {
+                EXECUTION_RAW_TAPE_FILENAME,
+                EXECUTION_CANONICAL_TAPE_FILENAME,
+                EXECUTION_SESSION_FILENAME,
+            },
+        )
+        self.assertEqual(
+            {row["role"] for row in maker["source_files"]},
+            {"raw_evidence"},
+        )
 
     def test_apply_writes_valid_manifest_and_parquet_without_touching_sources(self):
         from tempfile import TemporaryDirectory

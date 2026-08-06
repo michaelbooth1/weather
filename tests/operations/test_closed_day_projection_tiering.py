@@ -15,6 +15,11 @@ from weather.io import normalize_csv_row, sha256_file
 from weather.market.market_config import date_from_event_slug
 from weather.market.market_microstructure_capture import order_book_level_rows
 from weather.market.market_microstructure_constants import BOOK_LEVEL_COLUMNS
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations import closed_day_projection_tiering as tiering
 from weather.operations.closed_market_day_archive import ARTIFACT_FAMILY_NAMES
 from weather.operations.event_day_manifest import manifest_content_hash
@@ -274,6 +279,23 @@ def test_registry_covers_every_archive_family_and_only_long_is_eligible():
     ].canonical_rebuild_sources == (
         "variant_predictions.jsonl",
         "live_variant_predictions.jsonl",
+    )
+    maker = tiering.PROJECTION_FAMILIES_BY_NAME["maker_execution_tape"]
+    dedicated_files = (
+        EXECUTION_RAW_TAPE_FILENAME,
+        EXECUTION_CANONICAL_TAPE_FILENAME,
+        EXECUTION_SESSION_FILENAME,
+    )
+    assert maker.projection_files == dedicated_files
+    assert maker.canonical_rebuild_sources == dedicated_files
+    assert maker.eligible is False
+    assert maker.blocker == (
+        "canonical_evidence_is_not_a_projection_cleanup_candidate"
+    )
+    assert maker.accepted_read_representations == (
+        f"canonical_jsonl:{EXECUTION_RAW_TAPE_FILENAME}",
+        f"canonical_csv:{EXECUTION_CANONICAL_TAPE_FILENAME}",
+        f"canonical_jsonl:{EXECUTION_SESSION_FILENAME}",
     )
 
 

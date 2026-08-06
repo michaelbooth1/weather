@@ -389,6 +389,44 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(mm["evidence_selection_status"], "COUNTABLE_TARGET_DATE")
         self.assertEqual(mm["maker_day_classification"], "countable_with_quotes")
 
+    def test_noncountable_selection_prefers_active_day_over_later_postsettlement_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            day = root / "mm_runs" / "2026-06-19"
+            active = day / "active-attempt"
+            post = day / "postsettlement-attempt"
+            active.mkdir(parents=True)
+            post.mkdir(parents=True)
+            (active / "run_summary.json").write_text(json.dumps({
+                "schema_version": "mm_run_v0.2",
+                "run_id": "active-attempt",
+                "target_date": "2026-06-19",
+                "mode": "paper-live-forward",
+                "evidence_mode": "active_day_live_forward",
+                "counts_toward_live_forward_gate": False,
+                "preflight_status": "WARN",
+                "generated_at_utc": "2026-06-19T20:00:00+00:00",
+            }), encoding="utf-8")
+            (post / "run_summary.json").write_text(json.dumps({
+                "schema_version": "mm_run_v0.2",
+                "run_id": "postsettlement-attempt",
+                "target_date": "2026-06-19",
+                "mode": "paper-live-forward",
+                "evidence_mode": "post_settlement_evaluation",
+                "counts_toward_live_forward_gate": False,
+                "preflight_status": "PASS",
+                "generated_at_utc": "2026-06-19T21:00:00+00:00",
+            }), encoding="utf-8")
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+        mm = summary["market_making"]
+        self.assertEqual(mm["run_id"], "active-attempt")
+        self.assertEqual(mm["evidence_selection_status"], "ACTIVE_DAY_NON_COUNTABLE")
+        self.assertEqual(mm["evidence_mode"], "active_day_live_forward")
+
     def test_market_making_stale_fallback_blocks_target_date_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -487,7 +525,7 @@ class TestTradingEvidence(unittest.TestCase):
         self.assertEqual(mm["maker_countability_gate"]["first_blocker"], "counts_toward_live_forward_gate=False")
         self.assertIn("counts_toward_live_forward_gate=False", mm["countability_blockers"])
 
-    def test_market_making_model_variant_skips_block_trading_evidence(self):
+    def test_optional_shadow_model_variant_skips_do_not_block_trading_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run = root / "mm_runs" / "2026-06-19" / "variant-skip"
@@ -511,6 +549,8 @@ class TestTradingEvidence(unittest.TestCase):
                                     "model_variant_id": "missing_probability_variant",
                                     "reason": "missing_probability_column",
                                     "input_row_count": 4,
+                                    "model_variant_role": "shadow",
+                                    "counts_toward_maker_day_countability": False,
                                 }
                             ],
                         },
@@ -532,9 +572,38 @@ class TestTradingEvidence(unittest.TestCase):
 
         mm = summary["market_making"]
         self.assertEqual(mm["model_variant_bakeoff_skipped_input_row_count"], 4)
+        self.assertEqual(mm["model_variant_bakeoff_required_skipped_input_row_count"], 0)
+        self.assertNotIn("required_model_variant_skipped_rows=4", mm["countability_blockers"])
+
+    def test_required_served_model_variant_skip_blocks_trading_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = root / "mm_runs" / "2026-06-19" / "required-variant-skip"
+            run.mkdir(parents=True)
+            (run / "run_summary.json").write_text(json.dumps({
+                "schema_version": "mm_run_v0.2",
+                "run_id": "required-variant-skip",
+                "target_date": "2026-06-19",
+                "mode": "paper-live-forward",
+                "evidence_mode": "active_day_live_forward",
+                "counts_toward_live_forward_gate": True,
+                "preflight_status": "PASS",
+                "model_variant_bakeoff": {"skipped_variants": [{
+                    "model_variant_id": "served_current",
+                    "reason": "missing_probability",
+                    "input_row_count": 4,
+                    "counts_toward_maker_day_countability": True,
+                }]},
+                "generated_at_utc": "2026-06-19T20:00:00+00:00",
+            }), encoding="utf-8")
+            summary = build_trading_evidence_summary(
+                mm_runs_root=root / "mm_runs",
+                taker_runs_root=root / "taker_runs",
+                target_date="2026-06-19",
+            )
+        mm = summary["market_making"]
         self.assertEqual(mm["countability_status"], "NON_COUNTABLE")
-        self.assertIn("model_variant_bakeoff_skipped_variants=4", mm["countability_blockers"])
-        self.assertEqual(saved["status"], "BLOCK")
+        self.assertIn("required_model_variant_skipped_rows=4", mm["countability_blockers"])
 
     def test_settled_zero_fill_taker_day_is_risk_clean_no_edge(self):
         with tempfile.TemporaryDirectory() as tmp:

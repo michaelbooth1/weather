@@ -15,6 +15,11 @@ from weather.collection.forecast_payload_cas import (
     SharedForecastPayloadCAS,
 )
 from weather.forecast_payload_contracts import NBM_NBP_EXTRACTION_SCHEMA
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.sources.nbm_probabilistic_tmax import (
     nbp_cycle_key_from_url,
     nbp_request_key,
@@ -274,6 +279,54 @@ class TestEventDayManifest(unittest.TestCase):
         )
         mm_record = families["market_making_runs"]["files"][0]
         self.assertEqual(mm_record["role"], "canonical_evidence")
+
+    def test_optional_maker_execution_family_lists_all_dedicated_tapes_as_canonical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = self.make_folder(root)
+            self.write_text(
+                folder / EXECUTION_RAW_TAPE_FILENAME,
+                json.dumps({"schema_version": "mm_execution_capture_raw_execution_v0.1"}) + "\n",
+            )
+            self.write_text(
+                folder / EXECUTION_CANONICAL_TAPE_FILENAME,
+                "schema_version,event_type\n"
+                "mm_execution_capture_execution_row_v0.1,last_trade_price\n",
+            )
+            self.write_text(
+                folder / EXECUTION_SESSION_FILENAME,
+                json.dumps({"schema_version": "mm_execution_capture_bound_session_v0.1"}) + "\n",
+            )
+
+            manifest = build_event_day_manifest(
+                folder,
+                snapshots_root=root / "snapshots",
+            )
+
+        families = {
+            row["artifact_family"]: row for row in manifest["artifact_families"]
+        }
+        maker = families["maker_execution_tape"]
+        self.assertFalse(maker["required"])
+        self.assertTrue(maker["requires_canonical_evidence"])
+        self.assertEqual(maker["required_evidence"]["status"], "NOT_REQUIRED")
+        by_path = {row["path"]: row for row in maker["files"]}
+        self.assertEqual(
+            set(by_path),
+            {
+                EXECUTION_RAW_TAPE_FILENAME,
+                EXECUTION_CANONICAL_TAPE_FILENAME,
+                EXECUTION_SESSION_FILENAME,
+            },
+        )
+        for record in by_path.values():
+            self.assertEqual(record["role"], "canonical_evidence")
+            self.assertEqual(record["artifact_family"], "maker_execution_tape")
+            self.assertEqual(
+                record["retention_class"],
+                "permanent_maker_execution_evidence",
+            )
+            self.assertTrue(record["protected"])
 
     def test_manifest_cites_event_metadata_validation_hash_when_available(self):
         with tempfile.TemporaryDirectory() as tmp:

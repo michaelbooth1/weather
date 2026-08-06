@@ -31,6 +31,11 @@ from weather.collection.forecast_payload_cas import (
     validate_nbm_shared_manifest_identity,
 )
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
+from weather.market.mm_paper_constants import (
+    EXECUTION_CANONICAL_TAPE_FILENAME,
+    EXECUTION_RAW_TAPE_FILENAME,
+    EXECUTION_SESSION_FILENAME,
+)
 from weather.operations import event_metadata_validation
 from weather.operations.storage_classes import classification_payload
 from weather.paths import data_path
@@ -146,6 +151,19 @@ EVENT_DAY_ARTIFACT_FAMILIES = (
         ),
     ),
     EventDayArtifactFamily("market_ws_events", ("market_ws.jsonl", "market_ws_events.csv", "market_ws_events.csv.gz")),
+    EventDayArtifactFamily(
+        "maker_execution_tape",
+        (
+            EXECUTION_RAW_TAPE_FILENAME,
+            EXECUTION_CANONICAL_TAPE_FILENAME,
+            EXECUTION_SESSION_FILENAME,
+        ),
+        requires_canonical_evidence=True,
+        description=(
+            "Optional dedicated raw executions, normalized execution rows, and "
+            "hash-bound session coverage receipts; every member is permanent evidence."
+        ),
+    ),
     EventDayArtifactFamily("clob_features", ("clob_features*.jsonl", "clob_features*.csv", "clob_features*.csv.gz")),
     EventDayArtifactFamily(
         "snapshot_explanations",
