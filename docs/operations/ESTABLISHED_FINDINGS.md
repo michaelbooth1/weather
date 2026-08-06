@@ -234,6 +234,34 @@ tail, not pooled**, and should ship dark until release #1 is locked.
 
 ---
 
+## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
+
+Measured 2026-08-06. Canonical:
+[the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md).
+
+`SEASON_START=(5,10)` / `SEASON_END=(6,30)` in `forecast_history.py`. The archive holds **52
+month-days per year, May 10 – Jun 30, in every year**. The first retrain targets 2026-07-31
+±7 days — **Jul 24 to Aug 7 — for which the archive has ZERO rows in any year.** That is why
+`-09-20a` blocks at **0 / 12,600 cells, 0 of 60 market/year staging units**.
+
+The constant was correct when written ("for late-May and June target dates") and **expired
+silently on 2026-06-30**. `fleet-coverage` still reports **`OK markets: 12/12`**, because it
+checks rows and field completeness and **never asks whether the covered dates match the
+target**. Third instance of the §8 shape: *the standard came from the thing being judged.*
+
+**Every served HGB was fitted 2026-06-10 to 06-13** on that archive, and is served in August.
+Release #1 **freezes** them. The unblock is ~**60 free-tier calls** — verified available:
+a `2023-07-24 → 2023-08-07` historical-forecast request returns 200 with 360 populated rows.
+
+**Also corrects §4's repair value.** `-09-26a` measured full free-source parity fleet-wide,
+crossed: all-severe SSE **6.7395%** [0.5208%, 14.3964%], pooled Brier **−0.000721**
+[−0.032916, +0.030983] — **crosses zero, point is a mild degradation** — with the fields
+present in only **8.90%** of fleet snapshots. Verdict **NO-GO for activation or fleet
+retrain**. §4's `12.77%` is the *theoretical* repair; `6.7395%` is what free sources deliver,
+and the `−3.41%` Toronto probe did not survive fleet measurement.
+
+---
+
 ## 5. Method rules — binding on every measurement
 
 Each of these has already cost a retracted result. They are not stylistic preferences.
