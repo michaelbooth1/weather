@@ -676,6 +676,88 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(rows[3]["failure_class"], PERMANENT_NO_DATA)
         self.assertTrue(rows[3]["treated_as_source_unavailable"])
 
+    def page_backed_http_error(self, status_code):
+        # Raise through the client's own helper rather than fabricating the marker, so the
+        # test fails if the production path stops tagging its failures.
+        response = requests.Response()
+        response.status_code = status_code
+        response.url = f"https://www.wunderground.com/history/daily/CYYZ/date/2026-8-5"
+        try:
+            PublicWundergroundHistoryClient._raise_for_status(response)
+        except requests.HTTPError as exc:
+            return exc
+        self.fail(f"expected {status_code} to raise")
+
+    def test_wu_page_backed_404_is_transient_and_keeps_the_date_fetchable(self):
+        # 2026-08-06: all 12 stations 404'd inside an 8-minute window and the same URLs
+        # served 200 shortly after. Classifying that permanent skipped the retry AND
+        # subtracted the date from missing_dates(), so the restore silently fetched
+        # nothing on every later attempt.
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            row = store.write_fetch_error(
+                target, target, self.page_backed_http_error(404), source=PUBLIC_WU_HISTORY_SOURCE
+            )
+            unavailable = store.unavailable_dates()
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], TRANSIENT_FAILURE)
+        self.assertFalse(row["treated_as_source_unavailable"])
+        self.assertEqual(unavailable, set())
+        self.assertEqual(missing, [target], "a scraper 404 must leave the date fetchable")
+
+    def test_wu_page_backed_400_stays_permanent(self):
+        # A malformed request is not retryable on either surface; only 404 is ambiguous.
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            row = store.write_fetch_error(
+                target, target, self.page_backed_http_error(400), source=PUBLIC_WU_HISTORY_SOURCE
+            )
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], PERMANENT_NO_DATA)
+        self.assertTrue(row["treated_as_source_unavailable"])
+        self.assertEqual(missing, [])
+
+    def test_wu_paid_api_404_remains_permanent(self):
+        # The paid API's 404 is an answer, not an outage. Untagged failures keep the old
+        # reading so this fix cannot loosen the non-scraper path.
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
+            row = store.write_fetch_error(target, target, self.wu_http_error(404))
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], PERMANENT_NO_DATA)
+        self.assertTrue(row["treated_as_source_unavailable"])
+        self.assertEqual(missing, [])
+
+    def test_wu_recover_releases_page_backed_404_rows_written_before_the_fix(self):
+        # The rows the 2026-08-06 outage left on disk: failure_class already stamped
+        # permanent_no_data. recover_unavailable_errors() used to be a no-op on exactly
+        # these, because failure_class_for_error_row returned the stored class, so the row
+        # needing reclassification reclassified to itself.
+        poisoned = {
+            "start": "2026-08-05",
+            "end": "2026-08-05",
+            "status_code": 404,
+            "failure_class": PERMANENT_NO_DATA,
+            "source": PUBLIC_WU_HISTORY_SOURCE,
+            "treated_as_source_unavailable": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            store.error_log_path.parent.mkdir(parents=True, exist_ok=True)
+            store.error_log_path.write_text(json.dumps(poisoned, sort_keys=True) + "\n", encoding="utf-8")
+
+            report = store.recover_unavailable_errors()
+            missing = store.missing_dates(date(2026, 8, 5), date(2026, 8, 5))
+
+        self.assertEqual(report["recovered_error_rows"], 1)
+        self.assertEqual(missing, [date(2026, 8, 5)])
+
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {
             "hourly": {

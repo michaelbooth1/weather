@@ -110,7 +110,26 @@ PERMANENT_NO_DATA = "permanent_no_data"
 AUTH_FAILURE = "auth_failure"
 RATE_LIMITED = "rate_limited"
 TRANSIENT_FAILURE = "transient"
+# A 404 means two different things depending on which WU surface produced it.
+#
+# From the paid API it is an answer: this station has no observations for this date, and
+# asking again will not change that.
+#
+# From the public page scraper it is whatever WU's edge decided to return this second. On
+# 2026-08-06 all twelve stations 404'd inside an eight-minute window and the same URLs
+# served 200 shortly afterwards. Calling that permanent did three things, each worse than
+# the last: it skipped the retry the step already had, it blocked label finalization for
+# every market, and -- because write_fetch_error stamps a permanent row
+# treated_as_source_unavailable, which unavailable_dates() collects and missing_dates()
+# subtracts -- it made 2026-08-05 permanently unfetchable. Recovering that date needed an
+# explicit --wu-settlement-restore-refetch.
+#
+# 400 stays permanent on both surfaces: a malformed request is not retryable.
 PERMANENT_NO_DATA_STATUS_CODES = {400, 404}
+PAGE_BACKED_PERMANENT_NO_DATA_STATUS_CODES = {400}
+# Set on the exception by PublicWundergroundHistoryClient so that every existing caller of
+# failure_class_for_exception gets the page-backed reading without passing a flag.
+PAGE_BACKED_EXCEPTION_ATTR = "wu_page_backed"
 AUTH_FAILURE_STATUS_CODES = {401, 403}
 TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
 
@@ -129,10 +148,18 @@ def normalize_wu_source_label(value):
     return text
 
 
-def failure_class_for_exception(exc):
+def permanent_no_data_status_codes(page_backed=False):
+    if page_backed:
+        return PAGE_BACKED_PERMANENT_NO_DATA_STATUS_CODES
+    return PERMANENT_NO_DATA_STATUS_CODES
+
+
+def failure_class_for_exception(exc, page_backed=None):
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
-    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+    if page_backed is None:
+        page_backed = bool(getattr(exc, PAGE_BACKED_EXCEPTION_ATTR, False))
+    if status_code in permanent_no_data_status_codes(page_backed):
         return PERMANENT_NO_DATA
     if status_code in AUTH_FAILURE_STATUS_CODES:
         return AUTH_FAILURE
@@ -150,14 +177,26 @@ def failure_class_for_exception(exc):
 
 
 def failure_class_for_error_row(row):
-    failure_class = row.get("failure_class")
-    if failure_class:
-        return failure_class
+    # Re-derive from the recorded status code whenever the row carries one, rather than
+    # returning the stored class. recover_unavailable_errors() exists to release dates that
+    # were wrongly marked unavailable, and it could never do that while this trusted the
+    # stored value: the row it needed to reclassify reclassified to itself, so the repair
+    # was a no-op on exactly the rows that needed repairing. Re-derivation is consistent for
+    # every class this function knows about -- auth, rate-limit and transient all map back
+    # to the same code -- and it lets a corrected permanent/transient boundary reach rows
+    # that were written under the old one.
+    row = row or {}
+    page_backed = row.get("source") == PUBLIC_WU_HISTORY_SOURCE
     try:
         status_code = int(row.get("status_code"))
     except (TypeError, ValueError):
         status_code = None
-    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+    if status_code is None:
+        stored = row.get("failure_class")
+        if stored:
+            return stored
+        return TRANSIENT_FAILURE
+    if status_code in permanent_no_data_status_codes(page_backed):
         return PERMANENT_NO_DATA
     if status_code in AUTH_FAILURE_STATUS_CODES:
         return AUTH_FAILURE
@@ -252,6 +291,18 @@ class PublicWundergroundHistoryClient:
                 return f"{parsed.scheme}://{parsed.netloc}", token
         raise RuntimeError("Public WU page did not expose a page-backed history access route")
 
+    @staticmethod
+    def _raise_for_status(response):
+        # Mark the failure as page-backed before it escapes. Everything downstream --
+        # the step's retry decision, write_fetch_error's stamp -- classifies through
+        # failure_class_for_exception, so tagging here is what makes a scraper 404
+        # retryable without every caller having to know which client raised.
+        try:
+            response.raise_for_status()
+        except Exception as exc:
+            setattr(exc, PAGE_BACKED_EXCEPTION_ATTR, True)
+            raise
+
     def fetch_range(self, start_date, end_date, units=None):
         page_url = self.history_page_url(start_date)
         page_response = self.session.get(
@@ -259,7 +310,7 @@ class PublicWundergroundHistoryClient:
             headers=self._headers(),
             timeout=self.timeout,
         )
-        page_response.raise_for_status()
+        self._raise_for_status(page_response)
         api_root, page_access_token = self.public_access_from_page(page_response.text)
         endpoint = (
             f"{api_root}/v1/location/"
@@ -276,7 +327,7 @@ class PublicWundergroundHistoryClient:
             headers=self._headers(referer=page_url),
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         payload = response.json()
         payload["_wu_collector_provenance"] = {
             "source": PUBLIC_WU_HISTORY_SOURCE,
