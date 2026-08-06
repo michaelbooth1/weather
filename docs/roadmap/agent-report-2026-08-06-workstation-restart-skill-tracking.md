@@ -29,8 +29,8 @@ The exact quiet-window backfill command is:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.model_market_skill_tracker backfill `
-  --floor-control-rows C:\Users\Michael\Documents\github\weather\scratch\agent-runs\workstation-floor-safety-2026-07-31d\hard_floor_snapshot_deltas.csv `
-  --cool-bias-control-rows C:\Users\Michael\Documents\github\weather\scratch\runs\is-the-cool-bias-correctable-2026-09-08a\snapshot-centre-errors.csv
+  --floor-control-rows tests\fixtures\reporting\model_market_skill_tracker\hard_floor_snapshot_deltas.csv `
+  --cool-bias-control-rows tests\fixtures\reporting\model_market_skill_tracker\snapshot-centre-errors.csv
 ```
 
 `refresh` fails closed without that checkpoint and refuses to reuse a checkpoint
@@ -115,13 +115,18 @@ does neither.
 
 ## Positive controls
 
-The retained controls were run read-only with 2,000 crossed-bootstrap
-replicates and seed `3215258335`. Both passed.
+The controls were rerun read-only from committed fixtures with 2,000
+crossed-bootstrap replicates and seed `3215258335`. Both passed. The fixtures
+retain every control row and only the five floor / three cool-bias columns read
+by the tracker, reducing the two workstation exports from 7.0 MB to 1.5 MB
+without changing any parsed input. Vendoring was chosen over regeneration from
+production tapes because the compact fixtures are sensible to commit and make
+the gate independent of both host-local scratch and mutable tape availability.
 
 | Control | Reproduced point | Crossed 95% interval | Support | Source SHA-256 |
 | --- | ---: | ---: | --- | --- |
-| Observed hard-floor fix | ratio `1.6639158425` → `1.4979600580`; delta `-0.1659557845` | delta `[-0.3552671491, -0.0697874559]` | D=8, M=11, 85 market-days, 11,661 snapshots | `a3974379c2fcdb8c24e8527ddbbe2e679c6f7e40d18d87093a894130c3d98f50` |
-| Raw cool HGB bias | `-0.6640809099` C-equivalent | `[-1.1164176910, -0.2481808356]` | D=34, M=12, 399 market-days, 9,360 selected-hour rows | `94f5eb8d2809f94ebe0c4d1254778f942752263abb2f1c3afc0360bdb4849cb5` |
+| Observed hard-floor fix | ratio `1.6639158425` → `1.4979600580`; delta `-0.1659557845` | delta `[-0.3552671491, -0.0697874559]` | D=8, M=11, 85 market-days, 11,661 snapshots | `8ac77c0840b0ad6dd581cb0ecfc2449ffc5db53d788d715861c7411b07291405` |
+| Raw cool HGB bias | `-0.6640809099` C-equivalent | `[-1.1164176910, -0.2481808356]` | D=34, M=12, 399 market-days, 9,360 selected-hour rows | `6505596010a3e8bba4c3475391f28becb2d3f594b3639414ca56b35822bfb298` |
 
 The controls are mandatory for the first checkpoint. Later incremental runs
 may reuse only the prior recorded `PASS`.
