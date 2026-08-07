@@ -142,9 +142,27 @@ def _link_target(raw_target: str) -> str:
     return unquote(target.split("#", 1)[0].split("?", 1)[0])
 
 
+def _is_immutable_record(path: Path) -> bool:
+    """Dated roadmap correspondence, which `docs/roadmap/AGENTS.md` forbids editing.
+
+    These files are the record of what was known when they were written. Code they cite
+    legitimately moves or never lands, and the only way to repair such a link is to edit
+    the record -- which that rule prohibits. Enforcing repairable-only-by-editing link
+    targets on an immutable file is a rule with no legal way to satisfy it, and on
+    2026-08-06 it had left `python -m weather.operations.agent_docs_audit` -- a baseline
+    check in the root `AGENTS.md` -- failing on master since at least 2026-08-02, on a
+    report citing `floor_retrain_gate_harness.py`, a path no ref has ever contained.
+    A baseline gate that is always red teaches agents to ignore it.
+    """
+    if path.parent.name != "roadmap":
+        return False
+    return path.name.startswith(("agent-report-", "workstation-handoff-"))
+
+
 def broken_local_links(repo_root: Path, paths: list[Path] | None = None) -> list[str]:
     errors: list[str] = []
     for path in paths or _markdown_files(repo_root):
+        immutable = _is_immutable_record(path)
         text = path.read_text(encoding="utf-8-sig")
         for match in MARKDOWN_LINK_RE.finditer(text):
             raw_target = match.group(1)
@@ -157,9 +175,11 @@ def broken_local_links(repo_root: Path, paths: list[Path] | None = None) -> list
             try:
                 resolved.relative_to(repo_root.resolve())
             except ValueError:
+                # Still enforced on immutable records: this one is a structural problem,
+                # not drift, and it never becomes unfixable by the passage of time.
                 errors.append(f"{path.relative_to(repo_root)}: link escapes repository: {raw_target}")
                 continue
-            if not resolved.exists():
+            if not resolved.exists() and not immutable:
                 errors.append(f"{path.relative_to(repo_root)}: missing link target: {raw_target}")
     return errors
 
