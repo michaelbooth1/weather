@@ -67,6 +67,7 @@ $statusFiles = @(
 # reported, because "dormant" is an assumption the operator should see rather than infer.
 $closures = @{}
 $dormant = @{}
+$dormantAge = @{}
 $problems = @()
 foreach ($rel in $statusFiles) {
     $path = Join-Path $repo $rel
@@ -92,10 +93,31 @@ foreach ($rel in $statusFiles) {
     }
     if ($ageH -gt $MaxStatusAgeHours) {
         $dormant[$name] = @($identity.source_scope_files)
-        $problems += ("DORMANT closure: {0} is {1:N1}h old (max {2}h) - treated as not running; a merge cannot roll a loop that is not live, but CONFIRM that before relying on it" -f $rel, $ageH, $MaxStatusAgeHours)
+        $dormantAge[$name] = $ageH
         continue
     }
     $closures[$name] = @($identity.source_scope_files)
+}
+
+# Report dormancy only once every closure has been read, so "is this dormant loop's scope already
+# covered by a live one?" can be answered mechanically instead of asked of the operator.
+#
+# The old message said "CONFIRM that before relying on it", which is a manual step nobody performs
+# reliably -- hand-derived roll verdicts on this project have been right by luck more than once. In
+# the common case there is nothing to confirm: on 2026-08-06 the dormant clob-enrichment closure's
+# 21 files were a STRICT SUBSET of the live CLOB loop's 23, so every file it covers is still
+# reported every 60 seconds and its silence cannot hide a roll. Say that, rather than raise a
+# warning that has no action attached to it.
+$liveFiles = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+foreach ($k in $closures.Keys) { foreach ($f in $closures[$k]) { [void]$liveFiles.Add($f) } }
+foreach ($name in ($dormant.Keys | Sort-Object)) {
+    $uncovered = @($dormant[$name] | Where-Object { -not $liveFiles.Contains($_) })
+    if ($uncovered.Count -eq 0) {
+        $problems += ("dormant closure {0} ({1:N1}h old) is SUBSUMED: all {2} of its files are also covered by a live closure, so its dormancy cannot affect this verdict" -f $name, $dormantAge[$name], @($dormant[$name]).Count)
+    }
+    else {
+        $problems += ("DORMANT closure: {0} is {1:N1}h old (max {2}h) and is the only source for {3} file(s), e.g. {4} - a merge cannot roll a loop that is not live, but this verdict is only valid while it stays down" -f $name, $dormantAge[$name], $MaxStatusAgeHours, $uncovered.Count, (($uncovered | Select-Object -First 3) -join ", "))
+    }
 }
 
 if ($closures.Count -eq 0) {

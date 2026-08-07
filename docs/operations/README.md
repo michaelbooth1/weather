@@ -118,6 +118,13 @@ override the current code, registration scripts, or undated policy documents.
 
 - **[STATE_OF_PLAY.md](STATE_OF_PLAY.md) — read first.** What is happening now, what is
   decided, and what is already answered. Rewritten not appended; capped at ~90 lines.
+- **[reserved-confirmation-window.md](reserved-confirmation-window.md) — wins over every other
+  document, including this index.** Check it at run time before acting on any trading window.
+- [OPERATIONS_AGENT_ROLE.md](OPERATIONS_AGENT_ROLE.md) — what the production-host agent owns.
+- [RELEASE_ONE_BUILD_RUNBOOK.md](RELEASE_ONE_BUILD_RUNBOOK.md) — the release #1 build procedure
+  (currently **deferred**; read the deferral decision below first).
+- [forecast-source-and-training-population.md](forecast-source-and-training-population.md) —
+  free-tier Open-Meteo only, training population 2021–2025. **Closed; do not stop a mission on it.**
 - [release-one-deferred-until-a-retrained-candidate.md](release-one-deferred-until-a-retrained-candidate.md)
   — 2026-08-06 decision: release #1 waits for a retrained candidate.
 - [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) — why the
@@ -142,6 +149,12 @@ override the current code, registration scripts, or undated policy documents.
 checks that links are not *broken*; it does not check that a file is *reachable*, so an unlinked
 document is invisible to a cold agent and will be re-derived or contradicted. The daily
 `scripts\ops\staleness_sweep.ps1` reports unreachable files under `docs/unreachable`.
+
+**That sweep check is weaker than the rule stated here**, and knowingly so: it counts a document as
+reachable if *any* markdown links it, including dated `docs/roadmap/` correspondence that `AGENTS.md`
+says cannot be read. So a file can pass the sweep and still be missing from this index. On
+2026-08-06 four were — `reserved-confirmation-window.md` among them, the document that wins over
+every other. If you add a file here, link it here; do not rely on the sweep to notice.
 
 ## Update this file when
 

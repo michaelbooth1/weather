@@ -62,16 +62,69 @@ function Test-FileAge($name, $relPath, $warnDays, $critDays, $why) {
 }
 
 # ---- 1. capture closures: freshness AND tombstones ----
-# A closure that stops reporting silently removes itself from every roll verdict derived after.
-$closureFiles = @{
+# A closure that stops reporting silently removes itself from every roll verdict derived after --
+# but ONLY for the files it alone contributes. On 2026-08-06 clob-enrichment sat at CRITICAL for
+# 10.5 days while contributing ZERO unique files: its 21-file closure is a strict subset of the live
+# CLOB loop's 23. A CRITICAL that cannot possibly produce a wrong roll verdict is alarm fatigue, and
+# alarm fatigue is what makes the next real one get waved through. So compute the unique surface
+# rather than assert it, and when it is non-empty NAME the files -- those are exactly the ones a
+# merge would roll blind. See RETRACTED_AND_FALSE_LEADS.md section 3.
+$closureFiles = [ordered]@{
     "snapshot"            = "data\snapshots\loop_supervisor_status.json"
     "clob"                = "data\snapshots\clob_loop_supervisor_status.json"
     "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
     "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
 }
-foreach ($name in $closureFiles.Keys | Sort-Object) {
-    Test-FileAge "closure/$name" $closureFiles[$name] 1 3 `
-        "a closure that stops reporting is silently dropped from every later roll verdict; merges then look safer than they are"
+function Get-ClosureScope($path) {
+    try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
+    foreach ($k in "current_runtime_identity", "runtime_identity_before", "runtime_identity") {
+        $node = $j.$k
+        if ($node -and $node.source_scope_files) { return @($node.source_scope_files) }
+    }
+    return $null
+}
+$closureState = @{}
+foreach ($name in $closureFiles.Keys) {
+    $p = Join-Path $repo $closureFiles[$name]
+    if (-not (Test-Path -LiteralPath $p)) { $closureState[$name] = $null; continue }
+    $closureState[$name] = [PSCustomObject]@{
+        Age   = ($now - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays
+        Scope = Get-ClosureScope $p
+    }
+}
+# Union of everything a still-reporting closure covers. Anything in here cannot go dark.
+$liveScope = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+foreach ($name in $closureFiles.Keys) {
+    $c = $closureState[$name]
+    if ($c -and $c.Age -le 1 -and $c.Scope) { foreach ($f in $c.Scope) { [void]$liveScope.Add($f) } }
+}
+$closureWhy = "a closure that stops reporting is silently dropped from every later roll verdict; merges then look safer than they are"
+foreach ($name in $closureFiles.Keys) {
+    $rel = $closureFiles[$name]
+    $c = $closureState[$name]
+    if (-not $c) { Add-Finding "closure/$name" "CRITICAL" "missing: $rel" $closureWhy $null 1; continue }
+    if ($c.Age -le 1) {
+        Add-Finding "closure/$name" "OK" ("{0} is {1:N1}d old" -f $rel, $c.Age) $closureWhy $c.Age 1
+        continue
+    }
+    if (-not $c.Scope) {
+        Add-Finding "closure/$name" "CRITICAL" `
+            ("{0} is {1:N1}d old and carries no readable source_scope_files" -f $rel, $c.Age) `
+            $closureWhy $c.Age 1
+        continue
+    }
+    $unique = @($c.Scope | Where-Object { -not $liveScope.Contains($_) })
+    if ($unique.Count -eq 0) {
+        Add-Finding "closure/$name" "OK" `
+            ("{0} is {1:N1}d old but contributes 0 unique files (all {2} are covered by a live closure) - it cannot change a roll verdict" -f $rel, $c.Age, $c.Scope.Count) `
+            "stale-but-subsumed: every file it would contribute is already reported by a closure refreshing every 60s, so its silence is not a blind spot" `
+            $c.Age 1
+    }
+    else {
+        Add-Finding "closure/$name" "CRITICAL" `
+            ("{0} is {1:N1}d old and is the ONLY source for {2} file(s): {3}" -f $rel, $c.Age, $unique.Count, (($unique | Select-Object -First 5) -join ", ")) `
+            $closureWhy $c.Age 1
+    }
 }
 # Tombstones masquerade as live evidence. This one was read as a fifth closure on 2026-08-06.
 $tomb = Join-Path $repo "data\snapshots\loop_status_supervisor_status.json"
@@ -227,6 +280,62 @@ if (Test-Path -LiteralPath $sop) {
 else {
     Add-Finding "docs/state_of_play_age" "CRITICAL" "STATE_OF_PLAY.md is missing" `
         "the entry point for a cold or compacted agent" $null $null
+}
+
+# ---- 10. has the in-flight table drifted from the newest commissioned work? ----
+# On 2026-08-06 a handoff was committed and STATE_OF_PLAY was NOT updated in the same change, so
+# the entry point silently omitted the one mission aimed at the gap it calls unowned. A cold agent
+# would have commissioned it a third time.
+#
+# This deliberately does NOT try to decide dispatch state. The first cut of this check did, and
+# reported 47 completed missions as leaks: a branch is deleted after merge, and reports are named
+# by CALENDAR date while handoffs are named by MISSION ref, so the two filenames share only the
+# slug. Deciding dispatch needs all four records in mission-dispatch-reconciliation.md, including a
+# withdrawal grep -- too ambiguous for an unattended check, and a WARN nobody can clear is worse
+# than no WARN. So check the one thing that is unambiguous: the newest handoffs are named here.
+$handoffDir = Join-Path $repo "docs\roadmap"
+$sopPath = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
+if ((Test-Path -LiteralPath $handoffDir) -and (Test-Path -LiteralPath $sopPath)) {
+    $newest = @(& git -C $repo log --diff-filter=A --name-only --format="" -n 400 -- "docs/roadmap/workstation-handoff-*.md" 2>$null |
+        Where-Object { $_ } | Select-Object -Unique -First 4)
+    if ($newest.Count -gt 0) {
+        $sopText = Get-Content -LiteralPath $sopPath -Raw
+        $missing = @()
+        foreach ($rel in $newest) {
+            if ((Split-Path $rel -Leaf) -notmatch '^workstation-handoff-\d{4}-(\d{2}-\d+[a-z])-') { continue }
+            $short = "-" + $Matches[1]     # e.g. "-09-36a", the form STATE_OF_PLAY uses
+            if ($sopText -notlike "*$short*") { $missing += $short }
+        }
+        if ($missing.Count -gt 0) {
+            Add-Finding "docs/in_flight_drift" "WARN" `
+                ("STATE_OF_PLAY.md does not mention the recently commissioned {0}" -f ($missing -join ", ")) `
+                "the in-flight table is the only record of what has been commissioned; a handoff committed without updating it is invisible to a cold agent, who will commission the same work again" `
+                $null $null
+        }
+    }
+}
+
+# ---- 11. is anything actually scheduled to merge? ----
+# The window guard was made proportional so roll-free branches would stop queueing for the 01:00
+# quiet window. That removed the blocker but left nothing driving the queue: on 2026-08-06 four
+# branches were mechanically ROLL-FREE and mergeable at any hour, and had been sitting for days,
+# because "mergeable at any hour" turned out to mean nobody merged them. One of them was the sole
+# blocker for the learning loop, the market-beating scoreboard, and the disk tiering path.
+$unmergedCount = @(& git -C $repo branch -r --no-merged origin/master 2>$null | Where-Object { $_ -and $_ -notmatch "HEAD" }).Count
+if ($unmergedCount -gt 0) {
+    $armed = @()
+    try {
+        $armed = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
+            Where-Object { $_.TaskName -like "*Merge*" -and $_.State -ne "Disabled" } |
+            Where-Object { ($_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue).NextRunTime })
+    }
+    catch {}
+    if ($armed.Count -eq 0) {
+        Add-Finding "git/no_merge_trigger" "WARN" `
+            ("{0} unmerged branch(es) and no merge task has a next run time" -f $unmergedCount) `
+            "roll-free branches no longer need the quiet window, so nothing forces them through; check scripts\ops\roll_verdict.ps1 and arm scripts\ops\quiet_window_merge.ps1 rather than waiting for a window" `
+            $null $null
+    }
 }
 
 # ---- report ----

@@ -220,6 +220,56 @@ registration in `schema_registry_data.py` is **mandatory**. That module is in **
 import closures. The roll is unavoidable — the objective is to make it **purely additive** so it is
 behaviourally inert, not to eliminate it.
 
+### The `clob_enrichment` closure being 10 days stale — HARMLESS, AND IT WAS NEVER SCHEDULED
+
+The staleness sweep raised `closure/clob-enrichment` at **CRITICAL** on the reasoning that "a closure
+that stops reporting is silently dropped from every later roll verdict; merges then look safer than
+they are." **That reasoning does not hold for this closure, and it can be checked mechanically.**
+
+Compare the two file sets in the status JSONs:
+
+| Set | Files |
+| --- | ---: |
+| `clob_enrichment_status.json` → `runtime_identity.source_scope_files` | 21 |
+| `clob_loop_supervisor_status.json` → `runtime_identity_before.source_scope_files` | 23 |
+| **Files unique to `clob_enrichment`** | **0** |
+
+The enrichment closure is a **strict subset** of the live CLOB closure — the live loop adds
+`market/storage_pressure_policy.py` and `operations/windows_processes.py`, and nothing is lost the
+other way. So **its staleness cannot make a roll verdict wrong**: every file it would contribute is
+already contributed by a closure that reports every 60 seconds.
+
+Second, it is not a regression. **No scheduled task has ever driven it.** It was hand-launched once
+on 2026-07-27 in `research_enrichment` mode with `blocks_raw_book_capture: false` and
+`counts_toward_raw_book_freshness: false`. "Dormant since 07-27" is the expected state of a one-shot
+research tool, not a loop that died.
+
+**What is real, and much smaller:** that single run captured `ws_event_rows: 819` for Toronto.
+Websocket event capture is not running. That is a data-collection choice worth making deliberately —
+it is not a capture-fleet fault, and it does not belong at CRITICAL beside a dead learning loop.
+
+Do not re-raise this as a fleet incident. **If you want to change the severity, re-run the set
+difference first** — the subset relation is the whole argument, and it would stop holding the moment
+the enrichment loop imported a module the CLOB loop does not.
+
+### Two scheduled tasks exit non-zero every day BY DESIGN — do not treat them as failures
+
+Task Scheduler shows two standing red results on a healthy host. Both are the task faithfully
+reporting a **downstream block**, not a task fault.
+
+| Task | Result | What it actually means |
+| --- | ---: | --- |
+| `WeatherTrainingWindow` | **2** | `training_window.log`: `[RETRAIN] promoting non-success nightly status to window exit 2`. The nightly retrain is blocked by the season window (0 / 12,600 cells). Capture stops and is restored — on 2026-08-06 in **20 seconds**. |
+| `WeatherDailySettlementPromotionRefresh` | **1** | The chain errors at `settled_day_analysis_barrier`, which is the documented, expected stop. |
+
+`WeatherTrainingWindow` will report **2 every night until the season window lands**, and the chain
+will report **1 every day until `-09-29a` merges.** Neither number changing is progress; neither
+number staying is an incident.
+
+**The distinguishing evidence is the log, not the exit code.** For the training window, check that
+`[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
+part that can cost a streak day. If capture was restored, exit 2 is a healthy run.
+
 ---
 
 ## 4. Backlog and branch traps
