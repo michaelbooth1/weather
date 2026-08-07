@@ -207,7 +207,21 @@ git diff --stat origin/master...HEAD
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\roll_verdict.ps1 -Branch codex/workstation-is-the-market-gap-seasonal-2026-09-34a
 ```
 
-Exact results are recorded after the report-content commit below.
+`git diff --check` passed. The branch diff contained exactly this one Markdown
+report. The agent-docs audit reported the same one pre-existing baseline issue
+as the predecessor: the historical
+`docs/roadmap/agent-report-2026-08-02-workstation-spec-contract-repair.md`
+links to the absent
+`src/weather/reporting/validation/floor_retrain_gate_harness.py#L1079`.
+The new report introduced no audit issue.
+
+The mechanical roll check exited zero with `ROLL-FREE`: one changed file, zero
+importable files, and therefore no snapshot, CLOB, observation-trigger, or
+CLOB-enrichment import closure. It was run from an ignored exact-base
+verification clone because the main checkout's local `master` was stale; the
+clone pinned `master` to the base recorded below and the topic ref to the
+report-content commit. The check also repeated the unrelated warning that the
+dormant CLOB-enrichment status was 252.0 hours old.
 
 ## Safety, roll verdict, and actions not taken
 
@@ -254,6 +268,6 @@ Branch:
 
 Base: `origin/master @ 5f0eb855e41912864d879a67d5804eeb7be7ee99`.
 
-Report-content commit: `PENDING`.
+Report-content commit: `fb718f4f3f289b6c2af614828fdf500e425758a3`.
 
 No PR was opened and no merge was performed.
