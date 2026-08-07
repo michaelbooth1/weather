@@ -399,25 +399,45 @@ market-dates across 12/12 markets. The window question (§4b) is closed.
 | `cloud_cover_previous_day1` | **0/72 — all null** |
 | `cloud_cover` with `previous_runs=1` | 72/72, but **identical to the plain query, 24/24** |
 
-**Two corrections to `-09-38a`.** It reports `temperature_850hPa`, `temperature_925hPa` and
-`geopotential_height_500hPa` as *"provider rejects variable — 3 HTTP 400 responses"*. Two of the
-three are **served, complete**. And it reports the blocker as a *"2021 matrix with 17 all-null
-fields"*; the plain fields are complete in **all five years**, so it is **not year-specific and
-not a coverage gap**. The mission probed **one market and one year** and generalised.
+**`-09-38a`'s measurements were correct; an earlier draft of this section wrongly "corrected"
+them.** That draft reported `temperature_850hPa` and `geopotential_height_500hPa` as served — true
+of the **plain** request, but the corpus needs the **PIT** request, and with the `_previous_day1`
+suffix they return HTTP 400 exactly as the mission said. **Comparing two different request shapes
+is not a correction.** What survives is narrower: the *plain* fields are complete in all five
+years, so **narrowing the year set cannot help** — the years were never the constraint.
 
-**What is actually true:** Open-Meteo serves `_previous_dayN` for only a subset of variables —
-`temperature_2m` yes, `cloud_cover` no. So a genuine lead-day-1 corpus is expressible for
-temperature and not for most of the 21-field plan.
+**The decisive measurement — how much of the plan is PIT-expressible at all:**
+
+All 21 required fields probed with the `_previous_day1` suffix, Toronto 2021:
+
+| Disposition | Count | Fields |
+| --- | ---: | --- |
+| **Non-null** | **1** | `temperature_2m` (24/24) |
+| All-null (HTTP 200) | 17 | `cloud_cover*`, `shortwave_radiation`, `wind_speed_10m`, `cape`, `direct_/diffuse_radiation`, `wind_gusts_10m`, `visibility`, `precipitation*`, `soil_*`, `vapour_pressure_deficit`, `et0_fao_evapotranspiration` |
+| HTTP 400 with the suffix | 3 | `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` |
+
+**1 of 21.** A point-in-time corpus on the free tier can carry `temperature_2m` and nothing else.
+**"Build the corpus from the fields that do carry `_previous_dayN`" collapses to a single feature
+and is not a model.** Do not commission that mission; the number is the answer.
 
 **`previous_runs=` is a LEAKAGE TRAP.** It returns values *identical* to the plain query and does
 not even rename the series. It is silently ignored, so it hands back the settled analysis dressed
 as an earlier run. **Never use it to stand up a PIT corpus** — that is `item-224`'s defect exactly
 (§ retracted claims), and it would pass a naive completeness check.
 
-**So the open decision is a feature-set one, not a collection one:** either build the PIT corpus
-from the fields that genuinely carry `_previous_dayN`, or accept that the free tier cannot express
-this plan. **Narrowing the year set does not help** — that was the obvious move and the years are
-not the constraint.
+**So the free-tier PIT-corpus path is CLOSED**, and the real question moves elsewhere: the *plain*
+archive is complete — 1,740/1,740 collected, all 21 fields, all five years — but it is the settled
+analysis rather than what was knowable at cutoff, so training on it contaminates the **fit**.
+
+**We already do exactly that, and the cost is measured.** §6 records that the trainer reads a
+2-column stitched file while the PIT file goes unread: the fit is contaminated, **evaluation is
+not**, and the lookahead was measured at **~6% of the cool bias**. So "train on the plain archive,
+evaluate point-in-time" is not a new compromise — it is the existing one, already sized.
+
+That makes the open item an **operator decision with the evidence already in hand**, not a
+research mission: accept a contaminated fit with clean walk-forward evaluation, or do not retrain.
+**Do not commission further collection work against it** — the data is collected and the endpoint
+has been characterised to the field level.
 
 ---
 
