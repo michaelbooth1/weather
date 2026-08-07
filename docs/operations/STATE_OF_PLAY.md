@@ -27,8 +27,13 @@
 The forecast archive holds **May 10 – Jun 30 only, in every year**. It is August, so **every date
 we serve is out-of-season**, and the first retrain blocks at **0 / 12,600 cells**.
 
-**Not established:** that fixing this improves the loss. The severity-tail contrast is
-underpowered (47.65%, interval crosses zero). **Do not cite a Brier or P&L gain.**
+**But the gap does not vanish in-season** (`-09-34a`, §4e): served in-season is
+**1.4233x [1.2428, 1.6589]** — excludes 1.0. Nearly unbiased, still losing, on a **resolution**
+deficit. The seasonal contrast is **not powered**; no direction may be claimed.
+
+**So bias and sharpness are separate problems and we have a fix for one.** The retrain is
+**necessary, not sufficient.** Do not promise it will close the gap. Do not cite a Brier or P&L
+gain from it — the severity-tail contrast is underpowered too (47.65%).
 
 ## The critical path
 
@@ -37,7 +42,8 @@ extend the archive season window  ->  stage the PIT corpus  ->  first retrain  -
         (-09-33a, awaiting merge)      (0/60 units today)      (-09-20a lane)
 ```
 
-Everything else is beside this path, not on it.
+That path fixes the **centre** (74.97% of oracle excess loss). **Nothing is yet aimed at
+resolution**, which §1 says recalibration cannot supply. That is the open strategic gap.
 
 ## Decided — do not relitigate without new evidence
 
@@ -52,10 +58,9 @@ Everything else is beside this path, not on it.
 
 ## Do not redo these — they are answered
 
-- **The free-source "blindness" repair is NO-GO** (`-09-26a`): severe SSE 6.7395%
-  [0.5208%, 14.3964%], pooled Brier −0.000721 crossing zero, fields present in 8.90% of snapshots.
+- **The free-source "blindness" repair is NO-GO** (`-09-26a`, §4b). Pooled Brier crosses zero.
 - **Release #1 is not sufficient for promotion** — the early-hour Brier gate refuses
-  independently (0.0205 vs 0.0030, all 12 markets). Whether it is *necessary* is **unestablished**.
+  independently. Whether it is *necessary* is **unestablished** (§9).
 - **Do not tune the severe-tail band-suppression lever before the retrain** (§4d) — today's
   model/market disagreement is substantially the cool bias itself.
 
@@ -63,26 +68,27 @@ Everything else is beside this path, not on it.
 
 | Ref | What | State |
 | --- | --- | --- |
-| `-09-34a` | is the market gap itself seasonal? | **running** |
-| `-09-35a` | rotate snapshot + observation-trigger logs | queued |
+| `-09-35a` | rotate snapshot + observation-trigger logs | **next to dispatch** |
 | `-09-33a` +`-09-20a` | season window + retrain lane | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
 | `fix-wu-404` | scraper 404 misclassification | awaiting merge (roll-sensitive) |
-| `-09-29a`, `-09-31a`, `-09-32a` | chain split, seasonal, severe-tail | awaiting merge (roll-free) |
+| `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a` | chain split, seasonal ×2, severe-tail | awaiting merge (roll-free) |
+
+**No mission is running.** The unowned strategic question is **resolution/sharpness** — nothing
+addresses it, and it is now the larger half of the gap.
 
 ## Open, unowned
 
-- **`clob_enrichment` closure dormant ~10 days**, no scheduled task drives it. Watched at
-  CRITICAL by the staleness sweep; nobody has asked whether it *should* run.
-- **~2.7 GB of unrotated active logs** on snapshot and observation-trigger (`-09-35a` fixes).
-- **`daily_learning` + market-beating scoreboard dead since 2026-07-10** — unreachable past the
-  settled-day barrier. `-09-29a` fixes reachability.
+- **Resolution / sharpness** — the larger half of the gap, nothing aimed at it. See above.
+- **`clob_enrichment` closure dormant ~10 days**, no task drives it; nobody has asked whether it
+  should run. Watched at CRITICAL by the staleness sweep.
+- **`daily_learning` + market-beating scoreboard dead since 2026-07-10**, unreachable past the
+  settled-day barrier. `-09-29a` fixes reachability on merge.
 
 ## Daily reads
 
-`data/alerts/MORNING_BRIEFING.md` (host health, every 15 min) ·
-`data/alerts/STALENESS_SWEEP.md` (**"should this have refreshed by now?"**, daily 08:10) ·
-`data/backtest/daily_refresh_report.md` (the chain).
+`data/alerts/STALENESS_SWEEP.md` (**"should this have refreshed by now?"**, 08:10) ·
+`data/alerts/MORNING_BRIEFING.md` (host health) · `data/backtest/daily_refresh_report.md` (chain).
 
 Use `scripts\ops\roll_verdict.ps1 -Branch <b>` for merge timing. **Never derive it by hand.**
 

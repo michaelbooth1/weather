@@ -350,6 +350,38 @@ refitted afterwards. Re-measure after the first retrain, then price the opportun
 
 ---
 
+## 4e. The gap does NOT vanish in-season — the retrain is necessary, not sufficient
+
+`-09-34a`, 2026-08-06, same corpus and strata as `-09-31a`.
+
+| Lane / stratum | Model Brier | Market Brier | Ratio [crossed 95%] |
+| --- | ---: | ---: | --- |
+| Base, in-season | 0.065509 | 0.037506 | **1.7466 [1.5149, 2.0377]** |
+| Base, out-of-season | 0.073068 | 0.038977 | 1.8746 [1.5937, 2.2211] |
+| **Served, in-season** | 0.053380 | 0.037506 | **1.4233 [1.2428, 1.6589]** |
+| Served, out-of-season | 0.059484 | 0.038977 | 1.5261 [1.3529, 1.7564] |
+
+**Every in-season interval excludes 1.0.** The model is very nearly unbiased in-season
+(−0.1848 C-eq, §2) **and still loses to the market**, on a deficit the report attributes to
+**resolution** — an information problem, not a centre problem.
+
+**The seasonal contrast is NOT POWERED and no direction may be claimed:** base C−B
+**+0.1280 [−0.2679, +0.5288]**, served **+0.1028 [−0.1695, +0.3596]**. Complete closure of the
+retained gap needs **+0.24** ratio points against MDEs of **0.5384 / 0.3620** — this design could
+not have detected a full closure, so "not powered" here is a property of the test, not evidence
+of no effect.
+
+**Caveat:** these ratios are on the seasonal-distance corpus and are **not** the retained
+clean-regime **1.24x**. Do not equate them.
+
+**What this changes.** Bias and sharpness are separate problems and we have a fix for one.
+The retrain addresses a measured **−0.8346 C-eq** seasonal centre defect and centre is 74.97% of
+oracle excess loss, so it remains worth doing — but **stop sequencing the programme as though the
+retrain is the whole answer.** A parallel line of work on resolution is required, and §1 already
+says recalibration cannot supply it.
+
+---
+
 ## 5. Method rules — binding on every measurement
 
 Each of these has already cost a retracted result. They are not stylistic preferences.
