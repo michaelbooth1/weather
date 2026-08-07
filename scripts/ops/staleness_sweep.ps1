@@ -179,6 +179,56 @@ foreach ($dir in @("data\snapshots", "data\logs", "data\alerts")) {
     }
 }
 
+# ---- 8. unreachable operations docs ----
+# The CI docs audit checks that links are not BROKEN. Nothing checks that a document is
+# REACHABLE. On 2026-08-06 that let a canonical decision reversing the project's top priority
+# sit unlinked from every index, alongside git-lfs-policy.md and the deleted-branch recovery
+# manifest -- both load-bearing, both invisible to a cold agent. A document nobody can find is
+# a document that will be re-derived, or worse, contradicted.
+$opsDocs = @(Get-ChildItem -LiteralPath (Join-Path $repo "docs\operations") -Filter *.md -File -ErrorAction SilentlyContinue)
+if ($opsDocs.Count -gt 0) {
+    $linked = New-Object System.Collections.Generic.HashSet[string]
+    $scan = @(Get-ChildItem -LiteralPath (Join-Path $repo "docs") -Filter *.md -File -Recurse -ErrorAction SilentlyContinue)
+    $scan += @(Get-ChildItem -LiteralPath $repo -Filter *.md -File -ErrorAction SilentlyContinue)
+    foreach ($f in $scan) {
+        try { $text = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop } catch { continue }
+        foreach ($m in [regex]::Matches($text, '\]\(([^)]+)\)')) {
+            $tgt = ($m.Groups[1].Value -split '#')[0].Trim()
+            if (-not $tgt -or $tgt -match '^(https?:|mailto:)') { continue }
+            try { $full = [IO.Path]::GetFullPath((Join-Path $f.DirectoryName $tgt)) } catch { continue }
+            [void]$linked.Add($full)
+        }
+    }
+    $orphans = @($opsDocs | Where-Object { -not $linked.Contains($_.FullName) })
+    if ($orphans.Count -gt 0) {
+        $sev = if ($orphans.Count -ge 10) { "CRITICAL" } else { "WARN" }
+        Add-Finding "docs/unreachable" $sev `
+            ("{0} of {1} docs/operations files are unreachable by any markdown link: {2}" -f $orphans.Count, $opsDocs.Count, (($orphans | Select-Object -First 6 | ForEach-Object { $_.Name }) -join ', ')) `
+            "the CI audit checks for broken links, not unreachable files; an unlinked canonical doc is invisible to a cold agent and will be re-derived or contradicted" `
+            $null $null
+    }
+}
+
+# ---- 9. STATE_OF_PLAY freshness and its length cap ----
+# It is the entry point for a compacted or cold agent. Stale content here is worse than none,
+# because it will be believed; and it stops being readable the moment it starts accreting.
+$sop = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
+if (Test-Path -LiteralPath $sop) {
+    $age = ($now - (Get-Item -LiteralPath $sop).LastWriteTime).TotalDays
+    $lines = @(Get-Content -LiteralPath $sop).Count
+    $sev = if ($age -gt 14) { "CRITICAL" } elseif ($age -gt 5) { "WARN" } else { "OK" }
+    Add-Finding "docs/state_of_play_age" $sev ("STATE_OF_PLAY.md is {0:N1}d old" -f $age) `
+        "the entry point for a cold or compacted agent; stale content here is believed rather than ignored" $age 5
+    if ($lines -gt 100) {
+        Add-Finding "docs/state_of_play_length" "WARN" "STATE_OF_PLAY.md is $lines lines (cap ~90)" `
+            "it is capped so it stays readable; over the cap means something in it has stopped being current and should be cut, not carried" $null 100
+    }
+}
+else {
+    Add-Finding "docs/state_of_play_age" "CRITICAL" "STATE_OF_PLAY.md is missing" `
+        "the entry point for a cold or compacted agent" $null $null
+}
+
 # ---- report ----
 $crit = @($findings | Where-Object { $_.severity -eq "CRITICAL" })
 $warn = @($findings | Where-Object { $_.severity -eq "WARN" })

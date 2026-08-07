@@ -114,6 +114,32 @@ Files with dates in their names and `ops_fix_todo_*.md` are incident records,
 audits, or work logs. They may explain why a contract exists, but they do not
 override the current code, registration scripts, or undated policy documents.
 
+## Start here, and the records reachable only from here
+
+- **[STATE_OF_PLAY.md](STATE_OF_PLAY.md) — read first.** What is happening now, what is
+  decided, and what is already answered. Rewritten not appended; capped at ~90 lines.
+- [release-one-deferred-until-a-retrained-candidate.md](release-one-deferred-until-a-retrained-candidate.md)
+  — 2026-08-06 decision: release #1 waits for a retrained candidate.
+- [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) — why the
+  first retrain blocks at 0/12,600 cells.
+- [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md) —
+  carries a **retracted** headline; read the correction, not the title.
+- [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) — telling a
+  never-dispatched mission from a completed one.
+- [git-lfs-policy.md](git-lfs-policy.md) — **never re-add `lfs: true`; never delete `.git/lfs`.**
+- [deleted-branch-recovery-manifest-2026-08-05.md](deleted-branch-recovery-manifest-2026-08-05.md)
+  — every ref deleted in the 08-05 cleanup, with its disposition.
+- [release-one-lock-evidence-2026-08-04.md](release-one-lock-evidence-2026-08-04.md),
+  [release-one-chain-block-triage-2026-08-04.md](release-one-chain-block-triage-2026-08-04.md),
+  [release-one-floor-flip-deferred-2026-08-04.md](release-one-floor-flip-deferred-2026-08-04.md)
+  — the lock-day record.
+- [ops_fix_todo_2026_07_03.md](ops_fix_todo_2026_07_03.md) — historical work log.
+
+**Anything added under `docs/operations/` must be linked from this index.** The CI docs audit
+checks that links are not *broken*; it does not check that a file is *reachable*, so an unlinked
+document is invisible to a cold agent and will be re-derived or contradicted. The daily
+`scripts\ops\staleness_sweep.ps1` reports unreachable files under `docs/unreachable`.
+
 ## Update this file when
 
 Update this index when an undated operations contract is added, renamed,

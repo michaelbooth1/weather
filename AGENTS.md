@@ -7,19 +7,24 @@ durable, and linked to one canonical source instead of copying volatile facts.
 
 1. Read the user request and inspect `git status --short` before editing. Existing
    changes belong to the user unless the task says otherwise.
-2. Read [the durable domain context](docs/operations/AGENT_CONTEXT.md).
-3. **For any model, measurement, or research task, read
+2. **Read [the state of play](docs/operations/STATE_OF_PLAY.md) — always, first, whatever
+   the task.** It is ~90 lines and answers *what is happening right now*: the current
+   critical path, decisions that are closed, and the questions already answered that you
+   must not spend the session re-deriving. The other canonical files are durable and say
+   nothing about today. If you are resuming after a context compaction, start here.
+3. Read [the durable domain context](docs/operations/AGENT_CONTEXT.md).
+4. **For any model, measurement, or research task, read
    [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and
    [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md).**
    The dated correspondence under `docs/roadmap/` is ~600 files and cannot be read;
    those two files are its distilled state. Skipping them causes agents to
    re-derive known results or rebuild retracted ones.
-4. **For a cross-host mission — writing a handoff, executing one, or verifying a
+5. **For a cross-host mission — writing a handoff, executing one, or verifying a
    handback — read [the delegation contract](docs/operations/DELEGATION_CONTRACT.md).**
    Its standing boundaries bind every mission whether or not the handoff restates them.
-5. Use [the documentation map](docs/README.md) to load only the context needed
+6. Use [the documentation map](docs/README.md) to load only the context needed
    for the task.
-6. Read the nearest nested `AGENTS.md` before changing files below it. Nested
+7. Read the nearest nested `AGENTS.md` before changing files below it. Nested
    instructions supplement this file and take precedence for their subtree.
 
 Do not use `.claude/settings.local.json` as project guidance. It is ignored,
@@ -49,15 +54,20 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
-- **Committing code can restart live capture.** Capture supervisors fingerprint
-  the repository source files they have imported, so a commit touching a
-  loop-imported module triggers a `STALE_CODE` readoption restart on the
-  production host. Inside the 12:00-18:00 graded window that can cost a streak
-  day, which is the project's #1 operational objective. Merge such changes only
-  in the 01:00-04:00 quiet window, via
-  `scripts/ops/quiet_window_merge.ps1`, which merges locally, proves capture
-  recovered, and only then pushes. Markdown, `docs/`, and `config/` changes are
-  roll-free. See [the code-soak streak runbook](docs/ops/streak-soak.md).
+- **Merging code on the production host can restart live capture.** Supervisors
+  fingerprint the source files they have imported, so landing a change to a
+  loop-imported module triggers a `STALE_CODE` readoption restart. Inside the
+  12:00-18:00 graded window that can cost a streak day — the #1 operational
+  objective. **Get the verdict from `scripts\ops\roll_verdict.ps1 -Branch <b>`;
+  never derive it by hand.** Roll-sensitive branches merge in the 01:00-04:00
+  quiet window via `scripts/ops/quiet_window_merge.ps1`, which consults that
+  verdict, merges locally, proves capture recovered, and only then pushes.
+  **A roll-free branch does not need the quiet window** — requiring it of every
+  branch is what backed the merge queue up to 25 branches. Markdown, `docs/`,
+  `config/` and `.ps1` are roll-free. **Pushing a branch never rolls anything**,
+  at any hour: the fingerprint is over the production working tree, not remote
+  refs. See [the delegation contract](docs/operations/DELEGATION_CONTRACT.md) §3
+  and [the code-soak streak runbook](docs/ops/streak-soak.md).
 - Build repository-owned paths with `weather.paths`; do not make runtime code
   depend on the current working directory.
 
@@ -101,7 +111,11 @@ staging, commits, pull requests, integration, and cleanup.
 - Package/import ownership: `docs/operations/package-boundaries.md`.
 - Git branches, worktrees, staging, commits, and pull requests:
   `docs/git-workflow.md`.
-- Current work: generated `docs/roadmap/active-backlog.md`; numbered roadmap
+- **What is happening right now, and what is already decided or answered:
+  `docs/operations/STATE_OF_PLAY.md`.** Rewritten, never appended, capped at ~90
+  lines. Every other canonical file is durable and deliberately says nothing
+  about today.
+- Current work items: generated `docs/roadmap/active-backlog.md`; numbered roadmap
   item files own item status, scope, and evidence.
 - Dynamic truth: code, checked-in config, manifests, and generated reports—not
   copied counts or versions in prose.
