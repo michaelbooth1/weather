@@ -55,6 +55,36 @@ in the script:
 skips a directory rather than purging it. Any new exclusion needs the same two steps: exclude at
 source, then delete once on the target.
 
+## The one large consumer that is NOT mirrored: `scratch\`
+
+Everything above is about the mirrored tree. The workstation's **repo checkout** also carries
+`<checkout>\scratch\`, reported at **~55 GB** on 2026-08-06. It is a different kind of problem and
+a much easier one:
+
+- **It is outside the mirror scope.** The mirror targets `\\DESKTOP-RFCD2GH\weather-mirror\data`;
+  `scratch\` sits in the checkout. **`/MIR` will not restore it**, so no source-side exclusion is
+  needed first — the two-step rule above does not apply here.
+- **It is gitignored and untracked** (`.gitignore`: `scratch/`). Nothing in it is versioned.
+- It holds **three superseded naming generations** — `workstation-research-output/<slug>-<date>`
+  (July), `agent-runs/<mission>` (late July), `runs/<slug>-<date>` (August) — which is direct
+  evidence nothing has ever cleaned it.
+- [DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md) §6 already treats these paths as non-durable:
+  workstation scratch paths appearing in a report are "the most common defect in an otherwise
+  correct report", because they do not exist on the host that has to reproduce the work.
+
+**Two guards before deleting any of it:**
+
+1. **`scratch\worktrees\` is the dangerous subtree.** A worktree can hold uncommitted work that
+   exists nowhere else, and agent reports live only on unmerged branches. Check `git status` and
+   `git log origin/<branch>..HEAD` in each worktree; remove only clean, fully-pushed ones.
+2. **Filter on recursive FILE mtimes, never directory mtimes.** A directory's timestamp does not
+   update when files change deep inside it, so an actively-running mission's `runs\<slug>-<date>`
+   folder can look days stale at the top level. "The current mission does not seem to be touching
+   it" is exactly the observation this makes wrong.
+
+Mission-local `venv\` directories under scratch are rebuildable; deleting them costs a reinstall,
+not evidence.
+
 ## Why the designed fix is stuck, and what actually unblocks it
 
 There is already a tiering design — closed market-days sealed into the parquet archive and moved
