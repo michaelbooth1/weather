@@ -18,8 +18,9 @@ caller; neither the manifest nor the archive's own dates may select it.
 
 - Branch: `codex/workstation-make-the-season-window-target-derived-2026-09-33a`
 - Required `-09-20a` basis: `981b1d3a8cfa6b6859e530f180452382e5b4296e`
-- Implementation commit: `IMPLEMENTATION_COMMIT_PENDING`
-- Current-master refresh: `MASTER_REFRESH_PENDING`
+- Implementation commit: `b0f57cdba2311dd3e731fe120527b1a42e565655`
+- Refreshed origin/master: `5f0eb855e41912864d879a67d5804eeb7be7ee99`
+- Current-master refresh merge: `9564dbe9627223eff743c88083b6ecc899792d97`
 - PR: none
 - Integration merge: none
 
