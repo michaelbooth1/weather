@@ -248,5 +248,5 @@ in `STATE_OF_PLAY.md` were neither encountered nor reclassified.
 
 ## Commit
 
-- Evidence/report commit: `PENDING`.
+- Evidence/report commit: `3098bba3d066fd030294b7b481710934bc4e6fcc`.
 - Final metadata commit: the pushed branch head is authoritative.
