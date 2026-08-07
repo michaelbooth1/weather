@@ -60,9 +60,9 @@ from there, never from here.**
 | `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
 | `-09-38a` | first retrained candidate | **RETURNED: archive PASS 1,740/1,740, corpus BLOCK** (§4f) |
-| `-09-39a` | **close the train/serve parity gap** | written, **next to dispatch** |
+| `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
-| `-09-33a` | season window (**contains `-09-20a`**, one merge not two) | awaiting merge (**roll-sensitive**) |
+| `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
