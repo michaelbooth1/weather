@@ -5,7 +5,7 @@
 > **REWRITTEN, never appended. Capped at ~90 lines.** The one document answering *"what is happening
 > right now?"* `ESTABLISHED_FINDINGS` owns what we know, `RETRACTED_AND_FALSE_LEADS` what is false,
 > `AGENT_CONTEXT` invariants, `DELEGATION_CONTRACT` how to work. **Over the cap means something
-> stopped being current — cut it.** Stale content here is worse than none: it will be believed.
+> stopped being current — cut it**; stale content here is believed rather than ignored.
 
 **Objectives:** 1. protect the Toronto capture streak · 2. **find a model that beats the market —
 we do not** · 3. the market-making bot is the end goal.
@@ -79,10 +79,9 @@ branches "mergeable at any hour" has quietly meant *never merged*.
   WU-404 trap, where a plain resume fetches nothing. `WeatherChainRecovery20260807` is armed for
   01:30 with `-Refetch`, the only form that fetches at all.
 
-- **4 tests fail on master and nobody owns them**: `test_afternoon_residual_centering`,
-  `test_long_job_guard` ×2, `test_tracked_artifact_manifests_match_current_repository_identity`.
-  `pytest -q` is a baseline check in `AGENTS.md`, so it is red before you start — **do not read a
-  red suite as evidence your change broke something; diff against these four first.**
+- **4 tests fail on master, unowned** — `test_afternoon_residual_centering`, `test_long_job_guard`
+  ×2, `test_tracked_artifact_manifests_match_current_repository_identity`. `pytest -q` is red
+  before you start: **diff against these four before believing your change broke something.**
 
 **`-09-29a` is one roll-free merge and it clears the middle two.**
 
@@ -91,10 +90,9 @@ branches "mergeable at any hour" has quietly meant *never merged*.
 `data/alerts/STALENESS_SWEEP.md` (**"should this have refreshed by now?"**, 08:10) ·
 `data/alerts/MORNING_BRIEFING.md` (host health) · `data/backtest/daily_refresh_report.md` (chain).
 Use `scripts\ops\roll_verdict.ps1 -Branch <b>` for merge timing; **never derive it by hand.**
-
-**Three standing alarms are expected, not incidents:** the `clob_enrichment` CRITICAL,
-`WeatherTrainingWindow` exit **2**, the chain's exit **1**. Proven benign in
-[RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) §3 — read it before escalating one.
+**Two standing alarms are expected, not incidents** — `WeatherTrainingWindow` exit **2** and the
+chain's exit **1**; both proven benign in
+[RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) §3. Read it before escalating one.
 
 ## Update this file when
 
