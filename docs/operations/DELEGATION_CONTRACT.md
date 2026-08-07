@@ -96,8 +96,24 @@ commits. A mission that withholds a push to protect the streak has misread this 
 blocked its own handback for nothing.
 
 - **The test is the loaded-module import closure**, recorded in the capture status files as
-  `runtime_identity.source_scope_files`. There are four closures: snapshot, CLOB, observation-trigger,
-  and CLOB-enrichment.
+  `runtime_identity.source_scope_files`. **Do not derive it by hand — run
+  `scripts\ops\roll_verdict.ps1 -Branch <branch>`.** Exit 0 roll-free, 2 roll-free only while a
+  dormant loop stays down, 3 roll-sensitive, 1 undecidable. `quiet_window_merge.ps1` consults it
+  and only requires 01:00–04:00 for a branch that is genuinely roll-sensitive.
+- **The four closures, and the file that carries each** — the naming is not uniform and a
+  hand-derived verdict on 2026-08-06 got it wrong in both directions at once:
+
+  | Closure | File |
+  | --- | --- |
+  | snapshot | `data\snapshots\loop_supervisor_status.json` |
+  | CLOB | `data\snapshots\clob_loop_supervisor_status.json` |
+  | observation-trigger | `data\snapshots\observation_trigger_supervisor_status.json` |
+  | CLOB-enrichment | `data\snapshots\clob_enrichment_status.json` — **note: not `*_supervisor_status.json`** |
+
+  **`loop_status_supervisor_status.json` is a tombstone, not a fifth closure.** It is
+  `loop=snapshot_capture` — the same loop as the first row — left `state=DEAD`,
+  `action=circuit_open`, `restart_budget_exceeded=6>=6`, frozen at 2026-07-13. Reading it as
+  live evidence is the failure mode; `roll_verdict.ps1` rejects it explicitly.
 - **The `SOURCE_PATTERNS` glob is not the test.** It over-reports and wastes quiet windows.
 - Markdown, `docs/`, and `config/` are roll-free. `.ps1` scripts are roll-free (status closures
   contain Python only).

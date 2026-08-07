@@ -54,12 +54,37 @@ function Save-Report($ok, $stage, $detail) {
     catch {}
 }
 
-# ---- window guard ----
+# ---- window guard, proportional to the branch's actual roll verdict ----
+# This used to demand 01:00-04:00 for EVERY branch, including branches that cannot roll
+# anything. That is a guard against a risk the branch does not carry, and it was the real
+# reason the merge queue backed up: 25 unmerged branches queued for three hours a night,
+# most of them roll-free. A guard that costs more than the risk it prevents gets worked
+# around, and then it protects nothing.
+#
+# So ask first. roll_verdict.ps1 derives the answer from the live closures rather than by
+# hand -- exit 0 roll-free, 2 roll-free-only-while-a-loop-stays-dormant, 3 roll-sensitive,
+# 1 undecidable. Anything that is not a clean 0 is treated as roll-sensitive: the cost of a
+# wrong "free" is a streak day, the cost of a wrong "sensitive" is waiting until 01:00.
 $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
-if (-not $Force -and -not ($h -ge 1 -and $h -lt 4)) {
-    Fail ("outside the 01:00-04:00 quiet window (now {0:N2}); use -Force only if you are certain a capture roll is safe right now" -f $h)
+$verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"
+$rollFree = $false
+if (Test-Path -LiteralPath $verdictScript) {
+    & $verdictScript -Branch $Branch | ForEach-Object { Note "roll_verdict: $_" }
+    $rollFree = ($LASTEXITCODE -eq 0)
+    Note ("roll verdict exit {0} -> {1}" -f $LASTEXITCODE, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
 }
-if ($h -ge 12 -and $h -lt 18) { Fail "inside the 12:00-18:00 graded capture window - never roll the fleet here" }
+else { Note "roll_verdict.ps1 not found - treating branch as ROLL-SENSITIVE" }
+
+# 12:00-18:00 is graded and 18:00-00:30 is the protected near-close window; heavy work is
+# barred from both by HOST_LOAD_POLICY regardless of roll sensitivity, because the merge
+# still runs a test suite beside live capture.
+if ($h -ge 12 -and $h -lt 18) { Fail "inside the 12:00-18:00 graded capture window - never merge here" }
+if ($h -ge 18 -or $h -lt 0.5) { Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h) }
+
+if (-not $rollFree -and -not $Force -and -not ($h -ge 1 -and $h -lt 4)) {
+    Fail ("roll-sensitive branch outside the 01:00-04:00 quiet window (now {0:N2}); use -Force only if you are certain a capture roll is safe right now" -f $h)
+}
+if ($rollFree) { Note ("roll-free branch: 01:00-04:00 not required (now {0:N2})" -f $h) }
 
 # ---- preconditions ----
 Set-Location $repo
