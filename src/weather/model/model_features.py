@@ -814,6 +814,11 @@ class FeatureModelMixin:
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(rows)
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None
+        station_rows = self.source_rows_until_cutoff(
+            station.get("rows") or [],
+            cutoff_hour,
+        )
+        station_latest = station_rows[-1] if station_rows else None
         observed_high_context = self.effective_observed_high_context(
             history,
             current,
@@ -914,10 +919,26 @@ class FeatureModelMixin:
         )
         if wind_gust is None and rows:
             wind_gust = row_value(rows[-1], "gust_kmh", "wind_gust_kmh", "wind_gust")
+        if wind_gust is None and station_latest:
+            wind_gust = row_value(
+                station_latest,
+                "gust_kmh",
+                "wind_gust_kmh",
+                "wind_gust",
+            )
         wind_shift_3h = wind_direction_delta_degrees(
             row_wind_direction(feature_latest or current),
             closest_wind_direction(rows, cutoff_minutes - 180, 60),
         )
+        if wind_shift_3h is None and station_latest:
+            wind_shift_3h = wind_direction_delta_degrees(
+                row_wind_direction(station_latest),
+                closest_wind_direction(
+                    station_rows,
+                    cutoff_minutes - 180,
+                    60,
+                ),
+            )
 
         # wind_group and cloud_group
         wind_group = (

@@ -68,16 +68,9 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
         "wind_group",
         "cloud_group",
     }
-    assert {
-        (row["field"], row["dimension"])
-        for row in report["unexpected_findings"]
-    } == {
-        ("wind_gust_kmh", "missingness"),
-        ("wind_shift_3h_degrees", "missingness"),
-    }
-    assert {
-        row["market_id"] for row in report["unexpected_findings"]
-    } == set(expected_markets)
+    assert report["unexpected_findings"] == []
+    assert report["summary"]["unexpected_blocking_finding_count"] == 0
+    assert report["summary"]["blocking_finding_count"] == 196
 
 
 def test_findings_name_field_market_cutoff_dimension_and_direction(tmp_path):
