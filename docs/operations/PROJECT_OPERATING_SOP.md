@@ -57,12 +57,12 @@ flowchart TD
     F -- "Yes" --> C
     D -- "Yes" --> G["Continue weather/model, CLOB, and observation-trigger capture"]
     G --> H["Run daily-refresh Stage A: settlement truth through fleet observability"]
-    H --> I{"Fresh COMPLETED Stage-A manifest and settled-day barrier not blocked?"}
+    H --> I{"Fresh COMPLETED Stage-A manifest?"}
     I -- "No" --> J["Keep terminal status and exact bounded resume point"]
     J --> K{"Recorded recovery is safe and authorized?"}
     K -- "No" --> X
     K -- "Yes" --> H
-    I -- "Yes" --> L["Run Stage B: evidence recomputation and learning"]
+    I -- "Yes" --> L["Run Stage B: fail-closed promotion and gap-aware learning"]
     L --> M{"Evidence countable, release-bound, parity-safe, and benchmarked?"}
     M -- "No" --> N["Retain diagnostic/research result; update owning roadmap item"]
     N --> G
@@ -90,8 +90,8 @@ flowchart TD
 | 1. Scope | Record markets, local target dates, native units, evidence lane, requested mode, checkout/release identity, effective WU cutoff, expected outputs, and deciding gate. | [Agent Context](AGENT_CONTEXT.md) |
 | 2. Host and task preflight | Confirm the host policy admits the work. Compare installed task actions, arguments, triggers, and settings with the intended registration scripts; task names and last results alone are insufficient. | [Host Load Policy](HOST_LOAD_POLICY.md), `scripts/ops/` |
 | 3. Capture | Require fresh useful writes, a clean completed iteration, one writer, and expected code/release identity for snapshot, CLOB, and observation-trigger loops. The dashboard is a cockpit, not a supervisor. | [Operations Design](OPERATIONS_DESIGN.md) |
-| 4. Stage A | Run bounded source/settlement work through fleet observability. Isolated children must remain inside declared resource gates. Exit only with a fresh `COMPLETED` Stage-A manifest and a settled-day barrier that is not blocked. | [Root command catalog](../../README.md), [`daily_refresh_registry.py`](../../src/weather/operations/daily_refresh_registry.py) |
-| 5. Stage B | Recompute promotion evidence, scorecards, parity, shadow monitors, audits, and daily learning from the fresh Stage-A manifest. Fleet criticality does not by itself prevent Stage B from starting under the current task contract, but it remains a countability/readiness blocker. | [Daily-refresh registration](../../scripts/ops/register_daily_refresh.ps1) |
+| 4. Stage A | Run bounded source/settlement work through fleet observability. Isolated children must remain inside declared resource gates. Exit with a fresh `COMPLETED` Stage-A manifest; a settled-day barrier block makes the manifest critical and blocks promotion, but does not suppress the learning lane. | [Root command catalog](../../README.md), [`daily_refresh_registry.py`](../../src/weather/operations/daily_refresh_registry.py) |
+| 5. Stage B | Recompute promotion evidence, scorecards, parity, shadow monitors, audits, and daily learning from the fresh Stage-A manifest. Promotion remains fail-closed on missing, blocked, or target-mismatched current-run receipts; independent evidence and learning continue over the last settled corpus with per-step own/dependency/not-applicable coverage and staleness. Stage-B completion is bound to the exact Stage-A run. Heavy-step deferral does not suppress later lightweight learning; physical-resource and isolated-orchestration failures remain global hard stops. | [Daily-refresh registration](../../scripts/ops/register_daily_refresh.ps1) |
 | 6. Evaluate | Keep evidence lanes separate. Require countable labels, complete probability partitions, release/runtime lineage, replay/serve and train/serve parity, proper scoring against captured market prices, and claim-appropriate protected slices/costs. | [Point-In-Time Evaluation](POINT_IN_TIME_EVALUATION.md) |
 | 7. Candidate | Enable exactly one topology: bounded single-host window or separately admitted direct scheduling. Production mode prelocks candidate-independent data before training. Output remains inactive. | [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md) |
 | 8. Release | Require explicit authorization, verified immutable graph, reviewed PASS decision, fresh matching boundary proof, and current readiness evidence. Promotion never belongs to the daily/nightly schedule. | [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md) |
