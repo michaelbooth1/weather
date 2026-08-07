@@ -382,6 +382,45 @@ says recalibration cannot supply it.
 
 ---
 
+## 4f. The free tier has the DATA but cannot express a point-in-time CORPUS
+
+Measured on the production host 2026-08-07, correcting two specifics in the `-09-38a` report.
+
+**The archive collection succeeded**: `-09-38a` P0 collected **1,740 / 1,740** target-derived
+market-dates across 12/12 markets. The window question (§4b) is closed.
+
+**The PIT corpus did not**, and the reason is the request *shape*, not coverage:
+
+| Probe (Toronto, `gfs_seamless`) | Result |
+| --- | --- |
+| `temperature_2m`, `cloud_cover`, `wind_speed_10m`, `shortwave_radiation`, `cape` — **every year 2021–2025** | **72/72 non-null each** |
+| `temperature_850hPa`, `geopotential_height_500hPa` | **72/72 non-null** |
+| `temperature_2m_previous_day1` | **72/72 non-null** |
+| `cloud_cover_previous_day1` | **0/72 — all null** |
+| `cloud_cover` with `previous_runs=1` | 72/72, but **identical to the plain query, 24/24** |
+
+**Two corrections to `-09-38a`.** It reports `temperature_850hPa`, `temperature_925hPa` and
+`geopotential_height_500hPa` as *"provider rejects variable — 3 HTTP 400 responses"*. Two of the
+three are **served, complete**. And it reports the blocker as a *"2021 matrix with 17 all-null
+fields"*; the plain fields are complete in **all five years**, so it is **not year-specific and
+not a coverage gap**. The mission probed **one market and one year** and generalised.
+
+**What is actually true:** Open-Meteo serves `_previous_dayN` for only a subset of variables —
+`temperature_2m` yes, `cloud_cover` no. So a genuine lead-day-1 corpus is expressible for
+temperature and not for most of the 21-field plan.
+
+**`previous_runs=` is a LEAKAGE TRAP.** It returns values *identical* to the plain query and does
+not even rename the series. It is silently ignored, so it hands back the settled analysis dressed
+as an earlier run. **Never use it to stand up a PIT corpus** — that is `item-224`'s defect exactly
+(§ retracted claims), and it would pass a naive completeness check.
+
+**So the open decision is a feature-set one, not a collection one:** either build the PIT corpus
+from the fields that genuinely carry `_previous_dayN`, or accept that the free tier cannot express
+this plan. **Narrowing the year set does not help** — that was the obvious move and the years are
+not the constraint.
+
+---
+
 ## 5. Method rules — binding on every measurement
 
 Each of these has already cost a retracted result. They are not stylistic preferences.

@@ -23,9 +23,15 @@ first retrain blocks at **0 / 12,600 cells**.
 **So bias and sharpness are separate problems and we have a fix for one** — the critical path:
 
 ```
-extend the archive season window  ->  stage the PIT corpus  ->  first retrain  ->  release #1
-        (-09-33a, awaiting merge)      (0/60 units today)      (-09-20a lane)      (DEFERRED)
+archive window  ->  stage the PIT corpus  ->  first retrain  ->  release #1
+   DONE 1740/1740     BLOCKED (§4f)          needs parity fix     (DEFERRED)
+   (-09-33a, unmerged) 21-field plan not      220 findings
+                       expressible free
 ```
+
+**The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the data exists in all
+five years, but Open-Meteo serves `_previous_dayN` for only some variables. **`previous_runs=` is a
+leakage trap** — it returns the settled analysis unchanged.
 
 That fixes the **centre** (74.97% of oracle excess loss); **nothing is aimed at resolution**, which
 §1 says recalibration cannot supply. So the retrain is **necessary, not sufficient**: promise no gap
@@ -55,7 +61,7 @@ from there, never from here.**
 | --- | --- | --- |
 | `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
-| `-09-38a` | **produce the first retrained candidate** | written, **next to dispatch** |
+| `-09-38a` | first retrained candidate | **RETURNED: archive PASS 1,740/1,740, corpus BLOCK** (§4f) |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` | season window (**contains `-09-20a`**, one merge not two) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
