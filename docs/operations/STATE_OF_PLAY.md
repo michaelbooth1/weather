@@ -13,16 +13,12 @@ we do not** · 3. the market-making bot is the end goal.
 
 ## Where the model actually stands
 
-**The cool bias is seasonal coverage, and in-season the model is nearly fine.** Measured
-2026-08-06 (`-09-31a`), base HGB, both strata out-of-sample, crossed date × market:
+**The cool bias is seasonal coverage** (`-09-31a`, §2): base HGB centre−settlement is **−0.1848**
+in-season vs **−1.0193** out, contrast **−0.8346 [−1.4378, −0.2159]** at 83.17% power, while the
+market's contrast is **flat** (−0.0057, spans zero). So it is not the weather.
 
-| | In-season | Out-of-season | Contrast |
-| --- | ---: | ---: | --- |
-| Base HGB centre − settlement | **−0.1848** | **−1.0193** | **−0.8346 [−1.4378, −0.2159]**, power 83.17% |
-| Market | +0.0699 | +0.0642 | −0.0057 [−0.1643, +0.1520] — **flat** |
-
-The forecast archive holds **May 10 – Jun 30 only, in every year**. It is August, so **every date
-we serve is out-of-season**, and the first retrain blocks at **0 / 12,600 cells**.
+The archive holds **May 10 – Jun 30 only, every year**. It is August, so **every date we serve is
+out-of-season**, and the first retrain blocks at **0 / 12,600 cells**.
 
 **But the gap does not vanish in-season** (`-09-34a`, §4e): served in-season is
 **1.4233x [1.2428, 1.6589]** — excludes 1.0. Nearly unbiased, still losing, on a **resolution**
@@ -81,6 +77,10 @@ addresses it, and it is now the larger half of the gap.
   should run. Watched at CRITICAL by the staleness sweep.
 - **`daily_learning` + market-beating scoreboard dead since 2026-07-10**, unreachable past the
   settled-day barrier. `-09-29a` fixes reachability on merge.
+- **Disk: production has ~11 days headroom** (123.8 GB free, ~10.9 GB/day). The workstation is
+  full because production `/MIR`s 532 GB to it nightly. Sealing/tiering is blocked by the *same*
+  barrier — `-09-29a` unblocks both.
+  [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md).
 
 ## Daily reads
 

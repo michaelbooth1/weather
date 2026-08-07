@@ -122,6 +122,9 @@ override the current code, registration scripts, or undated policy documents.
   — 2026-08-06 decision: release #1 waits for a retrained candidate.
 - [the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md) — why the
   first retrain blocks at 0/12,600 cells.
+- [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md) — the workstation
+  is full because production mirrors 532 GB to it nightly; **deleting there without excluding at
+  source is undone by `/MIR`**.
 - [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md) —
   carries a **retracted** headline; read the correction, not the title.
 - [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) — telling a
