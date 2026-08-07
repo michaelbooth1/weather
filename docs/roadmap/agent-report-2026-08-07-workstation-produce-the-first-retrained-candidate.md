@@ -353,5 +353,5 @@ runtime.
 
 ## Commit
 
-- Evidence/report commit: to be recorded in the final branch-head metadata commit.
-- Final branch head: the pushed branch ref is authoritative.
+- Evidence/report commit: `6ec0895d4b82726169a64db8f9afff6802a8d7b7`.
+- Final metadata commit: the pushed branch head is authoritative.
