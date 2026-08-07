@@ -70,18 +70,61 @@ result.
 
 ## 3. Roll sensitivity — how to decide it
 
-Committing code can restart live capture and cost a streak day. Getting this verdict right is the
-difference between a safe merge and a lost day.
+Landing code on the production host can restart live capture and cost a streak day. Getting this
+verdict right is the difference between a safe merge and a lost day.
+
+### The roll happens at MERGE on production, never at commit on the workstation
+
+**A workstation mission must always commit and push its branch, at any hour, including inside the
+graded window.** Doing so carries no capture risk and §2 requires it; §5 cannot be satisfied
+without the resulting commit hash.
+
+The capture supervisors fingerprint the **source files in the production host's working tree**
+(`runtime_identity.identity_source: git_filesystem`). A branch on `origin` is a remote ref: it
+changes no file in that tree, so it cannot change the fingerprint and cannot trigger a
+`STALE_CODE` readoption.
+
+Measured 2026-08-06, inside the graded window: branch
+`codex/fix-wu-404-classification-2026-08-06`, which modifies `wu_history.py` — in the snapshot and
+observation-trigger closures — was pushed at ~14:00. Snapshot `source_fingerprint` was
+`cbb7175fb9031ba6` before and `cbb7175fb9031ba6` after, with capture at iteration 840, zero errors.
+Over the same afternoon `git_commit` advanced through six commits on master with the fingerprint
+unchanged: **runtime identity tracks source file content, not commit ids or refs.**
+
+So the roll verdict below governs **when the production agent merges**, not when the workstation
+commits. A mission that withholds a push to protect the streak has misread this section and has
+blocked its own handback for nothing.
 
 - **The test is the loaded-module import closure**, recorded in the capture status files as
-  `runtime_identity.source_scope_files`. There are four closures: snapshot, CLOB, observation-trigger,
-  and CLOB-enrichment.
+  `runtime_identity.source_scope_files`. **Do not derive it by hand — run
+  `scripts\ops\roll_verdict.ps1 -Branch <branch>`.** Exit 0 roll-free, 2 roll-free only while a
+  dormant loop stays down, 3 roll-sensitive, 1 undecidable. `quiet_window_merge.ps1` consults it
+  and only requires 01:00–04:00 for a branch that is genuinely roll-sensitive.
+- **The four closures, and the file that carries each** — the naming is not uniform and a
+  hand-derived verdict on 2026-08-06 got it wrong in both directions at once:
+
+  | Closure | File |
+  | --- | --- |
+  | snapshot | `data\snapshots\loop_supervisor_status.json` |
+  | CLOB | `data\snapshots\clob_loop_supervisor_status.json` |
+  | observation-trigger | `data\snapshots\observation_trigger_supervisor_status.json` |
+  | CLOB-enrichment | `data\snapshots\clob_enrichment_status.json` — **note: not `*_supervisor_status.json`** |
+
+  **`loop_status_supervisor_status.json` is a tombstone, not a fifth closure.** It is
+  `loop=snapshot_capture` — the same loop as the first row — left `state=DEAD`,
+  `action=circuit_open`, `restart_budget_exceeded=6>=6`, frozen at 2026-07-13. Reading it as
+  live evidence is the failure mode; `roll_verdict.ps1` rejects it explicitly.
 - **The `SOURCE_PATTERNS` glob is not the test.** It over-reports and wastes quiet windows.
 - Markdown, `docs/`, and `config/` are roll-free. `.ps1` scripts are roll-free (status closures
   contain Python only).
-- **`schema_registry_data.py` is in all four closures.** Any change to it rolls every capture loop.
-  Central registration is *mandatory* — `schema_version()` raises `KeyError` on unregistered names —
-  so the roll cannot be avoided, only made **purely additive** and therefore behaviourally inert.
+- **The whole `schema_registry*` family is in all four closures** — `schema_registry.py`,
+  `schema_registry_data.py`, `schema_registry_recent_data.py`, `schema_registry_types.py`
+  (verified 2026-08-06 against the live snapshot and observation-trigger status files). Any change
+  to any of them rolls every capture loop at merge. Central registration is *mandatory* —
+  `schema_version()` raises `KeyError` on unregistered names — so the roll cannot be avoided, only
+  made **purely additive** and therefore behaviourally inert. **A mission touching this family must
+  state in its report whether its change is additive-only**; that is what lets the production agent
+  treat the merge as a low-risk roll rather than a behavioural one.
 
 Every mission must deliver a **per-file roll verdict**, stating which closures each changed file
 enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window**. Never merge inside

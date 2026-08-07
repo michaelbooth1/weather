@@ -68,9 +68,35 @@ that improves the pooled average while leaving the tail alone is close to worthl
 **Do not implement a serving-side offset.** Market heterogeneity forbids it: the bias is not uniform
 across markets, so a global correction helps some and harms others.
 
+### The root cause is MEASURED, 2026-08-06: it is seasonal coverage, not staleness
+
+`-09-31a`, base HGB via replay, both strata out-of-sample, entirely inside the pre-`2026-07-31`
+regime. 12,289 hourly snapshots, D=50, M=12, 524 market-days.
+
+| Estimand (C-equivalent) | In-season **B** | Out-of-season **C** | C−B [crossed 95%] |
+| --- | ---: | ---: | --- |
+| **Base HGB** centre − settlement | **−0.1848** | **−1.0193** | **−0.8346 [−1.4378, −0.2159]** |
+| **Market** implied centre − settlement | +0.0699 | +0.0642 | −0.0057 [−0.1643, +0.1520] |
+
+B is D=23/M=12/MD=204; C is D=27/M=12/MD=320. Power **83.17%**, 80%-power MDE 0.8196.
+
+**In-season the model is very nearly unbiased (−0.18). Out-of-season it is a full degree cool
+(−1.02). The market shows no seasonal movement at all — its interval spans zero.** So this is
+not the weather, and it is not general staleness: **it is the archive's May 10 – Jun 30 coverage
+(§4b).** The pooled −0.6641 above sits between B and C because it is a mixture of dates at
+different seasonal distances — it is a property of *where we evaluated*, not a fixed property of
+the model.
+
+**What this does NOT establish.** The same contrast on the severity tail is **underpowered —
+47.65%, 80%-power MDE 1.3489 — and its interval crosses zero.** The mission's verdict is
+`NO_GO_SEVERE_TAIL_NOT_POWERED` and it is correct: **no loss-lever claim is authorised.** We know
+the centre moves; we have not shown it moves the loss where the loss is concentrated. Do not cite
+this finding as an expected Brier or P&L improvement.
+
 Established sub-findings:
 
-- **The base HGB itself is cool.** Root cause is a stale/cool June prior.
+- **The base HGB itself is cool.** Recorded root cause was "a stale/cool June prior"; the measured
+  root cause is **seasonal coverage**, above.
 - **Evening is the same bias**, masked by the observed-high floor rather than absent.
 - **09:00–14:00 is not specially cool.** The slice is the objective for other reasons (§0), not
   because the bias concentrates there.
@@ -99,7 +125,119 @@ stack that cannot reproduce them is wrong, and the retained finding is not.
 
 ---
 
-## 4. The model is feature-blind at 09:00–14:00
+## 4. The model is feature-blind — ALL DAY, FLEET-WIDE, not only at 09:00–14:00
+
+> **CORRECTED 2026-08-06 on direct production measurement.** The "09:00–14:00" framing below was an
+> artifact of where we happened to look. It is not a blind *window*; **the model is blind at every
+> hour, in every market, always.** The corrected measurement is the first table; the original
+> section follows unchanged because its root cause and effect analysis still stand.
+
+**10 of 19 base features are 100% empty at every cutoff hour 07:00–20:00, in all 11 markets
+measured (~5,761 rows, Aug 3–5).** Not "mostly empty" — exactly zero populated values.
+
+| Measurement | Result |
+| --- | --- |
+| Toronto, 5 days, all hours 07–20 (919 rows) | 10 features at **0%**, every hour |
+| Fleet, 11 markets, Aug 3–5 (5,761 rows) | the same 10 at **0.0%**; the other 9 at 93.6–100% |
+
+> **Scope caveat, added 2026-08-06 — the survivor range is NOT a usable positive control.**
+> This row says "11 markets" and never enumerates which 11 of the 12, and its row count is
+> approximate. `-09-28a` re-measured on this host and got **5,731 rows and 91.36–100%** for the
+> nine survivors after a strict Austin-row exclusion. **The finding itself reproduces exactly**
+> — the same 10 features at 0.0%, and 8 of them dead in all 14 Toronto hour models at 29 trained
+> features each. Only the *survivor range* differs, and it differs because the original scope was
+> never pinned. Treat the **dead set as the control** and the 93.6–100% range as incidental
+> colour. Do not conclude a measurement stack is wrong because it misses that range.
+| Serving artifact `feature_model_hgb.pkl` | **8 of 29 trained features are dead at serve in all 14 hour models** |
+
+The dead set is the entire local-meteorology block: `rise_from_7am`, `warming_rate_2h`,
+`hours_at_peak`, `dewpoint_c`, `humidity`, `pressure`, `pressure_trend_3h`, `wind_speed_kmh`,
+`wind_gust_kmh`, `wind_shift_3h_degrees`.
+
+What survives is `high_so_far`, `current_temp`, `onshore_flow`, `onshore_wind_speed_kmh`,
+`lake_breeze_proxy`, `forecast_high`, `forecast_gap`, `forecast_source_count`,
+`forecast_disagreement` — current state, lake-breeze geometry, and forecast consensus. **The model
+has no direct observation of moisture, pressure, wind, or temperature trajectory.**
+
+**So ~28% of every prediction's trained inputs are imputed medians, always.** This is the single
+largest known defect in the model and it subsumes the train/serve parity finding, which detected
+2 of the 10. It also explains §1 directly: if the gap is informational rather than calibration, this
+is where the information went.
+
+**Consequence for every prior result:** the cool bias, the market gap, the severity tail and the
+centre-displacement work were all measured on a model missing 10 of 19 base inputs at all times.
+None of them is invalidated, but none was measuring a model that could see.
+
+### The mechanism — traced 2026-08-06, it is a ROUTING defect, not a data gap
+
+The data is captured, parsed into the right field names, and then discarded. Four links:
+
+1. **`extract_live_features` reads the dead sources only.** `model_features.py:753-754` binds
+   `history = source_data(sources, "wu_history")` and `current = source_data(sources, "wu_current")`.
+   WU live collection is disabled, so `rows` is empty and `feature_latest` is `None`. Every dead
+   feature resolves through `feature_latest` / `current` / `rows` and therefore to `None`.
+2. **Only the observed-high path consumes the station fallback.** `effective_observed_high_context(...)`
+   takes `station` as an argument — which is exactly why `current_temp` and `high_so_far` are the two
+   survivors. Nothing else in the function receives it.
+3. **The station fallback deliberately returns almost nothing.** `model_sources.py:315-326`,
+   `derive_station_observation_data`, builds a 10-key dict whose only measurements are `temp_native`
+   and `max_since_7am_native`. It holds the full observation in `latest` and reads two values off it.
+4. **The adapter already parses everything, into WU-compatible names.**
+   `eccc_swob_history.py:340-375` emits `dewpoint_c`, `humidity`, `pressure`, `wind_speed_kmh`,
+   `wind_gust_kmh`, `wind_dir_deg`, `clouds` — the same names the extractor asks for.
+
+Verified on a real captured payload (Toronto, 2026-08-05, parsed by the repo's own
+`parse_swob_xml`): `dewpoint_c=17.2`, `humidity=81.0`, `pressure=997.8`, `wind_speed_kmh=6.5`,
+`wind_dir_deg=129.0`. Payloads accumulate up to **20 hourly rows**, so the trend features
+(`pressure_trend_3h`, `wind_shift_3h_degrees`, `rise_from_7am`, `warming_rate_2h`, `hours_at_peak`)
+have the history they need as well.
+
+### Training was NOT blind — this is pure train/serve skew
+
+The serving artifact's `SimpleImputer` carries a **finite, physically sensible median for every dead
+feature**: `dewpoint_c` 13.0 °C, `humidity` 57%, `pressure` 994.25 hPa, `wind_speed_kmh` 15.0,
+`rise_from_7am` 6.0 (pooled/Toronto model). Had training never observed them, sklearn would have
+dropped them as all-NaN. **The model learned real relationships from these features and is now fed
+the same constant for every prediction, in every market, at every hour.**
+
+Per-market artifacts carry market-appropriate medians in **native units** — Denver `pressure` 24.4
+inHg (correct for altitude), Miami `dewpoint_c` 73 °F, Houston 71 °F — while the pooled Toronto model
+is hPa/Celsius. **Any repair must convert per market to the units each artifact was trained on.**
+
+This materially lowers the risk that repair is a distribution shift into unseen territory: populating
+these features restores learned behaviour rather than introducing novel behaviour.
+
+### DIRECTIONAL probe, 2026-08-06 — half the repair is worth about −3.4% Brier
+
+Toronto only, so by §5 this is **directional and can never be a confirmation**. PIT-safe: each row
+used only the SWOB observation captured at or before its own capture time and valid at or before its
+cutoff. Only the **4 directly-readable** dead features were populated (`dewpoint_c`, `humidity`,
+`pressure`, `wind_speed_kmh`); the four trajectory/trend features were left imputed, so this is a
+**lower bound on half the block**.
+
+| Measure | Value |
+| --- | --- |
+| Rows scored / dead cells filled | 755 / 3,020 (4.00 per row) |
+| Mean Brier, served (imputed) | 1.05384 |
+| Mean Brier, populated | 1.01791 |
+| Delta | **−0.03592 (−3.41%)** |
+| Rows improved | 435 of 755 (57.6%) |
+| **Dates improved** | **3 of 4** — Aug 3 reversed at +0.01455 |
+
+**D=4. One date reversed. Toronto-only.** A crossed interval at D=4 would certainly cross zero, so
+this is a prior to test, not a result to bank. It is exactly what `-09-26a` exists to measure
+properly: fleet-wide, all 10 features, crossed date × market clustering.
+
+**So the repair is routing, not collection or parsing.** Known real complications, none fatal:
+SWOB is Celsius and US markets need native Fahrenheit; SWOB cadence is hourly where training rows
+were denser, so trajectory features are *not* observationally identical to their trained semantics;
+`wind_gust_kmh` is legitimately absent in calm conditions and must stay missing; and any station row
+used must respect the cutoff and emission-time rules. One genuine name mismatch: the extractor reads
+`wind_kmh` while the adapter emits `wind_speed_kmh`.
+
+---
+
+**Original section, retained — its root cause and effect analysis stand:**
 
 **9 of 19 base features are empty at inference** in the floor-excluded lane, despite the inputs being
 fully captured. This is a **feature-contract defect, not an information gap** — the data exists.
@@ -128,6 +266,57 @@ parity for trajectory, dew point, humidity, pressure, wind and cloud **was never
 Heterogeneous: cost is positive at 09:00–11:00, negative at 12:00–13:00, near zero at 14:00, and
 negative in 5 of 12 markets including NYC and Toronto. **A repair must be evaluated on the severe
 tail, not pooled**, and should ship dark until release #1 is locked.
+
+---
+
+## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
+
+Measured 2026-08-06. Canonical:
+[the-season-window-blocks-the-retrain.md](the-season-window-blocks-the-retrain.md).
+
+`SEASON_START=(5,10)` / `SEASON_END=(6,30)` in `forecast_history.py`. The archive holds **52
+month-days per year, May 10 – Jun 30, in every year**. The first retrain targets 2026-07-31
+±7 days — **Jul 24 to Aug 7 — for which the archive has ZERO rows in any year.** That is why
+`-09-20a` blocks at **0 / 12,600 cells, 0 of 60 market/year staging units**.
+
+The constant was correct when written ("for late-May and June target dates") and **expired
+silently on 2026-06-30**. `fleet-coverage` still reports **`OK markets: 12/12`**, because it
+checks rows and field completeness and **never asks whether the covered dates match the
+target**. Third instance of the §8 shape: *the standard came from the thing being judged.*
+
+**Every served HGB was fitted 2026-06-10 to 06-13** on that archive, and is served in August.
+Release #1 **freezes** them. The unblock is ~**60 free-tier calls** — verified available:
+a `2023-07-24 → 2023-08-07` historical-forecast request returns 200 with 360 populated rows.
+
+**Also corrects §4's repair value.** `-09-26a` measured full free-source parity fleet-wide,
+crossed: all-severe SSE **6.7395%** [0.5208%, 14.3964%], pooled Brier **−0.000721**
+[−0.032916, +0.030983] — **crosses zero, point is a mild degradation** — with the fields
+present in only **8.90%** of fleet snapshots. Verdict **NO-GO for activation or fleet
+retrain**. §4's `12.77%` is the *theoretical* repair; `6.7395%` is what free sources deliver,
+and the `−3.41%` Toronto probe did not survive fleet measurement.
+
+---
+
+## 4c. No target-year row is ever in-sample
+
+Verified 2026-08-06 at `model_climatology.py:121` and `:234`:
+
+```python
+if local_date.year >= self.target_date.year:
+    continue
+```
+
+The trainer skips every row from the target year unless an explicit coverage date is supplied,
+and `feature_model.py` calls `historical_target_cache()` without one. **For a 2026-target
+artifact, no 2026 date can be an exact fit row.** All twelve frozen artifacts show zero overlap
+with the 2026 label inventory — 0 of 216 checked market-days (`-09-30a`).
+
+Two consequences:
+
+- **Every evaluation we have run on 2026 data is honestly out-of-sample.** Being inside the
+  May 10 – Jun 30 archive window does *not* make a 2026 observation in-sample.
+- **A seasonal-distance test needs no in-sample control stratum**, because no such stratum can
+  exist. Compare in-season against out-of-season target dates, both out-of-sample.
 
 ---
 
@@ -219,8 +408,36 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 ---
 
+## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
+
+Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
+and was corrected within hours.** Canonical:
+[release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md).
+
+| Claim | Status |
+| --- | --- |
+| MM countability *modules* contain zero references to release binding | **True**, and insufficient on its own |
+| MM quoting is gated on promotion | **True** — 924 intents today, `promotion_state` BLOCK on all, `known_edge_reason=promotion_block` on **847 (91.7%)** |
+| Release #1 is *sufficient* for promotion | **False.** `hourly_model_performance` BLOCKs on early-hour Brier trailing the market by **0.0205 vs a 0.0030 tolerance in all 12 markets**; its own remediation reads `keep promotion blocked` |
+| Release #1 is *necessary* for promotion | **NOT ESTABLISHED.** Today cannot test it — the chain died at the barrier, so promotion refresh never ran and its summary is all-null; the BLOCK is the `not_run` default |
+
+**What survives for sequencing:** the blindness repair belongs *before* the candidate freeze.
+Freezing bakes a knowingly blind incumbent into the baseline every future comparison uses,
+**and** model skill is an independent promotion blocker that no release pointer clears — so
+model work is on the promotion path in a way that building the release is not.
+
+**Method lesson, the second time this project has paid it:** the retracted version reached its
+conclusion by grepping three modules for a string and generalising to a causal claim. A search
+is not a trace. §7 records the same error made against `-09-01a`.
+
+---
+
 ## Related
 
+- [release-one-is-not-the-mm-critical-path.md](release-one-is-not-the-mm-critical-path.md) —
+  the sequencing finding above, with reproduction
+- [mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) — how to tell a
+  never-dispatched mission from a completed one
 - [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) — what is not true despite appearing so
 - [DELEGATION_CONTRACT.md](DELEGATION_CONTRACT.md) — standing boundaries for delegated missions
 - [AGENT_CONTEXT.md](AGENT_CONTEXT.md) — durable domain invariants
