@@ -79,6 +79,11 @@ branches "mergeable at any hour" has quietly meant *never merged*.
   WU-404 trap, where a plain resume fetches nothing. `WeatherChainRecovery20260807` is armed for
   01:30 with `-Refetch`, the only form that fetches at all.
 
+- **4 tests fail on master and nobody owns them**: `test_afternoon_residual_centering`,
+  `test_long_job_guard` ×2, `test_tracked_artifact_manifests_match_current_repository_identity`.
+  `pytest -q` is a baseline check in `AGENTS.md`, so it is red before you start — **do not read a
+  red suite as evidence your change broke something; diff against these four first.**
+
 **`-09-29a` is one roll-free merge and it clears the middle two.**
 
 ## Daily reads
