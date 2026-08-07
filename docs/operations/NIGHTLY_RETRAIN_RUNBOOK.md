@@ -49,6 +49,84 @@ python -m weather.operations.nightly_retrain run --fail-on-daily-learning-blocke
 That flag is also the CLI default. It makes `daily_learning.status == BLOCKED`
 stop the run before expensive retraining or promotion refresh steps.
 
+## All-Market Base-Model Candidate Step
+
+The nightly plan always declares one `all_market_base_retrain` step before the
+other model trainers. It has no skip flag and no ambient identity/date values.
+A scheduled invocation must explicitly provide all eight bindings:
+
+```powershell
+python -m weather.operations.nightly_retrain run `
+  --base-retrain-target-date <yyyy-mm-dd> `
+  --base-retrain-parent-release-id <active-release-id> `
+  --base-retrain-training-as-of <iso-8601-with-timezone> `
+  --base-retrain-feature-contract-id <sha256:parent-feature-contract> `
+  --base-retrain-corpus-manifest <frozen-corpus-manifest.json> `
+  --base-retrain-pit-forecast-corpus-manifest <pit-corpus-root>\manifest.json `
+  --base-retrain-candidate-dir <new-root-outside-the-repository> `
+  --base-retrain-runtime-id <reviewed-runtime-id>
+```
+
+The same step can be invoked directly with
+`python -m weather.operations.base_retrain`; inspect `--help` for its explicit
+release-store, pointer, and repository arguments. No fit starts unless the PIT
+forecast corpus manifest verifies and covers every planned market, selected
+date, and parent cutoff hour. The preflight also requires every hash-bound
+feature record to carry the same corpus ID, request/raw hashes, native forecast
+value, and issue/availability/as-of timestamps. A missing, corrupt, incomplete,
+or differently bound corpus blocks the complete fleet.
+
+The plan owns the first-retrain population: years 2021-2025, the target
+month/day plus or minus seven days, cutoff hours 07-20, and all 12 built-in
+markets. For target 2026-07-31 that is 75 dates and 12,600
+market/date/cutoff cells. Source and feature manifests may prove that matrix;
+their `covered_years`, selected dates, counts, and minimums never size it.
+
+The corpus manifest supplies row-level evidence, not summary booleans. For all
+twelve built-in markets it binds selected prior-year target-date `+/-7` rows,
+native labels and units, cutoff timestamps, daily/hourly hashes, exact parent
+feature order, historical/live
+feature values and missingness, allowed sidecars, and fold-local/final support.
+The preflight independently recomputes these gates. The separate PIT manifest
+supplies forecast coverage and point-in-time provenance; its exact selection
+binding must match the feature records. Train/serve parity compares values,
+units, categories, missingness, and cutoff behavior field by field.
+
+The base-retrain lane never discovers or reads
+`weather.sources.forecast_history.daily_path_for` or ambient
+`data/forecast_history/forecast_daily.csv`. The explicit PIT manifest is the
+only forecast-history input accepted by this lane.
+
+Candidate output must be a new root outside the repository and immutable
+release store. A dry path probe hashes repository global model/calibration
+files, `data/`, the active pointer, and every parent release file before and
+after its candidate-local write. The same inventory surrounds every market
+fit. Any outside write aborts; the legacy feature-model CLI is not callable
+from this lane.
+
+Each market emits a parent-feature-order HGB, compatible LR coefficients,
+candidate-specific exact-distribution calibration, fit receipt, and report.
+The HGB parameters come from the verified parent estimator. The legacy LR
+artifact does not serialize its constructor parameters, so this lane freezes
+and receipts the serving-compatible `C=0.5`, `max_iter=1000`,
+`random_state=42` contract. Serving support is a positive-mass contiguous
+native integer range declared separately from estimator classes, with a
+two-bucket C or four-bucket F upper margin. The serving path uses the artifact's
+target-date-aligned prior when present; legacy artifacts retain their existing
+dynamic climatology behavior.
+
+Only a complete twelve-market HGB/LR/calibration fleet can be rebound. Every
+other base and shared component is copied from the verified active parent at
+its exact hash. The rebuilt semantic graph is verified before the ordinary
+release builder creates a research-only inactive child. The active pointer is
+never changed. A production parent is rejected because its candidate-scoring
+qualification cannot be reused after changing the base distributions.
+
+Adding the code step does not register or edit a Windows scheduled task. Until
+the seven bindings and both external repairs are ready, merging this change
+would make the existing argument-free nightly action stop at the new fail-closed
+step; coordinate registration/adoption separately.
+
 ## Research And Production Candidate Modes
 
 `--release-candidate-mode research_only` is the default. It preserves the

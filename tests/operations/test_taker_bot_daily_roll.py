@@ -9,8 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from weather.operations.taker_bot_daily_roll import (
+    COUNTERFACTUAL_RETENTION_EVIDENCE_DIRNAME,
+    COUNTERFACTUAL_RETENTION_PLAN_FILENAME,
+    COUNTERFACTUAL_RETENTION_STATUS_FILENAME,
     DEFAULT_STRATEGIES,
+    apply_counterfactual_tape_retention,
     build_taker_bot_command,
+    counterfactual_tape_retention_plan,
+    enforce_counterfactual_tape_retention,
     ensure_for_date,
     load_status,
     pid_is_live_taker_bot,
@@ -112,6 +118,88 @@ class TestTakerBotDailyRoll(unittest.TestCase):
 
         self.assertNotIn("--loop", command)
         self.assertEqual(command[-2:], ["--config", "min_edge=0.05"])
+
+    def test_daily_roll_can_pass_explicit_counterfactual_disable(self):
+        command = build_taker_bot_command(
+            "2026-06-18",
+            python_executable="python.exe",
+            disable_counterfactual_tape=True,
+        )
+
+        self.assertEqual(command[-1], "--disable-counterfactual-tape")
+
+    def test_counterfactual_retention_runs_without_settled_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs_root = Path(tmp) / "taker_runs"
+            old_run = runs_root / "2026-06-01" / "old-run"
+            recent_run = runs_root / "2026-06-20" / "recent-run"
+            old_run.mkdir(parents=True)
+            recent_run.mkdir(parents=True)
+            old_raw = old_run / "counterfactual_orders_long.csv"
+            old_settled = old_run / "settled_counterfactual_orders_long.csv"
+            real_orders = old_run / "orders_long.csv"
+            compact_summary = old_run / "run_summary.json"
+            recent_raw = recent_run / "counterfactual_orders_long.csv"
+            for path, content in (
+                (old_raw, "raw replay detail\n"),
+                (old_settled, "settled replay detail\n"),
+                (real_orders, "real order evidence\n"),
+                (compact_summary, "{}\n"),
+                (recent_raw, "recent replay detail\n"),
+            ):
+                path.write_text(content, encoding="utf-8")
+            old_timestamp = _ts("2026-06-01T00:00:00+00:00")
+            recent_timestamp = _ts("2026-06-20T00:00:00+00:00")
+            for path in (old_raw, old_settled, real_orders, compact_summary):
+                os.utime(path, (old_timestamp, old_timestamp))
+            os.utime(recent_raw, (recent_timestamp, recent_timestamp))
+
+            receipt = enforce_counterfactual_tape_retention(
+                runs_root,
+                retention_days=14,
+                now="2026-06-30T12:00:00+00:00",
+            )
+
+            self.assertEqual(receipt["status"], "PASS")
+            self.assertEqual(receipt["deleted_count"], 2)
+            self.assertFalse(old_raw.exists())
+            self.assertFalse(old_settled.exists())
+            self.assertTrue(real_orders.exists())
+            self.assertTrue(compact_summary.exists())
+            self.assertTrue(recent_raw.exists())
+            self.assertFalse((old_run / "settled_counterfactual_pnl.json").exists())
+            self.assertFalse(receipt["settlement_summary_required"])
+            self.assertTrue((runs_root / COUNTERFACTUAL_RETENTION_PLAN_FILENAME).exists())
+            self.assertTrue((runs_root / COUNTERFACTUAL_RETENTION_STATUS_FILENAME).exists())
+            evidence = list(
+                (runs_root / COUNTERFACTUAL_RETENTION_EVIDENCE_DIRNAME).glob("*.json")
+            )
+            self.assertEqual(len(evidence), 2)
+
+    def test_counterfactual_retention_skips_a_file_changed_after_planning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runs_root = Path(tmp) / "taker_runs"
+            tape = runs_root / "2026-06-01" / "run" / "counterfactual_orders_long.csv"
+            tape.parent.mkdir(parents=True)
+            tape.write_text("before\n", encoding="utf-8")
+            timestamp = _ts("2026-06-01T00:00:00+00:00")
+            os.utime(tape, (timestamp, timestamp))
+            plan = counterfactual_tape_retention_plan(
+                runs_root,
+                retention_days=14,
+                now="2026-06-30T12:00:00+00:00",
+            )
+            tape.write_text("changed after plan\n", encoding="utf-8")
+
+            receipt = apply_counterfactual_tape_retention(
+                plan,
+                runs_root=runs_root,
+            )
+
+            self.assertEqual(receipt["status"], "PARTIAL")
+            self.assertEqual(receipt["deleted_count"], 0)
+            self.assertEqual(receipt["skipped"][0]["reason"], "file_identity_changed")
+            self.assertTrue(tape.exists())
 
     def test_build_command_can_launch_strategy_experiment(self):
         command = build_taker_bot_command(

@@ -96,6 +96,41 @@ class TestFeatureModelServingCalibration(unittest.TestCase):
         self.assertAlmostEqual(config["sigma"], 0.75)
         self.assertAlmostEqual(config["blend_weight"], 0.25)
 
+    def test_candidate_prior_keeps_positive_mass_on_contiguous_support_beyond_classes(self):
+        model = TorontoHighTempModel()
+        model.active_model_kind = "hgb"
+        model.load_feature_model_hgb = lambda: {
+            "12": {
+                "serving_support": [18, 19, 20, 21],
+                "target_date_aligned_prior": {
+                    "18": 0.10,
+                    "19": 0.20,
+                    "20": 0.30,
+                    "21": 0.40,
+                },
+            }
+        }
+
+        prior = model.feature_serving_prior(12)
+
+        self.assertEqual(set(prior), {18, 19, 20, 21})
+        self.assertGreater(prior[20], 0.0)
+        self.assertGreater(prior[21], 0.0)
+        self.assertAlmostEqual(sum(prior.values()), 1.0)
+
+    def test_candidate_prior_fails_closed_on_support_hole(self):
+        model = TorontoHighTempModel()
+        model.active_model_kind = "hgb"
+        model.load_feature_model_hgb = lambda: {
+            "12": {
+                "serving_support": [18, 20],
+                "target_date_aligned_prior": {"18": 0.5, "20": 0.5},
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "not contiguous"):
+            model.feature_serving_prior(12)
+
     def test_fahrenheit_missing_live_fields_use_hgb_imputer_median(self):
         class RecordingImputer:
             def __init__(self, row):

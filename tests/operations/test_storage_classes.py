@@ -36,6 +36,7 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/backtest/market_day_labels.csv": CANONICAL_EVIDENCE,
             "data/mm_runs/run-1/order_lifecycle.jsonl": CANONICAL_EVIDENCE,
             "data/taker_runs/run-1/orders.jsonl": CANONICAL_EVIDENCE,
+            "data/taker_runs/2026-06-01/run-1/counterfactual_orders_long.csv": CANONICAL_EVIDENCE,
             "data/taker_runs/2026-07-13/run-1/incremental_state.sqlite3": ANALYSIS_PROJECTION,
             "data/wunderground/cyyz/manifest.json": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshots_long.csv": ANALYSIS_PROJECTION,
@@ -70,6 +71,21 @@ class TestStorageClassRegistry(unittest.TestCase):
                 self.assertEqual(classification.storage_class, OPERATOR_CACHE)
                 self.assertIn("exact pinned promotion corpus", classification.rebuild_source)
                 self.assertIn("reachability", classification.notes)
+
+    def test_counterfactual_replay_tape_has_specific_bounded_policy(self):
+        classification = classify_storage_path(
+            "data/taker_runs/2026-06-01/run-1/counterfactual_orders_long.csv"
+        )
+
+        self.assertEqual(
+            classification.artifact_family,
+            "taker_counterfactual_replay_tape",
+        )
+        self.assertIn("14", classification.retention_class)
+        self.assertEqual(
+            classification.delete_gate,
+            "daily_roll_exact_path_hash_bound_retention_manifest",
+        )
 
     def test_order_book_long_projection_has_specific_rebuild_contract(self):
         for path in (

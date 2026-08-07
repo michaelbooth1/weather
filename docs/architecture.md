@@ -47,6 +47,11 @@ low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
+Real order evidence is permanent. Counterfactual replay detail has a specific
+date-bounded policy: daily-roll startup removes only hash-bound allowlisted raw
+and settled detail CSVs after both their target date and mtime exceed the
+configured retention, without waiting for settlement. Compact P&L, strategy,
+report, plan, and apply receipts remain.
 `incremental_state.sqlite3` is a rebuildable intent index and cumulative
 checkpoint, not canonical evidence: ordinary ticks use it to materialize only
 new rows and the bounded filled-position set, while explicit maintenance

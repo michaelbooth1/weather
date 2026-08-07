@@ -1877,12 +1877,19 @@ def _finalize_counterfactual_tape_impl(
         "pnl": pnl_payload,
         "strategy_summary": strategy_summary,
         "retention": {
-            "raw_tape": "keep until settled_counterfactual_orders_long.csv and settled_counterfactual_pnl.json are present",
-            "compaction_candidate_after_days": int(
+            "policy": "daily_roll_target_date_and_file_mtime_cutoff",
+            "enforced_by": "weather.operations.taker_bot_daily_roll",
+            "retention_days": int(
                 (run_config.get("policy_config") or {}).get("counterfactual_retention_days")
                 or DEFAULT_FINALIZATION_RETENTION_DAYS
             ),
-            "recommended_compaction": "archive or compact settled counterfactual CSV after summary artifacts are verified",
+            "settlement_summary_required": False,
+            "retained_after_tape_expiry": [
+                "settled_counterfactual_pnl.json",
+                "settled_counterfactual_report.md",
+                "settled_counterfactual_strategy_summary.json",
+                "settled_counterfactual_strategy_report.md",
+            ],
         },
     }
     write_settled_worker_tape(

@@ -1,4 +1,4 @@
-﻿# Workstation report 2026-08-02 — build the all-market base-retrain step
+# Workstation report 2026-08-02 — build the all-market base-retrain step
 
 ## Verdict
 

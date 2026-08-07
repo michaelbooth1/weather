@@ -311,6 +311,18 @@ plus `data/backtest/nightly_retrain_report.md`. Candidate mode defaults to
 it can build only an inactive release and never changes the active pointer. See
 the [nightly retrain runbook](docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md).
 
+The nightly plan also contains exactly one fail-closed
+`all_market_base_retrain` step. Its target date, parent release, training
+cutoff, parent feature-contract hash, frozen feature-record corpus manifest,
+PIT forecast corpus manifest, candidate directory, and runtime ID have no
+ambient defaults. The step trains all twelve
+built-in markets or makes no release, writes only below a new candidate root,
+and builds a research-only inactive child release after the complete graph
+verifies. It does not call the legacy global-writing feature-model CLI. The
+PIT corpus must verify and bind exactly to every planned market/date/cutoff
+feature record; ambient forecast history is unreachable. See the runbook before
+configuring these arguments on a scheduled invocation.
+
 When no release or pointer exists, production mode has one explicit deadlock-
 free path: `--bootstrap-first-inactive-release` waives only the impossible
 pre-release parity check. It requires an empty release store and exact offline
@@ -380,9 +392,18 @@ F-family artifacts. For the local multi-market helper, use
 
 # Paper taker-bot simulator.
 .\venv\Scripts\python.exe -m weather.market.taker_bot_cli --date 2026-06-22 --budget-usdc 100 --markets all --loop --interval-seconds 60
+.\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll start --disable-counterfactual-tape
 .\venv\Scripts\python.exe -m weather.operations.market_making_daily_roll status
 .\venv\Scripts\python.exe -m weather.operations.taker_bot_daily_roll status
 ```
+
+Counterfactual replay tape remains enabled by default. The explicit daily-roll
+flag disables it for the launched child without changing the default. On every
+daily-roll start or recovery, the configured `counterfactual_retention_days`
+(14 by default) is enforced against both target-date age and file mtime. Only
+the two allowlisted counterfactual detail CSVs are removed; real order evidence
+and compact run/settlement/strategy summaries remain. Exact pre-delete hashes,
+byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
