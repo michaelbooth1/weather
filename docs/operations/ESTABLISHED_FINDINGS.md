@@ -320,6 +320,36 @@ Two consequences:
 
 ---
 
+## 4d. The severe tail IS ex-ante identifiable — at band granularity, not day granularity
+
+`-09-32a`, 2026-08-06. Corpus **108 market-days, 19,265 snapshots, 211,915 band rows**
+(`promotion_countable`; see the ledger-row inflation trap in `RETRACTED_AND_FALSE_LEADS.md`).
+
+A **≥30-point model/market band probability gap** captures **100% of severe-tail loss** at
+**1.714%** non-severe *band-row* collateral — but it touches **40.156% of snapshots and all 108
+market-days.**
+
+| Lever | Verdict |
+| --- | --- |
+| **Targeted band suppression** | **Viable** — surgical at 1.714% band collateral |
+| **Whole-book or whole-day stand-down** | **Not viable** — fires on 40% of snapshots and every single day |
+
+**Two reasons no operating point may be chosen yet, and neither is a formality:**
+
+1. **The signal is definition-adjacent.** The severe label itself requires a market-right error,
+   so a market-disagreement signal predicting it is partly definitional. The magnitude of
+   disagreement is not part of the label, so it is not circular — but it is not clean either.
+2. **Opportunity cost is unmeasured.** The flagged set is exactly where our claimed edge is
+   largest. Suppressing it caps the downside *and* forfeits whatever upside lives there.
+   `-09-32a` explicitly declined to choose, correctly.
+
+**Do not tune this before the retrain.** The current model is **−1.0193 C-eq** cool
+out-of-season (§2), so today's model/market disagreement is substantially *the cool bias itself*.
+An operating point fitted now would be tuned to a defect we are removing, and would have to be
+refitted afterwards. Re-measure after the first retrain, then price the opportunity cost.
+
+---
+
 ## 5. Method rules — binding on every measurement
 
 Each of these has already cost a retracted result. They are not stylistic preferences.

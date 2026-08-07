@@ -86,6 +86,31 @@ provenance silently mixes regimes. Anchor commit: `b77cfbed`.
 
 ---
 
+### Ledger rows are NOT market-days — a 20.8x inflation trap
+
+`data/settlements/<market>/ledger.jsonl` is **append-only with revisions**. Counting lines, or
+counting lines carrying a `target_date`, counts *settlement revisions*, not market-days.
+
+Measured 2026-08-06:
+
+| Count | Value |
+| --- | ---: |
+| Ledger rows with a `target_date` | **15,174** |
+| Distinct `(market, target_date)` | **729** |
+| Admitted under `promotion_countable` (`-09-32a` corpus) | **108** |
+
+**Inflation factor 20.8x** before the admission bar, and ~140x after it. The production agent
+put "~2.23M snapshots across 15,174 settled market-days" into handoff `-09-32a` as support
+scale; `-09-32a` caught it and corrected the corpus to **108 market-days, 19,265 snapshots,
+211,915 band rows**. Summing repeated records also inflates snapshot and band-row counts the
+same way.
+
+**Always deduplicate to `(market, target_date)` and then apply `promotion_countable`.** A
+support figure that was not deduplicated is not a support figure. This is the same family as the
+mismatched-denominator error that produced the retracted 78% absorption "leak".
+
+---
+
 ## 3. Operational false alarms
 
 ### "A reboot kills the fleet" — FALSE
