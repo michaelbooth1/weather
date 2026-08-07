@@ -68,9 +68,35 @@ that improves the pooled average while leaving the tail alone is close to worthl
 **Do not implement a serving-side offset.** Market heterogeneity forbids it: the bias is not uniform
 across markets, so a global correction helps some and harms others.
 
+### The root cause is MEASURED, 2026-08-06: it is seasonal coverage, not staleness
+
+`-09-31a`, base HGB via replay, both strata out-of-sample, entirely inside the pre-`2026-07-31`
+regime. 12,289 hourly snapshots, D=50, M=12, 524 market-days.
+
+| Estimand (C-equivalent) | In-season **B** | Out-of-season **C** | C−B [crossed 95%] |
+| --- | ---: | ---: | --- |
+| **Base HGB** centre − settlement | **−0.1848** | **−1.0193** | **−0.8346 [−1.4378, −0.2159]** |
+| **Market** implied centre − settlement | +0.0699 | +0.0642 | −0.0057 [−0.1643, +0.1520] |
+
+B is D=23/M=12/MD=204; C is D=27/M=12/MD=320. Power **83.17%**, 80%-power MDE 0.8196.
+
+**In-season the model is very nearly unbiased (−0.18). Out-of-season it is a full degree cool
+(−1.02). The market shows no seasonal movement at all — its interval spans zero.** So this is
+not the weather, and it is not general staleness: **it is the archive's May 10 – Jun 30 coverage
+(§4b).** The pooled −0.6641 above sits between B and C because it is a mixture of dates at
+different seasonal distances — it is a property of *where we evaluated*, not a fixed property of
+the model.
+
+**What this does NOT establish.** The same contrast on the severity tail is **underpowered —
+47.65%, 80%-power MDE 1.3489 — and its interval crosses zero.** The mission's verdict is
+`NO_GO_SEVERE_TAIL_NOT_POWERED` and it is correct: **no loss-lever claim is authorised.** We know
+the centre moves; we have not shown it moves the loss where the loss is concentrated. Do not cite
+this finding as an expected Brier or P&L improvement.
+
 Established sub-findings:
 
-- **The base HGB itself is cool.** Root cause is a stale/cool June prior.
+- **The base HGB itself is cool.** Recorded root cause was "a stale/cool June prior"; the measured
+  root cause is **seasonal coverage**, above.
 - **Evening is the same bias**, masked by the observed-high floor rather than absent.
 - **09:00–14:00 is not specially cool.** The slice is the objective for other reasons (§0), not
   because the bias concentrates there.
