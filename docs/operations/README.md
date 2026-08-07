@@ -118,6 +118,9 @@ override the current code, registration scripts, or undated policy documents.
 
 - **[STATE_OF_PLAY.md](STATE_OF_PLAY.md) — read first.** What is happening now, what is
   decided, and what is already answered. Rewritten not appended; capped at ~90 lines.
+- **[wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md) — LIVE
+  INCIDENT.** The settlement proxy returns 404 for *every* date, including ones already stored.
+  `-Refetch` works and still fails. Read before touching settlement, the chain, or the streak.
 - **[reserved-confirmation-window.md](reserved-confirmation-window.md) — wins over every other
   document, including this index.** Check it at run time before acting on any trading window.
 - [OPERATIONS_AGENT_ROLE.md](OPERATIONS_AGENT_ROLE.md) — what the production-host agent owns.

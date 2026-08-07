@@ -53,37 +53,33 @@ from there, never from here.**
 
 | Ref | What | State |
 | --- | --- | --- |
-| `-09-36a` | localise the market's resolution advantage | **written, NOT dispatched** |
-| `-09-35a` | rotate snapshot + observation-trigger logs | **written, NOT dispatched** |
-| `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a` | chain split, seasonal ×2, severe-tail | **ROLL-FREE — mergeable at any hour** |
+| `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
+| `-09-35a` | rotate snapshot + observation-trigger logs | written, **NOT dispatched** |
 | `-09-33a` +`-09-20a` | season window + retrain lane | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
-| `fix-wu-404` | scraper 404 misclassification | awaiting merge (roll-sensitive) |
+| `fix-wu-404` | scraper 404 misclassification | roll-sensitive — **does not fix the outage** |
 
-**No mission is running**, and neither handoff has a branch on origin — by
-[mission-dispatch-reconciliation.md](mission-dispatch-reconciliation.md) both are *never dispatched*.
-Relay one before writing a third. **And nothing is scheduled to merge anything:**
-`WeatherQuietWindowMerge{,2,3}` last ran 2026-08-01 with no next run, so for the four roll-free
-branches "mergeable at any hour" has quietly meant *never merged*.
+`-09-36a` answered the resolution question: the deficit is **not uniform**, but the Los Angeles
+concentration is only **6.85% of the pooled gap**, so **~93% remains uniform and unexplained**,
+and no captured signal predicts it. Roll-free merges are now driven daily at 05:15 by
+`WeatherMergeQueueDriver` off `C:\Users\micha\ops\merge-queue.txt` (allowlist, not auto-discovery
+— several unmerged branches are held deliberately).
 
 ## Open, unowned
 
-- **Resolution / sharpness** — the larger half of the gap. `-09-36a` is written to attack it and
-  is sitting undispatched.
-- **`daily_learning` + market-beating scoreboard dead 27.9 days** (since 2026-07-10) — objective
-  #2's own scorecard, unreachable past the settled-day barrier.
-- **Disk: production has ~11 days headroom** (123.4 GB free, ~10.9 GB/day); the workstation is full
-  because production `/MIR`s 532 GB to it nightly. Sealing/tiering is blocked by the *same* barrier.
+- **THE SETTLEMENT SOURCE IS DOWN** — WU returns 404 for *every* date, including ones already
+  stored; `api.weather.com` returns 401, so the route lives and the token is wrong. `-Refetch`
+  works and still fails. Settlement frozen at **2026-08-04**; the streak is **15/14 banked and
+  safe** but cannot advance. **Top operational item.**
+  [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
+- **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
+  it and found no usable signal. Nothing is aimed at the remaining ~93%.
+- **Disk: production has ~11 days headroom**; the workstation is full because production `/MIR`s
+  532 GB to it nightly, plus a ~55 GB non-mirrored `scratch/` tree.
   [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md).
-- **Settlement is 2 days behind** (latest 2026-08-04). The 08-06 chain fetched **0 of 12** — the
-  WU-404 trap, where a plain resume fetches nothing. `WeatherChainRecovery20260807` is armed for
-  01:30 with `-Refetch`, the only form that fetches at all.
-
 - **4 tests fail on master, unowned** — `test_afternoon_residual_centering`, `test_long_job_guard`
   ×2, `test_tracked_artifact_manifests_match_current_repository_identity`. `pytest -q` is red
   before you start: **diff against these four before believing your change broke something.**
-
-**`-09-29a` is one roll-free merge and it clears the middle two.**
 
 ## Daily reads
 
