@@ -55,8 +55,9 @@ from there, never from here.**
 | --- | --- | --- |
 | `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
+| `-09-38a` | **produce the first retrained candidate** | written, **next to dispatch** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
-| `-09-33a` +`-09-20a` | season window + retrain lane | awaiting merge (**roll-sensitive**) |
+| `-09-33a` | season window (**contains `-09-20a`**, one merge not two) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
