@@ -420,24 +420,41 @@ All 21 required fields probed with the `_previous_day1` suffix, Toronto 2021:
 **"Build the corpus from the fields that do carry `_previous_dayN`" collapses to a single feature
 and is not a model.** Do not commission that mission; the number is the answer.
 
-**`previous_runs=` is a LEAKAGE TRAP.** It returns values *identical* to the plain query and does
-not even rename the series. It is silently ignored, so it hands back the settled analysis dressed
-as an earlier run. **Never use it to stand up a PIT corpus** — that is `item-224`'s defect exactly
-(§ retracted claims), and it would pass a naive completeness check.
+**There are TWO hosts and only one of them is the PIT surface.** This caught both `-09-38a` and an
+earlier draft of this section, so it is written out:
 
-**So the free-tier PIT-corpus path is CLOSED**, and the real question moves elsewhere: the *plain*
-archive is complete — 1,740/1,740 collected, all 21 fields, all five years — but it is the settled
-analysis rather than what was knowable at cutoff, so training on it contaminates the **fit**.
+| Host | Purpose |
+| --- | --- |
+| `historical-forecast-api.open-meteo.com` | settled archive. **Ignores `previous_runs=`** — returns the settled series, unrenamed |
+| `previous-runs-api.open-meteo.com` | **the PIT surface**, via `<field>_previous_day{1..7}` (`PREVIOUS_RUNS_URL` in `sources/forecast_history.py`) |
 
-**We already do exactly that, and the cost is measured.** §6 records that the trainer reads a
-2-column stitched file while the PIT file goes unread: the fit is contaminated, **evaluation is
-not**, and the lookahead was measured at **~6% of the cool bias**. So "train on the plain archive,
-evaluate point-in-time" is not a new compromise — it is the existing one, already sized.
+Probing `_previous_dayN` against the *archive* host is measuring the wrong thing. **An earlier
+draft of this section called `previous_runs=` a leakage trap on that basis — that is RETRACTED.**
+On the correct host, `temperature_2m_previous_day1` differs from the settled series in **23 of 24
+hours**: it is genuinely an earlier run, and it is what the existing corpus was built from.
 
-That makes the open item an **operator decision with the evidence already in hand**, not a
-research mission: accept a contaminated fit with clean walk-forward evaluation, or do not retrain.
-**Do not commission further collection work against it** — the data is collected and the endpoint
-has been characterised to the field level.
+The **1-of-N result survives re-measurement on the correct host**: of 9 fields probed against
+`previous-runs-api`, only `temperature_2m` returns data; `temperature_850hPa` is HTTP 400 and the
+other seven are all-null. **So the PIT surface is temperature-only — but it is real.**
+
+**And we already hold it.** `data/forecast_history/<station>/forecast_daily_by_issue.csv` carries
+**2,135 rows with `issue_time_basis = fixed_lead_day_offset`**, 416 per year for 2021–2025, at
+lead-days 1–4, built 2026-06-23 for the May–June window. The mechanism is proven on this project's
+own data.
+
+**So the corpus question is narrower than "free tier cannot do PIT".** It is: *the PIT surface
+carries temperature only.* The rich 21-field corpus is settled-analysis and contaminates the fit;
+the temperature PIT corpus is honest and thin.
+
+**The contamination is therefore a TRAINER defect, not a data gap.** §6 records the trainer reading
+the 2-column stitched `forecast_daily.csv` while `forecast_daily_by_issue.csv` — the PIT file, on
+disk, populated — **goes unread**. We are contaminated because of what the trainer opens, not
+because the honest data is unavailable.
+
+That reframes the work: **collect the temperature PIT rows for the new window** (proven mechanism,
+same code path that produced the 2,135 existing rows) **and point the trainer at the PIT file**.
+Do not commission "characterise the endpoint" again — it is characterised to the field level, on
+both hosts.
 
 ---
 
