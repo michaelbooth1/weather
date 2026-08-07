@@ -276,15 +276,24 @@ the absence of a familywise-supported signal.
 
 ## Repository verification, roll verdict, and actions not taken
 
-Repository and roll verification are finalized in the binding commit after the
-report-content commit. `git diff --check`, the documentation audit, and
-`scripts\ops\roll_verdict.ps1` results are recorded there.
+Repository verification against `origin/master` passes `git diff --check` and
+confirms a one-file Markdown-only change. The documentation audit reaches this new
+report but remains nonzero on one known pre-existing broken target:
+`docs/roadmap/agent-report-2026-08-02-workstation-spec-contract-repair.md` links to
+the absent `src/weather/reporting/validation/floor_retrain_gate_harness.py#L1079`.
+
+The repository-owned `scripts\ops\roll_verdict.ps1` was run unmodified in a
+disposable local clone whose `master` was pinned to the recorded handoff base and
+which received the four workstation status files with their original timestamps.
+It reported one changed file, zero importable files, three live closures, and the
+dormant CLOB-enrichment closure fully subsumed by live closure coverage, followed by
+**`VERDICT: ROLL-FREE`**.
 
 Only this Markdown report is changed:
 
 | Changed file | Retained capture closures | Roll verdict |
 | --- | --- | --- |
-| `docs/roadmap/agent-report-2026-08-06-workstation-where-is-the-market-information-advantage.md` | None; Markdown is outside snapshot, CLOB, observation-trigger, and CLOB-enrichment closures | `ROLL_VERDICT_PENDING` |
+| `docs/roadmap/agent-report-2026-08-06-workstation-where-is-the-market-information-advantage.md` | None; Markdown is outside snapshot, CLOB, observation-trigger, and CLOB-enrichment closures | `ROLL-FREE` |
 
 No source, test, config, artifact, schema registry, ledger, tape, release, pointer,
 scheduler, task, or production `data/` file was changed. No model was fit or
@@ -314,13 +323,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\roll_verdict.p
 ```
 
 Expected changed-file scope is exactly the one Markdown report above and the expected
-roll verdict is `ROLL_VERDICT_PENDING`.
+roll verdict is `ROLL-FREE`.
 
 Branch:
 `codex/workstation-where-is-the-market-information-advantage-2026-09-36a`.
 
 Base: `73366e5f67220719e4c5224ae847e00f026be8b1`.
 
-Report-content commit: `REPORT_CONTENT_COMMIT_PENDING`.
+Report-content commit: `03902ac7ee47cbeb3b1703db1f10254c6f7a8253`.
 
 No PR was opened and no merge was performed.
