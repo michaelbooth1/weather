@@ -1,8 +1,59 @@
-# The WU settlement source is down — measured 2026-08-07
+# The WU settlement source went down — root-caused and fixed 2026-08-07
 
-Status: **live incident**, production host, 2026-08-07 09:20. This supersedes the framing in
+Status: **root cause found, fix verified on production, awaiting the quiet-window merge.**
+Supersedes the framing in
 [the 404 classification note](2026-06-21-wu-history-current-day-degradation.md) and every
 "use `-Refetch`" instruction written on 2026-08-06.
+
+## Root cause — we were sending an advertising key to the weather API
+
+`public_access_from_page` scanned the history page for *any* URL carrying an `apiKey=`
+parameter and took the first match. That match was
+`https://weather.com/api/v1/mew/entity/ad_third_party_config/...?apiKey=...` — **the page's
+third-party advertising config**. The client then used that host and that key for the
+observations call.
+
+This explains both symptoms exactly, and neither is an outage:
+
+- **404 on `weather.com/v1/...`** — the host came from the ad URL, and it does not serve the
+  observations route at all.
+- **401 on `api.weather.com/v1/...`** — the correct host, presented with an advertising key.
+
+`-09-37a` replaces the regex with a parse of the page's injected runtime config
+(`const data = {... "API_URL": ..., "API_KEY": ... }`), which is what the browser itself uses.
+It resolves to `https://api.weather.com` with the page's own 32-char token.
+
+**The date-independence was the clue and it was mis-read.** Every date failing, including ones
+already stored, meant the *request* was wrong, not the data. It was read as "the endpoint is
+gone" instead. When a source fails uniformly across every key you vary, suspect the part you
+are not varying.
+
+## Verification on the production host, 2026-08-07
+
+Run from an **isolated git worktree**, never the live working tree — `wu_history.py` is in the
+snapshot and observation-trigger closures and a checkout would have rolled capture.
+
+| Check | Result |
+| --- | --- |
+| `2026-06-15` Toronto vs stored `daily_summary.csv` | **24 observations, max 20, min 10** — stored row is `row_count 24, max_temp 20.0, min_temp 10.0` |
+| `2026-08-05`, `2026-08-06` Toronto | **OK** — 24 and 34 observations |
+| `2026-08-05`, `2026-08-06` NYC | **OK** — 26 and 31 observations, in °F as configured |
+| Payload shape | unchanged 45-field v1 observations |
+| `tests/sources/test_historical_sources.py` | 44 passed |
+
+The 08-05 / 08-06 fetches are the dates that were actually blocking settlement.
+
+**Rate limiting is real.** Probing five dates back-to-back drew failures that a 12-second
+spacing did not. Space requests; do not read a burst failure as a route failure.
+
+## Branch supersession
+
+`-09-37a` **contains all of** `codex/fix-wu-404-classification-2026-08-06` —
+`PAGE_BACKED_PERMANENT_NO_DATA_STATUS_CODES`, `PAGE_BACKED_EXCEPTION_ATTR`, `_raise_for_status`
+and the `failure_class_for_error_row` re-derivation. **Do not merge that branch as well**; it is
+superseded and would conflict.
+
+## Original diagnosis, kept because the reasoning matters
 
 ## What is true
 

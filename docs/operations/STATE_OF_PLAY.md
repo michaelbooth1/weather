@@ -54,11 +54,11 @@ from there, never from here.**
 | Ref | What | State |
 | --- | --- | --- |
 | `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
-| `-09-37a` | **restore the settlement source** | written, **next to dispatch** |
+| `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` +`-09-20a` | season window + retrain lane | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
-| `fix-wu-404` | scraper 404 misclassification | roll-sensitive — **does not fix the outage** |
+| `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
 `-09-36a` answered the resolution question: the deficit is **not uniform**, but the Los Angeles
 concentration is only **6.85% of the pooled gap**, so **~93% remains uniform and unexplained**,
@@ -68,10 +68,12 @@ and no captured signal predicts it. Roll-free merges are now driven daily at 05:
 
 ## Open, unowned
 
-- **THE SETTLEMENT SOURCE IS DOWN** — WU returns 404 for *every* date, including ones already
-  stored; `api.weather.com` returns 401, so the route lives and the token is wrong. `-Refetch`
-  works and still fails. Settlement frozen at **2026-08-04**; the streak is **15/14 banked and
-  safe** but cannot advance. **Top operational item.**
+- **Settlement source: ROOT-CAUSED AND FIXED, awaiting merge.** The client was reading the
+  history page's **advertising** `apiKey`, not the weather one — hence 404 on the ad host and
+  401 on the real one. `-09-37a` reads the page's injected runtime `API_URL`/`API_KEY`; verified
+  on production from an isolated worktree, including the blocking 08-05/08-06 dates. Merges
+  01:20 (**roll-sensitive**). Settlement stays frozen at **2026-08-04** until it lands; the
+  streak is **15/14 banked and safe**.
   [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
