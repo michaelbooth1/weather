@@ -2,17 +2,14 @@
 
 **Last rewritten: 2026-08-06.** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
-> **This file is REWRITTEN, never appended, and capped at ~90 lines.** It is the one document
-> that answers *"what is happening right now?"* — the question the rest of the canon does not.
-> `ESTABLISHED_FINDINGS.md` owns what we know, `RETRACTED_AND_FALSE_LEADS.md` what is false,
-> `AGENT_CONTEXT.md` invariants, `DELEGATION_CONTRACT.md` how to work. **If this file no longer
-> fits in 90 lines, something in it has stopped being current — cut it, do not extend the cap.**
-> Stale content here is worse than none: it will be believed.
+> **REWRITTEN, never appended. Capped at ~90 lines.** The one document answering *"what is
+> happening right now?"* — the question the rest of the canon does not. `ESTABLISHED_FINDINGS`
+> owns what we know, `RETRACTED_AND_FALSE_LEADS` what is false, `AGENT_CONTEXT` invariants,
+> `DELEGATION_CONTRACT` how to work. **Over the cap means something stopped being current — cut
+> it.** Stale content here is worse than none: it will be believed.
 
-## The objective
-
-1. Protect the Toronto capture streak. 2. **Find a model that beats the market — we do not.**
-3. The end goal is the market-making bot.
+**Objectives:** 1. protect the Toronto capture streak · 2. **find a model that beats the market —
+we do not** · 3. the market-making bot is the end goal.
 
 ## Where the model actually stands
 
@@ -47,13 +44,13 @@ resolution**, which §1 says recalibration cannot supply. That is the open strat
 
 ## Decided — do not relitigate without new evidence
 
-- **Release #1 is DEFERRED** until a retrained candidate exists.
-  [release-one-deferred-until-a-retrained-candidate.md](release-one-deferred-until-a-retrained-candidate.md).
-  It freezes artifacts measured a full degree cool on exactly the dates we serve. The lock does
-  **not** expire — the 7-day rule is rolling source recency, not a countdown.
-- **Free-tier Open-Meteo only, no paid API. Training population 2021–2025.** Closed decisions;
-  **do not stop a mission on either.**
-- **Nothing is reserved today.** The confirmation window arms at candidate freeze.
+- **Release #1 is DEFERRED** until a retrained candidate exists
+  ([why](release-one-deferred-until-a-retrained-candidate.md)) — it would freeze artifacts
+  measured a full degree cool on the dates we serve. The lock does **not** expire; the 7-day rule
+  is rolling source recency.
+- **Free-tier Open-Meteo only, no paid API. Training population 2021–2025.** Closed; **do not
+  stop a mission on either.**
+- **Nothing is reserved today**; the window arms at candidate freeze.
   `reserved-confirmation-window.md` wins over every other document.
 
 ## Do not redo these — they are answered
