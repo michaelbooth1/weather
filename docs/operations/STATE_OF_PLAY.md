@@ -23,15 +23,13 @@ first retrain blocks at **0 / 12,600 cells**.
 **So bias and sharpness are separate problems and we have a fix for one** — the critical path:
 
 ```
-archive window  ->  stage the PIT corpus  ->  first retrain  ->  release #1
-   DONE 1740/1740     BLOCKED (§4f)          needs parity fix     (DEFERRED)
-   (-09-33a, unmerged) 21-field plan not      220 findings
-                       expressible free
+archive window  ->  PIT corpus  ->  first retrain  ->  release #1
+  DONE 1740/1740     BLOCK §4f      parity: 220        (DEFERRED)
 ```
 
 **The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the data exists in all
 five years, but Open-Meteo serves `_previous_dayN` for only some variables. **`previous_runs=` is a
-leakage trap** — it returns the settled analysis unchanged.
+leakage trap** — it returns the settled analysis unchanged, and would pass a completeness check.
 
 That fixes the **centre** (74.97% of oracle excess loss); **nothing is aimed at resolution**, which
 §1 says recalibration cannot supply. So the retrain is **necessary, not sufficient**: promise no gap
