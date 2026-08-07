@@ -5,7 +5,7 @@ import re
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 import requests
@@ -13,15 +13,21 @@ from weather.collection.historical_backfill_plan import build_plan, split_ranges
 from weather.market.market_registry import ATLANTA, NYC, TORONTO
 from weather.sources.historical_coverage import coverage_dashboard, fleet_coverage, write_dashboard_outputs
 from weather.sources.forecast_history import (
+    DEFAULT_HISTORY_WINDOW_DAYS,
+    DEFAULT_TARGET_WINDOW_DAYS,
     FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
     RICH_FORECAST_COLUMNS,
+    archive_window_for_target,
+    backfill,
     daily_issue_rows,
     forecast_history_coverage,
+    forecast_history_fleet_coverage,
     historical_forecast_rows,
     load_forecast_daily,
     load_forecast_profiles,
     render_forecast_history_coverage_markdown,
     previous_run_rows,
+    target_window_contract,
     write_csv,
 )
 from weather.sources.noaa_ghcnh_history import GHCNHStore, normalize_psv, resolve_station
@@ -806,15 +812,31 @@ class TestHistoricalSources(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "forecast_long.csv"
             write_csv(path, RICH_FORECAST_COLUMNS, historical_forecast_rows(payload, NYC))
+            target = target_window_contract(
+                "2026-06-11",
+                (2026,),
+                target_window_days=0,
+                history_window_days=0,
+            )
+            (path.parent / "manifest.json").write_text(
+                json.dumps({"target_window": target}),
+                encoding="utf-8",
+            )
 
             coverage = forecast_history_coverage(
                 NYC,
                 path=path,
                 required_fields=("low_cloud", "shortwave_radiation", "cape"),
+                target_date="2026-06-11",
+                required_years=(2026,),
+                target_window_days=0,
+                history_window_days=0,
             )
 
         fleet_payload = {
             "schema_version": FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
+            "status": "PASS",
+            "declared_target": target,
             "summary": {
                 "market_count": 1,
                 "ok_market_count": 1,
@@ -829,6 +851,127 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(coverage["nonnull_fields"]["cape"], 2)
         self.assertFalse(coverage["missing_nonnull_fields"])
         self.assertIn("nyc", markdown)
+
+    def test_forecast_history_window_uses_trainer_target_and_climatology_inputs(self):
+        from weather.model.model_constants import HISTORY_WINDOW_DAYS
+        from weather.operations.base_retrain import FIRST_RETRAIN_SEASON_RADIUS_DAYS
+
+        self.assertEqual(DEFAULT_HISTORY_WINDOW_DAYS, HISTORY_WINDOW_DAYS)
+        self.assertEqual(DEFAULT_TARGET_WINDOW_DAYS, FIRST_RETRAIN_SEASON_RADIUS_DAYS)
+        start, end = archive_window_for_target(2023, "2026-07-31")
+        self.assertEqual(start, date(2023, 7, 17))
+        self.assertEqual(end, date(2023, 8, 14))
+
+    def test_forecast_history_backfill_manifest_declares_its_target_window(self):
+        payload = {
+            "hourly": {
+                "time": ["2023-07-17T12:00"],
+                **{field: [1.0] for field in (
+                    "temperature_2m",
+                    "cloud_cover",
+                    "cloud_cover_low",
+                    "cloud_cover_mid",
+                    "cloud_cover_high",
+                    "shortwave_radiation",
+                    "wind_speed_10m",
+                    "cape",
+                    "temperature_925hPa",
+                    "temperature_850hPa",
+                    "geopotential_height_500hPa",
+                    "direct_radiation",
+                    "diffuse_radiation",
+                    "wind_gusts_10m",
+                    "visibility",
+                    "precipitation_probability",
+                    "precipitation",
+                    "soil_temperature_0cm",
+                    "soil_moisture_0_to_1cm",
+                    "vapour_pressure_deficit",
+                    "et0_fao_evapotranspiration",
+                )},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("weather.sources.forecast_history.data_root_for", return_value=root),
+                patch("weather.sources.forecast_history.daily_path_for", return_value=root / "forecast_daily.csv"),
+                patch("weather.sources.forecast_history.long_path_for", return_value=root / "forecast_long.csv"),
+                patch("weather.sources.forecast_history.daily_issue_path_for", return_value=root / "forecast_daily_by_issue.csv"),
+                patch("weather.sources.forecast_history.fetch_historical_forecast_payload", return_value=payload) as fetch,
+            ):
+                manifest = backfill(
+                    2023,
+                    2023,
+                    NYC,
+                    pause=0,
+                    include_previous_runs=False,
+                    target_date="2026-07-31",
+                )
+
+            written = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["target_window"], written["target_window"])
+        self.assertEqual(manifest["target_window"]["target_date"], "2026-07-31")
+        self.assertEqual(
+            manifest["target_window"]["requested_by_year"]["2023"],
+            {"start": "2023-07-17", "end": "2023-08-14"},
+        )
+        self.assertEqual(fetch.call_args.kwargs["target_date"], date(2026, 7, 31))
+
+    def test_forecast_history_fleet_coverage_blocks_archive_for_wrong_season(self):
+        rows = []
+        for year in range(2021, 2026):
+            current = date(year, 5, 10)
+            end = date(year, 6, 30)
+            while current <= end:
+                row = {column: "" for column in RICH_FORECAST_COLUMNS}
+                row.update({
+                    "schema_version": "forecast_history_long_v3",
+                    "market": NYC.id,
+                    "station": NYC.icao,
+                    "source": "open_meteo_historical_forecast",
+                    "target_date": current.isoformat(),
+                    "valid_time": f"{current.isoformat()}T12:00",
+                    "cloud_cover": 1,
+                    "low_cloud": 1,
+                    "mid_cloud": 1,
+                    "high_cloud": 1,
+                    "shortwave_radiation": 1,
+                    "direct_radiation": 1,
+                    "diffuse_radiation": 1,
+                })
+                rows.append(row)
+                current += timedelta(days=1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "forecast_long.csv"
+            write_csv(path, RICH_FORECAST_COLUMNS, rows)
+            (path.parent / "manifest.json").write_text(
+                json.dumps({
+                    "target_window": target_window_contract(
+                        "2026-06-15",
+                        range(2021, 2026),
+                    )
+                }),
+                encoding="utf-8",
+            )
+            with patch("weather.sources.forecast_history.long_path_for", return_value=path):
+                report = forecast_history_fleet_coverage(
+                    "2026-07-31",
+                    market_ids=(NYC.id,),
+                    required_years=range(2021, 2026),
+                )
+
+        market = report["markets"][0]
+        self.assertEqual(report["status"], "BLOCK")
+        self.assertEqual(market["status"], "FAIL")
+        self.assertEqual(market["target_status"], "BLOCK")
+        self.assertEqual(market["required_date_count"], 145)
+        self.assertEqual(market["covered_required_date_count"], 0)
+        self.assertEqual(market["manifest_target_status"], "MISMATCH")
+        self.assertIn("declared_target_dates_missing", market["blockers"])
+        self.assertIn("archive_target_manifest_mismatch", market["blockers"])
 
     def test_forecast_loaders_prefer_native_temperature_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
