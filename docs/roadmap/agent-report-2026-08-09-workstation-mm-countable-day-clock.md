@@ -198,7 +198,7 @@ output path is supplied. Both are read-only over `data\mm_runs` in the commands 
 
 - Focused tests: **32 passed**.
 - `compileall` on changed Python modules/tests: **PASS**.
-- `python -m weather.operations.agent_docs_audit`: **PASS** (18 agent files, 716 Markdown files).
+- `python -m weather.operations.agent_docs_audit`: **PASS** (18 agent files, 717 Markdown files).
 - Full-suite attempt: **environment-blocked during collection**. The checked-in venv points to the
   removed `C:\Users\Michael\AppData\Local\Programs\Python\Python311\python.exe`; the available
   bundled Python is 3.12 and cannot load the venv's CPython 3.11 binary extensions for sklearn,
@@ -207,4 +207,10 @@ output path is supplied. Both are read-only over `data\mm_runs` in the commands 
 - Strict schema audit has two unchanged baseline findings already present on `origin/master`:
   `mm_countability_postmortem_v1` and `severe_tail_ex_ante_casebook_v0.1`. The new age report uses
   an integer `report_version`, so it introduces no schema-registry finding or runtime import.
-- Per-file roll verdict: **PENDING final branch-head run**.
+- Repository-owned roll verdict on the exact branch head: **ROLL-FREE**. It classified all three
+  importable changed files as free:
+  - `src/weather/operations/market_making_daily_roll.py` — free
+  - `src/weather/reporting/market/mm_countability_postmortem.py` — free
+  - `src/weather/reporting/market/mm_input_age_postmortem.py` — free
+  The dormant `clob_enrichment` closure was 295.4 hours old but mechanically **SUBSUMED**: all 21
+  files in it are covered by a live closure, so dormancy does not affect the verdict.
