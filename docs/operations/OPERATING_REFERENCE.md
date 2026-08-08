@@ -7,7 +7,11 @@
     --out docs/operations/OPERATING_REFERENCE.md
 ```
 
-Generated `2026-08-08T20:51:11Z`.
+**Deterministic on purpose — no timestamp is embedded.** For freshness use
+`git log -1 -- docs/operations/OPERATING_REFERENCE.md`. A generated file that carried
+its own render time would dirty the tree on every refresh, which blocks the release
+build's clean-tree gate. Because this output is stable, the daily refresh doubles as a
+**drift detector: if regenerating produces a diff, something real changed.**
 
 This exists because the facts needed to answer an operational question live in three
 places — Python constants, PowerShell guards, and the live scheduler — and nothing

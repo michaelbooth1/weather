@@ -30,7 +30,6 @@ import platform
 import re
 import subprocess
 from collections import namedtuple
-from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -218,9 +217,12 @@ def collect_schedule():
     return sorted(rows, key=lambda row: (row["at"], row["name"]))
 
 
-def render_markdown(constants, schedule, generated_at=None):
-    """Render the operating reference."""
-    generated_at = generated_at or datetime.now(timezone.utc)
+def render_markdown(constants, schedule):
+    """Render the operating reference.
+
+    Deterministic: the same inputs always produce the same bytes, so a diff after
+    regeneration means a real change rather than a new render time.
+    """
     lines = [
         "# Operating reference",
         "",
@@ -231,7 +233,11 @@ def render_markdown(constants, schedule, generated_at=None):
         "    --out docs/operations/OPERATING_REFERENCE.md",
         "```",
         "",
-        f"Generated `{generated_at.strftime('%Y-%m-%dT%H:%M:%SZ')}`.",
+        "**Deterministic on purpose — no timestamp is embedded.** For freshness use",
+        "`git log -1 -- docs/operations/OPERATING_REFERENCE.md`. A generated file that carried",
+        "its own render time would dirty the tree on every refresh, which blocks the release",
+        "build's clean-tree gate. Because this output is stable, the daily refresh doubles as a",
+        "**drift detector: if regenerating produces a diff, something real changed.**",
         "",
         "This exists because the facts needed to answer an operational question live in three",
         "places — Python constants, PowerShell guards, and the live scheduler — and nothing",
