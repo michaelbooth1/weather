@@ -33,6 +33,7 @@ MAX_TARGET_DATE = "2026-07-30"
 BOOTSTRAP_REPLICATES = 10_000
 BOOTSTRAP_SEED = 20_260_946
 FAMILY_ALPHA = 0.05
+PROBABILITY_SERIALIZATION_TOLERANCE = 1e-15
 
 MARKETS = (
     "atlanta",
@@ -877,10 +878,21 @@ def analyze(
     predictors = predictors.sort_values(keys).reset_index(drop=True)
     if not outcomes[keys].equals(predictors[keys]):
         raise RuntimeError("outcome/predictor roster differs")
+    quote_evidence_max_difference = 0.0
     for column in probability_columns:
-        if not np.array_equal(
+        difference = np.abs(
+            outcomes[column].to_numpy(dtype=float)
+            - predictors[column].to_numpy(dtype=float)
+        )
+        quote_evidence_max_difference = max(
+            quote_evidence_max_difference,
+            float(difference.max()),
+        )
+        if not np.allclose(
             outcomes[column].to_numpy(dtype=float),
             predictors[column].to_numpy(dtype=float),
+            rtol=0.0,
+            atol=PROBABILITY_SERIALIZATION_TOLERANCE,
         ):
             raise RuntimeError(f"outcome/predictor quote evidence differs: {column}")
     frame = predictors.copy()
@@ -1152,6 +1164,8 @@ def analyze(
             "predictor_thresholds_sha256": sha256_file(predictor_thresholds_path),
             "predictor_manifest_sha256": sha256_file(predictor_manifest_path),
             "positive_control_sha256": positive_control_sha256,
+            "quote_evidence_serialization_tolerance": PROBABILITY_SERIALIZATION_TOLERANCE,
+            "quote_evidence_max_abs_difference": quote_evidence_max_difference,
             "partition_results_sha256": sha256_file(partitions_path),
             "break_even_grid_sha256": sha256_file(economics_path),
         },
