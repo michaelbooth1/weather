@@ -27,12 +27,11 @@ archive window  ->  PIT corpus  ->  first retrain  ->  release #1
   DONE 1740/1740     BLOCK §4f      parity: 220        (DEFERRED)
 ```
 
-**The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the data exists in all
-five years, but the PIT host serves `_previous_dayN` for **1 of 21** required fields. **There are
-two hosts and only one is the PIT surface** — probing the archive host measures the wrong thing.
-**Calling `previous_runs=` a leakage trap is RETRACTED** (§4f); it is host-specific, not general.
-The corpus already on disk is **`forecast_high` alone, May 10 – Jun 30, leads 1–7, 2,135 rows ×
-12 stations** — the *stale* window, so it cannot train the season we serve.
+**The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the PIT host serves
+`_previous_dayN` for **1 of 21** fields, and **only one of the two hosts is the PIT surface**
+(**"`previous_runs=` is a leakage trap" is RETRACTED** — host-specific, not general). What is on
+disk is **`forecast_high` alone, May 10 – Jun 30** — the *stale* window, so it cannot train the
+season we serve.
 
 That fixes the **centre** (74.97% of oracle excess loss); **nothing is aimed at resolution**, which
 §1 says recalibration cannot supply. So the retrain is **necessary, not sufficient**: promise no gap
@@ -60,32 +59,42 @@ from there, never from here.**
 
 | Ref | What | State |
 | --- | --- | --- |
-| `-09-29a`, `-09-31a`, `-09-32a`, `-09-34a`, `-09-36a` | chain split, seasonal ×2, severe tail, resolution | **ALL MERGED 2026-08-07** |
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
 | `-09-38a` | first retrained candidate | **RETURNED: archive PASS 1,740/1,740, corpus BLOCK** (§4f) |
 | `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
-| `-09-40a` | **honest vs rich corpus + first candidate** | **RETURNED: correct P0 stop** — my inventory claim was wrong (leads **1–7** not 1–4; **364**/yr not 416; **+315 in 2026**), verified on production. Premise corrected, **re-dispatched as `-09-41a`** |
+| `-09-40a` | honest vs rich corpus | **RETURNED: correct P0 stop** — my inventory claim was wrong (leads **1–7**, **364**/yr, **+315 in 2026**). Re-dispatched as **`-09-41a`** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
-Merges are driven daily off allowlists (**not** auto-discovery — several branches are held
-deliberately): `WeatherMergeQueueDriver` 05:15 roll-free, `WeatherMergeSensitiveDriver` 01:20.
+`-09-29a`/`-31a`/`-32a`/`-34a`/`-36a` all **MERGED 2026-08-07**. `-09-29a` **revived the learning
+loop**: `daily_learning.json` and `market_beating_objective_scoreboard.json` were **28 days stale**
+and now write daily — the scoreboard reads **BLOCK, `weather_only_model_proof_packet` missing**,
+the first time it could name its own blocker rather than not run. Merges are driven daily off
+allowlists (**not** auto-discovery — some branches are held deliberately): `WeatherMergeQueueDriver`
+05:15 roll-free, `WeatherMergeSensitiveDriver` 01:20; both rehearsed end-to-end 2026-08-07.
 
 ## Open, unowned
 
-- **Settlement source: ROOT-CAUSED AND FIXED, awaiting merge.** The client was reading the
-  history page's **advertising** `apiKey`, not the weather one — hence 404 on the ad host and
-  401 on the real one. `-09-37a` reads the page's injected runtime `API_URL`/`API_KEY`; verified
-  on production from an isolated worktree, including the blocking 08-05/08-06 dates. Merges
-  01:20 (**roll-sensitive**). Settlement stays frozen at **2026-08-04** until it lands; the
-  streak is **15/14 banked and safe**.
+- **Settlement source: ROOT-CAUSED AND FIXED, awaiting merge.** We were reading the page's
+  **advertising** `apiKey`. `-09-37a` reads its injected runtime `API_URL`/`API_KEY`, verified on
+  production including the blocking 08-05/08-06 dates; merges 01:20 (**roll-sensitive**).
+  Settlement frozen at **2026-08-04**; streak **15/14 banked and safe**.
   [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
+- **Capture memory pressure is the live streak risk, not the network.** 2026-08-07 audit: **430**
+  `capture_host_memory_admission` refusals 11:00–18:00, available RAM down to **13 MB** against
+  **3.49 GB** needed per worker → two in-window gaps (24 and 41 min) and the day **AT_RISK**. The
+  admission guard behaved correctly; a **duplicate `market_making_run` orphan** was holding
+  431 MB. A daily-roll supervisor stops only the pid in its status file, so a worker orphaned by
+  a start race is **unreapable** — same class as the taker orphans of 06-30 and 07-04. Killed by
+  hand; `staleness_sweep.ps1` §12 now detects it. **The code defect is unfixed and unowned.**
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
-- **Disk: production has ~11 days headroom**; the workstation is full because production `/MIR`s
-  532 GB to it nightly, plus a ~55 GB non-mirrored `scratch/` tree.
+- **Disk: ~8 days headroom at ~13.9 GB/day.** The biggest lever (`taker_runs`, 74.7 GB) is
+  operator-approved for deletion **after the lock**. CLOB tiering *is* working — it turns a
+  1.4 GB `order_books_long.csv` into a 62.6 MB `.gz`, and the mirror correctly purges the stale
+  plain copy, so the 35 GB of `/MIR` "Extras" is **not** data loss.
   [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md).
 - **4 tests fail on master, unowned** — `test_afternoon_residual_centering`, `test_long_job_guard`
   ×2, `test_tracked_artifact_manifests_match_current_repository_identity`. `pytest -q` is red
