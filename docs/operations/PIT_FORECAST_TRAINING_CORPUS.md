@@ -83,10 +83,14 @@ from ambient `forecast_daily.csv` have no such provenance and fail closed.
 The first-retrain selection is owned by the hash-bound retrain plan, not by a
 source or feature-corpus manifest: training years 2021-2025, the target
 month/day plus or minus seven days in each year, cutoff hours 07-20, and all 12
-built-in markets. For the 2026-07-31 target that is 75 dates, 1,050 cells per
-market, and 12,600 fleet cells. Candidate-supplied `covered_years`, selected
-dates, counts, or minimums can prove rows only; they cannot reduce the required
-matrix.
+built-in markets. The versioned, code-owned, reason-bearing station-day
+exclusion registry is intersected with that window before the expected matrix is declared. For
+the 2026-07-31 target, Denver 2025-07-28 is the only applicable exclusion, so
+the plan requires 74 Denver dates, 75 dates for each other market, and 12,586
+fleet cells. Denver 2022-07-20 is also registered but lies outside this target
+window. Candidate-supplied `covered_years`, selected dates, counts, minimums,
+or omissions can prove rows only; they cannot reduce the required matrix or
+add another exclusion.
 
 This input does not authorize fitting, promotion, serving changes, or release
 binding. Those remain separate reviewed actions under the nightly retrain and

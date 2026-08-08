@@ -17,11 +17,14 @@ from weather.operations.base_retrain import (
     CORPUS_MANIFEST_SCHEMA_VERSION,
     EXPECTED_MARKETS,
     FIRST_RETRAIN_CUTOFF_HOURS,
+    FIRST_RETRAIN_STATION_DAY_EXCLUSION_POLICY_ID,
+    FIRST_RETRAIN_STATION_DAY_EXCLUSIONS,
     FIRST_RETRAIN_TRAINING_YEARS,
     MARKET_UNITS,
     REPLACED_COMPONENTS,
     _copy_parent_unchanged,
     _finalize_candidate_contract,
+    _training_population_for_target,
     build_parser,
     build_plan,
     evaluate_preflight,
@@ -48,6 +51,15 @@ TRAINING_DATES = tuple(
     for year in FIRST_RETRAIN_TRAINING_YEARS
     for offset in range(-7, 8)
 )
+
+
+def _training_dates_for_market(market_id: str) -> tuple[str, ...]:
+    excluded = {
+        row["target_date"]
+        for row in FIRST_RETRAIN_STATION_DAY_EXCLUSIONS
+        if row["market_id"] == market_id and row["target_date"] in TRAINING_DATES
+    }
+    return tuple(value for value in TRAINING_DATES if value not in excluded)
 
 
 def _support(unit: str) -> dict:
@@ -110,6 +122,7 @@ def _market_manifest(
     records_path: Path | None = None,
 ) -> dict:
     unit = MARKET_UNITS[market_id]
+    training_dates = _training_dates_for_market(market_id)
     rise_historical = {
         "value": 5.0,
         "unit": unit,
@@ -129,8 +142,8 @@ def _market_manifest(
     }
     row = {
         "unit": unit,
-        "expected_selected_day_count": len(TRAINING_DATES),
-        "minimum_selected_day_count": len(TRAINING_DATES),
+        "expected_selected_day_count": len(training_dates),
+        "minimum_selected_day_count": len(training_dates),
         "minimum_hourly_rows_per_day": 1,
         "selected_dates": [
             {
@@ -142,7 +155,7 @@ def _market_manifest(
                 "cutoff_at": f"{selected_date}T20:00:00+00:00",
                 "max_predictor_known_at": f"{selected_date}T19:59:00+00:00",
             }
-            for selected_date in TRAINING_DATES
+            for selected_date in training_dates
         ],
         "feature_names_by_hour": {
             str(hour): ["forecast_high", "rise_from_7am"]
@@ -153,8 +166,8 @@ def _market_manifest(
         "forecast_archive": {
             "fields": {
                 "forecast_high": {
-                    "expected_dates": list(TRAINING_DATES),
-                    "covered_dates": list(TRAINING_DATES) if forecast_covered else [],
+                    "expected_dates": list(training_dates),
+                    "covered_dates": list(training_dates) if forecast_covered else [],
                     "pit_issue_time_provenance": forecast_covered,
                 }
             }
@@ -212,7 +225,7 @@ def _record_paths(tmp_path: Path) -> dict[str, Path]:
         path.write_text(
             "".join(
                 json.dumps(_pit_record(market_id, target_date, cutoff_hour)) + "\n"
-                for target_date in TRAINING_DATES
+                for target_date in _training_dates_for_market(market_id)
                 for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
             ),
             encoding="utf-8",
@@ -273,7 +286,7 @@ def _pit_preflight(pit_manifest: Path, *, status: str = "PASS") -> dict:
     rows = [
         _pit_binding(market_id, target_date, cutoff_hour)
         for market_id in EXPECTED_MARKETS
-        for target_date in TRAINING_DATES
+        for target_date in _training_dates_for_market(market_id)
         for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
     ]
     receipt = {
@@ -333,7 +346,24 @@ def test_plan_declares_exactly_one_all_market_step_and_every_candidate_output(tm
     assert population["years"] == [2021, 2022, 2023, 2024, 2025]
     assert population["selected_dates"] == list(TRAINING_DATES)
     assert population["cutoff_hours_local"] == list(range(7, 21))
-    assert population["expected_market_date_cutoff_count"] == 12_600
+    assert population["expected_market_date_count"] == 899
+    assert population["expected_market_date_cutoff_count"] == 12_586
+    assert population["station_day_exclusion_policy_id"] == (
+        FIRST_RETRAIN_STATION_DAY_EXCLUSION_POLICY_ID
+    )
+    assert population["station_day_exclusions"] == [
+        FIRST_RETRAIN_STATION_DAY_EXCLUSIONS[1]
+    ]
+
+
+def test_station_day_exclusions_are_derived_from_code_and_window_without_candidate():
+    population = _training_population_for_target("2026-07-27")
+
+    assert population["station_day_exclusions"] == list(
+        FIRST_RETRAIN_STATION_DAY_EXCLUSIONS
+    )
+    assert population["expected_market_date_count"] == 898
+    assert population["expected_market_date_cutoff_count"] == 12_572
 
 
 def test_candidate_dates_and_covered_years_cannot_shrink_the_pit_gate(tmp_path):
@@ -363,10 +393,10 @@ def test_candidate_dates_and_covered_years_cannot_shrink_the_pit_gate(tmp_path):
     assert checks["training_population_policy"]["status"] == "PASS"
     assert checks["training_population_policy"][
         "required_market_date_cutoff_count"
-    ] == 12_600
-    assert checks["pit_forecast_corpus"]["required_selection_row_count"] == 12_600
+    ] == 12_586
+    assert checks["pit_forecast_corpus"]["required_selection_row_count"] == 12_586
     assert any(
-        row["code"] == "WU_TRAINING_POPULATION_MISMATCH"
+        row["code"] == "WU_UNAPPROVED_STATION_DAY_EXCLUSION"
         for row in checks["wu_corpus"]["blockers"]
     )
     assert result["status"] == "BLOCK"
@@ -545,7 +575,7 @@ def _run_fixture(tmp_path: Path):
                     }
                 )
                 + "\n"
-                for target_date in TRAINING_DATES
+                for target_date in _training_dates_for_market(market_id)
                 for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
             ),
             encoding="utf-8",

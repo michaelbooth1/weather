@@ -78,9 +78,12 @@ or differently bound corpus blocks the complete fleet.
 
 The plan owns the first-retrain population: years 2021-2025, the target
 month/day plus or minus seven days, cutoff hours 07-20, and all 12 built-in
-markets. For target 2026-07-31 that is 75 dates and 12,600
-market/date/cutoff cells. Source and feature manifests may prove that matrix;
-their `covered_years`, selected dates, counts, and minimums never size it.
+markets. It intersects that window with the versioned, code-owned, reason-bearing
+station-day exclusion registry before declaring the expected count. For target
+2026-07-31, Denver 2025-07-28 is the only applicable exclusion and the plan
+requires 12,586 market/date/cutoff cells. Source and feature manifests may
+prove that matrix; their `covered_years`, selected dates, counts, minimums, and
+omissions never size it or authorize another exclusion.
 
 The corpus manifest supplies row-level evidence, not summary booleans. For all
 twelve built-in markets it binds selected prior-year target-date `+/-7` rows,

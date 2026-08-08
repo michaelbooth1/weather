@@ -77,6 +77,34 @@ FIRST_RETRAIN_TRAINING_YEARS = tuple(range(2021, 2026))
 FIRST_RETRAIN_CUTOFF_HOURS = tuple(range(7, 21))
 FIRST_RETRAIN_SEASON_RADIUS_DAYS = 7
 FIRST_RETRAIN_TRAINING_POLICY_ID = "first_retrain_2021_2025_target_season_policy"
+FIRST_RETRAIN_STATION_DAY_EXCLUSION_POLICY_ID = (
+    "first_retrain_station_day_exclusions_v1"
+)
+FIRST_RETRAIN_STATION_DAY_EXCLUSIONS = (
+    {
+        "market_id": "denver",
+        "station_id": "kbkf",
+        "target_date": "2022-07-20",
+        "observed_hour_count": 1,
+        "minimum_required_hour_count": 18,
+        "reason": (
+            "KBKF reported only one hourly observation; the station-day cannot "
+            "supply a trusted Weather Underground settlement label"
+        ),
+    },
+    {
+        "market_id": "denver",
+        "station_id": "kbkf",
+        "target_date": "2025-07-28",
+        "observed_hour_count": 17,
+        "minimum_required_hour_count": 18,
+        "reason": (
+            "KBKF omitted seven hourly observations, including 15:58-17:58 "
+            "during a likely daily-maximum window; the recorded maximum is "
+            "not a trusted settlement label"
+        ),
+    },
+)
 
 
 class BaseRetrainContractError(RuntimeError):
@@ -177,7 +205,16 @@ def _training_population_for_target(target_value: Any) -> dict[str, Any]:
                     FIRST_RETRAIN_SEASON_RADIUS_DAYS + 1,
                 )
             )
-    market_date_count = len(EXPECTED_MARKETS) * len(selected_dates)
+    selected_date_set = set(selected_dates)
+    station_day_exclusions = [
+        dict(row)
+        for row in FIRST_RETRAIN_STATION_DAY_EXCLUSIONS
+        if row["market_id"] in EXPECTED_MARKETS
+        and row["target_date"] in selected_date_set
+    ]
+    market_date_count = (
+        len(EXPECTED_MARKETS) * len(selected_dates) - len(station_day_exclusions)
+    )
     return {
         "policy_id": FIRST_RETRAIN_TRAINING_POLICY_ID,
         "years": list(FIRST_RETRAIN_TRAINING_YEARS),
@@ -186,6 +223,10 @@ def _training_population_for_target(target_value: Any) -> dict[str, Any]:
         "selected_dates": selected_dates,
         "cutoff_hours_local": list(FIRST_RETRAIN_CUTOFF_HOURS),
         "market_ids": list(EXPECTED_MARKETS),
+        "station_day_exclusion_policy_id": (
+            FIRST_RETRAIN_STATION_DAY_EXCLUSION_POLICY_ID
+        ),
+        "station_day_exclusions": station_day_exclusions,
         "expected_training_date_count": len(selected_dates),
         "expected_market_date_count": market_date_count,
         "expected_market_date_cutoff_count": (
@@ -588,11 +629,16 @@ def _required_pit_selection_keys(
     market_ids = [str(value) for value in population.get("market_ids") or []]
     dates = [str(value) for value in population.get("selected_dates") or []]
     hours = [int(value) for value in population.get("cutoff_hours_local") or []]
+    exclusions = {
+        (str(row["market_id"]), str(row["target_date"]))
+        for row in population.get("station_day_exclusions") or []
+    }
     return tuple(
         (market_id, target_date, cutoff_hour)
         for market_id in market_ids
         for target_date in dates
         for cutoff_hour in hours
+        if (market_id, target_date) not in exclusions
     )
 
 
@@ -816,10 +862,20 @@ def evaluate_preflight(
     sidecar_blockers = []
     support_blockers = []
     required_selected_dates = set(training_population["selected_dates"])
+    excluded_dates_by_market: dict[str, set[str]] = {
+        market_id: set() for market_id in EXPECTED_MARKETS
+    }
+    for row in training_population.get("station_day_exclusions") or []:
+        excluded_dates_by_market[str(row["market_id"])].add(
+            str(row["target_date"])
+        )
     required_cutoff_hours = {
         str(value) for value in training_population["cutoff_hours_local"]
     }
     for market_id in EXPECTED_MARKETS:
+        required_market_dates = (
+            required_selected_dates - excluded_dates_by_market[market_id]
+        )
         market = manifest_markets.get(market_id)
         parent_market = (parent.get("markets") or {}).get(market_id) or {}
         if not isinstance(market, Mapping):
@@ -834,14 +890,14 @@ def evaluate_preflight(
         selected = market.get("selected_dates") or []
         declared_count = int(market.get("expected_selected_day_count") or -1)
         if (
-            declared_count != len(required_selected_dates)
-            or len(selected) != len(required_selected_dates)
+            declared_count != len(required_market_dates)
+            or len(selected) != len(required_market_dates)
         ):
             wu_blockers.append(
                 {
                     "code": "WU_COUNT_MISMATCH",
                     "market_id": market_id,
-                    "required_count": len(required_selected_dates),
+                    "required_count": len(required_market_dates),
                     "declared_count": declared_count,
                     "actual_count": len(selected),
                     "message": "selected-day count differs from the code-owned training population",
@@ -893,16 +949,19 @@ def evaluate_preflight(
                     {"code": "WU_ROW_INVALID", "market_id": market_id, "message": str(exc)}
                 )
         actual_selected_dates = set(selected_dates)
-        if actual_selected_dates != required_selected_dates or len(selected_dates) != len(
-            required_selected_dates
+        if actual_selected_dates != required_market_dates or len(selected_dates) != len(
+            required_market_dates
         ):
             wu_blockers.append(
                 {
-                    "code": "WU_TRAINING_POPULATION_MISMATCH",
+                    "code": "WU_UNAPPROVED_STATION_DAY_EXCLUSION",
                     "market_id": market_id,
-                    "missing_date_count": len(required_selected_dates - actual_selected_dates),
-                    "unexpected_date_count": len(actual_selected_dates - required_selected_dates),
-                    "message": "candidate evidence is not the exact 2021-2025 target-season date set",
+                    "missing_date_count": len(required_market_dates - actual_selected_dates),
+                    "unexpected_date_count": len(actual_selected_dates - required_market_dates),
+                    "message": (
+                        "candidate evidence differs from the code-owned target-season "
+                        "population after named station-day exclusions"
+                    ),
                 }
             )
 
