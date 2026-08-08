@@ -33,6 +33,16 @@ $json = Join-Path $outDir 'mm_countability.json'
 $code = $LASTEXITCODE
 if ($code -ne 0) { throw "post-mortem exited $code" }
 
+# Refresh the generated operating reference in the same pass. It is cheap (imports a few
+# modules and reads the scheduler) and keeping it current is the whole point of generating it.
+# Never fail the countability report because the reference could not render.
+try {
+    & $python -m weather.operations.operating_reference `
+        --out (Join-Path $RepoRoot 'docs\operations\OPERATING_REFERENCE.md') | Out-Null
+} catch {
+    Write-Warning "operating reference refresh failed: $($_.Exception.Message)"
+}
+
 # Surface the number that matters in the task history itself.
 $report = Get-Content $json -Raw | ConvertFrom-Json
 $yield = if ($null -eq $report.countable_day_yield) { 'n/a' }
