@@ -23,13 +23,11 @@ from weather.market.market_making_evidence import (
 )
 from weather.market.mm_policy import DEFAULT_POLICY_CONFIG
 from weather.reporting.market.mm_countability_postmortem import iter_day_dirs, iter_run_dirs
-from weather.schema_registry import schema_version
 
 
 QUOTE_TAPE_NAME = "quote_intents_long.csv"
 RUN_CONFIG_NAME = "run_config.json"
 DEFAULT_TIMEZONE = "America/Toronto"
-SCHEMA_VERSION = schema_version("mm_input_age_postmortem")
 
 
 def _maybe_float(value):
@@ -207,7 +205,7 @@ def build_input_age_postmortem(
                 _record(by_hour[local.hour], **values)
 
     return {
-        "schema_version": SCHEMA_VERSION,
+        "report_version": 1,
         "runs_root": str(Path(runs_root)),
         "timezone": timezone_name,
         "active_window_start_local": active_window_start,

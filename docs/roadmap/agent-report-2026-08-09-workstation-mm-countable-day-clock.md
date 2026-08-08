@@ -204,7 +204,7 @@ output path is supplied. Both are read-only over `data\mm_runs` in the commands 
   bundled Python is 3.12 and cannot load the venv's CPython 3.11 binary extensions for sklearn,
   scipy, matplotlib, and pyarrow. The changed slices run with bundled 3.12 packages plus the venv's
   pure-Python pytest.
-- Strict schema audit after registering both MM report schemas has one unrelated baseline finding:
-  `severe_tail_ex_ante_casebook_v0.1`, already present on `origin/master`.
+- Strict schema audit has two unchanged baseline findings already present on `origin/master`:
+  `mm_countability_postmortem_v1` and `severe_tail_ex_ante_casebook_v0.1`. The new age report uses
+  an integer `report_version`, so it introduces no schema-registry finding or runtime import.
 - Per-file roll verdict: **PENDING final branch-head run**.
-

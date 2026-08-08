@@ -32,13 +32,11 @@ from collections import Counter
 from pathlib import Path
 
 from weather.paths import data_path
-from weather.schema_registry import schema_version
 
 
 DAY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REMEDIATION_NAME = "preflight_remediation.json"
 QUARANTINE_DIR_NAME = "_quarantine"
-SCHEMA_VERSION = schema_version("mm_countability_postmortem")
 
 UNPARSEABLE = "unparseable_remediation_file"
 NO_REMEDIATION = "no_remediation_file_written"
@@ -229,7 +227,7 @@ def build_postmortem(runs_root=None):
         key=lambda row: (-row["days_affected"], -row["occurrences"], row["gate"]),
     )
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": "mm_countability_postmortem_v1",
         "total_days": total_days,
         "counted_days": counted_days,
         "uncounted_days": total_days - counted_days,
