@@ -168,6 +168,54 @@ is where the information went.
 centre-displacement work were all measured on a model missing 10 of 19 base inputs at all times.
 None of them is invalidated, but none was measuring a model that could see.
 
+### REPAIRED 2026-08-08 (`-09-43a`) — 9 of the 10 are routed, but two stay dead in the F markets
+
+**Reproduced on the production host, not taken on report.** Parity **196 → 100 blockers, 0
+unexpected** — 96 closed is exactly 8 features × 12 markets. The known-defects fixture is
+byte-unchanged and no gate was weakened. `-09-39a` had already routed `wind_gust_kmh` and
+`wind_shift_3h_degrees`; this routes the other eight from our own captured station rows,
+cutoff-aligned, WU first, strict fallbacks, no synthesis.
+
+**The contract now routes 9 of the 10. What actually populates is less, and the difference is the
+finding:**
+
+| Feature | Fleet populated (replay corpus) | Going forward |
+| --- | ---: | --- |
+| `dewpoint_c` | 99.16% | all 12 |
+| `wind_speed_kmh` | 99.13% | all 12 |
+| `hours_at_peak` | 94.92% | all 12 |
+| `warming_rate_2h` | 83.48% | all 12 |
+| `rise_from_7am` | 75.86% | all 12 |
+| `humidity` | **8.70%** — Toronto only | **all 12** — old AviationWeather envelopes never retained `rh`; METAR v3 does |
+| `pressure` | **0.00%** | **Toronto only** |
+| `pressure_trend_3h` | **0.00%** | **Toronto only** |
+| `wind_group` | — | **dead in all 12; untouched** |
+
+**`pressure` is not a bug and must not be "fixed".** METAR publishes altimeter and sea-level
+pressure; the trained WU `pressure` feature is **station** pressure, which differs materially at
+altitude — Denver's artifact median is 24.4 inHg. Aliasing either into `pressure` would pass a
+presence check and be false in substance. The mission refused the alias and kept the field missing.
+That is the correct call and it is the §5 "unknowable at serve" case: **the owed follow-up is to
+drop `pressure` and `pressure_trend_3h` from training for the 11 F markets**, not to invent them.
+
+**So the imputation load falls from 8 of 29 trained inputs to 2 of 29 in the F markets and 0 of 29
+in Toronto — going forward.** The retained replay corpus can never show this: it holds no `rh` and
+no station pressure, and enriching it would be synthesis. **The full repair is therefore
+unmeasurable until v3 parsers have been capturing for a while.**
+
+**It changes what we serve.** 821 of 840 admitted distributions move, mean L1 0.223, max L1 1.315,
+positive controls 840/840 exact. Brier **−0.00816 [−0.02972, +0.00961], power 0.131**; centre
+**+0.0335 [−0.0094, +0.0803]**, power 0.316; width **+0.0176**, power 0.335. Every interval crosses
+zero. **Favourable direction, not powered — cite this as a defect repair, never as a scoring gain.**
+The warm centre shift is only ~5% of the −0.6641 C-eq cool bias, so it does not touch §2.
+
+**The parity gate stays BLOCK and cannot reach exit 0 until the fixture is narrowed.**
+`nine_empty_base_features_09_to_14` still requires 9 fields to be found dead and only `wind_group`
+still is. Narrowing it **records** the repair; that is not weakening it. Owed, and it needs an owner.
+
+**This invalidates the baseline, not the findings.** Everything in §1, §2, §4d and the
+centre-displacement work was measured on the blind model. Re-measure before re-citing.
+
 ### The mechanism — traced 2026-08-06, it is a ROUTING defect, not a data gap
 
 The data is captured, parsed into the right field names, and then discarded. Four links:
