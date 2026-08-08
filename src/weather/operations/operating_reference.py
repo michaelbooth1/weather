@@ -85,6 +85,29 @@ GOVERNING_CONSTANTS = (
     ),
 )
 
+#: Relationships between numbers that no single constant expresses. These are the ones
+#: that bite: each value looks reasonable alone and only the relationship is wrong.
+DERIVED_RULES = (
+    (
+        "A capture gap becomes fatal at `interval x 1.5`",
+        "10 min cadence -> **15 min** doom threshold",
+        "`detect_gaps(times, interval_minutes, tolerance=1.5)` — the 15 minutes is derived, "
+        "not a literal, so grepping for '15' finds nothing. Two consecutive missed capture "
+        "cycles exceed it and the Toronto day becomes PARTIAL.",
+        "weather.collection.collection_health.detect_gaps",
+    ),
+    (
+        "Loop recovery must beat that threshold",
+        "supervisor `--ensure` every **2 min**",
+        "The supervisor exists to survive silent deaths AND hangs (a stale heartbeat with a "
+        "live PID). Its ensure cadence is fast, but hang detection is not the same as ensure "
+        "cadence: on 2026-08-08 a hung snapshot loop took ~19 minutes to be declared DEAD and "
+        "restarted, which exceeded the 15-minute threshold and cost the day. "
+        "**A supervisor that recovers slower than interval x 1.5 cannot save a day from a hang.**",
+        "scripts/ops/register_snapshot_supervisor.ps1",
+    ),
+)
+
 #: Windows that are protected by policy rather than by a single constant.
 PROTECTED_WINDOWS = (
     (
@@ -222,6 +245,19 @@ def render_markdown(constants, schedule, generated_at=None):
     ]
     for window, name, why, owner in PROTECTED_WINDOWS:
         lines.append(f"| **{window}** | {name} | {why} | `{owner}` |")
+
+    lines += [
+        "",
+        "## Derived rules — the relationships that bite",
+        "",
+        "Each value below looks reasonable on its own. What goes wrong is the *relationship*,",
+        "and no single constant expresses it, so it cannot be found by grepping.",
+        "",
+        "| Rule | Value | Why | Owner |",
+        "| --- | --- | --- | --- |",
+    ]
+    for rule, value, why, owner in DERIVED_RULES:
+        lines.append(f"| **{rule}** | {value} | {why} | `{owner}` |")
 
     lines += [
         "",

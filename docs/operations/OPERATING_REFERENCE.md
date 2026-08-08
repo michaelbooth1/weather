@@ -7,7 +7,7 @@
     --out docs/operations/OPERATING_REFERENCE.md
 ```
 
-Generated `2026-08-08T20:47:31Z`.
+Generated `2026-08-08T20:51:11Z`.
 
 This exists because the facts needed to answer an operational question live in three
 places — Python constants, PowerShell guards, and the live scheduler — and nothing
@@ -21,6 +21,16 @@ cannot drift. A renamed or deleted constant fails this generator loudly.
 | **12:00-18:00 local** | Graded capture window | The streak verdict is computed here (see AFTERNOON_START/END_HOUR). Never merge a roll-sensitive branch, run the chain, backfill, or reboot inside it. | `weather.collection.collection_health` |
 | **01:00-04:00 local** | Quiet merge window | The only window a ROLL-SENSITIVE branch may be merged, because landing one makes the capture supervisors readopt code. Roll-free branches do not need it. | `scripts/ops/quiet_window_merge.ps1` |
 | **18:00-00:05 local** | Near-close capture | Near-close fast CLOB capture, MM quoting, and settlement watch. Policy says nothing heavy, ever. Weigh any exception against what is actually live at the time. | `docs/operations/HOST_LOAD_POLICY.md` |
+
+## Derived rules — the relationships that bite
+
+Each value below looks reasonable on its own. What goes wrong is the *relationship*,
+and no single constant expresses it, so it cannot be found by grepping.
+
+| Rule | Value | Why | Owner |
+| --- | --- | --- | --- |
+| **A capture gap becomes fatal at `interval x 1.5`** | 10 min cadence -> **15 min** doom threshold | `detect_gaps(times, interval_minutes, tolerance=1.5)` — the 15 minutes is derived, not a literal, so grepping for '15' finds nothing. Two consecutive missed capture cycles exceed it and the Toronto day becomes PARTIAL. | `weather.collection.collection_health.detect_gaps` |
+| **Loop recovery must beat that threshold** | supervisor `--ensure` every **2 min** | The supervisor exists to survive silent deaths AND hangs (a stale heartbeat with a live PID). Its ensure cadence is fast, but hang detection is not the same as ensure cadence: on 2026-08-08 a hung snapshot loop took ~19 minutes to be declared DEAD and restarted, which exceeded the 15-minute threshold and cost the day. **A supervisor that recovers slower than interval x 1.5 cannot save a day from a hang.** | `scripts/ops/register_snapshot_supervisor.ps1` |
 
 ## Governing constants
 
