@@ -438,9 +438,26 @@ The **1-of-N result survives re-measurement on the correct host**: of 9 fields p
 other seven are all-null. **So the PIT surface is temperature-only — but it is real.**
 
 **And we already hold it.** `data/forecast_history/<station>/forecast_daily_by_issue.csv` carries
-**2,135 rows with `issue_time_basis = fixed_lead_day_offset`**, 416 per year for 2021–2025, at
-lead-days 1–4, built 2026-06-23 for the May–June window. The mechanism is proven on this project's
-own data.
+**2,135 rows with `issue_time_basis = fixed_lead_day_offset`** in each of the 12 stations. The
+mechanism is proven on this project's own data. **Composition — corrected 2026-08-07 after
+`-09-40a` caught an earlier draft here, then re-verified directly on production:**
+
+| | Earlier draft (WRONG) | Verified on production |
+| --- | --- | ---: |
+| Rows/year, 2021–2025 | 416 | **364** (52 dates × 7 leads) |
+| 2026 rows | *(not recorded)* | **315** |
+| Lead days | 1–4 | **1–7** |
+
+364 × 5 + 315 = 2,135. **The total was right and every part of the decomposition was wrong** — a
+matching total is not confirmation of a population. Three further facts, from disk, no API call:
+
+- Every fixed-lead row carries `source = open_meteo_previous_runs`. **The PIT host is already in
+  use** — the two-host distinction above is corroborated from the data side.
+- The file's only forecast variable is `forecast_high_native` / `forecast_high_c`. **The
+  materialized honest corpus is already single-variable**, whatever the API could serve.
+- Target range **2021-05-10 → 2026-06-23, months 05 and 06 only, zero July/August rows.** The
+  honest corpus on disk is in the **stale** window §4b/`-09-31a` blamed for the cool bias, so
+  **it cannot train the season we serve.** Collecting July 17 – Aug 14 is genuinely un-started.
 
 **So the corpus question is narrower than "free tier cannot do PIT".** It is: *the PIT surface
 carries temperature only.* The rich 21-field corpus is settled-analysis and contaminates the fit;
@@ -450,6 +467,12 @@ the temperature PIT corpus is honest and thin.
 the 2-column stitched `forecast_daily.csv` while `forecast_daily_by_issue.csv` — the PIT file, on
 disk, populated — **goes unread**. We are contaminated because of what the trainer opens, not
 because the honest data is unavailable.
+
+**Verified in source 2026-08-07, and it is worse than §6 stated:** `daily_by_issue_path()` in
+`sources/forecast_history.py` has **zero readers anywhere in `src/`** — the PIT file is written and
+never consumed by anything. `calibration/forecast_error_model.py:42` hardcodes
+`DEFAULT_FORECAST_DAILY` to the stitched `forecast_daily.csv` for **`cyyz` alone**, on a 12-market
+platform.
 
 That reframes the work: **collect the temperature PIT rows for the new window** (proven mechanism,
 same code path that produced the 2,135 existing rows) **and point the trainer at the PIT file**.

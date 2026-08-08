@@ -28,8 +28,11 @@ archive window  ->  PIT corpus  ->  first retrain  ->  release #1
 ```
 
 **The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the data exists in all
-five years, but Open-Meteo serves `_previous_dayN` for only some variables. **`previous_runs=` is a
-leakage trap** — it returns the settled analysis unchanged, and would pass a completeness check.
+five years, but the PIT host serves `_previous_dayN` for **1 of 21** required fields. **There are
+two hosts and only one is the PIT surface** — probing the archive host measures the wrong thing.
+**Calling `previous_runs=` a leakage trap is RETRACTED** (§4f); it is host-specific, not general.
+The corpus already on disk is **`forecast_high` alone, May 10 – Jun 30, leads 1–7, 2,135 rows ×
+12 stations** — the *stale* window, so it cannot train the season we serve.
 
 That fixes the **centre** (74.97% of oracle excess loss); **nothing is aimed at resolution**, which
 §1 says recalibration cannot supply. So the retrain is **necessary, not sufficient**: promise no gap
@@ -61,17 +64,14 @@ from there, never from here.**
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
 | `-09-38a` | first retrained candidate | **RETURNED: archive PASS 1,740/1,740, corpus BLOCK** (§4f) |
 | `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
-| `-09-40a` | **honest vs rich corpus + first candidate** | written, **next to dispatch** |
+| `-09-40a` | **honest vs rich corpus + first candidate** | **RETURNED: correct P0 stop** — my inventory claim was wrong (leads **1–7** not 1–4; **364**/yr not 416; **+315 in 2026**), verified on production. Premise corrected, **re-dispatched as `-09-41a`** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
-`-09-36a` answered the resolution question: the deficit is **not uniform**, but the Los Angeles
-concentration is only **6.85% of the pooled gap**, so **~93% remains uniform and unexplained**,
-and no captured signal predicts it. Roll-free merges are now driven daily at 05:15 by
-`WeatherMergeQueueDriver` off `C:\Users\micha\ops\merge-queue.txt` (allowlist, not auto-discovery
-— several unmerged branches are held deliberately).
+Merges are driven daily off allowlists (**not** auto-discovery — several branches are held
+deliberately): `WeatherMergeQueueDriver` 05:15 roll-free, `WeatherMergeSensitiveDriver` 01:20.
 
 ## Open, unowned
 
