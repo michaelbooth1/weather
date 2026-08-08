@@ -60,3 +60,55 @@ def test_family_dataset_preflights_and_passes_explicit_market_readers():
     ]
     assert records == [{"market_id": "alpha"}, {"market_id": "beta"}]
     assert counts == {"alpha": 1, "beta": 1}
+
+
+def test_family_dataset_passes_explicit_honest_rich_hybrid_resolvers():
+    specs = [SimpleNamespace(id="alpha"), SimpleNamespace(id="beta")]
+
+    def reader(history_root, spec, *, variant, pit_lead_days):
+        return SimpleNamespace(
+            history_root=history_root,
+            market_id=spec.id,
+            variant=variant,
+            pit_lead_days=pit_lead_days,
+        )
+
+    def market_records(spec, **kwargs):
+        resolver = kwargs["forecast_training_resolver"]
+        assert resolver.market_id == spec.id
+        assert resolver.variant == "hybrid"
+        assert kwargs["pit_forecast_corpus"] is None
+        return [{"market_id": spec.id}]
+
+    with (
+        patch.object(assembly, "family_specs", return_value=specs),
+        patch.object(
+            assembly,
+            "ForecastTrainingVariantResolver",
+            side_effect=reader,
+        ) as reader_cls,
+        patch.object(assembly, "build_market_records", side_effect=market_records),
+    ):
+        records, counts = assembly.build_family_dataset(
+            unit="all",
+            forecast_training_variant="hybrid",
+            forecast_history_root="explicit/forecast-history",
+            pit_lead_days=1,
+        )
+
+    assert reader_cls.call_args_list == [
+        call(
+            "explicit/forecast-history",
+            specs[0],
+            variant="hybrid",
+            pit_lead_days=1,
+        ),
+        call(
+            "explicit/forecast-history",
+            specs[1],
+            variant="hybrid",
+            pit_lead_days=1,
+        ),
+    ]
+    assert records == [{"market_id": "alpha"}, {"market_id": "beta"}]
+    assert counts == {"alpha": 1, "beta": 1}

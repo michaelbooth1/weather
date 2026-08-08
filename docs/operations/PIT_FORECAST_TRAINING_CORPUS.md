@@ -92,6 +92,32 @@ This input does not authorize fitting, promotion, serving changes, or release
 binding. Those remain separate reviewed actions under the nightly retrain and
 release runbooks.
 
+### Honest-versus-rich research inputs
+
+The pooled trainer also has an explicit research-only A/B/C input for measuring
+settled-archive contamination. It reads only a caller-supplied forecast-history
+root and never discovers the active serving archive:
+
+```powershell
+python -m weather.calibration.pooled_feature_cli `
+  --forecast-training-variant honest `
+  --forecast-history-root <run-root>\forecast_history `
+  --pit-lead-days 1 `
+  <other reviewed training arguments>
+```
+
+The variants are `honest` (fixed-lead Previous Runs daily high, no settled
+profiles), `rich` (settled historical-forecast daily high and profiles), and
+`hybrid` (fixed-lead Previous Runs daily high plus settled profiles). Honest
+and hybrid validate issue time, lead, market, station, unit, duplicates, and a
+complete 24-hour daily high before record assembly. Forecast-relative marine
+features are nulled whenever the high is point-in-time.
+
+This A/B/C reader is evidence for a controlled research comparison. It is not
+the immutable, content-addressed production corpus above, does not satisfy the
+base-retrain PIT-manifest preflight, and does not authorize a fit, candidate,
+promotion, serving change, or release binding.
+
 ## Storage and retention
 
 Raw staging and published corpora are `canonical_evidence` under the

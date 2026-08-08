@@ -90,6 +90,7 @@ from weather.calibration.forecast_training_contract import (
     preflight_pit_forecast_training_corpus,
 )
 from weather.sources.forecast_training_corpus import PITForecastTrainingCorpus
+from weather.sources.forecast_training_variants import ForecastTrainingVariantResolver
 from weather.units import round_half_up
 
 DEFAULT_REPORT = data_path() / "backtest" / "f_family_pooled_model_report.md"
@@ -780,7 +781,11 @@ def build_market_records(
     prior_as_of_exclusive=None,
     _available_target_dates=None,
     pit_forecast_corpus=None,
+    forecast_training_resolver=None,
 ):
+    if pit_forecast_corpus is not None and forecast_training_resolver is not None:
+        raise ValueError("PIT corpus and forecast-training resolver are mutually exclusive")
+    forecast_resolver = forecast_training_resolver or pit_forecast_corpus
     excluded_target_dates = _normalized_target_dates(excluded_target_dates)
     included_target_dates = _normalized_target_dates(included_target_dates)
     prior_cutoff = (
@@ -801,7 +806,7 @@ def build_market_records(
     dates = sorted(daily.keys())
     if max_days and max_days > 0:
         dates = dates[-int(max_days):]
-    if _available_target_dates is not None and pit_forecast_corpus is None:
+    if _available_target_dates is not None and forecast_resolver is None:
         _available_target_dates.update(
             local_date.isoformat()
             for local_date in dates
@@ -829,18 +834,24 @@ def build_market_records(
         )
         and not _target_date_is_excluded(local_date, excluded_target_dates)
     ]
-    if pit_forecast_corpus is None:
+    if forecast_resolver is None:
         forecast_index = load_forecast_daily(daily_path_for(spec))
         forecast_profiles = load_forecast_profiles(long_path_for(spec))
     else:
-        if pit_forecast_corpus.market_id != spec.id:
+        if forecast_resolver.market_id != spec.id:
             raise ValueError(
-                "explicit PIT forecast corpus market differs from build market"
+                "explicit forecast-training resolver market differs from build market"
             )
         dates = [
             local_date
             for local_date in dates
-            if int(local_date.year) in set(pit_forecast_corpus.years)
+            if (
+                int(local_date.year) in set(forecast_resolver.years)
+                and (
+                    not hasattr(forecast_resolver, "target_dates")
+                    or local_date.isoformat() in forecast_resolver.target_dates
+                )
+            )
         ]
         if _available_target_dates is not None:
             _available_target_dates.update(
@@ -869,12 +880,12 @@ def build_market_records(
             continue
         for hour in cutoff_hours:
             offset = wall_offsets[(local_date.toordinal() + int(hour)) % len(wall_offsets)]
-            if pit_forecast_corpus is None:
+            if forecast_resolver is None:
                 forecast_high = forecast_index.get(local_date.isoformat())
                 forecast_profile_rows = forecast_profiles.get(local_date.isoformat())
                 forecast_provenance = None
             else:
-                resolved_forecast = pit_forecast_corpus.resolve(
+                resolved_forecast = forecast_resolver.resolve(
                     local_date.isoformat(),
                     int(hour),
                 )
@@ -884,7 +895,11 @@ def build_market_records(
             marine_context_features = marine_water_contrast_index.get(
                 (local_date.isoformat(), int(hour))
             )
-            if pit_forecast_corpus is not None and marine_context_features:
+            if (
+                forecast_resolver is not None
+                and not getattr(forecast_resolver, "uses_settled_forecast_high", False)
+                and marine_context_features
+            ):
                 marine_context_features = dict(marine_context_features)
                 for column in FORECAST_RELATIVE_MARINE_FIELDS:
                     marine_context_features[column] = None
@@ -928,6 +943,9 @@ def build_family_dataset(
     included_target_dates=None,
     prior_as_of_exclusive=None,
     pit_forecast_corpus_manifest=None,
+    forecast_training_variant=None,
+    forecast_history_root=None,
+    pit_lead_days=1,
 ):
     specs = family_specs(unit)
     records = []
@@ -936,6 +954,14 @@ def build_family_dataset(
     excluded_target_dates = _normalized_target_dates(excluded_target_dates)
     included_target_dates = _normalized_target_dates(included_target_dates)
     pit_preflight = None
+    if pit_forecast_corpus_manifest and forecast_training_variant:
+        raise ValueError(
+            "PIT corpus manifest and forecast-training variant are mutually exclusive"
+        )
+    if bool(forecast_training_variant) != bool(forecast_history_root):
+        raise ValueError(
+            "forecast-training variant and explicit forecast-history root are required together"
+        )
     if pit_forecast_corpus_manifest:
         pit_preflight = preflight_pit_forecast_training_corpus(
             pit_forecast_corpus_manifest,
@@ -945,6 +971,16 @@ def build_family_dataset(
         pit_forecast_corpus = (
             PITForecastTrainingCorpus(pit_forecast_corpus_manifest, spec.id)
             if pit_preflight is not None
+            else None
+        )
+        forecast_training_resolver = (
+            ForecastTrainingVariantResolver(
+                forecast_history_root,
+                spec,
+                variant=forecast_training_variant,
+                pit_lead_days=pit_lead_days,
+            )
+            if forecast_training_variant
             else None
         )
         market_records = build_market_records(
@@ -957,6 +993,7 @@ def build_family_dataset(
             prior_as_of_exclusive=prior_as_of_exclusive,
             _available_target_dates=available_target_dates,
             pit_forecast_corpus=pit_forecast_corpus,
+            forecast_training_resolver=forecast_training_resolver,
         )
         counts[spec.id] = len(market_records)
         records.extend(market_records)

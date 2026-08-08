@@ -141,6 +141,26 @@ def main():
         ),
     )
     parser.add_argument(
+        "--forecast-training-variant",
+        choices=("honest", "rich", "hybrid"),
+        default=None,
+        help=(
+            "Research A/B/C forecast input: honest=PIT high only, rich=settled "
+            "high+profiles, hybrid=PIT high+settled profiles. Requires an explicit root."
+        ),
+    )
+    parser.add_argument(
+        "--forecast-history-root",
+        default=None,
+        help="Explicit root containing per-station forecast-history CSV files.",
+    )
+    parser.add_argument(
+        "--pit-lead-days",
+        type=int,
+        default=1,
+        help="Fixed Previous Runs lead selected for honest/hybrid forecast highs.",
+    )
+    parser.add_argument(
         "--point-in-time-preselection-lock",
         default=None,
         help=(
@@ -311,6 +331,9 @@ def main():
                 min(included_dates) if included_dates else None
             ),
             pit_forecast_corpus_manifest=args.pit_forecast_corpus_manifest,
+            forecast_training_variant=args.forecast_training_variant,
+            forecast_history_root=args.forecast_history_root,
+            pit_lead_days=args.pit_lead_days,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
