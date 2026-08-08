@@ -65,29 +65,32 @@ from there, never from here.**
 
 | Ref | What | State |
 | --- | --- | --- |
-| `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
-| `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
-| `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **RETURNED: NO CANDIDATE.** P0–P2 PASS — PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built. **P3 correctly stopped at 12,586/12,600** |
-| `-09-42a` | **exclude 2 Denver station-days, then fit** | written, **next to dispatch** |
-| `-09-14a` | **watcher-stretch fix — the MM unblock** | done 08-05, **never merged**. Re-verified 08-07: merges clean after `-09-37a`, **144 passed** on the combined tree. **Queued 01:20** |
+| `-09-39a` | train/serve parity — **base of the corpus stack** | verified 24 unexpected → 0; awaiting merge (**roll-sensitive**) |
+| `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **NO CANDIDATE.** PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built; **correctly stopped at 12,586/12,600** |
+| `-09-42a` | exclude Denver station-days, then fit | **NO CANDIDATE.** Exclusion contract built (`first_retrain_station_day_exclusions_v1`, 899 market-days / 12,586 cells); all three fits ran, **none qualifies** — rich's interval includes zero, **power 0.054** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
-| `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
-| `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
+| `-09-33a` / `-09-28a` | season window (**contained by `-09-39a`**) / input-surface gate | awaiting merge (roll-sensitive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
 
-`-09-29a`/`-31a`/`-32a`/`-34a`/`-36a` all **MERGED 2026-08-07**. `-09-29a` **revived the learning
-loop**: `daily_learning.json` and `market_beating_objective_scoreboard.json` were **28 days stale**
-and now write daily — the scoreboard reads **BLOCK, `weather_only_model_proof_packet` missing**,
-the first time it could name its own blocker rather than not run. Merges are driven daily off
-allowlists (**not** auto-discovery — some branches are held deliberately): `WeatherMergeQueueDriver`
-05:15 roll-free, `WeatherMergeSensitiveDriver` 01:20; both rehearsed end-to-end 2026-08-07.
+**MERGED 08-07:** `-09-29a`/`-31a`/`-32a`/`-34a`/`-36a`. `-09-29a` **revived the learning loop** —
+`daily_learning.json` and the market-beating scoreboard were 28 days stale and now write daily; the
+scoreboard reads **BLOCK, `weather_only_model_proof_packet` missing**, the first time it could name
+its own blocker rather than not run. **MERGED 08-08 01:20/01:25:** `-09-37a` + `-09-14a`, capture
+healthy across both rolls. Merges run daily off allowlists (**not** auto-discovery — some branches
+are held deliberately): `WeatherMergeQueueDriver` 05:15 roll-free, `WeatherMergeSensitiveDriver`
+01:20.
 
 ## Open, unowned
 
-- **Settlement source: ROOT-CAUSED AND FIXED, awaiting merge.** We were reading the page's
-  **advertising** `apiKey`. `-09-37a` reads its injected runtime `API_URL`/`API_KEY`, verified on
-  production including the blocking 08-05/08-06 dates; merges 01:20 (**roll-sensitive**).
-  Settlement frozen at **2026-08-04**; streak **15/14 banked and safe**.
+- **Settlement: the SOURCE is fixed, a CONTAINMENT RACE now blocks it.** `-09-37a` merged 01:20
+  08-08 and works — `public_wu_settlement_restore` ran **699 s, 40 processes, 15.9 GB read**, real
+  work. It then failed `containment_setup_failed` on **one transient
+  `OSError [Errno 31]` in 1 of 3,402 capture calls** (`process_identity_query_failed`, a process
+  exiting between handle-open and query). **18 of 19 lifetime checks PASS**; the only false one is
+  `no_capture_failures`, and `windows_process_lifetime.py:92` is `PASS if all(checks.values())`.
+  A 1-in-3,402 benign race hard-stops the chain. There is already a
+  `capture_failure_cardinality_bounded` check, so tolerating bounded transients fits the design.
+  **Unowned.** Settlement frozen at **2026-08-04**; streak **15/14 banked and safe**.
   [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
 - **Capture memory pressure is the live streak risk, not the network.** 2026-08-07: **430**
   `capture_host_memory_admission` refusals 11:00–18:00, RAM down to **13 MB** against **3.49 GB**
@@ -96,14 +99,21 @@ allowlists (**not** auto-discovery — some branches are held deliberately): `We
   in its status file, so a start-race orphan is **unreapable** (same class as the taker orphans of
   06-30 / 07-04). Killed by hand; `staleness_sweep.ps1` §12 detects it now. **The code fix is
   unowned.**
-- **THE MAKER WAS STARVING ITSELF.** MM has **3 countable days in 54, none in 41**. It is not
-  blocked on live permission — `live_trade_permission_evidence` is 0/12 only because
+- **MM SCORED ITS FIRST COUNTABLE DAY IN 42 (2026-08-08).** `live_forward_gate` **PASS**,
+  `counts_toward_live_forward_gate` **true**, `paper_trading_evidence` **12/12** — and
+  `live_trade_permission_evidence` is **still 0/12**, which proves live trading was never required
+  for a countable paper day. Standing count **3 → 4 of 55**; the gate needs 22–43.
+  It was never blocked on live permission — that lane reads 0/12 only because
   `mode != "live-pilot"`, which is *correct* in paper mode and **not required for paper evidence**.
-  The real bottleneck on 2026-08-07 was **11/12 markets countable, miami failing `clob_freshness`
-  on ONE 120.0 s gap** — at threshold, in a 13-hour day, and the gate takes the **max gap across
-  the DAY**, so one two-minute stall costs the whole fleet its countable day. Same memory pressure
-  above → CLOB stall → gap. **`-09-14a` is the fix and it has existed, unmerged, since 08-05**;
-  queued for 01:20. Trend is 12 markets blocked through July → 9 → **1 today**.
+  Two real blockers, both now cleared: `clob_freshness` (one 120.0 s gap poisoned a whole
+  market-day, since the gate takes the **max gap across the DAY**) — fixed by `-09-14a`; and
+  **`exchange_economics_gate`, which was stale because
+  `WeatherExchangeEconomicsSnapshotRefresh` HAD NEVER BEEN REGISTERED.** The register script sat
+  in `scripts/ops/` unused. **18 of 20 economics checks always passed** — only
+  `target_date_matches` and `verified_at_recent` (24 h max age) failed. Now armed daily at 06:50
+  and proof-run. **The repo's own register script would NOT have fixed it**: it passes no
+  `-TargetDate`, so the refresh defaults to *yesterday* — right for the settlement chain, wrong
+  for the maker, which targets today.
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
 - **Disk: ~12 days headroom** (130.4 GB free, ~11 GB/day). **The taker is PAUSED — operator

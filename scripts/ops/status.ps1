@@ -280,7 +280,13 @@ $expNonZero = @{
     "WeatherStalenessSweep"                  = @("0x1", "0x2")
     "WeatherHostHealthWatchdog"              = @("0x2")
 }
-$expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow")
+# The taker was PAUSED by operator decision 2026-08-07 to focus 100% on the maker
+# (docs/operations/taker-paused-and-pruned-2026-08-07.md). Both tasks are deliberately
+# Disabled; flagging them daily is noise. Re-enable BOTH to restart the taker.
+$expDisabled = @(
+    "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
+    "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor"
+)
 $taskCount = 0
 $interactiveTasks = 0
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
