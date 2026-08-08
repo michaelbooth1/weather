@@ -54,6 +54,7 @@ HOUR_GROUPS = {
     "afternoon_15_17": tuple(range(15, 18)),
     "lock_in_18_20": tuple(range(18, 21)),
 }
+SNAPSHOT_KEYS = ["market_id", "target_date", "snapshot_id", "record_hash"]
 
 
 @dataclass(frozen=True)
@@ -216,7 +217,7 @@ def _band_midpoint(kind: str, value: Any, value_hi: Any) -> float | None:
 def _validate_population(frame: pd.DataFrame) -> None:
     support = {
         "band_rows": len(frame),
-        "snapshots": frame["snapshot_id"].nunique(),
+        "snapshots": frame[SNAPSHOT_KEYS].drop_duplicates().shape[0],
         "dates": frame["target_date"].nunique(),
         "markets": frame["market_id"].nunique(),
         "market_days": frame[["target_date", "market_id"]].drop_duplicates().shape[0],
@@ -286,7 +287,10 @@ def _extract_forecast_features(
         )
         output.append(
             {
+                "market_id": market_id,
+                "target_date": target_date,
                 "snapshot_id": str(row.snapshot_id),
+                "record_hash": str(row.record_hash),
                 "forecast_high": features.get("forecast_high"),
                 "forecast_disagreement": features.get("forecast_disagreement"),
                 "forecast_source_count": features.get("forecast_source_count"),
@@ -347,7 +351,7 @@ def prepare_predictors(
     _validate_population(frame)
 
     snapshot_entropy = (
-        frame.groupby("snapshot_id", sort=False)
+        frame.groupby(SNAPSHOT_KEYS, sort=False)
         .agg(
             model_entropy=("repair_probability", _entropy),
             market_entropy=("market_probability", _entropy),
@@ -357,7 +361,7 @@ def prepare_predictors(
     snapshot_entropy["entropy_gap"] = (
         snapshot_entropy["model_entropy"] - snapshot_entropy["market_entropy"]
     )
-    frame = frame.merge(snapshot_entropy, on="snapshot_id", validate="many_to_one")
+    frame = frame.merge(snapshot_entropy, on=SNAPSHOT_KEYS, validate="many_to_one")
 
     manifest = json.loads(measurement_manifest_path.read_text(encoding="utf-8"))
     admitted = {
@@ -397,12 +401,16 @@ def prepare_predictors(
         ).fillna("")
         tape = tape[tape["snapshot_id"].astype(str).isin(selected_ids)].copy()
         tape["band_index"] = tape.groupby("snapshot_id", sort=False).cumcount()
+        tape["market_id"] = str(market_id)
+        tape["target_date"] = str(target_date)
         for missing in ("bin_value_hi_c", "best_bid", "best_ask", "volume", "liquidity"):
             if missing not in tape:
                 tape[missing] = ""
         tape_frames.append(
             tape[
                 [
+                    "market_id",
+                    "target_date",
                     "snapshot_id",
                     "band_index",
                     "range_label",
@@ -418,13 +426,13 @@ def prepare_predictors(
         )
 
     feature_frame = pd.concat(feature_frames, ignore_index=True)
-    if feature_frame["snapshot_id"].nunique() != EXPECTED_SNAPSHOTS:
+    if feature_frame[SNAPSHOT_KEYS].drop_duplicates().shape[0] != EXPECTED_SNAPSHOTS:
         raise RuntimeError("forecast sidecar snapshot roster changed")
-    frame = frame.merge(feature_frame, on="snapshot_id", validate="many_to_one")
+    frame = frame.merge(feature_frame, on=SNAPSHOT_KEYS, validate="many_to_one")
     tape_frame = pd.concat(tape_frames, ignore_index=True)
     frame = frame.merge(
         tape_frame,
-        on=["snapshot_id", "band_index"],
+        on=["market_id", "target_date", "snapshot_id", "band_index"],
         how="left",
         suffixes=("", "_tape"),
         validate="one_to_one",
@@ -483,7 +491,7 @@ def prepare_predictors(
     ]
     frame[output_columns].to_csv(sidecar_path, index=False, lineterminator="\n")
 
-    snapshot_values = frame.drop_duplicates("snapshot_id")
+    snapshot_values = frame.drop_duplicates(SNAPSHOT_KEYS)
     thresholds = {
         "schema_version": "quotable_edge_predictor_thresholds_v1",
         "quantile_method": "numpy_linear",
@@ -508,7 +516,7 @@ def prepare_predictors(
         "hypothesis_count": len(HYPOTHESES),
         "support": {
             "band_rows": len(frame),
-            "snapshots": frame["snapshot_id"].nunique(),
+            "snapshots": frame[SNAPSHOT_KEYS].drop_duplicates().shape[0],
             "date_clusters": frame["target_date"].nunique(),
             "market_clusters": frame["market_id"].nunique(),
             "market_days": frame[["target_date", "market_id"]].drop_duplicates().shape[0],
@@ -938,7 +946,7 @@ def analyze(
                 "axis": hypothesis.axis,
                 "cell": hypothesis.cell,
                 "band_rows": len(scoped),
-                "snapshots": scoped["snapshot_id"].nunique(),
+                "snapshots": scoped[SNAPSHOT_KEYS].drop_duplicates().shape[0],
                 "date_clusters": scoped["target_date"].nunique(),
                 "market_clusters": scoped["market_id"].nunique(),
                 "market_days": scoped[["target_date", "market_id"]].drop_duplicates().shape[0],
@@ -1066,7 +1074,7 @@ def analyze(
             "date_clusters": frame["target_date"].nunique(),
             "market_clusters": frame["market_id"].nunique(),
             "market_days": frame[["target_date", "market_id"]].drop_duplicates().shape[0],
-            "snapshots": frame["snapshot_id"].nunique(),
+            "snapshots": frame[SNAPSHOT_KEYS].drop_duplicates().shape[0],
             "band_rows": len(frame),
         },
         "results": {
