@@ -68,6 +68,7 @@ from there, never from here.**
 | `-09-39a` | train/serve parity — **base of the corpus stack** | verified 24 unexpected → 0; awaiting merge (**roll-sensitive**) |
 | `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **NO CANDIDATE.** PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built; **correctly stopped at 12,586/12,600** |
 | `-09-42a` | exclude Denver station-days, then fit | **NO CANDIDATE.** Exclusion contract built (`first_retrain_station_day_exclusions_v1`, 899 market-days / 12,586 cells); all three fits ran, **none qualifies** — every interval includes zero, **power 0.054–0.146**. **Reconciled with master and QUEUED 01:20** — lands all 5 missions |
+| `-09-43a` | **repair the blind local-meteorology block** | written, **next to dispatch — top model item** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` / `-09-28a` | season window (**contained by `-09-39a`**) / input-surface gate | awaiting merge (roll-sensitive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
@@ -111,7 +112,7 @@ are held deliberately): `WeatherMergeQueueDriver` 05:15 roll-free, `WeatherMerge
   lever**: 8 of 10 local-meteorology features dead at serve, ~28% of inputs imputed always, and
   `-09-39a` proved the repair on the other 2 from our own `station_latest`. **`-09-26a`'s NO-GO
   does not apply** — it measured filling from *external* sources at 8.90% coverage, not routing
-  captured data. **Unowned; top model item.**
+  captured data. **Commissioned as `-09-43a`.**
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
 - **Disk: ~12 days headroom** (130.4 GB free, ~11 GB/day). **The taker is PAUSED — operator
