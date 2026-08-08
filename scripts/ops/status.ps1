@@ -271,6 +271,14 @@ $expNonZero = @{
     # so this task legitimately fails when nobody is logged on; the honest health signal
     # is the unpushed-commit count below, not this exit code.
     "WeatherOneShotPush"                     = @("0x1", "0x0", "0x41306")
+    # These two are MONITORS: their exit code is their verdict, not their health.
+    # staleness_sweep.ps1:385  exit 1 = one or more WARN, exit 2 = one or more CRITICAL
+    # health_watchdog.ps1:199  exit 2 = top severity CRITICAL
+    # Flagging those as "unexpected" reported the smoke detector as the fire: on 2026-08-07
+    # two of six FLAGS were these, on a day that also had a real capture failure to find. The
+    # findings themselves are surfaced by their own reports, which are the daily reads.
+    "WeatherStalenessSweep"                  = @("0x1", "0x2")
+    "WeatherHostHealthWatchdog"              = @("0x2")
 }
 $expDisabled = @("WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow")
 $taskCount = 0
