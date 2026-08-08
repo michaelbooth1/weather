@@ -198,8 +198,19 @@ The independent verifier returned `PASS` for the retained positive control,
 exact paired roster/outcome/market evidence, support, paired score intervals,
 cool-bias interval, frozen-tail interval, and decomposition-share intervals.
 
-Repository checks and the final commit binding are recorded below after the
-report-content commit is created.
+Repository verification after the report-content commit:
+
+```text
+git diff --check
+PASS
+
+python -m weather.operations.agent_docs_audit
+PASS (18 agent files, 722 Markdown files)
+```
+
+No application test is required for this report-only tracked change. The
+measurement itself was independently re-read and verified from its sealed CSV,
+draw, JSON, source, and predecessor bindings as described above.
 
 ## Roll verdict
 
@@ -263,4 +274,5 @@ Expected report presence: the exact path above. Expected branch roll verdict:
 Branch:
 `codex/workstation-remeasure-the-gap-on-the-repaired-model-2026-09-44a`.
 
-Report-content commit: `<to be bound after commit>`.
+Report-content commit:
+`ee0510160b53dbd0e99b929c7029c07b9b624753`.
