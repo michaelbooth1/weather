@@ -1,4 +1,4 @@
-# Workstation report: fix the watcher stretch
+﻿# Workstation report: fix the watcher stretch
 
 Date: 2026-08-05
 
