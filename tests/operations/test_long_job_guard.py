@@ -258,7 +258,13 @@ class TestLongJobGuard(unittest.TestCase):
         result = run_isolated_subprocess(
             [sys.executable, "-c", "print('isolated-ok')"],
             timeout_seconds=60,
-            working_set_max_bytes=64 * 1024 * 1024,
+            # 64 MiB does not start a CPython 3.11 interpreter on this host.
+            # ``working_set_max_bytes`` doubles as the Job private-COMMIT cap when
+            # no private_memory_max_bytes is given (long_job_guard.py ~1070), so the
+            # child died with STATUS_QUOTA_EXCEEDED (0xC0000044) before running.
+            # Measured 2026-08-08: 64 MiB fails, 96 MiB is the first that starts.
+            # 256 MiB matches every other cap in this file and keeps the margin.
+            working_set_max_bytes=256 * 1024 * 1024,
         )
 
         self.assertEqual(result["returncode"], 0)
@@ -318,7 +324,13 @@ class TestLongJobGuard(unittest.TestCase):
                 "import sys;sys.stdout.write('x'*200000);sys.stdout.flush()",
             ],
             timeout_seconds=60,
-            working_set_max_bytes=64 * 1024 * 1024,
+            # 64 MiB does not start a CPython 3.11 interpreter on this host.
+            # ``working_set_max_bytes`` doubles as the Job private-COMMIT cap when
+            # no private_memory_max_bytes is given (long_job_guard.py ~1070), so the
+            # child died with STATUS_QUOTA_EXCEEDED (0xC0000044) before running.
+            # Measured 2026-08-08: 64 MiB fails, 96 MiB is the first that starts.
+            # 256 MiB matches every other cap in this file and keeps the margin.
+            working_set_max_bytes=256 * 1024 * 1024,
             output_tail_chars=1024,
             output_max_bytes=4096,
         )
