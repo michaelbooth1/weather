@@ -94,6 +94,73 @@ worthless.
 
 ---
 
+## 1b. Audit 2026-08-08 — five assumptions that do not survive checking
+
+Commissioned after `-09-44a` ruled out inputs. Nothing here is a new measurement; each item is a
+**gap in what has been measured**, found by re-reading this file against the objective.
+
+### 1. The declared primary objective is UNMEASURABLE, by ~10x
+
+§5 records it plainly and the consequence was never drawn: **the 09:00–14:00 primary-slice
+endpoint needs ~504 dates. We have 50.** At one date per day that is over a year away. The
+severe-tail endpoint needs **~4**.
+
+So the objective the project declared primary is the one it cannot evaluate, and the endpoint it
+*can* evaluate with 12x margin is under a "do not tune" hold (§4d). Aggregate Brier — also
+measurable — was explicitly abandoned. **Every decision taken "on the primary objective" is
+uninterpretable**, which is exactly what the slice gate's 99.885% false-rejection rate showed.
+
+**Choose objectives by measurability as well as relevance.** An endpoint you cannot power is an
+aspiration, not an objective. This does not make the 09:00–14:00 slice the wrong *target* — it
+makes it unusable as a *decision rule* until the corpus is ~10x larger.
+
+### 2. We have measured only where we LOSE, never where we WIN
+
+Every decomposition in this file is a loss decomposition: excess Brier, cool bias, severity tail,
+centre displacement. **No analysis has ever asked whether a conditional subset exists on which our
+distribution scores BETTER than the market's.** §4d names the hole in its own words — the flagged
+severe set "is exactly where our claimed edge is largest," and suppressing it "forfeits whatever
+upside lives there" — then records that the opportunity cost is unmeasured.
+
+For the end goal this is the only question that matters. See item 3.
+
+### 3. The promotion gate is stricter than the ECONOMICS require
+
+| Source | What it demands |
+| --- | --- |
+| `hourly_model_performance` (§9) | early-hour Brier within **0.0030** of the market, **in all 12 markets**. We trail by **0.0205** — 7x |
+| `MARKET_MAKING_PLAN.md` Part 0 | *"with a model that is better-calibrated than the market **in specific windows**, quotes can be skewed so being filled is itself positive-EV"* |
+
+**These are not the same requirement.** A maker earns spread from uninformed flow and loses to
+informed flow; it needs edge *where it quotes*, not a fleet-wide aggregate. The gate is a project
+design choice, and a defensible one — but **nobody has computed what edge market making actually
+needs**, so nobody knows whether the gate is calibrated to the economics or merely strict.
+The plan says the open question is "what fraction is informed"; that is still unanswered.
+
+### 4. We evaluate in-season and SERVE out-of-season
+
+The headline 1.4233x is **in-season**. The archive covers May 10 – Jun 30 (§4b), so in August
+**every date we serve is out-of-season**, where the measured ratio is **1.526x → 1.542x**
+(`-09-44a`) — worse, and the stratum the repair moved unfavourably (+0.016, not powered).
+**Citing 1.4233x as "the gap" understates what we actually serve.** Say which stratum, always.
+
+### 5. The GAP has never been decomposed on the current surface
+
+§1 carries a served-**loss** decomposition (84.772% / 15.228%). The retired 98.88% / 1.12%
+decomposed the **gap versus the market**. Those are different estimands on different panels, so
+**neither answers "of our excess Brier over the market, how much is calibration and how much is
+information?"** on today's model. That is the question "recalibration cannot close it" was
+supposed to answer, and it is currently unsupported in both directions.
+
+### A standing caveat on the benchmark itself
+
+The 1.42x comparison is **model versus market mid-price**. That is the right benchmark for "are we
+the better forecaster." It is **not** the right benchmark for "can we make money": a taker pays
+`5% x (1-p)` and cannot trade at mid, while a maker is paid the spread. **Do not carry a
+mid-price accuracy comparison into a profitability conclusion without re-deriving it.**
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |

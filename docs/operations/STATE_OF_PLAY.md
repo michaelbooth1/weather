@@ -79,6 +79,8 @@ and power live in §2 / §4 / §4d / §4e — **cite them from there, never from
 | `tolerate-benign-capture-race` | **restarts the dead chain** | verified on this host; **QUEUED 01:20** |
 | `register-two-schema-literals` | last red test on master | based on `-09-43a`; **QUEUED 01:20, must merge after it** |
 | `-09-44a` | **RETURNED — the gap did not move** | report-only, 278 lines, **QUEUED 01:20 after `-09-43a`**. Roll-sensitive *only* by inherited base; roll-free once `-09-43a` lands |
+| `-09-45a` | **maker daily-start race — the capture killer** | MERGED roll-free. Ceiling 7–20 of 55, still under the 22-day bar |
+| `-09-46a` | **does a quotable edge exist anywhere?** | written, **next to dispatch — top model item** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 
 Merges run daily off allowlists (**not** auto-discovery — some branches are held deliberately):
@@ -115,12 +117,19 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
   `clob_freshness`/`stale_clob_book_tape` (**52 days**, 643). **Live trading was never required** —
   `live_trade_permission_evidence` is 0/12 and the gate passes anyway. Re-run the post-mortem after
   any freshness fix; it is the yield meter.
-- **RESOLUTION IS NOW THE WHOLE GAME, AND NOTHING IS AIMED AT IT.** `-09-44a` ruled out inputs;
-  §1 retired the centre ceiling; `-09-36a` localised only ~7% of the sharpness deficit and found no
-  usable signal. **84.772% of served loss is resolution and we have no line of work on it.** The
-  one cheap, unclaimed lead is the **15.228% reliability share** — an order of magnitude above the
-  retired `1.12%` — which needs its **denominator established before**, not after, someone fits a
-  recalibration pass.
+- **THE AUDIT CHANGED THE QUESTION — see §1b.** Inputs are ruled out, bias is ruled out in-season,
+  and **the declared primary objective needs ~504 dates against the 50 we have**, so it cannot
+  decide anything for over a year. The severe-tail endpoint needs ~4 and is the one thing we *can*
+  power — and it is under a hold. **Choose objectives by measurability, not only relevance.**
+- **WE HAVE ONLY EVER MEASURED WHERE WE LOSE.** No analysis has asked whether a subset exists where
+  our distribution beats the market's. §4d named the omission and left it. `-09-46a` is dispatched
+  to answer it, and **its most likely honest answer is "no" — which redirects the programme to MM
+  economics rather than model work.**
+- **The promotion gate may be stricter than the economics require** (§1b.3). It demands early-hour
+  Brier within **0.0030** fleet-wide; the MM plan needs only edge **"in specific windows"**. Nobody
+  has computed what edge market making actually needs — `-09-46a` P1 does.
+- **Cite the stratum, always** (§1b.4). 1.4233x is **in-season**; we serve **out-of-season**, where
+  it is **1.526x–1.542x** and worse.
 - **Disk: ~12 days headroom** (137.8 GB free). The **taker is PAUSED** (operator, 2026-08-07);
   what remains is `CANONICAL_EVIDENCE` ([record](taker-paused-and-pruned-2026-08-07.md)).
 - **`pytest -q` on master is GREEN** — **3,349 passed, 829 subtests, 0 failed** once tonight's
