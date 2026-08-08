@@ -68,6 +68,9 @@ and power live in §2 / §4 / §4d / §4e — **cite them from there, never from
 | Ref | What | State |
 | --- | --- | --- |
 | `-09-43a` | **blind-feature repair — lands 6 missions in one merge** | verified on this host; **QUEUED 01:20**. Contains `-09-33a`/`-38a`/`-39a`/`-41a`/`-42a`; do **not** queue those separately |
+| `tolerate-benign-capture-race` | **restarts the dead chain** | verified on this host; **QUEUED 01:20** |
+| `register-two-schema-literals` | last red test on master | based on `-09-43a`; **QUEUED 01:20, must merge after it** |
+| `-09-44a` | **re-measure the gap on the repaired model** | written, **next to dispatch — top model item** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 
 Merges run daily off allowlists (**not** auto-discovery — some branches are held deliberately):
@@ -83,12 +86,15 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
   and only 1 is. Narrowing **records** the repair, it does not weaken it. (2) `pressure` and
   `pressure_trend_3h` should be **dropped from training in the F markets** per §5's
   unknowable-at-serve rule. Neither is started.
-- **Settlement: the SOURCE is fixed, a CONTAINMENT RACE blocks it.** `public_wu_settlement_restore`
-  did real work (699 s, 15.9 GB read) then failed `containment_setup_failed` on **one transient
-  `OSError [Errno 31]` in 1 of 3,402 capture calls**. **18 of 19 lifetime checks PASS**, but
-  `windows_process_lifetime.py:92` is `PASS if all(checks.values())`, so a benign 1-in-3,402 race
-  hard-stops the chain; a `capture_failure_cardinality_bounded` check already exists. Settlement
-  frozen at **2026-08-04**; streak **15/14 banked and safe**.
+- **THE CHAIN HAS BEEN DEAD AT STEP 4 SINCE 08-04 — fix queued for tonight.** Not "settlement is
+  behind": the chain runs 4 of its steps and stops, so **settlement, maker paper scoring, every
+  `mm_*` gate (all null in the report) and variant learning (SKIPPED) never run at all.**
+  `public_wu_settlement_restore` does real work (699 s, 40 processes, 15.9 GB read) then fails
+  `containment_setup_failed` on **one transient `OSError [Errno 31]` in 1 of 3,402 capture
+  calls** — a process exiting between handle-open and job-membership query. 18 of 19 lifetime
+  checks PASS. Fixed by `tolerate-benign-capture-race`, queued 01:20.
+  **After it lands, 08-05 → 08-07 still need an explicit settlement backfill — each run settles
+  only yesterday.** Streak **15/14 banked and safe**.
   [detail](wu-settlement-source-down-2026-08-07.md).
 - **Start-race bot orphans are unreapable, and they starve capture.** The supervisor stops only the
   pid in its status file; on 08-07 a duplicate maker caused **430** memory-admission refusals and
@@ -100,11 +106,16 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
   found no usable signal. Nothing is aimed at the remaining ~93%.
 - **Disk: ~12 days headroom** (137.8 GB free). The **taker is PAUSED** (operator, 2026-08-07);
   what remains is `CANONICAL_EVIDENCE` ([record](taker-paused-and-pruned-2026-08-07.md)).
-- **5 tests fail on master, unowned** — `test_afternoon_residual_centering`, `test_long_job_guard`
-  ×2, `test_tracked_artifact_manifests_match_current_repository_identity`, and
-  `test_source_tree_strict_audit_has_only_explicit_exclusions` (**newly named — it was always red
-  and this file under-reported it as 4**; `-09-43a` adds a second literal to the same failure).
-  `pytest -q` is red before you start: **diff against these five before believing you broke it.**
+- **`pytest -q` on master is GREEN as of 2026-08-08** — **3,349 passed, 829 subtests, 0 failed**
+  once tonight's schema-literal branch lands. This file previously named four failures and **two
+  of them do not fail at all** (`test_afternoon_residual_centering`,
+  `test_tracked_artifact_manifests_match_current_repository_identity` — the latter only trips on
+  *untracked* files, so it fails mid-edit and passes once staged). Two real ones were never
+  listed. All four now fixed: the two `test_long_job_guard` failures were **the product working**
+  — 64 MiB doubles as the Job private-commit cap and cannot start CPython 3.11, so the child died
+  `STATUS_QUOTA_EXCEEDED`; raised to the 256 MiB every other call site in that file uses. The
+  paid-provider ratchet was red because two settlement docs quoted the provider host literally.
+  **If something is red, it is yours — do not assume a known-red baseline.**
 
 ## Daily reads
 
