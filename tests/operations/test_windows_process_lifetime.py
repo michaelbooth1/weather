@@ -127,7 +127,7 @@ def test_summary_fails_capture_error_limit_termination_or_handle_leak():
     )
 
     assert capture_error["status"] == "FAIL"
-    assert capture_error["checks"]["no_capture_failures"] is False
+    assert capture_error["checks"]["no_unexplained_capture_failures"] is False
     assert limit_termination["status"] == "FAIL"
     assert (
         limit_termination["checks"]["no_job_limit_terminated_processes"]
@@ -135,3 +135,77 @@ def test_summary_fails_capture_error_limit_termination_or_handle_leak():
     )
     assert leaked_handle["status"] == "FAIL"
     assert leaked_handle["checks"]["all_retained_handles_closed"] is False
+
+
+def test_summary_tolerates_benign_identity_query_race_when_accounting_is_exact():
+    """A process exiting between handle-open and query is an observation race.
+
+    It cost the settlement chain 4 days in August 2026: one such failure in
+    3,402 capture calls hard-stopped a step whose other 18 checks all passed.
+    """
+
+    payload = _summarize(
+        [_record(101, 1000)],
+        failures=[{
+            "kind": "process_identity_query_failed",
+            "pid": 102,
+            "detail": "OSError: [Errno 31] a device attached is not functioning",
+        }],
+    )
+
+    assert payload["status"] == "PASS"
+    assert payload["checks"]["no_unexplained_capture_failures"] is True
+    assert payload["benign_capture_failure_count"] == 1
+    assert payload["unexplained_capture_failure_count"] == 0
+    # The failure is still reported -- tolerated, never hidden.
+    assert len(payload["capture_failures"]) == 1
+
+
+def test_benign_race_does_not_excuse_an_unobserved_job_process():
+    """The whole safety argument: containment is proven independently.
+
+    If the skipped process were still Job-bound, accounting would disagree with
+    the observed rows and the summary must FAIL even though the only capture
+    failure is a benign one.
+    """
+
+    payload = _summarize(
+        [_record(101, 1000)],
+        accounting=_accounting(total=2),
+        failures=[{"kind": "process_identity_query_failed", "pid": 102}],
+    )
+
+    assert payload["status"] == "FAIL"
+    assert payload["checks"]["every_job_process_observed"] is False
+    assert payload["checks"]["no_unexplained_capture_failures"] is True
+
+
+def test_benign_race_does_not_excuse_a_live_process_or_a_job_kill():
+    still_running = _summarize(
+        [_record(101, 1000)],
+        accounting=_accounting(total=1, active=1),
+        failures=[{"kind": "process_identity_query_failed", "pid": 102}],
+    )
+    job_killed = _summarize(
+        [_record(101, 1000)],
+        accounting=_accounting(total=1, terminated=1),
+        failures=[{"kind": "process_identity_query_failed", "pid": 102}],
+    )
+
+    assert still_running["status"] == "FAIL"
+    assert still_running["checks"]["job_quiesced"] is False
+    assert job_killed["status"] == "FAIL"
+    assert job_killed["checks"]["no_job_limit_terminated_processes"] is False
+
+
+def test_process_not_in_job_is_never_benign():
+    """Containment evidence must stay fatal -- it is the point of the tracker."""
+
+    payload = _summarize(
+        [_record(101, 1000)],
+        failures=[{"kind": "process_not_in_job", "pid": 102}],
+    )
+
+    assert payload["status"] == "FAIL"
+    assert payload["checks"]["no_unexplained_capture_failures"] is False
+    assert payload["unexplained_capture_failure_count"] == 1

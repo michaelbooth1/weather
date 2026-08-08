@@ -9,6 +9,43 @@ import time
 DEFAULT_MAX_TRACKED_PROCESSES = 1024
 DEFAULT_MAX_CAPTURE_FAILURES = 1024
 
+# Capture failures that are an artifact of OBSERVING a process tree that is
+# legitimately shutting down, rather than evidence that containment failed.
+#
+# ``process_identity_query_failed`` is raised when we successfully opened a
+# handle to a pid and then could not ask whether it belongs to the Job, because
+# the process exited in between.  The process ending is the outcome we wanted;
+# losing the race to interrogate it is not a containment defect.
+#
+# Tolerating it is only safe because containment is proven INDEPENDENTLY, by
+# checks that remain mandatory in ``all(checks.values())`` below:
+#
+#   * ``every_job_process_observed``  - len(rows) == total_processes
+#   * ``job_quiesced``                - no process still active
+#   * ``no_job_limit_terminated_processes``
+#
+# A process that was skipped but was still running and still Job-bound would
+# break ``every_job_process_observed`` and the summary would FAIL anyway.  So
+# this widens what we tolerate OBSERVING, never what we tolerate HAPPENING.
+#
+# Deliberately narrow: ``open_process_failed`` is NOT here.  It is a different
+# code path, it can also mean a permissions failure, and we have never observed
+# it in this chain.  Add a kind only with a traced instance.
+BENIGN_CAPTURE_FAILURE_KINDS = frozenset({"process_identity_query_failed"})
+
+
+def classify_capture_failures(capture_failures):
+    """Split capture failures into benign observation races and the rest."""
+
+    benign = []
+    unexplained = []
+    for row in capture_failures or ():
+        target = benign if str(
+            (row or {}).get("kind")
+        ) in BENIGN_CAPTURE_FAILURE_KINDS else unexplained
+        target.append(dict(row))
+    return benign, unexplained
+
 
 def summarize_process_lifetime(
     records,
@@ -27,6 +64,7 @@ def summarize_process_lifetime(
         ),
     )
     failures = [dict(row) for row in capture_failures]
+    benign_failures, unexplained_failures = classify_capture_failures(failures)
     total_processes = int((accounting or {}).get("total_processes") or 0)
     active_processes = int((accounting or {}).get("active_processes") or 0)
     terminated_processes = int(
@@ -54,7 +92,7 @@ def summarize_process_lifetime(
         ),
         "every_job_process_observed": len(rows) == total_processes,
         "unique_process_instances": len(set(identities)) == len(identities),
-        "no_capture_failures": not failures,
+        "no_unexplained_capture_failures": not unexplained_failures,
         "capture_failure_cardinality_bounded": (
             len(failures) <= int(max_processes)
         ),
@@ -100,6 +138,8 @@ def summarize_process_lifetime(
         "lifetime_working_set_upper_bound_bytes": working_set_upper_bound,
         "lifetime_commit_upper_bound_bytes": commit_upper_bound,
         "capture_failures": failures,
+        "benign_capture_failure_count": len(benign_failures),
+        "unexplained_capture_failure_count": len(unexplained_failures),
         "processes": rows,
         "checks": checks,
     }
