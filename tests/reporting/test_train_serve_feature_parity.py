@@ -43,8 +43,8 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
     assert report["coverage"]["full_schema_market_ids"] == expected_markets
     assert report["coverage"]["feature_names"] == list(FEATURE_COLUMNS)
     assert report["summary"]["coverage_blocker_count"] == 0
-    assert report["summary"]["all_known_defects_rediscovered"] is True
-    assert report["summary"]["known_defects_rediscovered"] == 4
+    assert report["summary"]["all_known_defects_rediscovered"] is False
+    assert report["summary"]["known_defects_rediscovered"] == 3
     assert len(report["input_identity"]["case_manifest_sha256"]) == 64
 
     by_id = {row["defect_id"]: row for row in report["known_defect_proof"]}
@@ -54,8 +54,14 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
         "forecast_profile_provenance_discarded_by_loader",
         "wu_surface_payload_not_known_at_cutoff",
     }
-    assert all(row["rediscovered"] for row in by_id.values())
+    assert by_id["nine_empty_base_features_09_to_14"]["rediscovered"] is False
+    assert all(
+        row["rediscovered"]
+        for defect_id, row in by_id.items()
+        if defect_id != "nine_empty_base_features_09_to_14"
+    )
     assert set(by_id["nine_empty_base_features_09_to_14"]["found_markets"]) == set(expected_markets)
+    assert by_id["nine_empty_base_features_09_to_14"]["found_fields"] == ["wind_group"]
     assert set(by_id["wu_surface_payload_not_known_at_cutoff"]["found_fields"]) >= {
         "rise_from_7am",
         "warming_rate_2h",
@@ -70,7 +76,7 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
     }
     assert report["unexpected_findings"] == []
     assert report["summary"]["unexpected_blocking_finding_count"] == 0
-    assert report["summary"]["blocking_finding_count"] == 196
+    assert report["summary"]["blocking_finding_count"] == 100
 
 
 def test_findings_name_field_market_cutoff_dimension_and_direction(tmp_path):
@@ -184,18 +190,18 @@ def test_output_and_markdown_preserve_machine_readable_verdict(tmp_path):
     markdown = markdown_path.read_text(encoding="utf-8")
     assert persisted["report_sha256"] == report["report_sha256"]
     assert "## Previously unknown findings" in markdown
-    assert "4 / 4 known defects rediscovered" in markdown
+    assert "3 / 4 known defects rediscovered" in markdown
     assert render_markdown(report) == markdown
 
 
-def test_proof_mode_exits_zero_for_a_red_gate_that_rediscovers_the_defects(tmp_path):
+def test_proof_mode_detects_that_the_historical_blindness_fixture_was_repaired(tmp_path):
     assert main([
         "--input",
         str(FIXTURE),
         "--run-root",
         str(tmp_path),
         "--proof-mode",
-    ]) == 0
+    ]) == 2
     assert (tmp_path / "train-serve-feature-parity.json").exists()
     assert (tmp_path / "train-serve-feature-parity.md").exists()
 

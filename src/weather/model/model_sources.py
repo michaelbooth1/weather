@@ -108,9 +108,9 @@ SOURCE_PAYLOAD_CONTRACTS = {
     "wu_history": ("wu-history-parser-v1", "wu-history-payload-v1"),
     "wu_current": ("wu-current-parser-v1", "wu-current-payload-v1"),
     "eccc_citypage": ("eccc-citypage-parser-v1", "eccc-citypage-payload-v1"),
-    "eccc_swob": ("eccc-swob-parser-v2", "eccc-swob-payload-v1"),
+    "eccc_swob": ("eccc-swob-parser-v3", "eccc-swob-payload-v1"),
     "eccc_gem": ("eccc-gem-parser-v1", "eccc-gem-payload-v1"),
-    "metar": ("metar-parser-v2", "metar-payload-v1"),
+    "metar": ("metar-parser-v3", "metar-payload-v1"),
     "weather_forecast": ("weather-forecast-parser-v1", "weather-forecast-payload-v1"),
     "open_meteo": ("open-meteo-parser-v1", "open-meteo-payload-v1"),
     "open_meteo_air_quality": (
@@ -306,7 +306,7 @@ class SourceFetchMixin:
         names actually carry the market's WU unit (mph for Fahrenheit markets,
         km/h for Celsius).  SWOB is metric.  Captured SWOB envelopes from the
         v1 parser retain the raw XML, so reparse it here to make old captured
-        inputs replayable under the same v2 serving contract.
+        inputs replayable under the same v3 serving contract.
         """
 
         rows = list((data or {}).get("rows") or [])
@@ -331,6 +331,10 @@ class SourceFetchMixin:
             row = dict(raw)
             row["time"] = row.get("local_time") or row.get("time")
             if source == "metar":
+                if self.to_number(row.get("wind_kmh")) is None:
+                    row["wind_kmh"] = self.metar_wind_to_artifact_units(
+                        row.get("wind_speed")
+                    )
                 if self.to_number(row.get("gust_kmh")) is None:
                     row["gust_kmh"] = self.metar_wind_to_artifact_units(
                         row.get("wind_gust")
@@ -338,8 +342,12 @@ class SourceFetchMixin:
                 if row.get("wind") in (None, ""):
                     row["wind"] = row.get("wind_dir")
             else:
+                if self.row_temp_native(row) is None:
+                    row["temp_native"] = self.row_air_temp_native(row)
                 if self.to_number(row.get("gust_kmh")) is None:
                     row["gust_kmh"] = self.to_number(row.get("wind_gust_kmh"))
+                if self.to_number(row.get("wind_kmh")) is None:
+                    row["wind_kmh"] = self.to_number(row.get("wind_speed_kmh"))
                 if row.get("wind") in (None, ""):
                     for key in ("wind_dir_deg", "wind_cardinal", "wind_dir"):
                         if row.get(key) not in (None, ""):
@@ -1301,14 +1309,9 @@ class SourceFetchMixin:
             .get("en"),
         }
 
-    def fetch_metar(self):
-        url = "https://aviationweather.gov/api/data/metar"
-        params = {
-            "ids": self.spec.icao,
-            "format": "json",
-            "hours": self.metar_query_hours(),
-        }
-        payload = self.get_json(url, params)
+    def parse_metar_payload(self, payload):
+        """Normalize a captured AviationWeather payload without fetching it."""
+
         rows = []
         for row in payload or []:
             report_time = self.parse_utc_time(row.get("reportTime"))
@@ -1318,6 +1321,7 @@ class SourceFetchMixin:
             dewpoint_native = self.spec.c_to_native(self.to_number(row.get("dewp")))
             wind_speed_native = self.metar_wind_to_artifact_units(row.get("wspd"))
             wind_gust_native = self.metar_wind_to_artifact_units(row.get("wgst"))
+            humidity = self.to_number(row.get("rh") or row.get("humidity"))
             rows.append({
                 "time": report_time.strftime("%H:%M"),
                 "datetime": report_time.isoformat(),
@@ -1327,6 +1331,14 @@ class SourceFetchMixin:
                 "temp_c": temp_native,
                 "dewpoint_native": dewpoint_native,
                 "dewpoint_c": dewpoint_native,
+                "humidity": humidity,
+                # AviationWeather exposes altimeter/sea-level pressure.  Keep
+                # those provider semantics explicit: the trained WU
+                # ``pressure`` field is station pressure (materially different
+                # at elevation), so mapping either value into ``pressure``
+                # would create false parity.
+                "pressure_hpa": self.to_number(row.get("altim")),
+                "sea_level_pressure_hpa": self.to_number(row.get("slp")),
                 "wind_dir": row.get("wdir"),
                 "wind_speed": self.to_number(row.get("wspd")),
                 "wind_gust": self.to_number(row.get("wgst")),
@@ -1336,6 +1348,17 @@ class SourceFetchMixin:
                 "raw": row.get("rawOb"),
             })
         rows.sort(key=lambda item: item.get("datetime") or "")
+        return rows
+
+    def fetch_metar(self):
+        url = "https://aviationweather.gov/api/data/metar"
+        params = {
+            "ids": self.spec.icao,
+            "format": "json",
+            "hours": self.metar_query_hours(),
+        }
+        payload = self.get_json(url, params)
+        rows = self.parse_metar_payload(payload)
         latest = rows[-1] if rows else {}
         temp_native = self.row_temp_native(latest)
         dewpoint_native = self.row_dewpoint_native(latest)
@@ -1358,6 +1381,9 @@ class SourceFetchMixin:
             "temp_c": temp_native,
             "dewpoint_native": dewpoint_native,
             "dewpoint_c": dewpoint_native,
+            "humidity": latest.get("humidity"),
+            "pressure_hpa": latest.get("pressure_hpa"),
+            "sea_level_pressure_hpa": latest.get("sea_level_pressure_hpa"),
             "max_since_7am_native": max_since_7am,
             "max_since_7am_c": max_since_7am,
             "same_day_max_native": same_day_max,
@@ -2331,6 +2357,9 @@ class SourceFetchMixin:
             "dewpoint_native": self.to_number(element_value("dwpt_temp")),
             "dewpoint_c": self.to_number(element_value("dwpt_temp")),
             "humidity": self.to_number(element_value("rel_hum")),
+            "pressure": self.to_number(element_value("stn_pres")),
+            "pressure_hpa": self.to_number(element_value("stn_pres")),
+            "sea_level_pressure_hpa": self.to_number(element_value("mslp")),
             "wind_dir": wind_direction,
             "wind_dir_deg": wind_direction,
             "wind_speed_kmh": self.to_number(element_value("avg_wnd_spd_10m_pst2mts")),

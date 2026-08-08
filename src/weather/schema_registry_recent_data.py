@@ -7,6 +7,13 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "blind_feature_repair_replay",
+        "blind_feature_repair_replay_v0.1",
+        "weather.reporting.research.blind_feature_repair",
+        "active",
+        "Read-only captured-input completeness and paired served-output replay for the local-meteorology routing repair.",
+    ),
+    SchemaSpec(
         "train_serve_feature_parity",
         "train_serve_feature_parity_v0.1",
         "weather.reporting.scorecards.train_serve_feature_parity",

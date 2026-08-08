@@ -10,6 +10,11 @@ from weather.sources.nbm_probabilistic_tmax import NBM_PROB_TMAX_FEATURE_COLUMNS
 from weather.sources.reanalysis_synoptic import REANALYSIS_SYNOPTIC_FEATURE_COLUMNS
 from weather.units import to_float
 
+# v1.16 (workstation mission 2026-09-43a): serving restores the trained
+# local-meteorology surface from cutoff-aligned captured station rows when WU
+# is unavailable; provider-native missingness and pressure semantics remain
+# explicit.
+#
 # v1.15 (ROADMAP item 252): physical-validity diagnostics and NBM
 # probabilistic Tmax quarantine flags for timestamp-fresh but impossible
 # guidance rows.

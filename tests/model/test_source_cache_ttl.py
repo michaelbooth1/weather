@@ -663,6 +663,9 @@ class TestSourceCacheTtl(unittest.TestCase):
             "dewp": 20.0,
             "wdir": 210,
             "wspd": 8,
+            "rh": 58.0,
+            "altim": 1015.9,
+            "slp": 1014.6,
             "rawOb": "KATL 241452Z 21008KT 10SM FEW040 28/20 A3000",
         }]
         model.get_json = lambda _url, _params: raw
@@ -674,6 +677,10 @@ class TestSourceCacheTtl(unittest.TestCase):
         self.assertEqual(len(payload["rows"]), 1)
         self.assertAlmostEqual(payload["temp_native"], 82.4)
         self.assertAlmostEqual(payload["max_since_7am_native"], 82.4)
+        self.assertEqual(payload["humidity"], 58.0)
+        self.assertEqual(payload["pressure_hpa"], 1015.9)
+        self.assertEqual(payload["sea_level_pressure_hpa"], 1014.6)
+        self.assertNotIn("pressure", payload["rows"][0])
 
     def test_rate_limited_open_meteo_uses_explicit_cache_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
