@@ -69,6 +69,7 @@ from there, never from here.**
 | `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
 | `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **RETURNED: NO CANDIDATE.** P0–P2 PASS — PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built. **P3 correctly stopped at 12,586/12,600** |
 | `-09-42a` | **exclude 2 Denver station-days, then fit** | written, **next to dispatch** |
+| `-09-14a` | **watcher-stretch fix — the MM unblock** | done 08-05, **never merged**. Re-verified 08-07: merges clean after `-09-37a`, **144 passed** on the combined tree. **Queued 01:20** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
@@ -88,13 +89,21 @@ allowlists (**not** auto-discovery — some branches are held deliberately): `We
   production including the blocking 08-05/08-06 dates; merges 01:20 (**roll-sensitive**).
   Settlement frozen at **2026-08-04**; streak **15/14 banked and safe**.
   [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
-- **Capture memory pressure is the live streak risk, not the network.** 2026-08-07 audit: **430**
-  `capture_host_memory_admission` refusals 11:00–18:00, available RAM down to **13 MB** against
-  **3.49 GB** needed per worker → two in-window gaps (24 and 41 min) and the day **AT_RISK**. The
-  admission guard behaved correctly; a **duplicate `market_making_run` orphan** was holding
-  431 MB. A daily-roll supervisor stops only the pid in its status file, so a worker orphaned by
-  a start race is **unreapable** — same class as the taker orphans of 06-30 and 07-04. Killed by
-  hand; `staleness_sweep.ps1` §12 now detects it. **The code defect is unfixed and unowned.**
+- **Capture memory pressure is the live streak risk, not the network.** 2026-08-07: **430**
+  `capture_host_memory_admission` refusals 11:00–18:00, RAM down to **13 MB** against **3.49 GB**
+  per worker → two in-window gaps and the day **AT_RISK**. Cause: a **duplicate
+  `market_making_run` orphan** holding 431 MB, because a daily-roll supervisor stops only the pid
+  in its status file, so a start-race orphan is **unreapable** (same class as the taker orphans of
+  06-30 / 07-04). Killed by hand; `staleness_sweep.ps1` §12 detects it now. **The code fix is
+  unowned.**
+- **THE MAKER WAS STARVING ITSELF.** MM has **3 countable days in 54, none in 41**. It is not
+  blocked on live permission — `live_trade_permission_evidence` is 0/12 only because
+  `mode != "live-pilot"`, which is *correct* in paper mode and **not required for paper evidence**.
+  The real bottleneck on 2026-08-07 was **11/12 markets countable, miami failing `clob_freshness`
+  on ONE 120.0 s gap** — at threshold, in a 13-hour day, and the gate takes the **max gap across
+  the DAY**, so one two-minute stall costs the whole fleet its countable day. Same memory pressure
+  above → CLOB stall → gap. **`-09-14a` is the fix and it has existed, unmerged, since 08-05**;
+  queued for 01:20. Trend is 12 markets blocked through July → 9 → **1 today**.
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
 - **Disk: ~12 days headroom** (130.4 GB free, ~11 GB/day). **The taker is PAUSED — operator
