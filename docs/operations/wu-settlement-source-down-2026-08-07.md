@@ -15,13 +15,13 @@ observations call.
 
 This explains both symptoms exactly, and neither is an outage:
 
-- **404 on `weather.com/v1/...`** — the host came from the ad URL, and it does not serve the
+- **404 on `<wu-provider>/v1/...`** — the host came from the ad URL, and it does not serve the
   observations route at all.
-- **401 on `api.weather.com/v1/...`** — the correct host, presented with an advertising key.
+- **401 on `api.<wu-provider>/v1/...`** — the correct host, presented with an advertising key.
 
 `-09-37a` replaces the regex with a parse of the page's injected runtime config
 (`const data = {... "API_URL": ..., "API_KEY": ... }`), which is what the browser itself uses.
-It resolves to `https://api.weather.com` with the page's own 32-char token.
+It resolves to the provider API host with the page's own 32-char token.
 
 **The date-independence was the clue and it was mis-read.** Every date failing, including ones
 already stored, meant the *request* was wrong, not the data. It was read as "the endpoint is
@@ -57,7 +57,7 @@ superseded and would conflict.
 
 ## What is true
 
-`weather.com/v1/location/<history_id>/observations/historical.json` returns **404 for every
+`<wu-provider>/v1/location/<history_id>/observations/historical.json` returns **404 for every
 date**, not for a missing day. The settlement chain has been stuck since **2026-08-04**.
 
 | Probe (Toronto, `CYYZ:9:CA`) | Result |
@@ -66,11 +66,11 @@ date**, not for a missing day. The settlement chain has been stuck since **2026-
 | `2026-08-04` — **a date already stored locally** | **404** |
 | `2026-06-15`, `2026-07-10` — long-settled dates | **404** |
 | `https://weather.com/v1/.../observations/historical.json` | **404** |
-| `https://api.weather.com/v1/.../observations/historical.json` | **401** |
+| `the provider API host/v1/.../observations/historical.json` | **401** |
 | `https://www.wunderground.com/history/daily/CYYZ/date/2026-8-5` | **HTTP 200**, 48,121 bytes |
 | `public_access_from_page` on that page | **succeeds**, 32-char token |
 
-**404 versus 401 is the whole diagnosis.** The route still exists on `api.weather.com`; it
+**404 versus 401 is the whole diagnosis.** The route still exists on `api.<wu-provider>`; it
 rejects the token the history page hands out. The page-scrape half of the client still works and
 the API half does not.
 

@@ -24,12 +24,12 @@ Full evidence: **[`docs/operations/wu-settlement-source-down-2026-08-07.md`](../
 | --- | --- |
 | `2026-08-04` — **a date already stored locally** | **404** |
 | `2026-06-15`, `2026-07-10` — long-settled | **404** |
-| `weather.com/v1/.../observations/historical.json` | **404** |
-| `api.weather.com/v1/.../observations/historical.json` | **401** |
+| `<wu-provider>/v1/.../observations/historical.json` | **404** |
+| `api.<wu-provider>/v1/.../observations/historical.json` | **401** |
 | `wunderground.com/history/daily/CYYZ/date/2026-8-5` | **200**, 48,121 bytes |
 | `public_access_from_page` on that page | **succeeds**, 32-char token |
 
-**404 vs 401 is the diagnosis.** The route still exists on `api.weather.com`; the token the
+**404 vs 401 is the diagnosis.** The route still exists on `api.<wu-provider>`; the token the
 history page exposes is no longer valid for it. The page-scrape half of the client works; the
 API half does not.
 
@@ -41,7 +41,7 @@ occur **zero** times in it).
 ## 4. The binding constraint — read this before designing anything
 
 **Paid weather-provider access is unsupported** (`AGENTS.md`, non-negotiable; operator decision
-2026-08-05). The 401 from `api.weather.com` is a *paid-key* wall. **You may not add an API key,
+2026-08-05). The 401 from `api.<wu-provider>` is a *paid-key* wall. **You may not add an API key,
 a credential, a required environment variable, or any plan that depends on one.** A fix that
 works only with a purchased key is a NO-GO and should be reported as such, not implemented.
 
@@ -54,7 +54,7 @@ token — the same class of access the current client already relies on.
 
 Reverse how the history page actually loads its observations table: read the page's JS bundles,
 follow the token it exposes, and try the API hosts/versions/paths it references. Vary host
-(`api.weather.com`, `weather.com`), version (`v1`, `v2`, `v3`), and path shape
+(`api.<wu-provider>`, `<wu-provider>`), version (`v1`, `v2`, `v3`), and path shape
 (`.../observations/historical.json`, `v3/wx/observations/historical`, geocode-based variants),
 and the header set — `Referer`, `Origin`, and `User-Agent` are already load-bearing in
 `_headers`.
