@@ -36,6 +36,7 @@ from weather.paths import data_path
 
 DAY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REMEDIATION_NAME = "preflight_remediation.json"
+QUARANTINE_DIR_NAME = "_quarantine"
 
 UNPARSEABLE = "unparseable_remediation_file"
 NO_REMEDIATION = "no_remediation_file_written"
@@ -82,13 +83,21 @@ def summarise_run(payload):
     return counted, blockers
 
 
+def iter_run_dirs(day_dir):
+    """Yield canonical run directories, excluding lifecycle scaffolding."""
+    for run_dir in sorted(p for p in day_dir.iterdir() if p.is_dir()):
+        if run_dir.name == QUARANTINE_DIR_NAME or run_dir.name.startswith("."):
+            continue
+        yield run_dir
+
+
 def summarise_day(day_dir):
     """Reduce one maker day. A day counts if ANY run in it counted."""
     runs = 0
     counted_runs = 0
     blockers = Counter()
     markets = Counter()
-    for run_dir in sorted(p for p in day_dir.iterdir() if p.is_dir()):
+    for run_dir in iter_run_dirs(day_dir):
         remediation = run_dir / REMEDIATION_NAME
         if not remediation.is_file():
             # A run directory with no remediation file cannot explain itself.
@@ -113,6 +122,58 @@ def summarise_day(day_dir):
         "counted": counted_runs > 0,
         "blockers": blockers,
         "markets": markets,
+    }
+
+
+def summarise_counterfactual_day(day_dir, repaired_gates):
+    """Count runs after a hypothetical repair of named blocking gates.
+
+    Missing, unparseable, and unexplained non-countable runs remain non-countable.
+    This is therefore a gate-specific ceiling, not permission to bypass a gate.
+    """
+    repaired_gates = {str(gate) for gate in repaired_gates}
+    runs = 0
+    counted_runs = 0
+    for run_dir in iter_run_dirs(day_dir):
+        remediation = run_dir / REMEDIATION_NAME
+        if not remediation.is_file():
+            runs += 1
+            continue
+        payload, error = _read_remediation(remediation)
+        runs += 1
+        if error is not None:
+            continue
+        counted, blockers = summarise_run(payload)
+        repaired = bool(blockers) and all(gate in repaired_gates for gate, _, _ in blockers)
+        if counted or repaired:
+            counted_runs += 1
+    return {
+        "runs": runs,
+        "counted_runs": counted_runs,
+        "counted": counted_runs > 0,
+    }
+
+
+def build_gate_repair_counterfactual(runs_root=None, *, repaired_gates):
+    """Return the optimistic yield if named gate failures had all been repaired."""
+    repaired_gates = sorted({str(gate) for gate in repaired_gates})
+    days = []
+    for day, day_dir in iter_day_dirs(runs_root):
+        summary = summarise_counterfactual_day(day_dir, repaired_gates)
+        days.append({"day": day, **summary})
+    counted_days = sum(1 for row in days if row["counted"])
+    total_days = len(days)
+    return {
+        "repaired_gates": repaired_gates,
+        "total_days": total_days,
+        "counted_days": counted_days,
+        "uncounted_days": total_days - counted_days,
+        "countable_day_yield": (counted_days / total_days) if total_days else None,
+        "assumption": (
+            "every non-countable incident at the named gates is eliminated; all other "
+            "blockers and missing or unparseable remediation evidence remain"
+        ),
+        "days": days,
     }
 
 
@@ -215,6 +276,20 @@ def render_markdown(report):
     if not report["blockers"]:
         lines.append("| _none recorded_ | | | | | |")
 
+    counterfactual = report.get("gate_repair_counterfactual")
+    if counterfactual:
+        gates = ", ".join(f"`{gate}`" for gate in counterfactual["repaired_gates"])
+        lines += [
+            "",
+            "## Gate-repair counterfactual",
+            "",
+            f"If every blocking incident at {gates} had been repaired, "
+            f"**{counterfactual['counted_days']} of {counterfactual['total_days']} days** "
+            f"would have counted ({_percent(counterfactual['countable_day_yield'])}).",
+            "",
+            f"Assumption: {counterfactual['assumption']}.",
+        ]
+
     lines += ["", "## Markets", "", "| Market | Blocking incidents |", "| --- | ---: |"]
     for row in report["markets"]:
         lines.append(f"| `{row['market_id']}` | {row['occurrences']} |")
@@ -244,9 +319,20 @@ def main(argv=None):
     parser.add_argument("--runs-root", default=None, help="defaults to data/mm_runs")
     parser.add_argument("--json-out", default=None, help="write the report as JSON")
     parser.add_argument("--markdown-out", default=None, help="write the report as Markdown")
+    parser.add_argument(
+        "--counterfactual-repair-gate",
+        action="append",
+        default=[],
+        help="optimistically replay with every blocker at this gate repaired; repeatable",
+    )
     args = parser.parse_args(argv)
 
     report = build_postmortem(args.runs_root)
+    if args.counterfactual_repair_gate:
+        report["gate_repair_counterfactual"] = build_gate_repair_counterfactual(
+            args.runs_root,
+            repaired_gates=args.counterfactual_repair_gate,
+        )
     markdown = render_markdown(report)
 
     if args.json_out:
