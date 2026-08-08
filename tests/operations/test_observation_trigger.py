@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -1109,6 +1110,79 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertEqual(returned["iterations"], 1)
         self.assertEqual(status["iterations"], 1)
         self.assertEqual(status["last_poll_results"]["toronto"]["trigger_count"], 0)
+
+    def test_run_loop_queues_twelve_triggered_captures_without_waiting_for_capture_work(self):
+        class NoopPower:
+            def start(self):
+                return {"status": "synthetic"}
+
+            def stop(self):
+                return None
+
+        markets = [f"market-{index:02d}" for index in range(12)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            previous_markets = {}
+            for market_id in markets:
+                previous = obs_state(high=20.0, current=20.2)
+                previous["market_id"] = market_id
+                previous["event_slug"] = f"event-{market_id}"
+                previous_markets[market_id] = {"last_observation": previous}
+            status_path.write_text(
+                json.dumps({"markets": previous_markets, "latest_triggered": {}}),
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                market="all",
+                status_out=str(status_path),
+                events_out=str(root / "events.jsonl"),
+                diagnostics_out=str(root / "diagnostics.jsonl"),
+                trigger_queue_root=str(root / "trigger_queue"),
+                support_margin=0.5,
+                dry_run=False,
+                trigger_on_first=False,
+                stale_after_seconds=120.0,
+                interval_seconds=60.0,
+                max_iterations=1,
+            )
+
+            def fake_fetch(market_id, now=None):
+                current = obs_state(
+                    high=21.0,
+                    current=21.2,
+                    captured="2026-06-13T16:01:00+00:00",
+                )
+                current["market_id"] = market_id
+                current["event_slug"] = f"event-{market_id}"
+                return current
+
+            def forbidden_slow_capture(**_kwargs):
+                raise AssertionError("managed watcher loop must not execute snapshot work inline")
+
+            started = time.perf_counter()
+            with patch.object(observation_trigger, "market_ids", return_value=markets), patch.object(
+                observation_trigger,
+                "keep_system_awake",
+                return_value=NoopPower(),
+            ):
+                run_loop(
+                    args,
+                    capture_func=forbidden_slow_capture,
+                    fetch_state_func=fake_fetch,
+                )
+            elapsed = time.perf_counter() - started
+            queued = list((root / "trigger_queue" / "pending").glob("*.json"))
+            persisted = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(queued), 12)
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(persisted["trigger_queue"]["pending_count"], 12)
+        self.assertLess(persisted["last_iteration_elapsed_seconds"], 2.0)
+        self.assertTrue(all(
+            row.get("snapshot_queue", {}).get("state") == "pending"
+            for row in persisted["last_poll_results"].values()
+        ))
 
     def test_triggered_replay_scores_wu_lag_case_slice(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -48,8 +48,13 @@ in the script:
 - `*.claim` — ephemeral fetch locks; racy to copy, caused a false exit-11 on 2026-07-27.
 - `data\backtest\replay_cache` — **32.3 GB** of *rebuildable* cache. Nothing requires a
   rebuildable cache to be replicated.
-- `data\taker_runs` — **74.7 GB**, mostly counterfactual replay tape. The taker posts no orders
-  and no workstation mission reads it.
+- `data\taker_runs` — **STALE FIGURE. It was 26.67 GB when re-measured 2026-08-07, and is now
+  7.51 GB after the taker was paused and pruned**
+  ([record](taker-paused-and-pruned-2026-08-07.md)). The "mostly counterfactual replay tape"
+  characterisation below is also wrong: `storage_classes.py` classifies those CSVs as
+  `CANONICAL_EVIDENCE`, and they were kept. Re-measure before planning against either number.
+- ~~`data\taker_runs` — 74.7 GB, mostly counterfactual replay tape. The taker posts no orders
+  and no workstation mission reads it.~~
 
 **Both large exclusions required a one-time manual deletion on the workstation**, because `/XD`
 skips a directory rather than purging it. Any new exclusion needs the same two steps: exclude at

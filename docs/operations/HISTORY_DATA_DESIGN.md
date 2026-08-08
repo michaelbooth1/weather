@@ -24,9 +24,11 @@ The current CLI can collect, audit, rebuild, and recover local WU artifacts:
 ```
 
 `public-backfill` fetches the public WU history page first, derives page-backed
-history access from that response at runtime, persists source payloads, rebuilds
-normalized hourly partitions, and derives daily summaries in the existing
-schema.
+history access from the `API_URL` and `API_KEY` runtime globals injected into
+that response, persists source payloads, rebuilds normalized hourly partitions,
+and derives daily summaries in the existing schema. Other page resources may
+carry unrelated `apiKey` query parameters; they are not history credentials and
+the collector ignores them.
 
 ## Failure Classes And Recovery
 
@@ -35,9 +37,12 @@ WU day is a public collection/data-availability problem, not a credential
 problem.
 
 Backfill errors are written to `backfill_errors.jsonl` with `failure_class`.
-Only `permanent_no_data` rows (`400`/`404`) are allowed to populate
-`unavailable_dates()` and skip future `--skip-existing` backfills. Auth,
-rate-limit, and transient rows remain re-fetchable.
+Only `permanent_no_data` rows are allowed to populate `unavailable_dates()` and
+skip future `--skip-existing` backfills. A page-backed `400` is permanent, while
+a page-backed `404` is transient because the public edge can return it during an
+outage. The disabled legacy paid-provider classification retains its historical
+`400`/`404` permanent boundary. Auth, rate-limit, and transient rows remain
+re-fetchable.
 
 If an older run poisoned `backfill_errors.jsonl` by treating recoverable rows as
 source-unavailable, repair it per market:

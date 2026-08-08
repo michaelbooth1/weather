@@ -494,7 +494,13 @@ def uses_default_snapshot_root(folder):
         return False
 
 
-def preflight_book_audit(folder, now, max_gap_seconds, loop_status=None):
+def preflight_book_audit(
+    folder,
+    now,
+    max_gap_seconds,
+    loop_status=None,
+    active_window_start_utc=None,
+):
     """Audit active-day CLOB books with the same loop-aware policy as fleet checks."""
     loop_status = read_clob_loop_status() if loop_status is None and uses_default_snapshot_root(folder) else loop_status
     effective_gap_seconds = fleet_effective_book_gap_seconds(max_gap_seconds, loop_status)
@@ -503,12 +509,22 @@ def preflight_book_audit(folder, now, max_gap_seconds, loop_status=None):
         started_at = parse_utc_datetime(loop_status.get("started_at"))
         if started_at is not None:
             ignore_cutoff = started_at + timedelta(seconds=BOOK_AUDIT_STARTUP_GRACE_SECONDS)
-    return audit_book_tape(
+    active_cutoff = parse_utc_datetime(active_window_start_utc)
+    if active_cutoff is not None and (ignore_cutoff is None or active_cutoff > ignore_cutoff):
+        ignore_cutoff = active_cutoff
+    result = audit_book_tape(
         folder,
         now=now,
         max_gap_seconds=effective_gap_seconds,
         ignore_gaps_before=ignore_cutoff,
     )
+    result["maker_active_window_start_utc"] = active_cutoff.isoformat() if active_cutoff else None
+    result["maker_gap_policy"] = (
+        "count internal gaps ending after the later of CLOB startup grace and maker active-window start"
+        if active_cutoff
+        else "count internal gaps after CLOB startup grace"
+    )
+    return result
 
 
 def preflight_market(
@@ -533,6 +549,7 @@ def preflight_market(
     event_metadata_gate=None,
     current_high_assessment=None,
     release_production_capable=False,
+    active_window_start_utc=None,
 ):
     gates = []
     blockers = []
@@ -565,6 +582,7 @@ def preflight_market(
         folder,
         now=now,
         max_gap_seconds=float(policy_config["max_book_age_seconds"]),
+        active_window_start_utc=active_window_start_utc,
     )
     csv_encoding = preflight_csv_encoding_diagnostics(folder)
     token_rows = read_csv_rows(folder / "clob_tokens.csv")

@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from weather.market.market_making_run import (
     load_data_layer_live_gate,
     load_open_lifecycle_orders,
     load_platform_verification_gate,
+    paper_until_utc,
     runtime_identity_snapshot,
     utc_now,
 )
@@ -82,6 +84,33 @@ def test_run_cli_summary_separates_intents_permissions_and_no_quotes():
     assert "0 quote rows" not in line
 
 
+def test_paper_loop_default_cutoff_freezes_at_20_toronto_not_market_midnights():
+    cutoff = paper_until_utc("2026-06-16", [spec_for_id("los-angeles")])
+
+    assert cutoff == datetime(2026, 6, 17, 0, 0, tzinfo=timezone.utc)
+
+
+def test_paper_loop_does_not_start_a_tick_at_the_20_toronto_cutoff():
+    cutoff = datetime(2026, 6, 17, 0, 0, tzinfo=timezone.utc)
+    with patch.object(market_making_run, "utc_now", return_value=cutoff), patch.object(
+        market_making_run,
+        "keep_system_awake",
+        return_value=nullcontext(),
+    ), patch.object(
+        market_making_run,
+        "build_run_once",
+        side_effect=AssertionError("post-window tick must not start"),
+    ):
+        result = market_making_run.run_loop(
+            "2026-06-16",
+            500,
+            "paper-live-forward",
+            markets=["toronto"],
+        )
+
+    assert result is None
+
+
 def test_preflight_book_audit_uses_clob_startup_gap_policy():
     now = datetime(2026, 6, 16, 14, 0, tzinfo=timezone.utc)
     rows = [
@@ -111,6 +140,56 @@ def test_preflight_book_audit_uses_clob_startup_gap_policy():
     assert result["gaps_over_threshold"] == 0
     assert result["startup_gaps_ignored"] == 2
     assert result["ignored_gap_cutoff_utc"] == "2026-06-16T13:55:00+00:00"
+
+
+def test_preflight_book_audit_ignores_only_gaps_ending_before_maker_window():
+    now = datetime(2026, 6, 16, 11, 6, tzinfo=timezone.utc)
+    active_start = datetime(2026, 6, 16, 11, 0, tzinfo=timezone.utc)
+    pre_window_rows = [
+        {"captured_at_utc": "2026-06-16T09:00:00+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T10:59:00+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:00:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:01:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:02:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:03:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:04:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:05:30+00:00", "clob_token_id": "yes-1"},
+    ]
+    in_window_rows = [
+        {"captured_at_utc": "2026-06-16T10:59:30+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:00:00+00:00", "clob_token_id": "yes-1"},
+        {"captured_at_utc": "2026-06-16T11:05:00+00:00", "clob_token_id": "yes-1"},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        before = root / "before"
+        inside = root / "inside"
+        before.mkdir()
+        inside.mkdir()
+        write_csv(before / "order_books_summary.csv", list(pre_window_rows[0]), pre_window_rows)
+        write_csv(inside / "order_books_summary.csv", list(in_window_rows[0]), in_window_rows)
+        ignored = preflight_book_audit(
+            before,
+            now=now,
+            max_gap_seconds=120,
+            loop_status={},
+            active_window_start_utc=active_start,
+        )
+        counted = preflight_book_audit(
+            inside,
+            now=now,
+            max_gap_seconds=120,
+            loop_status={},
+            active_window_start_utc=active_start,
+        )
+
+    assert ignored["ok"]
+    assert ignored["gaps_over_threshold"] == 0
+    assert ignored["ignored_gap_cutoff_utc"] == active_start.isoformat()
+    assert ignored["maker_active_window_start_utc"] == active_start.isoformat()
+    assert counted["ok"] is False
+    assert counted["gaps_over_threshold"] == 1
+    assert counted["max_counted_gap_seconds"] == 300.0
 
 
 def test_event_metadata_gate_blocks_maker_preflight_as_market_discovery():

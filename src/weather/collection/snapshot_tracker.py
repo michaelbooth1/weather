@@ -87,6 +87,15 @@ from weather.collection.snapshot_capture_batch import (  # noqa: E402
     run_bounded_capture_batch,
     run_isolated_capture,
 )
+from weather.collection.triggered_snapshot_queue import (  # noqa: E402
+    DEFAULT_TRIGGER_QUEUE_ROOT,
+    claim_triggered_snapshot_jobs,
+    complete_triggered_snapshot_job,
+    has_pending_triggered_snapshot_jobs,
+    recover_inflight_jobs,
+    retry_triggered_snapshot_job,
+    triggered_snapshot_queue_status,
+)
 from weather.collection.snapshot_store import (  # noqa: E402
     COMPONENT_COLUMNS,
     DEFAULT_MARKET_CONFIG,
@@ -218,6 +227,7 @@ DIAGNOSTICS_PATH = SNAPSHOT_DATA_ROOT / "diagnostics.jsonl"
 LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 SUPERVISOR_LOCK_PATH = SNAPSHOT_DATA_ROOT / "loop_supervisor.lock"
 RECENT_LOOP_CYCLE_COUNT = 12
+DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS = 5.0
 SNAPSHOT_SUPERVISOR = SupervisorSpec(
     name="snapshot_capture",
     module="weather.collection.snapshot_tracker",
@@ -1250,6 +1260,26 @@ def adaptive_loop_sleep_seconds(market_results, *, now, default_sleep_seconds):
     }
 
 
+def sleep_until_due_or_triggered_work(
+    sleep_seconds,
+    *,
+    queue_root,
+    sleep_fn=time.sleep,
+    check_seconds=DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS,
+):
+    """Keep the normal schedule while making idle sleep interruptible by work."""
+
+    remaining = max(0.0, float(sleep_seconds))
+    check = max(0.1, float(check_seconds))
+    while remaining > 0.0:
+        if has_pending_triggered_snapshot_jobs(queue_root):
+            return {"interrupted": True, "remaining_seconds": round(remaining, 3)}
+        chunk = min(check, remaining)
+        sleep_fn(chunk)
+        remaining -= chunk
+    return {"interrupted": False, "remaining_seconds": 0.0}
+
+
 def _isoformat(value):
     if value is None:
         return None
@@ -1391,6 +1421,8 @@ def run_loop(
     capture_child_working_set_max_mb=DEFAULT_CHILD_WORKING_SET_MAX_MB,
     capture_host_reserve_mb=DEFAULT_CAPTURE_HOST_RESERVE_MB,
     available_memory_fn=available_memory_bytes,
+    trigger_queue_root=None,
+    trigger_queue_sleep_check_seconds=DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS,
 ):
     """Crash-proof managed snapshot loop: a capture failure is logged and the
     loop continues, so collection never silently dies on a transient error. A
@@ -1420,6 +1452,8 @@ def run_loop(
             "pid": os.getpid(),
         })
         return {"status": "duplicate_writer_blocked", "existing_writer": existing, "pid": os.getpid()}
+    trigger_queue_root = Path(trigger_queue_root or LOOP_STATUS_PATH.parent / "triggered_snapshot_queue")
+    trigger_queue_recovery = recover_inflight_jobs(trigger_queue_root)
     sleep_inhibitor = keep_system_awake("weather snapshot capture loop")
     power_request = sleep_inhibitor.start()
     status = {
@@ -1452,6 +1486,11 @@ def run_loop(
             "market_timeout_seconds": float(capture_timeout_seconds),
             "child_working_set_max_mb": int(capture_child_working_set_max_mb),
             "host_reserve_mb": int(capture_host_reserve_mb),
+        },
+        "trigger_queue": {
+            **triggered_snapshot_queue_status(trigger_queue_root),
+            "sleep_check_seconds": float(trigger_queue_sleep_check_seconds),
+            "startup_recovery": trigger_queue_recovery,
         },
     }
     attach_status_writer(status, writer_lock)
@@ -1550,7 +1589,26 @@ def run_loop(
                     )
                     due_requests = []
                     skipped_records = {}
+                    claimed_trigger_jobs = claim_triggered_snapshot_jobs(
+                        trigger_queue_root,
+                        market_ids=[spec.id for spec in specs],
+                        limit=len(specs),
+                    )
+                    trigger_jobs_by_market = {
+                        job["market_id"]: job for job in claimed_trigger_jobs
+                    }
                     for spec, due_state in ordered_rows:
+                        trigger_job = trigger_jobs_by_market.get(spec.id)
+                        if trigger_job is not None:
+                            due_requests.append({
+                                "market_id": spec.id,
+                                "force": True,
+                                "target_date": trigger_job.get("target_date"),
+                                "cadence": "triggered",
+                                "trigger_context": trigger_job.get("trigger_context") or {},
+                                "trigger_work_id": trigger_job.get("work_id"),
+                            })
+                            continue
                         if not force and due_state is not None and not due_state.get("due"):
                             skipped_records[spec.id] = {
                                 "market_id": spec.id,
@@ -1576,6 +1634,7 @@ def run_loop(
                             "market_id": spec.id,
                             "force": bool(force),
                             "target_date": target_date.isoformat() if target_date else None,
+                            "cadence": "scheduled",
                         })
 
                     def capture_progress(progress):
@@ -1716,7 +1775,43 @@ def run_loop(
                                 "error": detail,
                             },
                         }
+                    batch_records_by_market = {
+                        record.get("market_id"): record
+                        for record in capture_batch.get("records") or []
+                    }
+                    trigger_queue_results = {}
+                    for job in claimed_trigger_jobs:
+                        record = batch_records_by_market.get(job.get("market_id")) or {}
+                        result = record.get("result") or {
+                            "written": False,
+                            "error": "triggered_capture_result_missing",
+                            "capture_status": "triggered_capture_result_missing",
+                            "retryable": True,
+                        }
+                        result["trigger_work_id"] = job.get("work_id")
+                        if result.get("retryable") is True:
+                            receipt = retry_triggered_snapshot_job(
+                                job,
+                                result,
+                                queue_root=trigger_queue_root,
+                                now=now_fn(),
+                            )
+                        else:
+                            receipt = complete_triggered_snapshot_job(
+                                job,
+                                result,
+                                record.get("execution") or {},
+                                queue_root=trigger_queue_root,
+                                now=now_fn(),
+                            )
+                        trigger_queue_results[job["work_id"]] = receipt
                     status["last_capture_batch"] = capture_batch.get("summary")
+                    status["last_trigger_queue_results"] = trigger_queue_results
+                    status["trigger_queue"] = {
+                        **triggered_snapshot_queue_status(trigger_queue_root),
+                        "sleep_check_seconds": float(trigger_queue_sleep_check_seconds),
+                        "claimed_count": len(claimed_trigger_jobs),
+                    }
                     completed_records = {
                         record["market_id"]: record
                         for record in capture_batch.get("records") or []
@@ -1928,7 +2023,15 @@ def run_loop(
             write_loop_status(status)
             if max_iterations is not None and status["iterations"] >= max_iterations:
                 return status
-            sleep_fn(sleep_seconds)
+            if production_capture and trigger_queue_sleep_check_seconds is not None:
+                status["last_trigger_queue_sleep"] = sleep_until_due_or_triggered_work(
+                    sleep_seconds,
+                    queue_root=trigger_queue_root,
+                    sleep_fn=sleep_fn,
+                    check_seconds=trigger_queue_sleep_check_seconds,
+                )
+            else:
+                sleep_fn(sleep_seconds)
     finally:
         sleep_inhibitor.stop()
         release_writer_lock(writer_lock)
@@ -2002,6 +2105,17 @@ def main():
         help="Loop interval in minutes.",
     )
     parser.add_argument(
+        "--trigger-queue-root",
+        default=str(DEFAULT_TRIGGER_QUEUE_ROOT),
+        help="Durable observation-trigger work spool consumed by the managed loop.",
+    )
+    parser.add_argument(
+        "--trigger-queue-sleep-check-seconds",
+        type=float,
+        default=DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS,
+        help="Idle-sleep check interval for newly queued triggered snapshots.",
+    )
+    parser.add_argument(
         "--capture-workers",
         type=int,
         default=DEFAULT_CAPTURE_WORKERS,
@@ -2043,6 +2157,13 @@ def main():
         ),
     )
     parser.add_argument("--result-json", default="", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--cadence",
+        choices=("scheduled", "triggered"),
+        default="scheduled",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--trigger-context-file", default="", help=argparse.SUPPRESS)
     parser.add_argument(
         "--expected-runtime-fingerprint",
         default="",
@@ -2126,6 +2247,9 @@ def main():
     )
     args = parser.parse_args()
     target_date = ensure_date(args.target_date) if args.target_date else None
+    trigger_context = None
+    if args.trigger_context_file:
+        trigger_context = json.loads(Path(args.trigger_context_file).read_text(encoding="utf-8"))
 
     if args.status:
         health = loop_health(read_loop_status(), datetime.now(TORONTO_TZ), args.interval_minutes)
@@ -2223,6 +2347,8 @@ def main():
             result = capture_snapshot(
                 force=args.force,
                 market_id=args.market,
+                cadence=args.cadence,
+                trigger_context=trigger_context,
                 target_date=target_date,
             )
         else:
@@ -2248,6 +2374,8 @@ def main():
         capture_timeout_seconds=args.capture_timeout_seconds,
         capture_child_working_set_max_mb=args.capture_child_working_set_max_mb,
         capture_host_reserve_mb=args.capture_host_reserve_mb,
+        trigger_queue_root=args.trigger_queue_root,
+        trigger_queue_sleep_check_seconds=args.trigger_queue_sleep_check_seconds,
     )
 
 

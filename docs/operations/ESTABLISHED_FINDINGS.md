@@ -417,27 +417,109 @@ All 21 required fields probed with the `_previous_day1` suffix, Toronto 2021:
 | HTTP 400 with the suffix | 3 | `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` |
 
 **1 of 21.** A point-in-time corpus on the free tier can carry `temperature_2m` and nothing else.
-**"Build the corpus from the fields that do carry `_previous_dayN`" collapses to a single feature
-and is not a model.** Do not commission that mission; the number is the answer.
 
-**`previous_runs=` is a LEAKAGE TRAP.** It returns values *identical* to the plain query and does
-not even rename the series. It is silently ignored, so it hands back the settled analysis dressed
-as an earlier run. **Never use it to stand up a PIT corpus** — that is `item-224`'s defect exactly
-(§ retracted claims), and it would pass a naive completeness check.
+**CONFIRMED AT BREADTH 2026-08-07 (`-09-41a`)** — the number above came from a single-lead,
+single-market probe, so it was a belief. Re-probed across **21 fields × 7 leads × 3 markets =
+441 cells**:
 
-**So the free-tier PIT-corpus path is CLOSED**, and the real question moves elsewhere: the *plain*
-archive is complete — 1,740/1,740 collected, all 21 fields, all five years — but it is the settled
-analysis rather than what was knowable at cutoff, so training on it contaminates the **fit**.
+| Result | Cells |
+| --- | ---: |
+| **Complete** | **21** — `temperature_2m`, all 7 leads, all 3 markets |
+| HTTP 200, all null | 357 |
+| HTTP 400 | 63 — `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` |
 
-**We already do exactly that, and the cost is measured.** §6 records that the trainer reads a
-2-column stitched file while the PIT file goes unread: the fit is contaminated, **evaluation is
-not**, and the lookahead was measured at **~6% of the cool bias**. So "train on the plain archive,
-evaluate point-in-time" is not a new compromise — it is the existing one, already sized.
+The two-host premise also held independently in each market, with all 48 paired non-null hours
+differing between the settled and PIT series. **So the honest corpus is genuinely single-variable**
+— which is why `-09-41a` built the **hybrid** (PIT `forecast_high` + settled for the rest) rather
+than accepting a one-feature model.
 
-That makes the open item an **operator decision with the evidence already in hand**, not a
-research mission: accept a contaminated fit with clean walk-forward evaluation, or do not retrain.
-**Do not commission further collection work against it** — the data is collected and the endpoint
-has been characterised to the field level.
+**There are TWO hosts and only one of them is the PIT surface.** This caught both `-09-38a` and an
+earlier draft of this section, so it is written out:
+
+| Host | Purpose |
+| --- | --- |
+| `historical-forecast-api.open-meteo.com` | settled archive. **Ignores `previous_runs=`** — returns the settled series, unrenamed |
+| `previous-runs-api.open-meteo.com` | **the PIT surface**, via `<field>_previous_day{1..7}` (`PREVIOUS_RUNS_URL` in `sources/forecast_history.py`) |
+
+Probing `_previous_dayN` against the *archive* host is measuring the wrong thing. **An earlier
+draft of this section called `previous_runs=` a leakage trap on that basis — that is RETRACTED.**
+On the correct host, `temperature_2m_previous_day1` differs from the settled series in **23 of 24
+hours**: it is genuinely an earlier run, and it is what the existing corpus was built from.
+
+The **1-of-N result survives re-measurement on the correct host**: of 9 fields probed against
+`previous-runs-api`, only `temperature_2m` returns data; `temperature_850hPa` is HTTP 400 and the
+other seven are all-null. **So the PIT surface is temperature-only — but it is real.**
+
+**And we already hold it.** `data/forecast_history/<station>/forecast_daily_by_issue.csv` carries
+**2,135 rows with `issue_time_basis = fixed_lead_day_offset`** in each of the 12 stations. The
+mechanism is proven on this project's own data. **Composition — corrected 2026-08-07 after
+`-09-40a` caught an earlier draft here, then re-verified directly on production:**
+
+| | Earlier draft (WRONG) | Verified on production |
+| --- | --- | ---: |
+| Rows/year, 2021–2025 | 416 | **364** (52 dates × 7 leads) |
+| 2026 rows | *(not recorded)* | **315** |
+| Lead days | 1–4 | **1–7** |
+
+364 × 5 + 315 = 2,135. **The total was right and every part of the decomposition was wrong** — a
+matching total is not confirmation of a population. Three further facts, from disk, no API call:
+
+- Every fixed-lead row carries `source = open_meteo_previous_runs`. **The PIT host is already in
+  use** — the two-host distinction above is corroborated from the data side.
+- The file's only forecast variable is `forecast_high_native` / `forecast_high_c`. **The
+  materialized honest corpus is already single-variable**, whatever the API could serve.
+- Target range **2021-05-10 → 2026-06-23, months 05 and 06 only, zero July/August rows.** The
+  honest corpus on disk is in the **stale** window §4b/`-09-31a` blamed for the cool bias, so
+  **it cannot train the season we serve.** Collecting July 17 – Aug 14 is genuinely un-started.
+
+**So the corpus question is narrower than "free tier cannot do PIT".** It is: *the PIT surface
+carries temperature only.* The rich 21-field corpus is settled-analysis and contaminates the fit;
+the temperature PIT corpus is honest and thin.
+
+**The contamination is therefore a TRAINER defect, not a data gap.** §6 records the trainer reading
+the 2-column stitched `forecast_daily.csv` while `forecast_daily_by_issue.csv` — the PIT file, on
+disk, populated — **goes unread**. We are contaminated because of what the trainer opens, not
+because the honest data is unavailable.
+
+**Verified in source 2026-08-07, and it is worse than §6 stated:** `daily_by_issue_path()` in
+`sources/forecast_history.py` has **zero readers anywhere in `src/`** — the PIT file is written and
+never consumed by anything. `calibration/forecast_error_model.py:42` hardcodes
+`DEFAULT_FORECAST_DAILY` to the stitched `forecast_daily.csv` for **`cyyz` alone**, on a 12-market
+platform.
+
+That reframes the work: **collect the temperature PIT rows for the new window** (proven mechanism,
+same code path that produced the 2,135 existing rows) **and point the trainer at the PIT file**.
+Do not commission "characterise the endpoint" again — it is characterised to the field level, on
+both hosts. **`-09-41a` did both: 12,180/12,180 rows collected, and honest/rich/hybrid are now
+selectable.**
+
+### 4g. The retrain blocks on 14 cells, and the floor of 18 is not a knob
+
+`-09-41a` reached **12,586 / 12,600** cells. The missing 14 are Denver **2025-07-28**, which has
+**17** WU hourly rows against a floor of **18**.
+
+**The gap is unfillable — verified on production 2026-08-07.** WU, METAR **and** NOAA GHCN-hourly
+each return the *identical* 17 timestamps: hourly `00:58 → 14:58`, then `18:58`, then `23:58`.
+Three independent archives agreeing exactly means KBKF (Buckley SFB) did not report those hours;
+`backfill_errors.jsonl` has no entry, so the fetch succeeded. **Do not commission a re-fetch.**
+
+**It is rare and it is one station.** Across all **1,740** market-days in July 17 – Aug 14,
+2021–2025 × 12 markets, exactly **two** fail the floor — `kbkf 2022-07-20` (n=**1**) and
+`kbkf 2025-07-28` (n=**17**).
+
+**Excluding it is correct, not a workaround.** 2025-07-28's recorded max is **37.2 °C at 14:00, the
+hottest value in Denver's month**, in a spell where 07-26 and 07-27 both peaked at 15:00 — and
+**9 of 31 Denver July days peak inside the 15:00–17:00 window this day is missing.** The label is
+very likely biased low, so a row-count floor understates how bad this day is.
+
+**Never lower the 18.** `COMPLETE_DAY_MIN_ROWS` (`backtesting/settlement_io.py:32`,
+`settlement_ledger.py:34`) is not a retrain threshold. `settlement_ledger.py:489` uses it to decide
+whether **the WU daily summary is trusted as the label source at all** (below it, settlement falls
+back to `snapshot wu_history_high`), and `settled_day_freshness.py:217` uses it for **day
+completeness, which feeds the streak**. Lowering it to clear a retrain would change how days settle
+fleet-wide and what counts as a complete day for objective #1. The fix is a **code-owned exclusion
+list** naming those station-days, with the expected cell count derivable **without a candidate
+loaded** — that test is what separates it from the §8 self-sizing defect.
 
 ---
 

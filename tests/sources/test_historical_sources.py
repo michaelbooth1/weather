@@ -56,6 +56,7 @@ GHCNH_SAMPLE = """STATION|Station_name|DATE|Year|Month|Day|Hour|Minute|LATITUDE|
 USW00014732|LAGUARDIA AP|2023-06-01T12:51:00|2023|06|01|12|51|40.78|-73.88|3.0|23.3||FM-15|12.0||1010.1|1012.4|180|9.3|49
 USW00014732|LAGUARDIA AP|2023-06-01T13:51:00|2023|06|01|13|51|40.78|-73.88|3.0|25.0||FM-15|13.0||1009.1|1011.4|190|11.1|47
 """
+FIXTURES_ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 
 
 class TestHistoricalSources(unittest.TestCase):
@@ -156,6 +157,11 @@ class TestHistoricalSources(unittest.TestCase):
             client.fetch_range(date(2026, 6, 29), date(2026, 6, 29))
 
     def test_public_wu_client_fetches_page_backed_history_without_stored_credential(self):
+        page_text = (FIXTURES_ROOT / "wu_history_page_runtime_config.html").read_text(encoding="utf-8")
+        recorded_payload = json.loads(
+            (FIXTURES_ROOT / "wu_history_v1_response.json").read_text(encoding="utf-8")
+        )
+
         class FakeResponse:
             def __init__(self, *, text="", payload=None, status_code=200):
                 self.text = text
@@ -177,25 +183,8 @@ class TestHistoricalSources(unittest.TestCase):
             def get(self, url, **kwargs):
                 self.calls.append((url, kwargs))
                 if len(self.calls) == 1:
-                    return FakeResponse(
-                        text=(
-                            'window.__state__={"u":"https://public.example.test/v3/current?'
-                            'apiKey=page-token&format=json"}'
-                        )
-                    )
-                return FakeResponse(payload={
-                    "metadata": {"location_id": "KATL:9:US", "units": "e"},
-                    "observations": [{
-                        "key": "KATL",
-                        "obs_id": "KATL",
-                        "obs_name": "Atlanta",
-                        "valid_time_gmt": int(datetime(2026, 6, 29, 16, 52, tzinfo=timezone.utc).timestamp()),
-                        "temp": 94,
-                        "dewPt": 72,
-                        "heat_index": 99,
-                        "wc": 94,
-                    }],
-                })
+                    return FakeResponse(text=page_text)
+                return FakeResponse(payload=recorded_payload)
 
         session = FakeSession()
         client = PublicWundergroundHistoryClient(
@@ -211,10 +200,25 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertEqual(len(payload["observations"]), 1)
         self.assertEqual(payload["_wu_collector_provenance"]["source"], PUBLIC_WU_HISTORY_SOURCE)
         self.assertEqual(session.calls[0][0], "https://www.wunderground.com/history/daily/KATL/date/2026-6-29")
-        self.assertEqual(session.calls[1][0], "https://public.example.test/v1/location/KATL:9:US/observations/historical.json")
-        self.assertEqual(session.calls[1][1]["params"]["apiKey"], "page-token")
+        expected_api_root = "https://api." + "weather.com"
+        self.assertEqual(
+            session.calls[1][0],
+            f"{expected_api_root}/v1/location/KATL:9:US/observations/historical.json",
+        )
+        self.assertEqual(session.calls[1][1]["params"]["apiKey"], "recorded-runtime-page-token")
+        self.assertNotEqual(session.calls[1][1]["params"]["apiKey"], "unrelated-script-token")
         self.assertEqual(session.calls[1][1]["params"]["units"], "e")
         self.assertEqual(session.calls[1][1]["params"]["startDate"], "20260629")
+
+    def test_public_wu_client_rejects_unrelated_embedded_api_key_url(self):
+        client = PublicWundergroundHistoryClient()
+        page_text = (
+            '<script src="https://example.invalid/loader.js?'
+            'apiKey=unrelated-script-token&amp;format=json"></script>'
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "runtime history access configuration"):
+            client.public_access_from_page(page_text)
 
     def test_public_wu_payload_writes_public_provenance_and_rebuilds_daily(self):
         payload = {
@@ -610,13 +614,16 @@ class TestHistoricalSources(unittest.TestCase):
     def test_wu_error_redaction_removes_api_key_from_url_text(self):
         text = (
             "400 Client Error for url: "
-            "https://example.invalid/history?apiKey=secret123&units=e"
+            "https://example.invalid/history?apiKey=secret123&units=e "
+            'runtime={"API_KEY":"runtime-secret"}'
         )
 
         redacted = redact_api_key(text)
 
         self.assertNotIn("secret123", redacted)
+        self.assertNotIn("runtime-secret", redacted)
         self.assertIn("apiKey=<redacted>", redacted)
+        self.assertIn('"API_KEY":"<redacted>"', redacted)
 
     def wu_http_error(self, status_code):
         response = requests.Response()
@@ -681,6 +688,78 @@ class TestHistoricalSources(unittest.TestCase):
         self.assertFalse(rows[2]["treated_as_source_unavailable"])
         self.assertEqual(rows[3]["failure_class"], PERMANENT_NO_DATA)
         self.assertTrue(rows[3]["treated_as_source_unavailable"])
+
+    def page_backed_http_error(self, status_code):
+        response = requests.Response()
+        response.status_code = status_code
+        response.url = "https://www.wunderground.com/history/daily/CYYZ/date/2026-8-5"
+        try:
+            PublicWundergroundHistoryClient._raise_for_status(response)
+        except requests.HTTPError as exc:
+            return exc
+        self.fail(f"expected {status_code} to raise")
+
+    def test_wu_page_backed_404_is_transient_and_keeps_the_date_fetchable(self):
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            row = store.write_fetch_error(
+                target, target, self.page_backed_http_error(404), source=PUBLIC_WU_HISTORY_SOURCE
+            )
+            unavailable = store.unavailable_dates()
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], TRANSIENT_FAILURE)
+        self.assertFalse(row["treated_as_source_unavailable"])
+        self.assertEqual(unavailable, set())
+        self.assertEqual(missing, [target], "a page-backed 404 must leave the date fetchable")
+
+    def test_wu_page_backed_400_stays_permanent(self):
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            row = store.write_fetch_error(
+                target, target, self.page_backed_http_error(400), source=PUBLIC_WU_HISTORY_SOURCE
+            )
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], PERMANENT_NO_DATA)
+        self.assertTrue(row["treated_as_source_unavailable"])
+        self.assertEqual(missing, [])
+
+    def test_wu_paid_api_404_remains_permanent(self):
+        target = date(2026, 8, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="KLGA", history_id="KLGA:9:US")
+            row = store.write_fetch_error(target, target, self.wu_http_error(404))
+            missing = store.missing_dates(target, target)
+
+        self.assertEqual(row["failure_class"], PERMANENT_NO_DATA)
+        self.assertTrue(row["treated_as_source_unavailable"])
+        self.assertEqual(missing, [])
+
+    def test_wu_recover_releases_page_backed_404_rows_written_before_the_fix(self):
+        poisoned = {
+            "start": "2026-08-05",
+            "end": "2026-08-05",
+            "status_code": 404,
+            "failure_class": PERMANENT_NO_DATA,
+            "source": PUBLIC_WU_HISTORY_SOURCE,
+            "treated_as_source_unavailable": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            store = WundergroundHistoryStore(tmp, station_icao="CYYZ", history_id="CYYZ:9:CA")
+            store.error_log_path.parent.mkdir(parents=True, exist_ok=True)
+            store.error_log_path.write_text(
+                json.dumps(poisoned, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            report = store.recover_unavailable_errors()
+            missing = store.missing_dates(target := date(2026, 8, 5), target)
+
+        self.assertEqual(report["recovered_error_rows"], 1)
+        self.assertEqual(missing, [date(2026, 8, 5)])
 
     def test_forecast_history_writes_source_issue_rows(self):
         payload = {

@@ -338,6 +338,48 @@ if ($unmergedCount -gt 0) {
     }
 }
 
+# ---- 12. duplicate bot workers (the orphan that eats the capture budget) ----
+# A daily-roll supervisor stops exactly ONE pid: the one recorded in its status file
+# (bot_daily_roll_supervisor.ps1 stop_daily_roll_process -> status.get("pid")). So a worker
+# orphaned by a start race is invisible to every later stop and runs until the host reboots.
+# Measured 2026-08-07: two market_making_run workers started 47s apart, the status file kept the
+# second, the 19:29 restart stopped that one, and the 18:29:09 worker survived holding 431 MB.
+# That is not just waste -- capture admission needs 3.49 GB free per worker, so the orphan helped
+# drive 430 memory-admission refusals between 11:00 and 18:00 and put the streak day AT_RISK with
+# two in-window gaps (24 min and 41 min). Same defect class as the taker orphan of 2026-06-30 and
+# 2026-07-04. Nothing detected any of them; the supervisors all reported healthy.
+# Counts LOGICAL runs: each run is a venv shim plus its real worker, so a matching process whose
+# parent is also matching is the child half and is not counted twice. Process table only -- no
+# data/ walk.
+try {
+    $botProcs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction Stop |
+        Where-Object { $_.CommandLine -match 'market_making_run|weather\.market\.taker_bot' })
+    $botPids = @($botProcs | ForEach-Object { $_.ProcessId })
+    foreach ($modName in @('market_making_run', 'taker_bot')) {
+        $ofMod = @($botProcs | Where-Object { $_.CommandLine -match $modName })
+        # keep only the outermost process of each launch chain
+        $roots = @($ofMod | Where-Object { $botPids -notcontains $_.ParentProcessId })
+        # Emit OK explicitly. A check that says nothing when healthy is indistinguishable from a
+        # check that silently stopped running -- which is the exact failure this file exists for.
+        if ($roots.Count -le 1) {
+            Add-Finding "bots/duplicate_worker" "OK" `
+                ("{0}: {1} live run(s)" -f $modName, $roots.Count) `
+                "more than one live run of the same bot means an unreapable orphan is holding memory capture needs" $null $null
+        }
+        if ($roots.Count -gt 1) {
+            $starts = (($roots | Sort-Object CreationDate | ForEach-Object { $_.CreationDate.ToString('HH:mm:ss') }) -join ', ')
+            Add-Finding "bots/duplicate_worker" "CRITICAL" `
+                ("{0} has {1} live runs (started {2})" -f $modName, $roots.Count, $starts) `
+                "a daily-roll supervisor only ever stops the one pid in its status file, so an orphan from a start race is unreapable; each holds ~430 MB and capture admission needs 3.49 GB free per worker -- on 2026-08-07 this caused 430 memory-admission refusals and two in-window capture gaps. Identify the orphan by StartTime against the pid in data\mm_runs\daily_roll_status.json, then stop it." `
+                $null $null
+        }
+    }
+}
+catch {
+    Add-Finding "bots/duplicate_worker" "WARN" "could not enumerate bot processes: $($_.Exception.Message)" `
+        "without this check a duplicate worker is invisible until capture starts failing memory admission" $null $null
+}
+
 # ---- report ----
 $crit = @($findings | Where-Object { $_.severity -eq "CRITICAL" })
 $warn = @($findings | Where-Object { $_.severity -eq "WARN" })
