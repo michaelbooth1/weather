@@ -695,10 +695,12 @@ def crossed_edge_draws(
     counts = cells["row_count"].to_numpy(dtype=float)
     edge = cells["edge_sum"].to_numpy(dtype=float)
     rng = np.random.default_rng(seed)
-    draws = np.empty(replicates, dtype=float)
+    accepted: list[np.ndarray] = []
+    accepted_count = 0
+    attempted = 0
     chunk = 500
-    for start in range(0, replicates, chunk):
-        size = min(chunk, replicates - start)
+    while accepted_count < replicates:
+        size = min(chunk, replicates - accepted_count)
         date_draw = rng.integers(0, len(dates), size=(size, len(dates)))
         market_draw = rng.integers(0, len(markets), size=(size, len(markets)))
         date_counts = np.stack(
@@ -710,15 +712,14 @@ def crossed_edge_draws(
         weights = date_counts[:, date_index] * market_counts[:, market_index]
         denominators = weights @ counts
         numerators = weights @ edge
-        draws[start : start + size] = np.divide(
-            numerators,
-            denominators,
-            out=np.full(size, np.nan),
-            where=denominators > 0,
-        )
-    if np.isnan(draws).any():
-        raise RuntimeError("crossed bootstrap produced an empty replicate")
-    return draws
+        valid = denominators > 0
+        if valid.any():
+            accepted.append(numerators[valid] / denominators[valid])
+            accepted_count += int(valid.sum())
+        attempted += size
+        if attempted > replicates * 100:
+            raise RuntimeError("crossed bootstrap could not obtain non-empty product draws")
+    return np.concatenate(accepted)[:replicates]
 
 
 def holm_adjust(raw_p_values: list[float]) -> list[float]:
@@ -1079,6 +1080,7 @@ def analyze(
             "hypothesis_count": len(HYPOTHESES),
             "multiplicity": "Holm one-sided family-wise alpha 0.05",
             "uncertainty": "crossed target_date x market pigeonhole bootstrap",
+            "empty_product_draws": "deterministically redrawn until the requested valid replicate count",
             "bootstrap_replicates": replicates,
             "bootstrap_seed_base": BOOTSTRAP_SEED,
         },

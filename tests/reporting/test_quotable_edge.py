@@ -72,6 +72,18 @@ def test_crossed_draws_preserve_constant_positive_edge():
     assert set(draws.round(12)) == {0.02}
 
 
+def test_crossed_draws_redraw_empty_sparse_product_samples():
+    frame = pd.DataFrame(
+        [
+            {"target_date": "2026-06-01", "market_id": "a", "edge_row": 0.02},
+            {"target_date": "2026-06-02", "market_id": "b", "edge_row": 0.02},
+        ]
+    )
+    draws = crossed_edge_draws(frame, replicates=250, seed=11)
+    assert len(draws) == 250
+    assert set(draws.round(12)) == {0.02}
+
+
 def test_holm_adjustment_is_monotone_in_rank():
     raw = [0.01, 0.03, 0.02, 0.50]
     adjusted = holm_adjust(raw)
