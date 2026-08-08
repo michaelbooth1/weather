@@ -12,8 +12,14 @@ commands or policies into another guide.
   their Windows supervisors, runtime identity, and deployment routine.
 - [Repository Path Policy](path-policy.md) defines canonical package execution,
   repository-owned paths, and where generated output belongs.
+- **[Operating Reference](OPERATING_REFERENCE.md) answers "what governs this host, and
+  what is scheduled when?"** — protected windows, governing constants with their source
+  locations, and the daily timetable. **Generated, never hand-edited:** constants are
+  imported at render time and the timetable is read from the live scheduler, so it cannot
+  go stale the way a copied number can. Look here before grepping source for a threshold.
 - [Host Load Policy](HOST_LOAD_POLICY.md) defines the protected capture window,
-  resource limits, and the single-host training window.
+  resource limits, and the single-host training window. It owns the *policy*;
+  the Operating Reference owns the *current numbers*.
 - [Module Ownership Map](module-ownership-map.md) and
   [Package Boundaries](package-boundaries.md) route code changes to their
   owning subsystems.
@@ -69,10 +75,14 @@ environment.
 - [Weather Underground Current-Day Degradation](2026-06-21-wu-history-current-day-degradation.md)
   is the incident-specific recovery note for that failure mode.
 
-Task names, default cadences, and required registration parameters are defined
-by the scripts under `scripts/ops/`. Read a script's `param(...)` block before
-registration; some production tasks require explicit evidence paths and cannot
-be registered safely with an argument-free example.
+Required registration parameters are defined by the scripts under `scripts/ops/`. Read a
+script's `param(...)` block before registration; some production tasks require explicit
+evidence paths and cannot be registered safely with an argument-free example.
+
+**For what is actually scheduled and when, read the daily timetable in
+[Operating Reference](OPERATING_REFERENCE.md)** rather than reconstructing it from scripts.
+No single script holds the timetable — only the live scheduler does, which is why answering
+"is 05:30 free?" used to require querying the host directly.
 
 ## Configuration, Paths, And Artifacts
 

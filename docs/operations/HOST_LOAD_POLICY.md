@@ -5,24 +5,38 @@ Owner: operations. This host is dedicated to the weather platform; the policy
 spreads load across the 24-hour day so capture — the one workload that cannot
 be rescheduled — is never starved.
 
-## Host capacity (measured 2026-07-12)
+> **For the current numbers, read [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is
+> generated — governing constants are imported at render time and the timetable is read from the
+> live scheduler, so it cannot drift. **This file owns the *policy*; that file owns the *facts*.**
+> On 2026-08-08 the capacity figures below were three times wrong and the 24-hour map listed a
+> window as "steady-state capture only" that by then held nine scheduled jobs. A stale operations
+> document is worse than a missing one, because it gets believed.
 
-| Resource | Value | Note |
+## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
+
+**Do not plan against these.** `scripts\ops\status.ps1` reports live RAM, disk, and the daily
+growth trend; use it. Retained because the *ratios* explain why the policy exists.
+
+| Resource | Value at sample | Note |
 | --- | --- | --- |
-| Physical RAM | 15.7 GB | smallest resource on the box |
+| Physical RAM | 15.7 GB | smallest resource on the box, and still true |
 | Pagefile | 48 GB allocated | commit limit ~63.7 GB |
-| Disk free | ~385 GB | data writes ~50-65 GB/day → ~6-7 days headroom |
-| data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate |
+| Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
+| data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 
 ## The 24-hour map (America/Toronto)
 
-| Window | What runs | Load class |
-| --- | --- | --- |
-| 00:05–00:30 | taker/MM daily roll-over | brief spike |
-| 00:30–09:00 | steady-state capture only (loops + supervisors) | **QUIET — heavy work goes here** |
-| 09:30–12:30 | Stage A settlement chain (labels, scorecards, tiering, parquet incremental) | heavy, scheduled |
-| 12:30–18:00 | capture + light periodic tasks (config refresh, disagreement analysis) | moderate |
-| 18:00–00:05 | near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch | **PROTECTED — nothing heavy, ever** |
+**Load classes are policy and live here. What actually runs in each window is generated** — see
+the daily timetable in [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md), which reads the live
+scheduler rather than describing it from memory.
+
+| Window | Load class |
+| --- | --- |
+| 00:05–00:30 | taker/MM daily roll-over — brief spike |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here, and the quiet merge window (01:00–04:00) sits inside it |
+| 09:30–12:30 | Stage A settlement chain — heavy, scheduled |
+| 12:30–18:00 | moderate; **the graded capture window closes at 18:00 and the streak verdict is computed over 12:00–18:00** |
+| 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
 
 Stage-A settlement safeguards: the daily taker edge-permission aggregation is
 single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
