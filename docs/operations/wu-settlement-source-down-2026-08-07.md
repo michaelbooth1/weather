@@ -128,6 +128,55 @@ for d in ('2026-06-15','2026-08-04','2026-08-05'):
 Never print the scraped token. `redact_api_key` exists in `weather.sources.wu_history` for
 exactly this.
 
+## The source was fixed and the CHAIN then blocked it — 2026-08-08
+
+`-09-37a` merged 01:20 on 08-08 and **works**: `public_wu_settlement_restore` ran 699 s over 40
+processes and read 15.9 GB. It then failed `containment_setup_failed` on **one transient
+`OSError [Errno 31]` in 1 of 3,402 capture calls** — `process_identity_query_failed`, a process
+exiting between handle-open and job-membership query. 18 of the 19 lifetime checks passed.
+
+**The blast radius is the whole chain, not just settlement.** `public_wu_settlement_restore` is
+step 4 of ~45. Everything after it never ran, including `market_day_labels_finalize`,
+`maker_paper_score`, `trading_evidence`, `daily_learning` and
+`market_beating_objective_scoreboard` — which is why every `mm_*` field in the daily report reads
+`null` and variant learning reads `SKIPPED`. It is not that MM evidence was bad; **it was never
+computed.**
+
+Fixed by `codex/production-tolerate-benign-capture-race-2026-08-08` (queued 01:20 on 08-09):
+`no_capture_failures` becomes `no_unexplained_capture_failures` over a benign set of exactly one
+kind. Containment is unchanged — `every_job_process_observed`, `job_quiesced` and
+`no_job_limit_terminated_processes` stay mandatory, so a skipped-but-still-Job-bound process still
+FAILS the summary.
+
+### Backfill runbook — REQUIRED after the fix lands
+
+**Each chain run settles only *yesterday*, so the fix alone does not heal 08-05 → 08-07.** Those
+three dates need an explicit run each. Confirm the fix is on master first
+(`git log --oneline -1 origin/master`), then, **inside the 01:00–04:00 quiet window or at least
+outside 12:00–18:00**, one date at a time, checking each before starting the next:
+
+```powershell
+$repo = 'C:\Users\micha\Desktop\github\weather'
+Set-Location $repo
+foreach ($d in '2026-08-05','2026-08-06','2026-08-07') {
+    .\venv\Scripts\python.exe -m weather.operations.daily_refresh run `
+        --stage settlement `
+        --settled-analysis-target-date $d `
+        --resume-from-step public_wu_settlement_restore
+    # STOP if this exits non-zero. Do not queue the next date on top of a failure.
+}
+```
+
+Then confirm the ledger actually advanced — the run exiting 0 is not the same as a settled date:
+
+```powershell
+Get-Content data\settlements\toronto\ledger.jsonl -Tail 3
+```
+
+**Expect the chain to take a long time and to hold memory.** `public_wu_settlement_restore` alone
+peaked at 3.3 GB private / 2.0 GB working set against a 4 GB cap. Do not run it while capture is
+under pressure; the host has 16 GB and each capture worker needs 3.49 GB free to admit.
+
 ## Update this file when
 
 A working route is found, the client is adapted, or the settlement proxy contract changes.
