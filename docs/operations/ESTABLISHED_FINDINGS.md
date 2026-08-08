@@ -66,13 +66,19 @@ that no longer exists. `-09-44a` re-measured on the sealed pre-boundary replay c
 The differences are **panel**, not repair: the repair moved none of them detectably. The legacy
 values remain valid records of what they measured; they are simply not measurements of today's model.
 
-**`74.97%` is the one that leaves a hole.** It came from a *post*-boundary 19,265-snapshot
-outcome-aware oracle panel that cannot be pooled with this wholly pre-boundary corpus, and its
-estimator is not a retained CLI that can be rebound. `-09-44a` correctly refused to invent a
-replacement. So **"centre is 74.97% of oracle excess loss" is no longer available as a
-justification for anything** — the retrain still has one (§2's measured −0.8346 C-eq seasonal
-centre defect), but it is a *different and smaller* argument. The mechanism is untouched: too-cool
-mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
+**`74.97%` is the one that leaves a hole — and `-09-44a` gives the wrong reason for it.** The report
+says that oracle panel is *post*-boundary and so cannot be pooled. **It is not.** That panel is
+**07-22 → 07-30, 19,265 snapshots** — it sits *inside* `-09-44a`'s own 06-03 → 07-30 corpus and on
+the **same** side of the `2026-07-31` boundary. Provenance does not forbid a rebind.
+
+**The refusal is still correct, on the report's other ground:** the oracle construction is not a
+retained CLI and cannot be rebound to the repaired replay without building a new estimator. So
+`74.97%` is stale because the *surface* changed and nobody has re-derived it — **not** because the
+data are incompatible. Do not let someone later notice the provenance claim is wrong and treat that
+as licence to reinstate the number. **"Centre is 74.97% of oracle excess loss" is unavailable as a
+justification for anything** until it is re-derived; the retrain's remaining argument is §2's
+measured −0.8346 C-eq seasonal centre defect, which is *smaller*. The mechanism is untouched:
+too-cool mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
 
 **The reliability share is the number to look at.** `1.12%` said calibration was worth nothing.
 The current-surface figure is **15.228%** — over an order of magnitude larger. **Whether any of it
