@@ -67,7 +67,7 @@ from there, never from here.**
 | --- | --- | --- |
 | `-09-39a` | train/serve parity — **base of the corpus stack** | verified 24 unexpected → 0; awaiting merge (**roll-sensitive**) |
 | `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **NO CANDIDATE.** PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built; **correctly stopped at 12,586/12,600** |
-| `-09-42a` | exclude Denver station-days, then fit | **NO CANDIDATE.** Exclusion contract built (`first_retrain_station_day_exclusions_v1`, 899 market-days / 12,586 cells); all three fits ran, **none qualifies** — rich's interval includes zero, **power 0.054** |
+| `-09-42a` | exclude Denver station-days, then fit | **NO CANDIDATE.** Exclusion contract built (`first_retrain_station_day_exclusions_v1`, 899 market-days / 12,586 cells); all three fits ran, **none qualifies** — every interval includes zero, **power 0.054–0.146**. **Reconciled with master and QUEUED 01:20** — lands all 5 missions |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` / `-09-28a` | season window (**contained by `-09-39a`**) / input-surface gate | awaiting merge (roll-sensitive) |
 | `fix-wu-404` | scraper 404 misclassification | **SUPERSEDED by `-09-37a`** — do not merge, it conflicts |
@@ -92,28 +92,26 @@ are held deliberately): `WeatherMergeQueueDriver` 05:15 roll-free, `WeatherMerge
   `capture_failure_cardinality_bounded` check, so tolerating bounded transients fits the design.
   **Unowned.** Settlement frozen at **2026-08-04**; streak **15/14 banked and safe**.
   [wu-settlement-source-down-2026-08-07.md](wu-settlement-source-down-2026-08-07.md).
-- **Capture memory pressure is the live streak risk, not the network.** 2026-08-07: **430**
-  `capture_host_memory_admission` refusals 11:00–18:00, RAM down to **13 MB** against **3.49 GB**
-  per worker → two in-window gaps and the day **AT_RISK**. Cause: a **duplicate
-  `market_making_run` orphan** holding 431 MB, because a daily-roll supervisor stops only the pid
-  in its status file, so a start-race orphan is **unreapable** (same class as the taker orphans of
-  06-30 / 07-04). Killed by hand; `staleness_sweep.ps1` §12 detects it now. **The code fix is
-  unowned.**
-- **MM SCORED ITS FIRST COUNTABLE DAY IN 42 (2026-08-08).** `live_forward_gate` **PASS**,
-  `counts_toward_live_forward_gate` **true**, `paper_trading_evidence` **12/12** — and
-  `live_trade_permission_evidence` is **still 0/12**, which proves live trading was never required
-  for a countable paper day. Standing count **3 → 4 of 55**; the gate needs 22–43.
-  It was never blocked on live permission — that lane reads 0/12 only because
-  `mode != "live-pilot"`, which is *correct* in paper mode and **not required for paper evidence**.
-  Two real blockers, both now cleared: `clob_freshness` (one 120.0 s gap poisoned a whole
-  market-day, since the gate takes the **max gap across the DAY**) — fixed by `-09-14a`; and
-  **`exchange_economics_gate`, which was stale because
-  `WeatherExchangeEconomicsSnapshotRefresh` HAD NEVER BEEN REGISTERED.** The register script sat
-  in `scripts/ops/` unused. **18 of 20 economics checks always passed** — only
-  `target_date_matches` and `verified_at_recent` (24 h max age) failed. Now armed daily at 06:50
-  and proof-run. **The repo's own register script would NOT have fixed it**: it passes no
-  `-TargetDate`, so the refresh defaults to *yesterday* — right for the settlement chain, wrong
-  for the maker, which targets today.
+- **Start-race bot orphans are unreapable, and they starve capture.** A daily-roll supervisor
+  stops only the pid in its status file. On 08-07 a duplicate maker held 431 MB → **430**
+  memory-admission refusals → the streak day **AT_RISK**. `staleness_sweep.ps1` §12 detects it
+  now; **the code fix is unowned.** Same class as the taker orphans of 06-30 / 07-04.
+- **MM SCORED ITS FIRST COUNTABLE DAY IN 42 (08-08)** — gate **PASS**, `paper_trading_evidence`
+  **12/12**, standing count **4 of 55** against a 22–43 bar. **Live trading was never required**:
+  `live_trade_permission_evidence` is *still* 0/12 and the gate passes, because that lane only
+  reads `mode != "live-pilot"`. The two real blockers were `clob_freshness` (fixed by `-09-14a`;
+  the gate takes the **max gap across the DAY**, so one 120 s stall cost the whole fleet-day) and
+  `exchange_economics_gate` — stale because **`WeatherExchangeEconomicsSnapshotRefresh` had never
+  been registered**. Now armed 06:50 and proof-run. **The repo's register script alone would not
+  have fixed it**: it passes no `-TargetDate`, so the refresh defaults to *yesterday* — right for
+  the chain, wrong for the maker.
+- **THE CORPUS QUESTION IS CLOSED: contamination is NOT the lever** (§6). Every interval includes
+  zero, sign flips by slice, power 0.054–0.146, and **honest ≡ hybrid numerically** — the 20 extra
+  settled fields contributed nothing. **That leaves the blindness repair as the only untried model
+  lever**: 8 of 10 local-meteorology features dead at serve, ~28% of inputs imputed always, and
+  `-09-39a` proved the repair on the other 2 from our own `station_latest`. **`-09-26a`'s NO-GO
+  does not apply** — it measured filling from *external* sources at 8.90% coverage, not routing
+  captured data. **Unowned; top model item.**
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
 - **Disk: ~12 days headroom** (130.4 GB free, ~11 GB/day). **The taker is PAUSED — operator

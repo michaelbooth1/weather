@@ -550,6 +550,18 @@ Each of these has already cost a retracted result. They are not stylistic prefer
 - **`forecast_high` is not point-in-time.** The trainer reads a 2-column stitched file; the
   point-in-time file exists and is **unread**. The **fit is contaminated; evaluation is not.**
   Measured lookahead is ~6% of the cool bias — real but not the main story.
+- **THE CONTAMINATION IS NOT THE LEVER — measured 2026-08-08 (`-09-42a`).** The A/B/C fit priced
+  it directly instead of arguing about it: **B − A = −0.000107** on the 09:00–14:00 primary
+  (interval **[−0.001588, +0.001349]**, power **0.066**) and **+0.000370** all-hours (interval
+  **[−0.000800, +0.001536]**, power 0.145). **The sign changes by slice and every interval
+  includes zero.** The inherited ~6% price is *not reproduced* as a Brier cost. Fixing the trainer
+  to read the PIT file remains correct hygiene; **do not expect it to close the market gap, and do
+  not commission a mission that assumes it will.**
+- **Honest and hybrid came out numerically identical.** A (PIT `forecast_high` only) and C (PIT
+  `forecast_high` + the 20 settled fields) produced the same fit. **The 20 extra settled forecast
+  fields contributed nothing** — which is what §4 predicts if the feature contract drops them.
+  Worth a targeted check, because if true it means the archive's breadth is already worthless to
+  this model and the blindness repair is the only thing that would change that.
 - **Training population is 2021–2025**, decided 2026-08-05. Canonical:
   [forecast-source-and-training-population.md](forecast-source-and-training-population.md).
   This is confirmed by evidence, not only by argument: 2018–2020 contain **zero**
