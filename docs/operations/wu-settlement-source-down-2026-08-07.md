@@ -155,17 +155,24 @@ three dates need an explicit run each. Confirm the fix is on master first
 (`git log --oneline -1 origin/master`), then, **inside the 01:00–04:00 quiet window or at least
 outside 12:00–18:00**, one date at a time, checking each before starting the next:
 
+**Use `scripts\ops\chain_recovery_run.ps1`, not a hand-rolled `daily_refresh` command.** It is the
+purpose-built resume tool and it **refuses to start inside 12:00–18:00** unless `-Force`, because a
+heavy chain in the graded window is the top cause of capture gaps — which cost streak days. A raw
+`daily_refresh run` has no such guard. (I drafted the raw command first; the tool already existed.)
+
 ```powershell
 $repo = 'C:\Users\micha\Desktop\github\weather'
 Set-Location $repo
 foreach ($d in '2026-08-05','2026-08-06','2026-08-07') {
-    .\venv\Scripts\python.exe -m weather.operations.daily_refresh run `
-        --stage settlement `
-        --settled-analysis-target-date $d `
-        --resume-from-step public_wu_settlement_restore
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\chain_recovery_run.ps1 `
+        -ResumeFrom public_wu_settlement_restore `
+        -TargetDate $d
     # STOP if this exits non-zero. Do not queue the next date on top of a failure.
 }
 ```
+
+**Resume from the step that actually FAILED, not from the barrier that reported it** — the barrier
+re-reads the earlier step's persisted BLOCK artifact and just blocks again.
 
 Then confirm the ledger actually advanced — the run exiting 0 is not the same as a settled date:
 
