@@ -25,6 +25,10 @@ The normal daily refresh also writes the same artifacts:
   different review, rebuild-source, and deletion gates.
 - Do not delete `snapshots`, `mm_runs`, `taker_runs`, or canonical historical
   source rows unless a reviewed cleanup manifest names the exact files.
+  **Executed exception:** the 2026-08-07 taker prune deleted 19.2 GB without the
+  manifest workflow, under direct operator authorisation — see
+  [taker-paused-and-pruned-2026-08-07.md](taker-paused-and-pruned-2026-08-07.md)
+  for what replaced it and what was deliberately kept.
 - Run `python -m weather.operations.cleanup_preflight --manifest <cleanup.json>`
   before any cleanup workflow that could delete local data. A canonical
   evidence candidate requires operator review, exact paths, and current

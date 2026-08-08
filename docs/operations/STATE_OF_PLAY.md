@@ -91,10 +91,12 @@ allowlists (**not** auto-discovery — some branches are held deliberately): `We
   hand; `staleness_sweep.ps1` §12 now detects it. **The code defect is unfixed and unowned.**
 - **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% of
   it and found no usable signal. Nothing is aimed at the remaining ~93%.
-- **Disk: ~8 days headroom at ~13.9 GB/day.** The biggest lever (`taker_runs`, 74.7 GB) is
-  operator-approved for deletion **after the lock**. CLOB tiering *is* working — it turns a
-  1.4 GB `order_books_long.csv` into a 62.6 MB `.gz`, and the mirror correctly purges the stale
-  plain copy, so the 35 GB of `/MIR` "Extras" is **not** data loss.
+- **Disk: ~12 days headroom** (130.4 GB free, ~11 GB/day). **The taker is PAUSED — operator
+  decision 2026-08-07, 100% focus on the maker.** Both its tasks are Disabled and its tree went
+  26.67 → 7.51 GB; the quoted **74.7 GB was stale**, it was 26.67 GB when measured. What remains
+  is `CANONICAL_EVIDENCE` and was kept deliberately
+  ([record](taker-paused-and-pruned-2026-08-07.md)). CLOB tiering *is* working — 1.4 GB
+  `order_books_long.csv` → 62.6 MB `.gz` — so the 35 GB of `/MIR` "Extras" is **not** data loss.
   [workstation-disk-and-mirror-scope.md](workstation-disk-and-mirror-scope.md).
 - **4 tests fail on master, unowned** — `test_afternoon_residual_centering`, `test_long_job_guard`
   ×2, `test_tracked_artifact_manifests_match_current_repository_identity`. `pytest -q` is red
