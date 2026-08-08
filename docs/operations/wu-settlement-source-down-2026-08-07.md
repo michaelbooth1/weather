@@ -160,16 +160,43 @@ purpose-built resume tool and it **refuses to start inside 12:00–18:00** unles
 heavy chain in the graded window is the top cause of capture gaps — which cost streak days. A raw
 `daily_refresh run` has no such guard. (I drafted the raw command first; the tool already existed.)
 
+**`-Refetch` IS MANDATORY on 08-05 and 08-06, and omitting it fails SILENTLY.** Both dates were
+stamped `"treated_as_source_unavailable": true` / `failure_class: permanent_no_data` by the 404s
+during the ad-key outage — verified 2026-08-08 in `data/wunderground/cyyz/backfill_errors.jsonl`,
+which holds 13 such rows. `unavailable_dates()` collects those and `missing_dates()` subtracts
+them, so a plain resume finds an **empty range, fetches nothing, and exits 0.**
+`recover_unavailable_errors()` does not undo it either, because `failure_class_for_error_row`
+returns the *stored* class instead of re-deriving it.
+
+**Run one date at a time and verify between them — do not loop.** Each resume re-runs the step and
+everything after it and is a multi-hour, memory-hungry run; queueing three unattended is how you
+turn one failure into three.
+
 ```powershell
 $repo = 'C:\Users\micha\Desktop\github\weather'
 Set-Location $repo
-foreach ($d in '2026-08-05','2026-08-06','2026-08-07') {
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\chain_recovery_run.ps1 `
-        -ResumeFrom public_wu_settlement_restore `
-        -TargetDate $d
-    # STOP if this exits non-zero. Do not queue the next date on top of a failure.
-}
+
+# 08-05 and 08-06: poisoned, -Refetch REQUIRED.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\chain_recovery_run.ps1 `
+    -ResumeFrom public_wu_settlement_restore -TargetDate 2026-08-05 -Refetch
+
+# STOP. Verify the ledger advanced (below) before starting the next date.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\chain_recovery_run.ps1 `
+    -ResumeFrom public_wu_settlement_restore -TargetDate 2026-08-06 -Refetch
+
+# STOP. Verify again.
+
+# 08-07 ALREADY HAS a daily_summary row, so it may need no refetch at all.
+# Check first; add -Refetch only if the restore reports nothing to fetch AND the row is absent
+# or short. Refetching a date that already has good data costs a provider round-trip for nothing.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\chain_recovery_run.ps1 `
+    -ResumeFrom public_wu_settlement_restore -TargetDate 2026-08-07
 ```
+
+**Exit 0 is not evidence of a settled date.** That is the whole trap above. After each run confirm
+the ledger actually grew, and re-run `streak.ps1` — repair rewrites ledger rows, so verify Toronto
+did not regrade.
 
 **Resume from the step that actually FAILED, not from the barrier that reported it** — the barrier
 re-reads the earlier step's persisted BLOCK artifact and just blocks again.
