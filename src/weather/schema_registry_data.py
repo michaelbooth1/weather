@@ -2039,6 +2039,13 @@ REGISTERED_SCHEMAS = (
         "active",
         "Predawn candidate ten-minute performance sidecar.",
     ),
+    SchemaSpec(
+        "mm_countability_postmortem",
+        "mm_countability_postmortem_v1",
+        "weather.reporting.market.mm_countability_postmortem",
+        "active",
+        "Maker countable-day yield post-mortem, refreshed daily into data/alerts.",
+    ),
 ) + RECENT_REGISTERED_SCHEMAS
 
 # A version normally identifies one registry name. This compatibility alias is
