@@ -113,6 +113,57 @@ def test_missing_and_unparseable_files_are_never_silently_dropped(tmp_path):
     assert postmortem.UNPARSEABLE in causes
 
 
+def test_day_level_quarantine_scaffolding_is_not_counted_as_a_run(tmp_path):
+    day = tmp_path / "2026-08-04"
+    _write_run(
+        day,
+        "run_a",
+        counted=False,
+        incidents=[_incident("model_freshness", "stale_model_row", "toronto")],
+    )
+    (day / postmortem.QUARANTINE_DIR_NAME / "retired_run").mkdir(parents=True)
+    (day / ".launch_state").mkdir()
+
+    report = postmortem.build_postmortem(tmp_path)
+
+    assert report["days"][0]["runs"] == 1
+    causes = {row["root_cause"] for row in report["blockers"]}
+    assert postmortem.NO_REMEDIATION not in causes
+
+
+def test_gate_repair_counterfactual_keeps_other_and_missing_blockers(tmp_path):
+    repaired = tmp_path / "2026-08-01"
+    _write_run(
+        repaired,
+        "run_a",
+        counted=False,
+        incidents=[_incident("model_freshness", "stale_model_row", "toronto")],
+    )
+    mixed = tmp_path / "2026-08-02"
+    _write_run(
+        mixed,
+        "run_a",
+        counted=False,
+        incidents=[
+            _incident("model_freshness", "stale_model_row", "toronto"),
+            _incident("release_binding", "wrong_release", "toronto"),
+        ],
+    )
+    missing = tmp_path / "2026-08-03"
+    (missing / "run_missing").mkdir(parents=True)
+
+    report = postmortem.build_gate_repair_counterfactual(
+        tmp_path,
+        repaired_gates=["model_freshness"],
+    )
+
+    assert report["counted_days"] == 1
+    assert report["total_days"] == 3
+    assert report["days"][0]["counted"] is True
+    assert report["days"][1]["counted"] is False
+    assert report["days"][2]["counted"] is False
+
+
 def test_non_day_directories_are_ignored(tmp_path):
     (tmp_path / "_quarantine").mkdir()
     (tmp_path / "daily_roll_status.json").write_text("{}", encoding="utf-8")

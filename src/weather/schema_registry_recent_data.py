@@ -945,4 +945,18 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Fail-closed settled-day join of captured served hard floors to eventual settlement.",
     ),
+    SchemaSpec(
+        "mm_countability_postmortem",
+        "mm_countability_postmortem_v1",
+        "weather.reporting.market.mm_countability_postmortem",
+        "active",
+        "Read-only daily maker countability diagnosis and gate-repair counterfactual.",
+    ),
+    SchemaSpec(
+        "mm_input_age_postmortem",
+        "mm_input_age_postmortem_v1",
+        "weather.reporting.market.mm_input_age_postmortem",
+        "active",
+        "Band-deduplicated maker input-age distributions at active-window decision ticks.",
+    ),
 )
