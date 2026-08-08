@@ -104,9 +104,17 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
 - **Start-race bot orphans are unreapable, and they starve capture.** The supervisor stops only the
   pid in its status file; on 08-07 a duplicate maker caused **430** memory-admission refusals and
   put the streak day **AT_RISK**. `staleness_sweep.ps1` §12 detects it; **the code fix is unowned.**
-- **MM: first countable day in 42 scored 08-08** — gate **PASS**, standing **4 of 55** against a
-  22–43 bar, so the binding constraint is now just **elapsed countable days**. **Live trading was
-  never required** — `live_trade_permission_evidence` is still 0/12 and the gate passes anyway.
+- **THE MM CLOCK IS STOPPED, NOT SLOW — measured 2026-08-08.** `python -m
+  weather.reporting.market.mm_countability_postmortem` over all 55 maker days: **7 counted, 12.7%
+  yield, and the last counted day was `2026-07-12` — 27 days ago.** Six of the seven fall in
+  06-17 → 06-27. **This file previously said "first countable day in 42 scored 08-08, standing 4 of
+  55" and that was wrong** — 08-08 has 0 counted runs. Do not plan against elapsed days; at this
+  yield the 22–43 day bar is never reached. The two leading blockers are **input freshness at maker
+  runtime**, not model quality, promotion, or live-trade permission:
+  `model_freshness`/`stale_model_row` (**52 of 55 days**, 758 occurrences) and
+  `clob_freshness`/`stale_clob_book_tape` (**52 days**, 643). **Live trading was never required** —
+  `live_trade_permission_evidence` is 0/12 and the gate passes anyway. Re-run the post-mortem after
+  any freshness fix; it is the yield meter.
 - **RESOLUTION IS NOW THE WHOLE GAME, AND NOTHING IS AIMED AT IT.** `-09-44a` ruled out inputs;
   §1 retired the centre ceiling; `-09-36a` localised only ~7% of the sharpness deficit and found no
   usable signal. **84.772% of served loss is resolution and we have no line of work on it.** The

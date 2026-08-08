@@ -756,6 +756,49 @@ adds the regression that reducing both `covered_years` and `selected_dates` cann
 
 ---
 
+## 8b. The MM countable-day clock is STOPPED — measured 2026-08-08
+
+The MM gate cannot decide until enough maker days count toward the live-forward gate, so that
+**yield**, not elapsed calendar time, sets the date the gate can rule. Nothing reported it, so it
+was being argued from memory. `python -m weather.reporting.market.mm_countability_postmortem`
+now reports it from the `preflight_remediation.json` every maker run already writes.
+
+| Measure | Value |
+| --- | ---: |
+| Maker days on disk | **55** (`2026-06-15` → `2026-08-08`) |
+| Days that counted | **7** |
+| Yield | **12.7%** |
+| **Last counted day** | **`2026-07-12`** — 27 days before measurement |
+
+Six of the seven counted days fall in `2026-06-17` → `2026-06-27`. **The clock is not slow, it is
+stopped**, and at this yield the 22–43 countable-day bar is never reached. **Do not plan MM against
+elapsed days.** An earlier `STATE_OF_PLAY` line claiming "first countable day in 42 scored 08-08,
+standing 4 of 55" was wrong — 08-08 has 0 counted runs.
+
+| Gate / root cause | Days | Occurrences | First → last seen |
+| --- | ---: | ---: | --- |
+| `model_freshness` / `stale_model_row` | **52** | 758 | 06-15 → 08-07 |
+| `clob_freshness` / `stale_clob_book_tape` | **52** | 643 | 06-15 → 08-07 |
+| `clob_book_useful_write` / `stale_or_missing_clob_book_rows` | 36 | 39 | 06-20 → 08-07 |
+| `no_remediation_file_written` | 27 | 39 | 06-15 → 08-08 |
+| `snapshot_model_useful_write` / `stale_or_missing_snapshot_model_rows` | 26 | 28 | 06-20 → 08-07 |
+
+**Both leading blockers are input freshness at maker runtime** — the model row and the CLOB book
+tape are stale *when the maker runs*. Neither is model quality, promotion, or live-trade permission.
+On the 08-07 sample the model row was ~19 minutes old at run time. This is the same class as the
+"maker ran 90 min after the model went stale" scheduling defect, which was believed fixed and is
+still the **#1** blocker through 08-07.
+
+**Read `first_seen`/`last_seen`, not just the count** — an old `last_seen` is a fixed problem and a
+recent `first_seen` is a regression with a date. `order_lifecycle.jsonl` independently corroborates
+the date: last written `2026-06-27`, zero on all 42 days since, and `fills.jsonl` has **never** been
+written on any of the 55 days.
+
+**Re-run the post-mortem after any freshness fix — it is the yield meter, and yield is the MM
+schedule.**
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
