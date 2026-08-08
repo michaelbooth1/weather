@@ -12,22 +12,29 @@ we do not** · 3. the market-making bot is the end goal.
 
 ## Where the model actually stands
 
-**The blind block is repaired and it lands tonight** (`-09-43a`, §4). Parity **196 → 100 blockers,
-0 unexpected**; 9 of the 10 dead base features are now routed from our own captured station rows.
-Reproduced on this host, not taken on report. **Two caveats decide how you cite it:**
+**THE BLIND-BLOCK REPAIR DID NOT MOVE THE GAP, AND THAT IS NOW MEASURED PRECISELY** (`-09-44a`, §4).
+`-09-43a` routes 9 of the 10 dead base features — parity **196 → 100 blockers, 0 unexpected** — and
+**7,112 of 12,289 served distributions changed.** The in-season gap went **1.423260x → 1.423246x**,
+paired delta **−0.0000140 [−0.0022674, +0.0024795]** on D=50 / M=12 / 524 market-days.
 
-- **It is not powered.** Brier **−0.00816 [−0.02972, +0.00961], power 0.131**. Favourable
-  direction, interval crosses zero. **A defect repair, never a scoring gain.**
-- **`pressure` and `pressure_trend_3h` stay dead in the 11 F markets, correctly.** METAR carries
-  altimeter/sea-level pressure; the trained feature is *station* pressure, materially different at
-  Denver's altitude. Aliasing would pass a presence check and be false. Imputation load falls from
-  8 of 29 trained inputs to **2 of 29 in F markets, 0 of 29 in Toronto** — *going forward*; the
-  retained corpus holds no `rh` and no station pressure and cannot be enriched without synthesis.
+**That interval is tight, not empty.** The reported power `0.050` is plug-in power at an observed
+effect of ~0, so it is the α floor and means nothing; the *interval* is the result. The gap sits
+0.4233 above parity, so **the repair moved it by at most ~0.6% of the distance to parity.** This is
+the project's first **precise** null — every earlier "not powered" was a wide interval that licensed
+nothing.
 
-**The cool bias is seasonal coverage, not the weather** (`-09-31a`, §2): the archive holds
-**May 10 – Jun 30 only, every year**, so in August every date we serve is out-of-season. **But the
-gap does not vanish in-season** (`-09-34a`, §4e): served in-season **1.4233x, excluding 1.0** —
-nearly unbiased, still losing, on a **resolution** deficit. That contrast is **not powered**.
+**So input completeness was a correctness problem, not a skill problem. Do not sequence work as
+though finishing the input population will close the gap.** Remaining input work (`wind_group`,
+F-market pressure, `humidity` going forward) is still owed, but never costed as gap closure.
+`pressure` stays dead in the 11 F markets **correctly** — METAR carries altimeter/sea-level, the
+trained feature is *station* pressure; aliasing would pass a presence check and be false.
+
+**Four legacy headlines are retired from citation** (§1): `98.88%/1.12%` → **84.772% / 15.228%**,
+`−0.6641 C-eq` → **−0.64387**, `4.26%/60.2%` → **4.387% / 64.140%**, and **`74.97%` is unciteable
+with no replacement** — so the retrain's centre argument is now §2's −0.8346 C-eq alone, which is
+smaller than the programme assumed. **The reliability share went 1.12% → 15.228% on panel change,
+not on the repair; whether any of it is recoverable is NOT established — check the denominator
+before anyone fits a recalibration.**
 
 ```
 archive window  ->  PIT corpus   ->  parity  ->  first retrain      ->  release #1
@@ -56,8 +63,9 @@ and power live in §2 / §4 / §4d / §4e — **cite them from there, never from
 
 ## Do not redo these — they are answered
 
-- **The free-source blindness repair is NO-GO** (`-09-26a`) — that measured filling from *external*
-  sources at 8.90% coverage. It never applied to routing **captured** data, which `-09-43a` just did.
+- **Do not re-open "will completing the inputs close the gap?"** — `-09-44a` answered it: **no**,
+  with a tight interval. Also **the free-source blindness repair is NO-GO** (`-09-26a`) — that
+  measured filling from *external* sources at 8.90% coverage, never captured-data routing.
 - **Contamination is not the lever** (§6): every interval includes zero, and honest ≡ hybrid
   numerically — the 20 extra settled fields contributed nothing.
 - **Release #1 is not sufficient for promotion**; whether it is *necessary* is unestablished (§9).
@@ -70,7 +78,7 @@ and power live in §2 / §4 / §4d / §4e — **cite them from there, never from
 | `-09-43a` | **blind-feature repair — lands 6 missions in one merge** | verified on this host; **QUEUED 01:20**. Contains `-09-33a`/`-38a`/`-39a`/`-41a`/`-42a`; do **not** queue those separately |
 | `tolerate-benign-capture-race` | **restarts the dead chain** | verified on this host; **QUEUED 01:20** |
 | `register-two-schema-literals` | last red test on master | based on `-09-43a`; **QUEUED 01:20, must merge after it** |
-| `-09-44a` | **re-measure the gap on the repaired model** | written, **next to dispatch — top model item** |
+| `-09-44a` | **RETURNED — the gap did not move** | report-only, 278 lines, **QUEUED 01:20 after `-09-43a`**. Roll-sensitive *only* by inherited base; roll-free once `-09-43a` lands |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 
 Merges run daily off allowlists (**not** auto-discovery — some branches are held deliberately):
@@ -86,36 +94,32 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
   and only 1 is. Narrowing **records** the repair, it does not weaken it. (2) `pressure` and
   `pressure_trend_3h` should be **dropped from training in the F markets** per §5's
   unknowable-at-serve rule. Neither is started.
-- **THE CHAIN HAS BEEN DEAD AT STEP 4 SINCE 08-04 — fix queued for tonight.** Not "settlement is
-  behind": the chain runs 4 of its steps and stops, so **settlement, maker paper scoring, every
-  `mm_*` gate (all null in the report) and variant learning (SKIPPED) never run at all.**
-  `public_wu_settlement_restore` does real work (699 s, 40 processes, 15.9 GB read) then fails
-  `containment_setup_failed` on **one transient `OSError [Errno 31]` in 1 of 3,402 capture
-  calls** — a process exiting between handle-open and job-membership query. 18 of 19 lifetime
-  checks PASS. Fixed by `tolerate-benign-capture-race`, queued 01:20.
-  **After it lands, 08-05 → 08-07 still need an explicit settlement backfill — each run settles
-  only yesterday.** Streak **15/14 banked and safe**.
-  [detail](wu-settlement-source-down-2026-08-07.md).
+- **THE CHAIN HAS BEEN DEAD AT STEP 4 SINCE 08-04 — fix queued 01:20.** Not "settlement is behind":
+  it runs 4 of ~45 steps and stops, so **settlement, maker paper scoring, every `mm_*` gate (all
+  null) and variant learning (SKIPPED) never run at all.** One transient `OSError [Errno 31]` in
+  1 of 3,402 capture calls fails `containment_setup_failed`; 18 of 19 lifetime checks PASS.
+  **A null there is ABSENT evidence, not weak evidence.** After the fix lands, **08-05 → 08-07 need
+  an explicit backfill via `chain_recovery_run.ps1` — each run settles only yesterday.** Streak
+  **15/14 banked and safe**. [detail](wu-settlement-source-down-2026-08-07.md).
 - **Start-race bot orphans are unreapable, and they starve capture.** The supervisor stops only the
   pid in its status file; on 08-07 a duplicate maker caused **430** memory-admission refusals and
   put the streak day **AT_RISK**. `staleness_sweep.ps1` §12 detects it; **the code fix is unowned.**
 - **MM: first countable day in 42 scored 08-08** — gate **PASS**, standing **4 of 55** against a
   22–43 bar, so the binding constraint is now just **elapsed countable days**. **Live trading was
   never required** — `live_trade_permission_evidence` is still 0/12 and the gate passes anyway.
-- **Resolution / sharpness** — still the larger half of the gap; `-09-36a` localised only ~7% and
-  found no usable signal. Nothing is aimed at the remaining ~93%.
+- **RESOLUTION IS NOW THE WHOLE GAME, AND NOTHING IS AIMED AT IT.** `-09-44a` ruled out inputs;
+  §1 retired the centre ceiling; `-09-36a` localised only ~7% of the sharpness deficit and found no
+  usable signal. **84.772% of served loss is resolution and we have no line of work on it.** The
+  one cheap, unclaimed lead is the **15.228% reliability share** — an order of magnitude above the
+  retired `1.12%` — which needs its **denominator established before**, not after, someone fits a
+  recalibration pass.
 - **Disk: ~12 days headroom** (137.8 GB free). The **taker is PAUSED** (operator, 2026-08-07);
   what remains is `CANONICAL_EVIDENCE` ([record](taker-paused-and-pruned-2026-08-07.md)).
-- **`pytest -q` on master is GREEN as of 2026-08-08** — **3,349 passed, 829 subtests, 0 failed**
-  once tonight's schema-literal branch lands. This file previously named four failures and **two
-  of them do not fail at all** (`test_afternoon_residual_centering`,
-  `test_tracked_artifact_manifests_match_current_repository_identity` — the latter only trips on
-  *untracked* files, so it fails mid-edit and passes once staged). Two real ones were never
-  listed. All four now fixed: the two `test_long_job_guard` failures were **the product working**
-  — 64 MiB doubles as the Job private-commit cap and cannot start CPython 3.11, so the child died
-  `STATUS_QUOTA_EXCEEDED`; raised to the 256 MiB every other call site in that file uses. The
-  paid-provider ratchet was red because two settlement docs quoted the provider host literally.
-  **If something is red, it is yours — do not assume a known-red baseline.**
+- **`pytest -q` on master is GREEN** — **3,349 passed, 829 subtests, 0 failed** once tonight's
+  schema-literal branch lands. **If something is red, it is yours — there is no known-red baseline
+  to hide behind.** (The four failures this file used to list are fixed and two never failed;
+  `test_tracked_artifact_manifests_match_current_repository_identity` only trips on *untracked*
+  files, so it is red mid-edit and green once staged.)
 
 ## Daily reads
 

@@ -40,19 +40,51 @@ survives the method rules in §5.
 
 | Finding | Value |
 | --- | --- |
-| Gap on the clean regime | **1.24x**, not the 1.7x figure from contaminated windows |
-| Nature of the gap | **Pure sharpness.** Not calibration |
-| Skill decomposition | **98.88% resolution / 1.12% reliability** |
-| Consequence | **Recalibration cannot close it.** The gap is an *information* problem |
+| **Current in-season gap** | **1.423246x [1.242584, 1.659022]** — served, excluding 1.0 (`-09-44a`) |
+| Gap on the clean regime | **1.24x** — a *different, older panel*. Do not equate it with the above |
+| Nature of the gap | **Resolution, not calibration** |
+| Skill decomposition | **84.772% resolution / 15.228% reliability** (`-09-44a`, current surface) |
+| Consequence | The gap is an *information* problem. **But see the reliability caveat below** |
 | Blending model with market | **Hurts** on clean data |
 
-**Centre, not width, is the lever.** Oracle ceiling analysis: correcting the distribution *centre*
-retires **74.97%** of excess loss; correcting *width* retires **10.94%**.
 **Never globally sharpen** — it is the wrong axis and it degrades calibration for nothing.
 
-**Loss is concentrated in a severity tail.** **4.26% of rows carry 60.2% of total loss.** On those
-rows the market's modal band wins roughly **98%** of the time against our roughly **24%**. Any work
-that improves the pooled average while leaving the tail alone is close to worthless.
+### FOUR legacy headline numbers are retired from citation — 2026-08-09 (`-09-44a`)
+
+`-09-43a` changed the serving input surface, so every headline measured before it describes a model
+that no longer exists. `-09-44a` re-measured on the sealed pre-boundary replay corpus (D=50, M=12,
+524 promotion-countable market-days, 12,289 snapshots — the same population as §2 and §4e).
+**Do not cite the left column as a property of the model we serve:**
+
+| Legacy number | Status | Current surface |
+| --- | --- | --- |
+| **98.88% / 1.12%** resolution / reliability | superseded | **84.772% / 15.228%** |
+| **−0.6641 C-eq** cool bias | superseded | **−0.64387 C-eq** (§2) |
+| **4.26% / 60.2%** severity tail | superseded | **4.387% / 64.140%** — concentration is *higher* |
+| **74.97%** centre oracle ceiling | **unciteable, and NO replacement exists** | none authorised |
+
+The differences are **panel**, not repair: the repair moved none of them detectably. The legacy
+values remain valid records of what they measured; they are simply not measurements of today's model.
+
+**`74.97%` is the one that leaves a hole.** It came from a *post*-boundary 19,265-snapshot
+outcome-aware oracle panel that cannot be pooled with this wholly pre-boundary corpus, and its
+estimator is not a retained CLI that can be rebound. `-09-44a` correctly refused to invent a
+replacement. So **"centre is 74.97% of oracle excess loss" is no longer available as a
+justification for anything** — the retrain still has one (§2's measured −0.8346 C-eq seasonal
+centre defect), but it is a *different and smaller* argument. The mechanism is untouched: too-cool
+mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
+
+**The reliability share is the number to look at.** `1.12%` said calibration was worth nothing.
+The current-surface figure is **15.228%** — over an order of magnitude larger. **Whether any of it
+is recoverable is NOT established**, and nobody should fit a recalibration pass until it is: the
+two figures may not share a denominator, and this project has already paid once for reasoning
+across mismatched denominators (`RETRACTED_AND_FALSE_LEADS`, the absorption waterfall). The repair
+did not cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
+**Establish the denominator first. Then decide.**
+
+**Loss is still concentrated in a severity tail.** **4.387% of band rows carry 64.140% of positive
+excess loss.** Any work that improves the pooled average while leaving the tail alone is close to
+worthless.
 
 ---
 
@@ -64,6 +96,13 @@ that improves the pooled average while leaving the tail alone is close to worthl
 | Crossed 95% interval | **[−1.1164, −0.2482]** |
 | Support | D=34 date clusters, M=12 markets, 399 market-days |
 | Survives crossed clustering | **Yes** — one of only two headline results that do |
+
+**Current-surface value, 2026-08-09 (`-09-44a`): −0.64387 C-eq.** On the D=50 corpus the pooled
+frozen-base centre error moved from **−0.70449 → −0.64387** after the input repair, a paired shift
+of **+0.06061 [+0.00356, +0.12855], power 0.484**. The interval excludes zero but power is below
+the binding 80% bar, so **this is not promoted to a directional finding**. At face value the repair
+recovered ~9% of the bias. **The cool bias survives the repair essentially intact, so the retrain
+is still needed.** Cite −0.64387 for the current surface and −0.6641 only as the older panel's record.
 
 **Do not implement a serving-side offset.** Market heterogeneity forbids it: the bias is not uniform
 across markets, so a global correction helps some and harms others.
@@ -208,6 +247,44 @@ positive controls 840/840 exact. Brier **−0.00816 [−0.02972, +0.00961], powe
 **+0.0335 [−0.0094, +0.0803]**, power 0.316; width **+0.0176**, power 0.335. Every interval crosses
 zero. **Favourable direction, not powered — cite this as a defect repair, never as a scoring gain.**
 The warm centre shift is only ~5% of the −0.6641 C-eq cool bias, so it does not touch §2.
+
+### AND IT DID NOT MOVE THE GAP — measured 2026-08-09 (`-09-44a`), and this one IS precise
+
+`-09-43a` was measured on 5 date clusters at power 0.131 and could conclude nothing. `-09-44a`
+re-ran it on the sealed replay corpus — **D=50, M=12, 524 promotion-countable market-days, 12,289
+snapshots, 135,179 band rows** — paired on identical rows and cutoffs.
+
+| Stratum | Pre-repair | Repaired | Paired delta [crossed 95%] | 80%-power MDE |
+| --- | ---: | ---: | ---: | ---: |
+| **In-season ratio** | 1.423260x | **1.423246x** | **−0.0000140 [−0.0022674, +0.0024795]** | 0.003055 |
+| In-season Brier | 0.053380315 | 0.053379789 | −0.000000526 [−0.00008317, +0.00009121] | 0.0001113 |
+| Out-of-season ratio | 1.526099x | 1.542244x | +0.016145 [−0.009580, +0.043096] | 0.03773 |
+
+**7,112 of 12,289 served distributions changed and the gap did not move.**
+
+**Read the power figure correctly — this is the first PRECISE null in the project, not another
+underpowered one.** The reported power `0.050` is plug-in power *at the observed effect*, and the
+observed effect is ~0, so 0.050 is the α floor and is tautological. **The informative statistic is
+the interval**, and pairing on identical rows collapsed it: the gap sits 0.4233 above parity, and
+the delta interval is ±0.0025, so **the repair moved the gap by at most ~0.6% of the distance to
+parity, in either direction.** Every previous "not powered" verdict in this project was a *wide*
+interval that licensed nothing. This one is a tight interval around zero, and it licenses a
+conclusion. The out-of-season point is unfavourable but its interval crosses zero — **not evidence
+of serving harm, and not a reason to revisit the merge.**
+
+**What this establishes:** restoring ~28% of the model's trained inputs — the single largest known
+defect — bought **no measurable accuracy**. Input completeness was a **correctness** problem, not a
+**skill** problem. **Stop sequencing the programme as though finishing the input population will
+close the gap.** It will not. The remaining input work (`wind_group`, F-market pressure, `humidity`
+going forward) is still owed as correctness, but must not be costed as a gap-closing measure.
+
+**One caveat on the control.** The literal captured `snapshots_long.csv:model_probability` lane
+could **not** serve as the positive control here: 267 of 12,289 partitions are partial and fail
+probability mass, and dropping them would have changed the sealed population. The control used is
+the predecessor's mass-valid replay-final incumbent distribution, re-run rather than read, PASS,
+population rebound exactly. That is the right control for a *paired* delta — same machinery, one
+code overlay — but it does not independently re-prove that the pre-repair replay reproduces
+production output. `-09-43a`'s 840/840 exact-vs-recorded control does that, on the smaller panel.
 
 **The parity gate stays BLOCK and cannot reach exit 0 until the fixture is narrowed.**
 `nine_empty_base_features_09_to_14` still requires 9 fields to be found dead and only `wind_group`
@@ -423,9 +500,11 @@ of no effect.
 clean-regime **1.24x**. Do not equate them.
 
 **What this changes.** Bias and sharpness are separate problems and we have a fix for one.
-The retrain addresses a measured **−0.8346 C-eq** seasonal centre defect and centre is 74.97% of
-oracle excess loss, so it remains worth doing — but **stop sequencing the programme as though the
-retrain is the whole answer.** A parallel line of work on resolution is required, and §1 already
+The retrain addresses a measured **−0.8346 C-eq** seasonal centre defect, so it remains worth doing
+— but **do not restate the old "and centre is 74.97% of oracle excess loss" clause**, which §1
+retired on 2026-08-09 with no replacement. The retrain's justification is now the measured seasonal
+centre defect alone, which is a smaller argument than the programme has been assuming.
+**Stop sequencing the programme as though the retrain is the whole answer.** A parallel line of work on resolution is required, and §1 already
 says recalibration cannot supply it.
 
 ---
