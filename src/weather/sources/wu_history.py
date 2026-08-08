@@ -10,7 +10,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import quote, urlparse
 from weather.paths import data_path
 from weather.io import write_json_atomic
 
@@ -95,9 +95,7 @@ PAID_PROVIDER_BACKFILL_DISABLED_REASON = (
 PUBLIC_WU_HISTORY_SOURCE = "public Weather Underground page-backed historical observations"
 PUBLIC_WU_PAGE_BASE = "https://www.wunderground.com"
 PUBLIC_WU_ACCESS_PARAM = "apiKey"
-PUBLIC_WU_ACCESS_URL_RE = re.compile(
-    r"https?://[^\"'\\<>\s]+?" + re.escape(PUBLIC_WU_ACCESS_PARAM) + r"=[^\"'\\<>\s]+"
-)
+PUBLIC_WU_RUNTIME_DATA_RE = re.compile(r"\bconst\s+data\s*=\s*")
 CYYZ_HISTORY_ID = "CYYZ:9:CA"
 STATION_ICAO = "CYYZ"
 STATION_NAME = "Toronto Pearson Intl Airport"
@@ -110,7 +108,14 @@ PERMANENT_NO_DATA = "permanent_no_data"
 AUTH_FAILURE = "auth_failure"
 RATE_LIMITED = "rate_limited"
 TRANSIENT_FAILURE = "transient"
+# A 404 means two different things depending on which WU surface produced it.
+# The historical paid API treats it as a durable no-data answer. The public,
+# page-backed surface can emit it during an edge outage, so it must remain
+# retryable and must not poison unavailable_dates(). A 400 stays permanent on
+# both surfaces because it represents a malformed request.
 PERMANENT_NO_DATA_STATUS_CODES = {400, 404}
+PAGE_BACKED_PERMANENT_NO_DATA_STATUS_CODES = {400}
+PAGE_BACKED_EXCEPTION_ATTR = "wu_page_backed"
 AUTH_FAILURE_STATUS_CODES = {401, 403}
 TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
 
@@ -118,7 +123,19 @@ TRANSIENT_STATUS_CODES = {408, 500, 502, 503, 504}
 def redact_api_key(value):
     if value is None:
         return None
-    return re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value))
+    text = re.sub(r"(apiKey=)[^&\s)]+", r"\1<redacted>", str(value), flags=re.IGNORECASE)
+    text = re.sub(
+        r'("API_KEY"\s*:\s*")[^"]*',
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"('API_KEY'\s*:\s*')[^']*",
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def normalize_wu_source_label(value):
@@ -129,10 +146,18 @@ def normalize_wu_source_label(value):
     return text
 
 
-def failure_class_for_exception(exc):
+def permanent_no_data_status_codes(page_backed=False):
+    if page_backed:
+        return PAGE_BACKED_PERMANENT_NO_DATA_STATUS_CODES
+    return PERMANENT_NO_DATA_STATUS_CODES
+
+
+def failure_class_for_exception(exc, page_backed=None):
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
-    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+    if page_backed is None:
+        page_backed = bool(getattr(exc, PAGE_BACKED_EXCEPTION_ATTR, False))
+    if status_code in permanent_no_data_status_codes(page_backed):
         return PERMANENT_NO_DATA
     if status_code in AUTH_FAILURE_STATUS_CODES:
         return AUTH_FAILURE
@@ -150,14 +175,17 @@ def failure_class_for_exception(exc):
 
 
 def failure_class_for_error_row(row):
-    failure_class = row.get("failure_class")
-    if failure_class:
-        return failure_class
+    # Re-derive rows with a status code so recover_unavailable_errors() can
+    # release page-backed 404s written under the former permanent boundary.
+    row = row or {}
+    page_backed = row.get("source") == PUBLIC_WU_HISTORY_SOURCE
     try:
         status_code = int(row.get("status_code"))
     except (TypeError, ValueError):
         status_code = None
-    if status_code in PERMANENT_NO_DATA_STATUS_CODES:
+    if status_code is None:
+        return row.get("failure_class") or TRANSIENT_FAILURE
+    if status_code in permanent_no_data_status_codes(page_backed):
         return PERMANENT_NO_DATA
     if status_code in AUTH_FAILURE_STATUS_CODES:
         return AUTH_FAILURE
@@ -244,13 +272,31 @@ class PublicWundergroundHistoryClient:
         return headers
 
     def public_access_from_page(self, page_text):
-        for match in PUBLIC_WU_ACCESS_URL_RE.finditer(page_text or ""):
-            candidate = html.unescape(match.group(0)).replace("\\/", "/").replace("\\u0026", "&")
-            parsed = urlparse(candidate)
-            token = parse_qs(parsed.query).get(PUBLIC_WU_ACCESS_PARAM, [None])[0]
-            if parsed.scheme and parsed.netloc and token:
-                return f"{parsed.scheme}://{parsed.netloc}", token
-        raise RuntimeError("Public WU page did not expose a page-backed history access route")
+        page_text = html.unescape(page_text or "").replace("\\/", "/")
+        decoder = json.JSONDecoder()
+        for match in PUBLIC_WU_RUNTIME_DATA_RE.finditer(page_text):
+            try:
+                runtime_data, _end = decoder.raw_decode(page_text, match.end())
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(runtime_data, dict):
+                continue
+            api_root = runtime_data.get("API_URL")
+            token = runtime_data.get("API_KEY")
+            if not isinstance(api_root, str) or not isinstance(token, str) or not token:
+                continue
+            parsed = urlparse(api_root)
+            if parsed.scheme in {"http", "https"} and parsed.netloc:
+                return api_root.rstrip("/"), token
+        raise RuntimeError("Public WU page did not expose its runtime history access configuration")
+
+    @staticmethod
+    def _raise_for_status(response):
+        try:
+            response.raise_for_status()
+        except Exception as exc:
+            setattr(exc, PAGE_BACKED_EXCEPTION_ATTR, True)
+            raise
 
     def fetch_range(self, start_date, end_date, units=None):
         page_url = self.history_page_url(start_date)
@@ -259,7 +305,7 @@ class PublicWundergroundHistoryClient:
             headers=self._headers(),
             timeout=self.timeout,
         )
-        page_response.raise_for_status()
+        self._raise_for_status(page_response)
         api_root, page_access_token = self.public_access_from_page(page_response.text)
         endpoint = (
             f"{api_root}/v1/location/"
@@ -276,7 +322,7 @@ class PublicWundergroundHistoryClient:
             headers=self._headers(referer=page_url),
             timeout=self.timeout,
         )
-        response.raise_for_status()
+        self._raise_for_status(response)
         payload = response.json()
         payload["_wu_collector_provenance"] = {
             "source": PUBLIC_WU_HISTORY_SOURCE,
