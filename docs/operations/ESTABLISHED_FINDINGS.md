@@ -417,8 +417,21 @@ All 21 required fields probed with the `_previous_day1` suffix, Toronto 2021:
 | HTTP 400 with the suffix | 3 | `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` |
 
 **1 of 21.** A point-in-time corpus on the free tier can carry `temperature_2m` and nothing else.
-**"Build the corpus from the fields that do carry `_previous_dayN`" collapses to a single feature
-and is not a model.** Do not commission that mission; the number is the answer.
+
+**CONFIRMED AT BREADTH 2026-08-07 (`-09-41a`)** — the number above came from a single-lead,
+single-market probe, so it was a belief. Re-probed across **21 fields × 7 leads × 3 markets =
+441 cells**:
+
+| Result | Cells |
+| --- | ---: |
+| **Complete** | **21** — `temperature_2m`, all 7 leads, all 3 markets |
+| HTTP 200, all null | 357 |
+| HTTP 400 | 63 — `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` |
+
+The two-host premise also held independently in each market, with all 48 paired non-null hours
+differing between the settled and PIT series. **So the honest corpus is genuinely single-variable**
+— which is why `-09-41a` built the **hybrid** (PIT `forecast_high` + settled for the rest) rather
+than accepting a one-feature model.
 
 **There are TWO hosts and only one of them is the PIT surface.** This caught both `-09-38a` and an
 earlier draft of this section, so it is written out:
@@ -477,7 +490,36 @@ platform.
 That reframes the work: **collect the temperature PIT rows for the new window** (proven mechanism,
 same code path that produced the 2,135 existing rows) **and point the trainer at the PIT file**.
 Do not commission "characterise the endpoint" again — it is characterised to the field level, on
-both hosts.
+both hosts. **`-09-41a` did both: 12,180/12,180 rows collected, and honest/rich/hybrid are now
+selectable.**
+
+### 4g. The retrain blocks on 14 cells, and the floor of 18 is not a knob
+
+`-09-41a` reached **12,586 / 12,600** cells. The missing 14 are Denver **2025-07-28**, which has
+**17** WU hourly rows against a floor of **18**.
+
+**The gap is unfillable — verified on production 2026-08-07.** WU, METAR **and** NOAA GHCN-hourly
+each return the *identical* 17 timestamps: hourly `00:58 → 14:58`, then `18:58`, then `23:58`.
+Three independent archives agreeing exactly means KBKF (Buckley SFB) did not report those hours;
+`backfill_errors.jsonl` has no entry, so the fetch succeeded. **Do not commission a re-fetch.**
+
+**It is rare and it is one station.** Across all **1,740** market-days in July 17 – Aug 14,
+2021–2025 × 12 markets, exactly **two** fail the floor — `kbkf 2022-07-20` (n=**1**) and
+`kbkf 2025-07-28` (n=**17**).
+
+**Excluding it is correct, not a workaround.** 2025-07-28's recorded max is **37.2 °C at 14:00, the
+hottest value in Denver's month**, in a spell where 07-26 and 07-27 both peaked at 15:00 — and
+**9 of 31 Denver July days peak inside the 15:00–17:00 window this day is missing.** The label is
+very likely biased low, so a row-count floor understates how bad this day is.
+
+**Never lower the 18.** `COMPLETE_DAY_MIN_ROWS` (`backtesting/settlement_io.py:32`,
+`settlement_ledger.py:34`) is not a retrain threshold. `settlement_ledger.py:489` uses it to decide
+whether **the WU daily summary is trusted as the label source at all** (below it, settlement falls
+back to `snapshot wu_history_high`), and `settled_day_freshness.py:217` uses it for **day
+completeness, which feeds the streak**. Lowering it to clear a retrain would change how days settle
+fleet-wide and what counts as a complete day for objective #1. The fix is a **code-owned exclusion
+list** naming those station-days, with the expected cell count derivable **without a candidate
+loaded** — that test is what separates it from the §8 self-sizing defect.
 
 ---
 

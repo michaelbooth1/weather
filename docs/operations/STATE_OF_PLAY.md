@@ -23,15 +23,21 @@ first retrain blocks at **0 / 12,600 cells**.
 **So bias and sharpness are separate problems and we have a fix for one** — the critical path:
 
 ```
-archive window  ->  PIT corpus  ->  first retrain  ->  release #1
-  DONE 1740/1740     BLOCK §4f      parity: 220        (DEFERRED)
+archive window  ->  PIT corpus   ->  parity  ->  first retrain      ->  release #1
+  DONE 1740/1740    DONE 12180/12180  0 unexp.   BLOCK 12586/12600      (DEFERRED)
 ```
 
-**The corpus block is a FEATURE-SET decision, not a collection one** (§4f): the PIT host serves
-`_previous_dayN` for **1 of 21** fields, and **only one of the two hosts is the PIT surface**
-(**"`previous_runs=` is a leakage trap" is RETRACTED** — host-specific, not general). What is on
-disk is **`forecast_high` alone, May 10 – Jun 30** — the *stale* window, so it cannot train the
-season we serve.
+**The PIT surface is real but narrow, and that is now measured at breadth** (`-09-41a`): of **441**
+cells — 21 fields × 7 leads × 3 markets — only **21** are complete, `temperature_2m` at every lead
+in every market. **Only one of the two hosts is the PIT surface**; **"`previous_runs=` is a leakage
+trap" is RETRACTED** (host-specific, not general).
+
+**The retrain now blocks on 14 cells, not on the corpus.** Denver **2025-07-28** has 17 WU hourly
+rows against a floor of 18. **The gap is unfillable — WU, METAR and NOAA GHCN-hourly return the
+identical 17 timestamps**, so the station did not report. Only **2 market-days in 1,740** fail, both
+Denver. **The floor of 18 is NOT a knob**: `COMPLETE_DAY_MIN_ROWS` also decides whether settlement
+trusts the WU daily summary and feeds day-completeness for the streak. The fix is a code-owned
+exclusion list (`-09-42a`), never a lower floor.
 
 That fixes the **centre** (74.97% of oracle excess loss); **nothing is aimed at resolution**, which
 §1 says recalibration cannot supply. So the retrain is **necessary, not sufficient**: promise no gap
@@ -60,9 +66,9 @@ from there, never from here.**
 | Ref | What | State |
 | --- | --- | --- |
 | `-09-37a` | **restore the settlement source** | **RETURNED, verified** — merges 01:20, roll-sensitive |
-| `-09-38a` | first retrained candidate | **RETURNED: archive PASS 1,740/1,740, corpus BLOCK** (§4f) |
 | `-09-39a` | close the train/serve parity gap | **RETURNED, verified: 24 unexpected → 0** |
-| `-09-40a` | honest vs rich corpus | **RETURNED: correct P0 stop** — my inventory claim was wrong (leads **1–7**, **364**/yr, **+315 in 2026**). Re-dispatched as **`-09-41a`** |
+| `-09-41a` | honest vs rich corpus (supersedes `-38a`/`-40a`) | **RETURNED: NO CANDIDATE.** P0–P2 PASS — PIT **21/441**, **12,180/12,180** rows, honest/rich/hybrid selector built. **P3 correctly stopped at 12,586/12,600** |
+| `-09-42a` | **exclude 2 Denver station-days, then fit** | written, **next to dispatch** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 | `-09-33a` | season window (**contained by `-09-39a`** — merging that lands everything) | awaiting merge (**roll-sensitive**) |
 | `-09-28a` | model input-surface gate | awaiting merge (roll-sensitive, additive) |
