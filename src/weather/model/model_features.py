@@ -105,6 +105,50 @@ class FeatureModelMixin:
         except (TypeError, ValueError):
             return default
 
+    def feature_serving_prior(self, cutoff_hour):
+        """Return a candidate-declared aligned prior and contiguous support.
+
+        Legacy artifacts declare neither field and retain the existing dynamic
+        climatology path.  A candidate that declares only one field, holes in
+        support, missing/zero prior mass, or off-support keys is invalid and
+        fails serving rather than silently truncating to ``model.classes_``.
+        """
+
+        key = str(cutoff_hour)
+        kind = getattr(self, "active_model_kind", "empirical")
+        if kind == "hgb":
+            cfg = (self.load_feature_model_hgb() or {}).get(key) or {}
+        elif kind == "lr":
+            cfg = (self.load_feature_model_coefs() or {}).get(key) or {}
+        else:
+            return None
+        declared_prior = cfg.get("target_date_aligned_prior")
+        declared_support = cfg.get("serving_support")
+        if declared_prior is None and declared_support is None:
+            return None
+        if not isinstance(declared_prior, dict) or not isinstance(
+            declared_support, list
+        ):
+            raise ValueError("candidate feature prior/support contract is incomplete")
+        try:
+            support = [int(value) for value in declared_support]
+            prior = {int(bucket): float(value) for bucket, value in declared_prior.items()}
+        except (TypeError, ValueError) as exc:
+            raise ValueError("candidate feature prior/support is not numeric") from exc
+        if (
+            not support
+            or support != list(range(min(support), max(support) + 1))
+            or set(prior) != set(support)
+            or any(value <= 0.0 for value in prior.values())
+        ):
+            raise ValueError(
+                "candidate feature prior/support is not contiguous with positive mass"
+            )
+        total = sum(prior.values())
+        if total <= 0.0:
+            raise ValueError("candidate feature prior has no probability mass")
+        return {bucket: value / total for bucket, value in sorted(prior.items())}
+
     def feature_ordinal_smoothing_config(self, cutoff_hour):
         """Artifact-driven ordinal smoothing config for feature-model serving.
 
@@ -770,6 +814,28 @@ class FeatureModelMixin:
         latest_wu_history_row, latest_wu_history_minute = self.latest_source_row(rows)
         feature_rows = self.source_rows_until_cutoff(rows, cutoff_hour)
         feature_latest = feature_rows[-1] if feature_rows else None
+        station_rows = self.source_rows_until_cutoff(
+            station.get("rows") or [],
+            cutoff_hour,
+        )
+        station_latest = station_rows[-1] if station_rows else None
+        station_surfaces = [station_rows] if station_rows else []
+        primary_station_source = station.get("station_observation_source") or station.get("source")
+        for source in self.station_observation_source_order():
+            if source == primary_station_source:
+                continue
+            source_data = self.source_data(sources, source)
+            alternate_rows = self.source_rows_until_cutoff(
+                self.station_feature_rows(source, source_data),
+                cutoff_hour,
+            )
+            if alternate_rows:
+                station_surfaces.append(alternate_rows)
+        local_current_temp = (
+            self.row_temp_native(feature_latest)
+            if feature_latest is not None
+            else self.row_temp_native(station_latest)
+        )
         observed_high_context = self.effective_observed_high_context(
             history,
             current,
@@ -799,30 +865,46 @@ class FeatureModelMixin:
         if high_so_far is None and strict:
             return None
 
+        # Local-meteorology fields are trained from the WU history surface.  If
+        # that surface is empty, use the separately captured station surface
+        # without splicing it into WU or weakening the observed-high contract.
+        # Every fallback below is cutoff-aligned and retains provider
+        # missingness.
+
         # rise_from_7am
-        obs_7am_candidates = [r for r in rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and self.row_temp_native(r) is not None]
+        obs_7am_candidates = [r for r in feature_rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and self.row_temp_native(r) is not None]
         temp_7am = None
         if obs_7am_candidates:
             closest_7am = min(obs_7am_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - 420))
             temp_7am = self.row_temp_native(closest_7am)
+        if temp_7am is None:
+            station_7am_candidates = [r for r in station_rows if r.get("time") and 360 <= self.minute_of_day(r["time"]) <= 480 and self.row_temp_native(r) is not None]
+            if station_7am_candidates:
+                closest_7am = min(station_7am_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - 420))
+                temp_7am = self.row_temp_native(closest_7am)
         if temp_7am is None and strict:
             return None
         rise_from_7am = (
-            current_temp - temp_7am
-            if current_temp is not None and temp_7am is not None
+            local_current_temp - temp_7am
+            if local_current_temp is not None and temp_7am is not None
             else None
         )
 
         # warming_rate_2h
         cutoff_minutes = cutoff_hour * 60
-        obs_2h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and self.row_temp_native(r) is not None]
+        obs_2h_candidates = [r for r in feature_rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and self.row_temp_native(r) is not None]
         temp_2h_ago = None
         if obs_2h_candidates:
             closest_2h = min(obs_2h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 120)))
             temp_2h_ago = self.row_temp_native(closest_2h)
+        if temp_2h_ago is None:
+            station_2h_candidates = [r for r in station_rows if r.get("time") and (cutoff_minutes - 180) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 60) and self.row_temp_native(r) is not None]
+            if station_2h_candidates:
+                closest_2h = min(station_2h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 120)))
+                temp_2h_ago = self.row_temp_native(closest_2h)
         warming_rate_2h = (
-            current_temp - temp_2h_ago
-            if current_temp is not None and temp_2h_ago is not None
+            local_current_temp - temp_2h_ago
+            if local_current_temp is not None and temp_2h_ago is not None
             else None
         )
 
@@ -832,6 +914,11 @@ class FeatureModelMixin:
             if self.row_temp_native(r) == high_so_far and r.get("time"):
                 first_reached_min = self.minute_of_day(r["time"])
                 break
+        if first_reached_min is None:
+            for r in station_rows:
+                if self.row_temp_native(r) == high_so_far and r.get("time"):
+                    first_reached_min = self.minute_of_day(r["time"])
+                    break
         hours_at_peak = (
             ((cutoff_minutes - first_reached_min) / 60.0)
             if first_reached_min is not None
@@ -840,20 +927,41 @@ class FeatureModelMixin:
 
         # dewpoint_c, humidity, pressure
         dewpoint = self.row_dewpoint_native(feature_latest) if feature_latest else self.row_dewpoint_native(current)
+        if dewpoint is None:
+            dewpoint = next(
+                (
+                    value
+                    for surface in station_surfaces
+                    if (value := self.row_dewpoint_native(surface[-1])) is not None
+                ),
+                None,
+            )
         if dewpoint is None and strict:
             return None
-        if dewpoint is None:
-            dewpoint = self.row_dewpoint_native(rows[-1]) if rows else None
         humidity = feature_latest.get("humidity") if feature_latest else current.get("humidity")
         if humidity is None:
-            humidity = rows[-1].get("humidity") if rows else None
+            humidity = next(
+                (
+                    surface[-1].get("humidity")
+                    for surface in station_surfaces
+                    if surface[-1].get("humidity") is not None
+                ),
+                None,
+            )
         pressure = feature_latest.get("pressure") if feature_latest else current.get("pressure")
         if pressure is None:
-            pressures = [r["pressure"] for r in rows if r.get("pressure") is not None]
+            pressures = [r["pressure"] for r in feature_rows if r.get("pressure") is not None]
             pressure = pressures[-1] if pressures else None
+        pressure_surface_rows = feature_rows
+        if pressure is None:
+            for surface in station_surfaces:
+                if surface[-1].get("pressure") is not None:
+                    pressure = surface[-1]["pressure"]
+                    pressure_surface_rows = surface
+                    break
 
         # pressure_trend_3h
-        obs_3h_candidates = [r for r in rows if r.get("time") and (cutoff_minutes - 240) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 120) and r.get("pressure") is not None]
+        obs_3h_candidates = [r for r in pressure_surface_rows if r.get("time") and (cutoff_minutes - 240) <= self.minute_of_day(r["time"]) <= (cutoff_minutes - 120) and r.get("pressure") is not None]
         pressure_trend_3h = None
         if pressure is not None and obs_3h_candidates:
             closest_3h = min(obs_3h_candidates, key=lambda r: abs(self.minute_of_day(r["time"]) - (cutoff_minutes - 180)))
@@ -863,17 +971,48 @@ class FeatureModelMixin:
         # wind_speed_kmh
         wind_speed = feature_latest.get("wind_kmh") if feature_latest else current.get("wind_kmh")
         if wind_speed is None:
-            wind_speed = rows[-1].get("wind_kmh") if rows else None
+            wind_speed = feature_rows[-1].get("wind_kmh") if feature_rows else None
+        if wind_speed is None:
+            wind_speed = next(
+                (
+                    value
+                    for surface in station_surfaces
+                    if (
+                        value := row_value(
+                            surface[-1],
+                            "wind_kmh",
+                            "wind_speed_kmh",
+                        )
+                    ) is not None
+                ),
+                None,
+            )
         wind_gust = (
             feature_latest.get("gust_kmh")
             if feature_latest else row_value(current, "gust_kmh", "wind_gust_kmh", "wind_gust")
         )
         if wind_gust is None and rows:
             wind_gust = row_value(rows[-1], "gust_kmh", "wind_gust_kmh", "wind_gust")
+        if wind_gust is None and station_latest:
+            wind_gust = row_value(
+                station_latest,
+                "gust_kmh",
+                "wind_gust_kmh",
+                "wind_gust",
+            )
         wind_shift_3h = wind_direction_delta_degrees(
             row_wind_direction(feature_latest or current),
             closest_wind_direction(rows, cutoff_minutes - 180, 60),
         )
+        if wind_shift_3h is None and station_latest:
+            wind_shift_3h = wind_direction_delta_degrees(
+                row_wind_direction(station_latest),
+                closest_wind_direction(
+                    station_rows,
+                    cutoff_minutes - 180,
+                    60,
+                ),
+            )
 
         # wind_group and cloud_group
         wind_group = (

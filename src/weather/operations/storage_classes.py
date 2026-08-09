@@ -46,9 +46,9 @@ STORAGE_CLASS_CONTRACTS = (
         CANONICAL_EVIDENCE,
         "Append-only or source-of-truth evidence that cannot be safely rebuilt after the fact.",
         ("jsonl", "json", "csv", "raw", "csv.gz"),
-        "Permanent archive; local copies stay until a reviewed cleanup manifest exists.",
+        "Permanent archive unless a family-specific reviewed bounded-retention policy applies.",
         "Must be named by a reviewed cleanup manifest before local deletion.",
-        "Reviewed cleanup manifest with exact path, class, reason, operator, and checksum.",
+        "Reviewed cleanup manifest with exact path, class, reason, operator, and checksum, or an explicit family-specific bounded-retention manifest.",
     ),
     StorageClassContract(
         ANALYSIS_PROJECTION,
@@ -243,6 +243,28 @@ ARTIFACT_FAMILIES = (
         "canonical_evidence_review_gate",
         True,
         examples=("data/mm_runs/<run>/order_lifecycle.jsonl", "data/mm_runs/<run>/risk_events.jsonl"),
+    ),
+    ArtifactFamilyClassification(
+        "taker_counterfactual_replay_tape",
+        "market/operations",
+        CANONICAL_EVIDENCE,
+        (
+            "taker_runs/**/counterfactual_orders_long.csv",
+            "taker_runs/**/settled_counterfactual_orders_long.csv",
+            "snapshots/*/taker_runs/**/counterfactual_orders_long.csv",
+            "snapshots/*/taker_runs/**/settled_counterfactual_orders_long.csv",
+        ),
+        "date_bounded_counterfactual_detail_default_14_days",
+        "compact retained counterfactual PnL, strategy, and report summaries",
+        "daily_roll_exact_path_hash_bound_retention_manifest",
+        True,
+        examples=(
+            "data/taker_runs/<date>/<run>/counterfactual_orders_long.csv",
+        ),
+        notes=(
+            "Hypothetical replay detail has an explicitly bounded retention policy; "
+            "real orders and compact summaries retain the ordinary taker evidence contract."
+        ),
     ),
     ArtifactFamilyClassification(
         "taker_run_evidence",

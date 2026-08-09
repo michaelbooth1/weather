@@ -2036,6 +2036,11 @@ def main(argv=None):
     parser.add_argument("--now", default=None, help="Testing/replay timestamp.")
     parser.add_argument("--config", action="append", default=[], help="Taker bot config override, key=value.")
     parser.add_argument(
+        "--disable-counterfactual-tape",
+        action="store_true",
+        help="Disable counterfactual strategy-replay tape generation for this run.",
+    )
+    parser.add_argument(
         "--strategies",
         default=ACTIVE_DEFAULT_STRATEGY_ID,
         help="Comma-separated taker strategy IDs to run as isolated paper arms.",
@@ -2051,12 +2056,15 @@ def main(argv=None):
     parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     args = parser.parse_args(raw_argv)
 
+    config = parse_config_overrides(args.config)
+    if args.disable_counterfactual_tape:
+        config["counterfactual_tape_enabled"] = False
     common = {
         "markets": args.markets,
         "runs_root": Path(args.runs_root),
         "snapshots_root": Path(args.snapshots_root),
         "run_id": args.run_id,
-        "config": parse_config_overrides(args.config),
+        "config": config,
         "ledger_root": Path(args.ledger_root) if args.ledger_root else None,
         "observation_status_path": Path(args.observation_status),
         "strategies": args.strategies,

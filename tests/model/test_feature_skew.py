@@ -236,6 +236,226 @@ class TestFeatureSkew(unittest.TestCase):
         self.assertEqual(serve["wind_group"], "S-SW")
         self.assertEqual(serve["cloud_group"], "Fair/clear")
 
+    def test_station_wind_features_reach_fahrenheit_serving_in_artifact_units(self):
+        model = TorontoHighTempModel(target_date="2025-06-15", market_id="nyc")
+        ok = lambda data: {"ok": True, "data": data}
+        sources = {
+            "metar": ok({
+                "rows": [
+                    {
+                        "time": "07:00",
+                        "temp_native": 70.0,
+                        "wind_dir": 270.0,
+                        "wind_gust": None,
+                    },
+                    {
+                        "time": "11:00",
+                        "temp_native": 81.0,
+                        "wind_dir": 270.0,
+                        "wind_gust": 12.0,
+                    },
+                    {
+                        "time": "14:00",
+                        "temp_native": 86.0,
+                        "wind_dir": 180.0,
+                        "wind_gust": 16.0,
+                    },
+                    {
+                        "time": "15:00",
+                        "temp_native": 88.0,
+                        "wind_dir": 90.0,
+                        "wind_gust": 40.0,
+                    },
+                ],
+                "latest": {"time": "15:00", "temp_native": 88.0},
+                "max_since_7am_native": 88.0,
+            }),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_native": 90.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+
+        serve = model.extract_live_features(sources, CUTOFF_HOUR)
+
+        self.assertAlmostEqual(
+            serve["wind_gust_kmh"],
+            16.0 * 1.1507794480235425,
+        )
+        self.assertEqual(serve["wind_shift_3h_degrees"], 90.0)
+
+    def test_station_local_meteorology_reaches_fahrenheit_serving_in_native_units(self):
+        model = TorontoHighTempModel(target_date="2025-06-15", market_id="nyc")
+        ok = lambda data: {"ok": True, "data": data}
+        rows = [
+            {
+                "time": "07:00",
+                "temp_native": 70.0,
+                "dewpoint_native": 61.0,
+                "humidity": 70.0,
+                "pressure": 29.98,
+                "wind_kmh": 6.0,
+            },
+            {
+                "time": "11:00",
+                "temp_native": 81.0,
+                "dewpoint_native": 63.0,
+                "humidity": 55.0,
+                "pressure": 29.95,
+                "wind_kmh": 9.0,
+            },
+            {
+                "time": "14:00",
+                "temp_native": 86.0,
+                "dewpoint_native": 64.0,
+                "humidity": 48.0,
+                "pressure": 29.92,
+                "wind_kmh": 12.0,
+            },
+        ]
+        sources = {
+            "metar": ok({
+                "rows": rows,
+                "latest": rows[-1],
+                "max_since_7am_native": 86.0,
+            }),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_native": 90.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+
+        serve = model.extract_live_features(sources, CUTOFF_HOUR)
+
+        self.assertEqual(serve["rise_from_7am"], 16.0)
+        self.assertEqual(serve["warming_rate_2h"], 5.0)
+        self.assertEqual(serve["hours_at_peak"], 0.0)
+        self.assertEqual(serve["dewpoint_c"], 64.0)
+        self.assertEqual(serve["humidity"], 48.0)
+        self.assertEqual(serve["pressure"], 29.92)
+        self.assertAlmostEqual(serve["pressure_trend_3h"], -0.03)
+        self.assertEqual(serve["wind_speed_kmh"], 12.0)
+
+    def test_station_local_meteorology_reparses_retained_swob_xml(self):
+        model = TorontoHighTempModel(target_date="2025-06-15", market_id="toronto")
+        ok = lambda data: {"ok": True, "data": data}
+
+        def swob_xml(utc_time, temp, dewpoint, humidity, pressure, wind_speed):
+            return (
+                "<om:Observation xmlns:om=\"urn:om\">"
+                f'<element name="date_tm" value="{utc_time}" />'
+                f'<element name="air_temp" value="{temp}" />'
+                f'<element name="dwpt_temp" value="{dewpoint}" />'
+                f'<element name="rel_hum" value="{humidity}" />'
+                f'<element name="stn_pres" value="{pressure}" />'
+                f'<element name="avg_wnd_spd_10m_pst2mts" value="{wind_speed}" />'
+                "</om:Observation>"
+            )
+
+        sources = {
+            "eccc_swob": ok({
+                "rows": [{"local_time": "14:00", "air_temp_native": 24.0}],
+                "latest": {"local_time": "14:00", "air_temp_native": 24.0},
+                "max_since_7am_native": 24.0,
+                "raw_payload": {"files": [
+                    {"text": swob_xml("2025-06-15T11:00:00Z", 16, 10, 70, 1016, 10)},
+                    {"text": swob_xml("2025-06-15T15:00:00Z", 22, 11, 55, 1015, 14)},
+                    {"text": swob_xml("2025-06-15T18:00:00Z", 24, 12, 48, 1014, 18)},
+                ]},
+            }),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_native": 26.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+
+        serve = model.extract_live_features(sources, CUTOFF_HOUR)
+
+        self.assertEqual(serve["rise_from_7am"], 8.0)
+        self.assertEqual(serve["warming_rate_2h"], 2.0)
+        self.assertEqual(serve["hours_at_peak"], 0.0)
+        self.assertEqual(serve["dewpoint_c"], 12.0)
+        self.assertEqual(serve["humidity"], 48.0)
+        self.assertEqual(serve["pressure"], 1014.0)
+        self.assertEqual(serve["pressure_trend_3h"], -1.0)
+        self.assertEqual(serve["wind_speed_kmh"], 18.0)
+
+    def test_toronto_uses_alternate_metar_wind_without_aliasing_altimeter_pressure(self):
+        model = TorontoHighTempModel(target_date="2025-06-15", market_id="toronto")
+        ok = lambda data: {"ok": True, "data": data}
+        sources = {
+            "eccc_swob": ok({
+                "rows": [
+                    {"local_time": "07:00", "air_temp_native": 16.0, "humidity": 70.0},
+                    {"local_time": "14:00", "air_temp_native": 24.0, "humidity": 48.0},
+                ],
+                "max_since_7am_native": 24.0,
+            }),
+            "metar": ok({
+                "rows": [
+                    {"time": "14:00", "temp_native": 24.0, "wind_speed": 10.0,
+                     "pressure_hpa": 1015.0},
+                ],
+            }),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_native": 26.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+
+        serve = model.extract_live_features(sources, CUTOFF_HOUR)
+
+        self.assertEqual(serve["humidity"], 48.0)
+        self.assertEqual(serve["wind_speed_kmh"], 18.52)
+        self.assertIsNone(serve["pressure"])
+        self.assertIsNone(serve["pressure_trend_3h"])
+
+    def test_station_wind_gust_stays_missing_when_provider_reports_none(self):
+        model = TorontoHighTempModel(target_date="2025-06-15", market_id="toronto")
+        ok = lambda data: {"ok": True, "data": data}
+        def swob_xml(utc_time, direction, gust=None):
+            gust_element = (
+                f'<element name="max_wnd_gst_spd_10m_pst10mts" value="{gust}" />'
+                if gust is not None
+                else ""
+            )
+            return (
+                "<om:Observation xmlns:om=\"urn:om\">"
+                f'<element name="date_tm" value="{utc_time}" />'
+                '<element name="air_temp" value="24.0" />'
+                f'<element name="avg_wnd_dir_10m_pst2mts" value="{direction}" />'
+                f"{gust_element}"
+                "</om:Observation>"
+            )
+        sources = {
+            "eccc_swob": ok({
+                "rows": [
+                    {
+                        "local_time": "11:00",
+                        "local_date": "2025-06-15",
+                        "air_temp_native": 22.0,
+                    },
+                    {
+                        "local_time": "14:00",
+                        "local_date": "2025-06-15",
+                        "air_temp_native": 24.0,
+                    },
+                ],
+                "latest": {"local_time": "14:00", "air_temp_native": 24.0},
+                "max_since_7am_native": 24.0,
+                "raw_payload": {
+                    "files": [
+                        {"text": swob_xml("2025-06-15T15:00:00Z", 270, 19)},
+                        {"text": swob_xml("2025-06-15T18:00:00Z", 180)},
+                    ],
+                },
+            }),
+            "open_meteo": ok({"rows": [], "day_rows": [], "day_max_native": 26.0}),
+            "weather_forecast": ok({"rows": []}),
+            "eccc_citypage": ok({}),
+        }
+
+        serve = model.extract_live_features(sources, CUTOFF_HOUR)
+
+        self.assertIsNone(serve["wind_gust_kmh"])
+        self.assertEqual(serve["wind_shift_3h_degrees"], 90.0)
+
     def test_toronto_onshore_microclimate_features_match_between_train_and_live(self):
         model = TorontoHighTempModel(target_date="2026-06-02", market_id="toronto")
         obs = [

@@ -1602,17 +1602,27 @@ class TestNightlyRetrain(unittest.TestCase):
             "settled_day_freshness",
             "daily_learning",
             "experiment_queue",
+            "all_market_base_retrain",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
             "artifact_registry",
             "promotion_refresh",
             "shadow_ab_monitor",
         ])
-        self.assertEqual(len(calls), 7)
+        self.assertEqual(len(calls), 8)
         self.assertIn("weather.operations.settled_day_freshness", calls[0])
+        self.assertIn("weather.operations.base_retrain", calls[2])
         self.assertEqual(payload["status"], "promote_ready")
         self.assertEqual(saved["promotion"]["promote_markets"], ["nyc"])
         self.assertTrue(saved["config"]["long_job_guard"]["enabled"])
+        self.assertEqual(
+            saved["config"]["all_market_base_retrain_plan"]["market_count"],
+            12,
+        )
+        self.assertEqual(
+            saved["config"]["all_market_base_retrain_plan"]["step_count"],
+            1,
+        )
         self.assertEqual(saved["invocation"]["status"], "PASS")
         self.assertEqual(saved["lock_proof"]["status"], "PASS")
         self.assertEqual(saved["sla"]["status"], "PASS")
@@ -1648,6 +1658,7 @@ class TestNightlyRetrain(unittest.TestCase):
             "settled_day_freshness",
             "daily_learning",
             "experiment_queue",
+            "all_market_base_retrain",
             "family_secondary_artifacts",
             "pooled_feature_model_band",
         ])
@@ -1664,7 +1675,7 @@ class TestNightlyRetrain(unittest.TestCase):
             )
 
         self.assertEqual(payload["status"], "dry_run")
-        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 8)
+        self.assertEqual([step["status"] for step in payload["steps"]], ["planned"] * 9)
         self.assertFalse(payload["config"]["long_job_guard"]["enabled"])
 
     def test_legacy_nonempty_experiment_queue_blocks_before_later_training(self):

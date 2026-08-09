@@ -1,18 +1,15 @@
-"""Historical forecast layer: archived Open-Meteo forecasts for past target-season
-days, used as a non-leaky training feature for the model.
+"""Legacy historical forecast archive used by serving compatibility paths.
 
-Open-Meteo's Historical Forecast API returns the forecast that was *issued for* a
-past date (initialized from that morning's run, so it predicts the day without
-seeing its outcome). We store the forecasted daily-max temperature per date; the
-model joins it as `forecast_high` and derives `forecast_gap = forecast_high -
-high_so_far`. Open-Meteo is the canonical forecast source for both training (this
-layer) and serving (live Open-Meteo), so the feature means the same thing on both
-sides.
+The stitched historical rows and compatibility daily files in this module do
+not prove issue-time point-in-time safety. New retraining that requires cutoff-
+safe forecasts must use the explicit, training-only contract in
+``weather.sources.forecast_training_corpus``. This archive remains the active
+serving path and is not overwritten by that corpus.
 
 CLI:
-  python -m weather.sources.forecast_history backfill [--start-year 2015] [--end-year 2026]
-  python -m weather.sources.forecast_history coverage
-  python -m weather.sources.forecast_history fleet-coverage --json-out data/backtest/forecast_history_coverage.json
+  python -m weather.sources.forecast_history backfill --target-date 2026-07-31 [--start-year 2015] [--end-year 2026]
+  python -m weather.sources.forecast_history coverage --target-date 2026-07-31
+  python -m weather.sources.forecast_history fleet-coverage --target-date 2026-07-31 --json-out data/backtest/forecast_history_coverage.json
 """
 import argparse
 import csv
@@ -20,7 +17,7 @@ import hashlib
 import json
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from weather.paths import data_path
@@ -45,6 +42,12 @@ DAILY_ISSUE_SCHEMA_VERSION = "forecast_history_daily_issue_v1"
 FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION = "forecast_history_coverage_v0.1"
 DEFAULT_PREVIOUS_RUN_LEADS = (1, 2, 3, 4, 5, 6, 7)
 DEFAULT_PREVIOUS_RUN_START_YEAR = 2021
+# These defaults mirror the two code-owned trainer inputs. Tests bind them to
+# model_constants.HISTORY_WINDOW_DAYS and
+# base_retrain.FIRST_RETRAIN_SEASON_RADIUS_DAYS without introducing a runtime
+# sources -> model/operations dependency.
+DEFAULT_HISTORY_WINDOW_DAYS = 7
+DEFAULT_TARGET_WINDOW_DAYS = 7
 OPEN_METEO_HOURLY_FIELDS = (
     "temperature_2m",
     "cloud_cover",
@@ -169,20 +172,118 @@ def daily_issue_path_for(spec):
 DATA_ROOT = data_root_for(TORONTO)
 DAILY_PATH = daily_path_for(TORONTO)
 MANIFEST_PATH = DATA_ROOT / "manifest.json"
-# Generous target-season window so one day's +/-7 climatology window is covered
-# for late-May and June target dates. One API call per year covers it.
-SEASON_START = (5, 10)
-SEASON_END = (6, 30)
 
 
-def season_start_end(year):
-    start = f"{year}-{SEASON_START[0]:02d}-{SEASON_START[1]:02d}"
-    end_date = datetime(year, SEASON_END[0], SEASON_END[1]).date()
-    today = datetime.now().date()
-    if int(year) == today.year and end_date > today:
-        end_date = today
-    end = end_date.isoformat()
-    return start, end
+def _target_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("target_date must be an ISO date") from exc
+
+
+def _anchor_in_year(target_date, year):
+    target = _target_date(target_date)
+    try:
+        return target.replace(year=int(year))
+    except ValueError:
+        if target.month == 2 and target.day == 29:
+            return date(int(year), 2, 28)
+        raise
+
+
+def archive_window_for_target(
+    year,
+    target_date,
+    *,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+):
+    """Return the prior-year archive window needed for a training target.
+
+    The trainer selects target-date +/- ``target_window_days``. Each selected
+    date also needs the climatology halo, so the archive radius is the sum of
+    the two existing inputs rather than a fixed month/day season.
+    """
+    target_window_days = int(target_window_days)
+    history_window_days = int(history_window_days)
+    if target_window_days < 0 or history_window_days < 0:
+        raise ValueError("target and history window days must be non-negative")
+    anchor = _anchor_in_year(target_date, year)
+    radius_days = target_window_days + history_window_days
+    return anchor - timedelta(days=radius_days), anchor + timedelta(days=radius_days)
+
+
+def season_start_end(
+    year,
+    target_date,
+    *,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+    today=None,
+):
+    """Return the effective provider request bounds for one analog year."""
+    start_date, end_date = archive_window_for_target(
+        year,
+        target_date,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
+    current = today or date.today()
+    if int(year) == current.year and end_date > current:
+        end_date = current
+    if end_date < start_date:
+        raise ValueError("target-derived archive window has not begun")
+    return start_date.isoformat(), end_date.isoformat()
+
+
+def target_window_contract(
+    target_date,
+    years,
+    *,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+    today=None,
+):
+    """Describe the caller-declared archive target independently of evidence."""
+    target = _target_date(target_date)
+    normalized_years = sorted({int(year) for year in years})
+    if not normalized_years:
+        raise ValueError("target window contract requires at least one year")
+    requested_by_year = {}
+    fetched_by_year = {}
+    for year in normalized_years:
+        requested_start, requested_end = archive_window_for_target(
+            year,
+            target,
+            target_window_days=target_window_days,
+            history_window_days=history_window_days,
+        )
+        fetched_start, fetched_end = season_start_end(
+            year,
+            target,
+            target_window_days=target_window_days,
+            history_window_days=history_window_days,
+            today=today,
+        )
+        requested_by_year[str(year)] = {
+            "start": requested_start.isoformat(),
+            "end": requested_end.isoformat(),
+        }
+        fetched_by_year[str(year)] = {"start": fetched_start, "end": fetched_end}
+    target_window_days = int(target_window_days)
+    history_window_days = int(history_window_days)
+    return {
+        "target_date": target.isoformat(),
+        "target_window_days": target_window_days,
+        "history_window_days": history_window_days,
+        "archive_radius_days": target_window_days + history_window_days,
+        "requested_by_year": requested_by_year,
+        "fetched_by_year": fetched_by_year,
+    }
 
 
 def forecast_payload_hash(row):
@@ -538,8 +639,21 @@ def write_csv(path, columns, rows):
         writer.writerows(rows)
 
 
-def fetch_historical_forecast_payload(year, spec=TORONTO, timeout=30):
-    start, end = season_start_end(year)
+def fetch_historical_forecast_payload(
+    year,
+    spec=TORONTO,
+    timeout=30,
+    *,
+    target_date,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+):
+    start, end = season_start_end(
+        year,
+        target_date,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
 
     def _once():
         resp = requests.get(HIST_FORECAST_URL, params={
@@ -564,8 +678,17 @@ def fetch_previous_runs_payload(
     leads=DEFAULT_PREVIOUS_RUN_LEADS,
     source_model="best_match",
     timeout=30,
+    *,
+    target_date,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
 ):
-    start, end = season_start_end(year)
+    start, end = season_start_end(
+        year,
+        target_date,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
     hourly = ",".join(f"temperature_2m_previous_day{lead}" for lead in leads)
 
     def _once():
@@ -587,9 +710,24 @@ def fetch_previous_runs_payload(
     return request_with_retries(_once)
 
 
-def fetch_year_forecast(year, spec=TORONTO, timeout=30):
+def fetch_year_forecast(
+    year,
+    spec=TORONTO,
+    timeout=30,
+    *,
+    target_date,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+):
     """Return {local_date_iso: forecast_daily_max_native} for compatibility."""
-    payload = fetch_historical_forecast_payload(year, spec, timeout=timeout)
+    payload = fetch_historical_forecast_payload(
+        year,
+        spec,
+        timeout=timeout,
+        target_date=target_date,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
     return compatibility_daily_from_rows(historical_forecast_rows(payload, spec))
 
 
@@ -616,7 +754,20 @@ def backfill(
     previous_runs_start_year=DEFAULT_PREVIOUS_RUN_START_YEAR,
     previous_runs_leads=DEFAULT_PREVIOUS_RUN_LEADS,
     previous_runs_model="best_match",
+    *,
+    target_date,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
 ):
+    if int(end_year) < int(start_year):
+        raise ValueError("end_year must be greater than or equal to start_year")
+    target = _target_date(target_date)
+    window_contract = target_window_contract(
+        target,
+        range(start_year, end_year + 1),
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
     data_root = data_root_for(spec)
     daily_path = daily_path_for(spec)
     long_path = long_path_for(spec)
@@ -629,7 +780,13 @@ def backfill(
     previous_per_year = {}
     for year in range(start_year, end_year + 1):
         try:
-            payload = fetch_historical_forecast_payload(year, spec)
+            payload = fetch_historical_forecast_payload(
+                year,
+                spec,
+                target_date=target,
+                target_window_days=target_window_days,
+                history_window_days=history_window_days,
+            )
             year_rows = historical_forecast_rows(payload, spec)
             year_daily = compatibility_daily_from_rows(year_rows)
         except Exception as exc:  # noqa: BLE001 - report and continue
@@ -645,6 +802,9 @@ def backfill(
                     spec,
                     leads=previous_runs_leads,
                     source_model=previous_runs_model,
+                    target_date=target,
+                    target_window_days=target_window_days,
+                    history_window_days=history_window_days,
                 )
                 previous_rows = previous_run_rows(
                     previous_payload,
@@ -706,7 +866,7 @@ def backfill(
             "daily_by_issue": DAILY_ISSUE_SCHEMA_VERSION,
             "compatibility_daily": "forecast_daily_legacy_v1",
         },
-        "season_window": {"start": list(SEASON_START), "end": list(SEASON_END)},
+        "target_window": window_contract,
         "generated_at": datetime.now().isoformat(),
         "total_days": len(ordered),
         "long_rows": len(rich_rows),
@@ -727,30 +887,127 @@ def backfill(
     return manifest
 
 
-def coverage(spec=TORONTO):
-    index = load_forecast_daily(daily_path_for(spec))
-    if not index:
-        print(f"No forecast history for {spec.id}. Run: python -m weather.sources.forecast_history --market {spec.id} backfill")
-        return
-    years = sorted({d[:4] for d in index})
-    print(f"[{spec.id}] Stored forecast-days: {len(index)}  years {years[0]}..{years[-1]} ({len(years)} years)")
-    manifest_path = data_root_for(spec) / "manifest.json"
-    if manifest_path.exists():
-        with manifest_path.open(encoding="utf-8") as handle:
-            man = json.load(handle)
-        print("Per-year days:", man.get("per_year_days"))
-        print("Long rows:", man.get("long_rows"), "Daily issue rows:", man.get("daily_issue_rows"))
+def coverage(
+    spec=TORONTO,
+    *,
+    target_date,
+    required_years=None,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+):
+    report = forecast_history_coverage(
+        spec,
+        target_date=target_date,
+        required_years=required_years,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
+    print(
+        f"[{spec.id}] forecast history {report['status']} for target "
+        f"{report['declared_target']['target_date']}: "
+        f"{report['covered_required_date_count']}/{report['required_date_count']} required dates, "
+        f"manifest={report['manifest_target_status']}"
+    )
+    return report
 
 
 def _nonnull(value):
     return value not in (None, "")
 
 
-def forecast_history_coverage(spec=TORONTO, path=None, required_fields=None):
-    """Summarize rich forecast-history coverage for one market."""
+def _coverage_target_requirement(
+    target_date,
+    required_years,
+    *,
+    target_window_days,
+    history_window_days,
+):
+    target = _target_date(target_date)
+    years = (
+        sorted({int(year) for year in required_years})
+        if required_years is not None
+        else list(range(DEFAULT_PREVIOUS_RUN_START_YEAR, target.year))
+    )
+    if not years:
+        raise ValueError("coverage requires at least one caller- or policy-declared year")
+    return target_window_contract(
+        target,
+        years,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
+
+
+def _required_target_dates(requirement):
+    required = set()
+    for bounds in requirement.get("requested_by_year", {}).values():
+        start = date.fromisoformat(bounds["start"])
+        end = date.fromisoformat(bounds["end"])
+        required.update(
+            (start + timedelta(days=offset)).isoformat()
+            for offset in range((end - start).days + 1)
+        )
+    return required
+
+
+def _load_target_manifest(path):
+    if not path.exists():
+        return None, "MISSING"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None, "INVALID"
+    if not isinstance(payload, dict):
+        return None, "INVALID"
+    return payload, "READABLE"
+
+
+def _manifest_target_status(manifest, requirement):
+    if manifest is None:
+        return "MISSING"
+    declared = manifest.get("target_window")
+    if not isinstance(declared, dict):
+        return "UNDECLARED"
+    scalar_fields = (
+        "target_date",
+        "target_window_days",
+        "history_window_days",
+        "archive_radius_days",
+    )
+    if any(declared.get(field) != requirement.get(field) for field in scalar_fields):
+        return "MISMATCH"
+    declared_windows = declared.get("requested_by_year")
+    if not isinstance(declared_windows, dict):
+        return "MISMATCH"
+    for year, expected in requirement.get("requested_by_year", {}).items():
+        if declared_windows.get(year) != expected:
+            return "MISMATCH"
+    return "MATCH"
+
+
+def forecast_history_coverage(
+    spec=TORONTO,
+    path=None,
+    required_fields=None,
+    *,
+    target_date,
+    required_years=None,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+    manifest_path=None,
+):
+    """Summarize one archive against a caller-declared training target."""
     path = Path(path) if path else long_path_for(spec)
+    manifest_path = Path(manifest_path) if manifest_path else path.parent / "manifest.json"
     required_fields = tuple(required_fields or RICH_CORE_REQUIRED_NON_NULL_FIELDS)
     audit_fields = tuple(dict.fromkeys(RICH_AUDIT_NON_NULL_FIELDS + required_fields))
+    target_requirement = _coverage_target_requirement(
+        target_date,
+        required_years,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
+    required_dates = _required_target_dates(target_requirement)
     row_count = 0
     historical_rows = 0
     dates = set()
@@ -773,6 +1030,17 @@ def forecast_history_coverage(spec=TORONTO, path=None, required_fields=None):
             "missing_nonnull_fields": list(required_fields),
             "partial_nonnull_fields": {},
             "incomplete_required_fields": list(required_fields),
+            "declared_target": target_requirement,
+            "required_date_count": len(required_dates),
+            "covered_required_date_count": 0,
+            "missing_required_date_count": len(required_dates),
+            "missing_required_date_samples": sorted(required_dates)[:20],
+            "date_range_relevant": False,
+            "manifest_path": str(manifest_path),
+            "manifest_target_status": "MISSING",
+            "manifest_target_matches": False,
+            "blockers": ["archive_file_missing"],
+            "target_status": "BLOCK",
             "status": "MISSING",
         }
     with path.open(encoding="utf-8", newline="") as handle:
@@ -808,7 +1076,28 @@ def forecast_history_coverage(spec=TORONTO, path=None, required_fields=None):
     ]
     header_ok = header == RICH_FORECAST_COLUMNS
     schema_ok = bool(schemas) and set(schemas) == {RICH_SCHEMA_VERSION}
-    status = "OK" if header_ok and schema_ok and historical_rows > 0 and not incomplete_required_fields else "FAIL"
+    missing_required_dates = sorted(required_dates - dates)
+    date_range_relevant = not missing_required_dates
+    manifest, manifest_read_status = _load_target_manifest(manifest_path)
+    manifest_target_status = (
+        _manifest_target_status(manifest, target_requirement)
+        if manifest_read_status == "READABLE"
+        else manifest_read_status
+    )
+    blockers = []
+    if not header_ok:
+        blockers.append("header_mismatch")
+    if not schema_ok:
+        blockers.append("schema_mismatch")
+    if historical_rows <= 0:
+        blockers.append("historical_rows_missing")
+    if incomplete_required_fields:
+        blockers.append("required_fields_incomplete")
+    if not date_range_relevant:
+        blockers.append("declared_target_dates_missing")
+    if manifest_target_status != "MATCH":
+        blockers.append("archive_target_manifest_mismatch")
+    status = "OK" if not blockers else "FAIL"
     return {
         "market": spec.id,
         "station": spec.icao,
@@ -824,6 +1113,17 @@ def forecast_history_coverage(spec=TORONTO, path=None, required_fields=None):
         "missing_nonnull_fields": missing_fields,
         "partial_nonnull_fields": partial_fields,
         "incomplete_required_fields": incomplete_required_fields,
+        "declared_target": target_requirement,
+        "required_date_count": len(required_dates),
+        "covered_required_date_count": len(required_dates & dates),
+        "missing_required_date_count": len(missing_required_dates),
+        "missing_required_date_samples": missing_required_dates[:20],
+        "date_range_relevant": date_range_relevant,
+        "manifest_path": str(manifest_path),
+        "manifest_target_status": manifest_target_status,
+        "manifest_target_matches": manifest_target_status == "MATCH",
+        "blockers": blockers,
+        "target_status": "PASS" if not blockers else "BLOCK",
         "status": status,
     }
 
@@ -832,14 +1132,45 @@ def _market_ids(value):
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
 
 
-def forecast_history_fleet_coverage(market_ids=None, required_fields=None):
+def forecast_history_fleet_coverage(
+    target_date,
+    market_ids=None,
+    required_fields=None,
+    *,
+    required_years=None,
+    target_window_days=DEFAULT_TARGET_WINDOW_DAYS,
+    history_window_days=DEFAULT_HISTORY_WINDOW_DAYS,
+):
     ids = set(market_ids or [])
     specs = [spec for spec in all_specs() if not ids or spec.id in ids]
-    markets = [forecast_history_coverage(spec, required_fields=required_fields) for spec in specs]
+    declared_years = (
+        tuple(sorted({int(year) for year in required_years}))
+        if required_years is not None
+        else None
+    )
+    target_requirement = _coverage_target_requirement(
+        target_date,
+        declared_years,
+        target_window_days=target_window_days,
+        history_window_days=history_window_days,
+    )
+    markets = [
+        forecast_history_coverage(
+            spec,
+            required_fields=required_fields,
+            target_date=target_date,
+            required_years=declared_years,
+            target_window_days=target_window_days,
+            history_window_days=history_window_days,
+        )
+        for spec in specs
+    ]
     ok_count = sum(1 for row in markets if row.get("status") == "OK")
     return {
         "schema_version": FORECAST_HISTORY_COVERAGE_SCHEMA_VERSION,
         "generated_at": datetime.now().isoformat(),
+        "status": "PASS" if markets and ok_count == len(markets) else "BLOCK",
+        "declared_target": target_requirement,
         "required_fields": list(required_fields or RICH_CORE_REQUIRED_NON_NULL_FIELDS),
         "audit_fields": list(RICH_AUDIT_NON_NULL_FIELDS),
         "summary": {
@@ -854,15 +1185,20 @@ def forecast_history_fleet_coverage(market_ids=None, required_fields=None):
 
 def render_forecast_history_coverage_markdown(payload):
     summary = payload.get("summary") or {}
+    target = payload.get("declared_target") or {}
     lines = [
         "# Forecast History Coverage",
         "",
         f"- Schema: `{payload.get('schema_version')}`",
+        f"- Gate status: `{payload.get('status', 'BLOCK')}`",
+        f"- Declared target: `{target.get('target_date') or '-'}`",
+        f"- Target window days: `+/-{target.get('target_window_days', 0)}`",
+        f"- Climatology halo days: `+/-{target.get('history_window_days', 0)}`",
         f"- Markets OK: {summary.get('ok_market_count', 0)}/{summary.get('market_count', 0)}",
         f"- All active markets backfilled: {summary.get('all_active_markets_backfilled')}",
         "",
-        "| Market | Status | Rows | Historical rows | Days | Years | Header | Schemas | Missing | Partial |",
-        "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+        "| Market | Status | Rows | Historical rows | Required dates | Missing target dates | Manifest | Years | Header | Schemas | Missing fields | Partial fields | Blockers |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in payload.get("markets") or []:
         schemas = ", ".join(f"{key}:{value}" for key, value in (row.get("schemas") or {}).items()) or "-"
@@ -870,11 +1206,13 @@ def render_forecast_history_coverage_markdown(payload):
         partial = ", ".join(
             f"{key}:{value}" for key, value in (row.get("partial_nonnull_fields") or {}).items()
         ) or "-"
+        blockers = ", ".join(row.get("blockers") or []) or "-"
         lines.append(
             f"| {row.get('market')} | {row.get('status')} | {row.get('rows', 0)} | "
-            f"{row.get('historical_rows', 0)} | {row.get('days', 0)} | {row.get('years') or '-'} | "
-            f"{row.get('header_ok')} | {schemas} | {missing} |"
-            f" {partial} |"
+            f"{row.get('historical_rows', 0)} | {row.get('required_date_count', 0)} | "
+            f"{row.get('missing_required_date_count', 0)} | {row.get('manifest_target_status', '-')} | "
+            f"{row.get('years') or '-'} | {row.get('header_ok')} | {schemas} | "
+            f"{missing} | {partial} | {blockers} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -896,6 +1234,41 @@ def parse_leads(value):
     return tuple(int(item.strip()) for item in str(value).split(",") if item.strip())
 
 
+def parse_years(value):
+    if not value:
+        return None
+    years = tuple(sorted({int(item.strip()) for item in str(value).split(",") if item.strip()}))
+    if not years:
+        raise ValueError("at least one required year must be declared")
+    return years
+
+
+def add_target_arguments(parser, *, include_years=False):
+    parser.add_argument(
+        "--target-date",
+        required=True,
+        help="Training target date (ISO); never inferred from the archive manifest.",
+    )
+    parser.add_argument(
+        "--target-window-days",
+        type=int,
+        default=DEFAULT_TARGET_WINDOW_DAYS,
+        help="Trainer-selected target radius; defaults to the current +/-7 policy.",
+    )
+    parser.add_argument(
+        "--history-window-days",
+        type=int,
+        default=DEFAULT_HISTORY_WINDOW_DAYS,
+        help="Climatology halo around each selected date; defaults to HISTORY_WINDOW_DAYS.",
+    )
+    if include_years:
+        parser.add_argument(
+            "--years",
+            default="",
+            help="Comma-separated required years; default policy is 2021 through target_year-1.",
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Backfill archived Open-Meteo forecasts.")
     parser.add_argument("--market", default="toronto",
@@ -910,11 +1283,14 @@ def main():
     b.add_argument("--previous-runs-start-year", type=int, default=DEFAULT_PREVIOUS_RUN_START_YEAR)
     b.add_argument("--previous-runs-leads", default=",".join(str(item) for item in DEFAULT_PREVIOUS_RUN_LEADS))
     b.add_argument("--previous-runs-model", default="best_match")
-    sub.add_parser("coverage")
+    add_target_arguments(b)
+    cov = sub.add_parser("coverage")
+    add_target_arguments(cov, include_years=True)
     fc = sub.add_parser("fleet-coverage")
     fc.add_argument("--markets", default="", help="Comma-separated market ids; defaults to all registered markets.")
     fc.add_argument("--json-out", default="")
     fc.add_argument("--out", default="")
+    add_target_arguments(fc, include_years=True)
     args = parser.parse_args()
     spec = spec_for_id(args.market)
 
@@ -928,14 +1304,31 @@ def main():
             previous_runs_start_year=args.previous_runs_start_year,
             previous_runs_leads=parse_leads(args.previous_runs_leads),
             previous_runs_model=args.previous_runs_model,
+            target_date=args.target_date,
+            target_window_days=args.target_window_days,
+            history_window_days=args.history_window_days,
         )
     elif args.command == "coverage":
-        coverage(spec)
+        payload = coverage(
+            spec,
+            target_date=args.target_date,
+            required_years=parse_years(args.years),
+            target_window_days=args.target_window_days,
+            history_window_days=args.history_window_days,
+        )
+        if payload["status"] != "OK":
+            raise SystemExit(2)
     elif args.command == "fleet-coverage":
         market_ids = _market_ids(args.markets)
         for market_id in market_ids:
             spec_for_id(market_id)
-        payload = forecast_history_fleet_coverage(market_ids)
+        payload = forecast_history_fleet_coverage(
+            args.target_date,
+            market_ids,
+            required_years=parse_years(args.years),
+            target_window_days=args.target_window_days,
+            history_window_days=args.history_window_days,
+        )
         write_forecast_history_coverage_outputs(payload, json_out=args.json_out, markdown_out=args.out)
         print(
             f"Forecast history coverage OK markets: "
@@ -945,6 +1338,8 @@ def main():
             print(f"Wrote JSON coverage to {args.json_out}")
         if args.out:
             print(f"Wrote coverage report to {args.out}")
+        if payload["status"] != "PASS":
+            raise SystemExit(2)
 
 
 if __name__ == "__main__":

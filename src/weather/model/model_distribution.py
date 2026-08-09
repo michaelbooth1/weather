@@ -788,6 +788,14 @@ class DistributionMixin(DistributionSignalMixin):
         if feature_probs:
             using_feature_model = True
             self.active_model_kind = active_kind
+            candidate_prior = self.feature_serving_prior(cutoff_hour)
+            if candidate_prior is not None:
+                scores = candidate_prior
+                pipeline.snapshot_normalized(
+                    "candidate_target_date_aligned_prior",
+                    scores,
+                    self.normalize_scores,
+                )
             smoothing_config = self.feature_ordinal_smoothing_config(cutoff_hour)
             pipeline.update_metadata(feature_ordinal_smoothing=deepcopy(smoothing_config))
             if smoothing_config.get("enabled"):

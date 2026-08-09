@@ -20,11 +20,11 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "feature_store",
-        "toronto_feature_store_v1.15",
+        "toronto_feature_store_v1.16",
         "weather.model.feature_store",
         "active",
         "Shared train/serve feature vector schema.",
-        supersedes=("toronto_feature_store_v1.14",),
+        supersedes=("toronto_feature_store_v1.15",),
         migration_notes="Predictors must select by trained feature_names, not by newest column order.",
     ),
     SchemaSpec(
@@ -1443,6 +1443,31 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec("nightly_retrain", "nightly_retrain_v0.1", "weather.operations.nightly_retrain", "active"),
     SchemaSpec(
+        "all_market_base_retrain",
+        "all_market_base_retrain_v0.1",
+        "weather.operations.base_retrain",
+        "active",
+        "Explicit all-market base-model plan, preflight, isolation, and fleet receipts.",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_corpus_manifest",
+        "all_market_base_retrain_corpus_manifest_v0.1",
+        "weather.operations.base_retrain",
+        "active",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_fit_receipt",
+        "all_market_base_retrain_fit_receipt_v0.1",
+        "weather.calibration.base_model_candidate",
+        "active",
+    ),
+    SchemaSpec(
+        "all_market_base_retrain_probability_calibration",
+        "all_market_base_retrain_probability_calibration_v0.1",
+        "weather.calibration.base_model_candidate",
+        "active",
+    ),
+    SchemaSpec(
         "settled_day_freshness",
         "settled_day_freshness_v0.1",
         "weather.operations.settled_day_freshness",
@@ -1767,6 +1792,7 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("reanalysis_synoptic_features_legacy_v0_3", "reanalysis_synoptic_features_v0.3", "weather.sources.reanalysis_synoptic", "legacy"),
     SchemaSpec("reanalysis_synoptic_features_legacy_v0_2", "reanalysis_synoptic_features_v0.2", "weather.sources.reanalysis_synoptic", "legacy"),
     SchemaSpec("reanalysis_synoptic_features_legacy", "reanalysis_synoptic_features_v0.1", "weather.sources.reanalysis_synoptic", "legacy"),
+    SchemaSpec("feature_store_legacy_v1_15", "toronto_feature_store_v1.15", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_14", "toronto_feature_store_v1.14", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_13", "toronto_feature_store_v1.13", "weather.model.feature_store", "legacy"),
     SchemaSpec("feature_store_legacy_v1_12", "toronto_feature_store_v1.12", "weather.model.feature_store", "legacy"),

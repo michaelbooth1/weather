@@ -1,4 +1,4 @@
-﻿# Workstation report 2026-08-03 — build the PIT forecast corpus
+# Workstation report 2026-08-03 — build the PIT forecast corpus
 
 ## Verdict
 
