@@ -293,4 +293,4 @@ Expected roll result: `ROLL-FREE` (exit 0), subject to the required production r
 Branch:
 `codex/workstation-does-a-quotable-edge-exist-2026-09-46a`.
 
-Report-content commit: `TO_BE_FILLED_AFTER_CONTENT_COMMIT`.
+Report-content commit: `fc0ea8601c3425f0a2c4c87c855b7236a26cc8e8`.
