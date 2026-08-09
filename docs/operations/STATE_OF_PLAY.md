@@ -71,6 +71,12 @@ archive because the retrain needs it, not because it will fix the bias.
 - **Release #1 DEFERRED** until a retrained candidate exists
   ([why](release-one-deferred-until-a-retrained-candidate.md)); it would freeze artifacts measured a
   full degree cool. The lock does not expire — the 7-day rule is rolling source recency.
+- **THE GOAL IS A BETTER MODEL, NOT A QUALIFIED ONE** (operator, 2026-08-09, §0b). The release and
+  qualification machinery is **off the critical path**; the retrain remains desirable and is no
+  longer the gate. **Dropping qualification is NOT dropping honesty** — leakage-free walk-forward
+  or replay, crossed clustering, power before interpretation, no pooling across `2026-07-31`.
+  item-224's "win" was leakage. **The bar for believing a result is unchanged; only the bar for
+  shipping one moved.**
 - **Free-tier Open-Meteo only, no paid API. Training population 2021–2025.** Do not stop a mission
   on either. **Nothing is reserved today**; the window arms at candidate freeze.
 - **Answered, do not redo:** inputs will not close the gap (`-09-44a`); free-source blindness repair
@@ -95,7 +101,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-52a` | **RETURNED — the held branch closes NONE of the three causes** | ROLL-FREE verified; **QUEUED 05:15**. It does not contain `base_retrain.py` at all. Stays held for **substantive** serving/migration risk, not calendar |
 | `-09-53a` | **RETURNED — CIRCULARITY BROKEN. `base_retrain` reached preflight for the first time ever** | ROLL-FREE verified; **QUEUED 05:15**. Contract generalized, not relaxed — checked line by line |
 | `-09-54a` | **RETURNED — 6th blocker: the base corpus manifest has NO PRODUCER** | ROLL-FREE verified; **QUEUED 05:15**. Registered + consumed, never written. PIT staging 0/60 |
-| `-09-55a` | **write the producer, and trace the 21-field endpoint claim** | **DISPATCHED**. Our archive holds 461 days of those 21 fields from the *other* endpoint — routing defect or real wall? |
+| `-09-55a` | write the producer, and trace the 21-field endpoint claim | **DEPRIORITISED** by §0b — let its P0 endpoint trace land (useful for the archive regardless); its P1 producer is no longer on the critical path |
+| `-09-56a` | **decompose the gap on the current surface** — calibration vs information | **DISPATCHED**. Without it, "small improvements" is guessing. Needs none of the release machinery |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

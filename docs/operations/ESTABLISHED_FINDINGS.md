@@ -33,6 +33,40 @@ is weakest and where the tradable edge would live.
 
 ---
 
+## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
+
+**"I think the goal should be a better one. I am happy making small improvements at a time until we
+hit our goal."**
+
+### What this drops
+
+The **production release and qualification machinery** stops being the critical path: the release
+store and active pointer, promotion, immutable qualification, Release #1, and the `base_retrain`
+blocker chain that consumed six missions in a single day. Every one of those blockers was the same
+shape — **designed and never built** — and the chain was being walked for a payoff that **cannot
+currently be quantified**: §1's `74.97%` is retired **with no replacement**, so the retrain's
+expected value has no current estimate.
+
+Meanwhile the **only shipped improvement in the month** was a **serving-path** fix needing none of
+that machinery (§3: served 1.6639 → 1.4980).
+
+### What this does NOT drop — and this is not negotiable
+
+**Leakage-free, point-in-time-honest evaluation.** "Better" measured with leakage is not better, and
+this project has already retracted exactly that claim once: **item-224's "win" over the market was
+leakage** (`RETRACTED_AND_FALSE_LEADS.md` §1). Dropping *qualification* must never become dropping
+*honesty*.
+
+So every improvement still requires: crossed date × market clustering, power stated before
+interpretation, no pooling across `2026-07-31`, and a walk-forward or replay design that cannot see
+its own target. **The bar for believing a result is unchanged. Only the bar for shipping one moved.**
+
+### What it means in practice
+
+Work is now ranked by **measurable served improvement per unit of effort**, using the existing
+replay harness. The retrain remains desirable and is no longer the gate. **Before picking the next
+improvement, decompose the gap (§5) — otherwise "small improvements" is just guessing.**
+
 ## 1. We do not beat the market
 
 This is the central finding of the project. Treat any result claiming otherwise as suspect until it
