@@ -389,14 +389,17 @@ scripts\ops\roll_verdict.ps1 -Branch codex/workstation-can-the-maker-quote-at-al
 
 ## Verification and handback
 
-- Documentation audit: **PENDING FINAL COMMIT**.
-- Roll verdict: **PENDING FIRST COMMIT**.
-- Per-file roll verdict: the only changed file is this report; the repository-owned verdict will
-  be recorded after the first commit rather than inferred here.
+- Documentation audit: **PASS** — 18 agent files and 723 Markdown files.
+- Repository-owned roll verdict on analysis commit `526617db222ea03ce36eb1cdd1b21f8b405576ad`:
+  **ROLL-FREE**. It compared one changed file and found zero importable files. The live snapshot,
+  CLOB and observation-trigger closures were current; the 300.7-hour dormant CLOB-enrichment
+  closure was mechanically subsumed because all 21 files in it are covered by a live closure.
+- Per-file roll verdict: `docs/roadmap/agent-report-2026-08-11-workstation-maker-quote-gate.md`
+  enters no runtime closure and is roll-free.
 - What was not done: no registration, no production write, no maker/chain/settlement run, no loop
   start or restart, no endpoint call, no known-edge-map edit, no fit, no candidate, no promotion,
   no order, no live-trading enablement, and no merge.
-- Analysis/report commit: **PENDING**.
+- Analysis/report commit: `526617db222ea03ce36eb1cdd1b21f8b405576ad`.
 - Branch: `codex/workstation-can-the-maker-quote-at-all-2026-09-48a`.
 
 ## Appendix — exact post-boundary date × market reason counts
