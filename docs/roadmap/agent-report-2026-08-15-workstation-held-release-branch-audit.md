@@ -292,8 +292,8 @@ This establishes that the held branch's own release contracts are internally
 consistent. It does not establish compatibility with current master and does
 not contradict the absent-module/production-mode no-go.
 
-Documentation audit and final report-branch diff checks are recorded after the
-evidence commit.
+Documentation audit: **PASS** (18 agent files, 739 Markdown files). Final
+report-branch diff checks are repeated after the metadata binding.
 
 ## Production-host reproduction
 
@@ -373,8 +373,13 @@ modules are absent on the held tip.
 
 ## Handback commit and report-branch roll verdict
 
-- Evidence commit: pending first commit.
+- Evidence commit: `7d6f1808`.
 - Final metadata commit: the pushed branch head is authoritative.
 - Report branch: `codex/workstation-audit-the-held-release-branch-2026-09-52a`.
 - Report file: `docs/roadmap/agent-report-2026-08-15-workstation-held-release-branch-audit.md`.
-- Mechanical report-branch roll verdict: pending evidence commit.
+- Mechanical report-branch verdict: **`ROLL-FREE`**. The primary checkout's
+  local `master` lagged `origin/master`, so the script conservatively counted
+  seven changed Markdown files, zero importable files, and explicitly reported
+  `(no importable files -- docs/config/tests/ps1 only)`. The actual branch delta
+  against `origin/master` is this one report. The mechanical verdict is
+  authoritative.
