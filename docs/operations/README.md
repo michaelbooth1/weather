@@ -30,18 +30,24 @@ use generated reports and the active backlog for those facts.
 
 ## Accumulated Knowledge
 
-Three documents hold what the ~600-file dated correspondence under `docs/roadmap/`
+These documents hold what the ~600-file dated correspondence under `docs/roadmap/`
 established. That record is too large for any agent to read; these are its
 distillation and should be read before model, measurement, or research work.
 
-- [Established Findings](ESTABLISHED_FINDINGS.md) owns measured results about the
-  model, the market gap, the cool bias, the serving floor, and feature blindness,
-  each with its support and interval treatment.
-- [Retracted Claims And False Leads](RETRACTED_AND_FALSE_LEADS.md) owns claims that
-  were published and withdrawn, plus operational alarms that look real and are not.
-  Read it before acting on a surprising result.
-- [Delegation Contract](DELEGATION_CONTRACT.md) owns the standing boundaries,
-  roll-verdict method, and required structure for cross-host handoffs and reports.
+**Each owns exactly one question, and no other file should answer it.**
+
+| Document | Owns the question |
+| --- | --- |
+| [STATE_OF_PLAY.md](STATE_OF_PLAY.md) | *What is happening right now?* — **read first** |
+| [Established Findings](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval |
+| [Retracted Claims And False Leads](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not |
+| [Open Backlog](OPEN_BACKLOG.md) | *What is known-broken and unassigned?* — ranked, hand-kept |
+| [Delegation Contract](DELEGATION_CONTRACT.md) | *How do we work?* — boundaries, roll verdicts, handoff structure |
+| [Operating Reference](OPERATING_REFERENCE.md) | *What is scheduled and what are the constants?* — **generated; fix the constant, not the doc** |
+
+`OPEN_BACKLOG` is **not** [`../roadmap/active-backlog.md`](../roadmap/active-backlog.md): that one is
+generated from the numbered roadmap items and tracks feature work, this one tracks operational
+defects nobody owns.
 
 These files record evidence, not invariants. Re-verify a number against its named
 source report before citing it in a new decision.
