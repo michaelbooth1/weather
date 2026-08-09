@@ -1,95 +1,105 @@
-# Workstation handoff 2026-09-47a — measure the informed-flow fraction
+# Workstation handoff 2026-09-47a — can executions be reconstructed at all?
 
-Written 2026-08-08 by the production agent. Read on `origin/master` and execute.
-**`f` is now the single most decisive unmeasured number in the project.** `-09-46a` closed the model
-route; this decides whether the remaining route is viable.
+Written 2026-08-08 by the production agent. **Rewritten the same evening after the original premise
+was falsified on this host — read §2 before anything else.** Read on `origin/master` and execute.
 
-## 1. Why this is the top item
+## 1. Why this matters
 
-`-09-46a` established two things:
+`-09-46a` closed the model route: 114 pre-declared cells, **zero** with positive edge, overall
+**−0.01915 [−0.02444, −0.01443]**. Model-skewed quoting is retired.
 
-- **There is no quotable model edge, anywhere.** 114 pre-declared cells, **zero** with a positive
-  point estimate, overall **−0.01915 [−0.02444, −0.01443]**. Model-skewed quoting is retired.
-- **Market-centred harvesting does not need model edge** — but whether it *pays* is dominated by the
-  informed-fill fraction `f` and the adverse move `A`, and both were unmeasured:
+Its P1 kept one route open — **market-centred spread harvesting needs no model edge** — and showed
+the answer is dominated by the informed-fill fraction `f`:
 
-| Informed fraction `f` | Scenarios where zero model edge breaks even (no reward) |
+| Informed fraction `f` | Scenarios breaking even with **zero** model edge (no reward) |
 | ---: | ---: |
 | 0.10 | **79.43%** |
 | 0.50 | 42.29% |
 | 1.00 | **24.57%** |
 
-**That spread is the whole question.** At low `f` the maker is a business; at high `f` it is a
-donation. Nothing else on the board changes the answer as much.
+At low `f` the maker is a business; at high `f` it is a donation. **Nothing else on the board moves
+the answer as much.**
 
-## 2. The data exists, and it is historical only
+## 2. THE ORIGINAL PREMISE OF THIS MISSION WAS WRONG
 
-Trade events come from the **`clob_enrichment` loop**, not the latency-critical CLOB loop — which is
-raw-book-only *by design* and raises if asked to capture them. That enrichment loop went dormant on
-**2026-07-27** and has no registered task, so there is nothing newer. But:
+The first version of this handoff told you to measure `f` from 265 captured `market_ws_events.csv`
+files. **Do not do that.** Measured on production before you were dispatched:
 
-- **265 event directories already contain `market_ws_events.csv`.**
-- Columns include `event_type`, `price`, `size`, `trade_size`, `shares`, `amount`,
-  `matched_amount`, `maker_amount`, `timestamp_utc`.
-- The window ends **2026-07-27**, entirely **before** the `2026-07-31` provenance boundary, so the
-  corpus is provenance-clean by construction. **Do not pool across it anyway.**
+| `event_type` | Rows in a 60-file, 1,107,984-row sample |
+| --- | ---: |
+| `book` | 904,325 |
+| `price_change` | 203,584 |
+| **`last_trade_price`** | **71** |
 
-**Verify the tape's real coverage before designing.** 265 directories is a file count, not a
-guarantee of usable trade density per market-day. If coverage is too thin in some markets, say so
-per market rather than pooling to hide it.
+**Seventy-one executions in 1.1 million rows.** There is no execution tape. Commit `8e7b5732` had
+already recorded that the tape "loses execution identity and exchange time" and that arming the loop
+would "generate volume without producing evidence." That was correct.
 
-## 3. P0 — measure `A` and `f`
+**The production agent wrote a mission on a schema and a file count without opening a file. Do not
+inherit that mistake — open the data before you design anything.**
 
-**`A` — the adverse move.** After a trade at price `p`, how far does the fair price move *in the
-aggressor's direction* over the horizons a maker cares about? Report the markout distribution at
-several horizons (seconds to minutes), by market, by price bucket, and by time-to-settlement.
-Report the distribution, not just a mean — the tail is what kills a maker.
+## 3. P0 — is an execution signal recoverable at all?
 
-**`f` — the informed fraction.** What share of executed volume is followed by a persistent adverse
-move rather than mean reversion? State your classifier explicitly and pre-declare its threshold.
-**There is no ground truth for "informed", so this is a definitional estimate** — give the
-sensitivity of `f` to the threshold, and never present one number without that curve.
+**This is a feasibility question first and a measurement second. Answer it in that order and stop if
+the answer is no.**
 
-Then **substitute both back into `-09-46a`'s break-even grid** and report what fraction of scenarios
-clear with zero model edge at the measured `f`. That is the deliverable: not `f` alone, but what `f`
-implies for the business.
+1. **Can executions be reconstructed from `price_change` and `book` deltas?** 203,584 `price_change`
+   rows exist. A fill removes size from a level. Determine whether depletions are separable from
+   cancellations with usable precision — and **say plainly if they are not.** Cancel-vs-fill
+   ambiguity is the whole difficulty; do not assume a depletion is a trade.
+2. **If separable, what is the aggressor side**, and can you time it well enough for a markout?
+3. **Only if 1 and 2 succeed**, estimate `A` (adverse move after an inferred execution, by horizon,
+   market and price bucket) and `f` (share of inferred executions followed by persistent adverse
+   movement rather than reversion). Pre-declare the classifier threshold and report `f`'s
+   sensitivity to it — there is no ground truth for "informed."
+4. Substitute the result back into `-09-46a`'s break-even grid and report what fraction of scenarios
+   clear with zero model edge. **The deliverable is not `f`, it is what `f` implies for the business.**
 
-## 4. Method — binding
+## 4. P1 — what feed would actually settle this?
 
-- **Crossed date × market clustering; power before interpretation.** "Not powered" is a valid verdict.
-- **Never pool across `2026-07-31`** (anchor `b77cfbed`). The corpus predates it; keep it that way.
-- **Maker perspective, not taker.** We are asking what happens to *a resting quote that gets hit* —
-  not whether crossing the spread is profitable. Those are different signs.
-- **Beware the reward window.** `rewardsMaxSpread` is 4.5 cents and `rewardsMinSize` 20–50 shares.
-  `-09-46a` found per-side size **absent** from the sealed book tape, so if your `f` estimate needs
-  it, say it is unavailable rather than substituting aggregate liquidity.
-- Deduplicate to `(market, target_date)` before any day-level claim.
+Independent of the above, and cheap: **does the venue expose an execution feed we are not
+consuming?** Document what is available — a trades channel, a fills or trade-history endpoint,
+whatever exists — with the exact subscription or call, the fields it returns, and whether execution
+identity and exchange timestamp survive.
+
+**Do not call it.** Document it. This sizes a production capture change, and that change is the
+operator's decision, not yours.
+
+*(Scope note: the standing "no paid API" rule is about **weather** providers. The exchange's own API
+is a different question — but you are still documenting, not calling.)*
 
 ## 5. What would falsify this mission
 
-- **`f` is high (≳0.5) across markets.** Then market-centred making is a donation too, and the MM
-  track needs a different strategy or a different venue. **Report it plainly** — it is the most
-  valuable answer available, because it would close the last open route.
-- **The tape cannot support the estimate.** Then the deliverable is a precise statement of what is
-  missing and what capture change would fix it, which directly sizes the production work.
-- **`A` is small but `f` is high, or vice versa.** Report the joint result; the break-even depends on
-  `f x max(A - e, 0)`, so neither alone decides it.
+- **Executions are not separable from cancellations.** Most likely outcome. **Report it plainly** —
+  it means `f` is unobtainable without a capture change, which is itself the decision-relevant
+  answer and sizes P1's importance.
+- **They are separable but the inferred rate is far too low or too noisy** to support a markout.
+- **`f` comes out high (≳0.5).** Then market-centred making is also a donation, which closes the
+  last open route. That is the most valuable answer available, so do not soften it.
 
-## 6. Boundaries
+## 6. Context you should not have to re-derive
+
+Two findings from `8e7b5732` remain live and bound anything you conclude:
+
+- **Reward qualification is arithmetically out of reach**: the 20-contract minimum needs **$19.60**
+  against a **$10** `max_band_notional` cap. So evaluate the **$0-reward** column of the break-even
+  grid as the realistic case unless the cap changes.
+- `-09-46a` found per-side size **absent** from the sealed book tape, so `rewardsMinSize`
+  eligibility cannot be checked from it. Aggregate liquidity is not a substitute.
+
+## 7. Boundaries
 
 `DELEGATION_CONTRACT.md` §2 in full. **Fit nothing, promote nothing, place no order, enable no live
-trading, make no provider call.** Do not write production `data/`, run the chain, settle a date, or
-restart anything — including the enrichment loop, which is a production decision already flagged to
-the operator. Do not weaken a gate or a known-defect fixture.
+trading, call no exchange or provider endpoint.** Do not write production `data/`, run the chain,
+settle a date, or restart anything — including the enrichment loop. Crossed date × market
+clustering; power before interpretation; never pool across `2026-07-31`.
 
-## 7. Branch and report
+## 8. Branch and report
 
-- Branch: `codex/workstation-measure-the-informed-flow-fraction-2026-09-47a`
-- Report: `docs/roadmap/agent-report-2026-08-10-workstation-informed-flow-fraction.md`
+- Branch: `codex/workstation-can-executions-be-reconstructed-2026-09-47a`
+- Report: `docs/roadmap/agent-report-2026-08-10-workstation-execution-reconstruction.md`
 
-Base on `origin/master`. Note `-09-46a` merges in the 01:00–04:00 quiet window; if your work needs
-its break-even grid, take it from the branch and say which you used. Per `DELEGATION_CONTRACT.md`
-§5, with production-host reproduction paths and a per-file roll verdict from
-`scripts\ops\roll_verdict.ps1 -Branch <branch>` — **never hand-derived.** If you register a schema,
-expect exit 3: that is what made both `-09-46a` and the countability post-mortem roll-sensitive.
+Base on `origin/master`. Per `DELEGATION_CONTRACT.md` §5, with production-host reproduction paths and
+a per-file roll verdict from `scripts\ops\roll_verdict.ps1 -Branch <branch>` — **never
+hand-derived.** Registering a schema will make you roll-sensitive; that is expected.
 **Commit and push whenever you finish, at whatever hour.**

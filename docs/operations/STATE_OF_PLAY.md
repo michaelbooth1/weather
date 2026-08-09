@@ -130,12 +130,12 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
 - **But market-centred harvesting needs no model edge** (§1b.3): zero edge breaks even in **45.9%**
   of scenarios at $0 reward, **89.0%** at $1.00, and **79.4%** when the informed fraction is 0.10.
   **`f` is now the single most decisive unmeasured number in the project** — `-09-47a` measures it.
-- **TRADE CAPTURE HAS BEEN OFF SINCE 2026-07-27.** `f` needs trade events; those come from the
-  **`clob_enrichment` loop**, which is dormant with **no registered task**. 265 event dirs hold
-  historical `market_ws_events.csv`, so `f` is measurable on history but not going forward.
-  **`roll_verdict` has warned about this dormancy on every run for twelve days** — it reads
-  "cannot affect this verdict", which is true of the roll verdict and silent about capture.
-  **Restoring the loop is an operator decision, flagged, not yet taken.**
+- **WE HAVE NO EXECUTION TAPE, AND RE-ARMING THE ENRICHMENT LOOP WOULD NOT CREATE ONE.** Measured:
+  in 1,107,984 captured rows there are **904,325 `book`, 203,584 `price_change`, and 71
+  `last_trade_price`**. `f` is unmeasurable from it either way. Commit `8e7b5732` disarmed that loop
+  in July for exactly this ("would generate volume without producing evidence") plus a reward floor
+  of **$19.60 against a $10 cap**. **Do not re-arm it expecting `f`.** `-09-47a` now asks the prior
+  question: can executions be reconstructed from book deltas at all?
 - **Cite the stratum, always** (§1b.4). 1.4233x is **in-season**; we serve **out-of-season**, where
   it is **1.526x–1.542x** and worse.
 - **Disk: ~12 days headroom** (137.8 GB free). The **taker is PAUSED** (operator, 2026-08-07);

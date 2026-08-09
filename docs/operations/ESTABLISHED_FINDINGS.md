@@ -190,18 +190,45 @@ Trade events come from the **separate `clob_enrichment` loop**, and:
 | Newest `market_ws_events.csv` | **2026-07-27 09:51** |
 | Registered scheduled task | **NONE** |
 | Its status file | `include_ws_events: True` — configured, simply not running |
-| Event dirs that DO hold trade events | **265** |
+| Event dirs holding a `market_ws_events.csv` | 265 |
+| **Executions in those files** | **essentially none — see below** |
 
-So the decisive number for the whole MM track is unmeasurable *going forward* because the loop that
-captures its input is dormant — but **it is measurable on history**, and 265 event-dirs is ample.
-`blocks_raw_book_capture: False` and `counts_toward_raw_book_freshness: False`, so restoring it
-cannot threaten the latency-critical loop or the streak.
+### THE TAPE CONTAINS NO EXECUTIONS — measured 2026-08-08, and it was already known
 
-**The lesson is about the warning, not the loop.** `scripts\ops\roll_verdict.ps1` prints
-`WARN dormant closure clob_enrichment (NNNh old) is SUBSUMED … cannot affect this verdict` on every
-invocation. That sentence is true **about the roll verdict** and says nothing about whether the data
-is being captured. It was read as a footnote for twelve days. **A warning scoped to one question is
-not evidence about another.**
+**Across a 60-file, 1,107,984-row sample of the captured tape:**
+
+| `event_type` | Rows | Share |
+| --- | ---: | ---: |
+| `book` | 904,325 | 81.6% |
+| `price_change` | 203,584 | 18.4% |
+| **`last_trade_price`** | **71** | **0.006%** |
+| `tick_size_change` | 3 | — |
+
+**Seventy-one executions in 1.1 million rows. `f` is NOT measurable from this tape**, historically
+or going forward, and **re-arming the enrichment loop would not change that** — it would capture
+more book and `price_change` rows and essentially no trades.
+
+**This was already established and written down.** Commit `8e7b5732`
+("*disarm the enrichment loop — its justification did not survive review*", 2026-07-27) disarmed it
+deliberately on two grounds, both still live:
+
+1. **The reward-size floor exceeds the position cap.** Qualifying for the 20-contract minimum needs
+   **$19.60** against a **$10** `max_band_notional`; even the limiting positive-score quote needs
+   **>$18.20**. Reward qualification is arithmetically out of reach at the current cap.
+2. **The tape is not safely scoreable** — the scorer admits `price_change` rows, duplicates raw and
+   CSV messages, and loses execution identity and exchange time. *"Enabling the loop would have
+   generated volume without producing evidence."* Cost was ~17% duty cycle and hundreds of MB/day.
+
+**What `-09-46a` P1 does change** is ground 1's *conclusion*, not its arithmetic: zero model edge
+breaks even in 45.94% of scenarios at **$0** reward, so spread capture without reward qualification
+is a live route the July review did not price. Ground 2 is untouched and is the binding blocker.
+
+**Two lessons, and the second is mine.** The `roll_verdict` line
+`WARN dormant closure clob_enrichment … cannot affect this verdict` is true *about the roll verdict*
+and silent about capture; it read as a footnote for twelve days. And: **I confirmed the schema had
+trade columns and that 265 files existed, and commissioned a mission without opening one.** A schema
+is not data and a file count is not content — the same failure as [[a-grep-is-not-a-trace]], one
+level up.
 
 ### 4. We evaluate in-season and SERVE out-of-season
 
