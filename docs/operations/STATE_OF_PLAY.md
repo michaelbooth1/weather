@@ -84,7 +84,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-45a` | maker daily-start race — the capture killer | **MERGED 17:57 today.** Tomorrow's 08:15 report is the first clean read |
 | `-09-47a` | **RETURNED — NO-GO, executions are not reconstructable** | ROLL-FREE verified here; **QUEUED 05:15**. `A`/`f` unidentified; only forward capture remains (§8c) |
 | `-09-48a` | **RETURNED — NO-GO: no model-independent quoting route exists** | ROLL-FREE verified here; **QUEUED 05:15**. Falsified my map hypothesis; §8bb + a second operator decision in §8c |
-| `-09-35a` | **rotate snapshot + observation-trigger logs** | written, **NOT dispatched — top ops item** |
+| `-09-35a` | **RETURNED — sidecar rotation + breaker decoupling** | ROLL-SENSITIVE (6 importable, all 3 closures) verified here. **NOT yet queued — heavy verification owed after 18:00** |
+| `-09-49a` | **close both `-09-43a` follow-ups BEFORE the retrain** | **DISPATCHED**. F-market pressure is a training-side train/serve skew the retrain would inherit |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
