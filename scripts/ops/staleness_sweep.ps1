@@ -256,16 +256,45 @@ if (Test-Path -LiteralPath $settleRoot) {
 }
 
 # ---- 7. log rotation (bounded: known dirs only, never a recursive data/ walk) ----
+#
+# 2026-08-09: this check listed ALREADY-ROTATED files as "unrotated", so after a rotation the one
+# signal that matters -- a LIVE file still growing -- sat buried among five dead archives, and the
+# warning could never go green. A warning that never goes green is one nobody reads.
+#
+# The split is not cosmetic, because the two have different failure modes:
+#   LIVE .jsonl   - written by append_jsonl, which REOPENS the file on every append. That reopen is
+#                   what raised PermissionError on a 625 MB diagnostics.jsonl on 2026-08-09 and
+#                   killed the snapshot capture loop for 5h54m. THIS is the crash risk.
+#   LIVE .log     - a console redirect whose handle is opened once at process start and held, so it
+#                   has no reopen to fail. Large is a DISK problem here, not a crash problem.
+#   ROTATED       - nothing appends to it. Never a crash risk; only cold-storage candidates.
+$rotatedPattern = '\.\d{8}T\d+Z\.'
+$rotatedMb = 0.0
+$rotatedCount = 0
 foreach ($dir in @("data\snapshots", "data\logs", "data\alerts")) {
     $full = Join-Path $repo $dir
     if (-not (Test-Path -LiteralPath $full)) { continue }
     foreach ($f in @(Get-ChildItem -LiteralPath $full -File -Include *.log, *.jsonl -ErrorAction SilentlyContinue)) {
         $mb = $f.Length / 1MB
-        if ($mb -gt 256) {
-            Add-Finding "logs/unrotated" "WARN" ("{0} is {1:N0} MB" -f $f.Name, $mb) `
-                "an unrotated 489 MB clob_diagnostics.jsonl was the write that crash-looped the CLOB loop on 2026-07-12" $null $null
+        if ($mb -le 256) { continue }
+        if ($f.Name -match $rotatedPattern) {
+            $rotatedMb += $mb
+            $rotatedCount++
+            continue
+        }
+        if ($f.Extension -eq ".jsonl") {
+            Add-Finding "logs/live_append_oversized" "CRITICAL" ("{0} is {1:N0} MB and is APPENDED TO" -f $f.Name, $mb) `
+                "append_jsonl reopens the file every write; that reopen failed on a 625 MB diagnostics.jsonl and killed capture for 5h54m on 2026-08-09 -- rotate it" $mb 256
+        }
+        else {
+            Add-Finding "logs/live_console_oversized" "WARN" ("{0} is {1:N0} MB" -f $f.Name, $mb) `
+                "a console redirect holds one handle so it cannot fail on reopen; this is disk cost, not a crash risk, and rotating it needs a loop restart" $mb 256
         }
     }
+}
+if ($rotatedCount -gt 0) {
+    Add-Finding "logs/cold_storage_eligible" "WARN" ("{0} rotated file(s), {1:N0} MB total" -f $rotatedCount, $rotatedMb) `
+        "already rotated, so nothing appends to them and they cannot crash a loop -- they are pure disk and are the safe thing to move to cold storage first" $rotatedMb $null
 }
 
 # ---- 8. unreachable operations docs ----

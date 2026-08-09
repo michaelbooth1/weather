@@ -34,6 +34,72 @@ whose failure costs a streak day — the project's #1 operational objective.
 
 Found by `scripts\ops\staleness_sweep.ps1`, which is new; nothing had been watching these.
 
+## 2b. UPDATE 2026-08-09 — IT HAPPENED. This is no longer a predicted risk.
+
+**Three days after this handoff was written, the exact failure it predicted took the snapshot
+capture loop down for 5 hours 54 minutes** (04:32 → 10:26), on the file it named:
+
+```
+PermissionError: [Errno 13] Permission denied:
+  data\snapshots\diagnostics.jsonl          <- 625 MB
+  ... in append_jsonl:  with path.open("a", encoding="utf-8") as handle:
+```
+
+It then compounded: the supervisor retried, hit the same oversized file each time, **exhausted its
+6/6 restart budget and opened the circuit.** The budget window is 24 h, so **it would not have
+self-healed until ~04:31 the next day.** It was found only because a merge driver refused to push
+onto a host whose capture heartbeat had not advanced. Today's streak day survived only because the
+outage fell entirely before the 12:00 graded window.
+
+**Three things this teaches that change the design:**
+
+1. **The crash mode is REOPENING a large file, not writing to one.** `append_jsonl` does
+   `with path.open("a")` on **every** append. A console redirect opens its handle once at process
+   start and holds it, so it has no reopen to fail. **Therefore: `.jsonl` sidecars are the crash
+   risk and must rotate first; oversized `.log` console files are a disk cost, not a crash cost.**
+   Size alone is the wrong priority signal — `observation_trigger_console.log` is the *largest*
+   file at 1,047 MB and the *least* dangerous.
+2. **The failure was transient, which is why it is so dangerous.** When inspected hours later the
+   file was not locked and had normal attributes. A scanner holding a 625 MB file during one append
+   is enough. **You cannot reproduce this on demand; do not design a test that requires reproducing
+   it.** Test the rotation, not the crash.
+3. **A NEW DEFECT, and it must be fixed in this same change** — see §4b.
+
+## 4b. The restart circuit breaker's state lives in the file you are about to rotate
+
+`supervisor.py` derives the breaker from **`recent_recovery_events(spec.diagnostics_path, ...)`**
+over a rolling `restart_budget_window_hours`. The diagnostics sidecar is therefore **both a log and
+the safety state.**
+
+When the production agent rotated `diagnostics.jsonl` to clear the outage, the breaker's memory went
+with it — the count fell to zero and the circuit closed. **That was convenient exactly once, because
+the root cause had just been fixed by hand. As an automatic behaviour it is dangerous: a loop that
+crash-loops fast enough to grow its own diagnostics past the rotation threshold would rotate away
+the evidence of its own crash-looping and reset the breaker that exists to stop it.**
+
+**Requirement: rotation must not clear restart-budget state.** Either read recovery events across
+the live file *and* its rotated siblings within the window, or persist the breaker count outside the
+rotated file. **State this explicitly in the report with a test that proves a rotation does not
+reset the budget.** Do not treat it as incidental.
+
+## 2c. Current sizes, and what production already did by hand
+
+Manually rotated on 2026-08-09 (renamed, nothing deleted), so **the live crash risk is currently
+zero and nothing prevents regrowth**:
+
+| File | Was | Now |
+| --- | ---: | --- |
+| `diagnostics.jsonl` | 625 MB | rotated; live file recreated small |
+| `observation_triggers.jsonl` | 753 MB | rotated; live file recreated on next event |
+| `loop_console.log` | 366 MB | **still live** — console, disk cost only |
+| `observation_trigger_console.log` | 1,047 MB | **still live** — console, disk cost only |
+| 4 rotated archives | — | **2,372 MB**, cold-storage candidates, no crash risk |
+
+`staleness_sweep.ps1` now separates these three classes: `logs/live_append_oversized` is
+**CRITICAL** (crash risk), `logs/live_console_oversized` is WARN (disk), and
+`logs/cold_storage_eligible` aggregates the archives. **Keep those three names working** — if your
+change alters where or how sidecars are named, update that check in the same branch.
+
 ## 3. Start from this — do not re-derive it
 
 - The working reference implementation is **`rotate_clob_sidecar` in

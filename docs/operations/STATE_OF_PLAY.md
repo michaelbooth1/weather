@@ -91,9 +91,13 @@ Merges run off allowlists, **not** auto-discovery — some branches are held del
 
 ## Open and unowned → [OPEN_BACKLOG.md](OPEN_BACKLOG.md)
 
-Split out 2026-08-08; this page was 71 lines over cap **because it was carrying that list**. Rank 1
-is **log rotation** — `observation_trigger_console.log` is **1,045 MB** and an unrotated 489 MB file
-crash-looped the CLOB loop on 2026-07-12. `-09-35a` is written and undispatched.
+**Rank 1 stopped being a risk and became an incident on 2026-08-09: log rotation cost 5 h 54 m of
+capture** (04:32 → 10:26). `PermissionError` reopening a 625 MB `diagnostics.jsonl` killed the
+snapshot loop; the supervisor then burned its 6/6 restart budget and opened the circuit, which would
+not have self-healed for 24 h. Hand-rotated, so **live crash risk is zero and regrowth is
+unprevented**. Two design findings in `-09-35a`: the crash mode is **reopening** a big file (so
+`.jsonl` is the danger, held-open `.log` consoles are only disk), and **the circuit breaker reads the
+file being rotated**, so rotation must not clear safety state.
 
 Two things are *happening* rather than merely owed, so they stay here:
 

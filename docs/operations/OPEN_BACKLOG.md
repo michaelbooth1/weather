@@ -13,7 +13,23 @@ correctness debt. Remove an entry when it lands — do not mark it done and leav
 
 ---
 
-## 1. Log rotation — the top uncontrolled streak risk
+## 1. Log rotation — NO LONGER A RISK, IT HAPPENED (2026-08-09)
+
+**It cost 5 h 54 m of capture** (04:32 → 10:26). `PermissionError` reopening a **625 MB**
+`diagnostics.jsonl` in `append_jsonl` killed the snapshot loop; the supervisor then burned its 6/6
+restart budget on the same file and opened the circuit, which would **not** have self-healed for
+24 h. Found only because a merge driver refused to push onto a host whose heartbeat had not
+advanced. Today's streak day survived only because it fell before the 12:00 graded window.
+
+Production hand-rotated `diagnostics.jsonl` and `observation_triggers.jsonl`, so **the live crash
+risk is currently zero and nothing prevents regrowth.** `-09-35a` carries the full spec plus two
+findings that change the design: **the crash mode is *reopening* a large file** (so `.jsonl`
+sidecars are the danger and held-open `.log` consoles are only disk), and **the restart circuit
+breaker reads the same file being rotated**, so rotation must not clear safety state.
+
+**Below is the pre-incident entry, kept because it sized the risk correctly and was ignored.**
+
+## 1b. Log rotation — the top uncontrolled streak risk (as filed 2026-08-08)
 
 | File (`data/snapshots/`) | Size | Growing |
 | --- | ---: | --- |
