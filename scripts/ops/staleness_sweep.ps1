@@ -162,24 +162,60 @@ if (Test-Path -LiteralPath $hgb) {
 # ---- 4. does the forecast archive cover what we would train for TODAY? ----
 # The defect that hid for five weeks: fleet-coverage reported OK 12/12 against an archive
 # holding zero rows for the target window, because it never asked about date relevance.
+#
+# TWO manifest shapes. -09-33a (inside the -09-43a stack) replaces the fixed `season_window`
+# with a target-derived `target_window`, so this check has to read both -- and, crucially, must
+# NOT fall silent when it recognises neither. The original version was `if ($m.season_window)`
+# with a bare `catch {}`: once the key was renamed, a CRITICAL that had been firing daily would
+# simply stop appearing, and the disappearance reads exactly like a fix. That is the same defect
+# this whole script exists to catch, one level up -- see the file header.
 $manifest = Join-Path $repo "data\forecast_history\cyyz\manifest.json"
 if (Test-Path -LiteralPath $manifest) {
+    $why = "a target outside the archive window gets ZERO training rows; this is what blocked the first retrain at 0/12,600 cells (the-season-window-blocks-the-retrain.md)"
+    $today = $now.Date
+    $resolved = $false
     try {
         $m = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
-        if ($m.season_window) {
+
+        if ($m.target_window -and $m.target_window.target_date) {
+            # Target-derived shape: the archive was fetched for ONE declared target, covering
+            # target +/- archive_radius_days in each year. Ask whether today still falls in it.
+            $resolved = $true
+            $tgt = [datetime]::ParseExact([string]$m.target_window.target_date, "yyyy-MM-dd", $null)
+            $radius = [int]$m.target_window.archive_radius_days
+            # .Date matters: Get-Date carries the CURRENT clock time, which makes the drift
+            # fractional and biases it DOWN by up to a day -- a target one day outside the
+            # radius would read as inside. Compare midnight to midnight.
+            $anchor = (Get-Date -Year $today.Year -Month $tgt.Month -Day $tgt.Day).Date
+            $drift = [Math]::Abs(($today - $anchor).TotalDays)
+            $covers = ($drift -le $radius)
+            $sev = if ($covers) { "OK" } elseif ($drift -le ($radius * 2)) { "WARN" } else { "CRITICAL" }
+            Add-Finding "archive/target_relevance" $sev `
+                ("archive was fetched for target {0:yyyy-MM-dd} +/-{1}d; today {2:MM-dd} is {3:N0}d off that anchor and is {4}" -f $tgt, $radius, $today, $drift, $(if ($covers) { "inside" } else { "OUTSIDE" })) `
+                $why $drift $radius
+        }
+        elseif ($m.season_window) {
+            # Legacy fixed-season shape.
+            $resolved = $true
             $s = $m.season_window.start; $e = $m.season_window.end
-            $today = $now.Date
             $winStart = Get-Date -Year $today.Year -Month $s[0] -Day $s[1]
             $winEnd = Get-Date -Year $today.Year -Month $e[0] -Day $e[1]
             $covers = ($today -ge $winStart -and $today -le $winEnd)
             $sev = if ($covers) { "OK" } else { "CRITICAL" }
             Add-Finding "archive/season_relevance" $sev `
                 ("archive season is {0:00}-{1:00} to {2:00}-{3:00}; today {4:MM-dd} is {5}" -f $s[0], $s[1], $e[0], $e[1], $today, $(if ($covers) { "inside" } else { "OUTSIDE" })) `
-                "a target outside the archive season gets ZERO training rows; this is why the first retrain blocks at 0/12,600 cells" `
-                $null $null
+                $why $null $null
         }
     }
-    catch {}
+    catch {
+        $resolved = $false
+    }
+    if (-not $resolved) {
+        Add-Finding "archive/window_unreadable" "CRITICAL" `
+            "manifest.json declares neither target_window.target_date nor season_window - archive coverage CANNOT be evaluated" `
+            "this check went silent rather than green; an unreadable window is not a covered window, and the silence would be mistaken for a fix" `
+            $null $null
+    }
 }
 
 # ---- 5. git: the traps that silently abort merges ----
