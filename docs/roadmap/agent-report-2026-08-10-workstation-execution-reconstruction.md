@@ -306,7 +306,8 @@ Re-derive the branch roll verdict; do not infer it from file suffixes:
 
 Branch: `codex/workstation-can-executions-be-reconstructed-2026-09-47a`
 
-Base: `origin/master` at `5cf08abac4ea30f153e34e5d24bee626efecf64f`
+Initial base: `origin/master` at `5cf08abac4ea30f153e34e5d24bee626efecf64f`; the published
+branch was caught up through `96747d66a96fa640a4d00344d3e36d37994c3723` before final handback.
 
 Result commit: `b90f4b263dd3403294aef2a63532fbc7f9bf7f4d`.
 
@@ -323,4 +324,5 @@ is changed.
 
 What was **not** done: no exchange or provider endpoint call; no model fit; no candidate or
 promotion; no order; no live-trading enablement; no registration; no production `data/` write; no
-chain run; no settlement; no loop start or restart; no gate or fixture change; no merge.
+chain run; no settlement; no loop start or restart; no gate or fixture change; no merge into
+`master`.
