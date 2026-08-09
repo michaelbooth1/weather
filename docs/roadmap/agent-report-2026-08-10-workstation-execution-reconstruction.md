@@ -308,11 +308,18 @@ Branch: `codex/workstation-can-executions-be-reconstructed-2026-09-47a`
 
 Base: `origin/master` at `5cf08abac4ea30f153e34e5d24bee626efecf64f`
 
-Result commit: **to be bound after the first commit**.
+Result commit: `b90f4b263dd3403294aef2a63532fbc7f9bf7f4d`.
 
-Per-file roll verdict will be bound from `scripts\ops\roll_verdict.ps1` after the report commit. The
-only intended changed file is this dated Markdown report; no source, schema, config, or scheduled
-script is changed.
+Repository-owned roll verdict: **`ROLL-FREE` (exit 0)**. The script reported one changed file and
+zero importable files. Per-file verdict:
+
+| Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `docs/roadmap/agent-report-2026-08-10-workstation-execution-reconstruction.md` | no | no | no | no | roll-free |
+
+The script also reported that the dormant CLOB-enrichment closure is a strict subset of the live
+closures, so its dormancy cannot change this verdict. No source, schema, config, or scheduled script
+is changed.
 
 What was **not** done: no exchange or provider endpoint call; no model fit; no candidate or
 promotion; no order; no live-trading enablement; no registration; no production `data/` write; no
