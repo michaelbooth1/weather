@@ -634,6 +634,34 @@ root is absent or completely empty."*
 > retrain, and the retrain requires a release-shaped parent *first*. **This is why the retrain has
 > never run, and no amount of archive work would have revealed it.**
 
+### RESOLVED 2026-08-09 by `-09-51a`: it is a CODE contradiction, not a decision
+
+**There is no supported path on current master from an empty release store to the first base
+retrain.** Three mutually reinforcing reasons, of which I verified 1 and 3 directly:
+
+1. The nightly bootstrap builds a **production-capable** release, but `load_parent_contract`
+   **raises** unless the parent is `RESEARCH_ONLY_CANDIDATE_MODE`.
+2. The **research-only** bootstrap requires complete corpus lineage **or** an existing verified
+   release. Production has neither.
+3. **The nightly plan runs `base_retrain` BEFORE candidate release construction** —
+   `all_market_base_retrain` is appended as a plan step at `nightly_retrain.py:1327`, while
+   `run_candidate_release_step` is only reached at `:2588`. **The circularity is in the code.**
+
+> **AND THE DEFERRAL IS NOT THE OBSTACLE.** Creating the research parent would freeze **research
+> scaffolding only** — it does **not** commit the deferred production Release #1 and does **not**
+> start its confirmation window. So `release-one-deferred-until-a-retrained-candidate.md` **stands
+> and is simply not in the way.** Nobody needs to relitigate it.
+
+A scratch-root rehearsal proved the **downstream** research-parent mechanism works once a parent
+exists. **So the gap is confined to CREATING one**, and the fix is engineering with a known target,
+not a judgement call.
+
+**Before anyone builds it:** the held branch `codex/workstation-research-2026-07-22` (3 commits,
+2026-07-22) already rewrites **exactly** these files — `release_bootstrap.py` (+144),
+`nightly_retrain.py` (+285), `release_candidate_contract.py` (+332), plus
+`test_release_bootstrap.py`. **It was held "do not merge pre-lock", and that hold has been
+indefinite since Release #1 was deferred.** Audit it against this gap **before** writing new code.
+
 ## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
 
 Measured 2026-08-06. Canonical:
