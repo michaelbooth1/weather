@@ -94,7 +94,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-51a` | **RETURNED — NO supported path from an empty store to the first retrain** | ROLL-FREE verified here; **QUEUED 05:15**. A CODE contradiction, not a decision — §4a-bis. The Release #1 deferral is **not** the obstacle |
 | `-09-52a` | **RETURNED — the held branch closes NONE of the three causes** | ROLL-FREE verified; **QUEUED 05:15**. It does not contain `base_retrain.py` at all. Stays held for **substantive** serving/migration risk, not calendar |
 | `-09-53a` | **RETURNED — CIRCULARITY BROKEN. `base_retrain` reached preflight for the first time ever** | ROLL-FREE verified; **QUEUED 05:15**. Contract generalized, not relaxed — checked line by line |
-| `-09-54a` | **produce the official base + PIT corpus manifests** — the 5th blocker | **DISPATCHED**. Told not to hand-author a manifest and not to weaken the PIT verifier |
+| `-09-54a` | **RETURNED — 6th blocker: the base corpus manifest has NO PRODUCER** | ROLL-FREE verified; **QUEUED 05:15**. Registered + consumed, never written. PIT staging 0/60 |
+| `-09-55a` | **write the producer, and trace the 21-field endpoint claim** | **DISPATCHED**. Our archive holds 461 days of those 21 fields from the *other* endpoint — routing defect or real wall? |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
