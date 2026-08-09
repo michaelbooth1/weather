@@ -222,7 +222,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   -Branch codex/workstation-produce-the-corpus-manifests-2026-09-54a
 ```
 
-Result: recorded after the evidence/report commit.
+Result: **ROLL-FREE**. The command reported 9 changed files and 0 importable
+files across the snapshot, CLOB, and observation-trigger closures; the dormant
+`clob_enrichment` closure was mechanically subsumed. Eight of the nine files
+are roll-free documentation already present between this host's stale local
+`master` (`eef90756`) and the required `origin/master` base (`22a6861b`). The
+actual branch diff against `origin/master` is the single report below.
 
 | Changed file | Live closures | Verdict |
 | --- | --- | --- |
@@ -246,5 +251,6 @@ Result: recorded after the evidence/report commit.
 
 ## Commit
 
-- Evidence/report commit: recorded after commit creation.
+- Evidence/report commit:
+  `02476a975d79c179cee50a552461876d15759146`.
 - Final metadata commit: the pushed branch head is authoritative.
