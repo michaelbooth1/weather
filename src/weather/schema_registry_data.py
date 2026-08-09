@@ -2081,6 +2081,13 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "first_retrain_station_day_exclusions_v1",
+        "weather.operations.base_retrain",
+        "training_policy_id",
+        "First-retrain station-day exclusion policy identifier, not a "
+        "serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "predict_residual_distribution_v1",
         "weather.model_stage_retirement",
         "function_identifier",

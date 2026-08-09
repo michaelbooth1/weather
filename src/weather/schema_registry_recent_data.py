@@ -7,6 +7,14 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "severe_tail_ex_ante_casebook",
+        "severe_tail_ex_ante_casebook_v0.1",
+        "weather.reporting.casebooks.severe_tail_ex_ante",
+        "active",
+        "Ex-ante severe-tail identifiability casebook, stratified on the "
+        "2026-07-31 artifact provenance anchor.",
+    ),
+    SchemaSpec(
         "blind_feature_repair_replay",
         "blind_feature_repair_replay_v0.1",
         "weather.reporting.research.blind_feature_repair",
