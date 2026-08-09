@@ -83,7 +83,7 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-44a` / `-09-46a` | **RETURNED** — gap unmoved; no quotable edge anywhere | **QUEUED 01:20** |
 | `-09-45a` | maker daily-start race — the capture killer | **MERGED 17:57 today.** Tomorrow's 08:15 report is the first clean read |
 | `-09-47a` | **RETURNED — NO-GO, executions are not reconstructable** | ROLL-FREE verified here; **QUEUED 05:15**. `A`/`f` unidentified; only forward capture remains (§8c) |
-| `-09-48a` | **the maker has NEVER quoted — 100% `NO_QUOTE`, dominant reason `KNOWN_EDGE_PERMISSION`** | **DISPATCHED**. Outranks `STALE_INPUT` ~3:1, so freshness may not be the real MM blocker |
+| `-09-48a` | **RETURNED — NO-GO: no model-independent quoting route exists** | ROLL-FREE verified here; **QUEUED 05:15**. Falsified my map hypothesis; §8bb + a second operator decision in §8c |
 | `-09-35a` | **rotate snapshot + observation-trigger logs** | written, **NOT dispatched — top ops item** |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
@@ -100,11 +100,16 @@ Two things are *happening* rather than merely owed, so they stay here:
 - **Settlement backfill 08-05 → 08-07**, one per morning; `WeatherSettlementBackfill20260805` armed
   08-10 05:30. **`-Refetch` is mandatory** or it fetches nothing and exits 0
   ([runbook](wu-settlement-source-down-2026-08-07.md)).
-- **THE MAKER HAS NEVER PLACED A QUOTE.** 100% `NO_QUOTE` on 08-06 (34,452 rows), 08-07 and 08-08,
-  in-window runs included; dominant reason **`KNOWN_EDGE_PERMISSION`** (70/83/91%), which outranks
-  `STALE_INPUT` about 3:1. **So "freshness is the MM blocker" is now in doubt** — the countability
-  blockers (`model_freshness` 52 of 55 days, `clob_freshness` 52) govern whether a day *counts*, a
-  different layer from whether a quote is *emitted*. `-09-48a` is measuring which binds.
+- **THE MAKER CANNOT QUOTE MARKET-CENTRED AT ALL** (`-09-48a`, §8bb): 554,004 post-boundary rows,
+  **zero `QUOTE`**. **My "the map is incomplete" guess was wrong** — the map matched **100%** of
+  rows; the records say `no_quote` with reason `promotion_block`. Replay: lift the map → all
+  blocked by promotion; grant promotion *and* harvest → **the harvest branch still requires model
+  fair value**, so removing it gives zero quotes again. **The one strategy `-09-46a` left open is
+  not implementable in the current code.** Deliberate architecture, **not a defect** — do not
+  "fix" it by deleting the map or relabelling promotion.
+- **AND A COUNTABLE DAY NEVER MEANT A QUOTE.** The gate certifies input/evidence eligibility, not
+  trading; `fills.jsonl` was never written. **The 8-of-56 clock is a data-plane qualification
+  clock** — raising its yield moves the MM decision no closer. Do not cite it as trading evidence.
 - **AWAITING AN OPERATOR DECISION: start capturing the execution tape (§8c)** — the only remaining
   route to `f`. **Not** re-arming `clob_enrichment`: that loop was disarmed for producing book volume
   without evidence, and an execution-only tape is the opposite.

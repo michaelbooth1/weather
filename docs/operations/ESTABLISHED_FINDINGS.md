@@ -967,6 +967,15 @@ now reports it from the `preflight_remediation.json` every maker run already wri
 | Yield | **12.7%** |
 | **Last counted day** | **`2026-07-12`** — 27 days before measurement |
 
+> **AND THE CLOCK COUNTS THE WRONG THING — `-09-48a`, 2026-08-11.** The live-forward countability
+> gate **does not require a quote.** It certifies that each selected market's paper-evidence
+> preflight passed and that run-level useful work was live; `quote_permission_present_in_countable
+> _paper` is a *separate* readiness gate. Of the seven counted dates, six carry `QUOTE_HARVEST_MID`
+> intents (300 / 4,019 / 5 / 1 / 15 / 39 rows) and the last, **`2026-07-12`, had 1,848 rows and
+> ZERO quote permissions.** With `fills.jsonl` never written, **this is a data-plane qualification
+> clock, not evidence that market making ever ran.** Raising the yield does not, by itself, move the
+> MM decision one day closer. **Never again cite countable days as evidence a strategy traded.**
+
 Six of the seven counted days fall in `2026-06-17` → `2026-06-27`. **The clock is not slow, it is
 stopped**, and at this yield the 22–43 countable-day bar is never reached. **Do not plan MM against
 elapsed days.** An earlier `STATE_OF_PLAY` line claiming "first countable day in 42 scored 08-08,
@@ -995,6 +1004,49 @@ written on any of the 55 days.
 schedule.**
 
 ---
+
+## 8bb. THE MAKER CANNOT QUOTE MARKET-CENTRED AT ALL — `-09-48a`, 2026-08-11
+
+**Verdict NO-GO in the current configuration.** Across the post-boundary corpus — **554,004
+quote-intent rows, D=8 dates, M=12 markets, 96 cells, nothing pooled across `2026-07-31`** —
+**every row is `NO_QUOTE`. There are zero `QUOTE` rows.**
+
+### The production agent's hypothesis was WRONG, and the truth is worse
+
+I guessed the known-edge map was *incomplete* — missing records forcing `no_quote`, making a loaded
+map stricter than an absent one. **The map matched 100% of rows.** All **293,964**
+`KNOWN_EDGE_PERMISSION` rows had a **present** record whose permission was `no_quote` and whose
+reason was **`promotion_block`**; **zero** came from `missing_known_edge_record`.
+
+**Counterfactual replay on the real 2026-08-06 run settles it:**
+
+| Intervention | Result |
+| --- | --- |
+| Lift the map restriction only | all **26,928** policy-eligible rows → `NO_QUOTE_BLOCKED_PROMOTION`, **zero quotes** |
+| Grant promotion **and** `harvest_only` | harvest branch reachable on **2,386 / 26,928** rows |
+| …then remove the model fair value | **zero quotes** — 19,811 `NO_QUOTE_MISSING_FAIR`, 7,117 at the information-event gate |
+
+> **The harvest path itself requires model fair value.** So the one strategy `-09-46a` left open —
+> market-centred harvesting, which needs *no model edge* — **is not implementable in the current
+> code.** This is the binding fact about the MM track.
+
+### It is deliberate architecture, not a defect
+
+Precedence is: **preflight dominates failed inputs → a loaded `no_quote` record dominates policy →
+promotion `BLOCK` dominates `harvest_only` → and the surviving harvest branch still requires model
+probability, model age, and model-market disagreement.** The gate is internally consistent. **Do not
+call it a bug, and do not "fix" it by deleting the map, editing a record, or relabelling
+promotion** — the report shows each of those in isolation still yields zero quotes.
+
+### Do not over-read the reason mix
+
+`KNOWN_EDGE_PERMISSION` is 53.06% of rows, crossed 95% **[32.90%, 72.84%]**; `STALE_INPUT` 30.10%
+**[14.79%, 48.82%]**. **The mix is not stable** — known-edge's daily share spans **8.34% to
+76.87%**, and the first-half/second-half delta of +11.73 points carries **[−19.56, +44.81]** with
+power 0.104 and an 80%-power MDE of 48.36 points. **Indistinguishable from zero.** An earlier
+`STATE_OF_PLAY` line of mine reading "known-edge outranks stale ~3:1, so freshness may not be the
+blocker" was directionally right but **stated far more firmly than eight dates support** — and the
+reason label was never the binding constraint anyway.
 
 ## 8c. The MM decision now depends on a capture change, and that is a CLOCK
 
@@ -1046,6 +1098,32 @@ calendar days; plan it against captured execution-days.**
 **Enabling this is an operator decision** — it is a production capture change on the live host, and
 the standing "no paid API" rule is about **weather** providers, not the exchange's own public
 endpoints. Nothing here has been enabled.
+
+### The SECOND operator decision, from `-09-48a`: authorize a market-harvest lane?
+
+Independent of execution capture, and the only way to make §8bb's route reachable. **Designed, not
+implemented.** Deleting the map or relabelling promotion is explicitly *not* sufficient:
+
+1. A paper-only **`market_harvest` permission separate from model promotion**. Model `BLOCK` stays
+   fully effective for edge/skew quotes — **do not reinterpret promotion globally.**
+2. **A separate preflight profile.** It keeps active-event validation, CLOB token discovery,
+   book/features, book continuity and freshness, information-event pulls, watcher health, exchange
+   economics, post-only behaviour, and **every risk and notional cap**. It drops only
+   `snapshot_model_rows` / `model_freshness` — required today merely to quote the market mid.
+3. **Assemble inputs from event metadata + CLOB tokens/books/features**, not by iterating model
+   snapshot rows. Today, no snapshot rows means no policy rows at all.
+4. **A harvest branch entered *before* fair-value, model-age, overlay and disagreement logic.**
+   Price from book mid, tick, `harvest_half_spread=0.01`, `max_harvest_spread=0.08`; keep event,
+   spread, cadence, current-high and risk sizing gates; **record that no model probability
+   participated.**
+5. Keep shadow/paper mode, `live_trade_permission=false`, `$10 max_band_notional`, reward **$0**.
+
+**What one successful day would and would not prove.** Would: route reachability and operational
+mechanics — nonzero quote permissions, two-sided intended prices/sizes, lifecycle and post-only
+behaviour, uptime, gate exposure, and a paper markout column under a declared $0 reward. **Would
+NOT**: identify `A` or `f`, prove real fills, profitability, a unique break-even, reward
+eligibility, live readiness, model edge, or promotion — and one day is not a powered economic
+endpoint. **Forward execution capture (above) remains the only route to `f`.**
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
