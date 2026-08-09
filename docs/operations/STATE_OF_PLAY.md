@@ -80,7 +80,8 @@ and power live in §2 / §4 / §4d / §4e — **cite them from there, never from
 | `register-two-schema-literals` | last red test on master | based on `-09-43a`; **QUEUED 01:20, must merge after it** |
 | `-09-44a` | **RETURNED — the gap did not move** | report-only, 278 lines, **QUEUED 01:20 after `-09-43a`**. Roll-sensitive *only* by inherited base; roll-free once `-09-43a` lands |
 | `-09-45a` | **maker daily-start race — the capture killer** | MERGED roll-free. Ceiling 7–20 of 55, still under the 22-day bar |
-| `-09-46a` | **does a quotable edge exist anywhere?** | written, **next to dispatch — top model item** |
+| `-09-46a` | **RETURNED — no quotable edge exists, anywhere** | verified on this host; **QUEUED 01:20** (roll-sensitive only via a schema registration) |
+| `-09-47a` | **measure the informed-flow fraction `f`** | written, **next to dispatch — now the top item, model or otherwise** |
 | `-09-35a` | rotate snapshot + observation-trigger logs | written, NOT dispatched |
 
 Merges run daily off allowlists (**not** auto-discovery — some branches are held deliberately):
@@ -121,13 +122,20 @@ stale, and the market-beating scoreboard reads **BLOCK, `weather_only_model_proo
   and **the declared primary objective needs ~504 dates against the 50 we have**, so it cannot
   decide anything for over a year. The severe-tail endpoint needs ~4 and is the one thing we *can*
   power — and it is under a hold. **Choose objectives by measurability, not only relevance.**
-- **WE HAVE ONLY EVER MEASURED WHERE WE LOSE.** No analysis has asked whether a subset exists where
-  our distribution beats the market's. §4d named the omission and left it. `-09-46a` is dispatched
-  to answer it, and **its most likely honest answer is "no" — which redirects the programme to MM
-  economics rather than model work.**
-- **The promotion gate may be stricter than the economics require** (§1b.3). It demands early-hour
-  Brier within **0.0030** fleet-wide; the MM plan needs only edge **"in specific windows"**. Nobody
-  has computed what edge market making actually needs — `-09-46a` P1 does.
+- **THERE IS NOWHERE WE BEAT THE MARKET — ANSWERED 2026-08-09 (`-09-46a`, §1b.2).** 114 pre-declared
+  cells, **zero** with a positive point estimate; overall **−0.01915 [−0.02444, −0.01443]**.
+  **We match the market only where we already agree with it and lose everywhere we differ.**
+  **Model-skewed quoting is retired — do not commission work premised on finding a window where the
+  model wins.**
+- **But market-centred harvesting needs no model edge** (§1b.3): zero edge breaks even in **45.9%**
+  of scenarios at $0 reward, **89.0%** at $1.00, and **79.4%** when the informed fraction is 0.10.
+  **`f` is now the single most decisive unmeasured number in the project** — `-09-47a` measures it.
+- **TRADE CAPTURE HAS BEEN OFF SINCE 2026-07-27.** `f` needs trade events; those come from the
+  **`clob_enrichment` loop**, which is dormant with **no registered task**. 265 event dirs hold
+  historical `market_ws_events.csv`, so `f` is measurable on history but not going forward.
+  **`roll_verdict` has warned about this dormancy on every run for twelve days** — it reads
+  "cannot affect this verdict", which is true of the roll verdict and silent about capture.
+  **Restoring the loop is an operator decision, flagged, not yet taken.**
 - **Cite the stratum, always** (§1b.4). 1.4233x is **in-season**; we serve **out-of-season**, where
   it is **1.526x–1.542x** and worse.
 - **Disk: ~12 days headroom** (137.8 GB free). The **taker is PAUSED** (operator, 2026-08-07);

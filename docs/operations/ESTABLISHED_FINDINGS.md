@@ -114,15 +114,30 @@ uninterpretable**, which is exactly what the slice gate's 99.885% false-rejectio
 aspiration, not an objective. This does not make the 09:00–14:00 slice the wrong *target* — it
 makes it unusable as a *decision rule* until the corpus is ~10x larger.
 
-### 2. We have measured only where we LOSE, never where we WIN
+### 2. We have measured only where we LOSE — ANSWERED 2026-08-09: there is nowhere we win
 
-Every decomposition in this file is a loss decomposition: excess Brier, cool bias, severity tail,
-centre displacement. **No analysis has ever asked whether a conditional subset exists on which our
-distribution scores BETTER than the market's.** §4d names the hole in its own words — the flagged
-severe set "is exactly where our claimed edge is largest," and suppressing it "forfeits whatever
-upside lives there" — then records that the opportunity cost is unmeasured.
+Every decomposition in this file was a loss decomposition, and no analysis had asked whether a
+subset exists where we beat the market. `-09-46a` asked it. **The answer is no, everywhere.**
 
-For the end goal this is the only question that matters. See item 3.
+**114 non-empty pre-declared cells. ZERO with a positive point estimate.** `skill_candidate` is
+False on all 114. Overall edge **−0.01915, crossed 95% [−0.02444, −0.01443]**. No raw winner, so
+Holm adjustment never came into play. Positive control 840/840 exact. Edge range **−0.32289 to
+−0.00002**; the only two cells whose interval reaches zero do not cross it, and the least-negative
+sits at **D=3** date clusters with no support.
+
+**The structure is the finding: we match the market only where we already agree with it.** The
+least-negative cells are exactly the agreement cells — `signed_probability_gap −0.05..0.05` at
+−0.00015, and every `within_10pp` hour cell at −0.0003 to −0.0007. The worst cells are where we
+disagree most. **Where we copy the market we score like it; where we deviate we pay.** That is
+what "no information edge" looks like when it is measured rather than inferred.
+
+**Integrity of the null.** The pre-registration commit is the *first* on the branch and carries the
+full implementation and tests, four commits before any result — so the method was frozen before
+measurement. Note the guardrails were built to stop a false *positive*; a uniformly negative result
+is not that failure mode, and the tight overall interval says this is a precise null, not a blind one.
+
+**This retires model-skewed quoting as a strategy.** Do not commission further work premised on
+finding a window where the model beats the market. It was searched, exhaustively and honestly.
 
 ### 3. The promotion gate is stricter than the ECONOMICS require
 
@@ -132,10 +147,61 @@ For the end goal this is the only question that matters. See item 3.
 | `MARKET_MAKING_PLAN.md` Part 0 | *"with a model that is better-calibrated than the market **in specific windows**, quotes can be skewed so being filled is itself positive-EV"* |
 
 **These are not the same requirement.** A maker earns spread from uninformed flow and loses to
-informed flow; it needs edge *where it quotes*, not a fleet-wide aggregate. The gate is a project
-design choice, and a defensible one — but **nobody has computed what edge market making actually
-needs**, so nobody knows whether the gate is calibrated to the economics or merely strict.
-The plan says the open question is "what fraction is informed"; that is still unanswered.
+informed flow; it needs edge *where it quotes*, not a fleet-wide aggregate.
+
+**QUANTIFIED 2026-08-09 (`-09-46a` P1).** A 21,000-scenario declared sensitivity grid over adverse
+move `A`, informed-fill fraction `f`, spread capture, fill rate, price and reward:
+
+| Daily reward per band | Scenarios where **zero model edge** breaks even |
+| ---: | ---: |
+| $0 | **45.94%** |
+| $0.20 | **72.27%** |
+| $1.00 | **88.99%** |
+
+| Informed fraction `f` | Zero-edge share (no reward) |
+| ---: | ---: |
+| 0.10 | **79.43%** |
+| 0.50 | 42.29% |
+| 1.00 | **24.57%** |
+
+**So market-centred spread/rebate/reward harvesting is viable without any model edge across a wide
+range — and its viability is dominated by `f`, which is unmeasured.** This is a sensitivity bound,
+not a fitted flow model or a P&L claim: `A` and `f` are both unmeasured, so **no unique break-even
+may be quoted.** It does not rescue a model skew — §1b.2 is negative in every cell.
+
+**`f` is now the single most decisive unmeasured number in the project.**
+
+**A capture gap blocks the rest of it:** `rewardsMinSize` eligibility is **ABSENT** from the sealed
+tape, which has no contemporaneous per-side size. A valid best bid/ask exists on **51.41%** of rows
+and a book within the 4.5-cent window on **45.85%** — but whether our quote would have *qualified*
+for rewards cannot be answered from what we capture today. Aggregate liquidity is not a substitute.
+
+### AND TRADE CAPTURE HAS BEEN OFF SINCE 2026-07-27 — traced 2026-08-08
+
+`f` needs trade events. **The latency-critical CLOB loop is raw-book-only by design and refuses to
+capture them** (`_assert_raw_loop_contract` raises: *"the latency-critical CLOB loop is
+raw-book-only; run … enrichment-loop for price history, WebSocket events, and derived features"*).
+`DEFAULT_LOOP_INCLUDE_WS_EVENTS = False` is correct for that loop.
+
+Trade events come from the **separate `clob_enrichment` loop**, and:
+
+| | |
+| --- | --- |
+| Newest `market_ws_events.csv` | **2026-07-27 09:51** |
+| Registered scheduled task | **NONE** |
+| Its status file | `include_ws_events: True` — configured, simply not running |
+| Event dirs that DO hold trade events | **265** |
+
+So the decisive number for the whole MM track is unmeasurable *going forward* because the loop that
+captures its input is dormant — but **it is measurable on history**, and 265 event-dirs is ample.
+`blocks_raw_book_capture: False` and `counts_toward_raw_book_freshness: False`, so restoring it
+cannot threaten the latency-critical loop or the streak.
+
+**The lesson is about the warning, not the loop.** `scripts\ops\roll_verdict.ps1` prints
+`WARN dormant closure clob_enrichment (NNNh old) is SUBSUMED … cannot affect this verdict` on every
+invocation. That sentence is true **about the roll verdict** and says nothing about whether the data
+is being captured. It was read as a footnote for twelve days. **A warning scoped to one question is
+not evidence about another.**
 
 ### 4. We evaluate in-season and SERVE out-of-season
 
