@@ -107,6 +107,13 @@ TARGET_MODULES = [
     Path("src/weather/sources/wu_history.py"),
 ]
 
+MANAGED_LOOP_SIDECAR_POLICY_FUNCTIONS = {
+    Path("src/weather/collection/snapshot_tracker.py"):
+        "runtime_snapshot_sidecar_rotation_policy",
+    Path("src/weather/operations/observation_trigger.py"):
+        "runtime_observation_sidecar_rotation_policy",
+}
+
 
 def test_documented_python_module_targets_exist():
     documents = [Path("README.md"), *Path("docs/operations").rglob("*.md")]
@@ -122,6 +129,74 @@ def test_documented_python_module_targets_exist():
             missing.append(f"{document}: {module}")
 
     assert missing == []
+
+
+def _module_sidecar_path_assignments(tree):
+    assignments = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or not target.id.endswith("_PATH"):
+            continue
+        suffixes = {
+            Path(value.value).suffix
+            for value in ast.walk(node.value)
+            if isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and Path(value.value).suffix in {".jsonl", ".log"}
+        }
+        if suffixes:
+            assert len(suffixes) == 1
+            assignments[target.id] = suffixes.pop()
+    return assignments
+
+
+def _sidecar_policy_entries(tree, function_name):
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == function_name
+    ]
+    assert len(functions) == 1
+    returns = [node for node in ast.walk(functions[0]) if isinstance(node, ast.Return)]
+    assert len(returns) == 1 and isinstance(returns[0].value, ast.Dict)
+    entries = {}
+    for key, value in zip(returns[0].value.keys, returns[0].value.values):
+        assert isinstance(key, ast.Name)
+        assert isinstance(value, ast.Name)
+        entries[key.id] = value.id
+    return entries
+
+
+def test_managed_loop_sidecars_are_enumerated_by_rotation_policy():
+    """Adding another .jsonl/.log path must also declare how it rotates."""
+
+    for path, policy_function in MANAGED_LOOP_SIDECAR_POLICY_FUNCTIONS.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        assignments = _module_sidecar_path_assignments(tree)
+        policy = _sidecar_policy_entries(tree, policy_function)
+        expected = {
+            name: (
+                "ROTATE_BEFORE_APPEND"
+                if suffix == ".jsonl"
+                else "ROTATE_BEFORE_LAUNCH"
+            )
+            for name, suffix in assignments.items()
+        }
+        assert policy == expected
+
+    clob_tree = ast.parse(
+        Path("src/weather/market/market_microstructure.py").read_text(encoding="utf-8"),
+        filename="src/weather/market/market_microstructure.py",
+    )
+    assert _sidecar_policy_entries(
+        clob_tree,
+        "runtime_clob_sidecar_rotation_policy",
+    ) == {
+        "CLOB_DIAGNOSTICS_PATH": "ROTATE_BEFORE_APPEND",
+        "CLOB_LOOP_CONSOLE_LOG_PATH": "ROTATE_BEFORE_LAUNCH",
+    }
 POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_feature_assembly.py"),
     Path("src/weather/calibration/pooled_density_training.py"),

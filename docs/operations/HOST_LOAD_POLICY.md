@@ -210,9 +210,12 @@ Contributing factors worth fixing structurally:
 
 - At incident time, `clob_diagnostics.jsonl` (489 MB) and
   `clob_loop_console.log` (474 MB) grew without rotation; the crash was an
-  append to the former. Their active files now rotate at 64 MiB to timestamped
-  siblings without deleting prior rotations; console rotation occurs only at
-  managed loop startup, before Windows opens the new child handle.
+  append to the former. The CLOB, snapshot, and observation-trigger managed-loop
+  sidecars now share one 64 MiB policy: append-opened JSONL rotates before the
+  next append, and console logs rotate at managed-loop startup before Windows
+  opens the new child handle. Rotation renames to timestamped siblings and never
+  deletes prior archives. Supervisor restart-budget reads span retained
+  diagnostics siblings, so diagnostics rotation cannot clear breaker state.
 - 15.7 GB RAM is undersized for capture + any concurrent analysis. A RAM
   upgrade (32-64 GB) is the single best hardware improvement; a second
   physical disk for `data\` (separating tape writes from OS/pagefile) is the

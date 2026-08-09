@@ -159,6 +159,27 @@ def test_json_helpers_write_tolerantly_read_and_append_jsonl(tmp_path):
     assert weather_io.read_json(tmp_path / "missing.json", default={"missing": True}) == {"missing": True}
 
 
+def test_rotating_jsonl_uses_timestamped_collision_safe_siblings(tmp_path):
+    path = tmp_path / "diagnostics.jsonl"
+    now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+    path.write_text("legacy\n", encoding="utf-8")
+
+    weather_io.append_rotating_jsonl(path, {"event": "first"}, max_bytes=1, now=now)
+    weather_io.append_rotating_jsonl(path, {"event": "second"}, max_bytes=1, now=now)
+
+    rotated = weather_io.rotated_sidecar_paths(path)
+    assert {item.name for item in rotated} == {
+        "diagnostics.20260809T143000000000Z.jsonl",
+        "diagnostics.20260809T143000000000Z.1.jsonl",
+    }
+    by_name = {item.name: item for item in rotated}
+    assert by_name["diagnostics.20260809T143000000000Z.jsonl"].read_text(encoding="utf-8") == "legacy\n"
+    assert json.loads(
+        by_name["diagnostics.20260809T143000000000Z.1.jsonl"].read_text(encoding="utf-8")
+    )["event"] == "first"
+    assert json.loads(path.read_text(encoding="utf-8"))["event"] == "second"
+
+
 def test_jsonl_integrity_counts_malformed_lines(tmp_path):
     path = tmp_path / "loop_console.log"
     path.write_text('{"ok": true}\nnot-json\n{"ok": false}\n', encoding="utf-8")

@@ -315,6 +315,38 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertFalse(calls["stdout_closed_during_call"])
         self.assertTrue(calls["stderr_is_stdout"])
 
+    def test_start_loop_detached_rotates_all_sidecars_before_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            console_path = root / "loop_console.log"
+            diagnostics_path.write_text("legacy-diagnostics\n", encoding="utf-8")
+            console_path.write_text("legacy-console\n", encoding="utf-8")
+
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+                self.assertFalse(diagnostics_path.exists())
+                self.assertEqual(stdout.tell(), 0)
+                self.assertIs(stdout, stderr)
+                stdout.write("new-child-console\n")
+                stdout.flush()
+                return FakeProcess()
+
+            with patch.object(snapshot_tracker, "LOOP_STATUS_PATH", root / "loop_status.json"), \
+                    patch.object(snapshot_tracker, "DIAGNOSTICS_PATH", diagnostics_path), \
+                    patch.object(snapshot_tracker, "LOOP_CONSOLE_LOG_PATH", console_path), \
+                    patch.object(snapshot_tracker, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch("weather.io.DEFAULT_SIDECAR_ROTATE_BYTES", 1), \
+                    patch.object(snapshot_tracker.subprocess, "Popen", fake_popen):
+                result = snapshot_tracker.start_loop_detached(now=NOW)
+
+            rotated_diagnostics = list(root.glob("diagnostics.*.jsonl"))
+            rotated_console = list(root.glob("loop_console.*.log"))
+
+        self.assertTrue(result["started"])
+        self.assertEqual(len(rotated_diagnostics), 1)
+        self.assertEqual(len(rotated_console), 1)
+        self.assertEqual(len(result["sidecar_rotations"]), 2)
+
     def test_start_loop_detached_removes_dead_writer_lock_before_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

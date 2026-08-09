@@ -21,6 +21,7 @@ from weather.io import (
     file_lock_is_stale,
     read_json as io_read_json,
     release_writer_lock,
+    rotated_sidecar_paths,
     write_json_atomic,
     writer_lock_path,
 )
@@ -511,24 +512,14 @@ def _looks_like_recovery_event_line(line: str) -> bool:
     )
 
 
-def recent_recovery_events(
-    diagnostics_path: str | Path,
-    *,
-    now: datetime,
-    window_hours: float,
-) -> list[dict[str, Any]]:
-    diagnostics_path = Path(diagnostics_path)
-    if not diagnostics_path.exists():
+def _recovery_events_from_path(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
         return []
-    now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
-    window_start = now_utc - timedelta(hours=float(window_hours))
     events: list[dict[str, Any]] = []
-    with diagnostics_path.open("r", encoding="utf-8", errors="replace") as handle:
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line_number, raw in enumerate(handle, start=1):
             line = raw.strip()
-            if not line:
-                continue
-            if not _looks_like_recovery_event_line(line):
+            if not line or not _looks_like_recovery_event_line(line):
                 continue
             try:
                 event = json.loads(line)
@@ -537,10 +528,112 @@ def recent_recovery_events(
             if not isinstance(event, dict) or not _recovery_event(event):
                 continue
             event_time = _event_time(event)
-            if event_time is None or event_time < window_start:
+            if event_time is None:
                 continue
-            events.append({"line": line_number, "time": event_time, "event": event})
+            events.append({
+                "source_path": str(path),
+                "line": line_number,
+                "time": event_time,
+                "event": event,
+            })
     return events
+
+
+def recovery_history_cache_path(diagnostics_path: str | Path) -> Path:
+    """Return the small index that keeps rotated breaker history cheap to read."""
+
+    diagnostics_path = Path(diagnostics_path)
+    return diagnostics_path.with_name(
+        f"{diagnostics_path.stem}_restart_budget_history.json"
+    )
+
+
+def _cached_rotated_recovery_events(diagnostics_path: Path) -> list[dict[str, Any]]:
+    cache_path = recovery_history_cache_path(diagnostics_path)
+    payload = read_json_file(cache_path)
+    cached_events: list[dict[str, Any]] = []
+    indexed_paths: set[str] = set()
+    if (
+        isinstance(payload, dict)
+        and payload.get("format_version") == 1
+        and payload.get("diagnostics_path") == str(diagnostics_path)
+    ):
+        raw_indexed_paths = payload.get("indexed_rotated_paths")
+        if not isinstance(raw_indexed_paths, list):
+            raw_indexed_paths = []
+        indexed_paths = {
+            str(value)
+            for value in raw_indexed_paths
+            if value
+        }
+        raw_events = payload.get("events")
+        if not isinstance(raw_events, list):
+            raw_events = []
+        for row in raw_events:
+            if not isinstance(row, dict) or not isinstance(row.get("event"), dict):
+                continue
+            event_time = parse_iso_datetime(row.get("time"))
+            if event_time is None:
+                continue
+            try:
+                line_number = int(row.get("line") or 0)
+            except (TypeError, ValueError):
+                continue
+            cached_events.append({
+                "source_path": str(row.get("source_path") or ""),
+                "line": line_number,
+                "time": event_time.astimezone(timezone.utc),
+                "event": row["event"],
+            })
+
+    rotated_paths = rotated_sidecar_paths(diagnostics_path)
+    new_paths = [path for path in rotated_paths if str(path) not in indexed_paths]
+    if not new_paths:
+        return cached_events
+
+    for path in new_paths:
+        cached_events.extend(_recovery_events_from_path(path))
+        indexed_paths.add(str(path))
+    cache_payload = {
+        "format_version": 1,
+        "diagnostics_path": str(diagnostics_path),
+        "indexed_rotated_paths": sorted(indexed_paths),
+        "events": [
+            {
+                "source_path": row.get("source_path"),
+                "line": row.get("line"),
+                "time": row["time"].astimezone(timezone.utc).isoformat(),
+                "event": row["event"],
+            }
+            for row in cached_events
+        ],
+    }
+    try:
+        atomic_write_json(cache_path, cache_payload, trailing_newline=True)
+    except OSError:
+        # The index is an optimization, never the authority. If it cannot be
+        # written, the next guard safely re-reads the retained archives.
+        pass
+    return cached_events
+
+
+def recent_recovery_events(
+    diagnostics_path: str | Path,
+    *,
+    now: datetime,
+    window_hours: float,
+) -> list[dict[str, Any]]:
+    diagnostics_path = Path(diagnostics_path)
+    now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    window_start = now_utc - timedelta(hours=float(window_hours))
+    events = [
+        *_cached_rotated_recovery_events(diagnostics_path),
+        *_recovery_events_from_path(diagnostics_path),
+    ]
+    return sorted(
+        (row for row in events if row["time"] >= window_start),
+        key=lambda row: (row["time"], row.get("source_path") or "", row.get("line") or 0),
+    )
 
 
 def supervisor_recovery_guard(

@@ -28,6 +28,12 @@ from weather.forecast_payload_contracts import (
     deduplicate_fanout_coordinator_attributions,
     fanout_coordinator_attribution_totals,
 )
+from weather.io import (
+    ROTATE_BEFORE_APPEND,
+    ROTATE_BEFORE_LAUNCH,
+    append_rotating_jsonl,
+    rotate_sidecar_policy,
+)
 from weather.collection.forecast_payload_fetch_fanout import (
     fanout_from_environment,
 )
@@ -52,7 +58,6 @@ from weather.operations.supervisor import (
     managed_stop_expected_command,
     authorize_writer_lock_removal,
     age_minutes,
-    append_jsonl,
     acquire_writer_lock,
     attach_status_writer,
     atomic_write_json,
@@ -263,6 +268,13 @@ def runtime_supervisor_spec():
         pause_flag_path=PAUSE_FLAG_PATH,
         lock_path=SUPERVISOR_LOCK_PATH,
     )
+
+
+def runtime_snapshot_sidecar_rotation_policy():
+    return {
+        DIAGNOSTICS_PATH: ROTATE_BEFORE_APPEND,
+        LOOP_CONSOLE_LOG_PATH: ROTATE_BEFORE_LAUNCH,
+    }
 
 
 class SourceStatusContext:
@@ -533,7 +545,7 @@ def write_loop_status(status):
 
 
 def append_diagnostic(record):
-    return append_jsonl(DIAGNOSTICS_PATH, record)
+    return append_rotating_jsonl(DIAGNOSTICS_PATH, record)
 
 
 def _age_minutes(now, iso_value):
@@ -832,6 +844,10 @@ def start_loop_detached(interval_minutes=10.0, now=None):
             "writer_lock": lock_cleanup,
         })
         return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
+    sidecar_rotations = rotate_sidecar_policy(
+        runtime_snapshot_sidecar_rotation_policy(),
+        now=now,
+    )
     command = _snapshot_loop_command(interval_minutes)
     child = launch_detached(
         command,
@@ -855,8 +871,19 @@ def start_loop_detached(interval_minutes=10.0, now=None):
         "paused": PAUSE_FLAG_PATH.exists(),
         "started_by": "supervisor",
     })
-    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid, "writer_lock": lock_cleanup})
-    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
+    append_diagnostic({
+        "time": now.isoformat(),
+        "supervisor": "start",
+        "pid": child.pid,
+        "writer_lock": lock_cleanup,
+        "sidecar_rotations": sidecar_rotations,
+    })
+    return {
+        "started": True,
+        "pid": child.pid,
+        "writer_lock": lock_cleanup,
+        "sidecar_rotations": sidecar_rotations,
+    }
 
 
 def acquire_supervisor_lock(path=None):
