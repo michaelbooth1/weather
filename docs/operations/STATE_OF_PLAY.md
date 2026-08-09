@@ -20,7 +20,7 @@ satisfied one.**
 | Capture streak | **15 / 14 FULL** | ends **2026-08-04**. The 4 days since are unsettled; 08-07 (41 min) and 08-08 (20 min) carry in-window gaps projecting to **partial**. Banked 15 is safe; not advancing. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b) |
 | Archive coverage | `fleet-coverage` **OK 12/12** | covers **05-10 → 06-30 only** — zero rows for any August target |
-| Execution-tape days | *no counter exists* | **never started** (§8c). The only route to `f`, and it accrues only in calendar time. |
+| Execution-tape days | *no counter exists* | **AUTHORIZED 2026-08-09, starting.** Bounded pilot runs after 18:00; continuous producer follows (§8c). |
 
 ## THE critical path: extend the archive. It becomes actionable tomorrow.
 
@@ -115,9 +115,12 @@ Two things are *happening* rather than merely owed, so they stay here:
 - **AND A COUNTABLE DAY NEVER MEANT A QUOTE.** The gate certifies input/evidence eligibility, not
   trading; `fills.jsonl` was never written. **The 8-of-56 clock is a data-plane qualification
   clock** — raising its yield moves the MM decision no closer. Do not cite it as trading evidence.
-- **AWAITING AN OPERATOR DECISION: start capturing the execution tape (§8c)** — the only remaining
-  route to `f`. **Not** re-arming `clob_enrichment`: that loop was disarmed for producing book volume
-  without evidence, and an execution-only tape is the opposite.
+- **BOTH MM DECISIONS ARE MADE (operator, 2026-08-09, §8c).** (1) **Execution-tape capture is
+  authorized and starting** — bounded pilot after 18:00 via `scripts\ops\execution_tape_pilot.py`,
+  which **refuses to run inside 12:00–18:00**; the continuous producer is a mission written once the
+  pilot returns real numbers. (2) **A paper-only market-harvest lane is authorized but sequenced
+  AFTERWARDS** — capture supplies the evaluation that makes the lane's output mean anything. **Do
+  not start lane work until capture is producing rows.**
 
 ## Daily reads
 

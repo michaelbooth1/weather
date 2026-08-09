@@ -1095,9 +1095,39 @@ calendar days; plan it against captured execution-days.**
   historically, but a new producer should use and *test* the documented `{"type":"market"}` form
   rather than silently inheriting that compatibility assumption.
 
-**Enabling this is an operator decision** — it is a production capture change on the live host, and
-the standing "no paid API" rule is about **weather** providers, not the exchange's own public
-endpoints. Nothing here has been enabled.
+> ## AUTHORIZED BY THE OPERATOR, 2026-08-09
+>
+> **1. Start capturing the execution tape — approved, effective immediately.**
+> **2. Authorize a paper-only market-harvest lane — approved, sequenced AFTERWARDS.**
+>
+> The ordering is the operator's and is load-bearing: **capture supplies the evaluation that makes
+> the harvest lane's output meaningful.** Authorising the lane first would produce a bot that quotes
+> with no way to know whether it should. **Do not start lane work until execution capture is
+> running and producing rows.**
+>
+> This supersedes the "nothing here has been enabled" note that stood until 2026-08-09. The standing
+> "no paid API" rule is about **weather** providers; the exchange's public market stream and
+> `/trades` endpoint are a separate question and are now in scope for capture.
+
+**Implementation is staged deliberately, because the volume claim is an extrapolation.** §8c's
+"order 10² per market-day" rests on scaling 411 observed trades by a 2.222% duty cycle, and message
+limits truncate sessions so the true rate is **≥** that, not **≈** that. Nothing is sized from it.
+
+| Stage | Who | When | Purpose |
+| --- | --- | --- | --- |
+| **Bounded pilot** | production | **after 18:00**, outside the graded window | measure the real rate, prove the documented subscription frame, prove identity survives end-to-end |
+| **Continuous producer** | workstation mission | after the pilot returns numbers | build to the §8c contract using measured values |
+
+**The pilot must not run inside 12:00–18:00.** It opens a network connection on the capture host,
+and capture already died once on 2026-08-09.
+
+### One design fact that makes the permanent producer cheap
+
+The subscription delivers `book`, `price_change` **and** `last_trade_price` on one stream, but we
+choose what to persist. At ~70 executions per market-day across 12 markets, an **execution-only**
+tape is well under 1 MB/day. **The expensive thing was never the trades — it was persisting the book
+that arrives alongside them.** So the July disarm's "hundreds of MB/day" objection does not apply to
+a producer that discards book and `price_change` at write time.
 
 ### The SECOND operator decision, from `-09-48a`: authorize a market-harvest lane?
 
