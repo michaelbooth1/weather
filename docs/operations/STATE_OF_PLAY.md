@@ -17,7 +17,7 @@ satisfied one.**
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **15 / 14 FULL** | ends **2026-08-04**. The 4 days since are unsettled; 08-07 (41 min) and 08-08 (20 min) carry in-window gaps projecting to **partial**. Banked 15 is safe; not advancing. |
+| Capture streak | **15 / 14 FULL** | ends **2026-08-04** and **HAS A SHELF LIFE** — `POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS = 7`, so a banked run stops being usable for a production PIT lock 7 days after its **latest** day. 08-05/08-06 were clean; **08-07 (41 min) and 08-08 (20 min) will grade partial and break contiguity.** |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b) |
 | Archive coverage | `fleet-coverage` **OK 12/12** | covers **05-10 → 06-30 only** — zero rows for any August target |
 | Execution-tape days | *no counter exists* | **AUTHORIZED 2026-08-09, starting.** Bounded pilot runs after 18:00; continuous producer follows (§8c). |
@@ -111,9 +111,12 @@ file being rotated**, so rotation must not clear safety state.
 
 Two things are *happening* rather than merely owed, so they stay here:
 
-- **Settlement backfill 08-05 → 08-07**, one per morning; `WeatherSettlementBackfill20260805` armed
-  08-10 05:30. **`-Refetch` is mandatory** or it fetches nothing and exits 0
-  ([runbook](wu-settlement-source-down-2026-08-07.md)).
+- **Settlement backfill is FOUR dates, not three** — 08-05 → 08-08 — and all four are now armed,
+  one per morning 08-10 → 08-13, each with the mandatory `-Refetch`
+  ([runbook](wu-settlement-source-down-2026-08-07.md)). **08-05 and 08-06 are the ones that matter
+  most**: they were clean, so settling them extends the contiguous complete block to **08-06** and
+  pushes the shelf life to **2026-08-13**. 08-07/08-08 are settlement continuity only — they will
+  grade partial, so the next 14-day block cannot start before **08-09**, completing ~**08-22**.
 - **THE MAKER CANNOT QUOTE MARKET-CENTRED AT ALL** (`-09-48a`, §8bb): 554,004 post-boundary rows,
   **zero `QUOTE`**. **My "the map is incomplete" guess was wrong** — the map matched **100%** of
   rows; the records say `no_quote` with reason `promotion_block`. Replay: lift the map → all

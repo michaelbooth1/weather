@@ -46,6 +46,7 @@ and no single constant expresses it, so it cannot be found by grepping.
 | **`EARLY_HOUR_END_HOUR`**<br/>`weather.collection.collection_health` line 34 | `8` | Local hour the early-hour evaluation window closes. | Bounds the early-hour Brier comparison that blocks promotion. |
 | **`FREE_REPLACEMENT_MIN_HEALTHY_FAMILIES`**<br/>`weather.collection.collection_health` line 55 | `3` | Minimum healthy free source families required. | Paid weather providers are unsupported, so free-source health is the only path. |
 | **`COMPLETE_DAY_MIN_ROWS`**<br/>`weather.backtesting.settlement_ledger` line 34 | `18` | Minimum hourly rows for a settlement day to count as complete. | This is NOT a knob: it decides both whether settlement trusts the daily summary and whether a day counts toward the streak. Lowering it to unblock a retrain silently changes settlement truth. |
+| **`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS`**<br/>`weather.calibration.pooled_training` line 54 | `7` | Maximum age, in days, of the selection universe's latest target date when a production point-in-time lock is taken. | THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous complete days stops being usable for a production PIT lock once its LATEST day is older than this. So a stalled settlement chain does not merely delay the retrain — it ages out evidence already earned. Found 2026-08-09; it was written nowhere and the relationship to the settlement backlog is invisible from either number alone. |
 | **`MATERIAL_COVERAGE_WINDOW`**<br/>`weather.backtesting.settlement_ledger` line 45 | `12:00-18:00 local` | Human-readable coverage window for material capture. | Should agree with the afternoon window above; disagreement is a defect. |
 
 ## Daily timetable
@@ -75,6 +76,9 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `05:00` | `WeatherClobTiering` |
 | `05:15` | `WeatherMergeQueueDriver` |
 | `05:30` | `WeatherSettlementBackfill20260805` |
+| `05:30` | `WeatherSettlementBackfill20260806` |
+| `05:30` | `WeatherSettlementBackfill20260807` |
+| `05:30` | `WeatherSettlementBackfill20260808` |
 | `06:00` | `WeatherLocationConfigRefresh` |
 | `06:30` | `WeatherNightlyRetrainValidatePromote` |
 | `06:50` | `WeatherExchangeEconomicsSnapshotRefresh` |
