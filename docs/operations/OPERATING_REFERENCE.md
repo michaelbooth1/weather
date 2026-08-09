@@ -74,6 +74,7 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `04:30` | `WeatherDataMirror` |
 | `05:00` | `WeatherClobTiering` |
 | `05:15` | `WeatherMergeQueueDriver` |
+| `05:30` | `WeatherSettlementBackfill20260805` |
 | `06:00` | `WeatherLocationConfigRefresh` |
 | `06:30` | `WeatherNightlyRetrainValidatePromote` |
 | `06:50` | `WeatherExchangeEconomicsSnapshotRefresh` |
