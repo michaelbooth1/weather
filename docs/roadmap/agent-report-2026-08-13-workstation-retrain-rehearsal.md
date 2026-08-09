@@ -322,7 +322,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   -Branch codex/workstation-rehearse-the-first-retrain-2026-09-50a
 ```
 
-Result: **PENDING COMMITTED-BRANCH RUN**.
+Result: **ROLL-FREE** — 1 changed file, 0 importable files. The dormant
+`clob_enrichment` closure was 315.6 hours old but mechanically subsumed by the
+live closures, so it did not affect the verdict.
 
 | Changed file | Live closures | Verdict |
 | --- | --- | --- |
@@ -355,5 +357,6 @@ candidate artifacts: none; one plan only
 
 ## Commit
 
-- Evidence/report commit: **PENDING**.
+- Evidence/report commit:
+  `e4842b8bd41fde30be88146cefc92f78167052a1`.
 - Final metadata commit: the pushed branch head is authoritative.
