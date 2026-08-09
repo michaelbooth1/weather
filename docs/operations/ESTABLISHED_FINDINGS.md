@@ -656,11 +656,34 @@ A scratch-root rehearsal proved the **downstream** research-parent mechanism wor
 exists. **So the gap is confined to CREATING one**, and the fix is engineering with a known target,
 not a judgement call.
 
-**Before anyone builds it:** the held branch `codex/workstation-research-2026-07-22` (3 commits,
-2026-07-22) already rewrites **exactly** these files — `release_bootstrap.py` (+144),
-`nightly_retrain.py` (+285), `release_candidate_contract.py` (+332), plus
-`test_release_bootstrap.py`. **It was held "do not merge pre-lock", and that hold has been
-indefinite since Release #1 was deferred.** Audit it against this gap **before** writing new code.
+### The held branch is NOT the fix — audited and closed out, 2026-08-09 (`-09-52a`)
+
+`codex/workstation-research-2026-07-22` rewrites the same files, so it was audited before any fresh
+code was commissioned. **It closes none of the three causes**, and it cannot: **it does not contain
+`base_retrain.py` at all** (verified — `git cat-file` fails on that path), so it predates the very
+contract it would need to satisfy. Its bootstrap stays production-only and it has no empty-store
+research-lineage source.
+
+**Landing it is a NO-GO on its own terms:** 191 files, **72,114 insertions**, 1,365 deletions
+(verified), **32 live merge conflicts**, it modifies the **live serving loader** and promotion
+contracts, and it is **ROLL-SENSITIVE across six files in all three capture closures**.
+
+> **A correction worth keeping.** I wrote that this branch's hold was "a temporary measure whose
+> justification expired," by analogy with the Windows auto-update block. **Half right, and the wrong
+> half mattered.** The *calendar* justification did expire; the *substantive* migration and serving
+> risks never did. **Checking one stated reason and concluding about the whole is its own error** —
+> ask what else a hold might be protecting before calling it stale.
+
+**Do not re-audit this branch for the bootstrap gap.** The required fix is a **small current-master
+path that creates a verified research-only parent with first-party corpus lineage before
+`base_retrain` runs.**
+
+**Start from `all_shadow_release_bootstrap.py`**, which already does most of it — its docstring is
+*"Build one immutable research-only all-shadow release without a pointer"*, and it already emits
+`RESEARCH_ONLY_CANDIDATE_MODE`. **The single blocking gap is that
+`_verified_release_research_lineage()` sources lineage from a prior verified release's
+`training_evaluation_corpus` role** — which an empty store cannot provide. That is cause 2, localized
+to one function.
 
 ## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
 

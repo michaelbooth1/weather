@@ -92,7 +92,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-49a` | **RETURNED — both follow-ups closed**; parity reported exit 2 → 0 | ROLL-FREE verified here (training-path only, serving cannot change); **QUEUED 05:15**. Parity exit code not yet reproduced on this host |
 | `-09-50a` | **RETURNED — the retrain never reaches preflight: no active parent release** | ROLL-FREE verified here; **QUEUED 05:15**. Corpus assembles 12,600/12,600; peak RSS 316 MiB. My target could not test `-09-42a` — see HOW_WE_GET_THINGS_WRONG |
 | `-09-51a` | **RETURNED — NO supported path from an empty store to the first retrain** | ROLL-FREE verified here; **QUEUED 05:15**. A CODE contradiction, not a decision — §4a-bis. The Release #1 deferral is **not** the obstacle |
-| `-09-52a` | **does the held `workstation-research-2026-07-22` branch already close it?** | **DISPATCHED**. It rewrites the same 3 files (+720 lines) and has been held since 07-22 under a lapsed "pre-lock" hold |
+| `-09-52a` | **RETURNED — the held branch closes NONE of the three causes** | ROLL-FREE verified; **QUEUED 05:15**. It does not contain `base_retrain.py` at all. Stays held for **substantive** serving/migration risk, not calendar |
+| `-09-53a` | **BUILD the research-parent path** — first build mission in this chain | **DISPATCHED**. Gap is one function: `_verified_release_research_lineage()` needs first-party lineage |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
