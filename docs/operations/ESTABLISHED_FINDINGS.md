@@ -685,6 +685,31 @@ path that creates a verified research-only parent with first-party corpus lineag
 `training_evaluation_corpus` role** — which an empty store cannot provide. That is cause 2, localized
 to one function.
 
+### BROKEN 2026-08-09 by `-09-53a` — `base_retrain` reached preflight for the first time ever
+
+**The circularity is closed.** First-party lineage assembled and bound all **12,600 / 12,600** cells;
+a scratch parent verified as `research_only` with **12 shadow markets and 84 base roles and no
+pointer**; and **`base_retrain` accepted that parent and proceeded past `load_parent_contract`.**
+Production's release store and pointer remain **absent** — the one-shot is untouched.
+
+**The contract was generalized, not relaxed** — checked line by line on this host, because the diff
+showed 25 deletions in a contract module:
+
+- the `verified_immutable_release` branch is preserved **verbatim**;
+- `verification_status != "PASS"` still raises **first**, for every kind;
+- the new `first_party_corpus_assembly` branch is **stricter than the branch beside it** — it
+  recomputes `assembly_contract_sha256` and `model_input_fields_sha256` from content and cross-checks
+  `assembled_corpus_sha256` / `assembled_row_count` against `final_refit` *and* against the assembly
+  contract's own `record_count` and `market_ids` length;
+- an unrecognised `kind` falls through to `raise CandidateContractError(...)`. **Fail-closed.**
+
+**THE FRONTIER HAS MOVED, not vanished.** Preflight now blocks on the **missing official base and
+PIT forecast corpus manifests** — the same defect `-09-50a` saw from the other side ("the only
+retained research corpus manifest has the wrong schema and target, and is rejected outright by the
+immutable PIT-corpus verifier"). `base_retrain` takes them as
+`--base-retrain-corpus-manifest` / `--base-retrain-pit-forecast-corpus-manifest`. **That is now the
+binding blocker on objective #2.**
+
 ## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
 
 Measured 2026-08-06. Canonical:
