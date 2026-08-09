@@ -42,6 +42,10 @@ The chronology is retained because this search had exceptional leakage risk:
 4. The first analysis stopped before emitting results when a sparse interaction's
    crossed product resample was empty. `33992bcf` deterministically redraws only empty
    products until the predeclared 10,000 valid draws exist and adds a regression test.
+5. The post-report repository audit found the three new receipt schema literals were
+   not registered. `ba486c0f` registered those exact, already-emitted versions and
+   bound the producer to `schema_version()` lookups. This changed no output value,
+   population, hypothesis, score, interval, or decision.
 
 No hypothesis was added, removed, merged, or redefined after outcomes. Predictor
 preparation explicitly recorded `outcomes_read=false`. Its sidecar, thresholds, and
@@ -226,26 +230,50 @@ Ignored workstation evidence lives at
 `C:\Users\Michael\Documents\github\weather\scratch\runs\quotable-edge-2026-09-46a`.
 It is local research evidence and is not represented as a production-host path.
 
+## Repository verification
+
+- Mission-focused tests: **7 passed**.
+- Module/test compilation, `git diff --check`, and the agent-documentation audit:
+  **PASS**.
+- A full-suite traversal with a workspace temp root completed with **3,323 passed,
+  7 skipped, 827 subtests passed, and 44 failures**. No failure names this mission's
+  test or analyzer. Most are Windows temp-path length/relativity failures or tests that
+  touch protected ambient local state. Two representative temp-path failures reproduce
+  unchanged in a disposable detached worktree at the exact `origin/master` base
+  `22897c48`; the current source-cache and settlement failures disappear there because
+  that clean worktree has no ambient local `data/` collision.
+- One full-suite failure was legitimately mission-scoped: the schema audit initially
+  reported the three quotable-edge receipt versions. `ba486c0f` fixes all three and the
+  new registry lookup test passes. The strict whole-tree audit still reports only
+  `mm_countability_postmortem_v1` and `severe_tail_ex_ante_casebook_v0.1`; both are
+  already unregistered on the exact `origin/master` base and were not changed here.
+
+The full-suite command is therefore not green in this workstation sandbox, but the
+mission-specific failure it exposed is repaired and covered. No unrelated base or
+ambient-state test was changed to manufacture a green run.
+
 ## Mechanical roll verdict
 
 `scripts\ops\roll_verdict.ps1 -Branch codex/workstation-does-a-quotable-edge-exist-2026-09-46a`
-returned exit 0,
-**ROLL-FREE**. The script retained the snapshot, CLOB, and observation-trigger
-closures and mechanically subsumed the dormant CLOB-enrichment closure. The local
-`master` ref is older than this branch's required `origin/master` base, so its printed
-cumulative counts include intervening upstream changes; none entered a retained
-closure. Production must rerun the command against its current master before
-acceptance.
+returned exit 1, **ROLL-SENSITIVE**. The script retained the snapshot, CLOB, and
+observation-trigger closures and mechanically subsumed the dormant CLOB-enrichment
+closure. The additive schema registry entries are in all three live closures. The
+local `master` ref is older than this branch's required `origin/master` base, so its
+printed cumulative counts include intervening upstream changes; production must rerun
+the command against its current master before acceptance.
 
 | Mission file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | `docs/roadmap/quotable-edge-preregistration-2026-09-46a.md` | none | none | none | none | Roll-free documentation |
 | `src/weather/reporting/research/quotable_edge.py` | none | none | none | none | Roll-free additive research module |
+| `src/weather/schema_registry_recent_data.py` | loaded | loaded | loaded | subsumed | **Roll-sensitive additive schema records** |
 | `tests/reporting/test_quotable_edge.py` | none | none | none | none | Roll-free test |
 | `docs/roadmap/agent-report-2026-08-09-workstation-quotable-edge.md` | none | none | none | none | Roll-free documentation |
 | `docs/roadmap/agent-report-2026-08-09-workstation-quotable-edge-partitions.csv` | none | none | none | none | Roll-free report evidence |
 
-All mission files are additive-only. Pushing this branch rolls nothing.
+All mission changes remain additive-only, but the branch must merge through the
+01:00–04:00 quiet-window procedure because the shared schema registry is imported by
+live capture. Pushing this branch rolls nothing.
 
 ## Explicitly not done
 
@@ -285,10 +313,11 @@ git ls-tree -r --name-only $branch | Select-String 'agent-report-2026-08-09-work
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\ops\roll_verdict.ps1 -Branch $branch
 ```
 
-Expected focused tests: 6 passed. Expected companion line count: 118 including the
+Expected focused tests: 7 passed. Expected companion line count: 118 including the
 header, with SHA-256
 `8ce3d08fca5566489c1262df12987f7d119ba927b31916a4d1995569e3393d69`.
-Expected roll result: `ROLL-FREE` (exit 0), subject to the required production rerun.
+Expected roll result: `ROLL-SENSITIVE` (exit 1 on this workstation), subject to the
+required production rerun and quiet-window merge procedure.
 
 Branch:
 `codex/workstation-does-a-quotable-edge-exist-2026-09-46a`.
