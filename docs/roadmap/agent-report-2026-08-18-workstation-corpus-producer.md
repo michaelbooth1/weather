@@ -209,9 +209,40 @@ as stitched with empty issue time.
 
 ## Mechanical roll verdict
 
-Pending the first report commit so the repository-owned roll-verdict command
-can inspect the complete branch diff. The final report commit records the
-mechanical result; no verdict is hand-derived.
+The repository-owned command was run from the primary checkout, where the
+retained live-closure evidence exists:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-write-the-corpus-producer-2026-09-55a
+```
+
+Result: **ROLL-FREE**. The primary checkout's local `master` is nine commits
+behind the required `origin/master` base, so the mechanical command reported
+14 changed files. It found one importable file and classified it `free`; the
+other 13 were non-importable config/documentation. The dormant
+`clob_enrichment` closure was mechanically subsumed by the live closures.
+
+| File seen by the mechanical comparison | Live closures | Verdict |
+| --- | --- | --- |
+| `config/location_market_events.json` | none | Roll-free |
+| `config/locations.json` | none | Roll-free |
+| `docs/operations/ESTABLISHED_FINDINGS.md` | none | Roll-free |
+| `docs/operations/HOW_WE_GET_THINGS_WRONG.md` | none | Roll-free |
+| `docs/operations/OPERATING_REFERENCE.md` | none | Roll-free |
+| `docs/operations/README.md` | none | Roll-free |
+| `docs/operations/STATE_OF_PLAY.md` | none | Roll-free |
+| `docs/roadmap/agent-report-2026-08-18-workstation-corpus-producer.md` | none | Roll-free |
+| `docs/roadmap/workstation-handoff-2026-09-51a-map-the-release-bootstrap-before-we-spend-it.md` | none | Roll-free |
+| `docs/roadmap/workstation-handoff-2026-09-52a-does-the-held-branch-already-close-the-gap.md` | none | Roll-free |
+| `docs/roadmap/workstation-handoff-2026-09-53a-build-the-research-parent-path.md` | none | Roll-free |
+| `docs/roadmap/workstation-handoff-2026-09-54a-produce-the-official-corpus-manifests.md` | none | Roll-free |
+| `docs/roadmap/workstation-handoff-2026-09-55a-write-the-missing-producer-and-trace-the-endpoint.md` | none | Roll-free |
+| `src/weather/operations/operating_reference.py` | none; mechanically `free` | Roll-free |
+
+The actual branch diff against its required `origin/master` base is only the
+report file. It enters no capture closure.
 
 ## What was not done
 
@@ -231,5 +262,6 @@ mechanical result; no verdict is hand-derived.
 
 ## Commit
 
-- Evidence/report commit: populated after the first commit.
+- Evidence/report commit:
+  `3a3037b38a2a6e8ac6a7de479c76045fcfa77570`.
 - Final metadata commit: the pushed branch head is authoritative.
