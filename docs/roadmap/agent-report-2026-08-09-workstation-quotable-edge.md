@@ -322,4 +322,4 @@ required production rerun and quiet-window merge procedure.
 Branch:
 `codex/workstation-does-a-quotable-edge-exist-2026-09-46a`.
 
-Report-content commit: `fc0ea8601c3425f0a2c4c87c855b7236a26cc8e8`.
+Report-content commit: `78e2942a55d86e7dbcf31f73b658d1f992392b6e`.
