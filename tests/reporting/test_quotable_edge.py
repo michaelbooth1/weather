@@ -10,6 +10,7 @@ from weather.reporting.research.quotable_edge import (
     holm_adjust,
     membership,
 )
+from weather.schema_registry import schema_version
 
 
 def _thresholds():
@@ -28,6 +29,12 @@ def test_preregistered_family_is_fixed_at_117_unique_cells():
     assert sum(item.axis == "hour" for item in HYPOTHESES) == 14
     assert sum(item.axis == "market" for item in HYPOTHESES) == 12
     assert sum(item.axis == "book_spread" for item in HYPOTHESES) == 5
+
+
+def test_receipt_schemas_are_registered():
+    assert schema_version("quotable_edge_predictor_thresholds") == "quotable_edge_predictor_thresholds_v1"
+    assert schema_version("quotable_edge_predictor_manifest") == "quotable_edge_predictor_manifest_v1"
+    assert schema_version("quotable_edge_analysis") == "quotable_edge_analysis_v1"
 
 
 def test_membership_uses_declared_boundaries():

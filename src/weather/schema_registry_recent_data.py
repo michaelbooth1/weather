@@ -945,4 +945,25 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Fail-closed settled-day join of captured served hard floors to eventual settlement.",
     ),
+    SchemaSpec(
+        "quotable_edge_predictor_thresholds",
+        "quotable_edge_predictor_thresholds_v1",
+        "weather.reporting.research.quotable_edge",
+        "active",
+        "Outcome-blind entropy cutpoints frozen before the conditional edge analysis.",
+    ),
+    SchemaSpec(
+        "quotable_edge_predictor_manifest",
+        "quotable_edge_predictor_manifest_v1",
+        "weather.reporting.research.quotable_edge",
+        "active",
+        "Hash-bound outcome-blind predictor preparation receipt for the quotable-edge search.",
+    ),
+    SchemaSpec(
+        "quotable_edge_analysis",
+        "quotable_edge_analysis_v1",
+        "weather.reporting.research.quotable_edge",
+        "active",
+        "Crossed-inference conditional edge search and analytic maker break-even summary.",
+    ),
 )

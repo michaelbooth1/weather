@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from weather.schema_registry import schema_version
+
 
 BAND_ROWS_SHA256 = "9a70ac80143a7eea9b14003b2f992413d622b167ce35ea4be54273cfdf3e27ae"
 MEASUREMENT_MANIFEST_SHA256 = "cf21b67e3236395da800176c27e5c3a571a838e8cc28a491ec48e23e497e7c3e"
@@ -494,7 +496,7 @@ def prepare_predictors(
 
     snapshot_values = frame.drop_duplicates(SNAPSHOT_KEYS)
     thresholds = {
-        "schema_version": "quotable_edge_predictor_thresholds_v1",
+        "schema_version": schema_version("quotable_edge_predictor_thresholds"),
         "quantile_method": "numpy_linear",
         "ties": "lower_cell",
         "cutpoints": {
@@ -511,7 +513,7 @@ def prepare_predictors(
     }
     _write_json(thresholds_path, thresholds)
     prepared = {
-        "schema_version": "quotable_edge_predictor_manifest_v1",
+        "schema_version": schema_version("quotable_edge_predictor_manifest"),
         "status": "PASS",
         "outcomes_read": False,
         "hypothesis_count": len(HYPOTHESES),
@@ -1072,7 +1074,7 @@ def analyze(
     )
     overall_se = float(overall_draws.std(ddof=1))
     summary = {
-        "schema_version": "quotable_edge_analysis_v1",
+        "schema_version": schema_version("quotable_edge_analysis"),
         "status": "PASS",
         "verdict": verdict,
         "method": {
