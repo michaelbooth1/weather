@@ -91,6 +91,7 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-35a` | **RETURNED — sidecar rotation + breaker decoupling** | ROLL-SENSITIVE (6 importable, all 3 closures) verified here. **NOT yet queued — heavy verification owed after 18:00** |
 | `-09-49a` | **RETURNED — both follow-ups closed**; parity reported exit 2 → 0 | ROLL-FREE verified here (training-path only, serving cannot change); **QUEUED 05:15**. Parity exit code not yet reproduced on this host |
 | `-09-50a` | **RETURNED — the retrain never reaches preflight: no active parent release** | ROLL-FREE verified here; **QUEUED 05:15**. Corpus assembles 12,600/12,600; peak RSS 316 MiB. My target could not test `-09-42a` — see HOW_WE_GET_THINGS_WRONG |
+| `-09-51a` | **map the first-release bootstrap before we spend it** | **DISPATCHED**. Its precondition is an EMPTY release store, so running it consumes the one attempt — rehearse to a scratch root first |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
