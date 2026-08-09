@@ -128,8 +128,12 @@ hand**. **Two standing alarms are expected, not incidents** — `WeatherTraining
 the chain's exit **1**, both benign per
 [RETRACTED_AND_FALSE_LEADS.md](RETRACTED_AND_FALSE_LEADS.md) §3.
 
-**`pytest -q` on master is GREEN** — 3,349 passed, 0 failed, once tonight's schema branch lands. **If
-something is red, it is yours.** Host: **176 GB** disk, 9.5 GB RAM free.
+**Master is NOT fully green, and this line said it was.** The module-size ratchet went red when
+`-09-43a` pushed `weather.model.model_features` to 2,014 lines; fixed 2026-08-09 by documenting the
+ownership entry, which is what the ratchet exists to force. **~17 further failures are reported as
+environmental** (PowerShell execution-policy, Windows experiment-executor output trees) and are
+**unverified on this host** — do not claim green until they are. **If something is red, it is
+yours.** Host: **176 GB** disk, 9.6 GB RAM free.
 
 ## Update this file when
 
