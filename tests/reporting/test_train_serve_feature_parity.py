@@ -6,6 +6,7 @@ import pytest
 
 from weather.market.market_registry import all_specs
 from weather.model.feature_store import FEATURE_COLUMNS
+from weather.model.toronto_model import TorontoHighTempModel
 from weather.reporting.scorecards.train_serve_feature_parity import (
     CASE_SCHEMA_VERSION,
     REPORT_SCHEMA_VERSION,
@@ -43,8 +44,8 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
     assert report["coverage"]["full_schema_market_ids"] == expected_markets
     assert report["coverage"]["feature_names"] == list(FEATURE_COLUMNS)
     assert report["summary"]["coverage_blocker_count"] == 0
-    assert report["summary"]["all_known_defects_rediscovered"] is False
-    assert report["summary"]["known_defects_rediscovered"] == 3
+    assert report["summary"]["all_known_defects_rediscovered"] is True
+    assert report["summary"]["known_defects_rediscovered"] == 4
     assert len(report["input_identity"]["case_manifest_sha256"]) == 64
 
     by_id = {row["defect_id"]: row for row in report["known_defect_proof"]}
@@ -54,12 +55,8 @@ def test_known_defect_proof_covers_all_markets_and_features(tmp_path):
         "forecast_profile_provenance_discarded_by_loader",
         "wu_surface_payload_not_known_at_cutoff",
     }
-    assert by_id["nine_empty_base_features_09_to_14"]["rediscovered"] is False
-    assert all(
-        row["rediscovered"]
-        for defect_id, row in by_id.items()
-        if defect_id != "nine_empty_base_features_09_to_14"
-    )
+    assert by_id["nine_empty_base_features_09_to_14"]["rediscovered"] is True
+    assert all(row["rediscovered"] for row in by_id.values())
     assert set(by_id["nine_empty_base_features_09_to_14"]["found_markets"]) == set(expected_markets)
     assert by_id["nine_empty_base_features_09_to_14"]["found_fields"] == ["wind_group"]
     assert set(by_id["wu_surface_payload_not_known_at_cutoff"]["found_fields"]) >= {
@@ -190,11 +187,55 @@ def test_output_and_markdown_preserve_machine_readable_verdict(tmp_path):
     markdown = markdown_path.read_text(encoding="utf-8")
     assert persisted["report_sha256"] == report["report_sha256"]
     assert "## Previously unknown findings" in markdown
-    assert "3 / 4 known defects rediscovered" in markdown
+    assert "4 / 4 known defects rediscovered" in markdown
     assert render_markdown(report) == markdown
 
 
-def test_proof_mode_detects_that_the_historical_blindness_fixture_was_repaired(tmp_path):
+def test_proof_mode_reaches_zero_after_the_fixture_records_the_repair(tmp_path):
+    assert main([
+        "--input",
+        str(FIXTURE),
+        "--run-root",
+        str(tmp_path),
+        "--proof-mode",
+    ]) == 0
+    assert (tmp_path / "train-serve-feature-parity.json").exists()
+    assert (tmp_path / "train-serve-feature-parity.md").exists()
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "rise_from_7am",
+        "warming_rate_2h",
+        "hours_at_peak",
+        "dewpoint_c",
+        "humidity",
+        "pressure",
+        "pressure_trend_3h",
+        "wind_speed_kmh",
+    ],
+)
+def test_proof_mode_fails_if_any_repaired_station_field_is_rediscovered(
+    tmp_path,
+    monkeypatch,
+    field,
+):
+    original = TorontoHighTempModel.extract_live_features
+
+    def regress_field(self, sources, *args, **kwargs):
+        result = original(self, sources, *args, **kwargs)
+        if result.get(field) is not None:
+            result = dict(result)
+            result[field] = None
+        return result
+
+    monkeypatch.setattr(
+        TorontoHighTempModel,
+        "extract_live_features",
+        regress_field,
+    )
+
     assert main([
         "--input",
         str(FIXTURE),
@@ -202,8 +243,12 @@ def test_proof_mode_detects_that_the_historical_blindness_fixture_was_repaired(t
         str(tmp_path),
         "--proof-mode",
     ]) == 2
-    assert (tmp_path / "train-serve-feature-parity.json").exists()
-    assert (tmp_path / "train-serve-feature-parity.md").exists()
+    report = json.loads(
+        (tmp_path / "train-serve-feature-parity.json").read_text(encoding="utf-8")
+    )
+    unexpected = report["unexpected_findings"]
+    assert report["summary"]["unexpected_blocking_finding_count"] > 0
+    assert {row["field"] for row in unexpected} == {field}
 
 
 def test_manifest_schema_is_registered():

@@ -30,7 +30,11 @@ from weather.calibration.forecast_training_contract import (
     pit_selection_binding_sha256,
     preflight_pit_forecast_training_corpus,
 )
-from weather.market.market_registry import BUILTIN_SPECS
+from weather.calibration.feature_training_policy import (
+    TRAINING_FEATURE_POLICY_ID,
+    training_feature_names,
+)
+from weather.market.market_registry import BUILTIN_SPECS, spec_for_id
 from weather.operations.release_candidate_contract import (
     SEMANTIC_PATHS,
     _finalize_payload,
@@ -300,6 +304,7 @@ def build_plan(
                 Path(candidate_value).name if candidate_value.strip() else ""
             ),
             "runtime_id": str(runtime_id),
+            "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
             "training_population": _training_population_for_target(target_date),
             "market_count": len(markets),
             "markets": markets,
@@ -967,6 +972,7 @@ def evaluate_preflight(
 
         parent_hours = parent_market.get("hours") or {}
         manifest_hours = market.get("feature_names_by_hour") or {}
+        market_spec = spec_for_id(market_id)
         if set(parent_hours) != required_cutoff_hours:
             feature_blockers.append(
                 {
@@ -978,11 +984,21 @@ def evaluate_preflight(
                 }
             )
         for hour, parent_hour in sorted(parent_hours.items()):
-            expected_names = list(parent_hour.get("feature_names") or [])
+            expected_names = training_feature_names(
+                parent_hour.get("feature_names") or [],
+                market_spec=market_spec,
+            )
             candidate_names = list(manifest_hours.get(hour) or [])
             if candidate_names != expected_names:
                 feature_blockers.append(
-                    {"code": "FEATURE_ORDER_DRIFT", "market_id": market_id, "hour": hour, "message": "candidate names are not the frozen parent order"}
+                    {
+                        "code": "FEATURE_ORDER_DRIFT",
+                        "market_id": market_id,
+                        "hour": hour,
+                        "message": (
+                            "candidate names are not the registry-unit training order"
+                        ),
+                    }
                 )
         if set(manifest_hours) != set(parent_hours):
             feature_blockers.append(
@@ -991,7 +1007,10 @@ def evaluate_preflight(
         parent_feature_names = {
             name
             for row in parent_hours.values()
-            for name in row.get("feature_names") or []
+            for name in training_feature_names(
+                row.get("feature_names") or [],
+                market_spec=market_spec,
+            )
         }
         all_missing = sorted(set(market.get("all_missing_features") or []) & parent_feature_names)
         live_only = sorted(set(market.get("live_only_features") or []) & parent_feature_names)
