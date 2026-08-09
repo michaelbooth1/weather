@@ -22,7 +22,7 @@ satisfied one.**
 | Archive coverage | `fleet-coverage` **OK 12/12** | covers **05-10 → 06-30 only** — zero rows for any August target |
 | Execution-tape days | *no counter exists* | **AUTHORIZED 2026-08-09, starting.** Bounded pilot runs after 18:00; continuous producer follows (§8c). |
 
-## THE critical path: extend the archive. It becomes actionable tomorrow.
+## THE critical path is NOT the archive alone — corrected 2026-08-09
 
 The archive holds **52 month-days per year and zero July/August rows in any year**, and every served
 HGB was fitted 2026-06-10..13 on it. **`-09-33a` (inside tonight's `-09-43a` merge) deletes
@@ -32,8 +32,12 @@ HGB was fitted 2026-06-10..13 on it. **`-09-33a` (inside tonight's `-09-43a` mer
 until someone runs `python -m weather.sources.forecast_history backfill --target-date <d>` —
 **~60 free-tier calls**, ~1s each, already permitted by policy.
 
-> **Highest-value action available tomorrow; nothing else competes.** Not blocked on a decision, a
-> measurement, a mission, or the market. **The first retrain cannot run until it is done.**
+> **NECESSARY, NOT SUFFICIENT — this page said "nothing else competes" and that was wrong.**
+> `-09-50a` found the retrain never reaches preflight at all: `load_parent_contract()` demands a
+> **verified ACTIVE parent release** and this host has **no release store** (`artifacts/releases/`
+> does not exist; `base_retrain` has zero bootstrap paths). **Extending the archive does not let the
+> retrain run**, and the second blocker needs a **decision**, not a fetch — see §4a-bis. Release #1
+> was treated as downstream of the retrain; the retrain needs a release-shaped parent first.
 
 Causation is **inference, not measurement** — that the cool bias is *caused* by the season window was
 never traced through row selection ([detail](the-season-window-blocks-the-retrain.md)). Extend the
@@ -86,7 +90,7 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-48a` | **RETURNED — NO-GO: no model-independent quoting route exists** | ROLL-FREE verified here; **QUEUED 05:15**. Falsified my map hypothesis; §8bb + a second operator decision in §8c |
 | `-09-35a` | **RETURNED — sidecar rotation + breaker decoupling** | ROLL-SENSITIVE (6 importable, all 3 closures) verified here. **NOT yet queued — heavy verification owed after 18:00** |
 | `-09-49a` | **RETURNED — both follow-ups closed**; parity reported exit 2 → 0 | ROLL-FREE verified here (training-path only, serving cannot change); **QUEUED 05:15**. Parity exit code not yet reproduced on this host |
-| `-09-50a` | **rehearse the first retrain — does the corpus complete now `-09-42a` landed?** | **DISPATCHED**. In-season target so the archive is not the blocker; enumerates blocker #2 onward |
+| `-09-50a` | **RETURNED — the retrain never reaches preflight: no active parent release** | ROLL-FREE verified here; **QUEUED 05:15**. Corpus assembles 12,600/12,600; peak RSS 316 MiB. My target could not test `-09-42a` — see HOW_WE_GET_THINGS_WRONG |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

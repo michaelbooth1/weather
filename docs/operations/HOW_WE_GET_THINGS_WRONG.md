@@ -46,9 +46,25 @@ It will read green forever, including on the day the thing it guards is complete
 | Retrain admission | the candidate's own manifest | gate shrinkable 20,160 → 2,520 cells |
 | Parity known-defects fixture | a hardcoded list of 9 dead features | after 8 were repaired it still demanded 9, so the gate **could never reach exit 0** |
 | Model input surface | nothing watched it at all | 10 of 19 features dead for 5 weeks |
+| **The `-09-50a` rehearsal design** | **the production agent, hours after this file was written** | a test structurally incapable of failing on the condition it was meant to check |
 
 **Detection question: *what would make this check fail?*** If the answer is "the thing would have to
 contradict its own declaration," the check is decorative.
+
+**The fourth row is the sharpest instance, because it was committed the same day this file was.**
+The `-09-50a` handoff asked for a rehearsal target that was simultaneously **(a)** in-season, so the
+archive would not be the blocker, and **(b)** able to exercise the Denver `2025-07-28` exclusion that
+`-09-42a` had just landed. **Those are mutually exclusive under a single `--target-date`:**
+`2026-06-10` selects June 3–17 in each prior year, so its code-owned exclusion set is *empty*, and
+any target whose window reaches a July date necessarily needs archive rows after June 30.
+
+So the rehearsal could report "exclusion set clean" **no matter what `-09-42a` did** — the check
+could not fail. The workstation caught it and invoked the handoff's own declared falsifier instead of
+returning a number that looked like an answer.
+
+**Two transferable lessons.** *Writing the pattern down does not immunise you against it* — it is a
+property of designs, not of awareness. And **a mission's falsification section is not boilerplate**:
+it is the mechanism by which a badly-specified question gets refused rather than answered wrongly.
 
 ---
 

@@ -597,6 +597,43 @@ tail, not pooled**, and should ship dark until release #1 is locked.
 
 ---
 
+## 4a-bis. THE ARCHIVE IS NECESSARY BUT NOT SUFFICIENT — `-09-50a`, 2026-08-09
+
+**The retrain never reaches preflight, and the reason has nothing to do with the archive.**
+`base_retrain.load_parent_contract()` requires a **verified ACTIVE parent release**, and this host
+has **no release store at all**. Verified on production, not taken on report:
+
+- `artifacts/releases/current_release.json` — **absent**; `artifacts/releases/` **does not exist**.
+- `base_retrain.py` has **zero** bootstrap / `allow_missing` / `no_parent` / `first_release`
+  escape paths. The requirement is unconditional.
+- `load_parent_contract` further demands the parent's semantic contract be
+  `RESEARCH_ONLY_CANDIDATE_MODE`.
+
+**This corrects a framing this file and `STATE_OF_PLAY` carried all day.** The archive extension was
+described as "THE critical path — nothing else competes." It is **necessary and not sufficient**:
+extending it does not let the retrain run, and this blocker needs a **decision**, not a fetch.
+
+### The break exists, is documented, and has never been run
+
+`NIGHTLY_RETRAIN_RUNBOOK.md` §"First inactive production release" defines one fail-closed bootstrap,
+`nightly_retrain run --release-candidate-mode production --bootstrap-first-inactive-release`, whose
+precondition is **exactly our current state**: *"`current_release.json` is absent and the releases
+root is absent or completely empty."*
+
+**Two things are unresolved and must not be guessed:**
+
+1. The bootstrap **deliberately leaves the active pointer absent** — it "checks again at whole-run
+   finalization that the active pointer is still absent." So it alone does **not** satisfy
+   `load_parent_contract`; an activation step is still required, and activation is the thing
+   `release-one-deferred-until-a-retrained-candidate.md` deferred.
+2. The bootstrap runs with `--release-candidate-mode production`, while `load_parent_contract`
+   rejects a parent that is not `RESEARCH_ONLY_CANDIDATE_MODE`. **These may conflict.** Do not
+   assume they resolve; map it.
+
+> **The sequencing in canon was inverted.** Release #1 was treated as *downstream* of the first
+> retrain, and the retrain requires a release-shaped parent *first*. **This is why the retrain has
+> never run, and no amount of archive work would have revealed it.**
+
 ## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
 
 Measured 2026-08-06. Canonical:
