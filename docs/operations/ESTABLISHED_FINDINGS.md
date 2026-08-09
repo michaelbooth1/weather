@@ -230,6 +230,43 @@ trade columns and that 265 files existed, and commissioned a mission without ope
 is not data and a file count is not content — the same failure as [[a-grep-is-not-a-trace]], one
 level up.
 
+### AND EXECUTIONS CANNOT BE RECONSTRUCTED FROM WHAT WE DID CAPTURE — 2026-08-10 (`-09-47a`)
+
+**Verdict `NO_GO_EXECUTIONS_NOT_IDENTIFIABLE_FROM_BOOK_DELTAS`.** `A`, `f`, and any measured
+break-even share are **UNIDENTIFIED — not imprecise, not underpowered.**
+
+**A `price_change` row carries post-change level *state*, not an execution record.** A level going
+100 → 60 is observationally identical whether 40 shares were cancelled or 40 were executed; a zero
+level says the level disappeared, not why. The retained row has no execution type, executed size,
+trade ID, transaction hash, or vendor timestamp.
+
+> **The decisive point, and the one to quote:** the tape has sparse *positive* labels
+> (`last_trade_price`) and **no cancellation labels at all**, so there is **no false-positive
+> denominator**. Precision is not low — it is **unestimable**. Matching depletions to known trades
+> could bound recall; nothing could ever show that unmatched depletions were trades.
+> **Do not accept a proposal to "improve the classifier": the discriminating variable was never
+> captured.**
+
+Successive `book` snapshots do not rescue it. Capture is **20 s per 900 s = 2.222% nominal time
+coverage**, every connection re-opens with a fresh book, and no session ID, sequence number or gap
+ledger is retained — so a difference between two initial books spans unobserved placements,
+cancellations *and* executions. Verified in production source, not taken on report:
+`ws_summary_rows` reads `timestamp_utc` while the vendor sends `timestamp` and there is no
+transaction-hash column (**identity is dropped by our normalizer, not withheld by the venue**), and
+`register_clob_enrichment.ps1` sets `IntervalSeconds=900` / `WebsocketSeconds=20.0`.
+
+Workstation inventory over its historical copy (D=23, M=12, 265 market-days, all before the
+`2026-07-31` boundary, nothing pooled across it): **4,493,597 rows, 411 `last_trade_price`
+(0.0091%)**, `price_change` rows carrying a usable timestamp **0 / 758,189**, `book` rows retaining
+levels in the CSV projection **0 / 3,734,993**.
+
+**Crossed intervals and power are NOT APPLICABLE here** — they quantify sampling uncertainty *after*
+an estimand is identified. "Not powered" would understate this: there is no valid observation unit.
+
+**This does not say `f` is high or low, and market-centred harvesting stays open.** It says the
+question cannot be answered from anything we hold or can derive. **The only route is forward
+capture** — see §8c.
+
 ### 4. We evaluate in-season and SERVE out-of-season
 
 The headline 1.4233x is **in-season**. The archive covers May 10 – Jun 30 (§4b), so in August
@@ -958,6 +995,57 @@ written on any of the 55 days.
 schedule.**
 
 ---
+
+## 8c. The MM decision now depends on a capture change, and that is a CLOCK
+
+**Established 2026-08-10 by `-09-47a`.** The route to deciding whether market-making is a business
+or a donation is now fully mapped, and every branch but one is closed:
+
+| Route to `f` | Status |
+| --- | --- |
+| Model edge makes quoting profitable regardless | **RETIRED** (`-09-46a`: 114 cells, zero positive) |
+| Measure `f` from the retained tape | **IMPOSSIBLE** — 411 executions, and no cancellation labels |
+| Reconstruct executions from `price_change` / `book` deltas | **NO-GO** (§1b.3) — unidentified |
+| **Capture the execution tape going forward** | **the only remaining route** |
+
+**So the deciding evidence does not exist yet and can only be accumulated.** Every day without
+execution capture is a day added to the eventual decision date — this is a stopped clock that has
+not started, the same shape as §8b and the streak clock. **Do not plan the MM track against elapsed
+calendar days; plan it against captured execution-days.**
+
+### What must be captured (documented from venue docs; NO endpoint was called)
+
+1. **Primary — continuous public market stream.** `wss://ws-subscriptions-clob.polymarket.com/ws/market`,
+   subscribe `{"assets_ids": [...], "type": "market"}`, `PING` every 10 s. Retain **only** the
+   explicit `last_trade_price` event: condition ID, asset ID, price, executed size, taker side, fee
+   rate, **vendor exchange timestamp with declared units**, local receive time, **transaction hash**,
+   raw payload hash — plus session ID, reconnects, and **an explicit gap ledger**, with one canonical
+   fingerprint so raw and normalized rows cannot double-count.
+2. **Reconciliation/backfill — public Data API.**
+   `GET https://data-api.polymarket.com/trades?market=<condition_id>&start=&end=&limit=&offset=&takerOnly=true`.
+   Page inside bounded windows; `offset` caps at 10,000. Its timestamp is integer-valued, so it
+   **cannot** prove sub-second ordering — use it to reconcile, never to replace the live stream.
+3. **NOT sufficient: the authenticated user stream.** It carries rich trade lifecycle records but
+   **only for our own account**, so it cannot estimate a market-wide informed-flow denominator, and
+   it produces nothing before an order is ever placed.
+
+### Three cautions that bound the change
+
+- **This is NOT re-arming `clob_enrichment`, and the July disarm does not argue against it.**
+  `8e7b5732` rejected a loop that produced *hundreds of MB/day of book rows and no evidence*. An
+  execution-only tape is the opposite: it is exactly the evidence, at a tiny fraction of the volume.
+  **Anyone citing the disarm against this has misread which loop it was about.**
+- **Volume is small but has NOT been measured.** 411 executions over 265 market-days at 2.222%
+  coverage extrapolates to order-10² per market-day — **an order-of-magnitude expectation resting on
+  an unverified linearity assumption**, since message limits and connect-time book bursts bias the
+  observed rate. Measure it in a bounded pilot; do not size storage from this number.
+- **The current collector sends the legacy frame** `{"operation":"subscribe", ...}`. It was accepted
+  historically, but a new producer should use and *test* the documented `{"type":"market"}` form
+  rather than silently inheriting that compatibility assumption.
+
+**Enabling this is an operator decision** — it is a production capture change on the live host, and
+the standing "no paid API" rule is about **weather** providers, not the exchange's own public
+endpoints. Nothing here has been enabled.
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 

@@ -10,16 +10,17 @@
 **Objectives:** 1. protect the Toronto capture streak · 2. **find a model that beats the market — we
 do not** · 3. the market-making bot is the end goal.
 
-## Three clocks read healthy and are not moving
+## Four clocks, none of them running
 
-The audit's through-line, and the shape to distrust everywhere: **a stopped counter looks identical
-to a satisfied one.**
+The through-line, and the shape to distrust everywhere: **a stopped counter looks identical to a
+satisfied one.**
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **15 / 14 FULL** | ends **2026-08-04**. The 4 days since are unsettled; 08-07 (41 min) and 08-08 (20 min) carry in-window gaps projecting to **partial**. Banked 15 is safe; the clock is not advancing. |
+| Capture streak | **15 / 14 FULL** | ends **2026-08-04**. The 4 days since are unsettled; 08-07 (41 min) and 08-08 (20 min) carry in-window gaps projecting to **partial**. Banked 15 is safe; not advancing. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b) |
 | Archive coverage | `fleet-coverage` **OK 12/12** | covers **05-10 → 06-30 only** — zero rows for any August target |
+| Execution-tape days | *no counter exists* | **never started** (§8c). The only route to `f`, and it accrues only in calendar time. |
 
 ## THE critical path: extend the archive. It becomes actionable tomorrow.
 
@@ -48,8 +49,12 @@ archive because the retrain needs it, not because it will fix the bias.
 - **Model-skewed quoting is RETIRED** (`-09-46a`, §1b.2): 114 pre-declared cells, **zero** positive;
   overall **−0.01915 [−0.02444, −0.01443]**. **We match the market only where we already agree with
   it and lose everywhere we differ.** Do not commission work premised on a window where we win.
-- **There is NO execution tape** (§1b.3): 1,107,984 rows hold **71** `last_trade_price`. `8e7b5732`
-  disarmed `clob_enrichment` for exactly this. **Re-arming it would not create one.**
+- **There is NO execution tape and it cannot be reconstructed** (§1b.3, `-09-47a` **NO-GO**):
+  1,107,984 rows hold **71** `last_trade_price`, and a `price_change` depletion is observationally
+  identical for a cancel and a fill. **No cancellation labels ⇒ no false-positive denominator ⇒
+  precision is unestimable, not low.** `A` and `f` are **unidentified, not underpowered** — do not
+  accept "improve the classifier". **The only route left is forward capture (§8c), which is a clock
+  that has not started.**
 - **Four legacy headlines are retired from citation** (§1), incl. **`74.97%`, no replacement**. **Cite
   the stratum** (§1b.4): 1.4233x is in-season; we serve **out-of-season**, at **1.526x–1.542x**.
 - **The retrain blocks on 14 cells, not the corpus** — Denver 2025-07-28 has 17 WU hourly rows against
@@ -77,7 +82,7 @@ archive because the retrain needs it, not because it will fix the bias.
 | `register-two-schema-literals` | last red test on master | **QUEUED 01:20, after `-09-43a`** |
 | `-09-44a` / `-09-46a` | **RETURNED** — gap unmoved; no quotable edge anywhere | **QUEUED 01:20** |
 | `-09-45a` | maker daily-start race — the capture killer | **MERGED 17:57 today.** Tomorrow's 08:15 report is the first clean read |
-| `-09-47a` | can executions be reconstructed from book deltas at all? | **DISPATCHED** |
+| `-09-47a` | **RETURNED — NO-GO, executions are not reconstructable** | ROLL-FREE verified here; **QUEUED 05:15**. `A`/`f` unidentified; only forward capture remains (§8c) |
 | `-09-35a` | **rotate snapshot + observation-trigger logs** | written, **NOT dispatched — top ops item** |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
@@ -97,7 +102,9 @@ Two things are *happening* rather than merely owed, so they stay here:
 - **MM is blocked by input freshness at maker runtime** — `model_freshness` (52 of 55 days) and
   `clob_freshness` (52) — **not** model quality, promotion, or live-trade permission (0/12, and the
   gate passes anyway). `mm_countability_postmortem` is the yield meter; re-run it after any fix.
-  **`f` is the most decisive unmeasured number** (§1b.3) — evaluate the **$0-reward** column.
+- **AWAITING AN OPERATOR DECISION: start capturing the execution tape (§8c)** — the only remaining
+  route to `f`. **Not** re-arming `clob_enrichment`: that loop was disarmed for producing book volume
+  without evidence, and an execution-only tape is the opposite.
 
 ## Daily reads
 
