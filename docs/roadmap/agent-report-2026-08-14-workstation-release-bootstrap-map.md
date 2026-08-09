@@ -513,13 +513,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   -Branch codex/workstation-map-the-release-bootstrap-2026-09-51a
 ```
 
-Result to be bound after the report commit. The intended branch delta against
-`origin/master` is one Markdown file, so its expected closure set is none; the
-mechanical command remains authoritative.
+Result: **`VERDICT: ROLL-FREE`**. The production checkout's local `master` was
+three commits behind `origin/master`, so the mechanical command conservatively
+reported six changed Markdown files, zero importable files, and the live
+closures `loop`, `clob_loop`, and `observation_trigger`; it explicitly said
+`(no importable files -- docs/config/tests/ps1 only)`. It also warned that the
+dormant `clob_enrichment` closure was fully subsumed by a live closure. The
+actual branch delta against `origin/master` is only the report below. The
+mechanical verdict, rather than that observation, is authoritative.
 
 | Changed file | Live closures | Verdict |
 | --- | --- | --- |
-| `docs/roadmap/agent-report-2026-08-14-workstation-release-bootstrap-map.md` | pending mechanical command | pending |
+| `docs/roadmap/agent-report-2026-08-14-workstation-release-bootstrap-map.md` | none (Markdown; script reported zero importable files) | `ROLL-FREE` |
 
 ## Verification and retained scratch evidence
 
@@ -564,7 +569,7 @@ No scratch evidence was deleted or overwritten.
 
 ## Commit
 
-- Report/evidence commit: to be bound after the first commit.
+- Report/evidence commit: `c4869168`.
 - Branch: `codex/workstation-map-the-release-bootstrap-2026-09-51a`.
 - Final pushed branch head is authoritative for the metadata-only binding
   commit.
