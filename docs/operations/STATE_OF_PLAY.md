@@ -101,7 +101,7 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-52a` | **RETURNED — the held branch closes NONE of the three causes** | ROLL-FREE verified; **QUEUED 05:15**. It does not contain `base_retrain.py` at all. Stays held for **substantive** serving/migration risk, not calendar |
 | `-09-53a` | **RETURNED — CIRCULARITY BROKEN. `base_retrain` reached preflight for the first time ever** | ROLL-FREE verified; **QUEUED 05:15**. Contract generalized, not relaxed — checked line by line |
 | `-09-54a` | **RETURNED — 6th blocker: the base corpus manifest has NO PRODUCER** | ROLL-FREE verified; **QUEUED 05:15**. Registered + consumed, never written. PIT staging 0/60 |
-| `-09-55a` | write the producer, and trace the 21-field endpoint claim | **DEPRIORITISED** by §0b — let its P0 endpoint trace land (useful for the archive regardless); its P1 producer is no longer on the critical path |
+| `-09-55a` | **RETURNED — the PIT 21-field wall is REAL, not a routing defect** | ROLL-FREE verified; **QUEUED 05:15**. Free-tier PIT provenance exists for **temperature only** (§0a). My hypothesis was wrong and would have re-broken a named defect |
 | `-09-56a` | **decompose the gap on the current surface** — calibration vs information | **DISPATCHED**. Without it, "small improvements" is guessing. Needs none of the release machinery |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
