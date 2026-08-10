@@ -705,6 +705,43 @@ and that is worth stating so nobody manufactures urgency later.
 the critical path (§4b) — is now the blocker for the CURRENT goal too.** It stopped being a retrain
 prerequisite and became a prerequisite for testing any PIT-honest feature under §0c.
 
+### FETCHED AND STAGED 2026-08-10 — the gap is closed, but NOT adopted
+
+Operator authorized the re-fetch. **Staged to `C:\tmp\pit-refetch-2026-08-10`, deliberately NOT
+written into production `data/`.**
+
+| | |
+| --- | ---: |
+| Markets | **12 / 12** |
+| Range | **2026-06-24 → 2026-08-09** — the entire gap |
+| Variables per market | **84** (12 fields × leads 1–7) **in ONE call** |
+| Rows | **1,137,024** · 113 MB |
+| Coverage | **100.0000%** non-null, every market |
+| Provenance | `fixed_lead_day_offset` / `open_meteo_previous_runs` — **stitched endpoint never touched** |
+
+**Positive control against the archive.** The staged range begins exactly where the archive stops,
+so `2026-06-23` was fetched separately and compared to a known-good row:
+
+```
+STAGED  2026-06-23T00:00 lead1: temp=13.1  cloud=100  cape=0.0
+ARCHIVE 2026-06-23T00:00 lead1: temp=13.1  cloud=''   cape=''      TEMPERATURE MATCH: True
+```
+
+**Exact reproduction of the field we already hold, and real values where the archive is blank.**
+That blankness is the finding made concrete: the columns existed in the schema all along —
+`forecast_history.py:692` only ever asked for `temperature_2m_previous_day{lead}`.
+
+### ADOPTION IS A SERVING CHANGE — do not "just copy it in"
+
+**`model_features.py:1775` calls `load_forecast_daily(daily_path_for(spec))` and feeds
+`forecast_high` into the HISTORICAL ANALOG DAYS** used to build today's forecast. Backfilling
+`2026-06-24` onward would hand the analog path real values where it currently has `None`, **for
+exactly the recent dates it looks at**. That is an unmeasured change to what we serve.
+
+**Sequence: measure by replay against the sealed corpus, then adopt.** Never the other way round —
+§3's floor fix moved the served ratio `1.6639 → 1.4980`, so serving changes are not small. Staging
+first costs nothing and keeps the option.
+
 **Do not conclude from `-09-58a` that own-information dispersion is a dead end.** The honest
 statement is that **it has not yet been tested at usable power, and the thing preventing that is a
 fetch nobody has run.**
