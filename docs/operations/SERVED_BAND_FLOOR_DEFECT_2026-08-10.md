@@ -1,129 +1,136 @@
-# We serve probability 0.0 on the band that settles, 1.02% of the time
+# The realized-band zeros were a serialization defect that ENDED on 2026-06-15
 
-**Found 2026-08-10 by the production agent, tracing `-09-63a`'s Gate 3 stop. Live serving defect.**
-Filed separately from `ESTABLISHED_FINDINGS.md` only because the `-09-63a` branch edits that file
-and had not merged yet; fold this in as a numbered section once it lands.
+**Written 2026-08-10. CORRECTED the same day — the first version of this document called it a live
+serving defect. It is not, and has not been since 2026-06-15.** The correction is recorded in full
+below rather than silently applied, because the wrong version was cited in the `-09-64a` handoff.
 
-## How it surfaced
+## What the first version got right, and what it got wrong
 
-`-09-63a` refused to fit decision 10's candidate because the **repaired** surface gave probability
-`0.0` to Denver `2026-06-08`'s realized band. That was the right call. **But the interesting
-question was whether the same thing happens in what we actually serve — and it does, far more
-often, and for a different reason than anyone would guess.**
+| Claim | Status |
+| --- | --- |
+| 1,017 served snapshots publish exactly `0.0` on the band that settles | **Right** — reproduced exactly |
+| The mechanism is a lost two-degree band upper edge reaching `hard_bin_probability` | **Right** — and now confirmed against a field transition and a falsifiable prediction |
+| Toronto is a natural control, 1 against 1,016 | **Right**, for a better reason than stated |
+| **"Live serving defect"; rate 1.017%** | **WRONG.** The rate is `8.486%` before 2026-06-15 and `0.000%` after |
+| "The exact loss point is not yet identified" | **Resolved.** `bin_value_hi_c` was absent from the serialized band record until `28d1c146` |
+| Toronto's single case is "a genuine below-floor band that still settled" | **Right by accident** — see the source-glitch trace below |
 
-Denver `2026-06-08` itself is *not* an example: settled `82.0°F`, band 4 is `82-83°F`, and we
-served it **`0.5206`**. Production was fine there; only the research surface was not.
+**The pooled `1.017%` averaged across a regime change and should never be quoted.** It is the
+`a-stopped-counter` shape in a new costume: a number that is arithmetically correct over a window
+that straddles the fix, and therefore describes nothing that exists now.
 
-## The measurement
+## The field transition
 
-Sealed window `2026-06-03 → 2026-07-30`, every served snapshot, scored against the settled high:
+`snapshots_long.csv` gained a `bin_value_hi_c` column on **2026-06-15, in all 12 markets at once**.
+First commit introducing it in `src/`: **`28d1c146`, 2026-06-15 15:41:05 -0400**, landing with the
+band-audit-schema and serving-version-guard item.
 
-| | |
-| --- | ---: |
-| Snapshots scored | **100,040** |
-| **Served probability EXACTLY `0.0` on the band that settled** | **1,017 — 1.017%** |
-| Distinct market-days affected | **20 of 663** |
-| Distinct markets affected | **11 of 12** |
-| Between `1e-12` and `1e-6` | **0** |
-| Between `1e-6` and `1e-3` | 363 |
-| Events with no band covering the settled high | **0** |
+| Era | Market-days | Snapshots | Realized-band zeros | Rate |
+| --- | ---: | ---: | ---: | ---: |
+| **Pre-fix** (`bin_value_hi_c` absent) | 111 | 13,545 | **1,016** | **7.501%** |
+| — Fahrenheit only | 99 | 11,973 | 1,016 | **8.486%** |
+| — Toronto (Celsius) | 12 | 1,572 | 0 | 0.000% |
+| **Post-fix** (`bin_value_hi_c` present) | 552 | 86,561 | **1** | **0.001%** |
+| — Fahrenheit only | 506 | **79,133** | **0** | **0.000%** |
+| — Toronto (Celsius) | 46 | 7,428 | 1 | 0.013% |
 
-**The gap between "exactly zero" and "≥1e-3" is empty.** That is the signature of a hard rule, not
-a model tail.
+**Zero Fahrenheit occurrences in 79,133 post-fix snapshots.** Sealed window `2026-06-03 → 2026-07-30`.
 
-## The mechanism, traced end to end
+## The mechanism, now confirmed by prediction rather than by trace
 
-Atlanta `2026-06-12`, settled **`91.0°F`** → band 4 = `90-91°F`. At snapshot `20260612T152750-0400`:
+A two-degree band is `[v, v+1]`. The lost-edge path computes `upper = v` and hard-zeros when
+`v < floor_bucket`. Because `floor_bucket <= settled high`, a band that settles at its **lower**
+degree can never be zeroed — `v < floor <= v` is impossible. **Only bands settling at the upper
+degree can be.** That is a falsifiable prediction about which market-days are affected.
 
-| | |
-| --- | ---: |
-| `observed_floor_bucket` | `91` |
-| Served mass on bucket `90` | `0.0` |
-| Served mass on bucket **`91`** | **`0.4622701`** |
-| **Served probability for band 4 (`90-91°F`)** | **`0.0`** |
-| Sum of all 11 served band probabilities | **`0.5377`** |
-| Market on band 4 at 18:02 | **`0.85`** — and the market was right |
+**19 of 19 affected pre-fix market-days settle on the upper degree of the winning band.** No
+exceptions. Atlanta `2026-06-12` settled `91.0°F` on `90-91°F`; Chicago `2026-06-14` settled
+`69.0°F` on `68-69°F`; and so on for all nineteen.
 
-**The per-bucket distribution is correct.** The floor zeroed bucket 90 (the observed max is already
-above it — right) and left `0.462` on bucket 91. **The band-level number then throws that mass
-away.** Band 5 (`92-93°F`) reproduces exactly as `p(92)+p(93)`, so the summation itself works. Only
-the band straddling the floor collapses, and **46% of the distribution is silently discarded** —
-the served band vector does not sum to 1.
-
-### The guard is correct. Its input is missing.
-
-`probability_calibration.hard_bin_probability` (`src/weather/calibration/probability_calibration.py:107`)
-already documents the exact case:
-
-> *"Exact/range bins containing the floor are not hard: the final high can still rise later, and a
-> range like 92-93F is still live when the printed floor is 93F."*
-
-Executed against the real values:
+The guard itself was always correct and always documented the case
+(`src/weather/calibration/probability_calibration.py:107`):
 
 ```
-hard_bin_probability('eq', 90, 91, bin_value_hi=91)  -> None   # correct: band stays live
-hard_bin_probability('eq', 90, 91, bin_value_hi=None) -> 0.0   # what we served
+hard_bin_probability('eq', 90, 91, bin_value_hi=91)  -> None   # band stays live
+hard_bin_probability('eq', 90, 91, bin_value_hi=None) -> 0.0   # what we served pre-fix
 ```
 
-`upper = int(bin_value_hi) if bin_value_hi is not None else bin_value`, then `if upper < floor_bucket:
-return 0.0`. **With the upper edge present the band survives; without it, `90 < 91` and the whole
-band is hard-zeroed.**
+**The research and replay paths never had this defect at all.** `band_value_hi`
+(`src/weather/market/market_microstructure_features.py:101`) falls back to parsing the upper number
+out of `range_label` when the explicit column is missing, and `backtesting/replay.py:145` and
+`backtesting/settlement_io.py:59` do the same. Only the serving consumer read the serialized field
+without a label fallback. This is why the two surfaces disagreed.
 
-Nothing else can produce an exact `0.0`. The live artifact has
-`preserve_distribution_coherence = True` — so a non-hard band returns its raw summed probability
-untouched — and `min_probability = 1e-06`, so the calibration path **cannot** return exactly zero.
-**The `hard` branch is the only route to `0.0`, and it only fires here when `bin_value_hi` is
-absent.**
+## Toronto's single case is a source glitch, not a band defect
 
-`model_presentation.market_bins` *does* set `value_hi` (`:171`, `digits[-1]`). The serialized band
-records carry `bin_kind`, `bin_value_c` and `range_label` but **no `bin_value_hi`**, so any consumer
-reconstructing `bin_data` from a stored band loses the upper edge. **The exact loss point is not yet
-identified and must be traced before anything is changed.**
+Toronto is the only Celsius market and uses **single-degree** bands (`19 C`, `20 C`) with
+`bin_value_hi_c` legitimately blank, so the upper edge cannot be lost. Its one occurrence is
+unrelated. At `20260615T104352-0400`, with the day settling at `20.0 C`:
 
-### The natural control confirms it
+| Snapshot | `wu_max_since_7am_c` | `wu_current_c` | `wu_history_high_c` |
+| --- | ---: | ---: | ---: |
+| `20260615T103022-0400` | 15.0 | 15.0 | 13.0 |
+| **`20260615T104352-0400`** | **(blank)** | **(blank)** | **24.0** |
+| `20260615T105538-0400` | 15.0 | 15.0 | 13.0 |
 
-**Toronto is the only Celsius market and it uses single-degree bands** (`16 C`, `17 C`), where
-`value_hi == value` and dropping it is harmless. Every Fahrenheit market uses two-degree bands
-(`78-79°F`).
+One snapshot lost its live observation, the floor fell back to a **history high of 24.0 C**, and the
+distribution collapsed onto `24 C` and `25 C or higher`. Bracketed by 15.0 on both sides.
+**One snapshot in 100,040 — but it is inside the 09:00–14:00 primary window.**
 
-| | Occurrences |
-| --- | ---: |
-| Toronto (1°C bands) | **1** |
-| 11 Fahrenheit markets (2°F bands) | **1,016** |
+*Note on the census rule:* the census matched `eq` bands as two-degree everywhere, which is wrong
+for Toronto. The error is conservative — it sums more mass, so it can only miss zeros, never invent
+them — and re-checking Toronto under the correct single-degree rule returns the same single
+snapshot. The Fahrenheit counts are unaffected.
 
-That is exactly what the mechanism predicts, and it is not a pattern anyone chose. Toronto's single
-case is a different and rarer thing — a genuine below-floor band that still settled, i.e. the floor
-input disagreeing with the settlement source — and is worth its own trace.
+## The separate question: does the floor ever exceed the day's high?
 
-## Why it matters, stated without inflation
+The floor input is `high_so_far` (`variant_prediction_runtime.py:369`,
+`floor_bucket = round_half_up(high_so_far)`), read here from `features_long.csv`.
 
-- **A zero on a realized outcome is the worst possible Brier contribution** and is unbounded under
-  log loss. It is also a **trading** hazard: at 18:02 we published `0.0` where the market published
-  `0.85`, on the outcome that occurred.
-- **Timing works against us.** Occurrences by hour rise through the afternoon and peak at 20:00–21:00
-  (115, 114) as the floor climbs. **The `09:00–14:00` primary window carries only ~59 of the 1,017**,
-  so this is *not* a large share of the primary objective slice — do not oversell it there.
-- **It is a bug fix, not a candidate.** It does not need to clear the ~3.2% campaign floor and it
-  spends no ledger decision. Restoring discarded mass is a correctness repair.
+| Era | Snapshots with a floor | Floor **above** settled high | Rate | Caught by quarantine |
+| --- | ---: | ---: | ---: | ---: |
+| Pre-fix | 13,545 | 28 | 0.207% | **0** |
+| Post-fix | 77,396 | 16 | **0.021%** | **0** |
 
-## What must NOT happen next
+Small, and much smaller than the band defect ever was. Two things are still worth recording:
 
-- **Do not "fix" it by weakening the floor.** The floor is the one shipped win (`1.6639 → 1.4980`).
-  The floor is not wrong here; the upper edge is missing.
-- **Do not patch it during the graded window, and do not patch it without a replay measurement.**
-  Adoption of a serving change is measured first (§1e). `model_features.py:1775` feeds served
-  outputs into the analog path.
-- **Do not assume the research surface has the same defect.** Denver `2026-06-08` proves the two
-  surfaces disagree: served `0.5206`, repaired `0.0`. **The repaired surface may be worse.** Every
-  campaign conclusion — §1c, §1d, §1f, §1g — was computed on the repaired surface, so **how often
-  the repair zeroes a realized band is an open and important question.**
+- **`current_max_quarantined_flag` fired on none of the 44.** That is not damning on its own — the
+  guard is a point-in-time heuristic and cannot know the settled high — but the worst case,
+  **Seattle `2026-07-16`, floor `68` against a settled `64`, 8 snapshots, not quarantined**, is the
+  kind of gap-to-current-temp divergence the guard exists to catch.
+- **Do not quote `wu_max_since_7am_c` for this.** Measured on that column the exceedance rate looks
+  like ~19–22%, because **72% of post-fix snapshots no longer populate it** — the observation source
+  migrated to `station_max_since_7am_c` — so the remaining rows are a biased residue. The column is
+  a live trap for exactly this kind of measurement.
+
+## What this means for the campaign
+
+**Seattle `2026-07-16` is the paired panel's single C realized-band zero, and it is a floor
+exceedance on production too, on the same market-day.** So the panel's zeros are floor-input cases,
+not the serialization defect — consistent with the research path never having had it.
+
+**Denver `2026-06-08` still does not reconcile.** It settled `82.0°F` on band `82-83°F` — the
+**lower** degree, where the serialization mechanism is arithmetically incapable of producing a zero
+at any floor — production's floor never exceeded the settled high that day, and production served
+`0.5206`. The paired panel gives it `0.0`. **Nothing in production's floor tape reproduces that**,
+and it is the open item.
+
+## What NOT to do
+
+- **There is nothing to patch in serving.** It was fixed on 2026-06-15 by `28d1c146`. Do not open a
+  serving change, and do not touch the floor: it remains the one shipped win (`1.6639 → 1.4980`).
+- **Do not treat the 1,016 pre-fix zeros as model error in any evaluation.** They are a
+  serialization artifact of the served tape on dates before 2026-06-15. Any scoring that uses the
+  served band probabilities across that boundary is scoring two different systems.
 
 ## Reproduce
 
-`scripts` for the census and the trace are in the session scratch; the census streams
-`snapshots_long.csv` per event so peak memory stays flat on the 16 GB host. The decisive one-liner:
+Census, field transition, upper-degree prediction, and floor audit scripts are in the session
+scratch. The decisive one-liners:
 
 ```powershell
 .\venv\Scripts\python.exe -c "import sys; sys.path.insert(0,'src'); from weather.calibration.probability_calibration import hard_bin_probability as h; print(h('eq',90,91,bin_value_hi=91), h('eq',90,91,bin_value_hi=None))"
 # -> None 0.0
+git log --format='%h %ad %s' --date=short -S bin_value_hi_c --all --reverse -- src/ | Select-Object -First 1
+# -> 28d1c146 2026-06-15 add
 ```
