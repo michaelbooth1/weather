@@ -555,6 +555,71 @@ from **2026-10-16**. Below ~3.2%, improvements are *permanently* unconfirmable i
 
 ---
 
+## 1e. THE PIT SOURCE STOPS 2026-06-23 — and that, not dispersion, is what `-09-58a` found
+
+`-09-58a` screened two PIT-honest own-information dispersion signals on in-season B and returned
+**NO-GO**. No feature was built, C was never scored, and **campaign decision 8 closed unused** —
+the ledger worked exactly as designed on its first use.
+
+### Read it as a BLIND null, not a precise one
+
+| Signal | OOF MSE improvement [crossed 95%] | Power | 80% MDE |
+| --- | ---: | ---: | ---: |
+| Seven-run forecast-high SD | `−0.002960 [−0.012636, +0.003834]` | **0.113** | `0.011356` |
+| Lagged five-day error SD | `−0.013338 [−0.068979, +0.001003]` | **0.103** | `0.055613` |
+
+**These are wide intervals at power ~0.11. Contrast `-09-44a`, whose *tight* interval licensed a
+conclusion.** The report is right that the negative points must not be redescribed as "dispersion
+is protective" — and **the symmetric warning is equally binding: this does NOT establish that
+dispersion signals are worthless.** It establishes that a screen on **11–14 date clusters could not
+see anything.** Distinguishing a blind null from a precise one is the distinction this project has
+already paid to learn.
+
+### Why the screen was blind — the finding that matters
+
+**The PIT-honest source ends `2026-06-23`. Verified on production, not taken from the report:**
+
+```
+fixed_lead_day_offset        n=25620  min=2021-05-10  MAX=2026-06-23
+stitched_continuous_archive  n= 5532  min=2018-05-10  MAX=2026-06-23
+```
+
+**Out-of-season C is July. It has ZERO PIT-honest coverage.** So *any* PIT-honest forecast-derived
+feature is currently **untestable on the stratum we actually serve** — the confirmatory design of
+§1c cannot be run at all for this class of candidate.
+
+It also thinned the screen itself. B is D=23; coverage left **17 and 20**, and the forward-chain
+warm-up (6 prior clusters required) took each down to **11 and 14**. Both costs are real; the
+warm-up is the larger one, so **re-fetching alone would take the screen to ~17 clusters, not to
+comfort.** The decisive gain from a re-fetch is **C becoming testable at all.**
+
+### IT IS FULLY RECOVERABLE — there is no clock
+
+Probed directly against the same free endpoint the fetcher already uses
+(`previous-runs-api.open-meteo.com`), read-only, nothing written:
+
+| Probe | Result |
+| --- | --- |
+| Toronto, 2026-07-05 → 07-11, leads 1–7 | **HTTP 200, 168/168 non-null at every lead** |
+| 2025-07-01 (last year) | 200, 72/72 at leads 1 and 7 |
+| 2021-06-01 (the configured floor) | 200, 72/72 at leads 1 and 7 |
+
+**Nothing has been lost and no retention cliff exists.** The gap is not decay — **we stopped
+running the fetch.** This was checked *because* a deadline would have been urgent; there is none,
+and that is worth stating so nobody manufactures urgency later.
+
+### The consequence
+
+**The ~60-call archive re-fetch — code landed by `-09-33a`, never run, parked when the retrain left
+the critical path (§4b) — is now the blocker for the CURRENT goal too.** It stopped being a retrain
+prerequisite and became a prerequisite for testing any PIT-honest feature under §0c.
+
+**Do not conclude from `-09-58a` that own-information dispersion is a dead end.** The honest
+statement is that **it has not yet been tested at usable power, and the thing preventing that is a
+fetch nobody has run.**
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |
