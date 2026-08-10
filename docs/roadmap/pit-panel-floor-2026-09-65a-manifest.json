@@ -1,0 +1,75 @@
+{
+  "artifact": "pit_panel_floor_v1",
+  "built_for": "-09-65a panel-floor provenance audit",
+  "columns": [
+    "stratum",
+    "market_id",
+    "target_date",
+    "snapshot_id",
+    "floor_bucket",
+    "floor_source_field",
+    "realized_band_kind",
+    "realized_band_value",
+    "realized_band_value_hi",
+    "repair_probability",
+    "control_probability"
+  ],
+  "contains_fitted_quantities": false,
+  "contains_market_prices": false,
+  "contains_outcomes_beyond_realized_band_identity": false,
+  "extract_bytes": 990983,
+  "extract_rows": 12289,
+  "extract_sha256": "966ff8cb85c03121022341cc87da6ccaabdc67609d744bbc001b95f4ba96eaad",
+  "floor_provenance": {
+    "derived_floor_exported": false,
+    "floor_bucket_output": "empty on all rows",
+    "floor_source_field_output": "empty on all rows",
+    "panel_carries_floor_column": false,
+    "reason": "The retained paired panel has no floor/high_so_far column. A later reconstruction from captured replay inputs would not be a floor carried by the panel.",
+    "recognized_floor_columns_checked": [
+      "feature_high_so_far",
+      "floor_bucket",
+      "high_so_far",
+      "observed_floor_bucket",
+      "printed_observed_floor_bucket"
+    ],
+    "recognized_floor_columns_present": []
+  },
+  "input": {
+    "paired_panel": {
+      "band_rows": 135179,
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/paired-band-rows.csv",
+      "sha256": "4352e77692893c3ac36add9653eabfe0d014de7a02bf083ec6c10e2944dc4e88"
+    },
+    "repaired_band_rows": {
+      "band_rows": 135179,
+      "purpose": "restore the realized band's kind/value/value_hi by exact row-key join",
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/band-score-rows.csv",
+      "sha256": "9a70ac80143a7eea9b14003b2f992413d622b167ce35ea4be54273cfdf3e27ae"
+    }
+  },
+  "max_extract_bytes_exclusive": 1000000,
+  "probability_serialization": {
+    "max_absolute_error": 4.999590741405768e-10,
+    "reason": "retain every snapshot below the explicit 1,000,000-byte artifact cap",
+    "significant_digits": 9
+  },
+  "realized_band_identity": {
+    "outcome_value_emitted": false,
+    "selection": "the sole paired row with outcome == 1 per snapshot",
+    "value_hi_rule": "explicit bin_value_hi when present; otherwise parse the upper endpoint from range_label; otherwise use value, matching snapshot_band_key/band_identity"
+  },
+  "support": {
+    "B": {
+      "snapshots": 4636
+    },
+    "C": {
+      "snapshots": 7653
+    },
+    "latest_target_date": "2026-07-30",
+    "pooled_across_2026_07_31": false,
+    "regime_boundary": "2026-07-31",
+    "strata_reported_separately": true,
+    "total_snapshots": 12289
+  }
+}
