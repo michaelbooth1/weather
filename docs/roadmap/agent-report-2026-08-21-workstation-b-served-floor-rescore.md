@@ -141,9 +141,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 
 ## Roll verdict and branch
 
-The authoritative repository command will be bound after the mission commit. The mission changes
-only the three roll-free paths below; none is in the snapshot, CLOB, observation-trigger, or dormant
-CLOB-enrichment retained closure.
+After implementation/report commit `7b05573ed1d3d299b2c08f4d3837cc7d80dd7a5f`, the authoritative
+repository command
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-rescore-b-on-the-served-floor-2026-09-66a
+```
+
+returned exit `0` and **`VERDICT: ROLL-FREE`**. It evaluated 61 branch-relative changed files
+(including changes inherited from the pinned `origin/master`), found seven importable files across
+the live `loop`, `clob_loop`, and `observation_trigger` closures, and classified all seven `free`.
+It also reported that the 343-hour-old dormant `clob_enrichment` closure was fully subsumed by a
+live closure, so its dormancy could not affect the verdict. The three mission-owned paths below do
+not intersect any retained closure.
 
 | Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
@@ -154,6 +166,8 @@ CLOB-enrichment retained closure.
 Base: `292037ab81d4ac1d162ffa01f6e8ff39cdee8252` (`origin/master`).
 
 Branch: `codex/workstation-rescore-b-on-the-served-floor-2026-09-66a`.
+
+Implementation/report commit: `7b05573ed1d3d299b2c08f4d3837cc7d80dd7a5f`.
 
 ## Explicitly not done
 
