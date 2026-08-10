@@ -212,10 +212,28 @@ Base: `6444cc199d2b21bd6ce8b89ea2a7e7b70c70bade` (`origin/master`).
 
 Branch: `codex/workstation-is-gate-3-satisfiable-2026-09-68a`.
 
-Analysis/report commit: `TO_BIND_AFTER_COMMIT`.
+Analysis/report commit: `1125f04f302a86e3aebd144bc24f3462b6cd6b44`.
 
-The authoritative roll verdict and per-file closure table will be bound after the analysis/report
-commit is created.
+After that commit, the authoritative repository command
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-is-gate-3-satisfiable-2026-09-68a
+```
+
+returned exit `0` and **`VERDICT: ROLL-FREE`**. It evaluated 67 paths relative to the production
+host's older working-tree comparison point, including seven importable paths inherited through the
+fetched `6444cc19` base; all seven were classified `free`. The 345.1-hour-old dormant
+`clob_enrichment` closure was fully subsumed by a live closure, so its dormancy could not affect the
+verdict. The mission diff against `origin/master` is exactly the three paths below, none of which
+enters a retained closure.
+
+| Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `tools/research/analyze_gate_3_satisfiability_09_68a.py` | none | none | none | none | Roll-free one-off research tool |
+| `tools/research/gate_3_satisfiability_09_68a_seed.json` | none | none | none | none | Roll-free research seed |
+| `docs/roadmap/agent-report-2026-08-23-workstation-gate-3-satisfiability.md` | none | none | none | none | Roll-free Markdown |
 
 ## Explicitly not done
 
