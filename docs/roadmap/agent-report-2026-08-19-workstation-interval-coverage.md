@@ -256,6 +256,34 @@ evidence, not assumed to exist in a clean checkout; the committed script,
 protocol, seeds, support checks, and input hash make it reproducible where the
 retained `-09-44a` field exists.
 
+## Authoritative roll verdict
+
+The repository-owned command, run after the result commit, was:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-interval-coverage-at-alpha-0025-2026-09-62a
+```
+
+It reported 46 changed files, seven importable files, and closures `loop`,
+`clob_loop`, and `observation_trigger`. Every importable file was classified
+`free`:
+
+| Per-file verdict | Path |
+| --- | --- |
+| `free` | `src/weather/calibration/base_model_candidate.py` |
+| `free` | `src/weather/calibration/feature_model.py` |
+| `free` | `src/weather/calibration/feature_training_policy.py` |
+| `free` | `src/weather/operations/all_shadow_release_bootstrap.py` |
+| `free` | `src/weather/operations/base_retrain.py` |
+| `free` | `src/weather/operations/release_candidate_contract.py` |
+| `free` | `src/weather/reporting/scorecards/train_serve_feature_parity.py` |
+
+The dormant `clob_enrichment` warning was explicitly `SUBSUMED`: all 21 of
+its files are covered by a live closure. The authoritative result was
+**`VERDICT: ROLL-FREE`**.
+
 ## Safety and accounting
 
 - No post-`2026-07-30` row was read or pooled.
