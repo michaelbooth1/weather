@@ -178,11 +178,40 @@ Largest single decreases: denver `2026-06-26` `89.0 → 70.0` in ten minutes; se
 cutoff, and `variant_prediction_runtime.py:369` rounds it straight into the serving floor. A maximum
 cannot decrease, yet this one does, on the majority of market-days.
 
-> **I have not established the mechanism, and I am not going to guess at it here.** The obvious
-> candidate — the cutoff advancing — is contradicted by the san-francisco row, where `cutoff_hour`
-> moved `13 → 14` (a *widening* window) at the exact snapshot where `high_so_far` fell `68 → 67`.
-> Revisable upstream observations are a second candidate. **Establishing which is production work
-> and it is not done.**
+### The mechanisms, traced through `replay_inputs.jsonl`
+
+Both blocking rows were traced to their captured source payloads. **They are not the same defect.**
+
+**san-francisco `2026-06-09` — the upstream series is mutable.** Three consecutive snapshots, all
+carrying the same 18 `wu_history` rows, the same `max_times` `['11:56','12:56']` and the same
+`latest.datetime` of `12:56`:
+
+| Snapshot (ET) | last five row temps | `max(rows)` | `wu_history.max_c` | `wu_current.max_since_7am_c` | `high_so_far` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 16:51 | `66, 66, 67, 67, `**`68`** | 68.0 | **67.0** | 68.0 | 68.0 |
+| 17:01 | `66, 66, 67, 67, `**`68`** | 68.0 | **67.0** | 68.0 | **68.0** ← blocks |
+| 17:11 | `66, 66, 67, 67, `**`67`** | 67.0 | **67.0** | 67.0 | 67.0 |
+
+**Weather Underground restated an already-published observation, 68 → 67**, without changing the row
+count or the timestamp. And **`wu_history.max_c` said `67.0` in all three** — including while the
+rows still contained a 68. The vendor's own summary field was right, the row was the transient, and
+settlement agreed at 67.
+
+**chicago `2026-06-14` — no history at all, so the floor fell back to the instantaneous reading.**
+
+| Snapshot (ET) | `wu_history` | `wu_current.temp_c` | `wu_current.max_since_7am_c` | `high_so_far` |
+| --- | --- | ---: | ---: | ---: |
+| 01:10 | **`rows=0`, `max_c=None`** | 70.0 | 83.0 | **70.0** ← blocks |
+| 01:18 | **`rows=0`, `max_c=None`** | 68.0 | 83.0 | 68.0 |
+
+With no history rows, `high_so_far` tracked `current_temp` — **not a maximum of anything** — and the
+70 was a transient. Note `max_since_7am_c = 83.0` is chicago's **previous day's settled high**
+(`2026-06-13` settled `83.0`): the pre-dawn carryover, correctly *not* used for the served floor,
+with the fallback landing on the instantaneous reading instead.
+
+> **What is established:** two distinct mechanisms — a mutable upstream series, and an empty-history
+> fallback to the current reading. **What is not:** how the 18.62% / 30.58% divides between them, or
+> whether other mechanisms exist. I traced two rows; I did not measure a population.
 
 What *is* established is the consequence. The floor commits to an exact `0.0` — an irreversible
 statement that the day cannot end in that band — from a quantity that is not monotone. Usually this
@@ -228,7 +257,54 @@ Four missions cleared the instrument by measuring averages, and that clearance i
 covered the one place where a single row could stop the campaign — and that is exactly where the
 wrong floor did its damage.
 
-## 8. Reproduction
+## 8. `-09-68a`: Gate 3 is a size limit, not a quality bar
+
+Verified on production 2026-08-10, branch `dbd0ebd1`, ROLL-FREE.
+
+**The prediction in §3 was correct.** The third survivor is **nyc `2026-06-22`
+`20260622T000103-0400`** — 00:01, one minute past midnight — and its `served_floor_bucket` is
+**blank**. Production applied no floor there. Denver's realized band reproduces at
+`0.5206313021403224`.
+
+That leaves **two** genuine B zeros, and it makes the timing pattern hard to miss: of the five
+zero-carrying rows found anywhere in this investigation, **four fall between 00:01 and 03:05.**
+
+| Row | Local time | Status |
+| --- | --- | --- |
+| nyc `2026-06-22` | 00:01 | no floor served |
+| chicago `2026-06-14` | 01:10 | **genuine** |
+| seattle `2026-07-16` (C) | 03:01 | genuine, C |
+| denver `2026-06-08` | 03:05 | **invalid — served `0.5206`** |
+| san-francisco `2026-06-09` | 17:01 | **genuine** |
+
+### The satisfiability result
+
+B floor crossings: **2 / 204 market-days**, crossed 95% `[0%, 4.035874%]`. Under that rate:
+
+| B market-days | P(Gate 3 fires) |
+| ---: | ---: |
+| 71 | **50.317282%** (70 → 49.825374%) |
+| **204 — this panel's own size** | **86.5994%** |
+| 305 | **95.045879%** (304 → 94.996828%) |
+| 500 | **99.274561%** |
+
+**Gate 3 was ~87% likely to fire on this panel before anyone looked at a candidate.** Whatever it
+measured, it was not the candidate.
+
+> **The structural point needs no rate estimate at all.** A fail-closed *"any row"* gate has
+> `P(fire) = 1 − (1 − q)^n → 1` for **every** `q > 0`. The measured rate only sets the scale.
+> **Only `q = 0` exactly escapes** — and `q` is the serving floor's error rate, which §5 shows is
+> not zero and is not even monotone.
+
+**Honest caveat on the rate.** The interval's lower bound is `0%` because the estimate rests on two
+events across 23 date × 12 market clusters — many crossed resamples contain neither. Do not quote
+`0.980392%` as if it were well determined. **The conclusion does not depend on it:** the structural
+argument above holds for any non-zero rate, and two crossings were observed.
+
+Sensitivity only, licensing no exclusion rule: dropping the two genuine rows moves B's incumbent
+Brier `0.053290041 → 0.053247700`, a change of `-0.000042341`.
+
+## 9. Reproduction
 
 ```powershell
 $repo = 'C:\Users\micha\Desktop\github\weather'
