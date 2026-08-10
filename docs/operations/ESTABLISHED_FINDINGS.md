@@ -54,8 +54,31 @@ Verified directly in `data/forecast_history/cyyz/forecast_long.csv` — `issue_t
 | `open_meteo_previous_runs` | **`fixed_lead_day_offset`** — genuine issue-time evidence | 51,240 |
 | `open_meteo_historical_forecast` | **`stitched_continuous_archive`** — settled, no true issue time | 11,064 |
 
-**So genuine PIT provenance exists on the free tier for temperature only.** Historical Forecast
+**So genuine PIT provenance exists in OUR ARCHIVE for temperature only.** Historical Forecast
 returns the *settled* profile; it cannot say what was forecast at the cutoff.
+
+> ### NARROWED 2026-08-09 — "temperature only" is a property of what we REQUEST, not of the free tier
+>
+> Probed directly against `previous-runs-api.open-meteo.com`, read-only, **12 of the 21 declared
+> fields return complete PIT data at lead 7** (Toronto, 2026-07-05→06, 48/48 non-null each):
+>
+> | PIT-available free (12) | NOT available (9) |
+> | --- | --- |
+> | `temperature_2m`, `cloud_cover`, `shortwave_radiation`, `wind_speed_10m`, `cape`, `direct_radiation`, `diffuse_radiation`, `wind_gusts_10m`, `precipitation_probability`, `precipitation`, `vapour_pressure_deficit`, `et0_fao_evapotranspiration` | `cloud_cover_low/mid/high`, `visibility`, `soil_temperature_0cm`, `soil_moisture_0_to_1cm` (all return 0/48); `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` (HTTP 400) |
+>
+> **The cause is in our own fetcher:** `forecast_history.py:692` builds
+> `hourly = ",".join(f"temperature_2m_previous_day{lead}" ...)` — **it has only ever asked for
+> temperature.** Eleven additional PIT-honest fields have been free the whole time and were never
+> requested.
+>
+> **Scope of this probe, stated so nobody over-reads it: ONE market, TWO target dates, leads 1 and 7.**
+> It is strong on *availability* and says nothing about coverage across markets, dates, or history
+> depth. **Treat as a verified probe, not a full trace** — it needs a mission before the fetcher
+> changes.
+>
+> **What survives unchanged:** the 9 failing fields are a real wall; the stitched-source refusal is
+> still correct; and `-09-55a`'s NO-GO on *its* proposed fix stands. What narrows is the **scope** —
+> the wall covers 9 fields, not 21.
 
 > **And the repair I proposed has a name in this repository already.**
 > `stitched_forecast_high_without_issue_time` is a **declared known defect** in
