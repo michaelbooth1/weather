@@ -117,6 +117,14 @@ Distinct from Pattern 3: not *when* you asked, but whether you **looked at the t
 - `SEASON_START = (5,10)` carried a comment explaining why it was correct. **It was correct when
   written** and expired silently on 2026-06-30.
 
+**A third instance, same day, mine again.** I claimed the PIT 21-field wall was a routing defect
+because the archive manifest's `params.hourly` listed exactly those 21 fields. I read the manifest's
+**declaration** of what was requested, never the **data's** `issue_time_basis` — which shows the
+historical-forecast rows are `stitched_continuous_archive`, carrying no true issue time. The fields
+were available; they were not available *as of an issue time*, and that is the entire contract. The
+fix I proposed would have re-introduced `stitched_forecast_high_without_issue_time`, a defect already
+declared by name in the parity fixture.
+
 **Detection question: *have I opened the actual artifact, or only its description?*** And when you
 must pass an unverified belief to someone else, **label it a hypothesis to trace.** That label is
 load-bearing; it is the difference between a corrected guess and a corrupted canon.

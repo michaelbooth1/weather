@@ -33,6 +33,38 @@ is weakest and where the tradable edge would live.
 
 ---
 
+## 0a. The PIT 21-field wall is REAL — and the production agent's fix would have re-broken a known defect
+
+**`-09-55a`, 2026-08-09. NO-GO.** The frozen 21-field point-in-time contract is **not satisfiable on
+the free tier**, and it is **not** the routing defect I proposed.
+
+**I conflated field AVAILABILITY with point-in-time VALIDITY.** I argued that because production's
+archive holds 461 days of exactly those 21 fields from `historical-forecast-api`, the fields are
+free-tier available and the plan was simply querying the wrong endpoint. The fields are available.
+**They are not available as of an issue time**, and that is the whole content of the contract.
+
+Verified directly in `data/forecast_history/cyyz/forecast_long.csv` — `issue_time_basis` splits
+**exactly by source**:
+
+| Source | `issue_time_basis` | Rows |
+| --- | --- | ---: |
+| `open_meteo_previous_runs` | **`fixed_lead_day_offset`** — genuine issue-time evidence | 51,240 |
+| `open_meteo_historical_forecast` | **`stitched_continuous_archive`** — settled, no true issue time | 11,064 |
+
+**So genuine PIT provenance exists on the free tier for temperature only.** Historical Forecast
+returns the *settled* profile; it cannot say what was forecast at the cutoff.
+
+> **And the repair I proposed has a name in this repository already.**
+> `stitched_forecast_high_without_issue_time` is a **declared known defect** in
+> `train_serve_feature_parity_known_defects_v0.1.json`, dimensions `availability` and `provenance`,
+> and `forecast_high is NOT point-in-time` is recorded as **~6% of the cool bias**. Sourcing the 21
+> fields from stitched data would have re-introduced a contamination defect the project already
+> tracks by name. **The mission stopped rather than silently changing candidate training semantics.**
+
+**This retroactively supports §0b.** The retrain path's terminal blocker is a genuine wall requiring
+either a paid provider (closed, forbidden) or a contract change that would degrade point-in-time
+honesty. **Stepping off that path was correct, and this NO-GO closes it out rather than costing us.**
+
 ## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
 
 **"I think the goal should be a better one. I am happy making small improvements at a time until we
