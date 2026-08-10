@@ -98,10 +98,15 @@ Small, and much smaller than the band defect ever was. Two things are still wort
   guard is a point-in-time heuristic and cannot know the settled high — but the worst case,
   **Seattle `2026-07-16`, floor `68` against a settled `64`, 8 snapshots, not quarantined**, is the
   kind of gap-to-current-temp divergence the guard exists to catch.
-- **Do not quote `wu_max_since_7am_c` for this.** Measured on that column the exceedance rate looks
-  like ~19–22%, because **72% of post-fix snapshots no longer populate it** — the observation source
-  migrated to `station_max_since_7am_c` — so the remaining rows are a biased residue. The column is
-  a live trap for exactly this kind of measurement.
+- **Do not quote `wu_max_since_7am_c` as the served floor.** Measured on that column the exceedance
+  rate looks like ~19–22%, because **72% of post-fix snapshots no longer populate it** — the
+  observation source migrated to `station_max_since_7am_c`. The served floor is `high_so_far`.
+
+  > **CORRECTION, later the same day.** I originally wrote that the ~19–22% was a biased artifact
+  > and should not be quoted at all. Wrong — I discarded the answer to a question I had not asked
+  > yet. `-09-65a` established that the **replay reconstructs its floor from that very column**, so
+  > ~21.8% is the error rate of the research surface's floor, not measurement noise. See
+  > **`REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md`**, which also resolves Denver `2026-06-08`.
 
 ## What this means for the campaign
 
@@ -109,11 +114,12 @@ Small, and much smaller than the band defect ever was. Two things are still wort
 exceedance on production too, on the same market-day.** So the panel's zeros are floor-input cases,
 not the serialization defect — consistent with the research path never having had it.
 
-**Denver `2026-06-08` still does not reconcile.** It settled `82.0°F` on band `82-83°F` — the
-**lower** degree, where the serialization mechanism is arithmetically incapable of producing a zero
-at any floor — production's floor never exceeded the settled high that day, and production served
-`0.5206`. The paired panel gives it `0.0`. **Nothing in production's floor tape reproduces that**,
-and it is the open item.
+**Denver `2026-06-08` — RESOLVED by `-09-65a`, see
+`REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md`.** It settled `82.0°F` on band `82-83°F`, the
+**lower** degree, where the serialization mechanism cannot produce a zero at any floor, and
+production's `high_so_far` never exceeded the settled high. The panel's `0.0` comes from a later
+replay reconstructing a floor of **91** from `wu_max_since_7am_c` at **03:05**, when that column
+still carries the *previous* day's window. Serving read `68.0` at that snapshot.
 
 ## What NOT to do
 
