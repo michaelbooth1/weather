@@ -713,11 +713,17 @@ written into production `data/`.**
 | | |
 | --- | ---: |
 | Markets | **12 / 12** |
-| Range | **2026-06-24 → 2026-08-09** — the entire gap |
+| Range | **2026-06-03 → 2026-08-09** — the date gap **and** the sealed corpus in both strata |
 | Variables per market | **84** (12 fields × leads 1–7) **in ONE call** |
-| Rows | **1,137,024** · 113 MB |
-| Coverage | **100.0000%** non-null, every market |
+| Rows | **1,645,056** (1,137,024 + 508,032 front segment) |
+| Coverage | **100.0000%** non-null, every market, both segments |
 | Provenance | `fixed_lead_day_offset` / `open_meteo_previous_runs` — **stitched endpoint never touched** |
+
+**Two segments, and the second one matters more than it looks.** The first closed the *date* gap
+(`06-24 → 08-09`). But the **11 missing fields were absent from the ENTIRE archive, not just the
+gap** — including in-season B. A front segment (`06-03 → 06-23`, `C:\tmp\pit-refetch-2026-08-10-front`)
+was fetched so the sealed corpus is covered in **both** strata. **Without it the fit-on-B /
+score-on-C design of §1c would have had a test stratum and no training stratum.**
 
 **Positive control against the archive.** The staged range begins exactly where the archive stops,
 so `2026-06-23` was fetched separately and compared to a known-good row:

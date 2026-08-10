@@ -110,7 +110,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-59a` | **anatomy of the severity tail** — what is actually IN the 4.387% of rows carrying 64.140% of the loss | **DISPATCHED**. Needs no new data and no provider call, so it is unaffected by the §1e PIT gap. Characterisation only — **spends no ledger decision** |
 
 | `-09-60a` | **RETURNED — NO-GO at P0, zero ledger cost.** Conditional reshaping loses to global **on its own training score** | ROLL-FREE verified; **QUEUED 05:15**. Trigger fired on 46.786% and still lost to full coverage — **smoothing is diffuse, not tail-concentrated** (§1g). **Closes distribution reshaping.** Decision 9 closed unused |
-| **NEXT** | **The 11 PIT forecast fields the fetcher never requested** (§0a, §1g) | **PRODUCTION WORK — workstation may not call providers.** The only untapped own-information source left; §1f tested *station observations*, not *forecast output at issue time*, so these are **untested, not disproven** |
+| PIT fields | **FETCHED + STAGED 2026-08-10** — 12/12 markets, `06-03 → 08-09`, 1,645,056 rows, 100% coverage | **NOT adopted.** Adoption is a **serving change** (`model_features.py:1775` feeds the analog days) — **replay first** (§1e) |
+| `-09-61a` | **pre-register the PIT-field evaluation, before the data exists** | **DISPATCHED**. P0 asks whether the design can clear the **3.2% floor at all** — a free decisive NO before anyone builds parser/schema/tests. Spends **no** decision; allocates **10** |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

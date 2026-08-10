@@ -233,3 +233,28 @@ file (deprioritized per operator); chain terminal `0x2` = gates BLOCK, expected 
 `production-tolerate-benign-capture-race` fix — the 06:00 wake could not see it. Also confirm whether
 the backfill's chain tail ever left `taker_finalization_watchdog`, and whether `2026-08-09.json` ever
 landed.
+
+### 10:30 wake — 2026-08-10 — **DID NOT RUN**
+
+**No check was performed at this hour.** The runner's guards all passed (9018 MB free) and the agent
+launched at 10:30:01, but `claude.exe` printed *"You've hit your session limit · resets 11am"* and
+**exited 0**. The runner recorded success and no section appeared — and an absent section reads
+exactly like "nothing to report". It was not.
+
+**Fixed, not just noted.** The runner now inspects stdout for limit messages, rejects near-empty
+output, checks the briefing's mtime advanced, and writes its own `DID NOT RUN` section when a wake
+no-ops. **Exit code is not evidence a wake ran.** Recorded in the wake-agent memory as an instance
+of the stopped-counter pattern — in the monitoring tooling itself.
+
+**Covered manually by the production agent at ~10:40–11:00 instead:**
+
+| Check | Result |
+| --- | --- |
+| Capture before the graded window | all three loops **AboveNormal**, RAM 8.27 GB free |
+| Streak | **1/14**, day 1 `2026-08-09` — restarted, 08-09 settled `complete` 12/12 |
+| The 09:30 chain run | **passed** — this was the first genuine test of `production-tolerate-benign-capture-race`, and 08-09 settled end to end |
+| Disk | **169.2 GB free, ~22 days** — improved from ~11; CLOB tiering appears to have run |
+| Settlement holes | **08-06 and 08-08** remain; backfills armed 08-11 and 08-13 |
+
+**Standing:** the `WeatherSettlementBackfill20260809` armed this morning was **disabled** — the
+09:30 run settled 08-09, so it was redundant. `WeatherExecTapePilot` is armed for **18:15** tonight.
