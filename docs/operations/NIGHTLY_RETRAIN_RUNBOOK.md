@@ -353,6 +353,28 @@ same release's model-bound `training_evaluation_corpus` role. The new release
 still freezes the current tracked family-secondary manifest, artifact registry,
 runtime market set, and base graph.
 
+For an empty research release store, bind a first-party corpus instead of a
+prior release:
+
+```powershell
+python -m weather.operations.all_shadow_release_bootstrap `
+  --candidate-id <reviewed-release-id> `
+  --run-root <dedicated-run-root-outside-data> `
+  --first-party-forecast-history-root <read-only-forecast-history-root> `
+  --first-party-target-date <first-retrain-target-date>
+```
+
+This mutually exclusive path assembles the code-owned 2021-2025 target-season
+matrix for all 12 markets and cutoffs using the explicit `rich` forecast
+variant and a 2025 holdout by default. It fails unless every expected
+market/date/cutoff cell is present, then binds the canonical row-set hash, exact
+pooled-model input-field hash, and complete assembly contract into the release's
+`training_evaluation_corpus` role. It does not fetch provider data, fit a model,
+or make the tracked pooled bundle production-capable. Use the optional
+`--first-party-holdout-year` and
+`--first-party-forecast-training-variant` arguments only when the reviewed
+research contract explicitly calls for different values.
+
 The builder requires a clean code identity and the exact runtime fleet
 (Toronto in C plus eleven F markets). It copies the tracked pooled F bundle,
 family-secondary manifest, and artifact registry; freezes every market as

@@ -6,14 +6,18 @@ import argparse
 import hashlib
 import json
 import os
+import pickle
 import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from weather.calibration.pooled_feature_assembly import build_market_records
 from weather.io import write_json_atomic
 from weather.market.market_registry import REGISTRY
+from weather.model.corpus_lineage import build_pooled_corpus_lineage
+from weather.operations.base_retrain import _training_population_for_target
 from weather.operations.release_candidate_contract import (
     SEMANTIC_PATHS,
     freeze_candidate_semantic_contract,
@@ -34,6 +38,7 @@ from weather.release_contract import (
     RESEARCH_ONLY_CANDIDATE_MODE,
 )
 from weather.schema_registry import schema_version
+from weather.sources.forecast_training_variants import ForecastTrainingVariantResolver
 
 
 SCHEMA_VERSION = schema_version("all_shadow_release_bootstrap_receipt")
@@ -274,6 +279,149 @@ def _verified_release_research_lineage(
     }
 
 
+def _model_input_fields(model_bundle_path: Path) -> list[str]:
+    try:
+        with model_bundle_path.open("rb") as handle:
+            bundle = pickle.load(handle)  # noqa: S301 - copied source hash verified above
+    except (OSError, pickle.PickleError, EOFError, AttributeError, ValueError) as exc:
+        raise AllShadowBootstrapError(
+            f"pooled model bundle is unreadable: {model_bundle_path}: {exc}"
+        ) from exc
+    models = bundle.get("models") if isinstance(bundle, Mapping) else None
+    fields = sorted(
+        {
+            str(field)
+            for row in (models or {}).values()
+            if isinstance(row, Mapping)
+            for field in (row.get("feature_names") or ())
+        }
+    )
+    if not fields:
+        raise AllShadowBootstrapError(
+            "pooled model bundle has no exact model-input feature contract"
+        )
+    return fields
+
+
+def _first_party_research_lineage(
+    *,
+    model_bundle_path: Path,
+    forecast_history_root: str | Path,
+    target_date: str,
+    holdout_year: int,
+    forecast_training_variant: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Assemble and bind the exact code-owned first-retrain research corpus."""
+
+    history_root = Path(forecast_history_root)
+    if not history_root.is_dir():
+        raise AllShadowBootstrapError(
+            f"first-party forecast-history root is not a directory: {history_root}"
+        )
+    population = _training_population_for_target(target_date)
+    years = [int(value) for value in population.get("years") or ()]
+    if holdout_year not in years:
+        raise AllShadowBootstrapError(
+            "first-party holdout year must be inside the code-owned training population"
+        )
+    market_ids = [str(value) for value in population.get("market_ids") or ()]
+    if set(market_ids) != set(REGISTRY):
+        raise AllShadowBootstrapError(
+            "first-party corpus population does not match the exact runtime market set"
+        )
+    selected_dates = {str(value) for value in population["selected_dates"]}
+    cutoff_hours = tuple(int(value) for value in population["cutoff_hours_local"])
+    exclusions = {
+        (str(row["market_id"]), str(row["target_date"]))
+        for row in population.get("station_day_exclusions") or ()
+    }
+    expected_keys = {
+        (market_id, selected_date, cutoff_hour)
+        for market_id in market_ids
+        for selected_date in selected_dates
+        for cutoff_hour in cutoff_hours
+        if (market_id, selected_date) not in exclusions
+    }
+    records: list[dict[str, Any]] = []
+    observed_keys: set[tuple[str, str, int]] = set()
+    for market_id in market_ids:
+        spec = REGISTRY[market_id]
+        resolver = ForecastTrainingVariantResolver(
+            history_root,
+            spec,
+            variant=forecast_training_variant,
+            pit_lead_days=1,
+        )
+        market_rows = build_market_records(
+            spec,
+            cutoff_hours=cutoff_hours,
+            excluded_target_dates={
+                selected_date
+                for excluded_market, selected_date in exclusions
+                if excluded_market == market_id
+            },
+            included_target_dates=selected_dates,
+            prior_as_of_exclusive=min(selected_dates),
+            forecast_training_resolver=resolver,
+        )
+        for row in market_rows:
+            key = (
+                str(row.get("market_id") or ""),
+                str(row.get("target_date") or "")[:10],
+                int(row.get("cutoff_hour") or -1),
+            )
+            if key in observed_keys:
+                raise AllShadowBootstrapError(
+                    f"first-party corpus contains a duplicate market/date/cutoff cell: {key}"
+                )
+            observed_keys.add(key)
+            records.append(dict(row))
+    if observed_keys != expected_keys:
+        missing = sorted(expected_keys - observed_keys)[:5]
+        unexpected = sorted(observed_keys - expected_keys)[:5]
+        raise AllShadowBootstrapError(
+            "first-party corpus does not cover the exact code-owned matrix: "
+            f"expected={len(expected_keys)} observed={len(observed_keys)} "
+            f"missing_sample={missing} unexpected_sample={unexpected}"
+        )
+    expected_count = int(population["expected_market_date_cutoff_count"])
+    if len(records) != expected_count or len(expected_keys) != expected_count:
+        raise AllShadowBootstrapError(
+            "first-party corpus count differs from the code-owned population contract"
+        )
+    model_input_fields = _model_input_fields(model_bundle_path)
+    lineage = build_pooled_corpus_lineage(
+        records,
+        holdout_year=holdout_year,
+        model_input_fields=model_input_fields,
+    )
+    assembly_contract = {
+        "kind": "first_party_corpus_assembly",
+        "training_population": population,
+        "forecast_training_variant": forecast_training_variant,
+        "pit_lead_days": 1,
+        "holdout_year": holdout_year,
+        "market_ids": market_ids,
+        "record_count": len(records),
+    }
+    proof = {
+        "kind": "first_party_corpus_assembly",
+        "verification_status": "PASS",
+        "assembly_contract": assembly_contract,
+        "assembly_contract_sha256": canonical_payload_sha256(assembly_contract),
+        "assembled_corpus_sha256": lineage["final_refit"]["sha256"],
+        "assembled_row_count": lineage["final_refit"]["row_count"],
+        "model_input_fields_sha256": canonical_payload_sha256(
+            {"model_input_fields": lineage["model_input_fields"]}
+        ),
+        "target_date": str(target_date),
+        "holdout_year": holdout_year,
+        "forecast_training_variant": forecast_training_variant,
+        "market_count": len(market_ids),
+    }
+    return lineage, proof
+
+
 def _read_contract_json(path: Path, *, label: str) -> dict[str, Any]:
     try:
         payload = strict_json_loads(path.read_text(encoding="utf-8"), label=label)
@@ -352,6 +500,10 @@ def build_all_shadow_release(
     receipt_path: str | Path | None = None,
     expected_live_runtimes: Sequence[str] = DEFAULT_EXPECTED_RUNTIMES,
     model_source_release: str | Path | None = None,
+    first_party_forecast_history_root: str | Path | None = None,
+    first_party_target_date: str | None = None,
+    first_party_holdout_year: int = 2025,
+    first_party_forecast_training_variant: str = "rich",
 ) -> dict[str, Any]:
     """Freeze and verify one inactive release; never create an active pointer."""
 
@@ -369,6 +521,14 @@ def build_all_shadow_release(
     code = capture_code_identity(repo_root)
     if code.get("git_dirty") is not False:
         raise AllShadowBootstrapError("all-shadow release bootstrap requires a clean source tree")
+    if model_source_release is not None and first_party_forecast_history_root is not None:
+        raise AllShadowBootstrapError(
+            "verified-release and first-party corpus lineage sources are mutually exclusive"
+        )
+    if (first_party_forecast_history_root is None) != (first_party_target_date is None):
+        raise AllShadowBootstrapError(
+            "first-party forecast-history root and target date are required together"
+        )
     source_rows = []
     research_corpus_lineage: dict[str, Any] | None = None
     research_corpus_lineage_provenance: dict[str, Any] | None = None
@@ -425,6 +585,7 @@ def build_all_shadow_release(
             **lineage_proof,
         }
         research_corpus_lineage_provenance = {
+            "kind": "verified_immutable_release",
             "verification_status": lineage_proof["verification_status"],
             "source_release_id": lineage_proof[
                 "lineage_source_release_id"
@@ -435,6 +596,19 @@ def build_all_shadow_release(
             "source_role_sha256": lineage_proof["role_sha256"],
             "source_payload_sha256": lineage_proof["payload_sha256"],
         }
+    elif first_party_forecast_history_root is not None:
+        research_corpus_lineage, research_corpus_lineage_provenance = (
+            _first_party_research_lineage(
+                model_bundle_path=candidate_paths["pooled_band_model"],
+                forecast_history_root=first_party_forecast_history_root,
+                target_date=str(first_party_target_date),
+                holdout_year=int(first_party_holdout_year),
+                forecast_training_variant=first_party_forecast_training_variant,
+            )
+        )
+        source_provenance["training_evaluation_corpus"] = dict(
+            research_corpus_lineage_provenance
+        )
     promotion = all_shadow_promotion()
     semantic = freeze_candidate_semantic_contract(
         candidate_dir=candidate_dir,
@@ -548,6 +722,23 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--first-party-forecast-history-root",
+        help=(
+            "explicit read-only forecast-history root used to assemble first-party "
+            "research lineage for the tracked pooled bundle"
+        ),
+    )
+    parser.add_argument(
+        "--first-party-target-date",
+        help="target date whose code-owned first-retrain matrix is assembled",
+    )
+    parser.add_argument("--first-party-holdout-year", type=int, default=2025)
+    parser.add_argument(
+        "--first-party-forecast-training-variant",
+        default="rich",
+        choices=("simple", "rich"),
+    )
+    parser.add_argument(
         "--expected-live-runtimes",
         default=",".join(DEFAULT_EXPECTED_RUNTIMES),
         help="comma-separated exact runtime identities",
@@ -568,6 +759,12 @@ def main(argv: list[str] | None = None) -> int:
             if value.strip()
         ],
         model_source_release=args.model_source_release,
+        first_party_forecast_history_root=args.first_party_forecast_history_root,
+        first_party_target_date=args.first_party_target_date,
+        first_party_holdout_year=args.first_party_holdout_year,
+        first_party_forecast_training_variant=(
+            args.first_party_forecast_training_variant
+        ),
     )
     print(json.dumps(result, sort_keys=True))
     return 0
