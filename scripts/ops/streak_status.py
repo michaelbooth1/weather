@@ -56,6 +56,9 @@ COMPLETE_GRADES = {"complete"}
 # a day that stops counting is visible as a reason rather than an unexplained
 # decrement.
 DEMOTED_GRADES = {"manual_override"}
+# Grades that mean NOTHING WAS SETTLED. A ledger record carrying one of these is a
+# placeholder, not evidence of settlement, and must never advance "most recent settled".
+UNSETTLED_GRADES = {"missing_settlement"}
 TARGET_STREAK = 14
 AFTERNOON_START_HOUR = 12
 AFTERNOON_END_HOUR = 18
@@ -93,7 +96,14 @@ def contiguous_complete_run(grades: dict[str, str]) -> tuple[list[str], str | No
     if not grades:
         return [], None
     dates = sorted(grades)
-    latest = dates[-1]
+    # 2026-08-10: this was `latest = dates[-1]`, the max date REGARDLESS of grade, so a
+    # record that settled nothing still advanced it. The 08-05 backfill appended
+    # missing_settlement rows for 08-06/08-08/08-09 and this reported "settled -> 2026-08-09"
+    # while three dates held no settlement at all. The name promises settled; return settled.
+    # `partial` counts -- it HAS a settlement_high, it just has capture gaps -- which matches
+    # the promotion_countable admission bar rather than the stricter complete-only one.
+    settled_dates = [d for d in dates if grades[d] not in UNSETTLED_GRADES]
+    latest = settled_dates[-1] if settled_dates else None
     run: list[str] = []
     for date in reversed(dates):
         if grades[date] in COMPLETE_GRADES:
