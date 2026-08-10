@@ -158,9 +158,12 @@ already-present bundled Python 3.12 runtime was used. Nothing was installed.
 
 ## Roll verdict
 
-The branch changes two Markdown files only. The mechanical verdict is recorded
-after running `scripts\ops\roll_verdict.ps1`; both files enter none of the four
-capture closures and are roll-free.
+`scripts\ops\roll_verdict.ps1 -Branch
+codex/workstation-one-own-information-feature-2026-09-58a` returned exit **0**,
+**ROLL-FREE**, with zero importable files. Its cumulative comparison against
+this workstation's intentionally stale local `master` reported five Markdown
+files; the mission diff against the requested `origin/master` base is exactly
+the two Markdown files below. Both enter none of the four capture closures.
 
 | Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
@@ -211,4 +214,5 @@ verdict: `ROLL-FREE`, exit `0`.
 
 Branch: `codex/workstation-one-own-information-feature-2026-09-58a`.
 
-Initial report and ledger commit: recorded after commit.
+Initial report and ledger commit:
+`59c938f30fce714c11285057f5684bcea09a9b5d`.
