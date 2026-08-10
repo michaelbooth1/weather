@@ -2,14 +2,14 @@
   "schema_version": "location_market_events_v0.1",
   "status": "generated_snapshot",
   "owner": "weather.operations.location_config_refresh",
-  "generated_at_utc": "2026-08-10T10:00:02.645433+00:00",
+  "generated_at_utc": "2026-08-10T16:00:02.719089+00:00",
   "source": {
     "category_url": "https://polymarket.com/weather/high-temperature",
     "gamma_events_query": "https://gamma-api.polymarket.com/events?tag_slug=highest-temperature&active=true&closed=false&limit=100&offset={offset}",
     "tag_slug": "highest-temperature",
     "active": true,
     "closed": false,
-    "event_count": 139,
+    "event_count": 138,
     "location_count": 51,
     "api_page_size": 100,
     "api_offsets_fetched": [
@@ -4442,7 +4442,7 @@
               "question": "Will the highest temperature in Busan be 24\u00b0C or below on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4467,7 +4467,7 @@
               "question": "Will the highest temperature in Busan be 25\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4492,7 +4492,7 @@
               "question": "Will the highest temperature in Busan be 26\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4517,7 +4517,7 @@
               "question": "Will the highest temperature in Busan be 27\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4542,7 +4542,7 @@
               "question": "Will the highest temperature in Busan be 28\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4567,7 +4567,7 @@
               "question": "Will the highest temperature in Busan be 29\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4592,7 +4592,7 @@
               "question": "Will the highest temperature in Busan be 30\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4617,7 +4617,7 @@
               "question": "Will the highest temperature in Busan be 31\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4667,7 +4667,7 @@
               "question": "Will the highest temperature in Busan be 33\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -4692,7 +4692,7 @@
               "question": "Will the highest temperature in Busan be 34\u00b0C or higher on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30182,7 +30182,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 27\u00b0C or below on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30207,7 +30207,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 28\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30232,7 +30232,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 29\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30257,7 +30257,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 30\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30282,7 +30282,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 31\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30307,7 +30307,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 32\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30357,7 +30357,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 34\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30382,7 +30382,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 35\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30407,7 +30407,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 36\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -30432,7 +30432,7 @@
               "question": "Will the highest temperature in Seoul (Incheon) be 37\u00b0C or higher on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35438,7 +35438,7 @@
               "question": "Will the highest temperature in Tokyo be 24\u00b0C or below on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35463,7 +35463,7 @@
               "question": "Will the highest temperature in Tokyo be 25\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35488,7 +35488,7 @@
               "question": "Will the highest temperature in Tokyo be 26\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35513,7 +35513,7 @@
               "question": "Will the highest temperature in Tokyo be 27\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35538,7 +35538,7 @@
               "question": "Will the highest temperature in Tokyo be 28\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35563,7 +35563,7 @@
               "question": "Will the highest temperature in Tokyo be 29\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35613,7 +35613,7 @@
               "question": "Will the highest temperature in Tokyo be 31\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35638,7 +35638,7 @@
               "question": "Will the highest temperature in Tokyo be 32\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35663,7 +35663,7 @@
               "question": "Will the highest temperature in Tokyo be 33\u00b0C on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -35688,7 +35688,7 @@
               "question": "Will the highest temperature in Tokyo be 34\u00b0C or higher on August 10?",
               "enable_order_book": true,
               "active": true,
-              "closed": false,
+              "closed": true,
               "outcomes": [
                 {
                   "index": 0,
@@ -37754,300 +37754,12 @@
       "series_slug": "wellington-daily-weather",
       "latest_event_slug": "highest-temperature-in-wellington-on-august-12-2026",
       "latest_event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-august-12-2026",
-      "source_event_count": 3,
+      "source_event_count": 2,
       "source_event_dates": [
-        "2026-08-10",
         "2026-08-11",
         "2026-08-12"
       ],
       "active_events": [
-        {
-          "event_id": "814119",
-          "event_date": "2026-08-10",
-          "event_slug": "highest-temperature-in-wellington-on-august-10-2026",
-          "event_url": "https://polymarket.com/event/highest-temperature-in-wellington-on-august-10-2026",
-          "title": "Highest temperature in Wellington on August 10?",
-          "end_date": "2026-08-10T12:00:00Z",
-          "resolution_source_url": "https://www.wunderground.com/history/daily/nz/wellington/NZWN",
-          "market_count": 11,
-          "markets": [
-            {
-              "polymarket_market_id": "3414704",
-              "condition_id": "0x377161a9f3868dd340b0ed5a6f544a9c777aeaa86637e742e39c20c8d9ea82b7",
-              "range_label": "7\u00b0C or below",
-              "question": "Will the highest temperature in Wellington be 7\u00b0C or below on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "35089960354846151088614242827040647874029627336525547570032188385253052248000"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "80361723903309102729670738143003406678457295523148510345004990608488457623234"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "35089960354846151088614242827040647874029627336525547570032188385253052248000",
-                "No": "80361723903309102729670738143003406678457295523148510345004990608488457623234"
-              }
-            },
-            {
-              "polymarket_market_id": "3414705",
-              "condition_id": "0xaf15a06f8d515b8ebab2ea4fd91f790b8b5f3fcd7f09b4bcd3600e141e2b5731",
-              "range_label": "8\u00b0C",
-              "question": "Will the highest temperature in Wellington be 8\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "76844545090687512723226805659293228188668144565496657770981979582465133127511"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "99254503750368824445413780053394009573215864283720717751760381905742400671020"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "76844545090687512723226805659293228188668144565496657770981979582465133127511",
-                "No": "99254503750368824445413780053394009573215864283720717751760381905742400671020"
-              }
-            },
-            {
-              "polymarket_market_id": "3414706",
-              "condition_id": "0xdca1871f16c6d18cf6e83ef68a1f3bc3dea869dd6b97ec1b2ac6ece17efae17d",
-              "range_label": "9\u00b0C",
-              "question": "Will the highest temperature in Wellington be 9\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "16257039009519040297599807514839257849756533850958099641079758418941892802053"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "73472843127889432790724103310223728558166209679649954848449451954127119203138"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "16257039009519040297599807514839257849756533850958099641079758418941892802053",
-                "No": "73472843127889432790724103310223728558166209679649954848449451954127119203138"
-              }
-            },
-            {
-              "polymarket_market_id": "3414707",
-              "condition_id": "0xd027ad73b9c4819f996bf02740facf14af643f65d5be809691f101b284eb8526",
-              "range_label": "10\u00b0C",
-              "question": "Will the highest temperature in Wellington be 10\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "94875686005282272195322740653991588225748967411543765670824957379138245235214"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "2501831136494698917892708412863316940354539417117063447094324007388644240284"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "94875686005282272195322740653991588225748967411543765670824957379138245235214",
-                "No": "2501831136494698917892708412863316940354539417117063447094324007388644240284"
-              }
-            },
-            {
-              "polymarket_market_id": "3414708",
-              "condition_id": "0xbefcc1056ed140c12f0e62d9fc5913dfedde6aa4a6da3ff518d440a5132e02de",
-              "range_label": "11\u00b0C",
-              "question": "Will the highest temperature in Wellington be 11\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "1341169756433139684993156538433177460566899996602757816138717056860381143979"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "42544038206108170409383949594091632405339093021659808131285410481579997369714"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "1341169756433139684993156538433177460566899996602757816138717056860381143979",
-                "No": "42544038206108170409383949594091632405339093021659808131285410481579997369714"
-              }
-            },
-            {
-              "polymarket_market_id": "3414709",
-              "condition_id": "0x93dd651478f4457bf8019ecea1afaaa1ca940c4e313ba9137fdb2be818382cba",
-              "range_label": "12\u00b0C",
-              "question": "Will the highest temperature in Wellington be 12\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "8150332473443088335877400928053970112034649131555302340348652398713425628337"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "72405103502529466163431621356555266616911622158873942456124103423263069570778"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "8150332473443088335877400928053970112034649131555302340348652398713425628337",
-                "No": "72405103502529466163431621356555266616911622158873942456124103423263069570778"
-              }
-            },
-            {
-              "polymarket_market_id": "3414710",
-              "condition_id": "0xb5ce1319a28987a2619d06349e0c5f2ded92ed23d5bf8e417903e7793076d620",
-              "range_label": "13\u00b0C",
-              "question": "Will the highest temperature in Wellington be 13\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "79084503876913344122374608284964556143044353240004814427395004143165946071756"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "2227159955226438424658687114106989165290270334058763737277227430437857706339"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "79084503876913344122374608284964556143044353240004814427395004143165946071756",
-                "No": "2227159955226438424658687114106989165290270334058763737277227430437857706339"
-              }
-            },
-            {
-              "polymarket_market_id": "3414711",
-              "condition_id": "0x5078eec864d70348a2d670c4dcadc7a4dd291a4dac839179115fdd31b73e5a53",
-              "range_label": "14\u00b0C",
-              "question": "Will the highest temperature in Wellington be 14\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "102396974430799392226987622626245575119265669154054092569566601335841288814216"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "72075500016580589760450646050007246192366725439895713030645256690031188642103"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "102396974430799392226987622626245575119265669154054092569566601335841288814216",
-                "No": "72075500016580589760450646050007246192366725439895713030645256690031188642103"
-              }
-            },
-            {
-              "polymarket_market_id": "3414712",
-              "condition_id": "0xcc4b517f251c05a3f9fba3b3bfc7e91d7a0e01567b213bd3e0a22a6c19c29572",
-              "range_label": "15\u00b0C",
-              "question": "Will the highest temperature in Wellington be 15\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "11217373073909236251194833302722821726986824118538224157114833739941214896026"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "70529049646264809811920641058515586787101666324029218224677778270169158879575"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "11217373073909236251194833302722821726986824118538224157114833739941214896026",
-                "No": "70529049646264809811920641058515586787101666324029218224677778270169158879575"
-              }
-            },
-            {
-              "polymarket_market_id": "3414713",
-              "condition_id": "0xd3bcd84c74b0f1fbd0a94965142e5e3b6addc678228387ad0c682616ce18d129",
-              "range_label": "16\u00b0C",
-              "question": "Will the highest temperature in Wellington be 16\u00b0C on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "14970462141339216325772314728157143487513273162242507034118167838981813126063"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "3583559232838526582860937218495023134930956119869011096994434952288456871987"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "14970462141339216325772314728157143487513273162242507034118167838981813126063",
-                "No": "3583559232838526582860937218495023134930956119869011096994434952288456871987"
-              }
-            },
-            {
-              "polymarket_market_id": "3414714",
-              "condition_id": "0xd9f506599788303831e757db0bad128535dd46a408853928a14a94fe2ba1481c",
-              "range_label": "17\u00b0C or higher",
-              "question": "Will the highest temperature in Wellington be 17\u00b0C or higher on August 10?",
-              "enable_order_book": true,
-              "active": true,
-              "closed": false,
-              "outcomes": [
-                {
-                  "index": 0,
-                  "name": "Yes",
-                  "token_id": "59371467837652889430072122558317569867042018630560783034771240252213220764102"
-                },
-                {
-                  "index": 1,
-                  "name": "No",
-                  "token_id": "113468151268676236818660404472048733827224498693437730250219862760954028271123"
-                }
-              ],
-              "outcome_tokens": {
-                "Yes": "59371467837652889430072122558317569867042018630560783034771240252213220764102",
-                "No": "113468151268676236818660404472048733827224498693437730250219862760954028271123"
-              }
-            }
-          ]
-        },
         {
           "event_id": "819141",
           "event_date": "2026-08-11",
