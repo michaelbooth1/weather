@@ -102,7 +102,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-53a` | **RETURNED — CIRCULARITY BROKEN. `base_retrain` reached preflight for the first time ever** | ROLL-FREE verified; **QUEUED 05:15**. Contract generalized, not relaxed — checked line by line |
 | `-09-54a` | **RETURNED — 6th blocker: the base corpus manifest has NO PRODUCER** | ROLL-FREE verified; **QUEUED 05:15**. Registered + consumed, never written. PIT staging 0/60 |
 | `-09-55a` | **RETURNED — the PIT 21-field wall is REAL, not a routing defect** | ROLL-FREE verified; **QUEUED 05:15**. Free-tier PIT provenance exists for **temperature only** (§0a). My hypothesis was wrong and would have re-broken a named defect |
-| `-09-56a` | **decompose the gap on the current surface** — calibration vs information | **DISPATCHED**. Without it, "small improvements" is guessing. Needs none of the release machinery |
+| `-09-56a` | **RETURNED — THE GAP IS INFORMATION, NOT CALIBRATION** | ROLL-FREE verified; **QUEUED 05:15**. Recalibration bounded at **16.494%** of the served gap, not distinguishable from zero (§1c). Closes §1b.5 + the §1 denominator question. Isotonic NO-GO |
+| `-09-57a` | **what can this panel actually certify?** — per-stratum MDE, multiplicity budget, confirmation-panel clock | **DISPATCHED**, parallel to `-09-56a`. `-09-56a` says what to improve; nothing said whether we can tell that we did |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

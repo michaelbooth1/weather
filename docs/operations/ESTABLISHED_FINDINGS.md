@@ -147,12 +147,16 @@ measured −0.8346 C-eq seasonal centre defect, which is *smaller*. The mechanis
 too-cool mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
 
 **The reliability share is the number to look at.** `1.12%` said calibration was worth nothing.
-The current-surface figure is **15.228%** — over an order of magnitude larger. **Whether any of it
-is recoverable is NOT established**, and nobody should fit a recalibration pass until it is: the
-two figures may not share a denominator, and this project has already paid once for reasoning
-across mismatched denominators (`RETRACTED_AND_FALSE_LEADS`, the absorption waterfall). The repair
-did not cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
-**Establish the denominator first. Then decide.**
+The current-surface figure is **15.228%** — over an order of magnitude larger. The repair did not
+cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
+
+> **DECIDED 2026-08-09 (`-09-56a`) — do not fit a recalibration pass.** The open question here was
+> "is any of the 15.228% recoverable?" It was answered by measuring recovery directly rather than
+> by reconciling denominators: a mapping fitted on in-season B and scored on out-of-season C
+> recovers **8.829% of the gap, crossed 95% [−2.467%, +16.494%]**. See **§1c**.
+> **The two percentages still do not share a denominator** — 15.228% is a share of served *loss*,
+> 8.829% a share of the *gap versus the market*. **Never equate them, and never subtract one from
+> the other.** They agree only on the decision, which is no.
 
 **Loss is still concentrated in a severity tail.** **4.387% of band rows carry 64.140% of positive
 excess loss.** Any work that improves the pooled average while leaving the tail alone is close to
@@ -340,13 +344,15 @@ The headline 1.4233x is **in-season**. The archive covers May 10 – Jun 30 (§4
 (`-09-44a`) — worse, and the stratum the repair moved unfavourably (+0.016, not powered).
 **Citing 1.4233x as "the gap" understates what we actually serve.** Say which stratum, always.
 
-### 5. The GAP has never been decomposed on the current surface
+### 5. The GAP has never been decomposed on the current surface — **RESOLVED 2026-08-09 (`-09-56a`), see §1c**
 
-§1 carries a served-**loss** decomposition (84.772% / 15.228%). The retired 98.88% / 1.12%
-decomposed the **gap versus the market**. Those are different estimands on different panels, so
-**neither answers "of our excess Brier over the market, how much is calibration and how much is
-information?"** on today's model. That is the question "recalibration cannot close it" was
-supposed to answer, and it is currently unsupported in both directions.
+*Original text, kept because it states the estimand precisely:* §1 carries a served-**loss**
+decomposition (84.772% / 15.228%). The retired 98.88% / 1.12% decomposed the **gap versus the
+market**. Those are different estimands on different panels, so **neither answers "of our excess
+Brier over the market, how much is calibration and how much is information?"** on today's model.
+
+**`-09-56a` answered it. The gap is information-dominated: recoverable calibration is bounded at
+16.494% of the served gap and is not distinguishable from zero. See §1c.**
 
 ### A standing caveat on the benchmark itself
 
@@ -354,6 +360,72 @@ The 1.42x comparison is **model versus market mid-price**. That is the right ben
 the better forecaster." It is **not** the right benchmark for "can we make money": a taker pays
 `5% x (1-p)` and cannot trade at mid, while a maker is paid the spread. **Do not carry a
 mid-price accuracy comparison into a profitability conclusion without re-deriving it.**
+
+---
+
+## 1c. THE GAP IS INFORMATION, NOT CALIBRATION — measured, `-09-56a`, 2026-08-09
+
+Closes §1b.5 and the §1 "establish the denominator" question. **Fit on in-season B (D=23), score on
+out-of-season C (D=27, the stratum we actually serve).** Method frozen before any result at
+predeclaration `d8e49409`; source is the `-09-44a` repaired export, SHA-256 `9a70ac80`. Verifier
+reproduced **22/22** checks including both ratios.
+
+| Quantity, out-of-season C | Value | Crossed 95% |
+| --- | ---: | ---: |
+| Raw model / market Brier | `0.060112820` / `0.038977498` | ratio **1.542244x** |
+| Raw excess gap | `0.021135322` | — |
+| **Recoverable calibration share** | **8.829%** | **[−2.467%, +16.494%]** |
+| **Remaining information share** | **91.171%** | **[83.506%, 102.467%]** |
+
+Power **0.458**, 80%-power MDE **13.344pp** — below the binding bar.
+
+**Cite the BOUND, never the point.** 8.829% is underpowered and may be zero. What the interval
+licenses is that **even at its most favourable endpoint, calibration is at most 16.494% of the
+gap** — a minority throughout. That is enough to close calibration as a workstream and not enough
+to claim a recoverable 8.829%. **`8.829%` must not become a headline number**; four of those were
+retired in one day on 2026-08-09 already.
+
+**Scope of the bound: the leakage-safe monotone families actually tested.** Scalar isotonic,
+per-market isotonic, daily-expanding isotonic, and the simplex-native power map `q ∝ p^β`
+(β=0.55 selected on B only, reselected inside all 10,000 bootstrap draws). It does **not** prove
+every conceivable mapping is worthless. It does mean nobody should build one without a new
+mechanism.
+
+### The predeclared isotonic map made things WORSE — and the reason is a method rule
+
+It worsened C Brier by **+0.018168 [+0.012980, +0.022995]**, and — the diagnostic that matters —
+**worsened its own B *training* score, 0.053380 → 0.078717.** Implementation was correct: zero mass
+failures, zero order violations. **Binary per-band PAVA followed by categorical renormalization is
+not fitting the objective being scored; the fit does not survive the simplex projection.** A
+mapping that cannot improve its own training score is a broken objective, not a weak signal.
+**Check the training score first — it is free and it localises the fault instantly.**
+
+### The market-shrinkage numbers are a MEASUREMENT, not a candidate
+
+| Control on out-of-season C | Brier improvement | Gap closed |
+| --- | ---: | ---: |
+| Shrink 50% toward market on `\|model−market\| ≥ 0.30` rows | `0.013761 [0.010011, 0.018194]` | **65.111% [60.514%, 70.111%]** |
+| Shrink 25% toward market, global | `0.009437 [0.007316, 0.011937]` | 44.652% [42.055%, 48.722%] |
+| Full market replacement on the disagreement set | `0.018099 [0.012472, 0.024704]` | 85.632% — an **opportunity ceiling** |
+
+**These consume the benchmark they are scored against.** They establish that when we disagree
+sharply with the market the market is usually right, and they **localise our information deficit to
+the disagreement set**. They are not evidence of edge — `-09-46a` found **zero** positive
+model-skew cells in 114 — and they cannot be cited as a route to beating the market.
+**Never book a market-shrinkage delta as model improvement, and never carry it to the MM track.**
+
+**Citation hazard — two "blending" results that do not contradict each other.** §1's *"blending
+model with market HURTS on clean data"* is an older panel, clean regime, global blend. This is the
+**out-of-season current surface, gated to the disagreement set**. Different panel, different
+stratum, different gate. **Neither refutes the other; cite the one whose stratum you are in.**
+
+### Deprioritized by this result
+
+- **Recalibration as a workstream — closed** (see the bound above).
+- **Scalar isotonic mapping — NO-GO** on this categorical surface.
+- **Global sharpening — still retired.** The fitted β is **below 1**, i.e. *smoothing*.
+- **More input completeness — still not a gap-closing candidate.** `-09-44a` bounded it; `-09-56a`
+  found no new mechanism.
 
 ---
 
@@ -1051,6 +1123,13 @@ Each of these has already cost a retracted result. They are not stylistic prefer
   estimate as a movement.
 - **Known power requirements:** the primary-slice endpoint needs ~504 dates; the severe-tail endpoint
   needs ~4. A test whose N you have not checked is a test you cannot interpret.
+- **Score any fitted mapping on its OWN training set before reading its test result** (`-09-56a`).
+  Binary per-band PAVA worsened B from 0.053380 to 0.078717 — a fit that cannot improve the data it
+  was fitted on has a **broken objective**, not a weak signal, and its test number means nothing.
+  This check is free and it localises the fault immediately.
+- **A control that consumes the benchmark is a measurement, not a candidate** (§1c). Shrinking
+  toward the market closes the market gap by construction. It shows *where* information is missing;
+  it is never evidence of edge and must not be booked as improvement.
 
 ---
 
