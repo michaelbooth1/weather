@@ -184,10 +184,14 @@ SciPy or network access.
 `scripts\ops\roll_verdict.ps1 -Branch
 codex/workstation-decompose-the-gap-2026-09-56a` returned exit **0**,
 **ROLL-FREE**. This workstation's local `master` is intentionally behind the
-refreshed `origin/master`, so the script reported the cumulative branch as 15
-files with one importable file, `src/weather/operations/operating_reference.py`;
-it classified that importable file `free`. The mission diff against its actual
-base, `origin/master` at `453b5aa9`, is exactly the Markdown report below.
+refreshed `origin/master`, so the script's cumulative comparison also reported
+upstream files, including one importable file,
+`src/weather/operations/operating_reference.py`; it classified that importable
+file `free`. The measurement began from
+`origin/master` at `453b5aa9`. While the report was being finalized,
+`origin/master` advanced through documentation-only successor handoffs; the
+unpublished branch was rebased onto `a6cc19e6`. The mission diff against that
+integration base is exactly the Markdown report below.
 
 This mission's intended tracked scope is one roll-free Markdown file:
 
@@ -235,4 +239,4 @@ Expected tracked diff: the report path above only. Expected roll verdict:
 
 Branch: `codex/workstation-decompose-the-gap-2026-09-56a`.
 
-Report-content commit: `f48301aea56eff148589fa71e33dc0b8d2be8fba`.
+Report-content commit: `0aa107d159d99ebeb359232c334a9ef2450db8b0`.
