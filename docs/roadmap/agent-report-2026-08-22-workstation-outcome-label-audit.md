@@ -206,9 +206,27 @@ Base: `aa8590f19e7609edfb3cd8b904d6caba825bed02` (`origin/master`).
 
 Branch: `codex/workstation-is-the-outcome-label-sound-2026-09-67a`.
 
-The implementation/report commit and authoritative repository roll verdict are bound by the
-follow-up report-only commit after the first commit makes the branch diff visible to
-`scripts\ops\roll_verdict.ps1`.
+Implementation/report commit: `88b7307f3caf4854b09acec80882553472b1d332`.
+
+After that commit, the authoritative repository command
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-is-the-outcome-label-sound-2026-09-67a
+```
+
+returned exit `0` and **`VERDICT: ROLL-FREE`**. It evaluated 65 branch-relative changed files,
+found seven importable files inherited from the pinned base's relation to this host's comparison
+ref, and classified all seven `free`. The 344.1-hour-old dormant `clob_enrichment` closure was
+fully subsumed by a live closure, so its dormancy could not affect the verdict. The three
+mission-owned files intersect no retained closure:
+
+| Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `tools/research/audit_outcome_label_provenance_09_67a.py` | none | none | none | none | Roll-free one-off research tool |
+| `tools/research/outcome_label_audit_09_67a_seed.json` | none | none | none | none | Roll-free research seed |
+| `docs/roadmap/agent-report-2026-08-22-workstation-outcome-label-audit.md` | none | none | none | none | Roll-free Markdown |
 
 ## Explicitly not done
 
