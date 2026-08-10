@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-08 (evening audit).** Read this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-10 (decision-10 B-only screen).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
@@ -111,7 +111,7 @@ archive because the retrain needs it, not because it will fix the bias.
 
 | `-09-60a` | **RETURNED — NO-GO at P0, zero ledger cost.** Conditional reshaping loses to global **on its own training score** | ROLL-FREE verified; **QUEUED 05:15**. Trigger fired on 46.786% and still lost to full coverage — **smoothing is diffuse, not tail-concentrated** (§1g). **Closes distribution reshaping.** Decision 9 closed unused |
 | PIT fields | **FETCHED + STAGED 2026-08-10** — 12/12 markets, `06-03 → 08-09`, 1,645,056 rows, 100% coverage | **NOT adopted.** Adoption is a **serving change** (`model_features.py:1775` feeds the analog days) — **replay first** (§1e) |
-| `-09-61a` | **pre-register the PIT-field evaluation, before the data exists** | **DISPATCHED**. P0 asks whether the design can clear the **3.2% floor at all** — a free decisive NO before anyone builds parser/schema/tests. Spends **no** decision; allocates **10** |
+| `-09-61a` / `-09-62a` / `-09-63a` | **PIT-field candidate frozen, interval calibrated, B-only screen executed** | **CLOSED UNUSED at Gate 3.** The feature hash passed, but one realized B winner has incumbent probability exactly zero. The frozen support-preserving tilt therefore cannot be fitted without a forbidden epsilon repair. No beta, OOF curve, C state, endpoint, MDE, bootstrap, or clone control was computed. Decision 10 is retired unspent; accounting stays **7/20 spent, 13 available** (§1j). |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

@@ -889,14 +889,15 @@ because the workstation may not call providers.
 
 ## 1h. THE PIT-FIELD TEST IS PRE-REGISTERED AND FROZEN — `-09-61a`, 2026-08-10
 
-The 12-field corpus of §1e now has a **frozen, hashed protocol written before the data was
-integrated**, so the candidate cannot be fished. A later mission executes it unchanged.
+The 12-field corpus of §1e has a **frozen, hashed protocol written before the data was
+integrated**, so the candidate cannot be fished. `-09-63a` later executed its B-only integrity
+screen unchanged; the result is in §1j.
 
 | | |
 | --- | --- |
 | Artifact | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` |
 | SHA-256 | `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
-| Campaign | **decision 10 ALLOCATED, UNSPENT.** α remains **7 of 20**; 13 available |
+| Campaign | Allocated here; **CLOSED UNUSED by `-09-63a`**. α remains **7 of 20**; 13 available |
 | Candidate | ONE lead-1 target-day surface-heating / convective-budget tilt, 12 named features, no sweep |
 | Design | fit on in-season B (D=23) → score once on out-of-season C (D=27), the §1c pattern |
 
@@ -937,7 +938,7 @@ markets) was run against what is actually staged:
 > because B is June, would fit on **7 B dates instead of 23** — and the manifest would look
 > complete while it happened. Both roots are required. See `CORPUS.md` in the main root.
 
-### THE ASSUMPTION NOBODY HAS MEASURED — and it is not `-09-61a`'s to fix
+### THE ASSUMPTION NOBODY HAD MEASURED AT FREEZE — resolved before execution by `-09-62a`
 
 The protocol builds its interval as `point ± z(1−α/2) × bootstrap SD`, **z = 3.0233 at
 α=0.0025 — a three-sigma normal quantile off a bootstrap whose market dimension has 12 clusters.**
@@ -947,7 +948,9 @@ choice.
 **`-09-57a` measured multiplicity, never coverage.** Its 50,000-campaign simulation null-centres
 the *real* crossed-bootstrap distribution to price best-of-k selection — so if that distribution's
 dispersion is wrong at M=12, the multiplicity result inherits the error rather than detecting it.
-**No mission has ever measured the empirical coverage of these intervals.**
+**At protocol freeze no mission had measured empirical coverage.** `-09-62a` subsequently measured
+it under a true-zero simulation before any candidate execution; §1i records the result and adopted
+amendment A1.
 
 The direction of the risk is known from the cluster-robust literature: few-cluster normal
 intervals **under-cover**, and the error grows in the far tail. For scale, at 11 degrees of freedom
@@ -955,8 +958,8 @@ intervals **under-cover**, and the error grows in the far tail. For scale, at 11
 runs on.**
 
 > **If the interval under-covers, α=0.0025 is nominal rather than real, every MDE in §1d is
-> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gates decision 10 and
-> retroactively qualifies decisions 1–7. **Measure it before spending decision 10.**
+> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gated decision 10 and
+> retroactively qualified decisions 1–7. `-09-62a` measured it before decision 10 could be spent.
 
 This is filed as the next mission rather than left as a note, per `HOW_WE_GET_THINGS_WRONG.md`
 pattern 5.
@@ -966,12 +969,52 @@ pattern 5.
 - **The negative control is an algebraic identity**, not an exchangeability assumption: an exact
   incumbent clone whose improvement is zero row by row. `-09-59a` had to correct its control
   mid-flight; this one **cannot drift**. It verifies the scoring path, not the inference calibration
-   — which is precisely why the coverage question above is still open.
+   — which is precisely why the coverage mission was still required; §1i now closes it.
 - **The spend trigger is conservative**: decision 10 is spent by the first computation that touches
   candidate-dependent C state together with any C outcome or market price — *including a failed
   attempt*. A broken run cannot become a free look.
 - **Both endpoints are mandatory, and a primary win with a negative tail point is REJECTED.**
   That is `-09-60a` (§1g) converted into a rule.
+
+---
+
+## 1i. THE THIN-TAIL INTERVAL WAS SHORT — `-09-62a`, 2026-08-10
+
+The true-zero coverage simulation used the sealed panel's actual date × market structure and real
+cell occupancy, with variance components estimated from the retained `-09-44a` paired repair-minus-
+control field. At nominal `alpha=0.0025`, the C primary rejected at **0.00240**, the severity tail at
+**0.00340 [0.002927, 0.003950]**, and in-season B at **0.00000** over 50,000 replications each. The
+fatal large-cluster positive control passed.
+
+Amendment A1 was adopted before candidate execution. It replaces `z=3.0233414` with the uniform
+conservative quantile **`q=3.1098893`** for both required endpoints; alpha and every other protocol
+choice are unchanged. The corrected practical market floor is **4.513457%** of the gap, and the
+`>=5%` planning step and the alpha-0.05 `2026-10-16` confirmation date survive. The simulation used
+no candidate and spent no alpha.
+
+---
+
+## 1j. DECISION 10 CLOSED UNUSED BEFORE FITTING — `-09-63a`, 2026-08-10
+
+**NO-GO at Gate 3, zero ledger cost.** The required feature extract reproduced its frozen SHA-256
+`60b450f1…ac8`. Before any fit, the B-only parser found a realized winning band whose incumbent
+repaired probability is exactly zero:
+
+| Date / market / snapshot | Winning band | Outcome | Incumbent probability |
+| --- | ---: | ---: | ---: |
+| `2026-06-08` / Denver / `20260608T030552-0400` | 4 | 1 | **0.0** |
+
+The exponential tilt is support-preserving: `q[b]` is proportional to `p[b]`, so this winning
+probability remains zero for every beta and the categorical negative log likelihood is infinite.
+The frozen protocol explicitly says to fail closed rather than add epsilon mass. **No beta was
+fitted, no expanding-window B curve was produced, and the surface-heating mechanism was not tested
+in either direction.** Treating the absent coefficient vector as evidence about the mechanism would
+be a second error.
+
+The raw paired file was filtered on its fourth CSV token before row parsing. Only B outcomes and
+incumbent repaired probabilities were materialized; no C outcome, market probability, or candidate
+state was read or computed. No C endpoint, candidate-native MDE, bootstrap draw, or clone control
+exists. **Decision 10 is closed unused and retired. Alpha remains 7 of 20 spent, 13 available.**
 
 ---
 
