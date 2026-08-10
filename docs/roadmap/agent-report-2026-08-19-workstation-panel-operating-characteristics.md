@@ -270,13 +270,17 @@ present. Nothing was installed and the project venv was not changed.
 
 ## Roll verdict
 
-Mechanical branch verdict: **TO BE BOUND AFTER THE REPORT-CONTENT COMMIT**.
+`scripts\ops\roll_verdict.ps1 -Branch
+codex/workstation-what-can-this-panel-certify-2026-09-57a` returned exit **0**:
+**ROLL-FREE**. It found exactly one changed file and zero importable files. The
+dormant CLOB-enrichment closure was mechanically confirmed to be fully
+subsumed by the live closures.
 
 Per-file result:
 
 | File | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
-| `docs/roadmap/agent-report-2026-08-19-workstation-panel-operating-characteristics.md` | pending mechanical result | pending | pending | pending | pending |
+| `docs/roadmap/agent-report-2026-08-19-workstation-panel-operating-characteristics.md` | none | none | none | none | **Roll-free Markdown** |
 
 ## Explicitly not done
 
@@ -319,4 +323,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 Branch:
 `codex/workstation-what-can-this-panel-certify-2026-09-57a`.
 
-Report-content commit: **TO BE BOUND AFTER COMMIT**.
+Report-content commit:
+`20a4ccc5525dde3f270b8df60a6b632c9605ee5f`.
