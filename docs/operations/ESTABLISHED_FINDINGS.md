@@ -21,8 +21,10 @@ starts from what we know instead of re-deriving it.
 
 ## 0. Objectives, in priority order
 
-1. **Protect the Toronto capture streak.** Contiguous complete Toronto days gate the learning loop and
-   release admissibility. A lost streak day is the most expensive routine failure available.
+1. **Keep settled, promotion-countable days accruing.** **REFRAMED 2026-08-10 — see §0d.** The old
+   wording was *"protect the contiguous streak"*, and **contiguity now gates nothing on the critical
+   path.** What the live work needs is the **volume of promotion-countable date clusters**, which
+   do **not** have to be contiguous. Capture health still matters and is watched directly.
 2. **Build a better FORECAST than the market — from our own information.** We currently do not
    beat it (§1). **The central goal is stated in full in §0c and that section governs**: aim at
    forecast accuracy, never at benchmark-consuming shortcuts, and expect the tradeable edge to
@@ -180,6 +182,72 @@ in trading terms.**
 - The MM track is **not cancelled** — it is downstream. §1c's open MM hypothesis (a maker needs a
   fair value that is not *worse* than the market's, not one that beats it) remains a legitimate
   question and is unaffected by this ordering.
+
+---
+
+## 0d. THE STREAK GATES NOTHING ON THE CRITICAL PATH — operator challenge, 2026-08-10
+
+**Operator: *"I thought the streak would have been worth more but we hit 14 days and it bought us
+very little. What good is it now?"*** **The challenge is correct, and the mechanism is worse than
+bad luck.**
+
+### Both consumers of contiguity are off the critical path
+
+| Consumer of *contiguous* days | Status |
+| --- | --- |
+| PIT staging receipt — `point_in_time_staging_receipt.py:253` requires a **contiguous 14-day window** | serves the **retrain / release** path — **off the critical path** (§0b) |
+| Release admissibility | **deferred indefinitely** (§0b) |
+
+### And banking a streak was never possible — it has a 7-day shelf life
+
+**`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS = 7`** (`pooled_training.py:54`, enforced at line 391).
+Pooled PIT training requires the **latest** target to be at most 7 days old. **So the 14-day streak
+banked in July had already expired before anything could consume it.** It "bought very little"
+**structurally, not through misfortune** — and a future retrain would need a *fresh* streak anyway,
+so early banking carries **no option value**.
+
+### What the live work actually needs — and it is NOT contiguity
+
+§1d's post-boundary confirmation panel is the only thing standing between us and being able to
+**believe** any improvement. It needs **promotion-countable date clusters**. Crossed date × market
+clustering treats dates as **exchangeable** — **gaps are irrelevant.** And per §5 the admission bar
+is **`promotion_countable`, not `quality_grade == "complete"`.**
+
+Measured 2026-08-10, post-boundary:
+
+| Date | Countable markets | Grade |
+| --- | ---: | --- |
+| 07-31 → 08-05 | **12 / 12** each | complete |
+| 08-06 | 0 | missing_settlement |
+| **08-07** | **11 / 12** | **`partial` — and it still counts** |
+| 08-08 | 0 | missing_settlement |
+| 08-09 | **12 / 12** | complete (settled by today's 09:30 run) |
+
+**Eight usable date clusters, not five.** §1d planned from **D=5 on 08-09 accruing ~1/day**, which
+predicts D=6 today. **We are at D=8 — two ahead of schedule**, while the streak counter reads
+**0/14** and looks like a catastrophe.
+
+### The real defect: we count the wrong property, loudly
+
+**`08-07` breaks the streak and simultaneously counts for the panel.** The metric that screams is
+measuring something nothing consumes; the metric that matters has **no counter at all**. Same shape
+as the settlement-hole detector that went blind on 2026-08-10 — *ask what a monitor counts, not
+whether it is green* — but inverted: **a red light over a non-problem, and no light at all over the
+live clock.**
+
+### What changes
+
+- **Objective 1 is reframed** to settled promotion-countable accrual (§0). Contiguity is demoted to
+  a health *proxy*, not a goal.
+- **A lost day still costs a date cluster**, which is real — the confirmation clock is fed one day
+  at a time and cannot be conjured from nothing. **But it is a linear cost, not a reset.** Do not
+  treat a broken streak as an emergency, and do not treat 14 contiguous days as an achievement.
+- **Capture health is watched directly** (in-window gap, captures/day), and the settlement-hole
+  detector was repaired 2026-08-10. Neither needs the streak as a proxy.
+- **If the retrain returns to the critical path, rebuild the streak then** — the 7-day shelf life
+  means it must be fresh regardless.
+
+---
 
 ## 1. We do not beat the market
 
