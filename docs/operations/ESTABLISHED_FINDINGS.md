@@ -412,7 +412,15 @@ mapping that cannot improve its own training score is a broken objective, not a 
 sharply with the market the market is usually right, and they **localise our information deficit to
 the disagreement set**. They are not evidence of edge — `-09-46a` found **zero** positive
 model-skew cells in 114 — and they cannot be cited as a route to beating the market.
-**Never book a market-shrinkage delta as model improvement, and never carry it to the MM track.**
+**Never book a market-shrinkage delta as model improvement.**
+
+**But the MM question is OPEN, not closed — do not let the paragraph above be read as forbidding
+it.** A maker does not need to *beat* the market; it earns the spread and needs a fair value that
+is not *worse* than the market's, i.e. it needs to avoid adverse selection. A market-shrunk fair
+value is exactly that shape, and `-09-48a` found the harvest path blocked on **having** a fair
+value at all. **This is a hypothesis to trace, not a finding**, and §1's standing caveat binds it:
+a mid-price accuracy comparison must be re-derived before it becomes a profitability conclusion.
+Anyone testing it must price adverse selection and the maker's actual fill economics, not Brier.
 
 **Citation hazard — two "blending" results that do not contradict each other.** §1's *"blending
 model with market HURTS on clean data"* is an older panel, clean regime, global blend. This is the
