@@ -46,7 +46,7 @@ so ρ=0 is the honest planning assumption.
 
 ## Spend to date
 
-**7 of 20 spent. 13 remain.**
+**7 of 20 spent. Slot 8 closed without a look; 12 unallocated slots remain.**
 
 | # | Decision | Mission | Outcome | Counts? |
 | ---: | --- | --- | --- | --- |
@@ -58,11 +58,15 @@ so ρ=0 is the honest planning assumption.
 | 6 | 25% shrink toward market, global | `-09-56a` | 44.652% gap closed — *consumes the benchmark* | yes |
 | 7 | Season-matched refit, B↔C proxy | `-09-56a` | 24.893%, CI [−20.5%, +55.2%] | yes |
 
-### Allocated, not yet spent
+### Allocated or closed without a look
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |
-| 8 | One own-information feature for the disagreement set — **mechanism to be named by the mission** | `-09-58a` | **ALLOCATED 2026-08-09.** The mission must fill in the mechanism and endpoint **before** scoring on C. Do not assign #8 to anything else |
+| 8 | Forecast run-to-run instability (`fixed_lead_day_offset` seven-run high SD) and strictly lagged five-day station forecast-error dispersion screened on B; **no feature selected and no C endpoint scored** | `-09-58a` | **CLOSED UNUSED 2026-08-09 — P0 NO-GO.** Both forward OOF point estimates worsened prediction of excess loss and both crossed intervals included zero. C outcomes stayed unscored, so α=0.0025 was not spent. **Never reassign #8.** |
+
+Closing a slot unused is intentionally conservative. The P0 screen used only in-season B to decide
+whether a mechanism existed; it never used or scored the out-of-season C outcomes, never built a feature,
+and therefore never performed the pre-registered decision that would have spent this slot.
 
 **The accounting choice is stated rather than hidden.** Entries 2 and 3 are arguably sensitivity
 analyses of entry 1, not independent decisions — a defensible reading would spend 5, not 7. **I
