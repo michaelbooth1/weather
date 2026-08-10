@@ -109,6 +109,8 @@ archive because the retrain needs it, not because it will fix the bias.
 
 | `-09-59a` | **anatomy of the severity tail** — what is actually IN the 4.387% of rows carrying 64.140% of the loss | **DISPATCHED**. Needs no new data and no provider call, so it is unaffected by the §1e PIT gap. Characterisation only — **spends no ledger decision** |
 
+| `-09-60a` | **THE FIRST ACTUAL CANDIDATE** — conditional own-distribution reshape behind a band-state trigger | **DISPATCHED**. First time we hold mechanism + own-information trigger + certified endpoint + budget at once. P0 pre-checks on B (**no slot**); decision **9** allocated, spent only if conditional beats global |
+
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
 

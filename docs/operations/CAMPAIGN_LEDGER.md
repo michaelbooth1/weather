@@ -62,6 +62,11 @@ so ρ=0 is the honest planning assumption.
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |
+| 9 | **Conditional own-distribution reshape behind an own-information band-state trigger** — mechanism from §1f, expected size anchored to §1c's `8.829% [−2.467%, +16.494%]` | `-09-60a` | **ALLOCATED 2026-08-10.** Spent **only if** the P0 pre-check shows conditional beats global on B. Primary endpoint tail SSE, secondary total excess Brier — **both required**. Do not assign #9 elsewhere |
+
+
+| # | Decision | Mission | State |
+| ---: | --- | --- | --- |
 | 8 | Forecast run-to-run instability (`fixed_lead_day_offset` seven-run high SD) and strictly lagged five-day station forecast-error dispersion screened on B; **no feature selected and no C endpoint scored** | `-09-58a` | **CLOSED UNUSED 2026-08-09 — P0 NO-GO.** Both forward OOF point estimates worsened prediction of excess loss and both crossed intervals included zero. C outcomes stayed unscored, so α=0.0025 was not spent. **Never reassign #8.** |
 
 Closing a slot unused is intentionally conservative. The P0 screen used only in-season B to decide
