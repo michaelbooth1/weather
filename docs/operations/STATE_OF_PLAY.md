@@ -105,6 +105,8 @@ archive because the retrain needs it, not because it will fix the bias.
 | `-09-56a` | **RETURNED — THE GAP IS INFORMATION, NOT CALIBRATION** | ROLL-FREE verified; **QUEUED 05:15**. Recalibration bounded at **16.494%** of the served gap, not distinguishable from zero (§1c). Closes §1b.5 + the §1 denominator question. Isotonic NO-GO |
 | `-09-57a` | **RETURNED — THE TAIL IS NOT BLIND; THERE IS A 3.2% FLOOR** | ROLL-FREE verified; **QUEUED 05:15**. Tail refereeable at 3.53% of its gap. **Steps ≤2.5% never confirmable at any D** — the floor is set by 12 markets, not dates (§1d). `CAMPAIGN_LEDGER.md` adopted, **7 of 20 spent** |
 
+| `-09-58a` | **one own-information feature for the disagreement set** — the only unsized candidate | **DISPATCHED**. First mission under §0c and the **first to spend a ledger decision (#8)**. P0 asks the cheap question — does any own-information signal predict our excess loss — before building anything |
+
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
 

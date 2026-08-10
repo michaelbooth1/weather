@@ -58,6 +58,12 @@ so ρ=0 is the honest planning assumption.
 | 6 | 25% shrink toward market, global | `-09-56a` | 44.652% gap closed — *consumes the benchmark* | yes |
 | 7 | Season-matched refit, B↔C proxy | `-09-56a` | 24.893%, CI [−20.5%, +55.2%] | yes |
 
+### Allocated, not yet spent
+
+| # | Decision | Mission | State |
+| ---: | --- | --- | --- |
+| 8 | One own-information feature for the disagreement set — **mechanism to be named by the mission** | `-09-58a` | **ALLOCATED 2026-08-09.** The mission must fill in the mechanism and endpoint **before** scoring on C. Do not assign #8 to anything else |
+
 **The accounting choice is stated rather than hidden.** Entries 2 and 3 are arguably sensitivity
 analyses of entry 1, not independent decisions — a defensible reading would spend 5, not 7. **I
 charged all 7**, because the multiplicity arithmetic counts *looks*, not intentions, and because a
