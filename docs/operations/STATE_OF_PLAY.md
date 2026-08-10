@@ -109,7 +109,8 @@ archive because the retrain needs it, not because it will fix the bias.
 
 | `-09-59a` | **anatomy of the severity tail** — what is actually IN the 4.387% of rows carrying 64.140% of the loss | **DISPATCHED**. Needs no new data and no provider call, so it is unaffected by the §1e PIT gap. Characterisation only — **spends no ledger decision** |
 
-| `-09-60a` | **THE FIRST ACTUAL CANDIDATE** — conditional own-distribution reshape behind a band-state trigger | **DISPATCHED**. First time we hold mechanism + own-information trigger + certified endpoint + budget at once. P0 pre-checks on B (**no slot**); decision **9** allocated, spent only if conditional beats global |
+| `-09-60a` | **RETURNED — NO-GO at P0, zero ledger cost.** Conditional reshaping loses to global **on its own training score** | ROLL-FREE verified; **QUEUED 05:15**. Trigger fired on 46.786% and still lost to full coverage — **smoothing is diffuse, not tail-concentrated** (§1g). **Closes distribution reshaping.** Decision 9 closed unused |
+| **NEXT** | **The 11 PIT forecast fields the fetcher never requested** (§0a, §1g) | **PRODUCTION WORK — workstation may not call providers.** The only untapped own-information source left; §1f tested *station observations*, not *forecast output at issue time*, so these are **untested, not disproven** |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

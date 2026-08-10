@@ -46,7 +46,14 @@ so ρ=0 is the honest planning assumption.
 
 ## Spend to date
 
-**7 of 20 spent. Slot 8 closed without a look; 12 unallocated slots remain.**
+**α SPENT: 7 of 20. → 13 decisions remain available.**
+
+**Accounting correction, 2026-08-10.** An earlier line read *"slot 8 closed without a look; 12
+unallocated slots remain"*, which silently charged a retired slot against the budget. **It does
+not.** The budget is **20 α-spends of 0.0025**; a slot closed without scoring on C **consumes no
+α**. Slot *numbers* 8 and 9 are retired for audit clarity — **never reassign a number** — but
+**13 decisions of budget remain.** Do not let conservative bookkeeping end the campaign early;
+that would be a self-inflicted version of the very thing this ledger exists to prevent.
 
 | # | Decision | Mission | Outcome | Counts? |
 | ---: | --- | --- | --- | --- |
@@ -62,7 +69,7 @@ so ρ=0 is the honest planning assumption.
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |
-| 9 | **Conditional own-distribution reshape behind an own-information band-state trigger** — mechanism from §1f, expected size anchored to §1c's `8.829% [−2.467%, +16.494%]` | `-09-60a` | **ALLOCATED 2026-08-10.** Spent **only if** the P0 pre-check shows conditional beats global on B. Primary endpoint tail SSE, secondary total excess Brier — **both required**. Do not assign #9 elsewhere |
+| 9 | Conditional own-distribution reshape behind a peak-probability band-state trigger (β=0.52, threshold 0.65) | `-09-60a` | **CLOSED UNUSED 2026-08-10 — P0 NO-GO.** Conditional lost to global on **its own B training score** (0.051512 vs 0.050613) and forward (0.054804 vs 0.053567). No C score, **no α spent. Never reassign #9.** |
 
 
 | # | Decision | Mission | State |

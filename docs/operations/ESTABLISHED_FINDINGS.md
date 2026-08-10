@@ -783,6 +783,67 @@ mission that turns direction 1 or 2 into a candidate **must declare and spend a 
 
 ---
 
+## 1g. WHERE THE LOSS IS IS NOT WHERE THE FIX WORKS — `-09-60a`, 2026-08-10
+
+**NO-GO at P0, zero ledger cost.** Conditional own-distribution reshaping **does not beat global
+smoothing** on in-season B. The production agent's predeclared expectation was the opposite and was
+**falsified cleanly**.
+
+| B score | Brier |
+| --- | ---: |
+| Incumbent | `0.053379789` |
+| **Global smoothing, β=0.55** | **`0.050612803`** |
+| Conditional, β=0.52 / threshold 0.65 | `0.051511678` |
+
+**Conditional lost on the very data it was fitted on**, by `0.000898875`. Forward: global
+`0.053566688` vs conditional `0.054804104`, paired **`−0.001237416 [−0.003005130, +0.000583109]`**
+— not distinguishable from zero, but the point is in the wrong direction and the rule required
+conditional to *win*.
+
+### The number that interprets the result: the trigger fired on 46.786% of snapshots
+
+The fit was free to pick any threshold, including a narrow tail-focused one. **It chose to fire on
+nearly half the panel — and still lost to firing on all of it.** The gradient points at full
+coverage.
+
+> **Smoothing's benefit is DIFFUSE, not concentrated at the tail. Conditioning discards benefit
+> instead of concentrating it.**
+
+**This dissociates two things §1f made it tempting to conflate.** The tail carries **64.140%** of
+excess loss and is predictable at **AUROC 0.90260** — and **knowing where the loss is does not tell
+you where the remedy applies.** §1f's 27.42% "addressability ceiling" was flagged as unbookable;
+this is *why* it was unbookable.
+
+### What this closes
+
+**Distribution reshaping as a direction.** §1c bounded the global family at **8.829%
+[−2.467%, +16.494%]**, not distinguishable from zero; `-09-60a` shows conditioning cannot
+concentrate it. **The whole family is capped by a number indistinguishable from zero.** Strictly,
+one trigger form (peak probability) and one reshape form (power map) were tested — but with the
+global bound and the coverage gradient both pointing the same way, **do not spend another decision
+here without a genuinely new mechanism.**
+
+**Safety held throughout:** probability mass preserved, all **12,882** zero-probability B rows
+stayed exactly zero, the serving floor untouched.
+
+### What is left, stated plainly
+
+Every own-information lever derivable from **what we already hold** has now been tested and bounded:
+recalibration (§1c), conditional reshape (here), markets and season/cutoff (§1f), own station
+weather at cutoff (§1f, AUROC 0.548), input completeness (`-09-44a`, ≤0.6%). Market shrinkage works
+and is **forbidden** as benchmark-consuming (§0c).
+
+> **We have exhausted what can be done by reshaping what we already know. The remaining lever is
+> knowing MORE.**
+
+And there is exactly one untapped free source: **the 11 PIT forecast fields the fetcher never
+requested** (§0a). **Note carefully — §1f tested our own *station observations* at cutoff, not
+*forecast-model output at issue time*.** Those fields do not exist in the archive, so they are
+**untested, not disproven.** That makes the re-fetch the top item, and it is production work
+because the workstation may not call providers.
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |
