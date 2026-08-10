@@ -23,9 +23,12 @@ starts from what we know instead of re-deriving it.
 
 1. **Protect the Toronto capture streak.** Contiguous complete Toronto days gate the learning loop and
    release admissibility. A lost streak day is the most expensive routine failure available.
-2. **Find a model that beats the market.** We currently do not. See §1.
-3. **The end goal is the market-making bot.** MM outranks the taker. The taker is deprioritized and
-   its tape has been deleted.
+2. **Build a better FORECAST than the market — from our own information.** We currently do not
+   beat it (§1). **The central goal is stated in full in §0c and that section governs**: aim at
+   forecast accuracy, never at benchmark-consuming shortcuts, and expect the tradeable edge to
+   follow in time rather than be targeted directly.
+3. **The end goal is the market-making bot.** MM outranks the taker. It is **downstream of
+   objective 2, not a competing objective** (§0c). The taker is deprioritized and its tape deleted.
 
 **The primary model objective is the 09:00–14:00 local slice**, leakage-audited and walk-forward — not
 aggregate Brier. Aggregate-Brier chasing was explicitly abandoned: it hides the slice where the model
@@ -96,8 +99,64 @@ its own target. **The bar for believing a result is unchanged. Only the bar for 
 ### What it means in practice
 
 Work is now ranked by **measurable served improvement per unit of effort**, using the existing
-replay harness. The retrain remains desirable and is no longer the gate. **Before picking the next
-improvement, decompose the gap (§5) — otherwise "small improvements" is just guessing.**
+replay harness. The retrain remains desirable and is no longer the gate.
+
+*(The instruction that stood here — "decompose the gap before picking improvements" — was **carried
+out**: `-09-56a` → §1c, and `-09-57a` → §1d. It is no longer a prerequisite; it is a result.)*
+
+---
+
+## 0c. THE CENTRAL GOAL — operator, 2026-08-09
+
+> **"We should always aim for a better forecast which in time should lead to a tradeable edge
+> somewhere."**
+
+**This is the standing goal of the project. It resolves the ambiguity in §0b — "better" means a
+better FORECAST.** Read it as the ordering rule for every future decision.
+
+### Why it is right, stated so nobody re-opens it
+
+1. **It is the only axis we can measure today.** We have Brier, a market benchmark, crossed
+   clustering, and a panel with a known MDE per stratum (§1d). We have **zero** trading outcome
+   evidence — **no trade has ever been made and `fills.jsonl` has never been written** (§8b).
+   Optimising the unmeasurable is precisely how a month was spent on eligibility meters.
+2. **Forecast accuracy is an OUTCOME, not a proxy.** It is the one thing this project has ever
+   measured honestly, and it is immune to the dominant defect pattern (`HOW_WE_GET_THINGS_WRONG.md`
+   pattern 2).
+3. **"Somewhere" is load-bearing and correct.** Edge need not exist in every market or hour.
+   `-09-46a` found zero positive cells in 114 — **for the current model**. A materially better
+   forecast is what could open a cell that does not exist today.
+
+### The ONE qualifier, without which the goal misfires immediately
+
+**Better *from our own information* — never by consuming the benchmark.**
+
+This is not pedantry; it is load-bearing, and the evidence is one day old. On a pure
+forecast-accuracy criterion, the top-ranked candidate we currently hold is **market shrinkage:
+65.111% of the gap closed, confirmable today, and provably zero tradeable edge** (§1c). The goal as
+literally stated would select it first. **A forecast improvement obtained by moving toward the
+market cannot ever become an edge over that market.**
+
+Those controls keep their real value: they **localise where our information is missing** — the
+disagreement set. **Rank 1 is an instrument pointing at rank 4, not a candidate.**
+
+### And the conversion is not automatic — there is a threshold
+
+§1's standing caveat binds this goal: the 1.42x comparison is against **market mid**. A taker pays
+`5% × (1−p)` and cannot trade at mid; a maker is paid the spread. **Forecast improvement converts
+to edge only above transaction costs; below that threshold it converts to nothing at all.** So
+"in time" is honest, and **no accuracy gain may be reported as expected P&L without re-deriving it
+in trading terms.**
+
+### What this changes in practice
+
+- **§0 objective 2 is now "a better forecast than the market", not "a model that beats the market"**
+  — the same target, stated as the thing we can measure.
+- Rank work by **expected served accuracy gain from own-information sources**, per unit of effort.
+- **Benchmark-consuming controls are diagnostics.** Never rank, ship, or book them as improvement.
+- The MM track is **not cancelled** — it is downstream. §1c's open MM hypothesis (a maker needs a
+  fair value that is not *worse* than the market's, not one that beats it) remains a legitimate
+  question and is unaffected by this ordering.
 
 ## 1. We do not beat the market
 
