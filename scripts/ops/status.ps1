@@ -373,7 +373,12 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # the spent-FAILED case below: a monitor that flags success trains us to ignore it.
         $selfDisarmed = ($oneShot -and -not $ti.NextRunTime -and $res -eq "0x0" -and $ti.LastRunTime)
         if ($selfDisarmed) {
-            $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - completed work, no action")
+            # 2026-08-10: this used to end "completed work, no action". It cannot know that.
+            # WeatherAgentOvernight1030 exited 0x0 having done NOTHING - claude.exe printed
+            # "You've hit your session limit" and returned 0 - and this line called it completed
+            # work. Exit 0x0 proves the task RAN and disarmed; it proves nothing about output.
+            # Say only what the exit code supports, and point at the artifact that would show it.
+            $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - task ran; exit code does NOT prove it produced output, check its artifact")
         }
         elseif ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
     }
