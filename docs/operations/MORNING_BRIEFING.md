@@ -120,3 +120,116 @@ regime, so I rotated nothing.
    The mismatch dates from the 08-09 outage window. Standing/deprioritized per operator.
 
 ---
+
+### 06:00 wake — 2026-08-10
+
+**ACTION NEEDED.** Re-point `WeatherSettlementBackfill20260807` (armed 08-12 05:30) at
+`-TargetDate 2026-08-09`: **nothing is armed to settle 2026-08-09**, while 08-07 is already settled
+and the defect that armed it cannot be repaired by a backfill. Second, `status.ps1`'s settlement-hole
+flag is now **silenced by empty ledger records** and will not report the remaining holes — see below.
+
+**Both jobs ran. Both worked.** Neither had failed this time.
+
+#### (A) 05:15 merge queue — MERGED, did not roll back. 17 of 17 branches are on `origin/master`.
+
+`WeatherMergeQueueDriver` ran 05:15:01, **exit 0**, finished 06:16:02. It merged **10** branches this
+run (`-09-47a` through `-09-58a`), ~5 min each. `origin/master` is now `808682bf`. I checked every
+entry in `merge-queue.txt` with `git merge-base --is-ancestor`: **17 of 17 are ancestors of
+`origin/master`**, including `-09-56a` and `-09-57a`. The queue is fully drained.
+
+**This is not the 08-09 pattern.** The 05:20 rollback on 08-09 was the snapshot-heartbeat check
+failing while capture was mid-outage. That same check ran before and after all 10 merges tonight and
+passed every time — the log reads `capture before: 6 loops, heartbeat …` / `capture healthy after the
+roll; pushing` at each step. The check did its job on both nights; the difference is capture, not the
+driver. Nothing merged by hand.
+
+#### (B) 05:30 settlement backfill — it RAN and it SETTLED. 08-05 is closed in 12 of 12 markets.
+
+`WeatherSettlementBackfill20260805` started 05:30:00 and is **still running at 06:18** (its
+`LastTaskResult` `267009` = `0x41301` "task is currently running" — not a failure code). It is on
+`taker_finalization_watchdog`, ~32 min into that step.
+
+It is **not** a stopped counter. What it actually did, from `ledger.jsonl`:
+
+- refetched the WU day file for its own target only — `raw\2026-08-05.json`, all 12 stations, 05:31–05:40;
+- at 05:45 appended **74 records per market**, target dates 2026-05-27 → 2026-08-09;
+- **2026-08-05 is now settled in all 12 markets** with real highs, `settlement_source=daily_summary`,
+  `quality_grade=complete`, `promotion_countable=True`. Toronto 29.0 C, Dallas 101 F, Chicago 81 F.
+
+**The hole was never "since 08-04".** Per-market state is identical across all 12 markets:
+
+| date | state |
+| --- | --- |
+| 2026-08-04 | settled |
+| 2026-08-05 | **settled — new tonight** |
+| 2026-08-06 | **UNSETTLED** |
+| 2026-08-07 | settled, but graded `partial` |
+| 2026-08-08 | **UNSETTLED** |
+| 2026-08-09 | **UNSETTLED** |
+
+Most recent *settled* date, all 12 markets: **2026-08-07**.
+
+**Why the three are empty — traced to source, not inferred.** They carry `settlement_source: none`,
+reason `no settlement bucket available`. The cause is upstream: the raw WU day file does not exist for
+those dates **in any of the 12 stations** — `raw\2026-08-06.json`, `2026-08-08.json`, `2026-08-09.json`
+are all absent, while `08-04`, `08-05`, `08-07` are present. Not a 404, not quarantine
+(`quarantined_raw_observations: 0`), not a settlement-code bug. The daily pull fetches *yesterday* at
+~09:35 UTC, and the ledger shows **zero appends on 08-06, 08-07, 08-08 and 08-09** — four silent chain
+days — so those day-files were never pulled. `-Refetch` fetches only its own `-TargetDate`, which is
+exactly why 08-05 came back tonight and its neighbours did not. The per-day backfill design is right.
+
+**Consequences for the three still armed:**
+
+| task | fires | verdict |
+| --- | --- | --- |
+| `…Backfill20260806` | 08-11 | **correct** — will pull `2026-08-06.json` and should close 08-06 |
+| `…Backfill20260807` | 08-12 | **wasted** — 08-07 is already settled; its `partial` grade is **2 capture gaps, max 41 min**, in our own snapshot tape, and a WU refetch cannot repair a capture gap |
+| `…Backfill20260808` | 08-13 | **correct** — will pull `2026-08-08.json` and should close 08-08 |
+| *(2026-08-09)* | — | **nothing armed** |
+
+08-09 also did not get picked up by today's normal pull: the 05:30 backfill resumed the chain from
+`public_wu_settlement_restore`, i.e. *downstream* of the fetch step, so no `2026-08-09.json` exists as
+of 06:18. That is why the 08-12 slot should be re-pointed at 08-09.
+
+**Streak reality check:** even with all three holes closed, 08-07 stays `partial`, so contiguity breaks
+there and the 14-day clock restarts at 08-08 at best. Streak is **0/14** right now (most recent 08-09,
+`missing_settlement`). There is a clean 10-day run 07-27 → 08-05, but it is historical.
+
+#### The monitor will not tell you about the remaining holes — escalated, not fixed
+
+`status.ps1` printed `settled -> 2026-08-09` this morning and raised **no** settlement-hole flag, while
+three dates are unsettled. Traced, not guessed: line 232 reads **only** `target_date` from each ledger
+record and never looks at `settlement_source`, `settlement_high` or `promotion_countable`. Tonight's
+backfill appended records for 08-06/08-08/08-09 that settled *nothing* — and those records satisfy the
+check. Every market's max `target_date` is now 08-09, so `latest -lt expected` is false and the flag at
+line 245 **cannot fire**, today or for the next hole. (It is also gated to `Hour -ge 12`, so 06:00 was
+never going to show it regardless.) Before tonight this flag correctly read "12 of 12 unsettled since
+2026-08-04"; appending empty records is what silenced it. This is the stopped-counter shape: the
+counter is reading satisfied over records that carry no settlement. `status.ps1` is a script, not
+documentation, so I left it alone — but the hole detector is now blind and should be fixed before it
+hides the next one.
+
+#### Capture is alive
+
+Writing continuously — newest snapshot write **06:18:39**, all 12 market tapes written at 06:07:31.
+Most recently counted: **47 captures today, 0.0 min max in-window gap, window covered through 06:08**
+(closes 18:00), verdict ON TRACK. Six loops, heartbeat advancing (06:15:02, per the merge driver's own
+pre/post check). All three supervisors at AboveNormal. **No circuit breaker open, no restart budget
+burned.** No worker hand-started.
+
+**No log rotation needed.** Largest live `.jsonl`: `diagnostics.jsonl` **17.1 MB**,
+`clob_diagnostics.jsonl` 10.6 MB, `observation_triggers.jsonl` 10.3 MB. The 625 MB and 752 MB files on
+disk are the *already-rotated* 08-09 archives, not live. Nowhere near the reopen-crash regime.
+
+**One thing I did to myself, disclosed:** at 06:12 I started a recursive `Get-ChildItem` over the repo
+looking for chain state files — the known memory hazard. I killed it at 06:17 before it could starve
+capture. RAM 8.13 GB free afterwards, capture unaffected (writes at 06:16:35 and 06:18:39 either side).
+I answered the question from targeted paths instead.
+
+**Standing, unchanged:** disk 163.2 GB free; mirror restore-verify still fails on the one high-churn
+file (deprioritized per operator); chain terminal `0x2` = gates BLOCK, expected pre-release.
+
+**For the 10:30 wake:** the 09:30 chain run is the first genuine test of the
+`production-tolerate-benign-capture-race` fix — the 06:00 wake could not see it. Also confirm whether
+the backfill's chain tail ever left `taker_finalization_watchdog`, and whether `2026-08-09.json` ever
+landed.
