@@ -126,9 +126,19 @@ activation, serving change, order, or live trading; no serving-floor, probabilit
 promotion, or harvest-only relaxation; no PR, merge, registration, branch deletion, or production
 checkout change.
 
-The only tracked file changed is this report. Its retained-closure membership and mechanical roll
-verdict are bound in the provenance follow-up commit after running
-`scripts\ops\roll_verdict.ps1 -Branch codex/workstation-conditional-tail-reshape-2026-09-60a`.
+The only mission-tracked file changed is this report:
+
+| Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `docs/roadmap/agent-report-2026-08-19-workstation-conditional-tail-reshape.md` | none | none | none | none | Roll-free Markdown |
+
+After report-content commit `3f6b429bae2cad5a6ca7e08214bdbc62caae2671`,
+`scripts\ops\roll_verdict.ps1 -Branch codex/workstation-conditional-tail-reshape-2026-09-60a`
+returned **`ROLL-FREE` (exit 0)**. The workstation's local `master` remains at the earlier
+`5c391881` while this branch correctly starts at refreshed `origin/master` `99ea0706`, so the script
+reported a cumulative 38 changed files and seven importable upstream files. It classified all seven
+importable files `free`; the dormant CLOB-enrichment closure was fully subsumed by the live closures.
+The mission diff against `99ea0706` is exactly the Markdown report above.
 
 Exact production-host acceptance commands:
 
@@ -153,3 +163,4 @@ Branch: `codex/workstation-conditional-tail-reshape-2026-09-60a`.
 
 Base: `99ea070666107a3c2d7e36d41f12ca1ea13d43da`.
 
+Report-content commit: `3f6b429bae2cad5a6ca7e08214bdbc62caae2671`.
