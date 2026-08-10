@@ -1,0 +1,128 @@
+{
+  "schema_version": "outcome_label_audit_seed_v1",
+  "mission": "2026-09-67a",
+  "source_base_commit": "aa8590f19e7609edfb3cd8b904d6caba825bed02",
+  "regime_boundary": "2026-07-31",
+  "inputs": {
+    "served_floor_band_rows": {
+      "relative_path": "scratch/runs/served-floor-rescore-2026-09-66a-portable5/rescored-band-rows.csv",
+      "sha256": "833ddb80c9ebb1f87161d8380ac12a746bc60a55af3527566d82c768cbd05f39",
+      "bytes": 25902299,
+      "band_rows": 135179,
+      "snapshot_rows": 12289,
+      "provenance": "verified -09-66a served-floor diagnostic output; C is binary64-identical to the retained repaired surface"
+    },
+    "band_identity": {
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/band-score-rows.csv",
+      "sha256": "9a70ac80143a7eea9b14003b2f992413d622b167ce35ea4be54273cfdf3e27ae",
+      "bytes": 35940890,
+      "band_rows": 135179
+    },
+    "settlement_provenance": {
+      "relative_path": "docs/roadmap/settlement-provenance-for-panel-2026-09-67a.csv",
+      "sha256": "73501415ea8dd31db8816c3fb4b5e8db92eb0d5448b8b5f48e7c57b6c44597cd",
+      "bytes": 44946,
+      "market_days": 524,
+      "contains_no_model_output": true
+    }
+  },
+  "bootstrap": {
+    "kind": "crossed target_date x market_id pigeonhole bootstrap with shared weights within every stratum",
+    "replicates": 10000,
+    "seed": 20260967,
+    "interval_quantiles": [0.025, 0.975],
+    "zero-support_draws": "reported and omitted from that sparse subgroup's percentile interval"
+  },
+  "coverage_buckets": [
+    "0",
+    "(0,30)",
+    "[30,inf)"
+  ],
+  "settlement_sources": [
+    "daily_summary",
+    "snapshot_high"
+  ],
+  "attribution_diagnostic": {
+    "stratum": "C",
+    "gapped_bucket": "[30,inf)",
+    "clean_bucket": "0",
+    "formula": "G_counterfactual = G_observed - band_row_share_gapped * (gap_gapped - gap_clean)",
+    "label": "DIAGNOSTIC, not a corrected result"
+  },
+  "expected_support": {
+    "B": {
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "market_days": 204,
+      "snapshot_rows": 4636,
+      "band_rows": 50996,
+      "coverage_bucket_market_days": {
+        "0": 59,
+        "(0,30)": 113,
+        "[30,inf)": 32
+      },
+      "settlement_source_market_days": {
+        "daily_summary": 167,
+        "snapshot_high": 37
+      }
+    },
+    "C": {
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "market_days": 320,
+      "snapshot_rows": 7653,
+      "band_rows": 84183,
+      "coverage_bucket_market_days": {
+        "0": 194,
+        "(0,30)": 71,
+        "[30,inf)": 55
+      },
+      "settlement_source_market_days": {
+        "daily_summary": 320,
+        "snapshot_high": 0
+      }
+    }
+  },
+  "expected_provenance_counts": {
+    "daily_summary": 487,
+    "snapshot_high": 37,
+    "material_gap_ge_30_minutes": 87
+  },
+  "overall_references": {
+    "B": {
+      "incumbent_brier": 0.05329004105175204,
+      "market_brier": 0.03750565750254922,
+      "gap": 0.01578438354920282
+    },
+    "C": {
+      "incumbent_brier": 0.06011282022726216,
+      "market_brier": 0.03897749848544243,
+      "gap": 0.02113532174181973
+    }
+  },
+  "unit_factor_to_c": {
+    "atlanta": 0.5555555555555556,
+    "austin": 0.5555555555555556,
+    "chicago": 0.5555555555555556,
+    "dallas": 0.5555555555555556,
+    "denver": 0.5555555555555556,
+    "houston": 0.5555555555555556,
+    "los-angeles": 0.5555555555555556,
+    "miami": 0.5555555555555556,
+    "nyc": 0.5555555555555556,
+    "san-francisco": 0.5555555555555556,
+    "seattle": 0.5555555555555556,
+    "toronto": 1.0
+  },
+  "comparison_tolerance": 1e-12,
+  "campaign": {
+    "kind": "descriptive_label_provenance_stratification",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED UNUSED",
+    "candidate": false,
+    "accept_rule": false,
+    "C_access": "explicitly authorized diagnostic read; no candidate, fitted parameter, or accept rule"
+  }
+}
