@@ -248,12 +248,14 @@ The only tracked file changed is this report:
 | --- | --- | --- |
 | `docs/roadmap/agent-report-2026-08-19-workstation-severity-tail-anatomy.md` | none | roll-free |
 
-The final per-file result below will be bound from
+The final per-file result below was bound from
 `scripts\ops\roll_verdict.ps1 -Branch codex/workstation-anatomy-of-the-severity-tail-2026-09-59a`
-after the report-content commit; it is not hand-derived.
+after the report-content commit; it is not hand-derived. The script saw one changed file, zero
+importable files, and the `loop`, `clob_loop`, and `observation_trigger` closures. It reported the
+dormant `clob_enrichment` closure as fully subsumed by live closure coverage.
 
-- Mechanical roll verdict: `PENDING_REPORT_CONTENT_COMMIT`
-- Report-content commit: `PENDING_REPORT_CONTENT_COMMIT`
+- Mechanical roll verdict: **`ROLL-FREE` (exit 0)**
+- Report-content commit: `b8d98b00344cdc801d77ddf61169515e91cc4670`
 - Branch: `codex/workstation-anatomy-of-the-severity-tail-2026-09-59a`
 
 Exact production-host acceptance commands (production path from the delegation contract):
