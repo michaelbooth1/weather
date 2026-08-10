@@ -72,6 +72,19 @@ that would be a self-inflicted version of the very thing this ledger exists to p
 | 10 | Lead-1 PIT surface-heating and convective-budget exponential tilt using the 12 predeclared Open-Meteo previous-run fields; total excess Brier vs market primary, incumbent-frozen severity-tail SSE secondary | `-09-61a` | **ALLOCATED 2026-08-10, UNSPENT.** Frozen protocol: `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json`. Decision 10 is spent on the first post-freeze computation combining candidate-dependent C state with any C settlement outcome or market probability, including its control, candidate-native MDE, endpoint, bootstrap draw, or a partial/failed attempt. Parser/schema work, C features without outcomes/market, fitting on B, and the B-only screen do not spend alpha. |
 | 9 | Conditional own-distribution reshape behind a peak-probability band-state trigger (β=0.52, threshold 0.65) | `-09-60a` | **CLOSED UNUSED 2026-08-10 — P0 NO-GO.** Conditional lost to global on **its own B training score** (0.051512 vs 0.050613) and forward (0.054804 vs 0.053567). No C score, **no α spent. Never reassign #9.** |
 
+### Coverage calibration — `-09-62a`, no spend and no allocation
+
+The predeclared true-zero simulation found decision 10's C primary calibrated at ledger alpha
+(`0.00240`) but its required 5,930-row severity tail short (`0.00340 [0.002927, 0.003950]`). The
+restoring tail quantile is `3.1098893` rather than `3.0233414`. This result is component-conditional:
+in-season B was conservative, so it is not a generic M=12 `t` rule.
+
+**This ledger records a proposal, not an in-place amendment.** The operator must disclose and hash
+any change to `-09-61a`; its frozen protocol remains untouched. Decision 10 stays allocated and
+unspent. `-09-62a` spent and allocated nothing, so accounting remains **7 of 20 spent, 13
+available**. See `ESTABLISHED_FINDINGS.md` section 1i and
+`docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |

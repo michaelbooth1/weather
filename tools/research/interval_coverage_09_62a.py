@@ -470,10 +470,15 @@ def positive_control(
         date_effect = rng.normal(size=(size, d))
         market_effect = rng.normal(size=(size, m))
         point = date_effect.mean(axis=1) + market_effect.mean(axis=1)
-        date_counts = rng.multinomial(d, np.full(d, 1.0 / d), size=(size, draws))
-        market_counts = rng.multinomial(m, np.full(m, 1.0 / m), size=(size, draws))
-        statistics = np.einsum("rbd,rd->rb", date_counts, date_effect, optimize=True) / d
-        statistics += np.einsum("rbm,rm->rb", market_counts, market_effect, optimize=True) / m
+        # Direct uniform indices are algebraically identical to forming the
+        # multinomial pigeonhole counts, while avoiding a pathological
+        # 200-bin count-construction cost in this large-cluster control.
+        row_index = np.arange(size)[:, None, None]
+        date_index = rng.integers(0, d, size=(size, draws, d), dtype=np.int32)
+        statistics = date_effect[row_index, date_index].mean(axis=2)
+        del date_index
+        market_index = rng.integers(0, m, size=(size, draws, m), dtype=np.int32)
+        statistics += market_effect[row_index, market_index].mean(axis=2)
         points.append(point)
         bootstrap_sds.append(statistics.std(axis=1, ddof=1))
         completed += size
