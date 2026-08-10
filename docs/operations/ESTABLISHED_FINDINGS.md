@@ -437,6 +437,65 @@ stratum, different gate. **Neither refutes the other; cite the one whose stratum
 
 ---
 
+## 1d. WHAT THE PANEL CAN CERTIFY — `-09-57a`, 2026-08-09
+
+`-09-56a` says what to improve. **This says whether we could ever tell that we did.** Positive
+control reproduced to `6.1e-18`: `-09-44a`'s in-season MDE is exactly `0.0030551161`.
+
+### The tail is NOT blind — the feared premise is falsified
+
+| Endpoint | D/M/rows | 80% MDE | **MDE as share of that endpoint's gap** |
+| --- | --- | ---: | ---: |
+| In-season ratio | 23/12/50,996 | `0.0030551` | **0.7218%** |
+| Out-of-season ratio | 27/12/84,183 | `0.0377305` | **6.9582%** |
+| **Severity tail SSE** | 49/12/5,930 | `0.0151764` | **3.5326%** |
+| 09:00–14:00 primary | 49/12/34,694 | `0.0016776` | **9.3700%** |
+
+**The panel can referee the tail that carries 64.140% of the loss**, at 3.53% of its remaining gap
+(4.87% under the ledger). **The primary window stays too blunt** at 9.37% — §5's ~504-date
+requirement is unchanged; the window remains a readout, not an accept/reject rule.
+
+### THERE IS A HARD FLOOR, AND IT IS SET BY MARKETS NOT DATES
+
+**The 12 fixed market clusters leave an asymptotic MDE floor of ~`0.0173` ratio points, ~3.2% of
+the out-of-season gap.** Checked directly: **D=100,000 still gives `0.0173087`.**
+
+> **A step worth ≤2.5% of the gap is NOT confirmable at any date count.** More waiting cannot fix
+> it. Only more markets, a paired design, or batching can.
+
+Confirmation schedule (design simulation over the sealed cluster structure — **no post-boundary row
+was read**): D=5 today → 15.06% · D=9 on 08-13 → 11.37% · D=15 → 9.03% · **D=29, 2026-09-02** for a
+6.96% step · **D=73, 2026-10-16** for a **5%** step · D=365 → 3.62%.
+
+### Unadjusted reuse is unsafe — see `CAMPAIGN_LEDGER.md`
+
+Ten unadjusted looks give a **39.0%** false-accept probability; fifty give **92.2%**, with a mean
+best null "improvement" equal to the whole `-09-44a` MDE. **The 20-decision α=0.0025 ledger is
+adopted and live in `CAMPAIGN_LEDGER.md`; 7 of 20 are already spent by `-09-56a`.**
+
+### Synthesis with `-09-56a` — done here because each mission was forbidden the other
+
+| `-09-56a` candidate | Out-of-season gap closure | Confirmable |
+| --- | ---: | --- |
+| Shrink 50% toward market, disagreement set | **65.111%** | at **D=5, today** — but it *consumes the benchmark* |
+| Shrink 25% toward market, global | 44.652% | at D=5 — same objection |
+| Season-matched refit (proxy) | 24.893% | at D=5, but its own CI is [−20.5%, +55.2%] |
+| Global smoothing `q ∝ p^β` | 8.829% | ~D=17, ~2026-08-21 — CI already includes zero |
+| **New PIT information feature** | **unidentified** | **cannot be scheduled** |
+
+**Every sized candidate clears the 3.2% floor. The one that would constitute real edge is the one
+with no size.** And these are **indicative, not certified**: `-09-57a` is explicit that MDE depends
+on the candidate's own date × market effect field, and its curve is a proxy built from `-09-44a`'s
+repair-minus-control field. **Re-derive the MDE for the candidate you actually test.**
+
+### The consequence for "small improvements at a time"
+
+**The path is viable but has a minimum step size.** Practically, **≥5% of the gap**, confirmable
+from **2026-10-16**. Below ~3.2%, improvements are *permanently* unconfirmable individually and
+**must be accumulated and tested as a batch.**
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |
