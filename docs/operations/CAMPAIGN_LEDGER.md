@@ -69,6 +69,7 @@ that would be a self-inflicted version of the very thing this ledger exists to p
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |
+| 10 | Lead-1 PIT surface-heating and convective-budget exponential tilt using the 12 predeclared Open-Meteo previous-run fields; total excess Brier vs market primary, incumbent-frozen severity-tail SSE secondary | `-09-61a` | **ALLOCATED 2026-08-10, UNSPENT.** Frozen protocol: `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json`. Decision 10 is spent on the first post-freeze computation combining candidate-dependent C state with any C settlement outcome or market probability, including its control, candidate-native MDE, endpoint, bootstrap draw, or a partial/failed attempt. Parser/schema work, C features without outcomes/market, fitting on B, and the B-only screen do not spend alpha. |
 | 9 | Conditional own-distribution reshape behind a peak-probability band-state trigger (β=0.52, threshold 0.65) | `-09-60a` | **CLOSED UNUSED 2026-08-10 — P0 NO-GO.** Conditional lost to global on **its own B training score** (0.051512 vs 0.050613) and forward (0.054804 vs 0.053567). No C score, **no α spent. Never reassign #9.** |
 
 

@@ -1,0 +1,186 @@
+{
+  "schema_version": "pit_field_evaluation_preregistration_v1",
+  "protocol_id": "2026-09-61a-pit-field-evaluation",
+  "status": "FROZEN_BEFORE_DATA_INTEGRATION",
+  "frozen_on": "2026-08-10",
+  "purpose": "Test one point-in-time surface-heating forecast family fitted on in-season B and scored once on out-of-season C without using the market benchmark as a model input.",
+  "campaign": {
+    "decision_number": 10,
+    "family_alpha": 0.05,
+    "decision_alpha_two_sided": 0.0025,
+    "spent_before_execution": 7,
+    "available_before_execution": 13,
+    "this_preregistration_spends_alpha": false
+  },
+  "own_information_boundary": {
+    "allowed_model_inputs": [
+      "incumbent served probabilities",
+      "third-party Open-Meteo previous-run weather forecasts",
+      "target date, market identity for joining and within-market scaling, and ordered band rank"
+    ],
+    "forbidden_model_inputs": [
+      "market probability or price",
+      "model-minus-market disagreement",
+      "settlement or any post-target observation at inference",
+      "stitched_continuous_archive or historical_forecast values without a true issue time"
+    ],
+    "benchmark_use": "Market probabilities may be loaded only after the candidate is frozen and only for C endpoint scoring and incumbent-frozen severity-tail membership."
+  },
+  "point_in_time_contract": {
+    "source": "open_meteo_previous_runs",
+    "issue_time_basis": "fixed_lead_day_offset",
+    "lead_days_in_candidate": [1],
+    "excluded_lead_days": [2, 3, 4, 5, 6, 7],
+    "issue_time_rule": "For target date T, every admitted row must have issue time T-1 at 00:00 in the market timezone.",
+    "valid_hours_local_inclusive": [7, 20],
+    "forbidden_source": "open_meteo_historical_forecast",
+    "forbidden_basis": "stitched_continuous_archive",
+    "known_defect_not_to_reintroduce": "stitched_forecast_high_without_issue_time",
+    "coverage_gate": "Exactly one finite value per field, market, target date, lead day, and valid local hour is required; duplicates, gaps, a provenance mismatch, or a non-finite value fail closed before fitting."
+  },
+  "population": {
+    "sealed_target_date_min": "2026-06-03",
+    "sealed_target_date_max": "2026-07-30",
+    "regime_boundary_excluded_from_both_strata": "2026-07-31",
+    "boundary_anchor_commit": "b77cfbed",
+    "full_support": {
+      "date_clusters": 50,
+      "market_clusters": 12,
+      "promotion_countable_market_days": 524,
+      "snapshots": 12289,
+      "band_rows": 135179
+    },
+    "fit_stratum_B": {
+      "name": "in-season B from the retained -09-56a split",
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "promotion_countable_market_days": 204,
+      "snapshots": 4636,
+      "band_rows": 50996
+    },
+    "test_stratum_C": {
+      "name": "out-of-season C from the retained -09-56a split",
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "promotion_countable_market_days": 320,
+      "snapshots": 7653,
+      "band_rows": 84183,
+      "incumbent_brier_positive_control": 0.06011282,
+      "market_brier_positive_control": 0.038977498,
+      "incumbent_excess_brier_gap": 0.021135322
+    },
+    "admission": "Use the exact retained -09-44a/-09-56a repaired-surface row population and promotion_countable admission. Do not add staged rows after 2026-07-30 and do not substitute quality_grade == complete."
+  },
+  "mechanism": {
+    "name": "lead-1 target-day surface-heating and convective-budget tilt",
+    "hypothesis": "A scalar daily-high forecast omits whether target-day heating is radiative, cloud-limited, ventilated, convective, precipitating, or evaporation-limited; those issue-time forecast states can condition a warm-versus-cool tilt of the incumbent distribution.",
+    "feature_sweep_allowed": false,
+    "features": [
+      {"field": "temperature_2m", "form": "maximum over valid local hours 07:00-20:00, converted to Celsius-equivalent before scaling"},
+      {"field": "cloud_cover", "form": "arithmetic mean over valid local hours 07:00-20:00"},
+      {"field": "shortwave_radiation", "form": "sum over valid local hours 07:00-20:00"},
+      {"field": "wind_speed_10m", "form": "arithmetic mean over valid local hours 07:00-20:00"},
+      {"field": "cape", "form": "maximum over valid local hours 07:00-20:00"},
+      {"field": "direct_radiation", "form": "sum over valid local hours 07:00-20:00"},
+      {"field": "diffuse_radiation", "form": "sum over valid local hours 07:00-20:00"},
+      {"field": "wind_gusts_10m", "form": "maximum over valid local hours 07:00-20:00"},
+      {"field": "precipitation_probability", "form": "maximum over valid local hours 07:00-20:00"},
+      {"field": "precipitation", "form": "sum over valid local hours 07:00-20:00"},
+      {"field": "vapour_pressure_deficit", "form": "maximum over valid local hours 07:00-20:00"},
+      {"field": "et0_fao_evapotranspiration", "form": "sum over valid local hours 07:00-20:00"}
+    ],
+    "scaling": "For every feature and market, subtract the B-only market mean and divide by the B-only market population standard deviation. Recompute these quantities inside each chronological fit and bootstrap refit. A zero standard deviation fails closed. C never influences scaling.",
+    "market_and_cutoff_terms": "No market one-hot, season term, cutoff term, interaction, feature subset, lead subset, or post-result transform may be added. Market is used only for B-only scaling and clustering."
+  },
+  "candidate": {
+    "incumbent_input": "The retained repaired served probability p_s,b on every admitted snapshot-band row.",
+    "ordered_coordinate": "Within each snapshot order bands cold to hot and set r_b = -1 + 2*b/(K-1), where b is zero-based and K is the number of bands.",
+    "linear_predictor": "eta_s = x_market_date dot beta; x is the 12-value standardized vector above and is identical for all snapshots of one market-date.",
+    "probability_map": "q_s,b = p_s,b * exp(r_b * eta_s) / sum_j[p_s,j * exp(r_j * eta_s)]. Compute with log-sum-exp arithmetic.",
+    "zero_and_floor_contract": "If p_s,b is zero then q_s,b must be exactly zero. Every snapshot must retain total mass within 1e-12. The candidate may not populate a band excluded by the incumbent serving floor and may not change the floor itself.",
+    "fit_objective": "On B only, minimize market-day-equal-weighted categorical negative log likelihood plus 0.5*lambda*||beta||_2^2. Each market-day has total weight one and its snapshots share that weight equally.",
+    "lambda": 0.01,
+    "intercept": false,
+    "initial_beta": "12 zeros",
+    "optimizer_contract": "Use one deterministic optimizer run from the declared zero vector. Require objective convergence and gradient infinity norm <= 1e-8. No restart, alternate seed, coefficient clipping, or hyperparameter tuning is allowed.",
+    "winning_band_zero_gate": "If the incumbent assigns zero probability to any realized B winning band, fail closed rather than adding epsilon mass."
+  },
+  "B_only_screen_before_C_is_accessible": {
+    "chronology": "Sort the 23 B target dates. Fit on the first 10 dates, score the 11th, then expand by one date and repeat through date 23, always recomputing B-only scaling and beta.",
+    "required_checks": [
+      "The full-B fitted candidate has lower total Brier than the incumbent on B.",
+      "The 13-date expanding-window candidate has lower total Brier than the incumbent on exactly the same OOF rows.",
+      "All PIT provenance, feature coverage, convergence, mass, zero-support, and floor gates pass."
+    ],
+    "failure_action": "Stop without opening C outcomes or C market probabilities. Close decision 10 unused and report the failed B-only gate; do not tune or substitute a feature family."
+  },
+  "endpoints": {
+    "primary": {
+      "name": "total excess Brier versus market on out-of-season C",
+      "brier": "Mean (probability - one_hot_outcome)^2 over the exact retained C band rows.",
+      "incumbent_gap": "Brier(incumbent) - Brier(market).",
+      "candidate_gap": "Brier(candidate) - Brier(market).",
+      "improvement": "incumbent_gap - candidate_gap, algebraically Brier(incumbent) - Brier(candidate).",
+      "gap_closure": "improvement / incumbent_gap"
+    },
+    "secondary": {
+      "name": "incumbent-frozen severity-tail SSE on out-of-season C",
+      "membership": "Before candidate endpoint scoring, freeze C band rows where incumbent squared error exceeds market squared error and abs(incumbent_probability - market_probability) >= 0.30.",
+      "improvement": "Mean incumbent squared error on frozen tail rows minus mean candidate squared error on the identical rows.",
+      "gap_closure": "secondary improvement divided by [incumbent tail SSE - market tail SSE] on the identical frozen rows."
+    },
+    "required_readouts": [
+      "Both endpoints, support, point improvement, gap closure, crossed standard error, two-sided alpha=0.0025 interval, 80%-power MDE, MDE as a share of the endpoint gap, and achieved power.",
+      "B and C results must remain separately labelled; no pooled B+C score is permitted."
+    ]
+  },
+  "negative_control": {
+    "name": "exact incumbent clone",
+    "construction": "Set q_control_s,b by direct array copy from p_incumbent_s,b on every retained row; do not refit or reserialize through the candidate map.",
+    "provable_null": "Primary improvement is identically 0 and secondary improvement is identically 0 row by row because q_control equals p_incumbent. This is an algebraic identity, not an exchangeability assumption.",
+    "pass_rule": "Both endpoint deltas must be exactly 0 before interval construction; copied probabilities and row keys must be byte-for-byte equal and mass checks must match the incumbent.",
+    "failure_action": "Return INVALID_CONTROL_FAILURE. Do not repair, replace, or reinterpret the control after C is opened; decision 10 remains spent."
+  },
+  "inference": {
+    "cluster_method": "Shared-weight crossed target-date by market pigeonhole bootstrap.",
+    "draws": 10000,
+    "seed": 6102026,
+    "full_pipeline": "In every draw independently resample B dates and C dates, resample the 12 shared markets once for use in both strata, recompute B-only scaling, refit beta at fixed lambda=0.01, apply the refit to C, and compute both paired endpoint improvements.",
+    "interval": "point improvement plus or minus z_(1-0.0025/2) times the bootstrap standard deviation; z=3.0233414397391534.",
+    "mde": "[z_(1-0.0025/2)+z_0.8] times the bootstrap standard deviation; multiplier K=3.8649626733120677.",
+    "power_order": "Write and hash support, bootstrap SE, endpoint MDE, and achieved power before emitting or interpreting the C point estimates."
+  },
+  "P0_mde_preregistration": {
+    "limitation": "The feature values and candidate probabilities do not exist in this mission, so the candidate's own effect field cannot be measured. The numbers below are an explicit random-effects planning assumption, not the -09-57a repair-minus-control proxy.",
+    "effect_field": "For primary paired improvement aggregated to date d and market m, delta_d,m = mu + A_d + B_m + E_d,m. Let a=SD(A)/G, b=SD(B)/G, c=SD(E)/G, where G=0.021135322 is the C incumbent excess-Brier gap.",
+    "primary_formula_gap_share": "max(0.032*1.3795627733627702, 3.8649626733120677*sqrt(a^2/27 + b^2/12 + c^2/(27*12))).",
+    "floor_interpretation": "The canonical approximately 3.2% 12-market floor is the unadjusted lower bound. Pricing decision 10 at alpha=0.0025 raises that lower bound to 4.414600874760865% before candidate-specific heterogeneity is added.",
+    "declared_coherent_effect_assumption": {"a": 0.05, "b": 0.05, "c": 0.05},
+    "mde_under_declared_assumption_gap_share": 0.06790047288444116,
+    "mde_under_declared_assumption_brier": 0.0014350983583649329,
+    "plausible_effect_target_gap_share": 0.1,
+    "plausible_effect_target_brier": 0.0021135322,
+    "detectability_boundary": "For equal a=b=c, a 10% gap-closing effect reaches 80% power only when each component is <=0.07363718966301498. At 0.075 each, MDE is 10.185070932666174% and the declared 10% effect is not detectable.",
+    "secondary_formula": "Replace G and the primary A/B/E component SDs with the candidate's frozen-tail gap G_tail_C and tail-effect components; use the same D=27, M=12 formula unless actual frozen-tail support has fewer clusters, in which case use the smaller actual counts. Under equal 5%-of-tail-gap components the planning MDE is also 6.790047288444116% of the tail gap.",
+    "P0_verdict": "CONTINUE_CONDITIONALLY. The design can detect a plausibly material 10% gap-closing effect under the declared coherent-effect assumption, but not if equal component heterogeneity reaches approximately 7.36% of the gap."
+  },
+  "decision_spend_and_verdict": {
+    "spend_trigger": "Decision 10 is spent at the first read or computation after candidate freeze that combines candidate-dependent C state with any C settlement outcome or market probability, including the negative control, candidate-native MDE, endpoint, bootstrap draw, or partial/failed attempt.",
+    "not_a_spend": "Protocol publication, parser/schema/tests, PIT feature validation, C feature construction without C outcomes or market probabilities, candidate fitting on B, and the B-only screen do not spend alpha.",
+    "actual_power_gate": "Before interpreting C points, reject as NO_GO_UNDERPOWERED_EFFECT_FIELD if the actual candidate-native primary MDE exceeds 10% of the C incumbent gap.",
+    "accept": "All integrity and B-only gates pass; the exact-clone control passes; the actual primary MDE is <=10% of the incumbent gap; the primary improvement is positive and its two-sided alpha=0.0025 crossed lower bound is >0; and the secondary point improvement is >=0. The secondary interval is mandatory but need not exclude zero.",
+    "accept_label": "SELECTED_ON_PREBOUNDARY_PANEL",
+    "reject": "Any other outcome is REJECT or the named fail-closed verdict. A primary win with a negative secondary point is rejected because moving loss into the severity tail is not acceptable.",
+    "confirmation": "Acceptance is provisional selection, not confirmation. No post-boundary date may be pooled into this decision."
+  },
+  "deviation_policy": "Execute this protocol unchanged. Any ambiguity or implementation necessity that changes population, features, lead, aggregation, fit, gate, endpoint, control, clustering, alpha, or verdict rule invalidates decision 10; disclose it and preregister a new numbered decision before another C look.",
+  "explicitly_forbidden": [
+    "provider calls during the preregistration mission",
+    "rows after 2026-07-30 in either B or C",
+    "historical_forecast or stitched issue-time provenance",
+    "feature, lead, aggregation, lambda, seed, endpoint, or threshold selection after any C look",
+    "market probabilities as candidate inputs",
+    "weakening the observed-high serving floor or populating incumbent-zero bands",
+    "candidate promotion, activation, release-store writes, live trading, or production data writes"
+  ]
+}
