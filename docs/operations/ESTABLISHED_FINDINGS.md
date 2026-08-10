@@ -887,6 +887,94 @@ because the workstation may not call providers.
 
 ---
 
+## 1h. THE PIT-FIELD TEST IS PRE-REGISTERED AND FROZEN — `-09-61a`, 2026-08-10
+
+The 12-field corpus of §1e now has a **frozen, hashed protocol written before the data was
+integrated**, so the candidate cannot be fished. A later mission executes it unchanged.
+
+| | |
+| --- | --- |
+| Artifact | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` |
+| SHA-256 | `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
+| Campaign | **decision 10 ALLOCATED, UNSPENT.** α remains **7 of 20**; 13 available |
+| Candidate | ONE lead-1 target-day surface-heating / convective-budget tilt, 12 named features, no sweep |
+| Design | fit on in-season B (D=23) → score once on out-of-season C (D=27), the §1c pattern |
+
+**Digest reproduced independently on the production host** (15,048 bytes) and the roll verdict
+re-run here: **ROLL-FREE, 4 files, 0 importable.** Merged `21356a85`, capture 6 loops both sides.
+
+### P0 — the BOUNDARY is the result, not the point estimate
+
+| Quantity | Value |
+| --- | ---: |
+| C incumbent excess-Brier gap `G` | `0.021135322` |
+| MDE under the declared coherent-effect assumption (`a=b=c=0.05`) | **6.790047% of `G`** = `0.001435098` |
+| Campaign-adjusted floor (3.2% × 1.3796) | `4.414601%` |
+| Detectability boundary for a 10% effect | **`a=b=c ≤ 0.0736372`** |
+| MDE at `a=b=c=0.075` | `10.185071%` — the 10% target is **no longer visible** |
+
+**Verdict: CONTINUE CONDITIONALLY.** Every figure above reproduces here to all printed digits
+(`z=3.0233414397392`, `K=3.8649626733121`). **The 10% target is a declared hypothesis, not a
+measured prior** — `-09-44a`'s ≤0.6% precedent is the cautionary comparison, and the protocol
+rejects as `NO_GO_UNDERPOWERED_EFFECT_FIELD` if the candidate's *own* effect field yields an MDE
+above 10% of `G`. That is §1d's "re-derive the MDE for the candidate you actually test", enforced.
+
+### The protocol is EXECUTABLE — verified against the staged corpus, 2026-08-10
+
+The frozen coverage gate (lead 1, local hours 07:00–20:00, sealed dates only, 12 fields × 12
+markets) was run against what is actually staged:
+
+| Segment | Sealed dates | Cells expected | Missing | Duplicate | Non-finite |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Front `…-front` | 21 (`06-03 → 06-23`) | 42,336 | **0** | **0** | **0** |
+| Back `…-08-10` | 37 (`06-24 → 07-30`) | 74,592 | **0** | **0** | **0** |
+| **Total** | **58** | **116,928** | **0** | **0** | **0** |
+
+**The gate passes on the full sealed window.** Nothing past `2026-07-30` enters either stratum.
+
+> **TRAP — the corpus is in TWO ROOTS and the main one's manifest says `start_date 2026-06-24`.**
+> An executor who reads `C:\tmp\pit-refetch-2026-08-10` alone gets **37 of 58 sealed dates** and,
+> because B is June, would fit on **7 B dates instead of 23** — and the manifest would look
+> complete while it happened. Both roots are required. See `CORPUS.md` in the main root.
+
+### THE ASSUMPTION NOBODY HAS MEASURED — and it is not `-09-61a`'s to fix
+
+The protocol builds its interval as `point ± z(1−α/2) × bootstrap SD`, **z = 3.0233 at
+α=0.0025 — a three-sigma normal quantile off a bootstrap whose market dimension has 12 clusters.**
+That is the campaign-wide convention, inherited from `-09-44a` and `-09-57a`, not a `-09-61a`
+choice.
+
+**`-09-57a` measured multiplicity, never coverage.** Its 50,000-campaign simulation null-centres
+the *real* crossed-bootstrap distribution to price best-of-k selection — so if that distribution's
+dispersion is wrong at M=12, the multiplicity result inherits the error rather than detecting it.
+**No mission has ever measured the empirical coverage of these intervals.**
+
+The direction of the risk is known from the cluster-robust literature: few-cluster normal
+intervals **under-cover**, and the error grows in the far tail. For scale, at 11 degrees of freedom
+`t(1−0.00125) = 4.02` against `z = 3.02` — **a 33% wider interval, at the exact α this ledger
+runs on.**
+
+> **If the interval under-covers, α=0.0025 is nominal rather than real, every MDE in §1d is
+> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gates decision 10 and
+> retroactively qualifies decisions 1–7. **Measure it before spending decision 10.**
+
+This is filed as the next mission rather than left as a note, per `HOW_WE_GET_THINGS_WRONG.md`
+pattern 5.
+
+### What was done right, and is worth copying
+
+- **The negative control is an algebraic identity**, not an exchangeability assumption: an exact
+  incumbent clone whose improvement is zero row by row. `-09-59a` had to correct its control
+  mid-flight; this one **cannot drift**. It verifies the scoring path, not the inference calibration
+   — which is precisely why the coverage question above is still open.
+- **The spend trigger is conservative**: decision 10 is spent by the first computation that touches
+  candidate-dependent C state together with any C outcome or market price — *including a failed
+  attempt*. A broken run cannot become a free look.
+- **Both endpoints are mandatory, and a primary win with a negative tail point is REJECTED.**
+  That is `-09-60a` (§1g) converted into a rule.
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |
