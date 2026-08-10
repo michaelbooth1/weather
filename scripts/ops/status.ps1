@@ -221,33 +221,54 @@ elseif ($chain -and -not $chain.terminal) {
 $settleHole = $null
 $settleRoot = Join-Path $repo "data\settlements"
 if (Test-Path $settleRoot) {
-    $behind = @()
-    $latestSeen = $null
+    # 2026-08-10: this was a MAX-DATE check that read only `target_date`, and it went blind.
+    # The 08-05 backfill appended records for 08-06/08-08/08-09 that settled NOTHING
+    # (settlement_source "none", missing_settlement, null high). Those satisfied a
+    # target_date-only test, so every market's max became 08-09 and the flag could not fire
+    # while three dates sat empty. Two defects, both fixed here:
+    #   1. A record only counts as SETTLED if it actually settled - source and high present.
+    #   2. Max-date can never see an INTERIOR hole (08-06 empty while 08-07 settled), so
+    #      scan the whole recent window per date instead of tracking a maximum.
+    $windowDays = 14
+    $today = (Get-Date).Date
+    $marketSettled = @{}   # market -> set of genuinely settled yyyy-MM-dd
+    $marketCount = 0
     foreach ($dir in @(Get-ChildItem -LiteralPath $settleRoot -Directory -ErrorAction SilentlyContinue)) {
         $ledger = Join-Path $dir.FullName "ledger.jsonl"
         if (-not (Test-Path $ledger)) { continue }
-        $maxDate = $null
-        foreach ($line in @(Get-Content -LiteralPath $ledger -Tail 50 -ErrorAction SilentlyContinue)) {
+        $marketCount++
+        $seen = @{}
+        # Revisions append, so a later record supersedes an earlier one for the same date.
+        foreach ($line in @(Get-Content -LiteralPath $ledger -Tail 400 -ErrorAction SilentlyContinue)) {
             if (-not $line) { continue }
-            try { $td = (ConvertFrom-Json $line).target_date } catch { continue }
+            try { $rec = ConvertFrom-Json $line } catch { continue }
+            $td = $rec.target_date
             if (-not $td) { continue }
             try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
-            if (($null -eq $maxDate) -or ($d -gt $maxDate)) { $maxDate = $d }
+            if ($d -lt $today.AddDays(-$windowDays) -or $d -ge $today) { continue }
+            $src = [string]$rec.settlement_source
+            $isSettled = ($src) -and ($src -ne "none") -and ($null -ne $rec.settlement_high)
+            $seen[$td] = $isSettled
         }
-        if ($null -eq $maxDate) { continue }
-        if (($null -eq $latestSeen) -or ($maxDate -gt $latestSeen)) { $latestSeen = $maxDate }
-        $behind += [PSCustomObject]@{ market = $dir.Name; latest = $maxDate }
+        $marketSettled[$dir.Name] = $seen
     }
-    # The chain settles yesterday during its 09:30 run, so only expect it after the run
-    # has had time to finish. Before that, being one day back is normal, not a hole.
-    if ($behind.Count -gt 0 -and (Get-Date).Hour -ge 12) {
-        $expected = (Get-Date).Date.AddDays(-1)
-        $stale = @($behind | Where-Object { $_.latest -lt $expected })
-        if ($stale.Count -gt 0) {
-            $worst = ($stale | Sort-Object latest | Select-Object -First 1).latest
-            $days = [int]((Get-Date).Date - $worst).TotalDays - 1
-            $settleHole = "SETTLEMENT HOLE: {0} of {1} market(s) unsettled since {2:yyyy-MM-dd} ({3} day(s) behind) - each missed day needs an explicit backfill, the next chain run will not retry it" -f `
-                $stale.Count, $behind.Count, $worst, $days
+    if ($marketCount -gt 0) {
+        $holes = @()
+        for ($i = $windowDays; $i -ge 1; $i--) {
+            $d = $today.AddDays(-$i)
+            $key = $d.ToString("yyyy-MM-dd")
+            # Yesterday legitimately settles during the 09:30 chain run, so only expect it
+            # after that has had time to finish. Older dates are holes at any hour - the
+            # previous Hour -ge 12 gate meant the 06:00 wake could never see one.
+            if ($i -eq 1 -and (Get-Date).Hour -lt 12) { continue }
+            $missing = @($marketSettled.Keys | Where-Object { -not $marketSettled[$_][$key] })
+            if ($missing.Count -gt 0) { $holes += [PSCustomObject]@{ date = $key; markets = $missing.Count } }
+        }
+        if ($holes.Count -gt 0) {
+            $worst = $holes[0].date
+            $dates = ($holes | ForEach-Object { $_.date }) -join ", "
+            $settleHole = "SETTLEMENT HOLE: {0} date(s) unsettled in the last {1} days [{2}] - worst {3}, up to {4} of {5} market(s) - each needs an EXPLICIT per-date backfill; the next chain run will not retry it" -f `
+                $holes.Count, $windowDays, $dates, $worst, ($holes | Measure-Object -Property markets -Maximum).Maximum, $marketCount
             $flags.Add($settleHole)
         }
     }

@@ -643,6 +643,78 @@ fetch nobody has run.**
 
 ---
 
+## 1f. THE TAIL IS CENTRE OVERCONFIDENCE, AND IT IS EX-ANTE PREDICTABLE — `-09-59a`, 2026-08-10
+
+**GO.** Severity-tail membership is predictable from **own information alone**, forward, with no
+provider call and no new data.
+
+| Own-information family | Forward AUROC [crossed 95%] |
+| --- | ---: |
+| Schedule only (market/unit + season + cutoff) | 0.49298 [0.43398, 0.55117] |
+| **Band / own distribution state** | **0.85207 [0.81556, 0.88834]** |
+| Weather at cutoff | 0.54832 [0.49180, 0.60039] — **not established** |
+| **Full** | **0.90260 [0.88356, 0.91772]**, MDE 0.02406 |
+
+Observed AUROC **exceeds all 500 draws** of the corrected global-permutation null (mean 0.49985,
+max 0.51243). Concentration is **not** a density artifact — equal-snapshot and equal-market-day
+weighting both reproduce 4.387% / 64.140%.
+
+### What the tail actually is
+
+| Own-distribution position | Tail prevalence | Share of tail rows |
+| --- | ---: | ---: |
+| **Centre / modal band** | **26.5929%** | **55.1096%** |
+| Adjacent shoulders | 7.2769% | 29.2243% |
+| Other / extreme bands | 0.9377% | 15.6661% |
+
+**Centre + shoulders carry 84.33% of tail rows.** Centre-minus-shoulder is **+19.3160 points
+[15.8026, 23.1529], power 1.000.** **The tail is centre-and-shoulder OVERCONFIDENCE, not an
+extreme-bin phenomenon** — which independently corroborates §1's "our mode wins ~24%".
+
+**Routes this CLOSES:**
+
+- **"One or two bad markets" is dead.** Effective market count **11.44 of 12** (HHI 0.08739); the
+  top two hold 23.47% of tail rows against 16.76% of all rows. There is no operational station fix.
+- **Season and cutoff gating: NO-GO.** C−B `+1.3731 [−0.0497, 2.7464]` power 0.496; primary−early
+  `+0.6263 [−0.2027, 1.3803]` power 0.343. Unsupported in both directions.
+- **Weather alone is not established** — AUROC 0.548, Brier improvement negative. It adds
+  *collectively* after band state (+0.05053 [0.01903, 0.08255]) but the increment is +0.117 in B
+  and +0.026 [−0.003, +0.058] in C, and **that asymmetry bars a weather-regime claim.**
+
+### Addressability, and it is a CEILING not a gain
+
+Top 5% of forward scores: precision **39.70%** (8.62× base rate), recalls **43.10%** of tail rows
+and **27.42% [20.86%, 34.12%]** of all positive excess loss. **No served improvement was measured.
+Do not book 27.42% as expected gain** — it is what a perfect intervention on that slice could
+reach.
+
+### THREE things to carry forward — mine, not the report's
+
+**1. This is NOT closed by §1c.** §1c closed **global, information-free monotone mappings**. A
+reshape fired by an **own-information trigger** uses information to decide *where* to act, which
+makes it a model change, not a calibration map. Anyone citing "recalibration is closed" against
+this has conflated the two.
+
+**2. Anchor the expected size to §1c's `8.829% [−2.467%, +16.494%]`, not to 27.42%.** §1c's
+β=0.55 **global smoothing is the closest already-measured analogue of "flatten the centre"**, and
+it was not distinguishable from zero. Two readings, both live: conditioning could **concentrate a
+benefit that global smoothing diluted across the 95% of rows that were fine** — or §1c's upper
+bound already caps it. **Whoever tests this must say which they expect, in advance.**
+
+**3. Open caveat worth one cheap check: the `|p_model − p_market| ≥ 0.30` gate mechanically favours
+high-probability bands.** A band where we assign 0.01 can only enter the tail if the market assigns
+**≥0.31**. So "the tail is centre-concentrated" is **partly definitional**. It is not refuted —
+extreme bands still supply 929 tail rows — but the report tested *density* artifacts and not this
+one. **Re-run the position split under a relative or rank-based disagreement gate before building
+on the centre story.**
+
+### Ledger
+
+**No decision spent.** No candidate fitted, no C candidate score, no probabilities modified. Any
+mission that turns direction 1 or 2 into a candidate **must declare and spend a slot explicitly**.
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |

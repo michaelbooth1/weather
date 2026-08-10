@@ -69,6 +69,7 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `01:20` | `WeatherMergeSensitiveDriver` |
 | `01:30` | `WeatherChainRecovery20260807` |
 | `01:50` | `WeatherQuietWindowMerge2` |
+| `02:00` | `WeatherAgentOvernight0200` |
 | `02:25` | `WeatherQuietWindowMerge3` |
 | `03:00` | `WeatherAgentPostMerge0805` |
 | `04:15` | `WeatherTrainingWindowRestore` |
@@ -79,6 +80,7 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `05:30` | `WeatherSettlementBackfill20260806` |
 | `05:30` | `WeatherSettlementBackfill20260807` |
 | `05:30` | `WeatherSettlementBackfill20260808` |
+| `06:00` | `WeatherAgentOvernight0600` |
 | `06:00` | `WeatherLocationConfigRefresh` |
 | `06:30` | `WeatherNightlyRetrainValidatePromote` |
 | `06:50` | `WeatherExchangeEconomicsSnapshotRefresh` |
@@ -91,6 +93,7 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `09:43` | `WeatherMarketMakingDailyRollSupervisor` |
 | `09:43` | `WeatherTakerBotDailyRollSupervisor` |
 | `10:04` | `WeatherModelMarketDisagreementAnalysis` |
+| `10:30` | `WeatherAgentOvernight1030` |
 | `12:00` | `WeatherLocationConfigRefresh` |
 | `12:00` | `WeatherStreakCaptureMonitor` |
 | `14:00` | `WeatherEveningEvidenceRefresh` |
