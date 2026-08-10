@@ -153,7 +153,13 @@ Ignored workstation evidence root:
 
 ## Roll verdict
 
-`ROLL_VERDICT_PENDING`
+`scripts\ops\roll_verdict.ps1 -Branch
+codex/workstation-does-the-repair-zero-the-winner-2026-09-64a` returned exit **0**,
+**ROLL-FREE**. This host's local `master` is intentionally behind the requested `origin/master`
+base, so the command's cumulative comparison reported 55 files and seven importable upstream files;
+all seven were classified `free`. It inspected the live snapshot, CLOB, and observation-trigger
+closures and reported the dormant CLOB-enrichment closure fully subsumed. The mission's own diff
+from base `aaac7c2a` is exactly the three files below, none in any retained closure.
 
 | Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
@@ -213,6 +219,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   .\scripts\ops\roll_verdict.ps1 -Branch $branch
 ```
 
-Audit implementation and initial report commit: `COMMIT_PENDING`.
+Audit implementation and initial report commit:
+`6cae2d5207151df019b4e4519c0005e3c7ecc70e`.
 
 Branch: `codex/workstation-does-the-repair-zero-the-winner-2026-09-64a`.
