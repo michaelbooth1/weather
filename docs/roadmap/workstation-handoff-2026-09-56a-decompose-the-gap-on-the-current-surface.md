@@ -11,12 +11,16 @@ candidate**, with small improvements accepted incrementally (`ESTABLISHED_FINDIN
 The release and qualification machinery is therefore **no longer the critical path**. What matters
 now is **measurable served improvement per unit of effort** — and we cannot rank that, because:
 
-> **`ESTABLISHED_FINDINGS.md` §5: the gap has never been decomposed on the current surface.** Of our
+> **`ESTABLISHED_FINDINGS.md` §1b.5: the gap has never been decomposed on the current surface.** Of our
 > excess Brier over the market, how much is **calibration** and how much is **information**? That
 > question is *"currently unsupported in both directions."*
 
 **Without that answer, "make small improvements" is guessing.** With it, it becomes a ranked
 worklist. That is this mission.
+
+**Citation correction (production agent, 2026-08-09 20:20 EDT).** The quote above is `§1b.5`,
+a subsection of §1b "Audit 2026-08-08". Plain **`§5` is a different section** — "Method rules,
+binding on every measurement" — which also binds you, but is not the premise of this mission.
 
 ## 2. P0 — decompose the excess Brier over the market, on today's model
 
