@@ -197,11 +197,14 @@ Get-FileHash -Algorithm SHA256 -LiteralPath $protocol
 ## Roll verdict
 
 `scripts\ops\roll_verdict.ps1 -Branch
-codex/workstation-preregister-pit-field-evaluation-2026-09-61a` returned **ROLL_VERDICT_PENDING**
-after report-content commit **REPORT_CONTENT_COMMIT_PENDING**. The final handback commit will replace
-both placeholders without changing the frozen JSON or its hash.
+codex/workstation-preregister-pit-field-evaluation-2026-09-61a` returned **ROLL-FREE (exit 0)**
+after report-content commit **`2ee519f7fd5077b62285b887912e7741968859c8`**. It reported 42 cumulative
+files because this workstation's local `master` lags the refreshed `origin/master` base; all seven
+cumulative importable files were classified `free`. The mission diff against `7b71de72` is exactly
+the four documentation files below. The dormant CLOB-enrichment closure was mechanically confirmed
+to be fully subsumed by the live closures.
 
-Per-file expected classification, subject to the mechanical command above:
+Per-file mechanical classification:
 
 | File | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
 | --- | --- | --- | --- | --- | --- |
@@ -239,8 +242,7 @@ git show "${branch}:$report"
 git show "${branch}:$protocol" | Out-Null
 git diff --name-status origin/master...$branch
 git diff --check origin/master...$branch
-git show "${branch}:$protocol" | Set-Content -NoNewline -Encoding utf8 "$env:TEMP\pit-field-protocol.json"
-Get-FileHash -Algorithm SHA256 -LiteralPath "$env:TEMP\pit-field-protocol.json"
+.\venv\Scripts\python.exe -c "import hashlib,subprocess; b=subprocess.check_output(['git','show',r'${branch}:$protocol']); print(hashlib.sha256(b).hexdigest())"
 .\venv\Scripts\python.exe -m weather.operations.agent_docs_audit
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   .\scripts\ops\roll_verdict.ps1 -Branch $branch
@@ -250,4 +252,4 @@ Branch: `codex/workstation-preregister-pit-field-evaluation-2026-09-61a`.
 
 Base: `7b71de72264c38df4572f0433ed4d6c91f60420a`.
 
-Report-content commit: `REPORT_CONTENT_COMMIT_PENDING`.
+Report-content commit: `2ee519f7fd5077b62285b887912e7741968859c8`.
