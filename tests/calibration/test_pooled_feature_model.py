@@ -573,12 +573,15 @@ class TestPooledFeatureModel(unittest.TestCase):
                 [self._base_record()],
                 ["S-SW", "Other/variable"],
                 ["Fair/clear", "Other"],
+                market_spec=NYC,
             )
 
         self.assertIn("source_supplemental_available", pooled.columns)
         self.assertIn("band_mid", band_frame.columns)
         self.assertIn("wind_S-SW", per_market.columns)
         self.assertIn("wind_S-SW", feature_cols)
+        self.assertNotIn("pressure", feature_cols)
+        self.assertNotIn("pressure_trend_3h", feature_cols)
 
     def test_canonical_density_record_converts_toronto_temperature_fields_to_f(self):
         record = add_city_features({

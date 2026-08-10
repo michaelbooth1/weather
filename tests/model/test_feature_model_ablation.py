@@ -24,6 +24,8 @@ from weather.calibration.feature_model import (
     summarize_ablation_by_group,
     train_late_day_continuation_models,
 )
+from weather.calibration.feature_training_policy import TRAINING_FEATURE_POLICY_ID
+from weather.market.market_registry import NYC, TORONTO
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -280,6 +282,7 @@ class TestFeatureModelAblation(unittest.TestCase):
             ["W-NW", "N-NE"],
             ["Fair/clear"],
             [24, 26],
+            market_spec=TORONTO,
             n_splits=3,
         )
         decisions = feature_family_promotion_decisions(ablation_rows, min_rows=1)
@@ -323,12 +326,23 @@ class TestFeatureModelAblation(unittest.TestCase):
             )
 
     def test_late_day_features_include_forecast_gap_before_one_hot_columns(self):
-        columns = late_day_feature_columns(["W-NW"], ["Fair/clear"])
+        columns = late_day_feature_columns(
+            ["W-NW"],
+            ["Fair/clear"],
+            market_spec=TORONTO,
+        )
+        f_columns = late_day_feature_columns(
+            ["W-NW"],
+            ["Fair/clear"],
+            market_spec=NYC,
+        )
 
         self.assertEqual(columns[:len(LATE_DAY_NUMERIC_FEATURES)], LATE_DAY_NUMERIC_FEATURES)
         self.assertIn("forecast_high", columns)
         self.assertIn("forecast_gap", columns)
         self.assertEqual(columns[-2:], ["wind_W-NW", "cloud_Fair/clear"])
+        self.assertNotIn("pressure", f_columns)
+        self.assertNotIn("pressure_trend_3h", f_columns)
 
     def test_late_day_validation_reports_forecast_ablation(self):
         rows = []
@@ -356,7 +370,11 @@ class TestFeatureModelAblation(unittest.TestCase):
                 "is_extended": extended,
             })
         frame = pd.DataFrame(rows)
-        feature_cols = late_day_feature_columns(["W-NW"], ["Fair/clear"])
+        feature_cols = late_day_feature_columns(
+            ["W-NW"],
+            ["Fair/clear"],
+            market_spec=TORONTO,
+        )
 
         summary, ablations = evaluate_late_day_records(
             frame,
@@ -418,6 +436,16 @@ class TestFeatureModelAblation(unittest.TestCase):
 
         feature_names = info["15"]["numeric_feature_names"]
         means = dict(zip(feature_names, info["15"]["scaler_mean"]))
+        self.assertEqual(
+            info["training_feature_policy_id"],
+            TRAINING_FEATURE_POLICY_ID,
+        )
+        self.assertEqual(
+            info["training_feature_exclusions"],
+            ["pressure", "pressure_trend_3h"],
+        )
+        self.assertNotIn("pressure", feature_names)
+        self.assertNotIn("pressure_trend_3h", feature_names)
         self.assertEqual(means["high_so_far"], 91.0)
         self.assertEqual(means["current_temp"], 91.0)
         self.assertEqual(means["rise_from_7am"], 11.0)

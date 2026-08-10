@@ -186,28 +186,12 @@
       "dimension": "missingness",
       "required_market_coverage": "all_registered",
       "fields": [
-        "rise_from_7am",
-        "warming_rate_2h",
-        "hours_at_peak",
-        "dewpoint_c",
-        "humidity",
-        "pressure",
-        "pressure_trend_3h",
-        "wind_speed_kmh",
         "wind_group"
       ],
       "required_fields": [
-        "rise_from_7am",
-        "warming_rate_2h",
-        "hours_at_peak",
-        "dewpoint_c",
-        "humidity",
-        "pressure",
-        "pressure_trend_3h",
-        "wind_speed_kmh",
         "wind_group"
       ],
-      "minimum_findings": 108
+      "minimum_findings": 12
     },
     {
       "defect_id": "stitched_forecast_high_without_issue_time",

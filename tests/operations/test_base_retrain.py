@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from weather.calibration.base_model_candidate import contiguous_serving_support
+from weather.calibration.feature_training_policy import TRAINING_FEATURE_POLICY_ID
 from weather.calibration.forecast_training_contract import (
     pit_selection_binding_sha256,
 )
@@ -342,6 +343,7 @@ def test_plan_declares_exactly_one_all_market_step_and_every_candidate_output(tm
     assert len(plan["markets"]) == 12
     assert all(len(row["outputs"]) == 5 for row in plan["markets"])
     assert {row["unit"] for row in plan["markets"]} == {"C", "F"}
+    assert plan["training_feature_policy_id"] == TRAINING_FEATURE_POLICY_ID
     population = plan["training_population"]
     assert population["years"] == [2021, 2022, 2023, 2024, 2025]
     assert population["selected_dates"] == list(TRAINING_DATES)
@@ -469,9 +471,73 @@ def test_synthetic_repaired_manifest_clears_all_executable_preflights(tmp_path):
         output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
     )
 
-    assert result["status"] == "PASS"
+    assert result["status"] == "PASS", result["checks"]
     assert result["fit_authorized"] is True
     assert all(row["status"] == "PASS" for row in result["checks"])
+
+
+def test_preflight_uses_registry_unit_feature_order_for_pressure(tmp_path):
+    manifest = _manifest(
+        forecast_covered=True,
+        parity_equal=True,
+        record_paths=_record_paths(tmp_path),
+    )
+    parent = _parent()
+    full_names = [
+        "forecast_high",
+        "pressure",
+        "pressure_trend_3h",
+        "rise_from_7am",
+    ]
+    retained_names = ["forecast_high", "rise_from_7am"]
+    for market_id in EXPECTED_MARKETS:
+        for hour in FIRST_RETRAIN_CUTOFF_HOURS:
+            parent["markets"][market_id]["hours"][str(hour)] = {
+                "feature_names": list(full_names)
+            }
+            manifest["markets"][market_id]["feature_names_by_hour"][str(hour)] = (
+                list(full_names)
+                if MARKET_UNITS[market_id] == "C"
+                else list(retained_names)
+            )
+        if MARKET_UNITS[market_id] == "C":
+            for field, value in (
+                ("pressure", 1012.0),
+                ("pressure_trend_3h", -0.4),
+            ):
+                parity = {
+                    "value": value,
+                    "unit": "C",
+                    "category": None,
+                    "missing": False,
+                    "cutoff_behavior": "at_or_before_cutoff",
+                }
+                manifest["markets"][market_id]["parity_samples"].append(
+                    {
+                        "field": field,
+                        "historical": parity,
+                        "live": dict(parity),
+                    }
+                )
+
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
+    result = evaluate_preflight(
+        plan=plan,
+        manifest=manifest,
+        manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=_pit_preflight(pit_path),
+        parent=parent,
+        output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
+    )
+
+    assert result["status"] == "PASS", result["checks"]
+    checks = {row["name"]: row for row in result["checks"]}
+    assert checks["feature_allowlist"]["status"] == "PASS"
+    assert checks["train_serve_parity"]["status"] == "PASS"
 
 
 def test_legacy_feature_records_without_pit_provenance_block_preflight(tmp_path):
