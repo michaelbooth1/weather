@@ -146,7 +146,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 
 ## Roll verdict and branch
 
-The repository-owned roll verdict will be recorded after the report and canonical accounting update
-are committed. The analysis harness commit is `e9836c9a1a8caab5ff430d66d5e8d74590b55099`.
+The repository-owned command returned exit `0`, **ROLL-FREE**. Its cumulative comparison against this
+host's older local `master` reported 52 files and 7 importable files; all seven were classified
+`free`. It inspected the live snapshot, CLOB, and observation-trigger closures and reported the
+dormant CLOB-enrichment closure as fully subsumed. The mission's own diff from the requested
+`origin/master` base is the five files below:
+
+| Changed file | Snapshot | CLOB | Observation-trigger | CLOB-enrichment | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `tools/research/b_only_screen_09_63a.py` | none | none | none | none | Roll-free research tool |
+| `docs/roadmap/agent-report-2026-08-19-workstation-b-only-screen.md` | none | none | none | none | Roll-free Markdown |
+| `docs/operations/ESTABLISHED_FINDINGS.md` | none | none | none | none | Roll-free Markdown |
+| `docs/operations/CAMPAIGN_LEDGER.md` | none | none | none | none | Roll-free Markdown |
+| `docs/operations/STATE_OF_PLAY.md` | none | none | none | none | Roll-free Markdown |
+
+Analysis harness commit: `e9836c9a1a8caab5ff430d66d5e8d74590b55099`. Initial report and
+canonical accounting commit: `146feb3c`.
 
 Branch: `codex/workstation-run-the-b-only-screen-2026-09-63a`.
