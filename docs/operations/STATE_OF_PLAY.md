@@ -107,6 +107,8 @@ archive because the retrain needs it, not because it will fix the bias.
 
 | `-09-58a` | **RETURNED — NO-GO, but the real finding is the PIT source stops 2026-06-23** | ROLL-FREE verified; **QUEUED 05:15**. A **blind** null (power ~0.11), not a precise one. **C has ZERO PIT coverage**, so no PIT-honest feature is testable on the stratum we serve. **Fully recoverable — I probed the API, no retention cliff** (§1e). Ledger slot 8 **closed unused** |
 
+| `-09-59a` | **anatomy of the severity tail** — what is actually IN the 4.387% of rows carrying 64.140% of the loss | **DISPATCHED**. Needs no new data and no provider call, so it is unaffected by the §1e PIT gap. Characterisation only — **spends no ledger decision** |
+
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.
 
