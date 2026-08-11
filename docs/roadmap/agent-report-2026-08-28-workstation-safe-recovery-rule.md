@@ -265,10 +265,16 @@ Branch: `codex/workstation-a-safe-recovery-rule-2026-09-73a`.
 
 Analysis commit: `52e985a6`.
 
+Initial report commit: `d423bb87`.
+
 At the analysis commit, the authoritative repository command returned exit 0 and
 **`VERDICT: ROLL-FREE`**: six changed files, zero importable files, with live closures `loop`,
 `clob_loop`, and `observation_trigger`. The 367.1-hour dormant `clob_enrichment` closure was fully
 subsumed by live closure evidence.
+
+After the report commit, the same authoritative command returned exit 0 and
+**`VERDICT: ROLL-FREE`** for the final seven-file branch diff: zero importable files, the same three
+live closures, and the dormant closure again fully subsumed.
 
 | Changed path | Mechanical disposition |
 | --- | --- |
