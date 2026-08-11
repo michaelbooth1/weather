@@ -7,3 +7,5 @@
 *.png binary
 *.pkl binary
 artifacts/models/hgb/*.pkl filter=lfs diff=lfs merge=lfs -text
+docs/roadmap/execution-tape-pilot-*.json -text
+docs/roadmap/execution-tape-pilot-*.jsonl -text
