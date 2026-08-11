@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-08 (evening audit).** Read this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-10 (interval-coverage audit).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
@@ -111,7 +111,7 @@ archive because the retrain needs it, not because it will fix the bias.
 
 | `-09-60a` | **RETURNED — NO-GO at P0, zero ledger cost.** Conditional reshaping loses to global **on its own training score** | ROLL-FREE verified; **QUEUED 05:15**. Trigger fired on 46.786% and still lost to full coverage — **smoothing is diffuse, not tail-concentrated** (§1g). **Closes distribution reshaping.** Decision 9 closed unused |
 | PIT fields | **FETCHED + STAGED 2026-08-10** — 12/12 markets, `06-03 → 08-09`, 1,645,056 rows, 100% coverage | **NOT adopted.** Adoption is a **serving change** (`model_features.py:1775` feeds the analog days) — **replay first** (§1e) |
-| `-09-61a` | **pre-register the PIT-field evaluation, before the data exists** | **DISPATCHED**. P0 asks whether the design can clear the **3.2% floor at all** — a free decisive NO before anyone builds parser/schema/tests. Spends **no** decision; allocates **10** |
+| `-09-61a` / `-09-62a` | **PIT test frozen; ledger-alpha coverage now measured before decision 10** | `-61a` RETURNED with decision 10 allocated/unspent. `-62a` finds C calibrated (`0.00240`) but the required thin tail short (`0.00340`) at nominal `0.0025`; proposes `q=3.109889`, **not applied**. Accounting stays **7/20 spent, 13 available** (sections 1h-1i) |
 
 Merges run off allowlists, **not** auto-discovery — some branches are held deliberately.
 `WeatherMergeQueueDriver` 05:15 roll-free · `WeatherMergeSensitiveDriver` 01:20 roll-sensitive.

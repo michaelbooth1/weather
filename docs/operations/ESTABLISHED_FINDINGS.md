@@ -975,6 +975,41 @@ pattern 5.
 
 ---
 
+## 1i. ALPHA=0.0025 IS SHORT ON THE THIN TAIL, NOT GENERICALLY AT M=12 — `-09-62a`, 2026-08-10
+
+Coverage is now measured under a true-zero simulation using the sealed panel's actual occupancy
+and endpoint-specific date / market / residual components from the real `-09-44a`
+repair-minus-control field. The predeclared M=200 positive control passed at both alpha levels.
+
+| Endpoint | Empirical alpha at nominal 0.05 | Empirical alpha at nominal 0.0025 | Restoring `q` at 0.0025 |
+| --- | ---: | ---: | ---: |
+| Out-of-season C | `0.04244` | **`0.00240`** | `3.006595` |
+| **Severity tail** | **`0.04908`** | **`0.00340 [0.002927, 0.003950]`** | **`3.109889`** |
+| In-season B | `0.00346` | `0` | `2.019972` |
+
+The tail result uses 50,000 coverage replications (170 rejections; MC SE `0.000260`) and resolves
+an absolute `0.00090` excess over the ledger alpha; the predeclared 80%-power resolution was
+`0.0006486`. **The prior that every M=12 endpoint must under-cover is falsified.** Component mix
+matters: C is nominal at ledger alpha and B is conservative, while the 5,930-row tail is short.
+
+**Proposed conservative correction, not yet applied:** replace `z=3.0233414` with
+`q=3.1098893` for the tail, or use that maximum measured quantile for both required decision-10
+endpoints. This changes the section 1d campaign MDE multiplier from `1.3796` to `1.410455`
+(current ledger MDEs x `1.022393`). The four proxy MDEs become `0.004309` B ratio, `0.053218` C
+ratio, `0.021406` tail SSE, and `0.002366` primary-window Brier. The campaign-adjusted market
+floor moves from `4.414601%` to **`4.513457%`**, so the practical >=5% step survives. The
+alpha=0.05 D=73 / **2026-10-16** confirmation date also survives because neither required endpoint
+under-covered at 0.05.
+
+Decision 10's coherent `a=b=c=0.05` P0 MDE would move only from `6.790047%` to `6.942096%` of
+`G`, still below its 10% gate. **Do not edit the frozen `-09-61a` protocol in place.** An operator
+must choose, disclose, and hash any amendment. Until then decision 10 remains allocated and
+unspent. This calibration mission spent and allocated no alpha; the ledger remains **7 of 20
+spent, 13 available**. Full method, components, seeds, coverage table, and evidence hashes are in
+`docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+
+---
+
 ## 2. The cool bias is real and is not correctable at serve
 
 | Property | Value |
