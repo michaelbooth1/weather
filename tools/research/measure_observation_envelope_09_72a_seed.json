@@ -1,0 +1,94 @@
+{
+  "schema_version": "observation_envelope_seed_v1",
+  "mission": "2026-09-72a",
+  "source_base_commit": "2874c664de27cc05ab689a6cd845356ad3e75585",
+  "regime_boundary": "2026-07-31",
+  "source_population": {
+    "base_seed_relative_path": "tools/research/measure_high_so_far_population_09_70a_seed.json",
+    "base_seed_sha256": "010687e6a30cc336de7783760510eaad92ef41a602318a9a9d8fa00c73e58730",
+    "base_harness_relative_path": "tools/research/measure_high_so_far_population_09_70a.py",
+    "base_harness_sha256": "43093017c20ba6d52a855e45a6827f5f27dbfbbe04a4af8ec4b8fb3f2964dcc4",
+    "event_csv_relative_path": "docs/roadmap/high-so-far-cutoff-direction-2026-09-71a.csv",
+    "event_csv_sha256": "fee76c90ddca342257904901c73f57a0c63ac698102391b99b6fab9913ed9294",
+    "event_manifest_relative_path": "docs/roadmap/high-so-far-cutoff-direction-2026-09-71a-manifest.json",
+    "event_manifest_sha256": "2a384885026ffeff5836ff233679514a756742b52d2c08b4245be422582edad0",
+    "join_keys": [
+      "stratum",
+      "market_id",
+      "target_date",
+      "snapshot_id",
+      "mechanism"
+    ],
+    "expected": {
+      "B": {
+        "date_clusters": 23,
+        "market_clusters": 12,
+        "market_days": 204,
+        "decrease_events": 906
+      },
+      "C": {
+        "date_clusters": 27,
+        "market_clusters": 12,
+        "market_days": 320,
+        "decrease_events": 1284
+      }
+    }
+  },
+  "envelope": {
+    "timestamp_identity": "target-date-local minute_of_day from each valid WU history (time,temp) row",
+    "snapshot_order": "captured_at_utc ascending within each replay_inputs.jsonl, with original file position as the stable tie-break; raw append-order inversions are counted",
+    "current_snapshot_included": true,
+    "rules": {
+      "envelope_max": "for a restated timestamp retain the highest native-unit temperature observed at or before the current snapshot",
+      "envelope_last": "for a restated timestamp retain the temperature in the most recent payload at or before the current snapshot"
+    },
+    "fallback": "when the point-in-time WU envelope has no cutoff-eligible row, retain that snapshot's captured served high_so_far; no non-WU input is changed",
+    "cutoff_hours": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+    "cutoff_rule": "historical captured producer rule: greatest configured cutoff no later than wall clock and no later than the envelope latest observation minute; wall cutoff if no cutoff is eligible"
+  },
+  "time_windows_local": {
+    "pre_dawn": [0, 420],
+    "settlement_window": [720, 1080],
+    "peak_heating_window": [840, 1020],
+    "precedence": [
+      "pre_dawn",
+      "peak_heating_window",
+      "settlement_window",
+      "other"
+    ]
+  },
+  "train_serve": {
+    "comparison": "absolute distance to the eligible archive-rebuilt training high_so_far at each path's own cutoff",
+    "baseline_expected_comparable": {
+      "B": 21676,
+      "C": 48922
+    },
+    "baseline_expected_mismatch": {
+      "B": 2112,
+      "C": 45849
+    }
+  },
+  "known_traces": {
+    "repaired": {
+      "market_id": "atlanta",
+      "target_date": "2026-06-13",
+      "snapshot_id": "20260613T113204-0400"
+    },
+    "unrepaired": {
+      "market_id": "chicago",
+      "target_date": "2026-06-14",
+      "snapshot_id": "20260614T011808-0400"
+    }
+  },
+  "campaign": {
+    "kind": "point_in_time_input_integrity_feasibility_census",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "candidate_fitted": false,
+    "outcome_scored": false,
+    "market_compared": false,
+    "C_endpoint": false
+  }
+}
