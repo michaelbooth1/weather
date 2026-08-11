@@ -317,15 +317,26 @@ Branch: `codex/workstation-can-we-recover-the-lost-observations-2026-09-72a`.
 
 Analysis commit: `5cf0a621`.
 
+Initial report commit: `35087c84`.
+
 At the analysis commit, the authoritative repository command returned exit 0 and
 **`VERDICT: ROLL-FREE`**: six changed files, zero importable files, live closures `loop`,
 `clob_loop`, and `observation_trigger`; the 366.3-hour dormant `clob_enrichment` closure was fully
 subsumed by live closure evidence.
 
-Final report-inclusive verdict: **PENDING REPORT COMMIT AND MECHANICAL RECHECK**.
+After the report commit, the same authoritative command returned exit 0 and
+**`VERDICT: ROLL-FREE`**: seven changed files, zero importable files, the same three live closures,
+and the dormant closure again fully subsumed.
 
-Per-file disposition after the report commit will be recorded here from the same command; no
-roll-sensitive source is present in this mission.
+| Changed path | Mechanical disposition |
+| --- | --- |
+| `docs/roadmap/agent-report-2026-08-27-workstation-observation-envelope.md` | Roll-free Markdown report |
+| `docs/roadmap/observation-envelope-2026-09-72a.csv` | Roll-free committed evidence |
+| `docs/roadmap/observation-envelope-2026-09-72a-manifest.json` | Roll-free committed manifest |
+| `docs/roadmap/observation-envelope-2026-09-72a.sha256` | Roll-free evidence receipt |
+| `docs/roadmap/observation-envelope-preregistration-2026-09-72a.json` | Roll-free frozen research protocol |
+| `tools/research/measure_observation_envelope_09_72a.py` | Roll-free one-off research harness; outside package roots and every live closure |
+| `tools/research/measure_observation_envelope_09_72a_seed.json` | Roll-free frozen research seed |
 
 ## Explicitly not done
 
