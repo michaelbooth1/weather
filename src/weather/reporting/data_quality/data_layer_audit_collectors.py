@@ -48,6 +48,10 @@ SNAPSHOT_OPTIONAL_ARTIFACTS = {
     "clob_tokens_raw": "clob_tokens.jsonl",
     "order_books_summary": "order_books_summary.csv",
     "order_books_raw": "order_books.jsonl",
+    # The raw tape is now gzip-tiered on closed days by
+    # `weather.operations.clob_raw_tape_tiering`, exactly as the long CSV already was. Without
+    # this key a tiered day reports its canonical tape ABSENT when it is present and byte-identical.
+    "order_books_raw_gzip": "order_books.jsonl.gz",
     "order_books_long": "order_books_long.csv",
     "order_books_long_gzip": "order_books_long.csv.gz",
     "price_history": "price_history.csv",
@@ -60,6 +64,7 @@ CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
 CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_summary",
     "order_books_raw",
+    "order_books_raw_gzip",
     "order_books_long",
     "order_books_long_gzip",
 )

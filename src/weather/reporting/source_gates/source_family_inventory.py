@@ -760,6 +760,10 @@ def clob_raw_tape_present(folder):
         "order_books_long.csv",
         "order_books_long.csv.gz",
         "order_books.jsonl",
+        # Closed days are gzip-tiered by `weather.operations.clob_raw_tape_tiering`; the payload
+        # is verified byte-identical before the plain file is removed. Omitting this made a
+        # tiered folder look like it had lost its canonical tape.
+        "order_books.jsonl.gz",
         "price_history.csv",
         "price_history.jsonl",
         "market_ws_events.csv",
