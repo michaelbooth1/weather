@@ -1,7 +1,7 @@
 {
-  "schema_version": "high_so_far_population_seed_v1",
-  "mission": "2026-09-70a",
-  "source_base_commit": "a9ba4e3df6c1a3db0e129d821df4afe0d3dfeebd",
+  "schema_version": "high_so_far_population_seed_v2",
+  "mission": "2026-09-71a",
+  "source_base_commit": "73c2fd6d135800c586f33fb573176004a5b99557",
   "regime_boundary": "2026-07-31",
   "population": {
     "roster_relative_path": "docs/roadmap/settlement-provenance-for-panel-2026-09-67a.csv",
@@ -53,6 +53,19 @@
     "M4_source_switch": "the inferred source kind for served high_so_far changed between adjacent captures",
     "M5_cutoff_change": "the recorded cutoff_hour changed between adjacent captures",
     "M6_unexplained": "none of M1-M5 is evidenced by the emitted discriminants"
+  },
+  "direction_reconciliation": {
+    "M5_cutoff_change": {
+      "B": 658,
+      "C": 2
+    },
+    "cutoff_hour_changed": {
+      "B": 660,
+      "C": 60
+    },
+    "cutoff_delta": "signed cutoff_hour - previous_cutoff_hour; negative narrows and positive widens",
+    "capture_minute": "derived from the captured_at_local field written beside the feature vector; it is not the producer of cutoff_hour",
+    "rows_lost_within_window": "timestamped WU rows admitted by the previous cutoff that are absent from the current cutoff-filtered series; this includes raw-series disappearance and boundary exclusion"
   },
   "candidate_definitions": {
     "max_rows_served_path": "recorded served high_so_far; this is the max(rows) path when WU rows exist and its captured fallback otherwise",
