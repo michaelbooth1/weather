@@ -105,12 +105,30 @@ function Get-TargetRow {
     param([string]$LedgerPath, [string]$Date)
     if (-not (Test-Path $LedgerPath)) { return $null }
     $row = $null
-    foreach ($line in [System.IO.File]::ReadLines($LedgerPath)) {
-        if ($line -notlike "*$Date*") { continue }
-        try { $obj = $line | ConvertFrom-Json } catch { continue }
-        # Revisions append, so the LAST matching row is the live verdict.
-        if ($obj.target_date -eq $Date) { $row = $obj }
+    # Share ReadWrite explicitly. [System.IO.File]::ReadLines() opens with FileShare.Read, which
+    # BLOCKS WRITERS -- on 2026-08-11 a read loop over the 12 ledgers using it collided with the
+    # chain's market_day_labels_finalize and failed that step with
+    # "[Errno 13] Permission denied: data\settlements\austin\ledger.jsonl". A diagnostic read must
+    # never be able to fail a production write.
+    $stream = [System.IO.File]::Open(
+        $LedgerPath,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::ReadWrite
+    )
+    try {
+        $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8, $true)
+        try {
+            while ($null -ne ($line = $reader.ReadLine())) {
+                if ($line -notlike "*$Date*") { continue }
+                try { $obj = $line | ConvertFrom-Json } catch { continue }
+                # Revisions append, so the LAST matching row is the live verdict.
+                if ($obj.target_date -eq $Date) { $row = $obj }
+            }
+        }
+        finally { $reader.Dispose() }
     }
+    finally { $stream.Dispose() }
     return $row
 }
 
