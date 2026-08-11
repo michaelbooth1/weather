@@ -1,0 +1,114 @@
+{
+  "schema_version": "high_so_far_population_seed_v1",
+  "mission": "2026-09-70a",
+  "source_base_commit": "a9ba4e3df6c1a3db0e129d821df4afe0d3dfeebd",
+  "regime_boundary": "2026-07-31",
+  "population": {
+    "roster_relative_path": "docs/roadmap/settlement-provenance-for-panel-2026-09-67a.csv",
+    "roster_sha256": "73501415ea8dd31db8816c3fb4b5e8db92eb0d5448b8b5f48e7c57b6c44597cd",
+    "expected": {
+      "B": {
+        "date_clusters": 23,
+        "market_clusters": 12,
+        "market_days": 204,
+        "snapshots": 28376,
+        "below_running_max_of_current_temp": 5283,
+        "market_days_with_decrease": 125,
+        "decrease_events": 906
+      },
+      "C": {
+        "date_clusters": 27,
+        "market_clusters": 12,
+        "market_days": 320,
+        "snapshots": 49033,
+        "below_running_max_of_current_temp": 14995,
+        "market_days_with_decrease": 292,
+        "decrease_events": 1284
+      }
+    },
+    "admission": "tracked -09-67a market-day roster; features_long rows with both high_so_far and current_temp present",
+    "ordering": "captured_at_utc ascending, with original CSV row order as the stable tie-break",
+    "event_definition": "current high_so_far is strictly below the immediately preceding admitted row in the same market-day"
+  },
+  "classification": {
+    "fixed_set": [
+      "M1_restatement",
+      "M2_empty_history",
+      "M3_rows_dropped",
+      "M4_source_switch",
+      "M5_cutoff_change",
+      "M6_unexplained"
+    ],
+    "precedence": [
+      "M2_empty_history",
+      "M4_source_switch",
+      "M1_restatement",
+      "M5_cutoff_change",
+      "M3_rows_dropped",
+      "M6_unexplained"
+    ],
+    "M1_restatement": "both WU row sets are non-empty, row counts and latest datetime are unchanged, and at least one row temperature changed at the same series position",
+    "M2_empty_history": "current WU rows are empty or current wu_history.max is missing, and served high_so_far equals served current_temp",
+    "M3_rows_dropped": "the current WU series contains fewer rows than the preceding captured series",
+    "M4_source_switch": "the inferred source kind for served high_so_far changed between adjacent captures",
+    "M5_cutoff_change": "the recorded cutoff_hour changed between adjacent captures",
+    "M6_unexplained": "none of M1-M5 is evidenced by the emitted discriminants"
+  },
+  "candidate_definitions": {
+    "max_rows_served_path": "recorded served high_so_far; this is the max(rows) path when WU rows exist and its captured fallback otherwise",
+    "wu_history_max_c": "captured wu_history.data.max_native, falling back to legacy max_c; values remain in the market native settlement unit",
+    "wu_current_max_since_7am_c": "captured wu_current.data.max_since_7am_native, falling back to legacy max_since_7am_c; values remain in the market native settlement unit"
+  },
+  "train_serve": {
+    "archive_source": "data/wunderground/<station>/daily/daily_summary.csv plus hourly/year=YYYY/month=MM/observations.jsonl",
+    "daily_min_rows": 20,
+    "training_value": "maximum archived native-unit row temperature with minute_of_day <= cutoff_hour*60, matching build_historical_feature_record",
+    "comparison_delta": "training_archive_high_so_far - recorded_served_high_so_far"
+  },
+  "time_windows_local": {
+    "pre_dawn": [0, 420],
+    "settlement_window": [720, 1080],
+    "peak_heating_window": [840, 1020],
+    "precedence": [
+      "pre_dawn",
+      "peak_heating_window",
+      "settlement_window",
+      "other"
+    ]
+  },
+  "known_blocking_rows": [
+    {
+      "market_id": "chicago",
+      "target_date": "2026-06-14",
+      "snapshot_id": "20260614T011002-0400"
+    },
+    {
+      "market_id": "san-francisco",
+      "target_date": "2026-06-09",
+      "snapshot_id": "20260609T170137-0400"
+    }
+  ],
+  "markets": {
+    "atlanta": {"slug_prefix": "highest-temperature-in-atlanta-on-", "station": "katl", "unit": "F"},
+    "austin": {"slug_prefix": "highest-temperature-in-austin-on-", "station": "kaus", "unit": "F"},
+    "chicago": {"slug_prefix": "highest-temperature-in-chicago-on-", "station": "kord", "unit": "F"},
+    "dallas": {"slug_prefix": "highest-temperature-in-dallas-on-", "station": "kdal", "unit": "F"},
+    "denver": {"slug_prefix": "highest-temperature-in-denver-on-", "station": "kbkf", "unit": "F"},
+    "houston": {"slug_prefix": "highest-temperature-in-houston-on-", "station": "khou", "unit": "F"},
+    "los-angeles": {"slug_prefix": "highest-temperature-in-los-angeles-on-", "station": "klax", "unit": "F"},
+    "miami": {"slug_prefix": "highest-temperature-in-miami-on-", "station": "kmia", "unit": "F"},
+    "nyc": {"slug_prefix": "highest-temperature-in-nyc-on-", "station": "klga", "unit": "F"},
+    "san-francisco": {"slug_prefix": "highest-temperature-in-san-francisco-on-", "station": "ksfo", "unit": "F"},
+    "seattle": {"slug_prefix": "highest-temperature-in-seattle-on-", "station": "ksea", "unit": "F"},
+    "toronto": {"slug_prefix": "highest-temperature-in-toronto-on-", "station": "cyyz", "unit": "C"}
+  },
+  "campaign": {
+    "kind": "input_integrity_census",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "candidate_fitted": false,
+    "C_endpoint": false
+  }
+}
