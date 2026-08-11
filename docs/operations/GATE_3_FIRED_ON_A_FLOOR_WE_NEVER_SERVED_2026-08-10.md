@@ -264,6 +264,54 @@ that move. The 20 B residuals are not scatter either: 19 share a first-history-p
 Canon: `docs/roadmap/agent-report-2026-08-25-workstation-high-so-far-population.md`,
 `docs/roadmap/agent-report-2026-08-26-workstation-cutoff-direction.md`.
 
+### 5b. The information is recoverable in B — and a monotone envelope is unsafe to serve (`-09-72a`)
+
+`-09-72a` asked whether a **point-in-time append-only union** of everything observed so far that day
+would have prevented the decreases. Verified on production: CSV SHA-256 byte match, `ROLL-FREE`
+exit 0, and — audited independently from the emitted receipts, not from the harness's self-report —
+**zero point-in-time violations across all 2,190 events, with no blank receipts.**
+
+| | repaired, either rule |
+| --- | --- |
+| **B** | **748 / 906 = 82.56%** |
+| **B, `peak_heating` + `settlement`** | **368 / 368 = 100%** |
+| **C** | **0 / 1,284** |
+
+**The dropped rows are still in our own corpus.** Every B decrease event on the model's main
+decision path is repairable from data we already fetched — no new source, no new fetch. That is the
+strongest form the "know more from our own information" lever has taken in this campaign.
+
+**C is not repairable, exactly as predicted.** Its 1,278 `M2` events are pre-dawn, when no earlier
+snapshot that day held any history either. There is nothing to union. The Gate 3 pre-dawn corner is
+untouched by this.
+
+**But direct serving is unsafe, and the reason is structural.** A monotone envelope cannot retract a
+transient print:
+
+| Stratum / rule | Available | Served above settled | Envelope above settled | **New** |
+| --- | ---: | ---: | ---: | ---: |
+| B, either rule | 28,254 | 7 | 61 | **55** |
+| C, either rule | 49,024 | 7,850 | 7,850 | 0 |
+
+All 55 are san-francisco `2026-06-09`, each exactly `+1 F`. **Note the denominators:** 55 is over
+feature snapshots; the same defect is **1** of the 906 B decrease events.
+
+**The failure shape is not the restatement §5 traced.** At `17:01` the final row is `13:00 / 68 F`;
+at `17:11` that row is *absent* and a new final row is `14:00 / 67 F`. **A different timestamp, so
+it is not a same-timestamp correction** — which is why `envelope_last` fails identically to
+`envelope_max`. Both rules were designed against the wrong shape. A union cannot know which print
+settlement will later retract, and **clamping to realized settlement would be leakage.**
+
+> **What this licenses:** nothing on the serving path. The pre-registration
+> (`observation-envelope-preregistration-2026-09-72a.json`) is **FROZEN and SAFETY-BLOCKED**:
+> `outcome_scoring_authorized: false`, **zero α allocated**, ledger unchanged at 7 of 20 spent with
+> decision 10 still CLOSED UNUSED. No Brier or CRPS was computed, by design — the rule was chosen on
+> input integrity, floor safety and train/serve parity alone (`selection_used_no_forecast_outcome`).
+
+**The open problem is now narrow and well-posed:** a rule that recovers the dropped rows *without*
+becoming monotone over transient prints. Nothing may be scored until such a rule clears the
+floor-safety gate.
+
 What *is* established is the consequence. The floor commits to an exact `0.0` — an irreversible
 statement that the day cannot end in that band — from a quantity that is not monotone. Usually this
 is harmless, because the transient does not exceed the day's eventual high: fleet-wide the served
