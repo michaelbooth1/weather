@@ -31,7 +31,7 @@ which is a diagnostic, not a result. **"We trail the market" survived its last d
 
 ## Gate 3 fired on a floor we never served — and is a size limit anyway
 
-`-09-63a` stopped at Gate 3; **decision 10 is CLOSED UNUSED / RETIRED**, not reassigned (§1i).
+`-09-63a` stopped at Gate 3; **decision 10 is CLOSED UNUSED / RETIRED**, not reassigned (§1j).
 **The stop stands on two real rows — but two of its cited facts do not.** Denver `2026-06-08` was
 **served `0.5206313021`, not `0.0`** (`-09-65a`: replay rebuilt the floor from a stale
 `wu_current.max_since_7am_c`), and the "3 surviving zeros" are **two plus a blank-floor fallback

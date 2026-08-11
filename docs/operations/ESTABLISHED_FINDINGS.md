@@ -889,14 +889,15 @@ because the workstation may not call providers.
 
 ## 1h. THE PIT-FIELD TEST IS PRE-REGISTERED AND FROZEN — `-09-61a`, 2026-08-10
 
-The 12-field corpus of §1e now has a **frozen, hashed protocol written before the data was
-integrated**, so the candidate cannot be fished. A later mission executes it unchanged.
+The 12-field corpus of §1e has a **frozen, hashed protocol written before the data was
+integrated**, so the candidate cannot be fished. `-09-63a` later executed its B-only integrity
+screen unchanged; the result is in §1j.
 
 | | |
 | --- | --- |
 | Artifact | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` |
 | SHA-256 | `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
-| Campaign | **decision 10 ALLOCATED, UNSPENT.** α remains **7 of 20**; 13 available |
+| Campaign | Allocated here; **CLOSED UNUSED by `-09-63a`**. α remains **7 of 20**; 13 available |
 | Candidate | ONE lead-1 target-day surface-heating / convective-budget tilt, 12 named features, no sweep |
 | Design | fit on in-season B (D=23) → score once on out-of-season C (D=27), the §1c pattern |
 
@@ -937,7 +938,7 @@ markets) was run against what is actually staged:
 > because B is June, would fit on **7 B dates instead of 23** — and the manifest would look
 > complete while it happened. Both roots are required. See `CORPUS.md` in the main root.
 
-### THE ASSUMPTION NOBODY HAS MEASURED — and it is not `-09-61a`'s to fix
+### THE ASSUMPTION NOBODY HAD MEASURED AT FREEZE — resolved before execution by `-09-62a`
 
 The protocol builds its interval as `point ± z(1−α/2) × bootstrap SD`, **z = 3.0233 at
 α=0.0025 — a three-sigma normal quantile off a bootstrap whose market dimension has 12 clusters.**
@@ -947,7 +948,9 @@ choice.
 **`-09-57a` measured multiplicity, never coverage.** Its 50,000-campaign simulation null-centres
 the *real* crossed-bootstrap distribution to price best-of-k selection — so if that distribution's
 dispersion is wrong at M=12, the multiplicity result inherits the error rather than detecting it.
-**No mission has ever measured the empirical coverage of these intervals.**
+**At protocol freeze no mission had measured empirical coverage.** `-09-62a` subsequently measured
+it under a true-zero simulation before any candidate execution; §1i records the result and adopted
+amendment A1.
 
 The direction of the risk is known from the cluster-robust literature: few-cluster normal
 intervals **under-cover**, and the error grows in the far tail. For scale, at 11 degrees of freedom
@@ -955,8 +958,8 @@ intervals **under-cover**, and the error grows in the far tail. For scale, at 11
 runs on.**
 
 > **If the interval under-covers, α=0.0025 is nominal rather than real, every MDE in §1d is
-> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gates decision 10 and
-> retroactively qualifies decisions 1–7. **Measure it before spending decision 10.**
+> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gated decision 10 and
+> retroactively qualified decisions 1–7. `-09-62a` measured it before decision 10 could be spent.
 
 This is filed as the next mission rather than left as a note, per `HOW_WE_GET_THINGS_WRONG.md`
 pattern 5.
@@ -966,7 +969,7 @@ pattern 5.
 - **The negative control is an algebraic identity**, not an exchangeability assumption: an exact
   incumbent clone whose improvement is zero row by row. `-09-59a` had to correct its control
   mid-flight; this one **cannot drift**. It verifies the scoring path, not the inference calibration
-   — which is precisely why the coverage question above is still open.
+   — which is precisely why the coverage mission was still required; §1i now closes it.
 - **The spend trigger is conservative**: decision 10 is spent by the first computation that touches
   candidate-dependent C state together with any C outcome or market price — *including a failed
   attempt*. A broken run cannot become a free look.
@@ -1021,10 +1024,45 @@ under-covered at 0.05.
 Decision 10's coherent `a=b=c=0.05` P0 MDE moves from `6.790047%` to `6.942096%` of `G`, still
 below its 10% gate. **The frozen `-09-61a` protocol was NOT edited in place, and must not be** —
 A1 is a separate, hashed, side-by-side amendment, which is the only permitted shape for a change
-here. Decision 10 remains **allocated and unspent**. This calibration mission spent and allocated no
+here. Decision 10 was **allocated and unspent as of this mission**, and was CLOSED UNUSED hours
+later by `-09-63a` — see §1j. This calibration mission spent and allocated no
 alpha and A1 spends none, so the ledger remains **7 of 20 spent, 13 available**. Full method,
 components, seeds, coverage table, and evidence hashes are in
 `docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+---
+
+## 1j. DECISION 10 CLOSED UNUSED BEFORE FITTING — `-09-63a`, 2026-08-10
+
+**NO-GO at Gate 3, zero ledger cost — and the gate was measuring the wrong thing.** The required
+feature extract reproduced its frozen SHA-256 `60b450f1…ac8`. Before any fit, the B-only screen
+found what it read as a realized winning band with incumbent repaired probability exactly zero, and
+failed closed.
+
+**What survives, and is the point of this section:** no beta was fitted, no expanding-window B
+curve was produced, and **the surface-heating mechanism was not tested in either direction.**
+Treating the absent coefficient vector as evidence about the mechanism would be a second error.
+Only B outcomes and incumbent repaired probabilities were materialized; no C outcome, market
+probability, candidate state, bootstrap draw, or clone control was ever computed.
+**Decision 10 is closed unused and RETIRED, must never be reassigned, and alpha remains 7 of 20
+spent, 13 available.**
+
+**What does NOT survive is the trigger.** `-09-63a` named Denver `2026-06-08`, snapshot
+`20260608T030552-0400`, band 4 as a served zero. **Production served `0.5206313021` on that row.**
+The zero was a research-replay artifact: replay rebuilt `high_so_far = 91` from
+`wu_current.max_since_7am_c` against a current temperature of 68, giving a replay floor of 91 where
+the captured served floor was 68. `-09-65a` reached the same conclusion independently. The full
+trace is `docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md`, and the
+replay-vs-served floor divergence it exposes is an open production question, not a settled finding.
+
+Of the B floor crossings, only **two** are genuine — Chicago `2026-06-14` (70/69) and San Francisco
+`2026-06-09` (68/67); NYC `2026-06-22` is a fallback row with a blank `served_floor_bucket`.
+`-09-68a` then showed the gate is structurally mis-specified rather than unlucky: a fail-on-any-row
+gate has `P(fire) = 1 − (1 − q)^n`, which at 2 crossings in 204 B market-days fires **86.60%** of the
+time on the observed panel and **99.27%** at 500 market-days, **regardless of candidate quality**.
+It must not be re-registered unchanged.
+
+> **This section is therefore evidence about the INSTRUMENT, not about the candidate.** The NO-GO
+> and the zero alpha cost are real; the stated cause is retracted. Do not cite the Denver row.
 
 ---
 
