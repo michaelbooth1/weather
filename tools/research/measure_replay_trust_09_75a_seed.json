@@ -1,0 +1,67 @@
+{
+  "schema_version": "replay_trust_seed_v1",
+  "mission": "2026-09-75a",
+  "source_base_commit": "402c9a0c37c4957573a7f7e276c4298cb35e7216",
+  "inputs": {
+    "prior_harness_relative_path": "tools/research/measure_repair_ceiling_09_74a.py",
+    "prior_harness_sha256": "d52a1f91cc0e3b292935d0a8f96521e5cf8b9d7cb8407eae8885602a3a83906c",
+    "prior_seed_relative_path": "tools/research/measure_repair_ceiling_09_74a_seed.json",
+    "prior_seed_sha256": "bf710602b02ade34bd84f6aa84c3d7fcce9e460819c15560a8afc40eaa01c2e2",
+    "population_harness_relative_path": "tools/research/measure_high_so_far_population_09_70a.py",
+    "population_harness_sha256": "43093017c20ba6d52a855e45a6827f5f27dbfbbe04a4af8ec4b8fb3f2964dcc4",
+    "population_seed_relative_path": "tools/research/measure_high_so_far_population_09_70a_seed.json",
+    "population_seed_sha256": "010687e6a30cc336de7783760510eaad92ef41a602318a9a9d8fa00c73e58730",
+    "decision_csv_relative_path": "docs/roadmap/safe-observation-recovery-2026-09-73a.csv",
+    "decision_csv_sha256": "871c5308805e531c34999258018551cb65a6e348812cd2f7480afc4a20f96288",
+    "decision_manifest_relative_path": "docs/roadmap/safe-observation-recovery-2026-09-73a-manifest.json",
+    "decision_manifest_sha256": "1e6407d31758759579d20b31350262d6893e7e54d110448e249a6959c30052d5",
+    "roster_relative_path": "docs/roadmap/settlement-provenance-for-panel-2026-09-67a.csv",
+    "roster_sha256": "73501415ea8dd31db8816c3fb4b5e8db92eb0d5448b8b5f48e7c57b6c44597cd"
+  },
+  "population": {
+    "stratum": "B",
+    "feature_snapshots_with_replay": 28254,
+    "decision_window_events": 368,
+    "decision_mechanisms": {
+      "M5_cutoff_change": 366,
+      "M1_restatement": 2
+    },
+    "decision_windows": [
+      "peak_heating_window",
+      "settlement_window"
+    ],
+    "source_switch_diagnostics": [
+      ["toronto", "2026-06-15", "20260615T000821-0400"],
+      ["toronto", "2026-06-17", "20260617T000830-0400"],
+      ["toronto", "2026-06-19", "20260619T000838-0400"],
+      ["toronto", "2026-06-20", "20260620T000839-0400"]
+    ]
+  },
+  "replay": {
+    "l1_tolerance": 1e-12,
+    "feature_tolerance": 1e-12,
+    "runtime_binding": "captured runtime_identity.git_commit; model-identity-only diagnostics never count as runtime-bound decision rows",
+    "continue_after_failure": true
+  },
+  "artifacts": {
+    "csv_relative_path": "docs/roadmap/replay-trust-2026-09-75a.csv",
+    "manifest_relative_path": "docs/roadmap/replay-trust-2026-09-75a-manifest.json",
+    "checksums_relative_path": "docs/roadmap/replay-trust-2026-09-75a.sha256"
+  },
+  "campaign": {
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_available": 13,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "candidate_probabilities_computed": false,
+    "displacement_computed": false,
+    "ceiling_computed": false,
+    "realized_band_read": false,
+    "settlement_consulted": false,
+    "outcome_scored": false,
+    "market_compared": false,
+    "B_only": true,
+    "C_endpoint": false
+  }
+}
