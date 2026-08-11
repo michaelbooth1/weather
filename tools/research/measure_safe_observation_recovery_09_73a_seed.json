@@ -1,0 +1,111 @@
+{
+  "schema_version": "safe_observation_recovery_seed_v2",
+  "mission": "2026-09-73a",
+  "source_base_commit": "97bce2d3d9207844c1c8310697b661f6700e115a",
+  "regime_boundary": "2026-07-31",
+  "prior_protocol": {
+    "harness_relative_path": "tools/research/measure_observation_envelope_09_72a.py",
+    "harness_sha256": "776116e99846cc5a0936498fca16037c2990103b00fdd3759531869fdb3cdae0",
+    "seed_relative_path": "tools/research/measure_observation_envelope_09_72a_seed.json",
+    "seed_sha256": "ce2d1d27073d555dc117e358db4d47311d038278940530e32a366987854b8347",
+    "csv_relative_path": "docs/roadmap/observation-envelope-2026-09-72a.csv",
+    "csv_sha256": "2309a8ebb0d41773d77e3e2bc4dfc85f147a9153a4b4e451ed5ee1d813bd7550",
+    "manifest_relative_path": "docs/roadmap/observation-envelope-2026-09-72a-manifest.json",
+    "manifest_sha256": "4032f7cc52574d238f5c0e1b7770fc28314404add24b393be52d60046e086592",
+    "preregistration_relative_path": "docs/roadmap/observation-envelope-preregistration-2026-09-72a.json",
+    "preregistration_sha256": "42ff19a8aabd01dffe388b870ba8d542fc412f680ff1a61721db9048fbd3f2d7"
+  },
+  "expected_population": {
+    "B": {
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "market_days": 204,
+      "decrease_events": 906,
+      "admitted_feature_snapshots": 28376,
+      "feature_snapshots_with_replay": 28254,
+      "decision_window_events": 368
+    },
+    "C": {
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "market_days": 320,
+      "decrease_events": 1284
+    }
+  },
+  "positive_controls_09_72a": {
+    "B_repaired_by_envelope_max": 748,
+    "B_repaired_by_envelope_last": 748,
+    "B_decision_window_repaired_by_each_envelope": 368,
+    "C_repaired_by_each_envelope": 0,
+    "B_new_above_settlement_by_each_envelope": 55,
+    "C_new_above_settlement_by_each_envelope": 0,
+    "future_snapshots_consumed": 0,
+    "strict_prior_guard_failures": 0,
+    "baseline_B_comparable": 21676,
+    "baseline_B_mismatch": 2112
+  },
+  "posthoc_m5_m3_filter_control": {
+    "B_repaired": 736,
+    "B_decision_window_repaired": 366,
+    "definition": "Filter -09-72a envelope_last repaired-event rows after the transition by frozen mechanism in M5_cutoff_change or M3_rows_dropped.",
+    "not_a_candidate_reason": "The filter uses the transition's future label to select an already-computed candidate path, so it does not define values for prior or non-event snapshots and cannot itself be scored on the 28,254-snapshot safety population."
+  },
+  "candidates": {
+    "envelope_max": {
+      "kind": "-09-72a positive-control comparator",
+      "definition": "For every target-date local minute, retain the highest native-unit value ever observed at or before the current capture."
+    },
+    "envelope_last": {
+      "kind": "-09-72a positive-control comparator",
+      "definition": "For every target-date local minute, retain the most recently published value at or before the current capture."
+    },
+    "m5_m3_label_gate": {
+      "kind": "nearest point-in-time stateful operationalization of the post-hoc label filter; not eligible for selection",
+      "definition": "Use envelope_last only on frozen -09-71a decrease-event snapshots labelled M5_cutoff_change or M3_rows_dropped; otherwise retain the captured served value and cutoff.",
+      "selection_eligible": false,
+      "reason_ineligible": "The label is not a payload observable, the San Francisco M1 label is explicitly audited for raw-row identity error, and this stateful rule does not reproduce the 736 post-hoc retained repairs because the post-hoc filter used the future transition label to select a candidate path that had already changed prior snapshots."
+    },
+    "observable_no_published_at_or_after": {
+      "kind": "deterministic point-in-time payload-observable candidate; no fitted parameter",
+      "definition": "At capture t, trust every row in the current payload. Recover a previously published missing row only when the current payload contains no row at or after that row's target-date-local minute. If the current payload is empty, every previously published target-date row is eligible for recovery.",
+      "same_timestamp_rule": "A current row at the same minute is at-or-after evidence, so the current vendor value replaces every prior value for that minute.",
+      "selection_eligible": true
+    }
+  },
+  "cutoff_hours": [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+  "cutoff_rule": "Historical captured producer rule: greatest configured cutoff no later than wall clock and no later than the candidate latest observation minute; wall cutoff if no cutoff is eligible.",
+  "fallback_rule": "When the candidate has no cutoff-eligible WU row, retain that snapshot's captured served high_so_far; no non-WU input is changed.",
+  "hard_gates": {
+    "new_above_settlement_on_all_B_feature_snapshots_with_replay": 0,
+    "minimum_material_decision_window_repairs": 1,
+    "future_snapshots_consumed": 0,
+    "blank_snapshot_receipts": 0,
+    "train_serve_mismatch_may_widen": false
+  },
+  "known_traces": {
+    "san_francisco_revision": {
+      "market_id": "san-francisco",
+      "target_date": "2026-06-09",
+      "previous_snapshot_id": "20260609T170137-0400",
+      "snapshot_id": "20260609T171152-0400"
+    },
+    "atlanta_loss": {
+      "market_id": "atlanta",
+      "target_date": "2026-06-13",
+      "previous_snapshot_id": "20260613T112144-0400",
+      "snapshot_id": "20260613T113204-0400"
+    }
+  },
+  "campaign": {
+    "kind": "point_in_time_input_integrity_safety_census",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "candidate_fitted": false,
+    "outcome_scoring_authorized": false,
+    "outcome_scored": false,
+    "market_compared": false,
+    "C_endpoint": false
+  }
+}
