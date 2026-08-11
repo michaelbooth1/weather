@@ -53,11 +53,11 @@ the local `origin/master` snapshot above.
 
 ### Sources reviewed
 
-- Required canonical context: [state of play](docs/operations/STATE_OF_PLAY.md),
-  [durable agent context](docs/operations/AGENT_CONTEXT.md),
-  [established findings](docs/operations/ESTABLISHED_FINDINGS.md),
-  [retracted and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md), and the
-  [delegation contract](docs/operations/DELEGATION_CONTRACT.md).
+- Required canonical context: [state of play](../../../docs/operations/STATE_OF_PLAY.md),
+  [durable agent context](../../../docs/operations/AGENT_CONTEXT.md),
+  [established findings](../../../docs/operations/ESTABLISHED_FINDINGS.md),
+  [retracted and false leads](../../../docs/operations/RETRACTED_AND_FALSE_LEADS.md), and the
+  [delegation contract](../../../docs/operations/DELEGATION_CONTRACT.md).
 - Product, architecture, development, path ownership, scoped `AGENTS.md` files, runbooks,
   campaign ledger, backlog, retrospective, model code, reporting code, tests, artifacts, CI, and
   PowerShell operations scripts.
@@ -126,7 +126,7 @@ forecast skill.
 
 ### Current outcome state
 
-The [project retrospective](docs/operations/HOW_WE_GET_THINGS_WRONG.md) and latest findings establish
+The [project retrospective](../../../docs/operations/HOW_WE_GET_THINGS_WRONG.md) and latest findings establish
 the following baseline:
 
 | Outcome | Current state |
@@ -219,13 +219,13 @@ would begin consuming newly populated values, which is itself a serving change.
   cap, and stops around missions `-09-59a`/`-09-61a` as dispatched.
 - The same ref contains accepted results through `-09-68a` and a reframed objective in
   `ESTABLISHED_FINDINGS.md`: contiguity gates nothing on the active critical path.
-- The [campaign ledger](docs/operations/CAMPAIGN_LEDGER.md) still describes decision 10 as
+- The [campaign ledger](../../../docs/operations/CAMPAIGN_LEDGER.md) still describes decision 10 as
   allocated/unspent in places even though the
   later chain closes it unused and forbids reassignment.
-- The [active backlog](docs/roadmap/active-backlog.md) was last generated on 2026-08-01, before the
+- The [active backlog](../../../docs/roadmap/active-backlog.md) was last generated on 2026-08-01, before the
   central objective and research
   route changed.
-- [The operations-agent role](docs/operations/OPERATIONS_AGENT_ROLE.md) still contains dated August
+- [The operations-agent role](../../../docs/operations/OPERATIONS_AGENT_ROLE.md) still contains dated August
   3 state and obsolete streak/release
   premises.
 - One canonical section calls seasonal coverage a measured root cause while other accepted text
@@ -441,8 +441,8 @@ Why this shape fits the evidence:
 - simple linear/distributional baselines are auditable and well matched to the small number of
   independent dates.
 
-The existing [residual-distribution runtime](src/weather/model/residual_distribution_v1.py) and
-[candidate trainer](src/weather/calibration/residual_distribution_v1.py) are the closest scaffold,
+The existing [residual-distribution runtime](../../../src/weather/model/residual_distribution_v1.py) and
+[candidate trainer](../../../src/weather/calibration/residual_distribution_v1.py) are the closest scaffold,
 but the path is not decision-ready:
 
 1. its PASS uncertainty is whole-date only rather than crossed date × market;

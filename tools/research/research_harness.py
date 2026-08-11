@@ -151,6 +151,53 @@ SCRIPT_INVENTORY = {
         "smoke": "help",
         "notes": "Obsolete bulk training wrapper; use nightly retrain/daily refresh.",
     },
+    # Campaign mission scripts, kept as one block rather than scattered alphabetically so the
+    # class is reviewable. Each is the executable evidence for one numbered mission and must not
+    # be edited after its finding is accepted -- re-run it to reproduce, do not repurpose it.
+    #
+    # These went missing from the inventory because the 05:15 roll-free merge driver lands
+    # branches without running the suite: on 2026-08-11 it merged six of these in forty minutes
+    # and left master red from 05:55 until this was noticed. See the Codex audit 8.2.
+    "b_only_screen_09_63a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-63a B-only integrity screen for decision 10; NO-GO at Gate 3, alpha unspent.",
+    },
+    "build_pit_feature_extract_09_61a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-61a frozen 12-field PIT feature extract; reproduces SHA-256 60b450f1.",
+    },
+    "interval_coverage_09_62a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-62a true-zero coverage simulation; produced amendment A1 (q=3.1098893).",
+    },
+    "audit_repaired_realized_band_zeros_09_64a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-64a repaired-vs-control realized band zeros; precise null, identical row-for-row.",
+    },
+    "build_pit_panel_floor_extract_09_65a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-65a panel floor extract; traced the Denver zero to a replay floor never served.",
+    },
+    "rescore_served_floor_09_66a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-66a rescore of B on the served floor rather than the replay floor.",
+    },
+    "audit_outcome_label_provenance_09_67a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-67a outcome-label provenance audit; FLAT, cite the ~13% ceiling not 1.5069%.",
+    },
+    "analyze_gate_3_satisfiability_09_68a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-68a Gate 3 satisfiability; a fail-on-any-row gate is a panel-size limit.",
+    },
 }
 
 
