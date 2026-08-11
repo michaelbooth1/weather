@@ -1,4 +1,4 @@
-"""Measure the -09-70a high_so_far decrease population without changing it.
+"""Measure the -09-71a cutoff direction in the -09-70a population.
 
 The harness is a deterministic census over the tracked -09-67a B/C market-day
 roster.  It reads captured ``features_long.csv`` and ``replay_inputs.jsonl``
@@ -29,7 +29,12 @@ from typing import Any, Iterable
 SCRIPT_PATH = Path(__file__).resolve()
 DEFAULT_REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_SEED = SCRIPT_PATH.with_name("measure_high_so_far_population_09_70a_seed.json")
-DEFAULT_OUTPUT = DEFAULT_REPO_ROOT / "docs" / "roadmap" / "high-so-far-decreases-2026-09-70a.csv"
+DEFAULT_OUTPUT = (
+    DEFAULT_REPO_ROOT
+    / "docs"
+    / "roadmap"
+    / "high-so-far-cutoff-direction-2026-09-71a.csv"
+)
 OUTPUT_COLUMNS = (
     "stratum",
     "market_id",
@@ -48,6 +53,12 @@ OUTPUT_COLUMNS = (
     "rows_dropped",
     "latest_datetime_changed",
     "cutoff_hour_changed",
+    "previous_cutoff_hour",
+    "cutoff_hour",
+    "cutoff_delta",
+    "capture_minute",
+    "previous_capture_minute",
+    "rows_lost_within_window",
     "source_kind",
     "mechanism",
     "settled_high",
@@ -134,7 +145,7 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 def load_seed(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         seed = json.load(handle)
-    require(seed.get("schema_version") == "high_so_far_population_seed_v1", "seed schema drifted")
+    require(seed.get("schema_version") == "high_so_far_population_seed_v2", "seed schema drifted")
     return seed
 
 
@@ -564,6 +575,91 @@ def history_latest_datetime(payload: ReplayPayload) -> str:
     )
 
 
+def latest_history_minute(payload: ReplayPayload) -> int | None:
+    minutes = [
+        minute_of_day(row.get("time") or row.get("datetime"))
+        for row in history_rows(payload)
+    ]
+    finite = [minute for minute in minutes if minute is not None]
+    return max(finite) if finite else None
+
+
+def row_time_identity(row: dict[str, Any]) -> str:
+    return str(
+        row.get("datetime")
+        or row.get("valid_time_local")
+        or row.get("local_time")
+        or row.get("time")
+        or ""
+    )
+
+
+def rows_lost_within_window(
+    previous_payload: ReplayPayload,
+    current_payload: ReplayPayload,
+    previous_cutoff: int,
+    current_cutoff: int,
+) -> int:
+    """Count rows in the previous served window absent from the current one."""
+    previous_times = Counter(
+        row_time_identity(row)
+        for row in history_rows(previous_payload)
+        if row_time_identity(row)
+        and minute_of_day(row.get("time") or row.get("datetime")) is not None
+        and minute_of_day(row.get("time") or row.get("datetime")) <= previous_cutoff * 60
+    )
+    current_times = Counter(
+        row_time_identity(row)
+        for row in history_rows(current_payload)
+        if row_time_identity(row)
+        and minute_of_day(row.get("time") or row.get("datetime")) is not None
+        and minute_of_day(row.get("time") or row.get("datetime")) <= current_cutoff * 60
+    )
+    return sum((previous_times - current_times).values())
+
+
+def retained_rows_excluded_by_narrowing(
+    previous_payload: ReplayPayload,
+    current_payload: ReplayPayload,
+    previous_cutoff: int,
+    current_cutoff: int,
+) -> int:
+    """Count same-timestamp raw rows excluded solely by a narrowing cutoff.
+
+    A row must exist at the same timestamp in both captured series, have been
+    admitted by the previous cutoff, and be excluded by the current cutoff.
+    This isolates the window effect from raw-series row disappearance.
+    """
+    if current_cutoff >= previous_cutoff:
+        return 0
+    previous_times = Counter(
+        row_time_identity(row)
+        for row in history_rows(previous_payload)
+        if row_time_identity(row)
+    )
+    lost = 0
+    for row in history_rows(current_payload):
+        identity = row_time_identity(row)
+        minute = minute_of_day(row.get("time") or row.get("datetime"))
+        if not identity or minute is None or previous_times[identity] <= 0:
+            continue
+        previous_times[identity] -= 1
+        if current_cutoff * 60 < minute <= previous_cutoff * 60:
+            lost += 1
+    return lost
+
+
+def history_window_max(payload: ReplayPayload, cutoff: int) -> float | None:
+    values = [
+        row_temperature(row)
+        for row in history_rows(payload)
+        if minute_of_day(row.get("time") or row.get("datetime")) is not None
+        and minute_of_day(row.get("time") or row.get("datetime")) <= cutoff * 60
+    ]
+    finite = [value for value in values if value is not None]
+    return max(finite) if finite else None
+
+
 def source_kind(payload: ReplayPayload, row: dict[str, Any]) -> str:
     high = row["high"]
     current_temp = row["current"]
@@ -630,6 +726,12 @@ def event_discriminants(
     rows_dropped = max(0, len(previous_rows) - len(current_rows))
     latest_changed = history_latest_datetime(previous_payload) != history_latest_datetime(current_payload)
     cutoff_changed = previous["cutoff"] != current["cutoff"]
+    cutoff_delta = current["cutoff"] - previous["cutoff"]
+    previous_latest_minute = latest_history_minute(previous_payload)
+    current_latest_minute = latest_history_minute(current_payload)
+    previous_window_max = history_window_max(previous_payload, previous["cutoff"])
+    current_at_previous_cutoff_max = history_window_max(current_payload, previous["cutoff"])
+    current_window_max = history_window_max(current_payload, current["cutoff"])
     previous_source = source_kind(previous_payload, previous)
     current_source = source_kind(current_payload, current)
     history_max = first_number(current_payload.wu_history, ("max_native", "max_c"))
@@ -663,6 +765,39 @@ def event_discriminants(
         "rows_dropped": rows_dropped,
         "latest_datetime_changed": latest_changed,
         "cutoff_hour_changed": cutoff_changed,
+        "cutoff_delta": cutoff_delta,
+        "previous_latest_observation_minute": previous_latest_minute,
+        "latest_observation_minute": current_latest_minute,
+        "latest_observation_minute_delta": (
+            current_latest_minute - previous_latest_minute
+            if previous_latest_minute is not None and current_latest_minute is not None
+            else None
+        ),
+        "rows_lost_within_window": rows_lost_within_window(
+            previous_payload,
+            current_payload,
+            previous["cutoff"],
+            current["cutoff"],
+        ),
+        "retained_rows_excluded_by_narrowing": retained_rows_excluded_by_narrowing(
+            previous_payload,
+            current_payload,
+            previous["cutoff"],
+            current["cutoff"],
+        ),
+        "previous_window_max": previous_window_max,
+        "current_at_previous_cutoff_max": current_at_previous_cutoff_max,
+        "current_window_max": current_window_max,
+        "raw_series_alone_lowered_max": (
+            current_at_previous_cutoff_max < previous_window_max - FLOAT_TOLERANCE
+            if previous_window_max is not None and current_at_previous_cutoff_max is not None
+            else None
+        ),
+        "cutoff_alone_lowered_current_payload_max": (
+            current_window_max < current_at_previous_cutoff_max - FLOAT_TOLERANCE
+            if current_at_previous_cutoff_max is not None and current_window_max is not None
+            else None
+        ),
         "previous_source_kind": previous_source,
         "source_kind": current_source,
         "empty_history_fallback": empty_history,
@@ -694,6 +829,12 @@ def classify_events(
     hours = {stratum: Counter() for stratum in ("B", "C")}
     representatives: dict[str, Any] = {}
     discriminant_totals = {stratum: Counter() for stratum in ("B", "C")}
+    cutoff_delta_totals = {stratum: Counter() for stratum in ("B", "C")}
+    m5_cutoff_delta_totals = {stratum: Counter() for stratum in ("B", "C")}
+    m5_effect_paths = {stratum: Counter() for stratum in ("B", "C")}
+    cutoff_relationships = {stratum: Counter() for stratum in ("B", "C")}
+    widened_mechanisms = {stratum: Counter() for stratum in ("B", "C")}
+    m6_fingerprints = {stratum: Counter() for stratum in ("B", "C")}
     drop_magnitudes: dict[str, dict[str, dict[str, list[float]]]] = {
         stratum: defaultdict(lambda: {"adjacent": [], "running_max_deficit": []})
         for stratum in ("B", "C")
@@ -711,14 +852,15 @@ def classify_events(
         )
         current_candidates = replay_candidates(event_payloads[current_key])
         previous_candidates = replay_candidates(event_payloads[previous_key])
-        local_time, minute = local_clock(current)
+        previous_local_time, previous_capture_minute = local_clock(previous)
+        local_time, capture_minute = local_clock(current)
         row = {
             "stratum": event["stratum"],
             "market_id": event["market_id"],
             "target_date": event["target_date"],
             "snapshot_id": current["snapshot_id"],
             "local_time": local_time,
-            "minute_of_day": str(minute),
+            "minute_of_day": str(capture_minute),
             "high_so_far": compact_number(current["high"]),
             "prev_running_max": compact_number(event["prev_running_max"]),
             "drop_degrees": compact_number(event["prev_running_max"] - current["high"]),
@@ -732,6 +874,12 @@ def classify_events(
             "rows_dropped": str(discriminants["rows_dropped"]),
             "latest_datetime_changed": str(discriminants["latest_datetime_changed"]).lower(),
             "cutoff_hour_changed": str(discriminants["cutoff_hour_changed"]).lower(),
+            "previous_cutoff_hour": str(previous["cutoff"]),
+            "cutoff_hour": str(current["cutoff"]),
+            "cutoff_delta": str(discriminants["cutoff_delta"]),
+            "capture_minute": str(capture_minute),
+            "previous_capture_minute": str(previous_capture_minute),
+            "rows_lost_within_window": str(discriminants["rows_lost_within_window"]),
             "source_kind": discriminants["source_kind"],
             "mechanism": discriminants["mechanism"],
             "settled_high": compact_number(event["settled_high"]),
@@ -745,6 +893,59 @@ def classify_events(
             event["prev_running_max"] - current["high"]
         )
         mechanisms[event["stratum"]][discriminants["mechanism"]] += 1
+        if discriminants["cutoff_hour_changed"]:
+            delta_key = str(discriminants["cutoff_delta"])
+            cutoff_delta_totals[event["stratum"]][delta_key] += 1
+            direction = "narrowed" if discriminants["cutoff_delta"] < 0 else "widened"
+            cutoff_relationships[event["stratum"]][direction] += 1
+            cutoff_relationships[event["stratum"]]["capture_minute_advanced"] += int(
+                capture_minute > previous_capture_minute
+            )
+            cutoff_relationships[event["stratum"]]["raw_rows_dropped"] += int(
+                discriminants["rows_dropped"] > 0
+            )
+            cutoff_relationships[event["stratum"]]["rows_lost_within_window"] += int(
+                discriminants["rows_lost_within_window"] > 0
+            )
+            cutoff_relationships[event["stratum"]]["retained_rows_excluded_by_narrowing"] += int(
+                discriminants["retained_rows_excluded_by_narrowing"] > 0
+            )
+            cutoff_relationships[event["stratum"]]["latest_observation_minute_regressed"] += int(
+                discriminants["latest_observation_minute_delta"] is not None
+                and discriminants["latest_observation_minute_delta"] < 0
+            )
+            cutoff_relationships[event["stratum"]]["latest_observation_minute_advanced"] += int(
+                discriminants["latest_observation_minute_delta"] is not None
+                and discriminants["latest_observation_minute_delta"] > 0
+            )
+            if discriminants["cutoff_delta"] > 0:
+                widened_mechanisms[event["stratum"]][discriminants["mechanism"]] += 1
+        if discriminants["mechanism"] == "M5_cutoff_change":
+            m5_cutoff_delta_totals[event["stratum"]][str(discriminants["cutoff_delta"])] += 1
+            raw_lowers = discriminants["raw_series_alone_lowered_max"]
+            cutoff_lowers = discriminants["cutoff_alone_lowered_current_payload_max"]
+            if raw_lowers is None or cutoff_lowers is None:
+                effect_path = "unavailable"
+            elif raw_lowers and cutoff_lowers:
+                effect_path = "raw_series_and_cutoff"
+            elif raw_lowers:
+                effect_path = "raw_series_only"
+            elif cutoff_lowers:
+                effect_path = "cutoff_only"
+            else:
+                effect_path = "neither_on_wu_window_max"
+            m5_effect_paths[event["stratum"]][effect_path] += 1
+        if discriminants["mechanism"] == "M6_unexplained":
+            fingerprint = m6_fingerprints[event["stratum"]]
+            fingerprint[f"rows_{discriminants['previous_rows']}_to_{discriminants['current_rows']}"] += 1
+            fingerprint["current_single_row"] += int(discriminants["current_rows"] == 1)
+            fingerprint["latest_changed"] += int(discriminants["latest_datetime_changed"])
+            fingerprint["same_source"] += int(not discriminants["source_kind_changed"])
+            fingerprint["same_cutoff"] += int(not discriminants["cutoff_hour_changed"])
+            fingerprint["no_raw_row_loss"] += int(discriminants["rows_dropped"] == 0)
+            fingerprint["current_high_equals_history_max"] += int(
+                close(current["high"], current_candidates["wu_history_max_c"])
+            )
         for name in (
             "empty_history_fallback",
             "source_kind_changed",
@@ -759,8 +960,8 @@ def classify_events(
         discriminant_totals[event["stratum"]]["rows_dropped_positive"] += int(
             discriminants["rows_dropped"] > 0
         )
-        windows[event["stratum"]][window_label(minute, seed)] += 1
-        hours[event["stratum"]][str(minute // 60)] += 1
+        windows[event["stratum"]][window_label(capture_minute, seed)] += 1
+        hours[event["stratum"]][str(capture_minute // 60)] += 1
         representatives.setdefault(
             discriminants["mechanism"],
             {
@@ -772,6 +973,10 @@ def classify_events(
                 "snapshot_id": current["snapshot_id"],
                 "previous_captured_at_utc": previous["captured_at_utc"],
                 "captured_at_utc": current["captured_at_utc"],
+                "previous_captured_at_local": previous_local_time,
+                "captured_at_local": local_time,
+                "previous_capture_minute": previous_capture_minute,
+                "capture_minute": capture_minute,
                 "previous_high_so_far": previous["high"],
                 "high_so_far": current["high"],
                 "previous_cutoff_hour": previous["cutoff"],
@@ -803,6 +1008,24 @@ def classify_events(
         },
         "discriminant_totals": {
             stratum: dict(discriminant_totals[stratum]) for stratum in ("B", "C")
+        },
+        "cutoff_direction": {
+            stratum: {
+                "all_changed_signed_delta_distribution": dict(
+                    sorted(cutoff_delta_totals[stratum].items(), key=lambda item: int(item[0]))
+                ),
+                "M5_signed_delta_distribution": dict(
+                    sorted(m5_cutoff_delta_totals[stratum].items(), key=lambda item: int(item[0]))
+                ),
+                "M5_effect_path": dict(sorted(m5_effect_paths[stratum].items())),
+                "relationships": dict(sorted(cutoff_relationships[stratum].items())),
+                "widened_mechanisms": dict(sorted(widened_mechanisms[stratum].items())),
+            }
+            for stratum in ("B", "C")
+        },
+        "M6_fingerprints": {
+            stratum: dict(sorted(m6_fingerprints[stratum].items()))
+            for stratum in ("B", "C")
         },
         "time_windows": {stratum: dict(sorted(windows[stratum].items())) for stratum in ("B", "C")},
         "hour_of_day": {stratum: dict(sorted(hours[stratum].items(), key=lambda item: int(item[0]))) for stratum in ("B", "C")},
@@ -1191,8 +1414,8 @@ def analyze(repo_root: Path, evidence_root: Path, seed_path: Path, output_path: 
         for receipt in sorted(all_receipts, key=lambda item: (item["kind"], item["path"]))
     ]
     manifest = {
-        "artifact": "high_so_far_decreases_v1",
-        "built_for": "-09-70a high_so_far input-integrity census",
+        "artifact": "high_so_far_cutoff_direction_v1",
+        "built_for": "-09-71a high_so_far cutoff-direction census",
         "seed": {
             "relative_path": relative(seed_path, repo_root),
             "bytes": seed_path.stat().st_size,
@@ -1236,10 +1459,22 @@ def analyze(repo_root: Path, evidence_root: Path, seed_path: Path, output_path: 
             "no provider or exchange call, production data write, registration, restart, promotion, activation, release, trade, merge, or PR",
         ],
     }
+    expected_reconciliation = seed["direction_reconciliation"]
+    for stratum in ("B", "C"):
+        require(
+            event_summary["mechanisms"][stratum]["M5_cutoff_change"]
+            == expected_reconciliation["M5_cutoff_change"][stratum],
+            f"{stratum} M5 population no longer reconciles -09-70a",
+        )
+        require(
+            event_summary["discriminant_totals"][stratum]["cutoff_hour_changed"]
+            == expected_reconciliation["cutoff_hour_changed"][stratum],
+            f"{stratum} raw cutoff-change population no longer reconciles -09-70a",
+        )
     artifacts = write_outputs(output_path, event_rows, manifest)
     return {
         "status": "PASS",
-        "verdict": "HIGH_SO_FAR_POPULATION_MEASURED",
+        "verdict": "HIGH_SO_FAR_CUTOFF_DIRECTION_MEASURED",
         "artifacts": artifacts,
         "population": support,
         "mechanisms": event_summary["mechanisms"],

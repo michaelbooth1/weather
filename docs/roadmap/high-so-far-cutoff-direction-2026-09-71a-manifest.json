@@ -1,0 +1,1266 @@
+{
+  "artifact": "high_so_far_cutoff_direction_v1",
+  "built_for": "-09-71a high_so_far cutoff-direction census",
+  "campaign": {
+    "C_endpoint": false,
+    "alpha_allocated_by_mission": 0,
+    "alpha_budget": 20,
+    "alpha_spent": 7,
+    "candidate_fitted": false,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "kind": "input_integrity_census"
+  },
+  "classification": {
+    "M6_fingerprints": {
+      "B": {
+        "current_high_equals_history_max": 20,
+        "current_single_row": 19,
+        "latest_changed": 20,
+        "no_raw_row_loss": 20,
+        "rows_0_to_1": 19,
+        "rows_15_to_16": 1,
+        "same_cutoff": 20,
+        "same_source": 20
+      },
+      "C": {
+        "current_high_equals_history_max": 0,
+        "current_single_row": 0,
+        "latest_changed": 0,
+        "no_raw_row_loss": 4,
+        "rows_0_to_0": 4,
+        "same_cutoff": 4,
+        "same_source": 4
+      }
+    },
+    "cutoff_direction": {
+      "B": {
+        "M5_effect_path": {
+          "cutoff_only": 22,
+          "raw_series_and_cutoff": 26,
+          "raw_series_only": 610
+        },
+        "M5_signed_delta_distribution": {
+          "-1": 655,
+          "-2": 2,
+          "-4": 1
+        },
+        "all_changed_signed_delta_distribution": {
+          "-1": 655,
+          "-2": 2,
+          "-4": 1,
+          "1": 2
+        },
+        "relationships": {
+          "capture_minute_advanced": 636,
+          "latest_observation_minute_advanced": 2,
+          "latest_observation_minute_regressed": 658,
+          "narrowed": 658,
+          "raw_rows_dropped": 658,
+          "retained_rows_excluded_by_narrowing": 68,
+          "rows_lost_within_window": 660,
+          "widened": 2
+        },
+        "widened_mechanisms": {
+          "M1_restatement": 2
+        }
+      },
+      "C": {
+        "M5_effect_path": {
+          "unavailable": 2
+        },
+        "M5_signed_delta_distribution": {
+          "1": 2
+        },
+        "all_changed_signed_delta_distribution": {
+          "1": 60
+        },
+        "relationships": {
+          "capture_minute_advanced": 60,
+          "latest_observation_minute_advanced": 0,
+          "latest_observation_minute_regressed": 0,
+          "raw_rows_dropped": 0,
+          "retained_rows_excluded_by_narrowing": 0,
+          "rows_lost_within_window": 0,
+          "widened": 60
+        },
+        "widened_mechanisms": {
+          "M2_empty_history": 58,
+          "M5_cutoff_change": 2
+        }
+      }
+    },
+    "discriminant_totals": {
+      "B": {
+        "cutoff_hour_changed": 660,
+        "empty_history_fallback": 144,
+        "latest_datetime_changed": 762,
+        "restatement_pattern": 2,
+        "rows_changed_positive": 5,
+        "rows_dropped_positive": 740,
+        "source_kind_changed": 4
+      },
+      "C": {
+        "cutoff_hour_changed": 60,
+        "empty_history_fallback": 1278,
+        "latest_datetime_changed": 0,
+        "restatement_pattern": 0,
+        "rows_changed_positive": 0,
+        "rows_dropped_positive": 0,
+        "source_kind_changed": 0
+      }
+    },
+    "drop_magnitude_by_native_unit": {
+      "B": {
+        "C": {
+          "adjacent": {
+            "max": 11.0,
+            "min": 1.0,
+            "p50": 1.0,
+            "p90": 2.0,
+            "p95": 2.0,
+            "p99": 4.0
+          },
+          "running_max_deficit": {
+            "max": 11.0,
+            "min": 1.0,
+            "p50": 1.0,
+            "p90": 2.0,
+            "p95": 3.0,
+            "p99": 11.0
+          }
+        },
+        "F": {
+          "adjacent": {
+            "max": 19.0,
+            "min": 1.0,
+            "p50": 1.0,
+            "p90": 3.0,
+            "p95": 4.0,
+            "p99": 7.0
+          },
+          "running_max_deficit": {
+            "max": 20.0,
+            "min": 1.0,
+            "p50": 2.0,
+            "p90": 3.0,
+            "p95": 5.0,
+            "p99": 7.0
+          }
+        }
+      },
+      "C": {
+        "C": {
+          "adjacent": {
+            "max": 2.6999999999999993,
+            "min": 0.09999999999999787,
+            "p50": 0.5,
+            "p90": 1.1999999999999993,
+            "p95": 1.8000000000000007,
+            "p99": 2.200000000000001
+          },
+          "running_max_deficit": {
+            "max": 5.199999999999999,
+            "min": 0.09999999999999787,
+            "p50": 1.6000000000000014,
+            "p90": 3.3999999999999986,
+            "p95": 3.599999999999998,
+            "p99": 4.300000000000001
+          }
+        },
+        "F": {
+          "adjacent": {
+            "max": 14.939999999999998,
+            "min": 0.1799999999999926,
+            "p50": 1.0799999999999983,
+            "p90": 3.0600000000000023,
+            "p95": 3.960000000000008,
+            "p99": 7.559999999999988
+          },
+          "running_max_deficit": {
+            "max": 15.120000000000005,
+            "min": 0.18000000000000682,
+            "p50": 2.8799999999999955,
+            "p90": 7.019999999999996,
+            "p95": 8.099999999999994,
+            "p99": 10.97999999999999
+          }
+        }
+      }
+    },
+    "fixed_set": [
+      "M1_restatement",
+      "M2_empty_history",
+      "M3_rows_dropped",
+      "M4_source_switch",
+      "M5_cutoff_change",
+      "M6_unexplained"
+    ],
+    "hour_of_day": {
+      "B": {
+        "0": 120,
+        "1": 25,
+        "10": 50,
+        "11": 101,
+        "12": 105,
+        "13": 91,
+        "14": 70,
+        "15": 54,
+        "16": 39,
+        "17": 9,
+        "18": 16,
+        "19": 1,
+        "2": 35,
+        "22": 4,
+        "23": 5,
+        "3": 10,
+        "4": 13,
+        "5": 15,
+        "7": 16,
+        "8": 42,
+        "9": 85
+      },
+      "C": {
+        "0": 117,
+        "1": 189,
+        "10": 35,
+        "11": 31,
+        "12": 24,
+        "13": 13,
+        "14": 20,
+        "15": 8,
+        "16": 12,
+        "17": 3,
+        "18": 1,
+        "2": 153,
+        "20": 1,
+        "3": 168,
+        "4": 162,
+        "5": 145,
+        "6": 115,
+        "7": 22,
+        "8": 31,
+        "9": 34
+      }
+    },
+    "mechanisms": {
+      "B": {
+        "M1_restatement": 2,
+        "M2_empty_history": 144,
+        "M3_rows_dropped": 78,
+        "M4_source_switch": 4,
+        "M5_cutoff_change": 658,
+        "M6_unexplained": 20
+      },
+      "C": {
+        "M1_restatement": 0,
+        "M2_empty_history": 1278,
+        "M3_rows_dropped": 0,
+        "M4_source_switch": 0,
+        "M5_cutoff_change": 2,
+        "M6_unexplained": 4
+      }
+    },
+    "precedence": [
+      "M2_empty_history",
+      "M4_source_switch",
+      "M1_restatement",
+      "M5_cutoff_change",
+      "M3_rows_dropped",
+      "M6_unexplained"
+    ],
+    "representative_events": {
+      "M1_restatement": {
+        "capture_minute": 851,
+        "captured_at_local": "14:11:51.609054",
+        "captured_at_utc": "2026-06-09T21:11:52.019691+00:00",
+        "current_at_previous_cutoff_max": 67.0,
+        "current_candidates": {
+          "max_rows_served_path": 67.0,
+          "wu_current_max_since_7am_c": 67.0,
+          "wu_history_max_c": 67.0
+        },
+        "current_rows": 18,
+        "current_window_max": 67.0,
+        "cutoff_alone_lowered_current_payload_max": false,
+        "cutoff_delta": 1,
+        "cutoff_hour": 14,
+        "cutoff_hour_changed": true,
+        "empty_history_fallback": false,
+        "high_so_far": 67.0,
+        "latest_datetime_changed": false,
+        "latest_observation_minute": 840,
+        "latest_observation_minute_delta": 60,
+        "market_id": "san-francisco",
+        "mechanism": "M1_restatement",
+        "native_unit": "F",
+        "previous_candidates": {
+          "max_rows_served_path": 68.0,
+          "wu_current_max_since_7am_c": 68.0,
+          "wu_history_max_c": 67.0
+        },
+        "previous_capture_minute": 841,
+        "previous_captured_at_local": "14:01:36.929777",
+        "previous_captured_at_utc": "2026-06-09T21:01:37.254676+00:00",
+        "previous_cutoff_hour": 13,
+        "previous_high_so_far": 68.0,
+        "previous_latest_observation_minute": 780,
+        "previous_rows": 18,
+        "previous_snapshot_id": "20260609T170137-0400",
+        "previous_source_kind": "wu",
+        "previous_window_max": 68.0,
+        "raw_series_alone_lowered_max": true,
+        "restatement_pattern": true,
+        "retained_rows_excluded_by_narrowing": 0,
+        "rows_changed": 1,
+        "rows_dropped": 0,
+        "rows_lost_within_window": 1,
+        "snapshot_id": "20260609T171152-0400",
+        "source_kind": "wu",
+        "source_kind_changed": false,
+        "stratum": "B",
+        "target_date": "2026-06-09"
+      },
+      "M2_empty_history": {
+        "capture_minute": 31,
+        "captured_at_local": "00:31:39.134150",
+        "captured_at_utc": "2026-06-07T04:31:39.253071+00:00",
+        "current_at_previous_cutoff_max": null,
+        "current_candidates": {
+          "max_rows_served_path": 74.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": null
+        },
+        "current_rows": 0,
+        "current_window_max": null,
+        "cutoff_alone_lowered_current_payload_max": null,
+        "cutoff_delta": 0,
+        "cutoff_hour": 9,
+        "cutoff_hour_changed": false,
+        "empty_history_fallback": true,
+        "high_so_far": 74.0,
+        "latest_datetime_changed": false,
+        "latest_observation_minute": null,
+        "latest_observation_minute_delta": null,
+        "market_id": "atlanta",
+        "mechanism": "M2_empty_history",
+        "native_unit": "F",
+        "previous_candidates": {
+          "max_rows_served_path": 75.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": null
+        },
+        "previous_capture_minute": 21,
+        "previous_captured_at_local": "00:21:26.829373",
+        "previous_captured_at_utc": "2026-06-07T04:21:26.918644+00:00",
+        "previous_cutoff_hour": 9,
+        "previous_high_so_far": 75.0,
+        "previous_latest_observation_minute": null,
+        "previous_rows": 0,
+        "previous_snapshot_id": "20260607T002126-0400",
+        "previous_source_kind": "wu",
+        "previous_window_max": null,
+        "raw_series_alone_lowered_max": null,
+        "restatement_pattern": false,
+        "retained_rows_excluded_by_narrowing": 0,
+        "rows_changed": 0,
+        "rows_dropped": 0,
+        "rows_lost_within_window": 0,
+        "snapshot_id": "20260607T003139-0400",
+        "source_kind": "wu",
+        "source_kind_changed": false,
+        "stratum": "B",
+        "target_date": "2026-06-07"
+      },
+      "M3_rows_dropped": {
+        "capture_minute": 243,
+        "captured_at_local": "04:03:29.126549",
+        "captured_at_utc": "2026-06-19T08:03:29.329167+00:00",
+        "current_at_previous_cutoff_max": 72.0,
+        "current_candidates": {
+          "max_rows_served_path": 72.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": 72.0
+        },
+        "current_rows": 3,
+        "current_window_max": 72.0,
+        "cutoff_alone_lowered_current_payload_max": false,
+        "cutoff_delta": 0,
+        "cutoff_hour": 7,
+        "cutoff_hour_changed": false,
+        "empty_history_fallback": false,
+        "high_so_far": 72.0,
+        "latest_datetime_changed": true,
+        "latest_observation_minute": 172,
+        "latest_observation_minute_delta": -60,
+        "market_id": "atlanta",
+        "mechanism": "M3_rows_dropped",
+        "native_unit": "F",
+        "previous_candidates": {
+          "max_rows_served_path": 73.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": 73.0
+        },
+        "previous_capture_minute": 242,
+        "previous_captured_at_local": "04:02:30.348337",
+        "previous_captured_at_utc": "2026-06-19T08:02:30.598123+00:00",
+        "previous_cutoff_hour": 7,
+        "previous_high_so_far": 73.0,
+        "previous_latest_observation_minute": 232,
+        "previous_rows": 4,
+        "previous_snapshot_id": "20260619T040230-0400",
+        "previous_source_kind": "wu",
+        "previous_window_max": 73.0,
+        "raw_series_alone_lowered_max": true,
+        "restatement_pattern": false,
+        "retained_rows_excluded_by_narrowing": 0,
+        "rows_changed": 0,
+        "rows_dropped": 1,
+        "rows_lost_within_window": 1,
+        "snapshot_id": "20260619T040329-0400",
+        "source_kind": "wu",
+        "source_kind_changed": false,
+        "stratum": "B",
+        "target_date": "2026-06-19"
+      },
+      "M4_source_switch": {
+        "capture_minute": 8,
+        "captured_at_local": "00:08:21.018013",
+        "captured_at_utc": "2026-06-15T04:08:21.182447+00:00",
+        "current_at_previous_cutoff_max": 13.0,
+        "current_candidates": {
+          "max_rows_served_path": 13.0,
+          "wu_current_max_since_7am_c": null,
+          "wu_history_max_c": 13.0
+        },
+        "current_rows": 1,
+        "current_window_max": 13.0,
+        "cutoff_alone_lowered_current_payload_max": false,
+        "cutoff_delta": 0,
+        "cutoff_hour": 7,
+        "cutoff_hour_changed": false,
+        "empty_history_fallback": false,
+        "high_so_far": 13.0,
+        "latest_datetime_changed": true,
+        "latest_observation_minute": 0,
+        "latest_observation_minute_delta": null,
+        "market_id": "toronto",
+        "mechanism": "M4_source_switch",
+        "native_unit": "C",
+        "previous_candidates": {
+          "max_rows_served_path": 17.0,
+          "wu_current_max_since_7am_c": null,
+          "wu_history_max_c": null
+        },
+        "previous_capture_minute": 5,
+        "previous_captured_at_local": "00:05:29.480191",
+        "previous_captured_at_utc": "2026-06-15T04:05:30.146922+00:00",
+        "previous_cutoff_hour": 7,
+        "previous_high_so_far": 17.0,
+        "previous_latest_observation_minute": null,
+        "previous_rows": 0,
+        "previous_snapshot_id": "20260615T000530-0400",
+        "previous_source_kind": "other",
+        "previous_window_max": null,
+        "raw_series_alone_lowered_max": null,
+        "restatement_pattern": false,
+        "retained_rows_excluded_by_narrowing": 0,
+        "rows_changed": 0,
+        "rows_dropped": 0,
+        "rows_lost_within_window": 0,
+        "snapshot_id": "20260615T000821-0400",
+        "source_kind": "wu",
+        "source_kind_changed": true,
+        "stratum": "B",
+        "target_date": "2026-06-15"
+      },
+      "M5_cutoff_change": {
+        "capture_minute": 692,
+        "captured_at_local": "11:32:03.518392",
+        "captured_at_utc": "2026-06-13T15:32:04.120502+00:00",
+        "current_at_previous_cutoff_max": 84.0,
+        "current_candidates": {
+          "max_rows_served_path": 81.0,
+          "wu_current_max_since_7am_c": 88.0,
+          "wu_history_max_c": 84.0
+        },
+        "current_rows": 10,
+        "current_window_max": 81.0,
+        "cutoff_alone_lowered_current_payload_max": true,
+        "cutoff_delta": -1,
+        "cutoff_hour": 9,
+        "cutoff_hour_changed": true,
+        "empty_history_fallback": false,
+        "high_so_far": 81.0,
+        "latest_datetime_changed": true,
+        "latest_observation_minute": 592,
+        "latest_observation_minute_delta": -60,
+        "market_id": "atlanta",
+        "mechanism": "M5_cutoff_change",
+        "native_unit": "F",
+        "previous_candidates": {
+          "max_rows_served_path": 84.0,
+          "wu_current_max_since_7am_c": 87.0,
+          "wu_history_max_c": 87.0
+        },
+        "previous_capture_minute": 681,
+        "previous_captured_at_local": "11:21:44.421726",
+        "previous_captured_at_utc": "2026-06-13T15:21:44.675351+00:00",
+        "previous_cutoff_hour": 10,
+        "previous_high_so_far": 84.0,
+        "previous_latest_observation_minute": 652,
+        "previous_rows": 11,
+        "previous_snapshot_id": "20260613T112144-0400",
+        "previous_source_kind": "wu",
+        "previous_window_max": 84.0,
+        "raw_series_alone_lowered_max": false,
+        "restatement_pattern": false,
+        "retained_rows_excluded_by_narrowing": 1,
+        "rows_changed": 0,
+        "rows_dropped": 1,
+        "rows_lost_within_window": 1,
+        "snapshot_id": "20260613T113204-0400",
+        "source_kind": "wu",
+        "source_kind_changed": false,
+        "stratum": "B",
+        "target_date": "2026-06-13"
+      },
+      "M6_unexplained": {
+        "capture_minute": 56,
+        "captured_at_local": "00:56:03.148670",
+        "captured_at_utc": "2026-06-21T04:56:03.537332+00:00",
+        "current_at_previous_cutoff_max": 73.0,
+        "current_candidates": {
+          "max_rows_served_path": 73.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": 73.0
+        },
+        "current_rows": 1,
+        "current_window_max": 73.0,
+        "cutoff_alone_lowered_current_payload_max": false,
+        "cutoff_delta": 0,
+        "cutoff_hour": 7,
+        "cutoff_hour_changed": false,
+        "empty_history_fallback": false,
+        "high_so_far": 73.0,
+        "latest_datetime_changed": true,
+        "latest_observation_minute": 52,
+        "latest_observation_minute_delta": null,
+        "market_id": "atlanta",
+        "mechanism": "M6_unexplained",
+        "native_unit": "F",
+        "previous_candidates": {
+          "max_rows_served_path": 74.0,
+          "wu_current_max_since_7am_c": 86.0,
+          "wu_history_max_c": null
+        },
+        "previous_capture_minute": 55,
+        "previous_captured_at_local": "00:55:01.053763",
+        "previous_captured_at_utc": "2026-06-21T04:55:02.260754+00:00",
+        "previous_cutoff_hour": 7,
+        "previous_high_so_far": 74.0,
+        "previous_latest_observation_minute": null,
+        "previous_rows": 0,
+        "previous_snapshot_id": "20260621T005502-0400",
+        "previous_source_kind": "wu",
+        "previous_window_max": null,
+        "raw_series_alone_lowered_max": null,
+        "restatement_pattern": false,
+        "retained_rows_excluded_by_narrowing": 0,
+        "rows_changed": 0,
+        "rows_dropped": 0,
+        "rows_lost_within_window": 0,
+        "snapshot_id": "20260621T005603-0400",
+        "source_kind": "wu",
+        "source_kind_changed": false,
+        "stratum": "B",
+        "target_date": "2026-06-21"
+      }
+    },
+    "time_windows": {
+      "B": {
+        "other": 320,
+        "peak_heating_window": 163,
+        "pre_dawn": 218,
+        "settlement_window": 205
+      },
+      "C": {
+        "other": 155,
+        "peak_heating_window": 40,
+        "pre_dawn": 1049,
+        "settlement_window": 40
+      }
+    }
+  },
+  "columns": [
+    "stratum",
+    "market_id",
+    "target_date",
+    "snapshot_id",
+    "local_time",
+    "minute_of_day",
+    "high_so_far",
+    "prev_running_max",
+    "drop_degrees",
+    "wu_history_rows",
+    "wu_history_max_c",
+    "wu_current_max_since_7am_c",
+    "current_temp",
+    "rows_changed",
+    "rows_dropped",
+    "latest_datetime_changed",
+    "cutoff_hour_changed",
+    "previous_cutoff_hour",
+    "cutoff_hour",
+    "cutoff_delta",
+    "capture_minute",
+    "previous_capture_minute",
+    "rows_lost_within_window",
+    "source_kind",
+    "mechanism",
+    "settled_high"
+  ],
+  "contains_C_endpoint": false,
+  "contains_fitted_quantities": false,
+  "contains_market_prices": false,
+  "counterfactual_candidates": {
+    "B": {
+      "max_rows_served_path": {
+        "adjacent_transitions": 28208,
+        "available_adjacent_transitions": 28208,
+        "available_decrease_event_pairs": 906,
+        "available_decrease_event_rows": 906,
+        "available_snapshot_rows": 28376,
+        "candidate_decreases_on_high_so_far_decrease": 906,
+        "decrease_event_rows": 906,
+        "decrease_transitions": 906,
+        "exceeds_settlement_decrease_event_rows": 0,
+        "exceeds_settlement_snapshot_rows": 7,
+        "market_days_with_available_transition": 168,
+        "market_days_with_decrease": 125,
+        "snapshot_rows": 28376
+      },
+      "wu_current_max_since_7am_c": {
+        "adjacent_transitions": 28208,
+        "available_adjacent_transitions": 28008,
+        "available_decrease_event_pairs": 901,
+        "available_decrease_event_rows": 904,
+        "available_snapshot_rows": 28178,
+        "candidate_decreases_on_high_so_far_decrease": 30,
+        "decrease_event_rows": 906,
+        "decrease_transitions": 1088,
+        "exceeds_settlement_decrease_event_rows": 81,
+        "exceeds_settlement_snapshot_rows": 5603,
+        "market_days_with_available_transition": 168,
+        "market_days_with_decrease": 166,
+        "snapshot_rows": 28376
+      },
+      "wu_history_max_c": {
+        "adjacent_transitions": 28208,
+        "available_adjacent_transitions": 27212,
+        "available_decrease_event_pairs": 739,
+        "available_decrease_event_rows": 762,
+        "available_snapshot_rows": 27380,
+        "candidate_decreases_on_high_so_far_decrease": 729,
+        "decrease_event_rows": 906,
+        "decrease_transitions": 748,
+        "exceeds_settlement_decrease_event_rows": 0,
+        "exceeds_settlement_snapshot_rows": 1,
+        "market_days_with_available_transition": 167,
+        "market_days_with_decrease": 89,
+        "snapshot_rows": 28376
+      }
+    },
+    "C": {
+      "max_rows_served_path": {
+        "adjacent_transitions": 48725,
+        "available_adjacent_transitions": 48725,
+        "available_decrease_event_pairs": 1284,
+        "available_decrease_event_rows": 1284,
+        "available_snapshot_rows": 49033,
+        "candidate_decreases_on_high_so_far_decrease": 1284,
+        "decrease_event_rows": 1284,
+        "decrease_transitions": 1284,
+        "exceeds_settlement_decrease_event_rows": 0,
+        "exceeds_settlement_snapshot_rows": 7851,
+        "market_days_with_available_transition": 308,
+        "market_days_with_decrease": 292,
+        "snapshot_rows": 49033
+      },
+      "wu_current_max_since_7am_c": {
+        "adjacent_transitions": 48725,
+        "available_adjacent_transitions": 0,
+        "available_decrease_event_pairs": 0,
+        "available_decrease_event_rows": 0,
+        "available_snapshot_rows": 0,
+        "candidate_decreases_on_high_so_far_decrease": 0,
+        "decrease_event_rows": 1284,
+        "decrease_transitions": 0,
+        "exceeds_settlement_decrease_event_rows": 0,
+        "exceeds_settlement_snapshot_rows": 0,
+        "market_days_with_available_transition": 0,
+        "market_days_with_decrease": 0,
+        "snapshot_rows": 49033
+      },
+      "wu_history_max_c": {
+        "adjacent_transitions": 48725,
+        "available_adjacent_transitions": 0,
+        "available_decrease_event_pairs": 0,
+        "available_decrease_event_rows": 0,
+        "available_snapshot_rows": 0,
+        "candidate_decreases_on_high_so_far_decrease": 0,
+        "decrease_event_rows": 1284,
+        "decrease_transitions": 0,
+        "exceeds_settlement_decrease_event_rows": 0,
+        "exceeds_settlement_snapshot_rows": 0,
+        "market_days_with_available_transition": 0,
+        "market_days_with_decrease": 0,
+        "snapshot_rows": 49033
+      }
+    }
+  },
+  "explicitly_not_done": [
+    "no alpha allocation, candidate, fitting, endpoint comparison, or accept rule",
+    "no high_so_far, floor, collection, replay, scoring, settlement, or serving change",
+    "no provider or exchange call, production data write, registration, restart, promotion, activation, release, trade, merge, or PR"
+  ],
+  "extract_bytes": 326360,
+  "extract_rows": 2190,
+  "extract_sha256": "fee76c90ddca342257904901c73f57a0c63ac698102391b99b6fab9913ed9294",
+  "known_blocking_rows": [
+    {
+      "candidates": {
+        "max_rows_served_path": 70.0,
+        "wu_current_max_since_7am_c": 83.0,
+        "wu_history_max_c": null
+      },
+      "captured_at_utc": "2026-06-14T05:10:02.669255+00:00",
+      "local_time": "00:10:02.445356",
+      "market_id": "chicago",
+      "settled_high": 69.0,
+      "snapshot_id": "20260614T011002-0400",
+      "target_date": "2026-06-14"
+    },
+    {
+      "candidates": {
+        "max_rows_served_path": 68.0,
+        "wu_current_max_since_7am_c": 68.0,
+        "wu_history_max_c": 67.0
+      },
+      "captured_at_utc": "2026-06-09T21:01:37.254676+00:00",
+      "local_time": "14:01:36.929777",
+      "market_id": "san-francisco",
+      "settled_high": 67.0,
+      "snapshot_id": "20260609T170137-0400",
+      "target_date": "2026-06-09"
+    }
+  ],
+  "method": {
+    "B_and_C_reported_separately": true,
+    "candidate_definitions": {
+      "max_rows_served_path": "recorded served high_so_far; this is the max(rows) path when WU rows exist and its captured fallback otherwise",
+      "wu_current_max_since_7am_c": "captured wu_current.data.max_since_7am_native, falling back to legacy max_since_7am_c; values remain in the market native settlement unit",
+      "wu_history_max_c": "captured wu_history.data.max_native, falling back to legacy max_c; values remain in the market native settlement unit"
+    },
+    "interval_treatment": "exact finite-population census; no sampling interval, bootstrap, power, or alpha applies",
+    "pooled_across_2026_07_31": false,
+    "snapshot_join": "(snapshot_id, captured_at_utc); snapshot_id is emitted verbatim but is not unique in the retained feature files",
+    "time_windows_local": {
+      "peak_heating_window": [
+        840,
+        1020
+      ],
+      "pre_dawn": [
+        0,
+        420
+      ],
+      "precedence": [
+        "pre_dawn",
+        "peak_heating_window",
+        "settlement_window",
+        "other"
+      ],
+      "settlement_window": [
+        720,
+        1080
+      ]
+    },
+    "train_serve": {
+      "archive_source": "data/wunderground/<station>/daily/daily_summary.csv plus hourly/year=YYYY/month=MM/observations.jsonl",
+      "comparison_delta": "training_archive_high_so_far - recorded_served_high_so_far",
+      "daily_min_rows": 20,
+      "training_value": "maximum archived native-unit row temperature with minute_of_day <= cutoff_hour*60, matching build_historical_feature_record"
+    }
+  },
+  "population": {
+    "B": {
+      "below_running_max_of_current_temp": 5283,
+      "blank_high_or_current": 4656,
+      "date_clusters": 23,
+      "decrease_events": 906,
+      "duplicate_capture_key_rows": 2,
+      "duplicate_snapshot_id_rows": 52,
+      "market_clusters": 12,
+      "market_days": 204,
+      "market_days_with_decrease": 125,
+      "raw_feature_rows": 33032,
+      "snapshots": 28376
+    },
+    "C": {
+      "below_running_max_of_current_temp": 14995,
+      "blank_high_or_current": 3604,
+      "date_clusters": 27,
+      "decrease_events": 1284,
+      "duplicate_capture_key_rows": 0,
+      "duplicate_snapshot_id_rows": 1,
+      "market_clusters": 12,
+      "market_days": 320,
+      "market_days_with_decrease": 292,
+      "raw_feature_rows": 52637,
+      "snapshots": 49033
+    }
+  },
+  "population_reconciles_handoff": true,
+  "seed": {
+    "bytes": 5898,
+    "relative_path": "tools/research/measure_high_so_far_population_09_70a_seed.json",
+    "sha256": "010687e6a30cc336de7783760510eaad92ef41a602318a9a9d8fa00c73e58730"
+  },
+  "source_base_commit": "73c2fd6d135800c586f33fb573176004a5b99557",
+  "support": {
+    "archive": {
+      "daily_min_rows": 20,
+      "market_days_passing_daily_min_rows": 482,
+      "market_days_with_hourly_rows": 487
+    },
+    "input_bytes": 31990228718,
+    "input_file_kinds": {
+      "features_long": 524,
+      "replay_inputs": 524,
+      "settlement_roster": 1,
+      "wu_daily_summary": 12,
+      "wu_hourly_archive": 24
+    },
+    "input_files": 1085,
+    "input_receipts_sha256": "5324e6e942d236d43c7bfccd980d59f2d69c78b37fc2957e2a6b1053bf1a8873",
+    "replay": {
+      "candidate_snapshot_rows": 77276,
+      "duplicate_replay_capture_key_rows": 2,
+      "event_payload_rows": 4360,
+      "feature_rows_missing_replay": 131,
+      "replay_bytes_scanned": 31850348940,
+      "replay_rows_scanned": 85538
+    }
+  },
+  "train_serve": {
+    "B": {
+      "by_native_unit": {
+        "C": {
+          "comparable_snapshot_rows": 2267,
+          "equal_snapshot_rows": 2079,
+          "market_day_direction": {
+            "all_equal": 6,
+            "mixed_sign": 1,
+            "training_higher_only": 4,
+            "training_lower_only": 3,
+            "unavailable": 6
+          },
+          "market_day_max_absolute_difference": {
+            "max": 10.0,
+            "min": 0.0,
+            "p50": 1.0,
+            "p90": 7.0,
+            "p95": 7.0,
+            "p99": 10.0
+          },
+          "market_days": 20,
+          "market_days_with_difference": 8,
+          "nonzero_absolute_difference": {
+            "max": 10.0,
+            "min": 1.0,
+            "p50": 3.0,
+            "p90": 4.0,
+            "p95": 4.0,
+            "p99": 6.0
+          },
+          "representative_extrema": {
+            "largest_absolute_difference": {
+              "captured_at_utc": "2026-06-15T14:43:52.985979+00:00",
+              "cutoff_hour": 10,
+              "delta": -10.0,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 24.0,
+              "snapshot_id": "20260615T104352-0400",
+              "target_date": "2026-06-15",
+              "training_archive_high_so_far": 14.0
+            },
+            "largest_training_higher": {
+              "captured_at_utc": "2026-06-12T04:01:25.004001+00:00",
+              "cutoff_hour": 7,
+              "delta": 7.0,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 17.0,
+              "snapshot_id": "20260612T000125-0400",
+              "target_date": "2026-06-12",
+              "training_archive_high_so_far": 24.0
+            },
+            "largest_training_lower": {
+              "captured_at_utc": "2026-06-15T14:43:52.985979+00:00",
+              "cutoff_hour": 10,
+              "delta": -10.0,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 24.0,
+              "snapshot_id": "20260615T104352-0400",
+              "target_date": "2026-06-15",
+              "training_archive_high_so_far": 14.0
+            }
+          },
+          "snapshot_rows": 2734,
+          "training_higher_snapshot_rows": 181,
+          "training_lower_snapshot_rows": 7,
+          "unavailable_snapshot_rows": 467
+        },
+        "F": {
+          "comparable_snapshot_rows": 19409,
+          "equal_snapshot_rows": 17485,
+          "market_day_direction": {
+            "all_equal": 11,
+            "mixed_sign": 24,
+            "training_higher_only": 67,
+            "training_lower_only": 11,
+            "unavailable": 71
+          },
+          "market_day_max_absolute_difference": {
+            "max": 68.0,
+            "min": 0.0,
+            "p50": 2.0,
+            "p90": 63.0,
+            "p95": 65.0,
+            "p99": 68.0
+          },
+          "market_days": 184,
+          "market_days_with_difference": 102,
+          "nonzero_absolute_difference": {
+            "max": 68.0,
+            "min": 1.0,
+            "p50": 2.0,
+            "p90": 4.0,
+            "p95": 5.0,
+            "p99": 58.0
+          },
+          "representative_extrema": {
+            "largest_absolute_difference": {
+              "captured_at_utc": "2026-06-12T05:03:04.276711+00:00",
+              "cutoff_hour": 7,
+              "delta": 68.0,
+              "market_id": "dallas",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 17.0,
+              "snapshot_id": "20260612T010304-0400",
+              "target_date": "2026-06-12",
+              "training_archive_high_so_far": 85.0
+            },
+            "largest_training_higher": {
+              "captured_at_utc": "2026-06-12T05:03:04.276711+00:00",
+              "cutoff_hour": 7,
+              "delta": 68.0,
+              "market_id": "dallas",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 17.0,
+              "snapshot_id": "20260612T010304-0400",
+              "target_date": "2026-06-12",
+              "training_archive_high_so_far": 85.0
+            },
+            "largest_training_lower": {
+              "captured_at_utc": "2026-06-13T06:17:43.587161+00:00",
+              "cutoff_hour": 7,
+              "delta": -3.0,
+              "market_id": "denver",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 68.0,
+              "snapshot_id": "20260613T021743-0400",
+              "target_date": "2026-06-13",
+              "training_archive_high_so_far": 65.0
+            }
+          },
+          "snapshot_rows": 25642,
+          "training_higher_snapshot_rows": 1784,
+          "training_lower_snapshot_rows": 140,
+          "unavailable_snapshot_rows": 6233
+        }
+      },
+      "comparable_snapshot_rows": 21676,
+      "equal_snapshot_rows": 19564,
+      "market_day_direction": {
+        "all_equal": 17,
+        "mixed_sign": 25,
+        "training_higher_only": 71,
+        "training_lower_only": 14,
+        "unavailable": 77
+      },
+      "market_day_max_absolute_difference": {
+        "max": 68.0,
+        "min": 0.0,
+        "p50": 2.0,
+        "p90": 62.0,
+        "p95": 65.0,
+        "p99": 68.0
+      },
+      "market_days": 204,
+      "market_days_with_difference": 110,
+      "nonzero_absolute_difference": {
+        "max": 68.0,
+        "min": 1.0,
+        "p50": 2.0,
+        "p90": 4.0,
+        "p95": 5.0,
+        "p99": 56.0
+      },
+      "representative_extrema": {
+        "largest_absolute_difference": {
+          "captured_at_utc": "2026-06-12T05:03:04.276711+00:00",
+          "cutoff_hour": 7,
+          "delta": 68.0,
+          "market_id": "dallas",
+          "native_unit": "F",
+          "recorded_served_high_so_far": 17.0,
+          "snapshot_id": "20260612T010304-0400",
+          "target_date": "2026-06-12",
+          "training_archive_high_so_far": 85.0
+        },
+        "largest_training_higher": {
+          "captured_at_utc": "2026-06-12T05:03:04.276711+00:00",
+          "cutoff_hour": 7,
+          "delta": 68.0,
+          "market_id": "dallas",
+          "native_unit": "F",
+          "recorded_served_high_so_far": 17.0,
+          "snapshot_id": "20260612T010304-0400",
+          "target_date": "2026-06-12",
+          "training_archive_high_so_far": 85.0
+        },
+        "largest_training_lower": {
+          "captured_at_utc": "2026-06-15T14:43:52.985979+00:00",
+          "cutoff_hour": 10,
+          "delta": -10.0,
+          "market_id": "toronto",
+          "native_unit": "C",
+          "recorded_served_high_so_far": 24.0,
+          "snapshot_id": "20260615T104352-0400",
+          "target_date": "2026-06-15",
+          "training_archive_high_so_far": 14.0
+        }
+      },
+      "snapshot_rows": 28376,
+      "training_higher_snapshot_rows": 1965,
+      "training_lower_snapshot_rows": 147,
+      "unavailable_snapshot_rows": 6700
+    },
+    "C": {
+      "by_native_unit": {
+        "C": {
+          "comparable_snapshot_rows": 4373,
+          "equal_snapshot_rows": 203,
+          "market_day_direction": {
+            "all_equal": 1,
+            "mixed_sign": 22,
+            "training_higher_only": 3,
+            "unavailable": 1
+          },
+          "market_day_max_absolute_difference": {
+            "max": 5.199999999999999,
+            "min": 0.0,
+            "p50": 2.8000000000000007,
+            "p90": 3.8999999999999986,
+            "p95": 4.5,
+            "p99": 5.199999999999999
+          },
+          "market_days": 27,
+          "market_days_with_difference": 25,
+          "nonzero_absolute_difference": {
+            "max": 5.199999999999999,
+            "min": 0.10000000000000142,
+            "p50": 0.3999999999999986,
+            "p90": 2.5,
+            "p95": 3.0,
+            "p99": 4.1
+          },
+          "representative_extrema": {
+            "largest_absolute_difference": {
+              "captured_at_utc": "2026-07-24T10:01:53.314216+00:00",
+              "cutoff_hour": 7,
+              "delta": 5.199999999999999,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 12.8,
+              "snapshot_id": "20260724T060153314216-0400",
+              "target_date": "2026-07-24",
+              "training_archive_high_so_far": 18.0
+            },
+            "largest_training_higher": {
+              "captured_at_utc": "2026-07-24T10:01:53.314216+00:00",
+              "cutoff_hour": 7,
+              "delta": 5.199999999999999,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 12.8,
+              "snapshot_id": "20260724T060153314216-0400",
+              "target_date": "2026-07-24",
+              "training_archive_high_so_far": 18.0
+            },
+            "largest_training_lower": {
+              "captured_at_utc": "2026-07-23T19:29:36.482132+00:00",
+              "cutoff_hour": 15,
+              "delta": -0.6000000000000014,
+              "market_id": "toronto",
+              "native_unit": "C",
+              "recorded_served_high_so_far": 25.6,
+              "snapshot_id": "20260723T152936482132-0400",
+              "target_date": "2026-07-23",
+              "training_archive_high_so_far": 25.0
+            }
+          },
+          "snapshot_rows": 4373,
+          "training_higher_snapshot_rows": 3242,
+          "training_lower_snapshot_rows": 928
+        },
+        "F": {
+          "comparable_snapshot_rows": 44549,
+          "equal_snapshot_rows": 2870,
+          "market_day_direction": {
+            "all_equal": 3,
+            "mixed_sign": 269,
+            "training_higher_only": 7,
+            "training_lower_only": 2,
+            "unavailable": 12
+          },
+          "market_day_max_absolute_difference": {
+            "max": 24.680000000000007,
+            "min": 0.0,
+            "p50": 4.019999999999996,
+            "p90": 7.980000000000004,
+            "p95": 9.980000000000004,
+            "p99": 13.799999999999997
+          },
+          "market_days": 293,
+          "market_days_with_difference": 278,
+          "nonzero_absolute_difference": {
+            "max": 24.680000000000007,
+            "min": 0.01999999999999602,
+            "p50": 0.0799999999999983,
+            "p90": 3.0400000000000063,
+            "p95": 4.0800000000000125,
+            "p99": 7.060000000000002
+          },
+          "representative_extrema": {
+            "largest_absolute_difference": {
+              "captured_at_utc": "2026-07-10T06:01:43.860181+00:00",
+              "cutoff_hour": 7,
+              "delta": -24.680000000000007,
+              "market_id": "denver",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 90.68,
+              "snapshot_id": "20260710T020143860181-0400",
+              "target_date": "2026-07-09",
+              "training_archive_high_so_far": 66.0
+            },
+            "largest_training_higher": {
+              "captured_at_utc": "2026-07-30T23:02:20.092038+00:00",
+              "cutoff_hour": 16,
+              "delta": 14.920000000000002,
+              "market_id": "seattle",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 60.08,
+              "snapshot_id": "20260730T190220092038-0400",
+              "target_date": "2026-07-30",
+              "training_archive_high_so_far": 75.0
+            },
+            "largest_training_lower": {
+              "captured_at_utc": "2026-07-10T06:01:43.860181+00:00",
+              "cutoff_hour": 7,
+              "delta": -24.680000000000007,
+              "market_id": "denver",
+              "native_unit": "F",
+              "recorded_served_high_so_far": 90.68,
+              "snapshot_id": "20260710T020143860181-0400",
+              "target_date": "2026-07-09",
+              "training_archive_high_so_far": 66.0
+            }
+          },
+          "snapshot_rows": 44660,
+          "training_higher_snapshot_rows": 25880,
+          "training_lower_snapshot_rows": 15799,
+          "unavailable_snapshot_rows": 111
+        }
+      },
+      "comparable_snapshot_rows": 48922,
+      "equal_snapshot_rows": 3073,
+      "market_day_direction": {
+        "all_equal": 4,
+        "mixed_sign": 291,
+        "training_higher_only": 10,
+        "training_lower_only": 2,
+        "unavailable": 13
+      },
+      "market_day_max_absolute_difference": {
+        "max": 24.680000000000007,
+        "min": 0.0,
+        "p50": 3.980000000000004,
+        "p90": 7.959999999999994,
+        "p95": 9.939999999999998,
+        "p99": 13.799999999999997
+      },
+      "market_days": 320,
+      "market_days_with_difference": 303,
+      "nonzero_absolute_difference": {
+        "max": 24.680000000000007,
+        "min": 0.01999999999999602,
+        "p50": 0.0800000000000125,
+        "p90": 3.0,
+        "p95": 4.060000000000002,
+        "p99": 7.060000000000002
+      },
+      "representative_extrema": {
+        "largest_absolute_difference": {
+          "captured_at_utc": "2026-07-10T06:01:43.860181+00:00",
+          "cutoff_hour": 7,
+          "delta": -24.680000000000007,
+          "market_id": "denver",
+          "native_unit": "F",
+          "recorded_served_high_so_far": 90.68,
+          "snapshot_id": "20260710T020143860181-0400",
+          "target_date": "2026-07-09",
+          "training_archive_high_so_far": 66.0
+        },
+        "largest_training_higher": {
+          "captured_at_utc": "2026-07-30T23:02:20.092038+00:00",
+          "cutoff_hour": 16,
+          "delta": 14.920000000000002,
+          "market_id": "seattle",
+          "native_unit": "F",
+          "recorded_served_high_so_far": 60.08,
+          "snapshot_id": "20260730T190220092038-0400",
+          "target_date": "2026-07-30",
+          "training_archive_high_so_far": 75.0
+        },
+        "largest_training_lower": {
+          "captured_at_utc": "2026-07-10T06:01:43.860181+00:00",
+          "cutoff_hour": 7,
+          "delta": -24.680000000000007,
+          "market_id": "denver",
+          "native_unit": "F",
+          "recorded_served_high_so_far": 90.68,
+          "snapshot_id": "20260710T020143860181-0400",
+          "target_date": "2026-07-09",
+          "training_archive_high_so_far": 66.0
+        }
+      },
+      "snapshot_rows": 49033,
+      "training_higher_snapshot_rows": 29122,
+      "training_lower_snapshot_rows": 16727,
+      "unavailable_snapshot_rows": 111
+    }
+  }
+}
