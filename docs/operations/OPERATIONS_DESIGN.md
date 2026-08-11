@@ -91,6 +91,28 @@ Windows holds the detached child's console handle for the process lifetime,
 console rotation occurs at the next managed loop startup before opening the
 new handle.
 
+### Execution-Tape Producer (Available, Not Armed)
+
+`weather.market.execution_tape_capture` is an explicit, read-only operator
+command for the public market websocket. It is not registered with Task
+Scheduler, is not supervised, and is not part of the three-loop production
+topology above. The producer builds subscriptions only from the retained
+`config/location_market_events.json` seed; it does not discover markets from a
+live REST endpoint and has no order, credential, wallet, or signing path.
+
+Each active location market-day writes bounded 64 MiB append-only parts under
+`data/snapshots/<event>/execution_tape/`: `trades`, transaction-hash `dedupe`,
+connection `gaps`, and subscription `seeds`. The writer retains the first row
+for a transaction hash and records any different redelivery as a conflict.
+Atomic per-market-day `status.json` and global
+`data/snapshots/execution_tape_status.json` state the physical tapes last
+counted, current connection state, reconnect count, and seconds dark. An empty
+trade tape is classified as connected-and-quiet only when connection coverage
+supports that conclusion; an empty tape with a gap is explicitly disconnected
+evidence, not a quiet market. The offline
+`python -m weather.market.execution_tape_capture status` command prints that
+last-counted global status without opening a connection.
+
 ### Observation-Trigger Loop
 
 - `data/snapshots/observation_trigger_status.json`
