@@ -1855,6 +1855,13 @@ REGISTERED_SCHEMAS = (
         "Plan/apply report for gzip tiering closed-day CLOB order-book long tapes.",
     ),
     SchemaSpec(
+        "clob_raw_tape_tiering",
+        "clob_raw_tape_tiering_v0.1",
+        "weather.operations.clob_raw_tape_tiering",
+        "active",
+        "Plan/apply report for gzip tiering the canonical closed-day order_books.jsonl tape.",
+    ),
+    SchemaSpec(
         "cross_hub_quoteability",
         "cross_hub_quoteability_v0.1",
         "weather.reporting.source_gates.cross_hub_readiness",
