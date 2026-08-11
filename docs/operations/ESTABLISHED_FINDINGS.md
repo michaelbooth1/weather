@@ -992,20 +992,38 @@ an absolute `0.00090` excess over the ledger alpha; the predeclared 80%-power re
 `0.0006486`. **The prior that every M=12 endpoint must under-cover is falsified.** Component mix
 matters: C is nominal at ledger alpha and B is conservative, while the 5,930-row tail is short.
 
-**Proposed conservative correction, not yet applied:** replace `z=3.0233414` with
-`q=3.1098893` for the tail, or use that maximum measured quantile for both required decision-10
-endpoints. This changes the section 1d campaign MDE multiplier from `1.3796` to `1.410455`
+**ADOPTED 2026-08-10 as amendment A1 — uniform, both endpoints.** `z=3.0233414` is replaced by
+`q=3.1098893` for **both** required decision-10 endpoints, not only the short tail. Nominal α is
+unchanged at `0.0025`; the quantile is corrected to *deliver* it. The amendment is
+`docs/roadmap/pit-field-evaluation-protocol-2026-09-61a-amendment-A1.json`, SHA-256
+`549e26a3a55494e0da2d406809ad67c43dba60c6fbb3604aec62488ea4e8f2bb`; **the base protocol is
+byte-identical and was edited nowhere** (`336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146`).
+The exact endpoint-specific rule was rejected deliberately: it would have cost no power on C, but it
+makes *"which quantile applies here"* a live choice at analysis time, and this campaign's recorded
+failure mode is researcher degrees of freedom, not lost power. **Decision 10 keeps its number** —
+nothing has been executed, and every effect of A1 is strictly conservative (see `CAMPAIGN_LEDGER.md`).
+
+> **A LIMITATION THE `-09-62a` REPORT DID NOT STATE: `q=3.1098893` IS A LOWER BOUND, NOT A POINT
+> ESTIMATE.** The coverage simulation draws **Gaussian** date, market, and residual effects, but the
+> severity tail is **by construction a selected-extreme subset** — incumbent SE > market SE and
+> disagreement ≥ 0.30 — and is **not Gaussian**. Simulating a heavy-tailed field as thin-tailed
+> **understates** far-tail miscalibration, so the true restoring quantile is **at least**
+> `3.1098893`. Do not read it as the calibrated answer, and do not use it to argue the correction is
+> now "priced". Uniform adoption was chosen partly to buy margin against exactly this.
+
+This changes the section 1d campaign MDE multiplier from `1.3796` to `1.410455`
 (current ledger MDEs x `1.022393`). The four proxy MDEs become `0.004309` B ratio, `0.053218` C
 ratio, `0.021406` tail SSE, and `0.002366` primary-window Brier. The campaign-adjusted market
 floor moves from `4.414601%` to **`4.513457%`**, so the practical >=5% step survives. The
 alpha=0.05 D=73 / **2026-10-16** confirmation date also survives because neither required endpoint
 under-covered at 0.05.
 
-Decision 10's coherent `a=b=c=0.05` P0 MDE would move only from `6.790047%` to `6.942096%` of
-`G`, still below its 10% gate. **Do not edit the frozen `-09-61a` protocol in place.** An operator
-must choose, disclose, and hash any amendment. Until then decision 10 remains allocated and
-unspent. This calibration mission spent and allocated no alpha; the ledger remains **7 of 20
-spent, 13 available**. Full method, components, seeds, coverage table, and evidence hashes are in
+Decision 10's coherent `a=b=c=0.05` P0 MDE moves from `6.790047%` to `6.942096%` of `G`, still
+below its 10% gate. **The frozen `-09-61a` protocol was NOT edited in place, and must not be** —
+A1 is a separate, hashed, side-by-side amendment, which is the only permitted shape for a change
+here. Decision 10 remains **allocated and unspent**. This calibration mission spent and allocated no
+alpha and A1 spends none, so the ledger remains **7 of 20 spent, 13 available**. Full method,
+components, seeds, coverage table, and evidence hashes are in
 `docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
 
 ---
