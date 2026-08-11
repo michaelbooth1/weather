@@ -310,7 +310,7 @@ settlement will later retract, and **clamping to realized settlement would be le
 
 **The open problem is now narrow and well-posed:** a rule that recovers the dropped rows *without*
 becoming monotone over transient prints. Nothing may be scored until such a rule clears the
-floor-safety gate.
+floor-safety gate. **`-09-73a` found one — see §5c.**
 
 What *is* established is the consequence. The floor commits to an exact `0.0` — an irreversible
 statement that the day cannot end in that band — from a quantity that is not monotone. Usually this
@@ -320,6 +320,65 @@ panel rows. **Those two rows are the entire remaining basis of the Gate 3 stop.*
 
 This is not an argument for weakening the floor. The floor is the one shipped win, and
 `-09-63a` was right to refuse epsilon mass.
+
+### 5c. A payload-observable rule recovers the rows and clears the floor gate (`-09-73a`)
+
+`-09-73a` (merged `6a62b49c`) closes §5b's open problem. The rule is stated entirely in what the
+payloads show at capture time, with **no mechanism label and no fitted parameter**:
+
+> At capture `t`, trust every row in the current WU payload. Recover a previously published missing
+> row **only when the current payload contains no row at or after that row's target-date-local
+> minute.**
+
+Lost tails get recovered; revisions get trusted. Atlanta `2026-06-13` publishes nothing at or after
+`10:52`, so the dropped `10:52 / 87 F` row returns and serving stays `84` at cutoff 10 instead of
+falling to `81` at cutoff 9. San-francisco `2026-06-09` publishes `14:00` while `13:00` vanishes, so
+the rule takes the vendor at its word and serves `67` — which is what settled.
+
+| Rule | B repaired | Decision window | **New above settled** | Paired mismatch |
+| --- | ---: | ---: | ---: | ---: |
+| `envelope_max` | 748 / 906 | 368 / 368 | **55** | 2,057 → 1,564 |
+| `envelope_last` | 748 / 906 | 368 / 368 | **55** | 2,057 → 1,563 |
+| `M5 ∪ M3` (stateful) | 166 / 906 | 35 / 368 | 0 | 2,057 → 1,992 |
+| **observable no-row-at-or-after** | **744 / 906** | **366 / 368** | **0** | **2,057 → 1,510** |
+
+Repairs by frozen label: `M5` **658/658**, `M3` **77/78**, `M2` 9/144, `M1` 0/2, `M4` 0/4, `M6` 0/20.
+The candidate does not merely avoid new exceedances — it **resolves one of the 7 above-settlement
+rows production actually served**, leaving 6.
+
+**The mechanism labels are not safe to build a rule on, and this is the second time they have
+misled us.** Both B rows tagged `M1_restatement` are timestamp *replacements*: san-francisco removed
+minute 780 and added 840, seattle removed 840 and added 900, **zero same-minute value changes in
+either**. The vendor summary held at `latest = 12:56` with 18 rows on both sides, so positional
+zipping saw `68 → 67` and `-09-70a` recorded a restatement that never happened — the same
+summary-field trap that gave toronto `2026-06-08` `latest_datetime_changed = false` while its rows
+regressed underneath (§5a). Worse, the **only** demonstrated same-timestamp restatement in all 2,190
+events — san-francisco `2026-06-09` `20260609T141618-0400`, minute 660 changed in place — is
+labelled **`M6_unexplained`**. `M1_restatement` is 0 for 2 on its own name while the one real
+instance sits under "unexplained".
+
+A gate restricted to `M5 ∪ M3` was therefore doomed twice over: it was fitted to a label error on
+`n = 2`, and it is not even a servable rule — it selects an already-computed envelope path using the
+transition's own *future* label, so it defines no value for prior or non-event snapshots and cannot
+be scored on the 28,254-snapshot population at all. Its post-hoc arithmetic (736 / 366) reproduces
+exactly and means nothing.
+
+**Denominators, stated because they bound the claim:**
+
+- The safety gate is **0 of 28,254**, not 0 of everything. **122 of 28,376** B snapshots (0.43%)
+  have no replay support, so the candidate is *undefined* there and they sit outside the gate.
+- Train/serve parity is measured on **21,554**; **6,700** snapshots have no archive-rebuilt training
+  value. The `-09-70a` baseline positive control reproduces at **2,112 / 21,676 = 9.7435%**.
+- Point-in-time receipts: 2,190 event receipts and 77,276 snapshot receipts, **zero** future
+  consumption, **zero** blank receipts, **zero** strict-prior recovery failures.
+
+> **What this licenses:** still nothing on the serving path. The successor pre-registration
+> (`observation-envelope-preregistration-2026-09-73a.json`) is **FROZEN, SAFETY-CLEARED, and
+> α-UNALLOCATED**: `outcome_scoring_authorized: false`, `allocated_now: false`, ledger unchanged at
+> 7 of 20 spent, decision 10 still CLOSED UNUSED. The candidate was chosen on input integrity, floor
+> safety and train/serve parity alone. **A repaired input is not evidence of a better forecast** —
+> `-09-44a` was a precise null on exactly that move. The first outcome look is the operator's to
+> allocate.
 
 ## 6. What this licenses, and what it does not
 
