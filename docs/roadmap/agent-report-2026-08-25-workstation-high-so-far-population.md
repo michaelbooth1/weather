@@ -302,22 +302,25 @@ Branch: `codex/workstation-measure-the-high-so-far-population-2026-09-70a`.
 
 Analysis artifact/script commit: `c841b683`.
 
-After that commit, the authoritative repository command from the fresh worktree returned exit 0
+Initial report commit: `66c53192`.
+
+After that report commit, the authoritative repository command from the fresh worktree returned exit 0
 and **`VERDICT: ROLL-FREE`**. It mechanically corrected the 47-commit-stale local `master` to
-`origin/master (a9ba4e3d)` and evaluated exactly five changed files with zero importable files. The
-363.1-hour-old dormant `clob_enrichment` closure was fully subsumed by live closure evidence and
+`origin/master (a9ba4e3d)` and evaluated exactly six changed files with zero importable files. The
+363.2-hour-old dormant `clob_enrichment` closure was fully subsumed by live closure evidence and
 could not affect the verdict.
 
 | Changed file at verdict | Verdict |
 | --- | --- |
+| `docs/roadmap/agent-report-2026-08-25-workstation-high-so-far-population.md` | Roll-free Markdown report |
 | `docs/roadmap/high-so-far-decreases-2026-09-70a.csv` | Roll-free tracked evidence |
 | `docs/roadmap/high-so-far-decreases-2026-09-70a-manifest.json` | Roll-free manifest |
 | `docs/roadmap/high-so-far-decreases-2026-09-70a.sha256` | Roll-free checksum |
 | `tools/research/measure_high_so_far_population_09_70a.py` | Roll-free one-off research tool |
 | `tools/research/measure_high_so_far_population_09_70a_seed.json` | Roll-free research seed |
 
-The report is Markdown and is roll-free by the same contract; adding it does not enter an import
-closure.
+A final confirmation after this verdict-only report update returned the same six-file,
+zero-importable, `ROLL-FREE` result.
 
 ## Explicitly not done
 
