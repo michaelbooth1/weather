@@ -1,0 +1,105 @@
+{
+  "schema_version": "observation_envelope_outcome_preregistration_v1",
+  "mission": "2026-09-72a",
+  "status": "FROZEN_PRE_REGISTRATION_SAFETY_BLOCKED_NOT_EXECUTABLE",
+  "protocol_frozen": true,
+  "candidate_artifact_frozen": false,
+  "outcome_scoring_authorized": false,
+  "reason_outcome_scoring_is_blocked": "The chosen point-in-time envelope_last rule creates 55 new above-settlement feature rows on one San Francisco market-day, including one decrease-event row. The pre-execution floor-safety gate requires zero. No Brier, CRPS, market, or C outcome may be read under this protocol unless a newly specified safe candidate is frozen in a new pre-registration.",
+  "bound_input_integrity_evidence": {
+    "csv": {
+      "path": "docs/roadmap/observation-envelope-2026-09-72a.csv",
+      "sha256": "2309a8ebb0d41773d77e3e2bc4dfc85f147a9153a4b4e451ed5ee1d813bd7550",
+      "rows": 2190
+    },
+    "manifest": {
+      "path": "docs/roadmap/observation-envelope-2026-09-72a-manifest.json",
+      "sha256": "4032f7cc52574d238f5c0e1b7770fc28314404add24b393be52d60046e086592"
+    },
+    "harness": {
+      "path": "tools/research/measure_observation_envelope_09_72a.py",
+      "sha256": "776116e99846cc5a0936498fca16037c2990103b00fdd3759531869fdb3cdae0"
+    },
+    "seed": {
+      "path": "tools/research/measure_observation_envelope_09_72a_seed.json",
+      "sha256": "ce2d1d27073d555dc117e358db4d47311d038278940530e32a366987854b8347"
+    }
+  },
+  "candidate_definition": {
+    "name": "point_in_time_wu_observation_envelope_last_v1",
+    "kind": "deterministic captured-input replay counterfactual; no fitted parameter",
+    "restatement_rule": "envelope_last",
+    "snapshot_order": "captured_at_utc ascending within each market-day, original replay file position as the stable tie-break",
+    "point_in_time_rule": "At snapshot t, use the current replay payload and only replay snapshots with captured_at_utc strictly earlier than t. Assert max prior captured_at_utc < t and emit the receipt.",
+    "row_identity": "target-date-local minute_of_day",
+    "row_update": "Retain every previously observed timestamp. If the same timestamp is reported again, retain the temperature in the most recent payload at or before t.",
+    "cutoff_rule": "Use the historical captured producer rule: greatest configured cutoff no later than wall clock and no later than the envelope latest observation minute; use the wall cutoff if no cutoff is eligible.",
+    "fallback_rule": "If the envelope has no cutoff-eligible WU row, leave the captured served high_so_far and its non-WU fallback path unchanged.",
+    "replay_change_scope": "Replace only the captured WU history row series with the point-in-time envelope and let the captured model path recompute cutoff_hour, high_so_far, downstream features, and probabilities. All other captured inputs, model identity, calibration, floor, and probability-mass rules remain unchanged.",
+    "restatement_rule_choice_reason": [
+      "both rules repair 748 of 906 B decrease events, including all 368 peak-heating plus settlement-window events; envelope_last gives up no measured repair",
+      "both rules create the same 55 new above-settlement B feature rows on one San Francisco market-day after off-target-date WU rows are excluded",
+      "on comparable B snapshots envelope_last moves 865 closer to the archive-rebuilt training value and 113 farther, one fewer farther row and one fewer remaining mismatch than envelope_max",
+      "envelope_last respects genuine same-timestamp vendor corrections instead of retaining the maximum value forever; San Francisco remains unsafe because the transient 68 F row changed timestamp from 13:00 to 14:00 rather than restating the same timestamp"
+    ],
+    "selection_used_no_forecast_outcome": true,
+    "selection_used_no_market_price": true,
+    "selection_used_only_input_integrity_floor_safety_and_train_serve_parity": true
+  },
+  "pre_execution_gates": [
+    {
+      "name": "point_in_time_receipts",
+      "accept_rule": "All 2,190 event receipts have future_snapshots_consumed == 0, strict_prior_guard_failures == 0, and max_captured_at_utc_used < captured_at_utc.",
+      "frozen_measurement": "PASS"
+    },
+    {
+      "name": "population_reconciliation",
+      "accept_rule": "Exactly 906 B and 1,284 C decrease events join one-to-one to -09-71a on stratum, market_id, target_date, snapshot_id, mechanism; B has 23 dates and 12 markets, C has 27 dates and 12 markets.",
+      "frozen_measurement": "PASS"
+    },
+    {
+      "name": "trusted_floor_safety",
+      "accept_rule": "The candidate creates zero feature rows with candidate high_so_far > settled high where captured served high_so_far <= settled high.",
+      "frozen_measurement": "FAIL: 55 rows on San Francisco 2026-06-09, +1 F each; one is a decrease event",
+      "terminal_before_outcome_scoring": true
+    }
+  ],
+  "outcome_protocol_if_and_only_if_a_new_safe_candidate_clears_the_gates": {
+    "evaluation_population": "Frozen pre-boundary B only; never pool across 2026-07-31. C is excluded from every endpoint and accept rule.",
+    "primary_stratum": "B captured decrease-event snapshots in peak_heating_window or settlement_window whose candidate differs from the incumbent, with native units retained and band probabilities scored against the frozen settlement roster",
+    "primary_metric": "paired multiclass Brier improvement = incumbent Brier minus candidate Brier, averaged over admitted snapshot-band rows",
+    "cluster_units": [
+      "target_date",
+      "market_id"
+    ],
+    "interval": "two-way crossed date x market bootstrap using the repository campaign convention and uniform q=3.1098893",
+    "accept_rule": "ACCEPT_FOR_FURTHER_CONFIRMATION only if the two-sided campaign-adjusted interval for paired Brier improvement has lower bound > 0, the point estimate is > 0, probability mass and all deterministic replay controls pass exactly, and every pre-execution gate passes. Otherwise NO_GO.",
+    "reported_not_decision_endpoints": [
+      "B pre_dawn",
+      "B other local-time window",
+      "B all admitted snapshots",
+      "per-market and per-native-unit paired deltas"
+    ],
+    "market_comparison": "forbidden in this decision",
+    "C_endpoint": false,
+    "C_outcomes_or_market_prices_may_be_read": false
+  },
+  "alpha": {
+    "required_if_executable": 0.0025,
+    "sidedness": "two-sided",
+    "family": "sealed pre-boundary campaign ledger",
+    "uniform_quantile": 3.1098893,
+    "allocated_now": false,
+    "spent_now": false,
+    "ledger_decision_id": null,
+    "ledger_state_after_this_mission": "7 of 20 spent, 13 available; decision 10 CLOSED UNUSED and not reassigned",
+    "allocation_requirement": "A future executable candidate needs an explicit new ledger allocation before the first outcome look. This safety-blocked protocol allocates nothing."
+  },
+  "forbidden_actions": [
+    "Do not compute Brier, CRPS, log loss, market deltas, power, or any other forecast outcome under this safety-blocked protocol.",
+    "Do not fit, freeze, promote, activate, release, or serve a candidate from this artifact.",
+    "Do not weaken, clamp with settlement, or otherwise tune the floor using realized outcomes.",
+    "Do not add a C endpoint or read C outcomes or market prices.",
+    "Do not edit this frozen file in place; a safe redesign requires a new versioned pre-registration."
+  ]
+}
