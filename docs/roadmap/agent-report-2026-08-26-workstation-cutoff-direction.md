@@ -269,8 +269,35 @@ Branch: `codex/workstation-does-the-cutoff-narrow-2026-09-71a`.
 
 Analysis artifact/script commit: `6cc14058`.
 
-The authoritative per-file roll verdict will be recorded after the report commit, using
-`scripts\ops\roll_verdict.ps1`; it is not hand-derived.
+Initial report commit: `d8bf64e7`.
+
+The authoritative repository-owned check was run from the mission worktree after that commit:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 `
+  -Branch codex/workstation-does-the-cutoff-narrow-2026-09-71a
+```
+
+Because ignored runtime evidence is local to the workstation's primary checkout, the isolated
+worktree temporarily received a read-only directory junction to that checkout's existing `data/`
+tree. The junction was removed immediately after the check; no evidence content was changed.
+The script auto-corrected the 52-commit-behind local `master` to `origin/master` at `73c2fd6d`,
+read three live closures, and established that the 364.4-hour-old dormant CLOB-enrichment closure
+was fully subsumed by a live closure. It reported six changed files, zero importable files, exit 0:
+
+> `VERDICT: ROLL-FREE`
+
+Per-file disposition:
+
+| Changed path | Disposition |
+| --- | --- |
+| `docs/roadmap/agent-report-2026-08-26-workstation-cutoff-direction.md` | Roll-free documentation |
+| `docs/roadmap/high-so-far-cutoff-direction-2026-09-71a-manifest.json` | Roll-free committed evidence |
+| `docs/roadmap/high-so-far-cutoff-direction-2026-09-71a.csv` | Roll-free committed evidence |
+| `docs/roadmap/high-so-far-cutoff-direction-2026-09-71a.sha256` | Roll-free evidence receipt |
+| `tools/research/measure_high_so_far_population_09_70a.py` | Roll-free one-off research harness; outside package roots and all live closures |
+| `tools/research/measure_high_so_far_population_09_70a_seed.json` | Roll-free frozen research seed |
 
 ## Explicitly not done
 
