@@ -246,10 +246,13 @@ PASS
 
 git diff --check
 PASS
+
+python -m weather.operations.agent_docs_audit
+PASS (18 agent files, 809 Markdown files)
 ```
 
-Repository audit and final Git/roll checks are recorded after the committed
-branch is inspected.
+The evidence commit is `0980ebee019b72a32b6bf5d80ef70e657b92c678`, based on
+`origin/master` at `402c9a0c37c4957573a7f7e276c4298cb35e7216`.
 
 ## Production-host reproduction
 
@@ -305,4 +308,10 @@ module locations and rejects any module outside its intended historical tree.
 
 ## Roll verdict
 
-Pending the repository-owned verdict on the committed branch.
+The repository-owned `scripts\ops\roll_verdict.ps1 -Branch
+codex/workstation-is-replay-trustworthy-2026-09-75a` inspected the committed
+branch and returned exit 0, **ROLL-FREE**. It automatically corrected local
+`master`, which was 73 commits behind and zero ahead, to `origin/master` at
+`402c9a0c`. It found six changed files and zero importable files. The dormant
+CLOB-enrichment closure was mechanically subsumed by the three live closures.
+No quiet-window merge is required; pushing this branch cannot roll production.
