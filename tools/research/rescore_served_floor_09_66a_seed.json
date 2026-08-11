@@ -1,0 +1,98 @@
+{
+  "schema_version": "served_floor_rescore_seed_v1",
+  "mission": "2026-09-66a",
+  "source_base_commit": "292037ab81d4ac1d162ffa01f6e8ff39cdee8252",
+  "regime_boundary": "2026-07-31",
+  "inputs": {
+    "paired_panel": {
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/paired-band-rows.csv",
+      "sha256": "4352e77692893c3ac36add9653eabfe0d014de7a02bf083ec6c10e2944dc4e88",
+      "band_rows": 135179,
+      "snapshot_rows": 12289
+    },
+    "band_identity": {
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/band-score-rows.csv",
+      "sha256": "9a70ac80143a7eea9b14003b2f992413d622b167ce35ea4be54273cfdf3e27ae",
+      "band_rows": 135179
+    },
+    "retained_measurement_manifest": {
+      "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/measurement-manifest.json",
+      "sha256": "cf21b67e3236395da800176c27e5c3a571a838e8cc28a491ec48e23e497e7c3e",
+      "selected_snapshot_rows": 12289
+    },
+    "served_floor": {
+      "relative_path": "docs/roadmap/served-floor-for-panel-2026-09-66a.csv",
+      "sha256": "4f9da7539a2dcae5b0b2e2a425499f992ef46812a1abd76b82a1242a3e9effbe",
+      "bytes": 744043,
+      "snapshot_rows": 12289
+    }
+  },
+  "expected_support": {
+    "B": {
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "market_days": 204,
+      "snapshot_rows": 4636,
+      "band_rows": 50996,
+      "original_realized_band_zeros": 28
+    },
+    "C": {
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "market_days": 320,
+      "snapshot_rows": 7653,
+      "band_rows": 84183,
+      "original_realized_band_zeros": 1
+    }
+  },
+  "references": {
+    "B": {
+      "incumbent_brier": 0.05337978885818908,
+      "market_brier": 0.03750565750254922,
+      "gap": 0.015874131355639864
+    },
+    "C": {
+      "incumbent_brier": 0.06011282022726216,
+      "market_brier": 0.03897749848544243,
+      "gap": 0.02113532174181973
+    }
+  },
+  "source_sha256": {
+    "src/weather/model/model_base.py": "74638381b0548610b2a14a212e31eac7e30c3de772a8b8e024c4b27dbba2a827",
+    "src/weather/model/model_climatology.py": "2d69cb04616fddd29b77c4387fa1cf6bc1d708c96883ebffb711fe15b0c4f43d",
+    "src/weather/model/model_constants.py": "c7eadd6e30c61a0879a8163ca6178bedb957e3c1a4665ef4cdb6f5b34e21833c",
+    "src/weather/model/model_distribution.py": "bb977e56276b0928542a94fc3bd805de499febec4a7d5505f00850a2afbcbb2b",
+    "src/weather/model/model_features.py": "16df3a3dbb9ef9c56bd95b969b1ec96544cb0ec05201df787bb373f8d73c32e5",
+    "src/weather/model/feature_store.py": "aea68e8256d79233fcf21ea70053d87074e547c490ee5cd632df2335aa6721b2",
+    "src/weather/calibration/forecast_error_model.py": "6756d23afe3edff9fd0bbbb9281b2e3689f18b93c462ea4e10adc2b70f43c84f",
+    "src/weather/calibration/family_secondary_artifacts.py": "4fe61e70d54e4362f22e8c21607dfa2feae47251962473ac93cf8854dec4a4e4",
+    "src/weather/calibration/probability_calibration.py": "4d500bbb5116dabbd414e5a6321aff57bac0602963eb9396f11c8f6739aea221",
+    "src/weather/calibration/settlement_lag_model.py": "27a367a3d6ac8e94d7c2540e03c18b4238768bfb61550bc458e36d3dc308a249",
+    "src/weather/market/market_registry.py": "98ca679f37ca8fed62f8c0036c1e5f67b336362961796fe98d7fcbfca288cc5d",
+    "src/weather/model/calibration_runtime.py": "a7f45d184c789cdaa25456c1864256914e3b73d5062ec0ee5f2eb6dcd11d2a99",
+    "src/weather/model/variant_prediction_runtime.py": "832b9ce811b465af65b3c5fb2fefa4cae881bc30a8b9fe9a2ce595247feed5d3",
+    "src/weather/backtesting/replay.py": "cac93944500effbd5ee707f60ce8f9bfc8012c41b5ce07f2ff451cf1df155330",
+    "src/weather/model/toronto_model.py": "5eca760ab557e580e3080731bf22b33eb79ee1d48989c805f3271e817f65245c"
+  },
+  "intervention": {
+    "method": "DistributionMixin._estimate_distribution_result",
+    "assignment": "hard_floor_bucket",
+    "replacement": "served floor when supplied; otherwise the original assignment",
+    "expected_replacements": 1,
+    "all_other_method_ast_nodes_unchanged": true
+  },
+  "comparison": {
+    "probability_identity": "big-endian IEEE-754 binary64 bytes",
+    "mass_tolerance": 1e-12,
+    "reference_tolerance": 1e-12,
+    "portable_reference_probability_tolerance": 1e-12,
+    "C_mismatch_policy": "stop before B"
+  },
+  "campaign": {
+    "kind": "diagnostic_rescore_not_candidate_or_correction",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED UNUSED"
+  }
+}
