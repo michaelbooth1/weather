@@ -210,8 +210,59 @@ With no history rows, `high_so_far` tracked `current_temp` — **not a maximum o
 with the fallback landing on the instantaneous reading instead.
 
 > **What is established:** two distinct mechanisms — a mutable upstream series, and an empty-history
-> fallback to the current reading. **What is not:** how the 18.62% / 30.58% divides between them, or
-> whether other mechanisms exist. I traced two rows; I did not measure a population.
+> fallback to the current reading. **What was not, when this was written:** how the 18.62% / 30.58%
+> divides between them, or whether other mechanisms exist. I traced two rows; I did not measure a
+> population. **`-09-70a` and `-09-71a` have since measured it — see §5a.**
+
+### 5a. The population, censused — and the one upstream cause (`-09-70a`, `-09-71a`)
+
+`-09-70a` censused **all 2,190** decrease events into a mechanism set whose precedence was **frozen
+in the seed** before the run; `-09-71a` added the signed direction the first census omitted. Both
+artifacts were reproduced byte-for-byte on production, and `-09-71a` reconciles cell-for-cell with
+`-09-70a`.
+
+| Mechanism | B (906) | C (1,284) |
+| --- | ---: | ---: |
+| `M5_cutoff_change` | **658 = 72.63%** | 2 |
+| `M2_empty_history` | 144 | **1,278 = 99.53%** |
+| `M3_rows_dropped` | 78 | 0 |
+| `M6_unexplained` | **20 = 2.21%** | 4 |
+| `M4_source_switch` / `M1_restatement` | 4 / 2 | 0 / 0 |
+
+**C behaves as this document assumed:** 99.53% empty-history fallback, 81.70% of it pre-dawn — the
+chicago mechanism above and nothing else of size. **B does not.** 40.62% of B's decreases land in
+the peak-heating or settlement window — the model's main decision path, not a pre-dawn corner.
+
+**`cutoff_hour` is not the capture hour.** The producer that wrote the captured `features_long.csv`
+is `815d7594:src/model_distribution.py:1010-1023` `effective_intraday_cutoff_hour()` — identified
+through the SHA-256 model identity recorded in the replay records themselves, not inferred from
+today's tree. It caps the wall clock by the **latest retained WU observation minute**:
+
+```python
+eligible = [c for c in INTRADAY_CUTOFF_HOURS if c <= wall_cutoff and c * 60 <= latest_minute]
+```
+
+So when the vendor drops its newest rows, the model's own input window slides **backward**. All
+**658 / 658** B `M5` events narrowed — 655 by one hour, 2 by two, 1 by four. **None widened.**
+
+> atlanta `2026-06-13`: capture advanced `11:21 → 11:32` while the latest WU row regressed
+> `10:52 → 09:52`. Cutoff `10 → 9`, served high `84 → 81`. The capture clock never went backward;
+> the observation series did.
+
+**`M5`, `M3` and `M1` are one defect, not three.** Holding each payload fixed, raw-series loss alone
+lowers the maximum in **610 / 658**, narrowing alone in 22, both in 26. The upstream property is
+that **the captured WU observation series is not append-only**: rows are removed and values restated
+after publication. Removal severe enough to drag the derived cutoff backward is `M5`; removal that
+leaves it alone is `M3`; restatement in place is `M1`. `M5` is directionally correct but is usually
+a *symptom*, not the root.
+
+**This is a model-input finding, and nothing more.** It is not evidence that changing the producer
+improves Brier, and it does not license a serving change — `-09-44a` was a precise null on exactly
+that move. The 20 B residuals are not scatter either: 19 share a first-history-print signature and
+**one** is genuinely unnamed.
+
+Canon: `docs/roadmap/agent-report-2026-08-25-workstation-high-so-far-population.md`,
+`docs/roadmap/agent-report-2026-08-26-workstation-cutoff-direction.md`.
 
 What *is* established is the consequence. The floor commits to an exact `0.0` — an irreversible
 statement that the day cannot end in that band — from a quantity that is not monotone. Usually this
