@@ -418,7 +418,7 @@ def extract_paired_inputs(
 
 
 class RuntimeOpenRecorder:
-    """Record exact runtime artifact/config files opened after import begins."""
+    """Record exact runtime artifact/config/support files opened after import."""
 
     def __init__(self, runtime_root: Path):
         self.runtime_root = runtime_root.resolve()
@@ -437,7 +437,14 @@ class RuntimeOpenRecorder:
         if not is_within(path, self.runtime_root) or not path.is_file():
             return
         relative = path.relative_to(self.runtime_root)
-        if relative.parts and relative.parts[0] in {"artifacts", "config"}:
+        supporting_data = (
+            len(relative.parts) >= 2
+            and relative.parts[0] == "data"
+            and relative.parts[1] != "snapshots"
+        )
+        if relative.parts and (
+            relative.parts[0] in {"artifacts", "config"} or supporting_data
+        ):
             self.paths.add(path)
 
 
@@ -645,7 +652,7 @@ def bundle_manifest(
         roles[relative].add(f"loaded_module:{module_name}")
     for path in opened_paths:
         relative = path.resolve().relative_to(runtime_root).as_posix()
-        roles[relative].add("runtime_open:artifact_or_config")
+        roles[relative].add("runtime_open:artifact_config_or_supporting_data")
     files = []
     payload_files: list[tuple[str, Path]] = []
     for relative in sorted(roles):
@@ -661,7 +668,7 @@ def bundle_manifest(
         payload_files.append((relative, path))
     manifest = {
         "schema_version": "loaded_runtime_content_bundle_v1",
-        "capture_rule": "module paths enumerated from sys.modules after import and execution; artifact/config paths recorded from Python open audit events",
+        "capture_rule": "module paths enumerated from sys.modules after import and execution; artifact/config/non-snapshot supporting-data paths recorded from Python open audit events",
         "python": {
             "implementation": platform.python_implementation(),
             "version": platform.python_version(),
@@ -672,8 +679,9 @@ def bundle_manifest(
         "source_module_files": sum(
             any(role.startswith("loaded_module:") for role in item["roles"]) for item in files
         ),
-        "runtime_open_artifact_or_config_files": sum(
-            "runtime_open:artifact_or_config" in item["roles"] for item in files
+        "runtime_open_artifact_config_or_supporting_data_files": sum(
+            "runtime_open:artifact_config_or_supporting_data" in item["roles"]
+            for item in files
         ),
         "total_files": len(files),
         "total_bytes": sum(item["bytes"] for item in files),

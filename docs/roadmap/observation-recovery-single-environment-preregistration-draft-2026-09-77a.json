@@ -6,10 +6,10 @@
   "question_not_asked": "What would production have served historically?",
   "environment": {
     "source_base_commit": "ab6159d312a87a0095229e6034f15cfd55892847",
-    "content_bundle": "docs/roadmap/repair-ceiling-single-environment-runtime-bundle-53ec30351dd222b3.zip",
-    "content_bundle_sha256": "53ec30351dd222b33bda0d7dae24c68cff4f316971f580239fa98c697f082653",
-    "environment_content_id": "8d4b68345042b2e873632b8cf82c53583b6031561ff137b57b93dcfcac56d286",
-    "binding_rule": "Extract this immutable bundle and import every weather module from its src tree. Use only the bundled artifact and config bytes. Fail if any weather module resolves outside that tree or any bundled file hash differs.",
+    "content_bundle": "docs/roadmap/repair-ceiling-single-environment-runtime-bundle-5a53c2cfc3ace75b.zip",
+    "content_bundle_sha256": "5a53c2cfc3ace75b79f4b7469e0f7ffe071d1a51c431f0f6947be1aee2581b10",
+    "environment_content_id": "e72fc0e0923fb855be869eedb3ef58ccfdb3a5e0f8384342c6ee4a03ed4042ff",
+    "binding_rule": "Extract this immutable bundle and import every weather module from its src tree. Use only the bundled artifact, config, and non-snapshot supporting-data bytes. Keep the captured raw replay payloads as separately hashed inputs. Fail if any weather module resolves outside the extracted tree or any bundled file hash differs.",
     "historical_binding_forbidden": true
   },
   "population": {
