@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-12 (the recovery-candidate thread closed unpowered; α untouched).** Read
-this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-12 (recovery thread closed unpowered, α untouched; off-host mirror
+PAUSED).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
@@ -88,22 +88,28 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
   `settlement_backfill_one.ps1` now verifies row **content** per market and emits `SILENT_NOOP`, and
   host commit runs at **~35%**, nowhere near the 70% admission ceiling. **Countable date VOLUME
   remains the critical path.**
-- **`08-10` was NOT a source hole and is now RECOVERED 12/12 `complete`.** The 08-11 chain restored
-  it (`restored 12/12`) and then lost it: `market_day_labels_finalize` died on a transient
-  `[Errno 13]` on austin's ledger, and `finalize_folders` had no per-folder isolation, so
-  `write_labels_csv` never ran and no market got an 08-10 row. Fixed in `bcb49506` (ROLL-FREE):
-  failures are now isolated, retried, and re-raised *after* surviving labels are persisted. **A
-  subset re-finalize must merge the labels CSV — `write_labels_csv` rewrites it whole and would have
-  truncated 789 rows to 12.** Trace:
+- **THE OFF-HOST MIRROR IS PAUSED (operator, 2026-08-12) — focus this host on stability first.**
+  All three tasks Disabled; nothing deleted, no script or credential changed. **`data\` now has no
+  off-host copy of anything written after `2026-08-12 05:03`**, and that frozen copy was already
+  **not proven restorable** (its last run exited 11; restore-verify found 8 problem files). The
+  workstation's `data\` is **frozen, not lagging** — a date after 08-12 does not exist there.
+  `status.ps1` reads the **task state**, so re-enabling `WeatherDataMirror` restores full alerting
+  by itself; until then it carries one standing WARN with the age of the frozen copy.
+  [mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md).
+- **`08-10` recovered 12/12; the finalize defect behind it is FIXED (`bcb49506`, ROLL-FREE).** A
+  subset re-finalize must still merge the labels CSV. Trace:
   [FINALIZE_LOST_A_SETTLEMENT_DAY…](FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md).
 - **Host commit is NO LONGER at the admission ceiling** — ~**35%** with the full fleet live, against
   70.0%. The old "70.3% idle" note is retired. Heavy steps still defer, but on
   `live_capture_loop_active` with `active_window_source: fail_closed_live_default` and both window
   hours `null` — **worth a trace**, since capture is always healthy by design.
-- **Disk is the lock's binding constraint.** 160.1 GB free post-tiering, **−12.6 GB/day** at a fixed
-  point in the cycle → exhaustion **~2026-08-23** vs a lock at **~2026-08-22**. Not a leak: ~800 MB
-  per market-day × 12. `order_books.jsonl` stays RAW as canonical evidence and gzips **10.97x** —
-  **~121 GB recoverable by compression alone** (`PRE_OVERNIGHT_AUDIT_2026-08-10.md` §2).
+- **Disk: the burn rate has DROPPED and the exhaustion date needs re-deriving before anyone plans
+  against it.** `status.ps1` read **147.5 GB free at −2.6 GB/day (~57 days)** on 08-12, against the
+  **−12.6 GB/day → exhaustion ~2026-08-23** this page carried from a fixed point in the cycle. Two
+  different measurement methods; **do not quote either as the lock constraint until one is
+  re-derived.** Not a leak either way: ~800 MB per market-day × 12. `order_books.jsonl` stays RAW as
+  canonical evidence and gzips **10.97x** — **~121 GB recoverable by compression alone**
+  (`PRE_OVERNIGHT_AUDIT_2026-08-10.md` §2).
 - **Log rotation is the known capture killer**: the crash mode is **reopening** a big `.jsonl`, and
   **the breaker reads the file being rotated**. Regrowth is unprevented.
 

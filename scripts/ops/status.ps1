@@ -304,9 +304,14 @@ $expNonZero = @{
 # The taker was PAUSED by operator decision 2026-08-07 to focus 100% on the maker
 # (docs/operations/taker-paused-and-pruned-2026-08-07.md). Both tasks are deliberately
 # Disabled; flagging them daily is noise. Re-enable BOTH to restart the taker.
+# The off-host mirror was PAUSED by operator decision 2026-08-12 to keep this host's
+# resources on capture stability (docs/operations/mirror-paused-2026-08-12.md). These three
+# stay silent HERE because the mirror block below raises exactly one warn that carries the
+# age of the frozen copy -- one voice for the pause, not four.
 $expDisabled = @(
     "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
-    "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor"
+    "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
+    "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror"
 )
 $taskCount = 0
 $interactiveTasks = 0
@@ -372,7 +377,12 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # for three tasks that had each done exactly what they were built to do. Same lesson as
         # the spent-FAILED case below: a monitor that flags success trains us to ignore it.
         $selfDisarmed = ($oneShot -and -not $ti.NextRunTime -and $res -eq "0x0" -and $ti.LastRunTime)
-        if ($selfDisarmed) {
+        # Expected-disabled is checked FIRST. A spent one-shot that is ALSO deliberately
+        # disabled (WeatherOneShotMirror, 2026-08-12) matched $selfDisarmed and reported
+        # "self-disarmed cleanly", which is a different claim from "an operator turned this
+        # off" and points at the wrong artifact. Deliberate beats incidental.
+        if ($expDisabled -contains $name) { }
+        elseif ($selfDisarmed) {
             # 2026-08-10: this used to end "completed work, no action". It cannot know that.
             # WeatherAgentOvernight1030 exited 0x0 having done NOTHING - claude.exe printed
             # "You've hit your session limit" and returned 0 - and this line called it completed
@@ -380,7 +390,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             # Say only what the exit code supports, and point at the artifact that would show it.
             $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - task ran; exit code does NOT prove it produced output, check its artifact")
         }
-        elseif ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
+        else { $flags.Add("$name unexpectedly DISABLED") }
     }
     else {
         $ok = ($res -eq "0x0")
@@ -444,6 +454,14 @@ elseif ($rebootPending) {
 }
 
 # ---- off-host mirror (the only copy of data\ that is not on this disk) ----
+# PAUSED by operator decision 2026-08-12 to keep this 16 GB host's resources on capture
+# stability (docs/operations/mirror-paused-2026-08-12.md). The pause switch is the TASK STATE,
+# not a marker file: re-enabling WeatherDataMirror restores full alerting automatically, so the
+# suppression cannot outlive the pause or be forgotten in a file nobody reads. A paused mirror
+# still WARNS on every run, carrying the AGE of the frozen copy -- the point is to stop crying
+# wolf about a nightly job that is off on purpose, NOT to stop saying data\ is unprotected.
+$mirrorPaused = $false
+try { $mirrorPaused = ([string](Get-ScheduledTask -TaskName "WeatherDataMirror" -EA Stop).State -eq "Disabled") } catch {}
 $mirror = $null
 $mirrorAgeH = $null
 $mf = "C:\Users\micha\ops\mirror_status.json"
@@ -455,6 +473,11 @@ if (Test-Path $mf) {
     catch {}
 }
 if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy unverified") }
+elseif ($mirrorPaused) {
+    $frozenAt = "an unknown date"
+    try { $frozenAt = ([datetime]$mirror.last_run).ToString("yyyy-MM-dd HH:mm") } catch {}
+    $warns.Add("mirror PAUSED by operator 2026-08-12 - the off-host copy of data\ is FROZEN at $frozenAt (${mirrorAgeH}h old and ageing). Everything written since exists ONLY on this disk. Re-enable WeatherDataMirror to resume")
+}
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
 
@@ -477,6 +500,14 @@ if (Test-Path $rf) {
 # decision as of 2026-07-26 -- durability work waits until the model is profitable -- so it is
 # deliberately NOT reported here. The cheap checks below stay because they already run.
 if ($null -eq $restore) { $warns.Add("mirror has never been restore-verified - run scripts\ops\verify_mirror_restore.ps1") }
+elseif ($mirrorPaused) {
+    # Restorability cannot improve while the mirror is off, so this is a standing fact about the
+    # frozen copy rather than a new event each morning. Said once, as a warn, and only when the
+    # last verify actually failed.
+    if (-not $restore.ok) {
+        $warns.Add("the FROZEN off-host copy is not proven restorable - the last restore-verify (before the pause) found $($restore.problems) problem file(s)")
+    }
+}
 elseif (-not $restore.ok) { $flags.Add("MIRROR RESTORE VERIFY FAILED: $($restore.problems) problem file(s) - the off-host copy may not be restorable") }
 elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restoreAgeH}h) - restorability unproven since then") }
 
@@ -589,6 +620,7 @@ if ($Json) {
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
+            paused = $mirrorPaused
             restore_verified = $(if ($restore) { [bool]$restore.ok } else { $null })
             restore_verify_age_hours = $restoreAgeH
             restore_identical = $(if ($restore) { $restore.verified_identical } else { $null })
@@ -626,9 +658,13 @@ if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 if ($chainGate) { Write-Output ("              gate: {0}" -f $chainGate) }
 if ($chainBlocked) { Write-Output ("              {0}" -f $chainBlocked) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
+elseif ($mirrorPaused) { "PAUSED by operator, frozen {0}h ago" -f $mirrorAgeH }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
-if ($restore) {
+# While paused, the restore suffix would report a verify that can no longer change against a
+# copy that can no longer change. The PAUSED string plus its warn already say it.
+if ($mirrorPaused) { }
+elseif ($restore) {
     $mirrorStr += if ($restore.ok) { " [restore-verified {0}/{1} {2}h ago]" -f $restore.verified_identical, $restore.checked, $restoreAgeH }
     else { " [RESTORE VERIFY FAILED]" }
 }
