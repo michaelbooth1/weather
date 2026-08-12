@@ -438,6 +438,77 @@ record: the merged manifest carries all **564** per-file SHA-256 hashes and envi
 reproduction procedure already pulls them from that branch. The `.gitattributes` pattern is retained
 so such a bundle can never land as a plain blob.
 
+### 5e. The look is NOT powered — and the limit is date clusters, not the market floor (`-09-78a`)
+
+> Companion canon: [`REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md`](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md)
+> §5b records why the `-09-74a` reproduction gate was retired and the ceiling question moved into a
+> single environment. `-09-77a` and `-09-78a` are the two halves of the answer.
+
+**`-09-78a` (merged `33514915`) returned NO-GO, and unlike `-09-77a` it could have said GO.** The
+harness proves that before it measures: `main()` runs a self-test asserting `decision(0.1, 0.01)`
+is `POWERED` **and** `decision(0.1, 0.05)` is `NO_GO_UNPOWERED`, and the result records the SE above
+which NO-GO follows, **`0.0350539639`**. Both branches were live.
+
+The realized band was **simulated, never read** — Null I draws `b ~ Categorical(q)`, Null C draws
+`b ~ Categorical(p)`, 100,000 replicates each, crossed `target_date × market_id` pigeonhole
+bootstrap with weights shared between the nulls. The correctness receipt lands: simulated means
+`−0.1384472127` / `+0.1384916532` against analytic `∓0.1385161075`.
+
+| Premise | Crossed SE(Δ) | MDE = 3.9515105336·SE | \|mean Δ\| | Result |
+| --- | ---: | ---: | ---: | --- |
+| Null I — incumbent calibrated | `0.0454452902` | `0.1795775429` | `0.1385161075` | **NO-GO** |
+| **Null C — candidate calibrated** (most generous) | `0.0397607208` | `0.1571149069` | `0.1385161075` | **NO-GO** |
+
+**Why `-09-77a` would have said GO.** The estimand's SE is **`0.0397607`** against the
+displacement's **`0.0237649`** — a **1.6731×** inflation, because the realized band carries variance
+the displacement does not. On the displacement SE the MDE is `0.0939073` and the same effect
+**clears** it. That gap is the entire content of the `-09-77a` correction, now measured.
+
+**Production verification.** All five artifact receipts match binary-exact and the input CSV
+checksum gate carries `3d782223…` forward. Recomputed from the committed CSV: mean
+`0.138516107473` exact, **254** sharper rows exact, the **57**-row threshold and its `0.5024028682`
+distance share exact, both MDEs to twelve places. An independent reimplementation with its own RNG
+returns SE `0.040817` vs `0.039761` — same NO-GO. The harness refuses outcome-bearing CSV columns by
+header scan, pins the input checksum, and enforces stratum B and the `2026-07-31` regime boundary.
+
+**The closure is a POWER limit, not a structural one — measured on production, not asserted.**
+Decomposing the crossed SE by cluster dimension:
+
+| Component | SE | MDE | Against the effect `0.1385161` |
+| --- | ---: | ---: | --- |
+| Needed for GO | `< 0.0350540` | — | — |
+| Measured, 11 date clusters | `0.0398532` | `0.1575` | **NO-GO** |
+| **Market component alone (12, pinned)** | `0.0270682` | `0.1069602` | **clears comfortably** |
+| Date component alone (11) | `0.0263413` | — | — |
+| At 22 date clusters | `0.0342141` | `0.1351975` | **GO** |
+| Asymptote, markets pinned at 12 | `~0.0286` | `~0.1130` | GO |
+
+**The 12-market floor does not bind here.** That distinguishes this case from
+`panel-can-referee-the-tail-but-has-a-floor`, where 12 markets set a ~3.2% floor. Here the binding
+constraint is the **11 date clusters** of the frozen `-09-73a` stratum, and roughly **doubling them
+flips the verdict**. This is a near miss, not a wall.
+
+**Two caveats that must travel with that table.** It assumes the effect size holds at
+`0.1385161075` as dates are added — it may not, and a shrinking effect moves the target. And the
+date-growth rows resample the existing 11 dates rather than observing new ones, so they estimate how
+SE *scales*, not what new dates would show. **Extending the stratum is an operator spend decision,
+not a licensed next step.**
+
+**Direction, since neither premise is established.** The candidate must be the closer arm on at
+least **57 of 368 rows (15.49%)** under the most favourable assignment — those rows carry
+`50.2403%` of total squared arm distance. The repair sharpens **254/368 (69.02%)**, and six markets
+sharpen on at least two thirds: los-angeles `96.30%`, toronto `91.67%`, miami `88.00%`, dallas
+`83.78%`, san-francisco `75.00%` (only 8 rows), houston `72.73%`. **Chicago is the only market that
+blurs on net.** This is predominantly a *sharpening* repair on a project where global sharpening is
+retired — an exposure flag, not evidence of skill.
+
+The draft preregistration is now schema v2 and stays
+`DRAFT_NOT_FROZEN_ALPHA_UNALLOCATED_NOT_EXECUTABLE`: the ceiling-derived
+`candidate_field_mde_at_80_percent_power` is **removed**, the supersession is recorded **with its
+reason**, and a concrete **intersection-union sharpening guard** is added over the pre-declared
+254-row sharper subset — `candidate_closer_share − 3.1098893·SE > 0.5`, so **a mean win cannot pass
+alone**. Ledger unchanged at **7 of 20 spent, 13 available**; decision 10 stays CLOSED UNUSED.
+
 ## 6. What this licenses, and what it does not
 
 **It licenses:**

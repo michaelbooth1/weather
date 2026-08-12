@@ -163,6 +163,13 @@ defensible replacement (`±‖p−q‖²`, mean **0.1385**). The lesson generali
 **a bound stated without its sign is not a result, and a screen that cannot return NO-GO is not a
 screen.**
 
+`-09-78a` (merged `33514915`) then measured the estimand's own standard error by simulating the
+realized band from each arm's vector, and returned **NO-GO under both calibration premises** —
+including Null C, the one most generous to the candidate. **It is the reachable NO-GO**: its harness
+asserts both verdict branches live before it measures. §5e of the GATE_3 canon carries the numbers,
+including the finding that the binding constraint is the stratum's **11 date clusters, not the
+12-market floor** — so the closure is a power limit, not a wall. **No α was spent; 13 remain.**
+
 ## 6. Reproduction
 
 ```powershell

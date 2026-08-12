@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-11 (instrument audit closed; six research branches landed).** Read this
-first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-12 (the recovery-candidate thread closed unpowered; α untouched).** Read
+this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
@@ -15,7 +15,7 @@ do not** · 3. the market-making bot is the end goal.
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **2 / 14** | day 1 is 2026-08-09; `08-10` was recovered 08-11 late evening and grades `complete` 12/12. Lock ~**2026-08-22** if every day stays clean. The 7-day shelf life on the latest source day means a banked run cannot be hoarded. |
+| Capture streak | **3 / 14** | day 1 is 2026-08-09; `08-11` settled at 09:30 on 08-12 (`src=daily_summary`) and grades `complete`. **`08-12` is already DOOMED to partial** — two in-window gaps, max **40 min** against a 15-min fatal, so the streak breaks at 3. Lock slips past ~2026-08-22. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
 | Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
@@ -66,8 +66,9 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 
 | Ref | What | State |
 | --- | --- | --- |
+| `-09-73a` … `-09-78a` | observation-recovery candidate | **THREAD CLOSED UNPOWERED, α UNSPENT.** `-09-78a` (§5e) NO-GO under *both* calibration premises including the candidate's own. **The limit is the stratum's 11 date clusters, not the 12-market floor** — ~22 would flip it. Draft stays unfrozen |
 | `-09-63a` | B-only screen — **NO-GO at Gate 3** | **STILL QUEUED.** Conflicted 08-11 05:30 in `ESTABLISHED_FINDINGS`/`STATE_OF_PLAY`; driver aborted cleanly. Report **not in-repo** — cite the branch |
-| `-09-69a` | execution-tape continuous capture | **DISPATCHED**, blocked on the operator's capture decision, not on evidence |
+| `-09-69a` | execution-tape continuous capture | **DISPATCHED**, blocked on the operator's capture decision. Suite gate re-armed **08-13 20:30** after a 03:00 run aborted on its own commit ceiling — it collided with the training window |
 | PIT extract | frozen lead-1 daily features, **shipped in-repo** | `docs/roadmap/pit-lead1-daily-features-2026-09-61a.csv`, sha256 `60b450f1…`, **696 rows** |
 | PIT fields | staged 12/12, `06-03 → 08-09`, 100% coverage | **NOT adopted** — a serving change; replay first (§1e) |
 
@@ -76,12 +77,20 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
 
 ## Operations — what is actually wrong today
 
-- **SETTLEMENT HOLES OUTPACE REPAIR.** `08-06` and `08-08` are unsettled (`source='none'`,
-  `high=None`, 12/12) — genuine **source** holes: the WU dailies skip both dates, so they need an
-  explicit per-date backfill **with refetch**. The 08-11 05:30 backfill for 08-06 **ran, reported
-  `SETTLED`, and did nothing** — deferred at admission (commit `74.324%` vs a `70.0%` ceiling) 15 ms
-  in, while the guard checks only *"is the date string in the ledger"*, which a `source='none'` row
-  satisfies. **Countable date VOLUME is the critical path.**
+- **HEAVY WORK ON THIS HOST COSTS CAPTURE DAYS — including mine.** `08-12` failed
+  `capture_host_memory_admission: insufficient_physical_memory` across all 12 markets, with
+  available physical down to **116 MB**, producing gaps `13:00→13:34` and `15:08→15:48`. Both are
+  **inside the 12:00–18:00 graded window**, so the day is partial and the streak breaks. The
+  agent-run analysis in that window is the likeliest cause. **The 16 GB host has no headroom for
+  unbudgeted compute during the graded window — run it after 18:00 or not at all.**
+- **SETTLEMENT: the repair path WORKS; only `08-08` is still a hole.** `08-06` settled 12/12 with a
+  real source (+76 ledger rows) from the 02:00 run on 08-12, and `08-11` self-healed at the 09:30
+  refresh — it was a *timing* miss, not a source hole. **`08-08` has now failed three times**
+  (`src=none`, 12/12) and should be treated as likely unrecoverable, not under-retried. **Both
+  defects behind the old "reported SETTLED and did nothing" note are FIXED**:
+  `settlement_backfill_one.ps1` now verifies row **content** per market and emits `SILENT_NOOP`, and
+  host commit runs at **~35%**, nowhere near the 70% admission ceiling. **Countable date VOLUME
+  remains the critical path.**
 - **`08-10` was NOT a source hole and is now RECOVERED 12/12 `complete`.** The 08-11 chain restored
   it (`restored 12/12`) and then lost it: `market_day_labels_finalize` died on a transient
   `[Errno 13]` on austin's ledger, and `finalize_folders` had no per-folder isolation, so
@@ -90,9 +99,11 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
   subset re-finalize must merge the labels CSV — `write_labels_csv` rewrites it whole and would have
   truncated 789 rows to 12.** Trace:
   [FINALIZE_LOST_A_SETTLEMENT_DAY…](FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md).
-- **Host commit sits AT the admission ceiling** (70.3% vs 70.0%), so heavy chain steps keep
-  deferring. The chain reading "deferred" is that, **not** a gate defect.
-- **Disk is the lock's binding constraint.** 155.0 GB free post-tiering, **−12.6 GB/day** at a fixed
+- **Host commit is NO LONGER at the admission ceiling** — ~**35%** with the full fleet live, against
+  70.0%. The old "70.3% idle" note is retired. Heavy steps still defer, but on
+  `live_capture_loop_active` with `active_window_source: fail_closed_live_default` and both window
+  hours `null` — **worth a trace**, since capture is always healthy by design.
+- **Disk is the lock's binding constraint.** 160.1 GB free post-tiering, **−12.6 GB/day** at a fixed
   point in the cycle → exhaustion **~2026-08-23** vs a lock at **~2026-08-22**. Not a leak: ~800 MB
   per market-day × 12. `order_books.jsonl` stays RAW as canonical evidence and gzips **10.97x** —
   **~121 GB recoverable by compression alone** (`PRE_OVERNIGHT_AUDIT_2026-08-10.md` §2).
