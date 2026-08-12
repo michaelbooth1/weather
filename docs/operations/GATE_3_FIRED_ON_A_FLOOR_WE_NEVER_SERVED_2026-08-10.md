@@ -380,6 +380,64 @@ exactly and means nothing.
 > `-09-44a` was a precise null on exactly that move. The first outcome look is the operator's to
 > allocate.
 
+### 5d. What the repair can buy — and the screen that could not have failed (`-09-77a`)
+
+`-09-77a` (merged `9d844153`) held both arms in **one** environment on current `master`
+(`ab6159d3`), on the 368-event B decision stratum, and computed an outcome-free bound. Verified on
+production: CSV SHA-256 `3d782223…` matches its receipt, `roll_verdict.ps1` exit 0 **ROLL-FREE**,
+and the bound recomputes from the stored probability vectors row-for-row with zero mismatches
+(mean `0.4720049166` exactly; 368/368 paired-defined, 366 changed, 2 exact no-recovery clones, zero
+mass violations). An independent crossed bootstrap reproduces the dispersion (SE `0.054652` vs
+`0.054769`). The harness reads no settlement, realized band, outcome or market price and asserts
+`outcome_scoring_authorized is False` before running.
+
+**Two defects, both in the commissioning specification, not in the work.** The agent executed the
+handoff faithfully and flagged the orientation in its own report and draft.
+
+1. **The statistic bounds the cost, not the benefit.** Brier is a loss, so
+   `ceiling_i = (‖p‖²−‖q‖²) + 2·max_k(q_k−p_k)` is `max_b [B(p) − B(q)]` — the most the repaired
+   candidate could be **worse**. It is non-negative on all 368 rows and exactly **0** on the two
+   rows where recovery found nothing. The best case *for* the candidate is the opposite extreme,
+   `2·max_k(p_k−q_k) − (‖p‖²−‖q‖²)`: mean **0.3739587343**, crossed interval
+   **[0.2671951546, 0.4807223139]**. Both bounds are large because the arms differ — that is the
+   entire content of either number.
+2. **The screen could not have failed.** The rule "`mean + 3.1098893·SE` exceeds `3.9515105336·SE`"
+   reduces to **`mean/SE > 0.8416212`**, the 80%-power *z* constant, applied to a quantity that is
+   non-negative by construction and nonzero wherever the repair changes anything. `-09-71a` had
+   already established that it changes the decision path. **The verdict was determined before the
+   first row was scored** (observed `8.6182`). This is the eligibility-for-effect substitution.
+
+**The defensible statistic, and it is still outcome-free.** If the incumbent is calibrated
+(realized band ~ `q`), then `E_b[B(p) − B(q)] = +‖p−q‖²`; if the candidate is calibrated, it is
+`−‖p−q‖²`. **The whole measurable effect is `‖p−q‖²` in magnitude, signed only by which arm is
+closer to the truth:**
+
+| | |
+| --- | ---: |
+| mean `‖p−q‖²` | **0.1385161075** |
+| median | 0.0774097461 |
+| crossed `target_date × market_id` SE | 0.0237649077 |
+| `mean ± 3.1098893·SE` | **[0.0646098754, 0.2124223396]** |
+| α-corrected 12-market floor | 0.0451345675 |
+
+That is **3.41× smaller** than the reported ceiling and still above the market-cluster floor, so the
+recommendation survives — **draft, do not freeze, do not spend α.** It is an *optimistic* bound: the
+realized band adds variance the displacement does not carry, so the primary estimand's SE is larger
+than `0.0238`. Ledger unchanged at **7 of 20 spent, 13 available**; decision 10 stays CLOSED UNUSED.
+
+**A sharpening flag the report does not foreground.** The repair changes the **modal band on 196 of
+368** decision rows and makes the distribution **sharper on 254 of 368 (69%)**. Global sharpening
+has been retired here once already, and `-09-59a` found the tail is centre overconfidence. Any
+future look needs a **sharpening guard**, not a mean-only accept rule.
+
+**Bundle note.** The two runtime-bundle ZIPs (54,921,586 and 67,425,083 bytes of Git LFS) are
+deliberately **not merged** — 122 MB against a 1 GB free-tier quota this account exhausted once on
+2026-07-29, largely duplicating artifacts LFS already stores. `master` keeps the full verifiable
+record: the merged manifest carries all **564** per-file SHA-256 hashes and environment content id
+`e72fc0e0…`. The ZIP bytes stay on the pushed branch, which is never deleted, and the report's
+reproduction procedure already pulls them from that branch. The `.gitattributes` pattern is retained
+so such a bundle can never land as a plain blob.
+
 ## 6. What this licenses, and what it does not
 
 **It licenses:**

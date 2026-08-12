@@ -150,6 +150,19 @@ The alternative — that those bytes were reachable at capture and lost when 46 
 exactly the files that get edited most.** That is not a replay defect; it is a
 capture-and-commit-discipline defect, and it is why only 0.39% of whole B is exactly reconstructable.
 
+### 5b. The retired gate's question, answered elsewhere
+
+`-09-74a` stopped before the repair ceiling because a reproduction control failed. That control was
+mine, `-09-75a` and `-09-76a` proved it can never pass, and `-09-77a` (merged `9d844153`) retired it
+and answered the ceiling question in **one** environment instead, where history is not needed.
+The result and **two specification defects I introduced** — a bound that measures the repair's cost
+rather than its benefit, and a screen that reduces to `mean/SE > 0.8416` on a non-negative quantity
+and so could not have failed — are recorded in
+`docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md` **§5d**, together with the
+defensible replacement (`±‖p−q‖²`, mean **0.1385**). The lesson generalises past this thread:
+**a bound stated without its sign is not a result, and a screen that cannot return NO-GO is not a
+screen.**
+
 ## 6. Reproduction
 
 ```powershell
