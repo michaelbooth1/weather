@@ -106,6 +106,50 @@ content-addressed source and artifact bytes for the loaded runtime, capture hash
 the process actually loaded, and bind them to process start/restart and dependency versions.
 `model_identity.py` was deliberately left unchanged by this measurement.
 
+### 5a. What the −2.51 pp headline hides (production verification of `-09-76a`)
+
+The mapping is **proven, not asserted**: git blob `60fa602a` is 10,221 bytes and SHA-256s to
+`5df7480d…`, exactly the captured fingerprint for `model_base.py`. So "324 of 413 fingerprints do not
+resolve" is a fact about **our history**, not about the resolver.
+
+**The experiment barely varied the binding.** Comparing `commit_l1` to `identity_l1` row by row,
+**292 of 358 rows produced a bit-identical replayed vector under both bindings**, and **203 of the
+244 failures were never re-tested at all**. The synthetic tree is a donor-commit checkout overlaid
+with the 4–11 resolved files (`assemble_runtime_trees`, `measure_identity_binding_09_76a.py:945`),
+so wherever the resolved files already agreed with the donor, nothing moved. Only **66 rows** changed
+output, on **two target dates**.
+
+| Date | Rows changed | Closer to recorded | Farther | Median L1 commit → identity |
+| --- | ---: | ---: | ---: | --- |
+| 2026-06-21 | 57 | **41** | 16 | 0.024510 → **0.020743** |
+| 2026-06-16 | 9 | 0 | **9** | 0.000000 → 0.009766 |
+
+**2026-06-21 is directionally correct and incomplete** — a 15% residual reduction from correcting
+5–6 of 19 files, with no row reaching `1e-12`. That is what a partial but *right* reconstruction
+looks like.
+
+**2026-06-16 is the first positive instance of the drift.** All nine lost matches are on that one
+date; no other date loses one. Their commit-tree replay is **exact**, so unlike the 253 failures
+there is no incomplete-tree confound to explain them away: **the captured identity describes bytes
+the running process was not executing.** The overlaid set is the same throughout — `model_base`,
+`model_climatology`, `model_constants`, `feature_store`, plus `feature_model_hgb_<market>.pkl`.
+**n=9 across 6 identities on one date: a lead, not a finding.**
+
+**Why the unresolved files are unresolved:** the files that resolve are the ones that change rarely;
+the files that never resolve are the ones that change constantly. `model_base.py` has 10 commits in
+all history and resolves for **63 of 63** identities. `model_features.py` has 36 and is unresolved
+for **62 of 63**; `model_distribution.py` has 38 and is unresolved for 54. All tracked, none
+gitignored. Across 36–38 committed versions, **not one carries the bytes that were on disk when we
+served.**
+
+The alternative — that those bytes were reachable at capture and lost when 46 branches were retired
+— is **dead**. Every branch in `docs/roadmap/branch-retirement-2026-08-11.md` is an ancestor of
+`master` by `git branch --merged` ancestry, so no blob became unreachable.
+
+**Production has been serving from working-tree bytes that were never committed, chronically, for
+exactly the files that get edited most.** That is not a replay defect; it is a
+capture-and-commit-discipline defect, and it is why only 0.39% of whole B is exactly reconstructable.
+
 ## 6. Reproduction
 
 ```powershell
