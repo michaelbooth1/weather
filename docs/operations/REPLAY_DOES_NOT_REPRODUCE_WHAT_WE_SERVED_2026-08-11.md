@@ -1,6 +1,7 @@
 # Replay does not reproduce what we served
 
-**Established 2026-08-11 by `-09-75a` (merged `7b2ece24`), from `-09-74a` (merged `8f7a408a`).**
+**Established 2026-08-11 by `-09-75a` (merged `7b2ece24`), from `-09-74a` (merged
+`8f7a408a`), and extended by `-09-76a`.**
 Verified on production: artifact SHA-256 match, `ROLL-FREE` exit 0, every headline recomputed from
 the committed CSV.
 
@@ -42,7 +43,10 @@ Three states can therefore disagree at once: the code the process loaded at star
 on disk, and `HEAD`. Our roll rules make this expected rather than exotic: a commit that touches no
 loaded module is roll-free, so `HEAD` advances while the running process keeps its old code.
 
-**This is the diagnosis to test, not a proven chain.** `-09-76a` tests it.
+**This was the diagnosis to test, not a proven chain.** `-09-76a` found that none of the 63
+decision-stratum identities can be fully rebuilt from reachable Git blobs. The diagnosis therefore
+remains unidentifiable on the historical decision rows: a mismatch after a partial reconstruction
+cannot distinguish an unresolved disk byte from code retained by a running process.
 
 ## 3. Two hypotheses this killed
 
@@ -63,8 +67,9 @@ fails. Do not cite that result as closure again.
 - Refusing to allocate α to the frozen `-09-73a` pre-registration. It is unexecutable for a reason
   that has **nothing to do with the recovery candidate**, and the `-09-74a` ceiling mission must not
   resume until this clears.
-- Treating **57.14%** as the hard ceiling on any replay-based decision over B until binding is
-  fixed. That share, not the event count, is the real N.
+- Treating **57.14%** as only the old commit-bound availability ceiling, not a trustworthy replay N.
+  Exact identity reconstruction is available for just **111 / 28,254 (0.39%)** whole-B rows and
+  **0 / 368** decision rows.
 
 **It does not license:**
 
@@ -76,14 +81,30 @@ fails. Do not cite that result as closure again.
   question is being answered.** We have shipped the wrong-lane error before.
 - Any change to serving, the floor, collection or scoring. Nothing here is a serving defect.
 
-## 5. The recoverable part
+## 5. Identity binding does not recover the historical decision runtime
 
-`artifacts/` is **tracked** — 108 files, 30 commits touching it in the window — and the captured
-identity stores **per-file fingerprints**, not just a combined hash. So the runtime should be
-rebuildable **file by file from git blobs** rather than by checking out one commit. `-09-75a` already
-found the limit of this: for one unbound row, matching blobs were spread across multiple commits and
-**three captured hashes occur in no reachable commit**, which means some served code was never
-committed. Expect partial recovery, and measure it.
+`-09-76a` resolved every captured per-file fingerprint against every blob reachable from 178 refs,
+including the 27 unmerged remote branches, then assembled and replayed one synthetic tree per
+decision identity. Captured SHA-256 fingerprints are SHA-256 over decoded Git blob bytes, not Git
+object IDs. Of 413 distinct captured fingerprints, **89 resolve and 324 do not**.
+
+The selected 63 identities each record 17–19 present files, but only 4–11 files per identity are
+recoverable. **Zero of 63 are fully resolved.** On the same 358 commit-bound rows, the partial trees
+match 105 / 358 (**29.33%**), versus 114 / 358 (**31.84%**) under commit binding. They rescue no
+commit-binding failure and lose nine prior matches. This partial-tree rate is diagnostic only; it is
+not a restored replay rate. The eight identity-only rows are also only partially resolved (1 match,
+7 failures), while two rows have no identity.
+
+Across whole B, 12 / 702 identities are fully resolved, covering **111 / 28,254 rows (0.39%)**;
+23,683 identity-bearing rows are partial and 4,460 rows have no identity. In plain words: **what we
+served on the historical decision stratum cannot be rebuilt from what we recorded.** Every replay
+number that claims comparison to the served incumbent remains untrusted unless it is explicitly
+limited to a fully reconstructed identity population.
+
+The forward repair belongs in capture, not in further mining of this history: preserve immutable,
+content-addressed source and artifact bytes for the loaded runtime, capture hashes from the modules
+the process actually loaded, and bind them to process start/restart and dependency versions.
+`model_identity.py` was deliberately left unchanged by this measurement.
 
 ## 6. Reproduction
 
@@ -100,3 +121,8 @@ diagnostics), `-manifest.json`, `.sha256`, harness and versioned seed under `too
 Predecessors: `docs/roadmap/agent-report-2026-08-29-workstation-repair-ceiling.md` (`-09-74a`),
 and the candidate this blocks is in
 `docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md` §5c.
+
+Identity-binding evidence is on
+`origin/codex/workstation-rebuild-the-runtime-from-the-identity-2026-09-76a`:
+`docs/roadmap/agent-report-2026-08-31-workstation-identity-binding.md`,
+`identity-binding-2026-09-76a.csv`, `-manifest.json`, `.sha256`, harness, and versioned seed.

@@ -1,0 +1,70 @@
+{
+  "schema_version": "identity_binding_seed_v1",
+  "mission": "2026-09-76a",
+  "source_base_commit": "32443b75ab987046fa6b1557a0ab7eb5d420ee98",
+  "tracked_inputs": {
+    "prior_harness_relative_path": "tools/research/measure_replay_trust_09_75a.py",
+    "prior_harness_sha256": "e831f78199e3ff5b6d1471d7edeb3ddbf688881d46d9c72d87fdd196fa0f7031",
+    "prior_seed_relative_path": "tools/research/measure_replay_trust_09_75a_seed.json",
+    "prior_seed_sha256": "9e7b684b79c369161168e92b89bd9cc91b1fedd7a471d9209af3f8434c6b0dd1",
+    "prior_csv_relative_path": "docs/roadmap/replay-trust-2026-09-75a.csv",
+    "prior_csv_sha256": "d61daf4eeafba434600c64165f13acf9458e6bded8b4eb707b5ebf31659fec32",
+    "prior_manifest_relative_path": "docs/roadmap/replay-trust-2026-09-75a-manifest.json",
+    "prior_manifest_sha256": "fb0a3c1bf81d891d275043b7ea33e6808547c955a4ab254526be91885d4a7452",
+    "prior_checksums_relative_path": "docs/roadmap/replay-trust-2026-09-75a.sha256",
+    "prior_checksums_sha256": "3c517ef0abf702b319ad3df24a7c9fe77819eeca950c94c9ffb50996fab4ab9e"
+  },
+  "scratch_inputs": {
+    "replay_records_sha256": "f0281f86e3bcb0170cac566745170f6852533381b37f39c4558c9a0b3b20311f",
+    "census_records_sha256": "931f3a16e9d53b5f36aa8381d0138c2f1c5b11de8f3f6f920028a05a8991d6b1"
+  },
+  "population": {
+    "stratum": "B",
+    "B_feature_snapshots_with_replay": 28254,
+    "B_identity_bearing_rows": 23794,
+    "B_runtime_commit_bound_rows": 16143,
+    "decision_rows": 368,
+    "decision_runtime_commit_bound_rows": 358,
+    "decision_identity_only_rows": 8,
+    "decision_neither_rows": 2,
+    "source_switch_diagnostics": 4
+  },
+  "replay": {
+    "l1_tolerance": 1e-12,
+    "feature_tolerance": 1e-12,
+    "binding": "captured model_identity per-file SHA-256 fingerprints",
+    "continue_after_identity_failure": true
+  },
+  "baseline_09_75a": {
+    "bound_rows": 358,
+    "matched_rows": 114,
+    "failed_rows": 244,
+    "match_rate": 0.31843575418994413,
+    "failure_l1_median": 0.0154,
+    "failure_l1_p90": 0.0424,
+    "failure_l1_max": 0.772771744045968,
+    "B_commit_binding_ceiling_rows": 16143,
+    "B_total_rows": 28254
+  },
+  "artifacts": {
+    "csv_relative_path": "docs/roadmap/identity-binding-2026-09-76a.csv",
+    "manifest_relative_path": "docs/roadmap/identity-binding-2026-09-76a-manifest.json",
+    "checksums_relative_path": "docs/roadmap/identity-binding-2026-09-76a.sha256"
+  },
+  "campaign": {
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_available": 13,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "candidate_probabilities_computed": false,
+    "displacement_computed": false,
+    "ceiling_computed": false,
+    "realized_band_read": false,
+    "settlement_consulted": false,
+    "outcome_scored": false,
+    "market_compared": false,
+    "B_only": true,
+    "C_endpoint": false
+  }
+}
