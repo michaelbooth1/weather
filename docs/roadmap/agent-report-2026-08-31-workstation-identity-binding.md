@@ -260,10 +260,28 @@ python -m weather.operations.agent_docs_audit
 PASS (18 agent files, 812 Markdown files)
 ```
 
-The repository-owned roll verdict and per-file retained-closure result are pending the evidence
-commit. This paragraph is replaced after `scripts\ops\roll_verdict.ps1 -Branch <branch>` inspects
-the committed branch; no hand-derived verdict is used.
+The branch-current repository-owned `scripts\ops\roll_verdict.ps1` inspected evidence commit
+`2a18b8d7bc6b25df11fe758e71e9b172c95d7e66` against the actual landing base `origin/master` at
+`32443b75`. It found seven changed files, zero importable files and returned exit 0,
+**`ROLL-FREE`**. The dormant CLOB-enrichment closure was mechanically subsumed by the three live
+closures.
 
-The evidence commit is `PENDING_EVIDENCE_COMMIT`, based on `origin/master` at
+| Changed file | Retained-closure verdict |
+| --- | --- |
+| `docs/operations/REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md` | ROLL-FREE — non-importable documentation |
+| `docs/roadmap/agent-report-2026-08-31-workstation-identity-binding.md` | ROLL-FREE — non-importable documentation |
+| `docs/roadmap/identity-binding-2026-09-76a.csv` | ROLL-FREE — non-importable evidence |
+| `docs/roadmap/identity-binding-2026-09-76a-manifest.json` | ROLL-FREE — non-importable evidence |
+| `docs/roadmap/identity-binding-2026-09-76a.sha256` | ROLL-FREE — non-importable evidence |
+| `tools/research/measure_identity_binding_09_76a.py` | ROLL-FREE — research tool outside package roots |
+| `tools/research/measure_identity_binding_09_76a_seed.json` | ROLL-FREE — non-importable research seed |
+
+An earlier invocation from the stale main worktree used its older script and stale local `master`,
+inflating the comparison to 109 files and returning `ROLL-SENSITIVE`. That output was rejected, not
+used: no branch was moved. The current script was then invoked against the same live closure files
+with `-Base origin/master`, producing the seven-file result above. No quiet-window merge is required;
+pushing this branch cannot roll production.
+
+The evidence commit is `2a18b8d7bc6b25df11fe758e71e9b172c95d7e66`, based on `origin/master` at
 `32443b75ab987046fa6b1557a0ab7eb5d420ee98`. Branch:
 `codex/workstation-rebuild-the-runtime-from-the-identity-2026-09-76a`.
